@@ -1,8 +1,9 @@
 package org.apache.cassandra.concurrent.test;
 
-import org.apache.cassandra.concurrent.test.PaddedLong;
+import org.apache.commons.lang.*;
 
-public final class StridedRingBuffer<E>
+// TODO : allow safe wrapping of laps, so no total limit on safe number of events to process
+public final class StridedRingBuffer<E> implements Buffer<E>
 {
 
     // { poll start <= poll end <= add start <= add end == poll start + (1 << sizeShift) }
@@ -10,16 +11,21 @@ public final class StridedRingBuffer<E>
     private final StridedIntArray readLap, writeLap;
     private final PaddedLong readPos = new PaddedLong();
     private final PaddedLong writePos = new PaddedLong();
+    private final PaddedInt currentLap = new PaddedInt();
     private final int sizeShift;
     private final int sizeMask;
+    private final boolean autoLap;
 
-    public StridedRingBuffer(int size)
+    public StridedRingBuffer(int size, boolean autoLap)
     {
         ring = new StridedRefArray<>(size);
         readLap = new StridedIntArray(ring.length());
         writeLap = new StridedIntArray(ring.length());
         sizeShift = Integer.numberOfTrailingZeros(ring.length());
         sizeMask = (1 << sizeShift) - 1;
+        this.autoLap = autoLap;
+        if (autoLap)
+            currentLap.setVolatile(Integer.MAX_VALUE);
     }
 
     public boolean isEmpty()
@@ -41,7 +47,7 @@ public final class StridedRingBuffer<E>
 
     public int size()
     {
-        return isEmpty() ? 1 : 0;
+        return isEmpty() ? 0 : 1;
     }
 
     private int lap(long pos)
@@ -99,9 +105,12 @@ public final class StridedRingBuffer<E>
 
     }
 
+    // dangerous method - should not be called if autoLap is false
     public long add(E val)
     {
-        return offer(val);
+        long r;
+        while (-1 == (r = offer(val)));
+        return r;
     }
 
     public long offer(E val)
@@ -109,6 +118,9 @@ public final class StridedRingBuffer<E>
         long writePos = this.writePos.incrementAndReturnOrig();
         int writeIndex = index(writePos);
         int lap = lap(writePos);
+
+        if (currentLap.get() < lap && currentLap.getVolatile() < lap)
+            return -1;
 
         // spin until available
         while (lap(writePos) > readLap.getVolatile(writeIndex));
@@ -132,6 +144,62 @@ public final class StridedRingBuffer<E>
     public E get(long pos)
     {
         return ring.get(index(pos));
+    }
+
+    public void reset()
+    {
+        readLap.fill(0);
+        writeLap.fill(0);
+        readPos.setOrdered(0);
+        writePos.setOrdered(0);
+        currentLap.setVolatile(autoLap ? Integer.MAX_VALUE : 0);
+    }
+
+    public int currentLap()
+    {
+        if (!autoLap)
+            return currentLap.getVolatile();
+        return lap(writePos.get());
+    }
+
+    public void startNextLap()
+    {
+        if (autoLap)
+            throw new IllegalStateException("AutoLap is enabled, so cannot manually trigger laps");
+        currentLap.incrementAndReturnOrig();
+    }
+
+    public void ensureLap(int lap)
+    {
+        if (autoLap)
+            throw new IllegalStateException("AutoLap is enabled, so cannot manually trigger laps");
+        currentLap.ensureAtLeast(lap);
+    }
+
+    public boolean atEndOfLap()
+    {
+        if (autoLap)
+            throw new IllegalStateException("Cannot call in autoLap mode");
+        // consider ourselves FULL iff we haven't read anything and have written to every entry
+        // not being full does not mean offer() will succeed - lap may need to be incremented
+        int lap = currentLap.getVolatile();
+        return lap < readLap.get(readLap.length());
+    }
+
+    public boolean atEndOfWriteLap()
+    {
+        if (autoLap)
+            throw new IllegalStateException("Cannot call in autoLap mode");
+        // consider ourselves FULL iff we haven't read anything and have written to every entry
+        // not being full does not mean offer() will succeed - lap may need to be incremented
+        int lap = currentLap.getVolatile();
+        return lap < writeLap.get(writeLap.length());
+    }
+
+    public boolean atStartOfLap()
+    {
+        int lap = currentLap.getVolatile();
+        return lap < writeLap.get(0);
     }
 
 }

@@ -32,7 +32,7 @@ public class DisruptorExecutor extends AbstractExecutorService
     final RingBuffer<RContainer> ringBuffer;
     final CountDownLatch shutdown;
     final WorkProcessor<RContainer>[] workProcessors;
-    final ExecutorService workExec;
+    volatile ExecutorService workExec;
 
     public DisruptorExecutor(int threadCount, int bufferSize, boolean spin)
     {
@@ -49,12 +49,10 @@ public class DisruptorExecutor extends AbstractExecutorService
         SequenceBarrier sequenceBarrier = ringBuffer.newBarrier();
         Sequence workSequence = new Sequence(-1);
         workProcessors = new WorkProcessor[threadCount];
-        workExec = Executors.newFixedThreadPool(threadCount);
         for (int i = 0 ; i < threadCount ; i++)
         {
             workProcessors[i] = new WorkProcessor<>(ringBuffer, sequenceBarrier,
                 handler, new IgnoreExceptionHandler(), workSequence);
-            workExec.execute(workProcessors[i]);
         }
     }
 
@@ -124,5 +122,12 @@ public class DisruptorExecutor extends AbstractExecutorService
                 r.run();
         }
     };
+
+    void start()
+    {
+        workExec = Executors.newFixedThreadPool(workProcessors.length);
+        for (WorkProcessor p : workProcessors)
+            workExec.execute(p);
+    }
 
 }

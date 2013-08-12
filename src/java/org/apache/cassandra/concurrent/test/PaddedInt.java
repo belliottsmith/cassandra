@@ -32,4 +32,34 @@ public class PaddedInt
         return AtomicArrayUpdater.compareAndSetInt(padding, 15, exp, upd);
     }
 
+    public int incrementAndReturnOrig()
+    {
+        while (true)
+        {
+            int cur = get();
+            if (cas(cur, cur + 1))
+                return cur;
+        }
+    }
+
+    public void ensureAtLeast(int val)
+    {
+        while (true)
+        {
+            int cur = get();
+            if (cur >= val || cas(cur, val))
+                return;
+        }
+    }
+
+    public int addAndGet(int n)
+    {
+        while (true)
+        {
+            int cur = get();
+            if (cas(cur, cur + n))
+                return cur + n;
+        }
+    }
+
 }

@@ -1,7 +1,5 @@
 package org.apache.cassandra.concurrent.test;
 
-import org.apache.cassandra.concurrent.test.AtomicRefUpdater;
-
 import java.util.concurrent.locks.LockSupport;
 
 public class UnboundedLinkedWaitQueue implements WaitQueue

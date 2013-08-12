@@ -81,4 +81,8 @@ public final class AtomicArrayUpdater
         unsafe.putOrderedInt(obj, intoffset + (index << intshift), upd);
     }
 
+    public static void setLongOrdered(long[] obj, int index, long upd)
+    {
+        unsafe.putOrderedLong(obj, longoffset + (index << longshift), upd);
+    }
 }

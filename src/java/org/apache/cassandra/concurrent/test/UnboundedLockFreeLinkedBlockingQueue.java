@@ -1,7 +1,5 @@
 package org.apache.cassandra.concurrent.test;
 
-import org.apache.cassandra.concurrent.test.AtomicRefUpdater;
-import org.apache.cassandra.concurrent.test.RingWaitQueue;
 import org.apache.commons.lang.*;
 
 import java.util.ArrayList;

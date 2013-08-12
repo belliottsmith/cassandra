@@ -1,9 +1,5 @@
 package org.apache.cassandra.concurrent.test;
 
-import org.apache.cassandra.concurrent.test.StridedRingBuffer;
-import org.apache.cassandra.concurrent.test.WaitNotice;
-import org.apache.cassandra.concurrent.test.WaitQueue;
-
 import java.util.concurrent.locks.LockSupport;
 
 public final class RingWaitQueue implements WaitQueue
@@ -15,7 +11,7 @@ public final class RingWaitQueue implements WaitQueue
 
     public RingWaitQueue(int threads)
     {
-        queue = new StridedRingBuffer<>(threads);
+        queue = new StridedRingBuffer<>(threads, true);
     }
 
     private final class Notice implements WaitNotice

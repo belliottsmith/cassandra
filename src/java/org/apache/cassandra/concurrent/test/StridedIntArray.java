@@ -2,6 +2,8 @@ package org.apache.cassandra.concurrent.test;
 
 import org.apache.cassandra.concurrent.test.AtomicArrayUpdater;
 
+import java.util.Arrays;
+
 public final class StridedIntArray
 {
 
@@ -58,4 +60,10 @@ public final class StridedIntArray
     {
         AtomicArrayUpdater.setIntOrdered(vals, real(index), upd);
     }
+
+    public void fill(int val)
+    {
+        Arrays.fill(vals, val);
+    }
+
 }

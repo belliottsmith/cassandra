@@ -13,12 +13,12 @@ import java.util.concurrent.TimeUnit;
 public final class BufferBlockingQueue<E> implements BlockingQueue<E>
 {
 
-    private final StridedRingBuffer<E> buffer;
+    private final Buffer<E> buffer;
     private final WaitQueue isNotEmpty;
 
-    public BufferBlockingQueue(int size)
+    public BufferBlockingQueue(Buffer<E> buffer)
     {
-        this.buffer = new StridedRingBuffer<>(size, true);
+        this.buffer = buffer;
         this.isNotEmpty = new UnboundedLinkedWaitQueue();
     }
 

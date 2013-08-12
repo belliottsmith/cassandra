@@ -1,26 +1,19 @@
 package org.apache.cassandra.concurrent.test;
 
-import com.google.common.util.concurrent.*;
 import com.sun.management.OperatingSystemMXBean;
-import org.apache.cassandra.concurrent.test.StridedRingBlockingQueue;
-import org.apache.cassandra.concurrent.test.UnboundedLockFreeLinkedBlockingQueue;
 import org.apache.commons.lang.*;
 
 import java.lang.management.ManagementFactory;
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -31,8 +24,8 @@ public class QuickNDirtyBenchmark
 {
 
     static int TESTS = 10;
-    static int CONSUMERS = 2;
-    static int PRODUCERS = 2;
+    static int CONSUMERS = 4;
+    static int PRODUCERS = 4;
 
     // continuous tests
     static int TESTTIME = 10;
@@ -58,26 +51,46 @@ public class QuickNDirtyBenchmark
         }
     };
 
+    {
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread t, Throwable e)
+            {
+                e.printStackTrace();
+            }
+        });
+    }
+
     static ExecutorService build(BlockingQueue<Runnable> queue)
     {
-//        return new ThreadPoolExecutor(CONSUMERS, CONSUMERS, 1L, TimeUnit.DAYS, queue);
-        return new LightweightExecutorService(CONSUMERS, queue);
+        return new ThreadPoolExecutor(CONSUMERS, CONSUMERS, 1L, TimeUnit.DAYS, queue);
+//        return new LightweightExecutorService(CONSUMERS, queue);
     }
 
     public static void main(String[] args) throws InterruptedException
     {
         benchContinuous();
     }
+
     public static void benchContinuous() throws InterruptedException
     {
+        final BufferBlockingQueue<Runnable> ringQueue = new BufferBlockingQueue<>(new StridedRingBuffer<Runnable>(BUFFER_SIZE, true));
+//        final BufferBlockingQueue<Runnable> chainRingQueue = new BufferBlockingQueue<>(new StridedChainedRingBuffer<Runnable>(1 << 16));
+        final DisruptorExecutor disruptorExecutor = new DisruptorExecutor(CONSUMERS, BUFFER_SIZE, false);
+
         for (int i = 0 ; i < TESTS ; i++)
         {
+
 //            benchContinuous("JDKABQ", build(new ArrayBlockingQueue<Runnable>(100000000)), TESTTIME);
 //            benchContinuous("JDKLBQ", build(new LinkedBlockingQueue<Runnable>()), TESTTIME);
 //            benchContinuous("LFQ", build(new UnboundedLockFreeLinkedBlockingQueue<Runnable>(new UnboundedLinkedWaitQueue())), TESTTIME);
 //            benchContinuous("FJP", new ForkJoinPool(CONSUMERS), TESTTIME);
-            benchContinuous("SRB", build(new StridedRingBlockingQueue<Runnable>(BUFFER_SIZE)), TESTTIME);
-//            benchContinuous("DIS", new DisruptorExecutor(CONSUMERS, BUFFER_SIZE, false), TESTTIME);
+//            chainRingQueue.reset();
+            benchContinuous("SCRB", build(new BufferBlockingQueue<>(new StridedChainedRingBuffer<Runnable>(1 << 16))), TESTTIME);
+//            ringQueue.reset();
+//            benchContinuous("SRB", build(ringQueue), TESTTIME);
+//            disruptorExecutor.start();
+//            benchContinuous("DIS", disruptorExecutor, TESTTIME);
 //            benchContinuous("BAQ", build(new BlockingArrayQueue<Runnable>()), TESTTIME);
 //            ForkJoinPool
         }
@@ -87,6 +100,8 @@ public class QuickNDirtyBenchmark
     {
         // gc to try to ensure level playing field
         System.gc();
+
+        final RateDeltaLimiter limit = new RateDeltaLimiter(50000000);
         // setup producers / consumers
         final AtomicLong puts = new AtomicLong(0);
         final AtomicLong gets = new AtomicLong(0);
@@ -96,6 +111,7 @@ public class QuickNDirtyBenchmark
             public void run()
             {
                 gets.addAndGet(GROUP);
+                limit.finish(GROUP);
             }
         };
         final AtomicBoolean done = new AtomicBoolean(false);
@@ -107,18 +123,21 @@ public class QuickNDirtyBenchmark
                 {
                     while (!done.get())
                     {
-                        try{
+                        try
+                        {
+                            limit.authorize(GROUP);
                             for (int i = 1 ; i < GROUP ; i++)
                                     exec.execute(run);
                             exec.execute(runadd);
                             puts.addAndGet(GROUP);
                         } catch (RejectedExecutionException e)
                         {
-                            System.err.println("Rejected Execution");
-                            try
-                            {
-                                Thread.sleep(10);
-                            } catch (InterruptedException e1) { }
+                            e.printStackTrace();
+                            throw new IllegalStateException();
+                        } catch (InterruptedException e)
+                        {
+                            e.printStackTrace();
+                            throw new IllegalStateException();
                         }
                     }
                 }
@@ -142,7 +161,7 @@ public class QuickNDirtyBenchmark
             double putopr = (putopc - lastputopc) / (REPORT_INTERVAL * 1000000);
             double getopr = (getopc - lastgetopc) / (REPORT_INTERVAL * 1000000);
             double cycler = (cycles - lastcycles) / ((putopr + getopr) * 1000000 / 2);
-            System.out.println(String.format("%s: elapsed %d, averaging %.2f Mop/s in, %.2f Mop/s out, at %.2f cycles/op", name, REPORT_INTERVAL, putopr, getopr, cycler));
+            System.out.println(String.format("%s: elapsed %ds, averaging %.2f Mop/s in, %.2f Mop/s out, at %.2f cycles/op", name, REPORT_INTERVAL, putopr, getopr, cycler));
             lastputopc = putopc;
             lastgetopc = getopc;
             lastcycles = cycles;

@@ -1,7 +1,5 @@
 package org.apache.cassandra.concurrent.test;
 
-import java.util.concurrent.TimeUnit;
-
 public interface WaitNotice
 {
 

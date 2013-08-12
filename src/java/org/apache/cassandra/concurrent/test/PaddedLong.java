@@ -22,6 +22,11 @@ public final class PaddedLong
         AtomicArrayUpdater.setLongVolatile(padding, 7, upd);
     }
 
+    public void setOrdered(long upd)
+    {
+        AtomicArrayUpdater.setLongOrdered(padding, 7, upd);
+    }
+
     public void set(long upd)
     {
         padding[7] = upd;
@@ -49,6 +54,16 @@ public final class PaddedLong
             long cur = get();
             if (cas(cur, cur + 1))
                 return cur;
+        }
+    }
+
+    public void ensureAtLeast(long val)
+    {
+        while (true)
+        {
+            long cur = get();
+            if (cur >= val || cas(cur, val))
+                return;
         }
     }
 
