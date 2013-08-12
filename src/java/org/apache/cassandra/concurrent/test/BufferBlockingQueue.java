@@ -10,15 +10,15 @@ import java.util.Iterator;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-public final class StridedRingBlockingQueue<E> implements BlockingQueue<E>
+public final class BufferBlockingQueue<E> implements BlockingQueue<E>
 {
 
     private final StridedRingBuffer<E> buffer;
     private final WaitQueue isNotEmpty;
 
-    public StridedRingBlockingQueue(int size)
+    public BufferBlockingQueue(int size)
     {
-        this.buffer = new StridedRingBuffer<>(size);
+        this.buffer = new StridedRingBuffer<>(size, true);
         this.isNotEmpty = new UnboundedLinkedWaitQueue();
     }
 
@@ -225,6 +225,11 @@ public final class StridedRingBlockingQueue<E> implements BlockingQueue<E>
     public boolean add(E e)
     {
         throw new NotImplementedException();
+    }
+
+    void reset()
+    {
+        buffer.reset();
     }
 
 }
