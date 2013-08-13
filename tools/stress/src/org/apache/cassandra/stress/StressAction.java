@@ -21,10 +21,15 @@ import java.io.PrintStream;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.common.util.concurrent.RateLimiter;
 import com.yammer.metrics.stats.Snapshot;
+import org.apache.cassandra.concurrent.test.LinkedWaitQueue;
+import org.apache.cassandra.concurrent.test.PaddedInt;
+import org.apache.cassandra.concurrent.test.WaitQueue;
+import org.apache.cassandra.concurrent.test.WaitSignal;
 import org.apache.cassandra.stress.operations.*;
 import org.apache.cassandra.stress.util.CassandraClient;
 import org.apache.cassandra.stress.util.Operation;
@@ -53,6 +58,55 @@ public class StressAction extends Thread
         output = out;
     }
 
+    private static final class RateSynchroniser
+    {
+        final int[] threadOps;
+        final PaddedInt minOps = new PaddedInt();
+        final int maxDelta;
+        final WaitQueue updated = new LinkedWaitQueue();
+
+        public RateSynchroniser(int threads, int maxDelta)
+        {
+            threadOps = new int[threads];
+            this.maxDelta = maxDelta;
+        }
+
+        public Handle handle(int threadIndex)
+        {
+            return new Handle(threadIndex);
+        }
+
+        final class Handle
+        {
+            final int thread;
+            public Handle(int thread)
+            {
+                this.thread = thread;
+            }
+
+            void acquire(int n) throws InterruptedException
+            {
+                while (true)
+                {
+                    int ops = threadOps[thread];
+                    if (ops + n - minOps.getVolatile() < maxDelta)
+                    {
+                        minOps.ensureAtLeast(ops + n);
+                        updated.signalOne();
+                        threadOps[thread] = ops + n;
+                    }
+                    final WaitSignal wait = updated.register();
+                    if (ops + n - minOps.getVolatile() >= maxDelta)
+                    {
+                        wait.waitForever();
+                    }
+                    wait.cancel();
+                }
+            }
+
+        }
+    }
+
     public void run()
     {
         Snapshot latency;
@@ -71,17 +125,18 @@ public class StressAction extends Thread
         int itemsPerThread = client.getKeysPerThread();
         int modulo = client.getNumKeys() % threadCount;
         RateLimiter rateLimiter = RateLimiter.create(client.getMaxOpsPerSecond());
+        RateSynchroniser rateSynchroniser = new RateSynchroniser(threadCount, Math.max(20, 1000 / threadCount));
 
         // creating required type of the threads for the test
         for (int i = 0; i < threadCount; i++) {
             if (i == threadCount - 1)
                 itemsPerThread += modulo; // last one is going to handle N + modulo items
 
-            consumers[i] = new Consumer(itemsPerThread, rateLimiter);
+            consumers[i] = new Consumer(threadCount, i, itemsPerThread, rateLimiter, rateSynchroniser);
         }
 
-        Producer producer = new Producer();
-        producer.start();
+//        Producer producer = new Producer();
+//        producer.start();
 
         // starting worker threads
         for (int i = 0; i < threadCount; i++)
@@ -101,7 +156,7 @@ public class StressAction extends Thread
         {
             if (stop)
             {
-                producer.stopProducer();
+//                producer.stopProducer();
 
                 for (Consumer consumer : consumers)
                     consumer.stopConsume();
@@ -155,11 +210,11 @@ public class StressAction extends Thread
 
         // if any consumer failed, set the return code to failure.
         returnCode = SUCCESS;
-        if (producer.isAlive())
-        {
-            producer.interrupt(); // if producer is still alive it means that we had errors in the consumers
-            returnCode = FAILURE;
-        }
+//        if (producer.isAlive())
+//        {
+//            producer.interrupt(); // if producer is still alive it means that we had errors in the consumers
+//            returnCode = FAILURE;
+//        }
         for (Consumer consumer : consumers)
             if (consumer.getReturnCode() == FAILURE)
                 returnCode = FAILURE;
@@ -183,35 +238,35 @@ public class StressAction extends Thread
     /**
      * Produces exactly N items (awaits each to be consumed)
      */
-    private class Producer extends Thread
-    {
-        private volatile boolean stop = false;
-
-        public void run()
-        {
-            for (int i = 0; i < client.getNumKeys(); i++)
-            {
-                if (stop)
-                    break;
-
-                try
-                {
-                    operations.put(createOperation(i % client.getNumDifferentKeys()));
-                }
-                catch (InterruptedException e)
-                {
-                    if (e.getMessage() != null)
-                        System.err.println("Producer error - " + e.getMessage());
-                    return;
-                }
-            }
-        }
-
-        public void stopProducer()
-        {
-            stop = true;
-        }
-    }
+//    private class Producer extends Thread
+//    {
+//        private volatile boolean stop = false;
+//
+//        public void run()
+//        {
+//            for (int i = 0; i < client.getNumKeys(); i++)
+//            {
+//                if (stop)
+//                    break;
+//
+//                try
+//                {
+//                    operations.put(createOperation(i % client.getNumDifferentKeys()));
+//                }
+//                catch (InterruptedException e)
+//                {
+//                    if (e.getMessage() != null)
+//                        System.err.println("Producer error - " + e.getMessage());
+//                    return;
+//                }
+//            }
+//        }
+//
+//        public void stopProducer()
+//        {
+//            stop = true;
+//        }
+//    }
 
     /**
      * Each consumes exactly N items from queue
@@ -219,14 +274,20 @@ public class StressAction extends Thread
     private class Consumer extends Thread
     {
         private final int items;
+        private final int threadCount;
+        private final int threadIndex;
         private final RateLimiter rateLimiter;
+        private final RateSynchroniser.Handle rateSynchroniser;
         private volatile boolean stop = false;
         private volatile int returnCode = StressAction.SUCCESS;
 
-        public Consumer(int toConsume, RateLimiter rateLimiter)
+        public Consumer(int threadCount, int threadIndex, int toProduce, RateLimiter rateLimiter, RateSynchroniser rateSynchroniser)
         {
-            items = toConsume;
+            this.threadCount = threadCount;
+            this.threadIndex = threadIndex;
+            this.items = toProduce;
             this.rateLimiter = rateLimiter;
+            this.rateSynchroniser = rateSynchroniser.handle(threadIndex);
         }
 
         public void run()
@@ -235,6 +296,7 @@ public class StressAction extends Thread
             {
                 SimpleClient connection = client.getNativeClient();
 
+                int acquired = 0;
                 for (int i = 0; i < items; i++)
                 {
                     if (stop)
@@ -242,8 +304,13 @@ public class StressAction extends Thread
 
                     try
                     {
-                        rateLimiter.acquire();
-                        operations.take().run(connection); // running job
+                        if (--acquired < 0)
+                        {
+                            rateLimiter.acquire(10);
+                            rateSynchroniser.acquire(10);
+                            acquired = 9;
+                        }
+                        createOperation((i * threadCount) + threadIndex).run(connection); // running job
                     }
                     catch (Exception e)
                     {
@@ -272,7 +339,7 @@ public class StressAction extends Thread
                     try
                     {
                         rateLimiter.acquire();
-                        operations.take().run(connection); // running job
+                        createOperation((i * threadCount) + threadIndex).run(connection); // running job
                     }
                     catch (Exception e)
                     {
