@@ -1,5 +1,7 @@
 package org.apache.cassandra.concurrent.test;
 
+import java.util.Iterator;
+
 public interface RingBuffer<E>
 {
 
@@ -10,5 +12,10 @@ public interface RingBuffer<E>
     int size();
     E poll();
     void reset();
+    boolean remove(Object o);
+    boolean contains(Object o);
+    Iterator<E> iterator();
+    E peek();
+    WaitSignal notFull();
 
 }

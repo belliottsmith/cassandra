@@ -2,13 +2,19 @@ package org.apache.cassandra.concurrent.test;
 
 import org.apache.commons.lang.*;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 public class RingBufferBlockingQueue<E> implements BlockingQueue<E>
 {
+
+    private static final int SPIN = 1000;
+    private static final int SPINCYCLE = 10;
 
     private final RingBuffer<E> buffer;
     private final WaitQueue isNotEmpty;
@@ -31,8 +37,37 @@ public class RingBufferBlockingQueue<E> implements BlockingQueue<E>
         return false;
     }
 
-    private static final int SPIN = 1000;
-    private static final int SPINCYCLE = 10;
+    @Override
+    public boolean offer(E e, long timeout, TimeUnit unit) throws InterruptedException
+    {
+        long until = -1;
+        while (true)
+        {
+            long pos = buffer.offer(e);
+            if (pos >= 0)
+            {
+                isNotEmpty.signalOne();
+                return true;
+            }
+
+            if (until < 0)
+                until = System.currentTimeMillis() + unit.toMillis(timeout);
+            WaitSignal wait = buffer.notFull();
+            if (buffer.offer(e) < 0)
+            {
+                isNotEmpty.signalOne();
+                wait.cancel();
+                return true;
+            }
+            else
+            {
+                if (!wait.waitUntil(until))
+                    return false;
+                wait.cancel();
+            }
+        }
+
+    }
 
     @Override
     public final E poll(long timeout, TimeUnit unit) throws InterruptedException
@@ -82,13 +117,42 @@ public class RingBufferBlockingQueue<E> implements BlockingQueue<E>
     @Override
     public final boolean remove(Object o)
     {
-        return false;  //To change body of implemented methods use File | Settings | File Templates.
+        return buffer.remove(o);
     }
+
+    @Override
+    public final E poll()
+    {
+        return buffer.poll();
+    }
+
+    @Override
+    public final E take() throws InterruptedException
+    {
+        return poll(Long.MAX_VALUE >> 1, TimeUnit.MILLISECONDS);
+    }
+
+    @Override
+    public final void clear()
+    {
+        buffer.reset();
+    }
+
+    @Override
+    public E peek()
+    {
+        return buffer.peek();
+    }
+
+    // PROCEEDING IMPLEMENTATIONS ARE ESPECIALLY HACKY
 
     @Override
     public <T> T[] toArray(T[] a)
     {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
+        final List<E> acc = new ArrayList<E>();
+        for (E e : this)
+            acc.add(e);
+        return acc.toArray(a);
     }
 
     @Override
@@ -114,41 +178,10 @@ public class RingBufferBlockingQueue<E> implements BlockingQueue<E>
     }
 
     @Override
-    public final E poll()
-    {
-        try
-        {
-            return poll(0, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e)
-        {
-            // shouldn't happen, but return null anyway in case weird stuff
-            // happening with clock. considere logging error
-            return null;
-        }
-    }
-
-    @Override
-    public final E take() throws InterruptedException
-    {
-        return poll(Long.MAX_VALUE >> 1, TimeUnit.MILLISECONDS);
-    }
-
-    @Override
-    public final void clear()
-    {
-        buffer.reset();
-    }
-
-    @Override
     public void put(E e) throws InterruptedException
     {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public boolean offer(E e, long timeout, TimeUnit unit) throws InterruptedException
-    {
-        throw new NotImplementedException();
+        if (!offer(e, Long.MAX_VALUE >> 1, TimeUnit.MILLISECONDS))
+            throw new NoSuchElementException();
     }
 
     @Override
@@ -160,49 +193,51 @@ public class RingBufferBlockingQueue<E> implements BlockingQueue<E>
     @Override
     public boolean contains(Object o)
     {
-        throw new NotImplementedException();
+        return buffer.contains(o);
     }
 
     @Override
     public E remove()
     {
-        throw new NotImplementedException();
+        return poll();
     }
 
     @Override
     public E element()
     {
-        throw new NotImplementedException();
-    }
-
-    @Override
-    public E peek()
-    {
-        throw new NotImplementedException();
+        E r = peek();
+        if (r == null)
+            throw new NoSuchElementException();
+        return r;
     }
 
     @Override
     public Iterator<E> iterator()
     {
-        throw new NotImplementedException();
+        return buffer.iterator();
     }
 
     @Override
     public Object[] toArray()
     {
-        throw new NotImplementedException();
+        return toArray(new Object[0]);
     }
 
     @Override
     public boolean containsAll(Collection<?> c)
     {
-        throw new NotImplementedException();
+        for (Object o : c)
+            if (!contains(o))
+                return false;
+        return true;
     }
 
     @Override
     public boolean addAll(Collection<? extends E> c)
     {
-        throw new NotImplementedException();
+        for (E e : c)
+            add(e);
+        return true;
     }
 
     @Override
@@ -220,7 +255,14 @@ public class RingBufferBlockingQueue<E> implements BlockingQueue<E>
     @Override
     public boolean add(E e)
     {
-        throw new NotImplementedException();
+        try
+        {
+            put(e);
+        } catch (InterruptedException _)
+        {
+            throw new IllegalStateException();
+        }
+        return  true;
     }
 
 }

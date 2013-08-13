@@ -18,12 +18,7 @@
 
 package org.apache.cassandra.concurrent.test;
 
-import java.util.AbstractList;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.ListIterator;
-import java.util.NoSuchElementException;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -32,7 +27,8 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * A BlockingQueue backed by a circular array capable or growing.
+ * A BlockingQueue backed by a circular array capable or growing, copied
+ * from Jetty's implementation.
  * <p/>
  * This queue is uses  a variant of the two lock queue algorithm to provide an
  * efficient queue or list backed by a growable circular array.
@@ -53,12 +49,12 @@ public class BlockingArrayQueue<E> extends AbstractList<E> implements BlockingQu
      * by 15 slots to avoid false sharing with the array length
      * (stored before the first element of the array itself).
      */
-    private static final int HEAD_OFFSET = 16 - 1;
+    private static final int HEAD_OFFSET = 15;
     /**
      * The tail offset in the {@link #_indexes} array, displaced
      * by 16 slots from the head to avoid false sharing with it.
      */
-    private static final int TAIL_OFFSET = HEAD_OFFSET + 16;
+    private static final int TAIL_OFFSET = 31;
     /**
      * Default initial capacity, 128.
      */
@@ -324,14 +320,17 @@ public class BlockingArrayQueue<E> extends AbstractList<E> implements BlockingQu
     public void put(E o) throws InterruptedException
     {
         // The mechanism to await and signal when the queue is full is not implemented
-        throw new UnsupportedOperationException();
+        if (!offer(o))
+            throw new AssertionError("BlockingArrayQueue only blocks on dequeue");
     }
 
     @Override
     public boolean offer(E o, long timeout, TimeUnit unit) throws InterruptedException
     {
         // The mechanism to await and signal when the queue is full is not implemented
-        throw new UnsupportedOperationException();
+        if (offer(o))
+            return true;
+        throw new AssertionError("BlockingArrayQueue only blocks on dequeue");
     }
 
     @SuppressWarnings("unchecked")

@@ -1,12 +1,16 @@
 package org.apache.cassandra.concurrent.test;
 
+import org.apache.commons.lang.*;
+
+import java.util.Iterator;
+
 // TODO : allow safe wrapping of laps, so no total limit on safe number of events to process
 public final class PhasedRingBuffer<E> implements RingBuffer<E>
 {
 
     // { poll start <= poll end <= add start <= add end == poll start + (1 << sizeShift) }
-    private final StridedRefArray<E> ring;
-    private final StridedIntArray readLap, writeLap;
+    private final RefArray<E> ring;
+    private final IntArray readLap, writeLap;
     private final PaddedLong readPos = new PaddedLong();
     private final PaddedLong writePos = new PaddedLong();
     private final int sizeShift;
@@ -14,11 +18,15 @@ public final class PhasedRingBuffer<E> implements RingBuffer<E>
 
     public PhasedRingBuffer(int size)
     {
-        ring = new StridedRefArray<>(size);
-        readLap = new StridedIntArray(ring.length());
-        writeLap = new StridedIntArray(ring.length());
-        sizeShift = Integer.numberOfTrailingZeros(ring.length());
-        sizeMask = (1 << sizeShift) - 1;
+        int ss = 1;
+        while (1 << ss < size)
+            ss++;
+        size = 1 << ss;
+        ring = new RefArray<>(size, true);
+        readLap = new IntArray(size, true);
+        writeLap = new IntArray(size, true);
+        sizeShift = ss;
+        sizeMask = (1 << ss) - 1;
     }
 
     public boolean isEmpty()
@@ -142,6 +150,36 @@ public final class PhasedRingBuffer<E> implements RingBuffer<E>
         writeLap.fill(0);
         readPos.setOrdered(0);
         writePos.setOrdered(0);
+    }
+
+    @Override
+    public boolean remove(Object o)
+    {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public boolean contains(Object o)
+    {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public Iterator<E> iterator()
+    {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public E peek()
+    {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public WaitSignal notFull()
+    {
+        throw new NotImplementedException();
     }
 
 }

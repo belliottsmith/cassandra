@@ -14,11 +14,12 @@ public class Benchmark
 {
 
     static final double CLOCK_RATE = 2.2d;
-    static final int REPEATS = 5;
-    static final int WARMUPS = 1;
+    static final int REPEATS = 8;
+    static final int WARMUPS = 0;
     // number of threads in/out (i.e. total thread count is double)
-    static final int[] THREADS = new int[]{1, 2, 4, 8};
-    static final Test[] TEST = new Test[]{Test.BAQ};
+//    static final int[] THREADS = new int[]{1, 2, 4, 8};
+    static final int[] THREADS = new int[]{4};
+    static final Test[] TEST = new Test[]{Test.LPRB};
     static final int TEST_RUNTIME_SECONDS = 10;
     static final int OP_GROUPING = 100;
     static final int INSPECT_INTERVAL_MILLIS = 100;
@@ -154,7 +155,7 @@ public class Benchmark
 
             final ExecutorService exec = test.build(threadCount);
 
-            final OpDeltaLimiter limit = new OpDeltaLimiter(100000000);
+            final OpDeltaLimiter limit = new OpDeltaLimiter(MAX_OP_DELTA);
             // setup producers / consumers
             final AtomicLong puts = new AtomicLong(0);
             final AtomicLong gets = new AtomicLong(0);
@@ -175,18 +176,43 @@ public class Benchmark
                     @Override
                     public void run()
                     {
-                        while (!done.get())
+                        int notCounted = 0;
+                        int rejected = 0;
+                        while (!done.get() || notCounted != 0)
                         {
+                            int despatched = 0;
+                            boolean authorized = false;
                             try
                             {
+                                if (notCounted != 0)
+                                {
+                                    final int addGets = notCounted;
+                                    exec.execute(new Runnable(){
+                                        @Override
+                                        public void run()
+                                        {
+                                            gets.addAndGet(addGets);
+                                        }
+                                    });
+                                    notCounted = 0;
+                                }
                                 limit.authorize(OP_GROUPING);
+                                authorized = true;
                                 for (int i = 1; i < OP_GROUPING; i++)
+                                {
                                     exec.execute(NOOP);
+                                    despatched++;
+                                }
                                 exec.execute(runadd);
+                                despatched++;
                                 puts.addAndGet(OP_GROUPING);
                             } catch (RejectedExecutionException e)
                             {
-                                e.printStackTrace();
+                                notCounted += despatched;
+                                if (authorized)
+                                    limit.finish(OP_GROUPING - despatched);
+                                if ((++rejected) % 1000 == 0)
+                                    System.err.println(rejected + " rejections");
                             } catch (InterruptedException e)
                             {
                                 e.printStackTrace();

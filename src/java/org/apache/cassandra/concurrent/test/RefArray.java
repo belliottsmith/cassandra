@@ -2,17 +2,18 @@ package org.apache.cassandra.concurrent.test;
 
 import org.apache.cassandra.concurrent.test.AtomicRefArrayUpdater;
 
-public final class StridedRefArray<E>
+public final class RefArray<E>
 {
 
     private final Object[] vals;
+    private final boolean strided;
 
     public int length()
     {
         return vals.length;
     }
 
-    public StridedRefArray(int size)
+    public RefArray(int size, boolean strided)
     {
         if (size < 256)
             size = 256;
@@ -20,6 +21,7 @@ public final class StridedRefArray<E>
         while (1 << ss < size)
             ss++;
         vals = (E[]) new Object[1 << ss];
+        this.strided = strided;
     }
 
     private static int real(int virt)
@@ -31,32 +33,32 @@ public final class StridedRefArray<E>
 
     public void set(int index, E upd)
     {
-        vals[real(index)] = upd;
+        vals[strided ? real(index) : index] = upd;
     }
 
     public void setOrdered(int index, E upd)
     {
-        arrayUpdater.setOrdered(vals, real(index), upd);
+        arrayUpdater.setOrdered(vals, strided ? real(index) : index, upd);
     }
 
     public void setVolatile(int index, E upd)
     {
-        arrayUpdater.setVolatile(vals, real(index), upd);
+        arrayUpdater.setVolatile(vals, strided ? real(index) : index, upd);
     }
 
     public E get(int index)
     {
-        return (E) vals[real(index)];
+        return (E) vals[strided ? real(index) : index];
     }
 
     public E getVolatile(int index)
     {
-        return (E) arrayUpdater.getVolatile(vals, real(index));
+        return (E) arrayUpdater.getVolatile(vals, strided ? real(index) : index);
     }
 
     public boolean cas(int index, E exp, E upd)
     {
-        return arrayUpdater.compareAndSet(vals, real(index), exp, upd);
+        return arrayUpdater.compareAndSet(vals, strided ? real(index) : index, exp, upd);
     }
 
     private static final AtomicRefArrayUpdater<Object> arrayUpdater = new AtomicRefArrayUpdater<Object>(Object[].class);
