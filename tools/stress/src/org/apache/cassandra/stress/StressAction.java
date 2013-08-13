@@ -21,6 +21,8 @@ import java.io.PrintStream;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.util.concurrent.Uninterruptibles;
@@ -60,20 +62,43 @@ public class StressAction extends Thread
 
     private static final class RateSynchroniser
     {
-        final int[] threadOps;
-        final PaddedInt minOps = new PaddedInt();
+
+        final AtomicInteger round = new AtomicInteger();
+        final AtomicIntegerArray roundCompletes;
+        final AtomicIntegerArray rounds;
         final int maxDelta;
+        final int mask;
         final WaitQueue updated = new LinkedWaitQueue();
 
         public RateSynchroniser(int threads, int maxDelta)
         {
-            threadOps = new int[threads];
-            this.maxDelta = maxDelta;
+            int ss = 1;
+            while (1 << ss < maxDelta)
+                ss += 1;
+            this.maxDelta = maxDelta = (1 << ss) - 2;
+            this.mask = maxDelta + 1;
+            roundCompletes = new AtomicIntegerArray(maxDelta + 2);
+            rounds = new AtomicIntegerArray(threads);
+            for (int i = 0 ; i < maxDelta ; i++)
+                initRound(i);
         }
 
         public Handle handle(int threadIndex)
         {
             return new Handle(threadIndex);
+        }
+
+        boolean complete(int round)
+        {
+            int index = round & mask;
+            int remaining = roundCompletes.decrementAndGet(index);
+            return remaining == 0;
+        }
+
+        void initRound(int round)
+        {
+            int index = round & mask;
+            roundCompletes.set(index, rounds.length());
         }
 
         final class Handle
@@ -84,24 +109,23 @@ public class StressAction extends Thread
                 this.thread = thread;
             }
 
-            void acquire(int n) throws InterruptedException
+            void acquire() throws InterruptedException
             {
-                while (true)
+                final int myNextRound = rounds.incrementAndGet(thread);
+                if (complete(myNextRound - 1))
                 {
-                    int ops = threadOps[thread];
-                    if (ops + n - minOps.getVolatile() < maxDelta)
-                    {
-                        minOps.ensureAtLeast(ops + n);
-                        updated.signalOne();
-                        threadOps[thread] = ops + n;
-                    }
-                    final WaitSignal wait = updated.register();
-                    if (ops + n - minOps.getVolatile() >= maxDelta)
-                    {
-                        wait.waitForever();
-                    }
-                    wait.cancel();
+                    initRound(round.get() + maxDelta);
+                    round.incrementAndGet();
+                    updated.signalAll();
                 }
+
+                if (myNextRound - round.get() < maxDelta)
+                    return;
+
+                final WaitSignal signal = updated.register();
+                if (myNextRound - round.get() == maxDelta)
+                    signal.waitForever();
+                signal.cancel();
             }
 
         }
@@ -125,7 +149,7 @@ public class StressAction extends Thread
         int itemsPerThread = client.getKeysPerThread();
         int modulo = client.getNumKeys() % threadCount;
         RateLimiter rateLimiter = RateLimiter.create(client.getMaxOpsPerSecond());
-        RateSynchroniser rateSynchroniser = new RateSynchroniser(threadCount, Math.max(20, 1000 / threadCount));
+        RateSynchroniser rateSynchroniser = new RateSynchroniser(threadCount, 50);
 
         // creating required type of the threads for the test
         for (int i = 0; i < threadCount; i++) {
@@ -307,7 +331,7 @@ public class StressAction extends Thread
                         if (--acquired < 0)
                         {
                             rateLimiter.acquire(10);
-                            rateSynchroniser.acquire(10);
+                            rateSynchroniser.acquire();
                             acquired = 9;
                         }
                         createOperation((i * threadCount) + threadIndex).run(connection); // running job
@@ -331,6 +355,7 @@ public class StressAction extends Thread
             {
                 CassandraClient connection = client.getClient();
 
+                int acquired = 0;
                 for (int i = 0; i < items; i++)
                 {
                     if (stop)
@@ -338,7 +363,12 @@ public class StressAction extends Thread
 
                     try
                     {
-                        rateLimiter.acquire();
+                        if (--acquired < 0)
+                        {
+                            rateLimiter.acquire(10);
+                            rateSynchroniser.acquire();
+                            acquired = 9;
+                        }
                         createOperation((i * threadCount) + threadIndex).run(connection); // running job
                     }
                     catch (Exception e)
