@@ -38,6 +38,19 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
             writeLap = new IntArray(ring.length(), false);
         }
 
+        public synchronized void clear(long offset)
+        {
+            if (this.offset != offset)
+                return;
+            // shouldn't be possible to be null unless already cleared, so don't waste the time
+            if (ring.get(0) == null)
+                return;
+            for (int i = 1 ; i < ring.length() ; i++)
+                ring.setOrdered(i, null);
+            // should be able to piggyback off sync, but to be safe...
+            ring.setVolatile(0, null);
+        }
+
     }
 
     public LinkedPhasedRingBuffer(int linkBufferSize)
@@ -190,6 +203,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
             }
         }
         readLock.unlock();
+//        head.clear(offset);
         if (updatedHead)
             notFull.signalAll();
         if (fail)
@@ -347,6 +361,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
                                 next.lap++;
                                 if (maxCapacity > 0)
                                     writeLimit.setOrdered(expectedOffset + (1 << sizeShift));
+//                                next.clear(next.offset);
                                 next.offset = expectedOffset;
                                 writeHead = writeTo = next;
 
