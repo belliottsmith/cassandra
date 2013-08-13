@@ -29,6 +29,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.collect.Iterables;
+import org.apache.cassandra.concurrent.test.BlockingArrayQueue;
+import org.apache.cassandra.concurrent.test.LinkedPhasedBlockingQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,10 +55,10 @@ public class CommitLogAllocator
     public final static int TICK_CYCLE_TIME = 100;
 
     /** Segments that are ready to be used */
-    private final BlockingQueue<CommitLogSegment> availableSegments = new LinkedBlockingQueue<CommitLogSegment>();
+    private final BlockingQueue<CommitLogSegment> availableSegments = new LinkedPhasedBlockingQueue<CommitLogSegment>();
 
     /** Allocations to be run by the thread */
-    private final BlockingQueue<Runnable> queue = new LinkedBlockingQueue<Runnable>();
+    private final BlockingQueue<Runnable> queue = new LinkedPhasedBlockingQueue<Runnable>();
 
     /** Active segments, containing unflushed data */
     private final ConcurrentLinkedQueue<CommitLogSegment> activeSegments = new ConcurrentLinkedQueue<CommitLogSegment>();

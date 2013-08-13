@@ -20,6 +20,8 @@ package org.apache.cassandra.concurrent;
 import java.util.EnumMap;
 import java.util.concurrent.*;
 
+import org.apache.cassandra.concurrent.test.BlockingArrayQueue;
+import org.apache.cassandra.concurrent.test.LinkedPhasedBlockingQueue;
 import org.apache.cassandra.concurrent.test.RingBufferBlockingQueue;
 import org.apache.cassandra.concurrent.test.LinkedPhasedRingBuffer;
 import org.slf4j.Logger;
@@ -86,7 +88,7 @@ public class StageManager
         return new JMXEnabledThreadPoolExecutor(numThreads,
                                                 KEEPALIVE,
                                                 TimeUnit.SECONDS,
-                                                new RingBufferBlockingQueue<>(new LinkedPhasedRingBuffer<Runnable>(1 << 16)),
+                                                new LinkedPhasedBlockingQueue<Runnable>(),
                                                 new NamedThreadFactory(stage.getJmxName()),
                                                 stage.getJmxType());
     }
@@ -96,7 +98,7 @@ public class StageManager
         return new JMXConfigurableThreadPoolExecutor(numThreads,
                                                      KEEPALIVE,
                                                      TimeUnit.SECONDS,
-                                                     new RingBufferBlockingQueue<>(new LinkedPhasedRingBuffer<Runnable>(1 << 16)),
+                                                     new LinkedPhasedBlockingQueue<Runnable>(),
                                                      new NamedThreadFactory(stage.getJmxName()),
                                                      stage.getJmxType());
     }
