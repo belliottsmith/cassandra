@@ -1,13 +1,17 @@
-package org.apache.cassandra.concurrent.test;
+package org.apache.cassandra.concurrent.test.bench;
 
-public class RateDeltaLimiter
+import org.apache.cassandra.concurrent.test.LinkedWaitQueue;
+import org.apache.cassandra.concurrent.test.PaddedInt;
+import org.apache.cassandra.concurrent.test.WaitSignal;
+
+public class OpDeltaLimiter
 {
 
     private final PaddedInt excessOps = new PaddedInt();
     private final int maxExcessOps;
-    private final UnboundedLinkedWaitQueue freeOps = new UnboundedLinkedWaitQueue();
+    private final LinkedWaitQueue freeOps = new LinkedWaitQueue();
 
-    public RateDeltaLimiter(int maxExcessOps)
+    public OpDeltaLimiter(int maxExcessOps)
     {
         this.maxExcessOps = maxExcessOps;
     }
@@ -23,7 +27,7 @@ public class RateDeltaLimiter
                     return;
                 else
                     continue;
-            WaitNotice wait = freeOps.register();
+            WaitSignal wait = freeOps.register();
             if (excessOps.getVolatile() + ops >= maxExcessOps)
                 wait.waitForever();
         }

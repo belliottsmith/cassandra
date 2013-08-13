@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.lmax.disruptor.RingBuffer.createMultiProducer;
 
-public class DisruptorExecutor extends AbstractExecutorService
+public class DisruptorExecutorService extends AbstractExecutorService
 {
 
     final RingBuffer<RContainer> ringBuffer;
@@ -34,7 +34,12 @@ public class DisruptorExecutor extends AbstractExecutorService
     final WorkProcessor<RContainer>[] workProcessors;
     volatile ExecutorService workExec;
 
-    public DisruptorExecutor(int threadCount, int bufferSize, boolean spin)
+    public int threads()
+    {
+        return workProcessors.length;
+    }
+
+    public DisruptorExecutorService(int threadCount, int bufferSize, boolean spin)
     {
         shutdown = new CountDownLatch(1);
         ringBuffer = RingBuffer.createMultiProducer(new EventFactory<RContainer>()
@@ -123,7 +128,7 @@ public class DisruptorExecutor extends AbstractExecutorService
         }
     };
 
-    void start()
+    public void start()
     {
         workExec = Executors.newFixedThreadPool(workProcessors.length);
         for (WorkProcessor p : workProcessors)

@@ -42,7 +42,7 @@ public final class AtomicRefUpdater<T, V>
         Class fieldClass = null;
         try {
             field = tclass.getDeclaredField(fieldName);
-            sun.reflect.misc.ReflectUtil.checkPackageAccess(tclass);
+//            sun.reflect.misc.ReflectUtil.checkPackageAccess(tclass);
             fieldClass = field.getType();
         } catch (Exception ex) {
             throw new RuntimeException(ex);

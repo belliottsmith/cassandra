@@ -2,22 +2,22 @@ package org.apache.cassandra.concurrent.test;
 
 import java.util.concurrent.locks.LockSupport;
 
-public class UnboundedLinkedWaitQueue implements WaitQueue
+public class LinkedWaitQueue implements WaitQueue
 {
 
     private static final int SPIN = 100;
 
     private static final AtomicRefUpdater<Node, Node> nextUpdater = new AtomicRefUpdater(Node.class, Node.class, "next");
     private static final AtomicRefUpdater<Node, Thread> threadUpdater = new AtomicRefUpdater(Node.class, Thread.class, "thread");
-    private static final AtomicRefUpdater<UnboundedLinkedWaitQueue, Node> headUpdater = new AtomicRefUpdater(UnboundedLinkedWaitQueue.class, Node.class, "head");
+    private static final AtomicRefUpdater<LinkedWaitQueue, Node> headUpdater = new AtomicRefUpdater(LinkedWaitQueue.class, Node.class, "head");
 
-    private static final class Node implements WaitNotice
+    private static final class Node implements WaitSignal
     {
-        final UnboundedLinkedWaitQueue queue;
+        final LinkedWaitQueue queue;
         volatile Thread thread;
         volatile Node next;
 
-        public Node(UnboundedLinkedWaitQueue queue, Thread thread)
+        public Node(LinkedWaitQueue queue, Thread thread)
         {
             this.thread = thread;
             this.queue = queue;
@@ -91,12 +91,12 @@ public class UnboundedLinkedWaitQueue implements WaitQueue
     // tail is only a time saver, not an accurate pointer to the tail; always follow it until .next = null to find actual tail
     private volatile Node tail = head;
 
-    public UnboundedLinkedWaitQueue()
+    public LinkedWaitQueue()
     {
     }
 
     @Override
-    public WaitNotice register()
+    public WaitSignal register()
     {
 
         final Node node = new Node(this, Thread.currentThread());

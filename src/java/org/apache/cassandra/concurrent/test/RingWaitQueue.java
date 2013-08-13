@@ -7,14 +7,14 @@ public final class RingWaitQueue implements WaitQueue
 
     private static final int SPIN = 100;
 
-    private final StridedRingBuffer<Thread> queue;
+    private final PhasedRingBuffer<Thread> queue;
 
     public RingWaitQueue(int threads)
     {
-        queue = new StridedRingBuffer<>(threads, true);
+        queue = new PhasedRingBuffer<>(threads);
     }
 
-    private final class Notice implements WaitNotice
+    private final class Notice implements WaitSignal
     {
 
         final Thread thread;
@@ -51,7 +51,7 @@ public final class RingWaitQueue implements WaitQueue
     }
 
     @Override
-    public WaitNotice register()
+    public WaitSignal register()
     {
         final Thread thr = Thread.currentThread();
         return new Notice(thr, queue.add(thr));

@@ -8,12 +8,12 @@ import java.util.Iterator;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-public final class UnboundedLockFreeLinkedBlockingQueue<E> implements BlockingQueue<E>
+public final class LockFreeLinkedBlockingQueue<E> implements BlockingQueue<E>
 {
 
     @SuppressWarnings("rawtypes")
     private static final AtomicRefUpdater<Node, Node> nextUpdater = new AtomicRefUpdater(Node.class, Node.class, "next");
-    private static final AtomicRefUpdater<UnboundedLockFreeLinkedBlockingQueue, Node> headUpdater = new AtomicRefUpdater(UnboundedLockFreeLinkedBlockingQueue.class, Node.class, "head");
+    private static final AtomicRefUpdater<LockFreeLinkedBlockingQueue, Node> headUpdater = new AtomicRefUpdater(LockFreeLinkedBlockingQueue.class, Node.class, "head");
 
     private static final class Node<E>
     {
@@ -34,15 +34,9 @@ public final class UnboundedLockFreeLinkedBlockingQueue<E> implements BlockingQu
     private volatile Node<E> tail = head;
     private final WaitQueue isNotEmpty;
 
-    public UnboundedLockFreeLinkedBlockingQueue()
+    public LockFreeLinkedBlockingQueue()
     {
-//        isNotEmpty = new UnboundedLinkedWaitQueue();
-        isNotEmpty = new RingWaitQueue(32);
-    }
-
-    public UnboundedLockFreeLinkedBlockingQueue(WaitQueue queue)
-    {
-        isNotEmpty = queue;
+        isNotEmpty = new LinkedWaitQueue();
     }
 
     @Override
@@ -81,7 +75,7 @@ public final class UnboundedLockFreeLinkedBlockingQueue<E> implements BlockingQu
                 if (until < 0)
                     until = System.currentTimeMillis() + unit.toMillis(timeout);
 
-                final WaitNotice isNotEmpty = this.isNotEmpty.register();
+                final WaitSignal isNotEmpty = this.isNotEmpty.register();
                 if (hd.next == null)
                     isNotEmpty.waitUntil(until);
                 isNotEmpty.cancel();

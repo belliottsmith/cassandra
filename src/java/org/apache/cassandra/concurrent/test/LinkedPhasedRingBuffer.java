@@ -4,13 +4,13 @@ import java.util.concurrent.locks.ReentrantLock;
 
 // TODO : allow safe wrapping of laps, so no total limit on safe number of events to process
 // TODO : tidying up of values from the buffer - see if possible without negatively impacting performance; if not, use separate thread
-public final class StridedChainedRingBuffer<E> implements Buffer<E>
+public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
 {
 
     private static final long UPDATE_MIN_POS_MASK = Math.max(255, Runtime.getRuntime().availableProcessors() * 32);
 
     private final PaddedLong readPosCache = new PaddedLong();
-    private final PaddedLong readPosImprecise = new PaddedLong();
+    private final PaddedLong readPosMin = new PaddedLong();
     private final PaddedLong writePosExact = new PaddedLong();
 
     private volatile Link<E> readHead, writeHead;
@@ -36,7 +36,7 @@ public final class StridedChainedRingBuffer<E> implements Buffer<E>
 
     }
 
-    public StridedChainedRingBuffer(int bufferSize)
+    public LinkedPhasedRingBuffer(int bufferSize)
     {
         readHead = writeHead = new Link<>(bufferSize);
         readHead.next = readHead;
@@ -92,7 +92,7 @@ public final class StridedChainedRingBuffer<E> implements Buffer<E>
                 continue;
 
             long readPos = this.readPosCache.get();
-            long minPos = this.readPosImprecise.get();
+            long minPos = this.readPosMin.get();
             if (readPos < minPos)
                 readPos = minPos;
 
@@ -167,7 +167,7 @@ public final class StridedChainedRingBuffer<E> implements Buffer<E>
                         if (readFrom.readLap.cas(readIndex, wantLap, wantLap + 1))
                         {
                             if (((readPos + 1) & UPDATE_MIN_POS_MASK) == 0)
-                                this.readPosImprecise.ensureAtLeast(readPos + 1);
+                                this.readPosMin.ensureAtLeast(readPos + 1);
                             else
                                 this.readPosCache.setVolatile(readPos + 1);
                             return r;
@@ -183,7 +183,7 @@ public final class StridedChainedRingBuffer<E> implements Buffer<E>
                 readPos++;
                 if ((readPos & sizeMask) == 0)
                 {
-                    readPosImprecise.ensureAtLeast(readPos);
+                    readPosMin.ensureAtLeast(readPos);
                     continue restart;
                 }
             }
@@ -218,9 +218,6 @@ public final class StridedChainedRingBuffer<E> implements Buffer<E>
                             // if the next link hasn't been fully consumed (i.e. last item is still in unread state)
                             // then create a new link and insert it straight after our current link
                             writeTo = linkNewHead(writeTo, expectedOffset);
-                            // debug
-                            if ((capacity & ((1 << 24) - 1)) == 0)
-                                System.out.println("Allocated total " + capacity);
                         }
                         else
                         {
@@ -275,6 +272,9 @@ public final class StridedChainedRingBuffer<E> implements Buffer<E>
     private Link<E> linkNewHead(Link<E> currentHead, long offset)
     {
         capacity += 1 << sizeShift;
+        // debug
+//        if ((capacity & ((1 << 24) - 1)) == 0)
+//            System.out.println("Allocated total " + capacity);
         Link<E> newWriteTo = new Link<>(1 << sizeShift);
         newWriteTo.offset = offset;
         newWriteTo.next = currentHead.next;
@@ -339,24 +339,31 @@ public final class StridedChainedRingBuffer<E> implements Buffer<E>
             int index = index(pos, sizeMask);
             int readLap = readSnap.lap;
             if (readFrom.readLap.get(index) > readLap)
-                return writePosExact.getVolatile() == pos + 1;
+                if (writePosExact.getVolatile() == pos + 1)
+                    return true;
             return false;
         }
     }
 
+    // queue MUST not be in use when this is called
     public void reset()
     {
-        Link<E> head = readHead, cur = head;
+        Link<E> head = writeHead, cur = head;
         do
         {
             cur.readLap.fill(0);
             cur.writeLap.fill(0);
-            cur.offset = 0;
+            cur.lap = -1;
+            cur.offset = -1;
             cur.finishedReadingOffset = -1;
             cur = cur.next;
         } while (cur != head);
         readPosCache.setOrdered(0);
-        writePosExact.setVolatile(0);
+        readPosMin.setOrdered(0);
+        writePosExact.setOrdered(0);
+        readHead = writeHead;
+        writeHead.lap = 0;
+        writeHead.offset = 0;
     }
 
     public int capacity()

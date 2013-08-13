@@ -1,6 +1,6 @@
 package org.apache.cassandra.concurrent.test;
 
-public interface Buffer<E>
+public interface RingBuffer<E>
 {
 
     long offer(E val);

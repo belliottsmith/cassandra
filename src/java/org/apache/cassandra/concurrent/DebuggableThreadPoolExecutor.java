@@ -19,6 +19,8 @@ package org.apache.cassandra.concurrent;
 
 import java.util.concurrent.*;
 
+import org.apache.cassandra.concurrent.test.RingBufferBlockingQueue;
+import org.apache.cassandra.concurrent.test.LinkedPhasedRingBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -124,7 +126,7 @@ public class DebuggableThreadPoolExecutor extends ThreadPoolExecutor implements 
      */
     public static DebuggableThreadPoolExecutor createWithMaximumPoolSize(String threadPoolName, int size, int keepAliveTime, TimeUnit unit)
     {
-        return new DebuggableThreadPoolExecutor(size, Integer.MAX_VALUE, keepAliveTime, unit, new LinkedBlockingQueue<Runnable>(), new NamedThreadFactory(threadPoolName));
+        return new DebuggableThreadPoolExecutor(size, Integer.MAX_VALUE, keepAliveTime, unit, new RingBufferBlockingQueue<>(new LinkedPhasedRingBuffer<Runnable>(1 << 16)), new NamedThreadFactory(threadPoolName));
     }
 
     protected void onInitialRejection(Runnable task) {}

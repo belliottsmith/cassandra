@@ -1,8 +1,5 @@
 package org.apache.cassandra.concurrent.test;
 
-import org.apache.cassandra.concurrent.test.UnboundedLinkedWaitQueue;
-import org.apache.cassandra.concurrent.test.WaitNotice;
-import org.apache.cassandra.concurrent.test.WaitQueue;
 import org.apache.commons.lang.*;
 
 import java.util.Collection;
@@ -10,20 +7,20 @@ import java.util.Iterator;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-public final class BufferBlockingQueue<E> implements BlockingQueue<E>
+public class RingBufferBlockingQueue<E> implements BlockingQueue<E>
 {
 
-    private final Buffer<E> buffer;
+    private final RingBuffer<E> buffer;
     private final WaitQueue isNotEmpty;
 
-    public BufferBlockingQueue(Buffer<E> buffer)
+    public RingBufferBlockingQueue(RingBuffer<E> buffer)
     {
         this.buffer = buffer;
-        this.isNotEmpty = new UnboundedLinkedWaitQueue();
+        this.isNotEmpty = new LinkedWaitQueue();
     }
 
     @Override
-    public boolean offer(E e)
+    public final boolean offer(E e)
     {
         long pos = buffer.offer(e);
         if (pos != -1)
@@ -38,7 +35,7 @@ public final class BufferBlockingQueue<E> implements BlockingQueue<E>
     private static final int SPINCYCLE = 10;
 
     @Override
-    public E poll(long timeout, TimeUnit unit) throws InterruptedException
+    public final E poll(long timeout, TimeUnit unit) throws InterruptedException
     {
         long until = -1;
         int spin = 0;
@@ -55,7 +52,7 @@ public final class BufferBlockingQueue<E> implements BlockingQueue<E>
                     spin++;
             else
             {
-                WaitNotice wait = this.isNotEmpty.register();
+                WaitSignal wait = this.isNotEmpty.register();
                 if (null != (r = buffer.poll()))
                 {
                     wait.cancel();
@@ -71,19 +68,19 @@ public final class BufferBlockingQueue<E> implements BlockingQueue<E>
     }
 
     @Override
-    public int size()
+    public final int size()
     {
         return buffer.size();
     }
 
     @Override
-    public boolean isEmpty()
+    public final boolean isEmpty()
     {
         return buffer.isEmpty();
     }
 
     @Override
-    public boolean remove(Object o)
+    public final boolean remove(Object o)
     {
         return false;  //To change body of implemented methods use File | Settings | File Templates.
     }
@@ -95,13 +92,13 @@ public final class BufferBlockingQueue<E> implements BlockingQueue<E>
     }
 
     @Override
-    public int drainTo(Collection<? super E> c)
+    public final int drainTo(Collection<? super E> c)
     {
         return drainTo(c, Integer.MAX_VALUE);
     }
 
     @Override
-    public int drainTo(Collection<? super E> trg, int maxElements)
+    public final int drainTo(Collection<? super E> trg, int maxElements)
     {
         int count = 0;
         while (count < maxElements)
@@ -117,7 +114,7 @@ public final class BufferBlockingQueue<E> implements BlockingQueue<E>
     }
 
     @Override
-    public E poll()
+    public final E poll()
     {
         try
         {
@@ -131,11 +128,16 @@ public final class BufferBlockingQueue<E> implements BlockingQueue<E>
     }
 
     @Override
-    public E take() throws InterruptedException
+    public final E take() throws InterruptedException
     {
         return poll(Long.MAX_VALUE >> 1, TimeUnit.MILLISECONDS);
     }
 
+    @Override
+    public final void clear()
+    {
+        buffer.reset();
+    }
 
     @Override
     public void put(E e) throws InterruptedException
@@ -216,20 +218,9 @@ public final class BufferBlockingQueue<E> implements BlockingQueue<E>
     }
 
     @Override
-    public void clear()
-    {
-        throw new NotImplementedException();
-    }
-
-    @Override
     public boolean add(E e)
     {
         throw new NotImplementedException();
-    }
-
-    void reset()
-    {
-        buffer.reset();
     }
 
 }
