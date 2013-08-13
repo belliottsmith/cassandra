@@ -98,7 +98,7 @@ public class StressAction extends Thread
         void initRound(int round)
         {
             int index = round & mask;
-            roundCompletes.set(index, rounds.length());
+            roundCompletes.addAndGet(index, rounds.length());
         }
 
         final class Handle
@@ -149,7 +149,7 @@ public class StressAction extends Thread
         int itemsPerThread = client.getKeysPerThread();
         int modulo = client.getNumKeys() % threadCount;
         RateLimiter rateLimiter = RateLimiter.create(client.getMaxOpsPerSecond());
-        RateSynchroniser rateSynchroniser = new RateSynchroniser(threadCount, 50);
+        RateSynchroniser rateSynchroniser = new RateSynchroniser(threadCount, 10);
 
         // creating required type of the threads for the test
         for (int i = 0; i < threadCount; i++) {
@@ -234,11 +234,6 @@ public class StressAction extends Thread
 
         // if any consumer failed, set the return code to failure.
         returnCode = SUCCESS;
-//        if (producer.isAlive())
-//        {
-//            producer.interrupt(); // if producer is still alive it means that we had errors in the consumers
-//            returnCode = FAILURE;
-//        }
         for (Consumer consumer : consumers)
             if (consumer.getReturnCode() == FAILURE)
                 returnCode = FAILURE;
@@ -258,39 +253,6 @@ public class StressAction extends Thread
     {
         return returnCode;
     }
-
-    /**
-     * Produces exactly N items (awaits each to be consumed)
-     */
-//    private class Producer extends Thread
-//    {
-//        private volatile boolean stop = false;
-//
-//        public void run()
-//        {
-//            for (int i = 0; i < client.getNumKeys(); i++)
-//            {
-//                if (stop)
-//                    break;
-//
-//                try
-//                {
-//                    operations.put(createOperation(i % client.getNumDifferentKeys()));
-//                }
-//                catch (InterruptedException e)
-//                {
-//                    if (e.getMessage() != null)
-//                        System.err.println("Producer error - " + e.getMessage());
-//                    return;
-//                }
-//            }
-//        }
-//
-//        public void stopProducer()
-//        {
-//            stop = true;
-//        }
-//    }
 
     /**
      * Each consumes exactly N items from queue
@@ -330,9 +292,9 @@ public class StressAction extends Thread
                     {
                         if (--acquired < 0)
                         {
-                            rateLimiter.acquire(10);
-                            rateSynchroniser.acquire();
-                            acquired = 9;
+                            rateLimiter.acquire(20);
+//                            rateSynchroniser.acquire();
+                            acquired = 19;
                         }
                         createOperation((i * threadCount) + threadIndex).run(connection); // running job
                     }
@@ -365,9 +327,9 @@ public class StressAction extends Thread
                     {
                         if (--acquired < 0)
                         {
-                            rateLimiter.acquire(10);
-                            rateSynchroniser.acquire();
-                            acquired = 9;
+                            rateLimiter.acquire(20);
+//                            rateSynchroniser.acquire();
+                            acquired = 19;
                         }
                         createOperation((i * threadCount) + threadIndex).run(connection); // running job
                     }
