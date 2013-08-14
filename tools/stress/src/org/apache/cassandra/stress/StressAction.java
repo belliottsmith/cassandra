@@ -63,42 +63,28 @@ public class StressAction extends Thread
     private static final class RateSynchroniser
     {
 
-        final AtomicInteger round = new AtomicInteger();
-        final AtomicIntegerArray roundCompletes;
-        final AtomicIntegerArray rounds;
-        final int maxDelta;
-        final int mask;
-        final WaitQueue updated = new LinkedWaitQueue();
+        final AtomicIntegerArray permits;
+        final int[] rounds;
+        final int add;
+        final WaitQueue[] updated;
 
         public RateSynchroniser(int threads, int maxDelta)
         {
-            int ss = 1;
-            while (1 << ss < maxDelta)
-                ss += 1;
-            this.maxDelta = maxDelta = (1 << ss) - 2;
-            this.mask = maxDelta + 1;
-            roundCompletes = new AtomicIntegerArray(maxDelta + 2);
-            rounds = new AtomicIntegerArray(threads);
-            for (int i = 0 ; i < maxDelta ; i++)
-                initRound(i);
+            add = (int) Math.ceil(maxDelta / (float) threads);
+            permits = new AtomicIntegerArray(threads);
+            rounds = new int[threads];
+            updated = new WaitQueue[threads];
+            for (int i = 0 ; i < permits.length() ; i++)
+            {
+                rounds[i] = i;
+                permits.set(i, add);
+                updated[i] = new LinkedWaitQueue();
+            }
         }
 
         public Handle handle(int threadIndex)
         {
             return new Handle(threadIndex);
-        }
-
-        boolean complete(int round)
-        {
-            int index = round & mask;
-            int remaining = roundCompletes.decrementAndGet(index);
-            return remaining == 0;
-        }
-
-        void initRound(int round)
-        {
-            int index = round & mask;
-            roundCompletes.addAndGet(index, rounds.length());
         }
 
         final class Handle
@@ -111,19 +97,26 @@ public class StressAction extends Thread
 
             void acquire() throws InterruptedException
             {
-                final int myNextRound = rounds.incrementAndGet(thread);
-                if (complete(myNextRound - 1))
-                {
-                    initRound(round.get() + maxDelta);
-                    round.incrementAndGet();
-                    updated.signalAll();
-                }
+                final int thread = this.thread;
+                final int[] rounds = RateSynchroniser.this.rounds;
+                final AtomicIntegerArray permits = RateSynchroniser.this.permits;
+                final int add = RateSynchroniser.this.add;
 
-                if (myNextRound - round.get() < maxDelta)
+                int round = rounds[thread]++;
+                if (round == rounds.length)
+                    round = 0;
+
+                int r = permits.addAndGet(round, add);
+                if (r >= 0 && r < add)
+                    updated[round].signalOne();
+
+                rounds[thread] = round;
+                int remaining = permits.addAndGet(thread, -1);
+                if (remaining >= 0)
                     return;
 
-                final WaitSignal signal = updated.register();
-                if (myNextRound - round.get() == maxDelta)
+                final WaitSignal signal = updated[thread].register();
+                if (permits.get(thread) < 0)
                     signal.waitForever();
                 signal.cancel();
             }
@@ -148,7 +141,6 @@ public class StressAction extends Thread
 
         int itemsPerThread = client.getKeysPerThread();
         int modulo = client.getNumKeys() % threadCount;
-        RateLimiter rateLimiter = RateLimiter.create(client.getMaxOpsPerSecond());
         RateSynchroniser rateSynchroniser = new RateSynchroniser(threadCount, 10);
 
         // creating required type of the threads for the test
@@ -156,11 +148,9 @@ public class StressAction extends Thread
             if (i == threadCount - 1)
                 itemsPerThread += modulo; // last one is going to handle N + modulo items
 
+            RateLimiter rateLimiter = RateLimiter.create(client.getMaxOpsPerSecond() / threadCount);
             consumers[i] = new Consumer(threadCount, i, itemsPerThread, rateLimiter, rateSynchroniser);
         }
-
-//        Producer producer = new Producer();
-//        producer.start();
 
         // starting worker threads
         for (int i = 0; i < threadCount; i++)
@@ -180,8 +170,6 @@ public class StressAction extends Thread
         {
             if (stop)
             {
-//                producer.stopProducer();
-
                 for (Consumer consumer : consumers)
                     consumer.stopConsume();
 
@@ -293,7 +281,7 @@ public class StressAction extends Thread
                         if (--acquired < 0)
                         {
                             rateLimiter.acquire(20);
-//                            rateSynchroniser.acquire();
+                            rateSynchroniser.acquire();
                             acquired = 19;
                         }
                         createOperation((i * threadCount) + threadIndex).run(connection); // running job
@@ -328,7 +316,7 @@ public class StressAction extends Thread
                         if (--acquired < 0)
                         {
                             rateLimiter.acquire(20);
-//                            rateSynchroniser.acquire();
+                            rateSynchroniser.acquire();
                             acquired = 19;
                         }
                         createOperation((i * threadCount) + threadIndex).run(connection); // running job
