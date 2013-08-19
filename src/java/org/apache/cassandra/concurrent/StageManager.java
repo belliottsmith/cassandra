@@ -24,6 +24,7 @@ import org.apache.cassandra.concurrent.test.BlockingArrayQueue;
 import org.apache.cassandra.concurrent.test.LinkedPhasedBlockingQueue;
 import org.apache.cassandra.concurrent.test.RingBufferBlockingQueue;
 import org.apache.cassandra.concurrent.test.LinkedPhasedRingBuffer;
+import org.apache.cassandra.concurrent.test.TestQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -88,7 +89,7 @@ public class StageManager
         return new JMXEnabledThreadPoolExecutor(numThreads,
                                                 KEEPALIVE,
                                                 TimeUnit.SECONDS,
-                                                new LinkedPhasedBlockingQueue<Runnable>(),
+                                                TestQueue.<Runnable>testing(),
                                                 new NamedThreadFactory(stage.getJmxName()),
                                                 stage.getJmxType());
     }
@@ -98,7 +99,7 @@ public class StageManager
         return new JMXConfigurableThreadPoolExecutor(numThreads,
                                                      KEEPALIVE,
                                                      TimeUnit.SECONDS,
-                                                     new LinkedPhasedBlockingQueue<Runnable>(),
+                                                     TestQueue.<Runnable>testing(),
                                                      new NamedThreadFactory(stage.getJmxName()),
                                                      stage.getJmxType());
     }

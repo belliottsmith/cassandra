@@ -29,6 +29,7 @@ import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.concurrent.test.BlockingArrayQueue;
 import org.apache.cassandra.concurrent.test.LinkedPhasedBlockingQueue;
+import org.apache.cassandra.concurrent.test.TestQueue;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.index.SecondaryIndexManager;
 import org.apache.cassandra.io.util.DiskAwareRunnable;
@@ -85,7 +86,7 @@ public class Memtable
                                                                                           1,
                                                                                           Integer.MAX_VALUE,
                                                                                           TimeUnit.MILLISECONDS,
-                                                                                          new LinkedPhasedBlockingQueue<Runnable>(),
+                                                                                          TestQueue.<Runnable>testing(),
                                                                                           new NamedThreadFactory("MemoryMeter"))
     {
         @Override

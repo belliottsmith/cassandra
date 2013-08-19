@@ -30,6 +30,7 @@ import com.google.common.collect.*;
 import com.google.common.util.concurrent.RateLimiter;
 import org.apache.cassandra.concurrent.test.BlockingArrayQueue;
 import org.apache.cassandra.concurrent.test.LinkedPhasedBlockingQueue;
+import org.apache.cassandra.concurrent.test.TestQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -802,7 +803,7 @@ public class CompactionManager implements CompactionManagerMBean
 
         private CompactionExecutor(int threadCount, String name)
         {
-            this(threadCount, threadCount, name, new LinkedPhasedBlockingQueue<Runnable>());
+            this(threadCount, threadCount, name, TestQueue.<Runnable>testing());
         }
 
         public CompactionExecutor()

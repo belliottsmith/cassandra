@@ -23,6 +23,7 @@ import org.apache.cassandra.concurrent.test.BlockingArrayQueue;
 import org.apache.cassandra.concurrent.test.LinkedPhasedBlockingQueue;
 import org.apache.cassandra.concurrent.test.RingBufferBlockingQueue;
 import org.apache.cassandra.concurrent.test.LinkedPhasedRingBuffer;
+import org.apache.cassandra.concurrent.test.TestQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,7 +83,7 @@ public class DebuggableThreadPoolExecutor extends ThreadPoolExecutor implements 
 
     public DebuggableThreadPoolExecutor(String threadPoolName, int priority)
     {
-        this(1, Integer.MAX_VALUE, TimeUnit.SECONDS, new LinkedPhasedBlockingQueue<Runnable>(), new NamedThreadFactory(threadPoolName, priority));
+        this(1, Integer.MAX_VALUE, TimeUnit.SECONDS, TestQueue.<Runnable>testing(), new NamedThreadFactory(threadPoolName, priority));
     }
 
     public DebuggableThreadPoolExecutor(int corePoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> queue, ThreadFactory factory)
@@ -128,7 +129,7 @@ public class DebuggableThreadPoolExecutor extends ThreadPoolExecutor implements 
      */
     public static DebuggableThreadPoolExecutor createWithMaximumPoolSize(String threadPoolName, int size, int keepAliveTime, TimeUnit unit)
     {
-        return new DebuggableThreadPoolExecutor(size, Integer.MAX_VALUE, keepAliveTime, unit, new LinkedPhasedBlockingQueue<Runnable>(), new NamedThreadFactory(threadPoolName));
+        return new DebuggableThreadPoolExecutor(size, Integer.MAX_VALUE, keepAliveTime, unit, TestQueue.<Runnable>testing(), new NamedThreadFactory(threadPoolName));
     }
 
     protected void onInitialRejection(Runnable task) {}

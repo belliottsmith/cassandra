@@ -38,6 +38,7 @@ import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.concurrent.test.BlockingArrayQueue;
 import org.apache.cassandra.concurrent.test.LinkedPhasedBlockingQueue;
+import org.apache.cassandra.concurrent.test.TestQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -111,7 +112,7 @@ public class HintedHandOffManager implements HintedHandOffManagerMBean
     private final ThreadPoolExecutor executor = new JMXEnabledThreadPoolExecutor(DatabaseDescriptor.getMaxHintsThread(),
                                                                                  Integer.MAX_VALUE,
                                                                                  TimeUnit.SECONDS,
-                                                                                 new LinkedPhasedBlockingQueue<Runnable>(),
+                                                                                 TestQueue.<Runnable>testing(),
                                                                                  new NamedThreadFactory("HintedHandoff", Thread.MIN_PRIORITY),
                                                                                  "internal");
 

@@ -27,6 +27,7 @@ import javax.management.ObjectName;
 
 import org.apache.cassandra.concurrent.test.BlockingArrayQueue;
 import org.apache.cassandra.concurrent.test.LinkedPhasedBlockingQueue;
+import org.apache.cassandra.concurrent.test.TestQueue;
 import org.apache.cassandra.metrics.ThreadPoolMetrics;
 
 /**
@@ -42,17 +43,17 @@ public class JMXEnabledThreadPoolExecutor extends DebuggableThreadPoolExecutor i
 
     public JMXEnabledThreadPoolExecutor(String threadPoolName)
     {
-        this(1, Integer.MAX_VALUE, TimeUnit.SECONDS, new LinkedPhasedBlockingQueue<Runnable>(), new NamedThreadFactory(threadPoolName), "internal");
+        this(1, Integer.MAX_VALUE, TimeUnit.SECONDS, TestQueue.<Runnable>testing(), new NamedThreadFactory(threadPoolName), "internal");
     }
 
     public JMXEnabledThreadPoolExecutor(String threadPoolName, String jmxPath)
     {
-        this(1, Integer.MAX_VALUE, TimeUnit.SECONDS, new LinkedPhasedBlockingQueue<Runnable>(), new NamedThreadFactory(threadPoolName), jmxPath);
+        this(1, Integer.MAX_VALUE, TimeUnit.SECONDS, TestQueue.<Runnable>testing(), new NamedThreadFactory(threadPoolName), jmxPath);
     }
 
     public JMXEnabledThreadPoolExecutor(String threadPoolName, int priority)
     {
-        this(1, Integer.MAX_VALUE, TimeUnit.SECONDS, new LinkedPhasedBlockingQueue<Runnable>(), new NamedThreadFactory(threadPoolName, priority), "internal");
+        this(1, Integer.MAX_VALUE, TimeUnit.SECONDS, TestQueue.<Runnable>testing(), new NamedThreadFactory(threadPoolName, priority), "internal");
     }
 
     public JMXEnabledThreadPoolExecutor(int corePoolSize,
