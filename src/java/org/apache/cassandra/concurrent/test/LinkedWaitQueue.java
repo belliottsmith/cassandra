@@ -101,41 +101,47 @@ public class LinkedWaitQueue implements WaitQueue
 
         final Node node = new Node(this, Thread.currentThread());
 
-        Node tl = tail;
         while (true)
         {
-            if (nextUpdater.compareAndSet(tl, null, node))
+            Node tl = tail();
+            if (tl.next == null && nextUpdater.compareAndSet(tl, null, node))
             {
                 tail = node;
                 break;
-            }
-            while (tl.next != null)
-            {
-                Node nxt = tl.next;
-                if (nxt == tl)
-                {
-                    tl = tail;
-                    nxt = tl.next;
-                    if (nxt == tl)
-                        resetTail();
-                }
-                else
-                    tl = tl.next;
             }
         }
 
         return node;
     }
 
-    private void resetTail()
+    private final Node tail()
+    {
+        Node tl = tail, nxt;
+        while ((nxt = tl.next) != null)
+        {
+            if (nxt == tl)
+            {
+                tl = tail;
+                nxt = tl.next;
+                if (nxt == tl)
+                    tl = refindTail();
+            }
+            else tl = tl.next;
+        }
+        return tl;
+    }
+
+    private final Node refindTail()
     {
         Node hd = head, nxt;
         while ((nxt = hd.next) != null)
         {
             if (nxt == hd)
                 hd = head;
+            else
+                hd = nxt;
         }
-        tail = hd;
+        return hd;
     }
 
     @Override
