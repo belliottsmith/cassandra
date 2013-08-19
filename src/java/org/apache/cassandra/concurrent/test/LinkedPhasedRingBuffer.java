@@ -4,11 +4,13 @@ import java.util.Iterator;
 import java.util.concurrent.locks.ReentrantLock;
 
 // TODO : allow safe wrapping of laps, so no total limit on safe number of events to process
-// TODO : tidying up of values returned from the buffer
+// TODO : iterative tidying up of values returned from the buffer
+// TODO : try to increase reader throughput
+// TODO : try to remove locks
 public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
 {
 
-    private static final long UPDATE_MIN_POS_MASK = Math.max(255, Runtime.getRuntime().availableProcessors() * 32);
+    private static final long UPDATE_MIN_POS_MASK = Math.max(255, firstPow2(Runtime.getRuntime().availableProcessors() * 32) - 1);
 
     private final PaddedLong readPosCache = new PaddedLong();
     private final PaddedLong readPosMin = new PaddedLong();
@@ -78,10 +80,6 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
                 throw new IllegalArgumentException("Maximum capacity must be greater than or equal to twice the linkBufferSize");
             writeLimit.setVolatile(1 << sizeShift);
         }
-        else
-        {
-            writeLimit.setVolatile(Long.MAX_VALUE);
-        }
 
         this.maxCapacity = maxCapacity;
     }
@@ -117,11 +115,12 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
         return expectedOffset(maybeNextOffset - 1, sizeMask) == offset;
     }
 
-    private final boolean findReadNext(ReadSnap<E> readSnap, int sizeMask)
+    // reads state from readSnap
+    private final boolean findNextUnreadLink(ReadSnap<E> readSnap, int sizeMask)
     {
         Link<E> prev = readSnap.link;
         if (prev == null)
-            return findReadFirst(readSnap, sizeMask);
+            return findFirstUnreadLink(readSnap, sizeMask);
         long wantOffset = expectedOffset(readSnap.position, sizeMask) + sizeMask + 1;
         Link<E> next = prev.next;
         long offset = next.offset;
@@ -129,11 +128,11 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
         if (offset < wantOffset)
             return false;
         if (offset > wantOffset)
-            return findReadFirst(readSnap, sizeMask);
+            return findFirstUnreadLink(readSnap, sizeMask);
         if (offset != next.offset)
-            return findReadFirst(readSnap, sizeMask);
+            return findFirstUnreadLink(readSnap, sizeMask);
         if (offset < readPosMin.getVolatile())
-            return findReadFirst(readSnap, sizeMask);
+            return findFirstUnreadLink(readSnap, sizeMask);
         readSnap.lap = lap;
         readSnap.position = offset;
         readSnap.offset = offset;
@@ -141,7 +140,8 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
         return true;
     }
 
-    private final boolean findReadFirst(ReadSnap<E> readSnap, int sizeMask)
+    // ignores/overwrites state in readSnap
+    private final boolean findFirstUnreadLink(ReadSnap<E> readSnap, int sizeMask)
     {
         restart: while (true)
         {
@@ -164,7 +164,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
             if (expectedOffset > offset)
             {
                 // attempt to move head forwards one...
-                if (!updateHead(head, offset, sizeMask))
+                if (!updateReadHead(head, offset, sizeMask))
                     return false;
             }
             else if (expectedOffset == offset)
@@ -184,7 +184,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
     // result of false indicates the head parameter was not stale, i.e. we should be
     // able to update the head pointer safely, but that head.next is not the correct new head;
     // this indicates we have caught up with the writers and reached the end of the buffer
-    private boolean updateHead(Link<E> head, long offset, int sizeMask)
+    private boolean updateReadHead(Link<E> head, long offset, int sizeMask)
     {
         boolean fail = false;
         boolean updatedHead = false;
@@ -203,7 +203,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
             }
         }
         readLock.unlock();
-//        head.clear(offset);
+        head.clear(offset);
         if (updatedHead)
             notFull.signalAll();
         if (fail)
@@ -214,24 +214,24 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
     private static final int END_OF_BUFFER = -1;
     private static final int RETRY = -2;
 
-    private final int findFirstUnread(ReadSnap<E> readSnap, int sizeMask)
+    private final int findFirstUnreadIndex(ReadSnap<E> readSnap, int sizeMask)
     {
         final int readIndex = index(readSnap.position, sizeMask);
-        return findFirstUnread(readSnap.link, readIndex, readSnap.lap, sizeMask);
+        return findFirstUnreadIndex(readSnap.link, readIndex, readSnap.lap, sizeMask);
     }
-    private final int findFirstUnread(Link<E> readFrom, int readIndex, int wantLap, int sizeMask)
+    private final int findFirstUnreadIndex(Link<E> readFrom, int fromIndex, int wantLap, int sizeMask)
     {
         while (true)
         {
-            if (readIndex > sizeMask)
+            if (fromIndex > sizeMask)
                 return RETRY;
 
-            int haveReadLap = readFrom.readLap.getVolatile(readIndex);
+            int haveReadLap = readFrom.readLap.getVolatile(fromIndex);
             if (haveReadLap == wantLap)
             {
-                int haveWriteLap = readFrom.writeLap.get(readIndex);
+                int haveWriteLap = readFrom.writeLap.get(fromIndex);
                 if (haveWriteLap == wantLap + 1)
-                    return readIndex;
+                    return fromIndex;
                 else if (haveWriteLap == wantLap)
                     return END_OF_BUFFER;
                 else
@@ -240,7 +240,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
             else if (haveReadLap < wantLap)
                 return END_OF_BUFFER;
 
-            readIndex++;
+            fromIndex++;
         }
 
     }
@@ -263,7 +263,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
         restart: while (true)
         {
 
-            if (!findReadFirst(readSnap, sizeMask))
+            if (!findFirstUnreadLink(readSnap, sizeMask))
                 return null;
 
             final Link<E> readFrom = readSnap.link;
@@ -272,7 +272,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
 
             while (true)
             {
-                readIndex = findFirstUnread(readFrom, readIndex, wantLap, sizeMask);
+                readIndex = findFirstUnreadIndex(readFrom, readIndex, wantLap, sizeMask);
                 if (readIndex >= 0)
                 {
                     final E r = readFrom.ring.get(readIndex);
@@ -305,6 +305,65 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
     public WaitSignal notFull()
     {
         return notFull.register();
+    }
+
+    public long offer(E val)
+    {
+
+        if (val == null)
+            throw new IllegalArgumentException();
+
+        final int sizeMask = this.sizeMask;
+        final boolean isCapped = maxCapacity > 0;
+
+        while (true)
+        {
+
+            boolean securedWritePos;
+            long writePos;
+
+            if (isCapped)
+            {
+
+                securedWritePos = false;
+
+                long maxWritePos = this.writeLimit.getVolatile();
+                writePos = writePosExact.get();
+                while (writePos < maxWritePos)
+                {
+                    securedWritePos = writePosExact.cas(writePos, writePos + 1);
+                    if (securedWritePos)
+                        break;
+                    writePos = writePosExact.getVolatile();
+                }
+
+                if (writePos > maxWritePos)
+                    continue;
+
+            }
+            else
+            {
+
+                securedWritePos = true;
+                writePos = writePosExact.incrementAndReturnOrig();
+
+            }
+
+            final long expectedOffset = expectedOffset(writePos, sizeMask);
+
+            Link<E> writeTo = findWriteHead(expectedOffset, securedWritePos);
+            if (writeTo == null)
+                return -1;
+
+            if (!securedWritePos)
+                continue;
+
+            final int writeIndex = index(writePos, sizeMask);
+            writeTo.ring.setOrdered(writeIndex, val);
+            writeTo.writeLap.setVolatile(writeIndex, writeTo.lap + 1);
+            return writePos;
+        }
+
     }
 
     private final Link<E> findWriteHead(long expectedOffset, boolean secured)
@@ -361,7 +420,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
                                 next.lap++;
                                 if (maxCapacity > 0)
                                     writeLimit.setOrdered(expectedOffset + (1 << sizeShift));
-//                                next.clear(next.offset);
+                                next.clear(next.offset);
                                 next.offset = expectedOffset;
                                 writeHead = writeTo = next;
 
@@ -379,45 +438,6 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
                     writeTo = writeTo.next;
 
             return writeTo;
-        }
-
-    }
-
-    public long offer(E val)
-    {
-
-        if (val == null)
-            throw new IllegalArgumentException();
-
-        final int sizeMask = this.sizeMask;
-
-        while (true)
-        {
-
-            long maxWritePos = this.writeLimit.getVolatile();
-            long writePos = writePosExact.get();
-            while (writePos < maxWritePos)
-                if (writePosExact.cas(writePos, writePos + 1))
-                    break;
-                else
-                    writePos = writePosExact.getVolatile();
-
-            final long expectedOffset = expectedOffset(writePos, sizeMask);
-
-            if (writePos > maxWritePos)
-                continue;
-
-            Link<E> writeTo = findWriteHead(expectedOffset, writePos < maxWritePos);
-            if (writeTo == null)
-                return -1;
-
-            if (writePos == maxWritePos)
-                continue;
-
-            final int writeIndex = index(writePos, sizeMask);
-            writeTo.ring.setOrdered(writeIndex, val);
-            writeTo.writeLap.setVolatile(writeIndex, writeTo.lap + 1);
-            return writePos;
         }
 
     }
@@ -446,7 +466,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
         final long expectedOffset = expectedOffset(pos, sizeMask);
         final ReadSnap<E> readSnap = new ReadSnap<>();
 
-        if (!findReadFirst(readSnap, sizeMask))
+        if (!findFirstUnreadLink(readSnap, sizeMask))
             return null;
 
         Link<E> readFrom = readSnap.link;
@@ -476,7 +496,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
         {
             final int sizeMask = this.sizeMask;
             final ReadSnap<E> readSnap = new ReadSnap<>();
-            if (!findReadFirst(readSnap, sizeMask))
+            if (!findFirstUnreadLink(readSnap, sizeMask))
                 return true;
             long pos = writePosExact.getVolatile() - 1;
             if (pos < 0)
@@ -515,7 +535,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
         next: while (true)
         {
 
-            if (!findReadNext(readSnap, sizeMask))
+            if (!findNextUnreadLink(readSnap, sizeMask))
                 return -1;
 
             final Link<E> readFrom = readSnap.link;
@@ -524,7 +544,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
 
             while (true)
             {
-                readIndex = findFirstUnread(readFrom, readIndex, wantLap, sizeMask);
+                readIndex = findFirstUnreadIndex(readFrom, readIndex, wantLap, sizeMask);
                 if (readIndex >= 0)
                 {
                     final E r = readFrom.ring.get(readIndex);
@@ -561,7 +581,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
                 next: while (true)
                 {
 
-                    if (!findReadNext(readSnap, sizeMask))
+                    if (!findNextUnreadLink(readSnap, sizeMask))
                         return null;
 
                     final Link<E> readFrom = readSnap.link;
@@ -570,7 +590,7 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
 
                     while (true)
                     {
-                        readIndex = findFirstUnread(readFrom, readIndex, wantLap, sizeMask);
+                        readIndex = findFirstUnreadIndex(readFrom, readIndex, wantLap, sizeMask);
                         if (readIndex >= 0)
                         {
                             final E r = readFrom.ring.get(readIndex);
@@ -626,9 +646,9 @@ public final class LinkedPhasedRingBuffer<E> implements RingBuffer<E>
             long readPos;
             while (true)
             {
-                if (!findReadFirst(readSnap, sizeMask))
+                if (!findFirstUnreadLink(readSnap, sizeMask))
                     return 0;
-                int readIndex = findFirstUnread(readSnap, sizeMask);
+                int readIndex = findFirstUnreadIndex(readSnap, sizeMask);
                 switch (readIndex)
                 {
                     case END_OF_BUFFER:
