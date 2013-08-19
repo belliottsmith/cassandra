@@ -9,6 +9,8 @@ final class IntervalTypeMeasurements
 {
     final EnumMap<MeasurementIntervalType, List<Measurement>> map = new EnumMap<>(MeasurementIntervalType.class);
 
+    private static final Aggregate NULL = new Aggregate("n/a", "n/a", "n/a");
+
     void add(MeasurementIntervalType intervalType, Measurement measurement)
     {
         if (!map.containsKey(intervalType))
@@ -46,6 +48,8 @@ final class IntervalTypeMeasurements
 
     Aggregate total(MeasurementIntervalType intervalType)
     {
+        if (map.get(intervalType) == null)
+            return NULL;
         final Measurement total = total(map.get(intervalType));
         final String gigOpsIn = String.format("%.2f GOps ", total.getTotalGOpsIn());
         final String gigOpsOut = String.format("%.2f GOps ", total.getTotalGOpsOut());
@@ -55,6 +59,8 @@ final class IntervalTypeMeasurements
 
     Aggregate average(MeasurementIntervalType intervalType)
     {
+        if (map.get(intervalType) == null)
+            return NULL;
         final Measurement total = total(map.get(intervalType));
         final String opsInRate = String.format("%.2f MOp/s", total.getInRateMops());
         final String opsOutRate = String.format("%.2f MOp/s", total.getOutRateMops());
@@ -64,6 +70,8 @@ final class IntervalTypeMeasurements
 
     Aggregate stdev(MeasurementIntervalType intervalType)
     {
+        if (map.get(intervalType) == null)
+            return NULL;
         final Measurement total = stdev(map.get(intervalType));
         final String opsInRate = String.format("%.2f MOp/s", total.getInRateMops());
         final String opsOutRate = String.format("%.2f MOp/s", total.getOutRateMops());
@@ -155,6 +163,8 @@ final class IntervalTypeMeasurements
 
     Aggregate peak(MeasurementIntervalType intervalType)
     {
+        if (map.get(intervalType) == null)
+            return NULL;
         List<Measurement> measurements = map.get(intervalType);
         double opsIn = 0, opsOut = 0, cyclesPerOp = Double.MAX_VALUE;
         for (Measurement m : measurements)

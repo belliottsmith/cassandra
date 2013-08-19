@@ -43,12 +43,17 @@ final class Measurements
         for (int i = 0; i < Benchmark.THREADS.length; i++)
         {
             int offset = 2 + (i * 3);
-            results[0 + offset][0] = Benchmark.THREADS[i] + " Threads";
-            results[1 + offset][0] = Benchmark.THREADS[i] + " Threads";
+            results[0 + offset][0] = threadCountIndicator(i) + " Threads";
+            results[1 + offset][0] = threadCountIndicator(i) + " Threads";
             results[0 + offset][1] = "Ops In";
             results[1 + offset][1] = "Ops Out";
             results[2 + offset][1] = "Op Cost";
         }
+    }
+
+    static String threadCountIndicator(int i)
+    {
+        return Benchmark.THREADS[i] == 1 ? "0.5" : Integer.toString(Benchmark.THREADS[i] / 2);
     }
 
     void addResult(String[][] results, int row, Test test, AggregateType type)

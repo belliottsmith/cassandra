@@ -1,6 +1,7 @@
 package org.apache.cassandra.concurrent.test.bench;
 
 import com.sun.management.OperatingSystemMXBean;
+import org.cliffc.high_scale_lib.Counter;
 
 import java.lang.management.ManagementFactory;
 import java.util.Arrays;
@@ -14,16 +15,14 @@ public class Benchmark
 {
 
     static final double CLOCK_RATE = 2.2d;
-    static final int REPEATS = 8;
+    static final int REPEATS = 3;
     static final int WARMUPS = 0;
-    // number of threads in/out (i.e. total thread count is double)
-//    static final int[] THREADS = new int[]{1, 2, 4, 8};
-    static final int[] THREADS = new int[]{4};
-    static final Test[] TEST = new Test[]{Test.LPRB};
+    static final int[] THREADS = new int[]{ 1, 2, 4 };
+    static final Test[] TEST = new Test[]{ Test.SLOW, Test.LBQ };
     static final int TEST_RUNTIME_SECONDS = 10;
     static final int OP_GROUPING = 100;
     static final int INSPECT_INTERVAL_MILLIS = 100;
-    static final int BUFFER_SIZE = 1 << 14;
+    static final int BUFFER_SIZE = 1 << 24;
     static final int MAX_OP_DELTA = (int) (BUFFER_SIZE * 1.1d);
     static final boolean REUSE = true;
     static final boolean INTERLEAVE_TESTS = false;
@@ -101,7 +100,7 @@ public class Benchmark
         int eta = calcTimeRemainingSeconds(measurements, testsRemaining, totalTests);
         final String formatstr = "ETA %ds. %s %s (Round %d) with %d threads";
         final String runType = warmup ? "Warming up" : "Benchmarking";
-        System.out.println(String.format(formatstr, eta, runType, test, round + 1, threadCount * 2));
+        System.out.println(String.format(formatstr, eta, runType, test, round + 1, threadCount));
         new OneBench(test, threadCount, measurements).run();
         testsRemaining[Arrays.asList(TEST).indexOf(test)]--;
     }
@@ -136,83 +135,114 @@ public class Benchmark
     static final class OneBench
     {
 
-        final int threadCount;
+        final int totalThreadCount;
         final Test test;
         final IntervalTypeMeasurements measurements;
 
-        public OneBench(Test test, int threadCount, Measurements measurements)
+        public OneBench(Test test, int totalThreadCount, Measurements measurements)
         {
-            this.threadCount = threadCount;
+            this.totalThreadCount = totalThreadCount;
             this.test = test;
-            this.measurements = measurements.get(test).get(threadCount);
+            this.measurements = measurements.get(test).get(totalThreadCount);
         }
 
         void run() throws InterruptedException
         {
 
+            if (test == Test.DIS && totalThreadCount == 1)
+            {
+                System.out.println("Skipping single threaded disruptor pass as not safe to block disruptor workers");
+                return;
+            }
+
             // gc to try to ensure level playing field
             System.gc();
 
-            final ExecutorService exec = test.build(threadCount);
+            final Counter counter = new Counter();
+            final OpLimiter consumerLimiter, producerLimiter;
+            final OpAlternator alternator = new OpAlternator(2000);
+            final int threadCount;
+            if (totalThreadCount == 1)
+            {
+                producerLimiter = alternator.first();
+                consumerLimiter = alternator.second();
+                threadCount = 1;
+            }
+            else
+            {
+                final OpDeltaLimiter deltaLimiter = new OpDeltaLimiter(MAX_OP_DELTA);
+                producerLimiter = deltaLimiter.producer();
+                consumerLimiter = deltaLimiter.consumer();
+                threadCount = totalThreadCount / 2;
+            }
 
-            final OpDeltaLimiter limit = new OpDeltaLimiter(MAX_OP_DELTA);
+            final ExecutorService exec = test.executor(threadCount);
+
             // setup producers / consumers
+            final AtomicBoolean done = new AtomicBoolean(false);
+            final AtomicBoolean fail = new AtomicBoolean(false);
             final AtomicLong puts = new AtomicLong(0);
             final AtomicLong gets = new AtomicLong(0);
-            final Runnable runadd = new Runnable()
+            final Runnable runStart = new Runnable()
             {
                 @Override
                 public void run()
                 {
-                    gets.addAndGet(OP_GROUPING);
-                    limit.finish(OP_GROUPING);
+                    try
+                    {
+                        consumerLimiter.authorize(OP_GROUPING);
+                    } catch (InterruptedException e)
+                    {
+                        fail.set(true);
+                        done.set(true);
+                        return;
+                    }
+                    counter.increment();
                 }
             };
-            final AtomicBoolean done = new AtomicBoolean(false);
-            final Thread[] threads = new Thread[this.threadCount];
+            final Runnable runMiddle = new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    counter.increment();
+                }
+            };
+            final Runnable runEnd = new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    consumerLimiter.complete();
+                    counter.increment();
+                    gets.addAndGet(OP_GROUPING);
+                }
+            };
+            final Thread[] threads = new Thread[threadCount];
             for (int i = 0; i < threads.length; i++)
                 threads[i] = new Thread(new Runnable()
                 {
                     @Override
                     public void run()
                     {
-                        int notCounted = 0;
-                        int rejected = 0;
-                        while (!done.get() || notCounted != 0)
+                        while (!done.get())
                         {
-                            int despatched = 0;
-                            boolean authorized = false;
                             try
                             {
-                                if (notCounted != 0)
+                                producerLimiter.authorize(OP_GROUPING);
+                                exec.execute(runStart);
+                                for (int i = 2; i < OP_GROUPING; i++)
                                 {
-                                    final int addGets = notCounted;
-                                    exec.execute(new Runnable(){
-                                        @Override
-                                        public void run()
-                                        {
-                                            gets.addAndGet(addGets);
-                                        }
-                                    });
-                                    notCounted = 0;
+                                    exec.execute(runMiddle);
                                 }
-                                limit.authorize(OP_GROUPING);
-                                authorized = true;
-                                for (int i = 1; i < OP_GROUPING; i++)
-                                {
-                                    exec.execute(NOOP);
-                                    despatched++;
-                                }
-                                exec.execute(runadd);
-                                despatched++;
+                                exec.execute(runEnd);
+                                producerLimiter.complete();
                                 puts.addAndGet(OP_GROUPING);
                             } catch (RejectedExecutionException e)
                             {
-                                notCounted += despatched;
-                                if (authorized)
-                                    limit.finish(OP_GROUPING - despatched);
-                                if ((++rejected) % 1000 == 0)
-                                    System.err.println(rejected + " rejections");
+                                e.printStackTrace();
+                                fail.set(true);
+                                done.set(true);
                             } catch (InterruptedException e)
                             {
                                 e.printStackTrace();
@@ -233,10 +263,10 @@ public class Benchmark
                 threads[i].start();
 
             // poll progress
-            for (int i = 0; i < laps; i++)
+            for (int i = 0; i < laps && !fail.get() ; i++)
             {
                 Thread.sleep(INSPECT_INTERVAL_MILLIS);
-                long putopc = puts.get(), getopc = gets.get(), nowCpu = cpuTime(), nowTime = System.currentTimeMillis();
+                long putopc = puts.get(), getopc = counter.get(), nowCpu = cpuTime(), nowTime = System.currentTimeMillis();
                 Measurement m = new Measurement(
                         putopc - lastputopc,
                         getopc - lastgetopc,
@@ -250,16 +280,27 @@ public class Benchmark
                 lastCpu = nowCpu;
                 lastTime = nowTime;
             }
+            alternator.close();
 
             // tidy up
             done.set(true);
             for (int i = 0; i < threads.length; i++)
                 while (threads[i].isAlive())
                     threads[i].join(100);
+
+            if (fail.get())
+            {
+                System.out.println("Aborting...");
+                exec.shutdownNow();
+                System.out.println("Awaiting termination...");
+                exec.awaitTermination(7, TimeUnit.DAYS);
+                return;
+            }
+
             long elapsedMillisDonePuts = (System.currentTimeMillis() - startTime);
             long elapsedCpuDonePuts = cpuTime() - startCpu;
             Measurement donePuts = new Measurement(
-                    puts.get(), gets.get(),
+                    puts.get(), counter.get(),
                     elapsedCpuDonePuts, elapsedMillisDonePuts);
             measurements.add(MeasurementIntervalType.DONE_PUTS, donePuts);
 
@@ -272,16 +313,15 @@ public class Benchmark
             long elapsedMillisTotal = (System.currentTimeMillis() - startTime);
             long elapsedCpuTotal = cpuTime() - startCpu;
             Measurement total = new Measurement(
-                    puts.get(), gets.get(),
+                    puts.get(), counter.get(),
                     elapsedCpuTotal, elapsedMillisTotal);
             measurements.add(MeasurementIntervalType.TOTAL, total);
             if (PRINT_INSPECTIONS | PRINT_PER_TEST_RESULTS)
             {
                 total.print(test, MeasurementIntervalType.TOTAL);
-                if (total.opsIn != total.opsOut)
-                    System.out.println(String.format("%s: opsIn mismatches opsOut: %d vs %d", test, puts.get(), gets.get()));
             }
-
+            if (total.opsIn != total.opsOut && test != Test.DIS)
+                System.err.println(String.format("%s: opsIn mismatches opsOut: %d vs %d", test, puts.get(), gets.get()));
         }
 
     }

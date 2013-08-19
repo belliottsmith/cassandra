@@ -5,6 +5,7 @@ import org.apache.cassandra.concurrent.test.DisruptorExecutorService;
 import org.apache.cassandra.concurrent.test.LinkedPhasedBlockingQueue;
 import org.apache.cassandra.concurrent.test.LockFreeLinkedBlockingQueue;
 import org.apache.cassandra.concurrent.test.PhasedBlockingQueue;
+import org.apache.cassandra.concurrent.test.SlowLinkedBlockingQueue;
 
 import java.lang.reflect.Constructor;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -22,6 +23,7 @@ enum Test
     LFQ(LockFreeLinkedBlockingQueue.class),
     LPRB(LinkedPhasedBlockingQueue.class),
     PRB(PhasedBlockingQueue.class),
+    SLOW(SlowLinkedBlockingQueue.class),
     DIS(true);
 
     final Class<? extends BlockingQueue> clazz;
@@ -50,7 +52,7 @@ enum Test
         reuse = true;
     }
 
-    ExecutorService build(int threads)
+    ExecutorService executor(int threads)
     {
         BlockingQueue<Runnable> queue = getQueue();
         if (queue != null)

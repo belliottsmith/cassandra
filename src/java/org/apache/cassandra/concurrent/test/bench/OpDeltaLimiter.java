@@ -4,10 +4,12 @@ import org.apache.cassandra.concurrent.test.LinkedWaitQueue;
 import org.apache.cassandra.concurrent.test.PaddedInt;
 import org.apache.cassandra.concurrent.test.WaitSignal;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 public class OpDeltaLimiter
 {
 
-    private final PaddedInt excessOps = new PaddedInt();
+    private final AtomicInteger excessOps = new AtomicInteger();
     private final int maxExcessOps;
     private final LinkedWaitQueue freeOps = new LinkedWaitQueue();
 
@@ -16,27 +18,58 @@ public class OpDeltaLimiter
         this.maxExcessOps = maxExcessOps;
     }
 
-    public void authorize(int ops) throws InterruptedException
+    public Producer producer()
     {
-        while (true)
-        {
-            int excess = excessOps.getVolatile();
-            int newExcess = excess + ops;
-            if (newExcess < maxExcessOps)
-                if (excessOps.cas(excess, newExcess))
-                    return;
-                else
-                    continue;
-            WaitSignal wait = freeOps.register();
-            if (excessOps.getVolatile() + ops >= maxExcessOps)
-                wait.waitForever();
-        }
+        return new Producer();
     }
 
-    public void finish(int ops)
+    public Consumer consumer()
     {
-        excessOps.addAndGet(-ops);
-        freeOps.signalAll();
+        return new Consumer();
+    }
+
+    final class Producer implements OpLimiter
+    {
+
+        public void authorize(int ops) throws InterruptedException
+        {
+            while (true)
+            {
+                int excess = excessOps.get();
+                int newExcess = excess + ops;
+                if (newExcess < maxExcessOps)
+                    if (excessOps.compareAndSet(excess, newExcess))
+                        return;
+                    else
+                        continue;
+                WaitSignal wait = freeOps.register();
+                if (excessOps.get() + ops >= maxExcessOps)
+                    wait.waitForever();
+                wait.cancel();
+            }
+        }
+
+        @Override
+        public void complete()
+        {
+        }
+
+    }
+
+    final class Consumer implements OpLimiter
+    {
+
+        public void authorize(int ops) throws InterruptedException
+        {
+            excessOps.addAndGet(-ops);
+            freeOps.signalAll();
+        }
+
+        @Override
+        public void complete()
+        {
+        }
+
     }
 
 }
