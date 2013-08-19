@@ -29,7 +29,7 @@ public final class LockFreeLinkedBlockingQueue<E> implements BlockingQueue<E>
     // TODO: ensure no bugbears with stale tails wrapping around to self, or other assumptions can reach end of chain without incident
 
     // first item is a "dummy" but is constantly shifting to the most recently returned item (or currently returning item)
-    private volatile Node<E> head = new Node<E>(null);
+    private volatile Node<E> head = new Node<>(null);
     // tail is only a time saver, not an accurate pointer to the tail; always follow it until .next = null to find actual tail
     private volatile Node<E> tail = head;
     private final WaitQueue isNotEmpty;
@@ -43,7 +43,7 @@ public final class LockFreeLinkedBlockingQueue<E> implements BlockingQueue<E>
     public boolean offer(E e)
     {
 
-        final Node<E> node = new Node<E>(e);
+        final Node<E> node = new Node<>(e);
 
         while (true)
         {
@@ -224,6 +224,7 @@ public final class LockFreeLinkedBlockingQueue<E> implements BlockingQueue<E>
             {
                 accum.clear();
                 hd = head;
+                continue;
             }
             hd = nxt;
             E payload = hd.payload;
@@ -321,7 +322,7 @@ public final class LockFreeLinkedBlockingQueue<E> implements BlockingQueue<E>
     @Override
     public void clear()
     {
-        throw new NotImplementedException();
+        tail = head = new Node<E>(null);
     }
 
     @Override
