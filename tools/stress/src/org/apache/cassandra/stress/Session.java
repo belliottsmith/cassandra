@@ -540,7 +540,7 @@ public class Session implements Serializable
 
     public int getTotalKeysLength()
     {
-        return Integer.toString(numDifferentKeys).length();
+        return Integer.toString(numKeys).length();
     }
 
     public ConsistencyLevel getConsistencyLevel()

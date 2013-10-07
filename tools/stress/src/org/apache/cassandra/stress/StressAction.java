@@ -18,20 +18,17 @@
 package org.apache.cassandra.stress;
 
 import java.io.PrintStream;
+import java.nio.ByteBuffer;
+import java.util.Random;
+import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicIntegerArray;
-import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.common.util.concurrent.RateLimiter;
 import com.yammer.metrics.stats.Snapshot;
-import org.apache.cassandra.concurrent.test.LinkedWaitQueue;
-import org.apache.cassandra.concurrent.test.PaddedInt;
-import org.apache.cassandra.concurrent.test.WaitQueue;
-import org.apache.cassandra.concurrent.test.WaitSignal;
 import org.apache.cassandra.stress.operations.*;
 import org.apache.cassandra.stress.util.CassandraClient;
 import org.apache.cassandra.stress.util.Operation;
@@ -42,8 +39,6 @@ public class StressAction extends Thread
     /**
      * Producer-Consumer model: 1 producer, N consumers
      */
-    private final BlockingQueue<Operation> operations = new SynchronousQueue<Operation>(true);
-
     private final Session client;
     private final PrintStream output;
 
@@ -60,70 +55,6 @@ public class StressAction extends Thread
         output = out;
     }
 
-    private static final class RateSynchroniser
-    {
-
-        final AtomicIntegerArray permits;
-        final int[] rounds;
-        final int add;
-        final WaitQueue[] updated;
-
-        public RateSynchroniser(int threads, int maxDelta)
-        {
-            add = (int) Math.ceil(maxDelta / (float) threads);
-            permits = new AtomicIntegerArray(threads);
-            rounds = new int[threads];
-            updated = new WaitQueue[threads];
-            for (int i = 0 ; i < permits.length() ; i++)
-            {
-                rounds[i] = i;
-                permits.set(i, add);
-                updated[i] = new LinkedWaitQueue();
-            }
-        }
-
-        public Handle handle(int threadIndex)
-        {
-            return new Handle(threadIndex);
-        }
-
-        final class Handle
-        {
-            final int thread;
-            public Handle(int thread)
-            {
-                this.thread = thread;
-            }
-
-            void acquire() throws InterruptedException
-            {
-                final int thread = this.thread;
-                final int[] rounds = RateSynchroniser.this.rounds;
-                final AtomicIntegerArray permits = RateSynchroniser.this.permits;
-                final int add = RateSynchroniser.this.add;
-
-                int round = rounds[thread]++;
-                if (round == rounds.length)
-                    round = 0;
-
-                int r = permits.addAndGet(round, add);
-                if (r >= 0 && r < add)
-                    updated[round].signalOne();
-
-                rounds[thread] = round;
-                int remaining = permits.addAndGet(thread, -1);
-                if (remaining >= 0)
-                    return;
-
-                final WaitSignal signal = updated[thread].register();
-                if (permits.get(thread) < 0)
-                    signal.waitForever();
-                signal.cancel();
-            }
-
-        }
-    }
-
     public void run()
     {
         Snapshot latency;
@@ -137,20 +68,17 @@ public class StressAction extends Thread
         int threadCount = client.getThreads();
         Consumer[] consumers = new Consumer[threadCount];
 
-        output.println("total,interval_op_rate,interval_key_rate,latency,95th,99th,elapsed_time");
+        output.println("total,interval_op_rate,interval_key_rate,mean,median,95th,99th,elapsed_time");
 
-        int itemsPerThread = client.getKeysPerThread();
-        int modulo = client.getNumKeys() % threadCount;
-        RateSynchroniser rateSynchroniser = new RateSynchroniser(threadCount, 10);
-
+        int batchSize = 50;
         // creating required type of the threads for the test
-        for (int i = 0; i < threadCount; i++) {
-            if (i == threadCount - 1)
-                itemsPerThread += modulo; // last one is going to handle N + modulo items
+        RateLimiter rateLimiter = RateLimiter.create(client.getMaxOpsPerSecond() / (threadCount * batchSize));
+        BlockingQueue<Integer> opOffsets = new ArrayBlockingQueue<>(client.getNumKeys() / batchSize);
+        for (int i = 0 ; i < client.getNumKeys() ; i += batchSize)
+            opOffsets.add(i);
 
-            RateLimiter rateLimiter = RateLimiter.create(client.getMaxOpsPerSecond() / threadCount);
-            consumers[i] = new Consumer(threadCount, i, itemsPerThread, rateLimiter, rateSynchroniser);
-        }
+        for (int i = 0; i < threadCount; i++)
+            consumers[i] = new Consumer(opOffsets, batchSize, rateLimiter);
 
         // starting worker threads
         for (int i = 0; i < threadCount; i++)
@@ -197,24 +125,25 @@ public class StressAction extends Thread
                 total = client.operations.get();
                 keyCount = client.keys.get();
                 latency = client.latency.getSnapshot();
+                double meanLatency = client.latency.mean();
 
                 int opDelta = total - oldTotal;
                 int keyDelta = keyCount - oldKeyCount;
 
                 long currentTimeInSeconds = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - testStartTime);
 
-                output.println(String.format("%d,%d,%d,%.1f,%.1f,%.1f,%d",
+                output.println(String.format("%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%d",
                                              total,
                                              opDelta / interval,
                                              keyDelta / interval,
-                                             latency.getMedian(), latency.get95thPercentile(), latency.get999thPercentile(),
+                                             meanLatency, latency.getMedian(), latency.get95thPercentile(), latency.get999thPercentile(),
                                              currentTimeInSeconds));
 
                 if (client.outputStatistics()) {
                     stats.addIntervalStats(total, 
                                            opDelta / interval, 
                                            keyDelta / interval, 
-                                           latency, 
+                                           latency, meanLatency,
                                            currentTimeInSeconds);
                         }
             }
@@ -247,81 +176,47 @@ public class StressAction extends Thread
      */
     private class Consumer extends Thread
     {
-        private final int items;
-        private final int threadCount;
-        private final int threadIndex;
+        private final BlockingQueue<Integer> opOffsets;
+        private final int batchSize;
         private final RateLimiter rateLimiter;
-        private final RateSynchroniser.Handle rateSynchroniser;
         private volatile boolean stop = false;
         private volatile int returnCode = StressAction.SUCCESS;
 
-        public Consumer(int threadCount, int threadIndex, int toProduce, RateLimiter rateLimiter, RateSynchroniser rateSynchroniser)
+        public Consumer(BlockingQueue<Integer> opOffsets, int batchSize, RateLimiter rateLimiter)
         {
-            this.threadCount = threadCount;
-            this.threadIndex = threadIndex;
-            this.items = toProduce;
+            this.opOffsets = opOffsets;
+            this.batchSize = batchSize;
             this.rateLimiter = rateLimiter;
-            this.rateSynchroniser = rateSynchroniser.handle(threadIndex);
         }
 
         public void run()
         {
+
+            Random rnd = new Random();
+            SimpleClient sclient = null;
+            CassandraClient cclient = null;
+
             if (client.use_native_protocol)
-            {
-                SimpleClient connection = client.getNativeClient();
-
-                int acquired = 0;
-                for (int i = 0; i < items; i++)
-                {
-                    if (stop)
-                        break;
-
-                    try
-                    {
-                        if (--acquired < 0)
-                        {
-                            rateLimiter.acquire(20);
-                            rateSynchroniser.acquire();
-                            acquired = 19;
-                        }
-                        createOperation((i * threadCount) + threadIndex).run(connection); // running job
-                    }
-                    catch (Exception e)
-                    {
-                        if (output == null)
-                        {
-                            System.err.println(e.getMessage());
-                            returnCode = StressAction.FAILURE;
-                            System.exit(-1);
-                        }
-
-                        output.println(e.getMessage());
-                        returnCode = StressAction.FAILURE;
-                        break;
-                    }
-                }
-            }
+                sclient = client.getNativeClient();
             else
+                cclient = client.getClient();
+
+            Integer opOffset;
+            while ( null != (opOffset = opOffsets.poll()) )
             {
-                CassandraClient connection = client.getClient();
+                if (stop)
+                    break;
 
-                int acquired = 0;
-                for (int i = 0; i < items; i++)
-                {
-                    if (stop)
-                        break;
-
+                rateLimiter.acquire(batchSize);
+                for (int i = 0 ; i < batchSize ; i++)
                     try
                     {
-                        if (--acquired < 0)
-                        {
-                            rateLimiter.acquire(20);
-                            rateSynchroniser.acquire();
-                            acquired = 19;
-                        }
-                        createOperation((i * threadCount) + threadIndex).run(connection); // running job
-                    }
-                    catch (Exception e)
+                        Operation op = createOperation((i + opOffset) % client.getNumDifferentKeys());
+                        if (sclient != null)
+                            op.run(sclient);
+                        else
+                            op.run(cclient);
+                    } catch (Exception e)
                     {
                         if (output == null)
                         {
@@ -334,8 +229,8 @@ public class StressAction extends Thread
                         returnCode = StressAction.FAILURE;
                         break;
                     }
-                }
             }
+
         }
 
         public void stopConsume()
