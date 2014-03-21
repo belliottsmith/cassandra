@@ -72,5 +72,5 @@ public interface CellName extends Composite
     @Override
     public CellName copy(AbstractAllocator allocator);
 
-    public long excessHeapSizeExcludingData();
+    public long unsharedHeapSizeExcludingData();
 }

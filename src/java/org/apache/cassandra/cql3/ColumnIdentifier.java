@@ -89,7 +89,7 @@ public class ColumnIdentifier implements Selectable, Comparable<ColumnIdentifier
              + ObjectSizes.sizeOf(text);
     }
 
-    public long excessHeapSizeExcludingData()
+    public long unsharedHeapSizeExcludingData()
     {
         return EMPTY_SIZE
              + ObjectSizes.sizeOnHeapExcludingData(bytes)

@@ -292,7 +292,7 @@ public class ColumnSlice
         }
 
         @Override
-        public long excessHeapSizeExcludingData()
+        public long unsharedHeapSizeExcludingData()
         {
             throw new UnsupportedOperationException();
         }

@@ -29,7 +29,7 @@ public class CompoundSparseCellName extends CompoundComposite implements CellNam
 {
     private static final ByteBuffer[] EMPTY_PREFIX = new ByteBuffer[0];
 
-    private static final long HEAP_SIZE = ObjectSizes.measure(new CompoundSparseCellName(null, false));
+    private static final long EMPTY_SIZE = ObjectSizes.measure(new CompoundSparseCellName(null, false));
 
     protected final ColumnIdentifier columnName;
 
@@ -80,6 +80,16 @@ public class CompoundSparseCellName extends CompoundComposite implements CellNam
         return false;
     }
 
+    public long unsharedHeapSizeExcludingData()
+    {
+        return EMPTY_SIZE + ObjectSizes.sizeOnHeapExcludingData(elements);
+    }
+
+    public long unsharedHeapSize()
+    {
+        return EMPTY_SIZE + ObjectSizes.sizeOnHeapOf(elements);
+    }
+
     public boolean isSameCQL3RowAs(CellNameType type, CellName other)
     {
         if (clusteringSize() != other.clusteringSize() || other.isStatic() != isStatic())
@@ -104,7 +114,7 @@ public class CompoundSparseCellName extends CompoundComposite implements CellNam
 
     public static class WithCollection extends CompoundSparseCellName
     {
-        private static final long HEAP_SIZE = ObjectSizes.measure(new WithCollection(null, ByteBufferUtil.EMPTY_BYTE_BUFFER, false));
+        private static final long EMPTY_SIZE = ObjectSizes.measure(new WithCollection(null, ByteBufferUtil.EMPTY_BYTE_BUFFER, false));
 
         private final ByteBuffer collectionElement;
 
@@ -156,13 +166,13 @@ public class CompoundSparseCellName extends CompoundComposite implements CellNam
         @Override
         public long unsharedHeapSize()
         {
-            return super.unsharedHeapSize() + ObjectSizes.sizeOnHeapOf(collectionElement);
+            return EMPTY_SIZE + ObjectSizes.sizeOnHeapOf(elements) + ObjectSizes.sizeOnHeapOf(collectionElement);
         }
 
         @Override
-        public long excessHeapSizeExcludingData()
+        public long unsharedHeapSizeExcludingData()
         {
-            return super.excessHeapSizeExcludingData() + ObjectSizes.sizeOnHeapExcludingData(collectionElement);
+            return EMPTY_SIZE + ObjectSizes.sizeOnHeapExcludingData(elements) + ObjectSizes.sizeOnHeapExcludingData(collectionElement);
         }
 
         @Override

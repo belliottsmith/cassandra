@@ -209,7 +209,7 @@ public class Memtable
             cell.name().free(allocator);
             allocator.free(cell.value());
         }
-        allocator.allocate((int) delta.excessHeapSize(), opGroup);
+        allocator.allocate((int) delta.unsharedHeapSize(), opGroup);
     }
 
     // for debugging
@@ -423,7 +423,7 @@ public class Memtable
         double avgSize = ObjectSizes.measureDeep(rows) / (double) count;
         rowOverhead = (int) ((avgSize - Math.floor(avgSize)) < 0.05 ? Math.floor(avgSize) : Math.ceil(avgSize));
         rowOverhead -= ObjectSizes.measureDeep(new LongToken((long) 0));
-        rowOverhead += AtomicBTreeColumns.HEAP_SIZE;
+        rowOverhead += AtomicBTreeColumns.EMPTY_SIZE;
         ROW_OVERHEAD_HEAP_SIZE = rowOverhead;
     }
 }

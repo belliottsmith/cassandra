@@ -43,7 +43,7 @@ public class Murmur3Partitioner extends AbstractPartitioner<LongToken>
     public static final LongToken MINIMUM = new LongToken(Long.MIN_VALUE);
     public static final long MAXIMUM = Long.MAX_VALUE;
 
-    private static final int HEAP_SIZE = (int) ObjectSizes.measureDeep(MINIMUM);
+    private static final int EMPTY_SIZE = (int) ObjectSizes.measureDeep(MINIMUM);
 
     public DecoratedKey decorateKey(ByteBuffer key)
     {
@@ -100,7 +100,7 @@ public class Murmur3Partitioner extends AbstractPartitioner<LongToken>
 
     public long getHeapSizeOf(LongToken token)
     {
-        return HEAP_SIZE;
+        return EMPTY_SIZE;
     }
 
     public LongToken getRandomToken()

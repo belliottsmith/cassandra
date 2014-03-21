@@ -55,7 +55,7 @@ import static org.apache.cassandra.db.index.SecondaryIndexManager.Updater;
  */
 public class AtomicBTreeColumns extends ColumnFamily
 {
-    static final long HEAP_SIZE = ObjectSizes.measure(new AtomicBTreeColumns(CFMetaData.IndexCf, null))
+    static final long EMPTY_SIZE = ObjectSizes.measure(new AtomicBTreeColumns(CFMetaData.IndexCf, null))
             + ObjectSizes.measure(new Holder(null, null));
 
     private static final Function<Cell, CellName> NAME = new Function<Cell, CellName>()
@@ -423,14 +423,14 @@ public class AtomicBTreeColumns extends ColumnFamily
         protected void swap(Cell old, Cell updated)
         {
             dataSize += updated.dataSize() - old.dataSize();
-            heapSize += updated.excessHeapSizeExcludingData() - old.excessHeapSizeExcludingData();
+            heapSize += updated.unsharedHeapSizeExcludingData() - old.unsharedHeapSizeExcludingData();
             discarded.add(old);
         }
 
         protected void insert(Cell insert)
         {
             this.dataSize += insert.dataSize();
-            this.heapSize += insert.excessHeapSizeExcludingData();
+            this.heapSize += insert.unsharedHeapSizeExcludingData();
         }
 
         private void abort(Cell neverUsed)
@@ -445,7 +445,7 @@ public class AtomicBTreeColumns extends ColumnFamily
             return dataSize;
         }
 
-        public long excessHeapSize()
+        public long unsharedHeapSize()
         {
             return heapSize;
         }

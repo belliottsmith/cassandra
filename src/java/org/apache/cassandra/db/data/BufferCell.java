@@ -108,9 +108,9 @@ public class BufferCell implements Cell
 
     // returns the size of the Cell and all references on the heap, excluding any costs associated with byte arrays
     // that would be allocated by a localCopy, as these will be accounted for by the allocator
-    public long excessHeapSizeExcludingData()
+    public long unsharedHeapSizeExcludingData()
     {
-        return EMPTY_SIZE + name().excessHeapSizeExcludingData() + ObjectSizes.sizeOnHeapExcludingData(value());
+        return EMPTY_SIZE + name().unsharedHeapSizeExcludingData() + ObjectSizes.sizeOnHeapExcludingData(value());
     }
 
     public int serializedSize(CellNameType type, TypeSizes typeSizes)

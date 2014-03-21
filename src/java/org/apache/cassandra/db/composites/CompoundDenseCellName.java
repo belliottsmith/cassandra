@@ -26,7 +26,7 @@ import org.apache.cassandra.utils.ObjectSizes;
 public class CompoundDenseCellName extends CompoundComposite implements CellName
 {
 
-    private static final long HEAP_SIZE = ObjectSizes.measure(new CompoundDenseCellName(new ByteBuffer[0]));
+    private static final long EMPTY_SIZE = ObjectSizes.measure(new CompoundDenseCellName(new ByteBuffer[0]));
 
     // Not meant to be used directly, you should use the CellNameType method instead
     CompoundDenseCellName(ByteBuffer[] elements)
@@ -68,13 +68,13 @@ public class CompoundDenseCellName extends CompoundComposite implements CellName
     @Override
     public long unsharedHeapSize()
     {
-        return HEAP_SIZE + ObjectSizes.sizeOnHeapOf(elements);
+        return EMPTY_SIZE + ObjectSizes.sizeOnHeapOf(elements);
     }
 
     @Override
-    public long excessHeapSizeExcludingData()
+    public long unsharedHeapSizeExcludingData()
     {
-        return HEAP_SIZE + ObjectSizes.sizeOnHeapExcludingData(elements);
+        return EMPTY_SIZE + ObjectSizes.sizeOnHeapExcludingData(elements);
     }
 
     public CellName copy(AbstractAllocator allocator)
