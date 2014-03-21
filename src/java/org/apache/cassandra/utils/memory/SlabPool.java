@@ -19,7 +19,7 @@
 package org.apache.cassandra.utils.memory;
 
 
-public class SlabPool extends Pool
+public class SlabPool extends ByteBufferPool
 {
 
     final boolean allocateOnHeap;

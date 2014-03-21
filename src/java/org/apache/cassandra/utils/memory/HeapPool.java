@@ -22,7 +22,7 @@ import java.nio.ByteBuffer;
 
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
-public class HeapPool extends Pool
+public class HeapPool extends ByteBufferPool
 {
     public HeapPool(long maxOnHeapMemory, float cleanupThreshold, Runnable cleaner)
     {
@@ -39,7 +39,7 @@ public class HeapPool extends Pool
         return new Allocator(this);
     }
 
-    public final class Allocator extends PoolAllocator
+    public final class Allocator extends ByteBufferPool.Allocator
     {
         Allocator(HeapPool pool)
         {

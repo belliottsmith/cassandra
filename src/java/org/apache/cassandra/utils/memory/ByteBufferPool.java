@@ -20,25 +20,46 @@ package org.apache.cassandra.utils.memory;
 import java.nio.ByteBuffer;
 
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 
-public interface ByteBufferAllocator
+public abstract class ByteBufferPool extends Pool
 {
-    ByteBuffer clone(ByteBuffer buffer);
-    ByteBuffer allocate(int size);
-
-    public static abstract class AbstractAllocator implements ByteBufferAllocator
+    ByteBufferPool(long maxOnHeapMemory, long maxOffHeapMemory, float cleanThreshold, Runnable cleaner)
     {
-        public ByteBuffer clone(ByteBuffer buffer)
+        super(maxOnHeapMemory, maxOffHeapMemory, cleanThreshold, cleaner);
+    }
+
+    public abstract boolean needToCopyOnHeap();
+    public abstract Allocator newAllocator();
+
+    public static abstract class Allocator extends PoolAllocator
+    {
+        Allocator(SubAllocator onHeap, SubAllocator offHeap)
+        {
+            super(onHeap, offHeap);
+        }
+
+        public abstract ByteBuffer allocate(int size, OpOrder.Group writeOp);
+
+        public ByteBuffer clone(ByteBuffer buffer, OpOrder.Group writeOp)
         {
             assert buffer != null;
             if (buffer.remaining() == 0)
                 return ByteBufferUtil.EMPTY_BYTE_BUFFER;
-            ByteBuffer cloned = allocate(buffer.remaining());
+            ByteBuffer cloned = allocate(buffer.remaining(), writeOp);
 
             cloned.mark();
             cloned.put(buffer.duplicate());
             cloned.reset();
             return cloned;
         }
+
+        public abstract void free(ByteBuffer buffer);
+
+        public ContextAllocator context(final OpOrder.Group writeOp)
+        {
+            return new ContextAllocator(writeOp, this);
+        }
     }
+
 }

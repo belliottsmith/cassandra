@@ -17,7 +17,8 @@
  */
 package org.apache.cassandra.db.filter;
 
-import java.io.*;
+import java.io.DataInput;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -27,8 +28,13 @@ import java.util.NavigableSet;
 import com.google.common.collect.AbstractIterator;
 
 import org.apache.cassandra.cql3.ColumnIdentifier;
-import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.db.composites.AbstractComposite;
+import org.apache.cassandra.db.composites.CType;
+import org.apache.cassandra.db.composites.CellName;
+import org.apache.cassandra.db.composites.CellNameType;
+import org.apache.cassandra.db.composites.Composite;
+import org.apache.cassandra.db.composites.Composites;
 import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -37,7 +43,7 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
-import org.apache.cassandra.utils.memory.PoolAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferPool;
 
 public class ColumnSlice
 {
@@ -298,7 +304,7 @@ public class ColumnSlice
         }
 
         @Override
-        public void free(PoolAllocator allocator)
+        public void free(ByteBufferPool.Allocator allocator)
         {
             throw new UnsupportedOperationException();
         }

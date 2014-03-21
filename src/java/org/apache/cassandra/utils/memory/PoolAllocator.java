@@ -17,15 +17,12 @@
  */
 package org.apache.cassandra.utils.memory;
 
-import java.nio.ByteBuffer;
-
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
-public abstract class PoolAllocator extends ByteBufferAllocator
+public abstract class PoolAllocator
 {
 
     private final SubAllocator onHeap;
@@ -95,31 +92,12 @@ public abstract class PoolAllocator extends ByteBufferAllocator
         return state == LifeCycle.LIVE;
     }
 
-    public abstract ByteBuffer allocate(int size, OpOrder.Group opGroup);
-    public abstract void free(ByteBuffer name);
-
     /**
-     * Allocate a slice of the given length.
+     * Created by a SubPool to represent memory that is temporarily allocated to this allocator.
+     * When the allocator needs more memory, it allocates it through this object, which acquires
+     * (and maybe allocates) memory in its parent SubPool and accounts for it here as well. Once the allocator is done
+     * it relinquishes the resources through this class, which ensures the resources are freed in the parent SubPool.
      */
-    public ByteBuffer clone(ByteBuffer buffer, OpOrder.Group opGroup)
-    {
-        assert buffer != null;
-        if (buffer.remaining() == 0)
-            return ByteBufferUtil.EMPTY_BYTE_BUFFER;
-        ByteBuffer cloned = allocate(buffer.remaining(), opGroup);
-
-        cloned.mark();
-        cloned.put(buffer.duplicate());
-        cloned.reset();
-        return cloned;
-    }
-
-    public ContextAllocator wrap(OpOrder.Group opGroup)
-    {
-        return new ContextAllocator(opGroup, this);
-    }
-
-    /** Mark the BB as unused, permitting it to be reclaimed */
     public static final class SubAllocator
     {
         // the tracker we are owning memory from

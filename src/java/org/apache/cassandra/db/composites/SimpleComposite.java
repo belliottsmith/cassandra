@@ -19,9 +19,9 @@ package org.apache.cassandra.db.composites;
 
 import java.nio.ByteBuffer;
 
-import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 import org.apache.cassandra.utils.ObjectSizes;
-import org.apache.cassandra.utils.memory.PoolAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferPool;
 
 /**
  * A "simple" (not-truly-composite) Composite.
@@ -78,7 +78,7 @@ public class SimpleComposite extends AbstractComposite
     }
 
     @Override
-    public void free(PoolAllocator allocator)
+    public void free(ByteBufferPool.Allocator allocator)
     {
         allocator.free(element);
     }

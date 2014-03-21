@@ -20,9 +20,9 @@ package org.apache.cassandra.db.composites;
 import java.nio.ByteBuffer;
 
 import org.apache.cassandra.cql3.ColumnIdentifier;
-import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 import org.apache.cassandra.utils.ObjectSizes;
-import org.apache.cassandra.utils.memory.PoolAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferPool;
 
 public class SimpleSparseCellName extends AbstractComposite implements CellName
 {
@@ -102,7 +102,7 @@ public class SimpleSparseCellName extends AbstractComposite implements CellName
         return new SimpleSparseCellName(columnName.clone(allocator));
     }
 
-    public void free(PoolAllocator allocator)
+    public void free(ByteBufferPool.Allocator allocator)
     {
         allocator.free(columnName.bytes);
     }

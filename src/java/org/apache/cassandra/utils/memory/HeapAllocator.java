@@ -19,14 +19,10 @@ package org.apache.cassandra.utils.memory;
 
 import java.nio.ByteBuffer;
 
-public final class HeapAllocator extends ByteBufferAllocator
+public final class HeapAllocator extends ByteBufferAllocator.AbstractAllocator
 {
     public static final HeapAllocator instance = new HeapAllocator();
 
-    /**
-     * Normally you should use HeapAllocator.instance, since there is no per-Allocator state.
-     * This is exposed so that the reflection done by Memtable works when SlabAllocator is disabled.
-     */
     private HeapAllocator() {}
 
     public ByteBuffer allocate(int size)

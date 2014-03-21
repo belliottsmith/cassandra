@@ -65,8 +65,8 @@ import org.apache.cassandra.scheduler.NoScheduler;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.memory.ByteBufferPool;
 import org.apache.cassandra.utils.memory.HeapPool;
-import org.apache.cassandra.utils.memory.Pool;
 import org.apache.cassandra.utils.memory.SlabPool;
 
 public class DatabaseDescriptor
@@ -1476,7 +1476,7 @@ public class DatabaseDescriptor
         return conf.preheat_kernel_page_cache;
     }
 
-    public static Pool getMemtableAllocatorPool()
+    public static ByteBufferPool getMemtableAllocatorPool()
     {
         long heapLimit = ((long) conf.memtable_heap_space_in_mb) << 20;
         long offHeapLimit = ((long) conf.memtable_offheap_space_in_mb) << 20;

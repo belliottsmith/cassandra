@@ -18,7 +18,12 @@
 package org.apache.cassandra.db.composites;
 
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.cql3.CQL3Row;
@@ -29,7 +34,7 @@ import org.apache.cassandra.db.marshal.ColumnToCollectionType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
-import org.apache.cassandra.utils.memory.PoolAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferPool;
 
 public class CompoundSparseCellNameType extends AbstractCompoundCellNameType
 {
@@ -93,7 +98,7 @@ public class CompoundSparseCellNameType extends AbstractCompoundCellNameType
             }
 
             @Override
-            public void free(PoolAllocator allocator)
+            public void free(ByteBufferPool.Allocator allocator)
             {
             }
         };

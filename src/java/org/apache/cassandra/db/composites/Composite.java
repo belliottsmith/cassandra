@@ -22,7 +22,7 @@ import java.nio.ByteBuffer;
 import org.apache.cassandra.cache.IMeasurableMemory;
 import org.apache.cassandra.db.filter.ColumnSlice;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
-import org.apache.cassandra.utils.memory.PoolAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferPool;
 
 /**
  * A composite value.
@@ -76,5 +76,5 @@ public interface Composite extends IMeasurableMemory
 
     public int dataSize();
     public Composite copy(ByteBufferAllocator allocator);
-    public void free(PoolAllocator allocator);
+    public void free(ByteBufferPool.Allocator allocator);
 }

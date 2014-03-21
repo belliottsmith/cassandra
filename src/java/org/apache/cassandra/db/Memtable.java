@@ -50,19 +50,19 @@ import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.concurrent.OpOrder;
+import org.apache.cassandra.utils.memory.ByteBufferPool;
 import org.apache.cassandra.utils.memory.ContextAllocator;
 import org.apache.cassandra.utils.memory.HeapAllocator;
-import org.apache.cassandra.utils.memory.Pool;
 import org.apache.cassandra.utils.memory.PoolAllocator;
 
 public class Memtable
 {
     private static final Logger logger = LoggerFactory.getLogger(Memtable.class);
 
-    static final Pool memoryPool = DatabaseDescriptor.getMemtableAllocatorPool();
+    static final ByteBufferPool memoryPool = DatabaseDescriptor.getMemtableAllocatorPool();
     private static final int ROW_OVERHEAD_HEAP_SIZE;
 
-    private final PoolAllocator allocator;
+    private final ByteBufferPool.Allocator allocator;
     private final AtomicLong liveDataSize = new AtomicLong(0);
     private final AtomicLong currentOperations = new AtomicLong(0);
 
@@ -198,7 +198,7 @@ public class Memtable
             }
         }
 
-        ContextAllocator contextAllocator = allocator.wrap(opGroup);
+        ContextAllocator contextAllocator = allocator.context(opGroup);
         AtomicBTreeColumns.Delta delta = previous.addAllWithSizeDelta(cf, contextAllocator, contextAllocator, indexer, new AtomicBTreeColumns.Delta());
         liveDataSize.addAndGet(delta.dataSize());
         currentOperations.addAndGet(cf.getColumnCount() + (cf.isMarkedForDelete() ? 1 : 0) + cf.deletionInfo().rangeCount());

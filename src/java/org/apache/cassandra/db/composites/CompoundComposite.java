@@ -21,7 +21,7 @@ import java.nio.ByteBuffer;
 
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
-import org.apache.cassandra.utils.memory.PoolAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferPool;
 
 /**
  * A "truly-composite" Composite.
@@ -87,7 +87,7 @@ public class CompoundComposite extends AbstractComposite
     }
 
     @Override
-    public void free(PoolAllocator allocator)
+    public void free(ByteBufferPool.Allocator allocator)
     {
         for (ByteBuffer element : elements)
             allocator.free(element);
