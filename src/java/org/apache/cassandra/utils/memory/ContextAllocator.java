@@ -29,7 +29,7 @@ import org.apache.cassandra.utils.concurrent.OpOrder;
  * Wraps calls to a PoolAllocator with the provided writeOp. Also doubles as a Function that clones Cells
  * using itself
  */
-public final class ContextAllocator extends AbstractAllocator implements Function<Cell, Cell>
+public final class ContextAllocator extends ByteBufferAllocator implements Function<Cell, Cell>
 {
     private final OpOrder.Group opGroup;
     private final PoolAllocator allocator;

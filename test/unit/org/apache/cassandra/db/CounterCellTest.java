@@ -41,7 +41,7 @@ import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CounterId;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 import org.apache.cassandra.utils.memory.HeapAllocator;
 
 import static org.apache.cassandra.Util.cellname;

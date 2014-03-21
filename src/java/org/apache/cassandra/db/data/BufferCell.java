@@ -31,7 +31,7 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 /**
  * Cell is immutable, which prevents all kinds of confusion in a multithreaded environment.
@@ -197,7 +197,7 @@ public class BufferCell implements Cell
         return result;
     }
 
-    public Cell localCopy(AbstractAllocator allocator)
+    public Cell localCopy(ByteBufferAllocator allocator)
     {
         return new BufferCell(name().copy(allocator), allocator.clone(value()), timestamp());
     }

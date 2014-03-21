@@ -29,7 +29,7 @@ import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 /**
  * A column that represents a partitioned counter.
@@ -196,7 +196,7 @@ public class BufferCounterCell extends BufferCell implements CounterCell
     }
 
     @Override
-    public Cell localCopy(AbstractAllocator allocator)
+    public Cell localCopy(ByteBufferAllocator allocator)
     {
         return new BufferCounterCell(name().copy(allocator), allocator.clone(value()), timestamp(), timestampOfLastDelete);
     }

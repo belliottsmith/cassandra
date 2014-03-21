@@ -36,7 +36,7 @@ import org.apache.cassandra.io.ISerializer;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 import org.apache.cassandra.utils.memory.PoolAllocator;
 
 public class ColumnSlice
@@ -286,7 +286,7 @@ public class ColumnSlice
             throw new UnsupportedOperationException();
         }
 
-        public CellName copy(AbstractAllocator allocator)
+        public CellName copy(ByteBufferAllocator allocator)
         {
             throw new UnsupportedOperationException();
         }

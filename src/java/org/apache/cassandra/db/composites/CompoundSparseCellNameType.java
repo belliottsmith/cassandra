@@ -28,7 +28,7 @@ import org.apache.cassandra.db.marshal.CollectionType;
 import org.apache.cassandra.db.marshal.ColumnToCollectionType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 import org.apache.cassandra.utils.memory.PoolAllocator;
 
 public class CompoundSparseCellNameType extends AbstractCompoundCellNameType
@@ -87,7 +87,7 @@ public class CompoundSparseCellNameType extends AbstractCompoundCellNameType
             }
 
             @Override
-            public Composite copy(AbstractAllocator allocator)
+            public Composite copy(ByteBufferAllocator allocator)
             {
                 return this;
             }

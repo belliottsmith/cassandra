@@ -35,7 +35,7 @@ import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 public interface Cell extends OnDiskAtom
 {
@@ -112,7 +112,7 @@ public interface Cell extends OnDiskAtom
     @Override
     int hashCode();
 
-    Cell localCopy(AbstractAllocator allocator);
+    Cell localCopy(ByteBufferAllocator allocator);
 
     String getString(CellNameType comparator);
 

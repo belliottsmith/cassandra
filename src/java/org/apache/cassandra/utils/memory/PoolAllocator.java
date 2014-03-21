@@ -25,7 +25,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
-public abstract class PoolAllocator extends AbstractAllocator
+public abstract class PoolAllocator extends ByteBufferAllocator
 {
 
     private final SubAllocator onHeap;

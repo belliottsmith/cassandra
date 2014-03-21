@@ -29,6 +29,8 @@ import org.apache.cassandra.db.ClockAndCount;
 import org.apache.cassandra.db.context.CounterContext.Relationship;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CounterId;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
+import org.apache.cassandra.utils.memory.HeapAllocator;
 
 import static org.apache.cassandra.db.context.CounterContext.ContextState;
 import static org.junit.Assert.assertEquals;

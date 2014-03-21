@@ -47,7 +47,7 @@ import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CounterId;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 import org.apache.cassandra.utils.memory.HeapAllocator;
 
 public class CounterMutation implements IMutation
@@ -152,7 +152,7 @@ public class CounterMutation implements IMutation
     // Replaces all the CounterUpdateCell-s with updated regular CounterCell-s
     private ColumnFamily processModifications(ColumnFamily changesCF)
     {
-        AbstractAllocator allocator = HeapAllocator.instance;
+        ByteBufferAllocator allocator = HeapAllocator.instance;
         ColumnFamilyStore cfs = Keyspace.open(getKeyspaceName()).getColumnFamilyStore(changesCF.id());
 
         ColumnFamily resultCF = changesCF.cloneMeShallow();

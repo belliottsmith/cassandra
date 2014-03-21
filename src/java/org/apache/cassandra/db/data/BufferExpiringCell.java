@@ -28,7 +28,7 @@ import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 /**
  * Alternative to Cell that have an expiring time.
@@ -132,7 +132,7 @@ public class BufferExpiringCell extends BufferCell implements ExpiringCell
     }
 
     @Override
-    public Cell localCopy(AbstractAllocator allocator)
+    public Cell localCopy(ByteBufferAllocator allocator)
     {
         return new BufferExpiringCell(name().copy(allocator), allocator.clone(value()), timestamp(), timeToLive, localExpirationTime);
     }

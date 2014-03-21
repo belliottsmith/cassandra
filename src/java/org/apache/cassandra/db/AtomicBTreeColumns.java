@@ -41,7 +41,7 @@ import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.BTreeSet;
 import org.apache.cassandra.utils.btree.UpdateFunction;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 import static org.apache.cassandra.db.index.SecondaryIndexManager.Updater;
 
@@ -163,12 +163,12 @@ public class AtomicBTreeColumns extends ColumnFamily
     {
         final AtomicBTreeColumns updating;
         final Holder ref;
-        final AbstractAllocator allocator;
+        final ByteBufferAllocator allocator;
         final Function<Cell, Cell> transform;
         final Updater indexer;
         final Delta delta;
 
-        private ColumnUpdater(AtomicBTreeColumns updating, Holder ref, AbstractAllocator allocator, Function<Cell, Cell> transform, Updater indexer, Delta delta)
+        private ColumnUpdater(AtomicBTreeColumns updating, Holder ref, ByteBufferAllocator allocator, Function<Cell, Cell> transform, Updater indexer, Delta delta)
         {
             this.updating = updating;
             this.ref = ref;
@@ -226,7 +226,7 @@ public class AtomicBTreeColumns extends ColumnFamily
      *
      * @return the difference in size seen after merging the given columns
      */
-    public Delta addAllWithSizeDelta(final ColumnFamily cm, AbstractAllocator allocator, Function<Cell, Cell> transformation, Updater indexer, Delta delta)
+    public Delta addAllWithSizeDelta(final ColumnFamily cm, ByteBufferAllocator allocator, Function<Cell, Cell> transformation, Updater indexer, Delta delta)
     {
         boolean transformed = false;
         Collection<Cell> insert = cm.getSortedColumns();

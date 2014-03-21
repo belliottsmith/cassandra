@@ -27,7 +27,7 @@ import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 public class BufferDeletedCell extends BufferCell implements DeletedCell
 {
@@ -98,7 +98,7 @@ public class BufferDeletedCell extends BufferCell implements DeletedCell
     }
 
     @Override
-    public Cell localCopy(AbstractAllocator allocator)
+    public Cell localCopy(ByteBufferAllocator allocator)
     {
         return new BufferDeletedCell(name().copy(allocator), allocator.clone(value()), timestamp());
     }
