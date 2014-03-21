@@ -77,7 +77,7 @@ public abstract class CellNames
 
     // Mainly for tests and a few cases where we know what we need and didn't wanted to pass the type around
     // Avoid in general, prefer the CellNameType methods.
-    public static CellName compositeDense(ByteBuffer... bbs)
+    public static CellName compoundDense(ByteBuffer... bbs)
     {
         return new CompoundDenseCellName(bbs);
     }

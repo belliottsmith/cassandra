@@ -91,7 +91,7 @@ public class Util
         if (bbs.length == 1)
             return CellNames.simpleDense(bbs[0]);
         else
-            return CellNames.compositeDense(bbs);
+            return CellNames.compoundDense(bbs);
     }
 
     public static CellName cellname(String... strs)
@@ -151,7 +151,7 @@ public class Util
     {
         CellName cname = superColumnName == null
                        ? CellNames.simpleDense(getBytes(columnName))
-                       : CellNames.compositeDense(ByteBufferUtil.bytes(superColumnName), getBytes(columnName));
+                       : CellNames.compoundDense(ByteBufferUtil.bytes(superColumnName), getBytes(columnName));
         rm.add(columnFamilyName, cname, ByteBufferUtil.bytes(value), timestamp);
     }
 

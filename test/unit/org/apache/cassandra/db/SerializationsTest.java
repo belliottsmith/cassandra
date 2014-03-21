@@ -69,7 +69,7 @@ public class SerializationsTest extends AbstractSerializationsTester
     public NamesQueryFilter namesSCPred = new NamesQueryFilter(statics.NamedSCCols);
     public SliceQueryFilter emptyRangePred = new SliceQueryFilter(emptyCol, emptyCol, false, 100);
     public SliceQueryFilter nonEmptyRangePred = new SliceQueryFilter(CellNames.simpleDense(startCol), CellNames.simpleDense(stopCol), true, 100);
-    public SliceQueryFilter nonEmptyRangeSCPred = new SliceQueryFilter(CellNames.compositeDense(statics.SC, startCol), CellNames.compositeDense(statics.SC, stopCol), true, 100);
+    public SliceQueryFilter nonEmptyRangeSCPred = new SliceQueryFilter(CellNames.compoundDense(statics.SC, startCol), CellNames.compoundDense(statics.SC, stopCol), true, 100);
 
     private void testRangeSliceCommandWrite() throws IOException
     {
@@ -365,9 +365,9 @@ public class SerializationsTest extends AbstractSerializationsTester
         private final ByteBuffer SC = ByteBufferUtil.bytes("SCName");
         private final SortedSet<CellName> NamedSCCols = new TreeSet<CellName>(new CompoundDenseCellNameType(Arrays.<AbstractType<?>>asList(BytesType.instance, BytesType.instance)))
         {{
-            add(CellNames.compositeDense(SC, ByteBufferUtil.bytes("AAA")));
-            add(CellNames.compositeDense(SC, ByteBufferUtil.bytes("BBB")));
-            add(CellNames.compositeDense(SC, ByteBufferUtil.bytes("CCC")));
+            add(CellNames.compoundDense(SC, ByteBufferUtil.bytes("AAA")));
+            add(CellNames.compoundDense(SC, ByteBufferUtil.bytes("BBB")));
+            add(CellNames.compoundDense(SC, ByteBufferUtil.bytes("CCC")));
         }};
         private final String StandardCF = "Standard1";
         private final String SuperCF = "Super1";
@@ -391,13 +391,13 @@ public class SerializationsTest extends AbstractSerializationsTester
             StandardCf.addColumn(new BufferExpiringCell(cn("ffff"), bb("ffff-value"), 2000, 1000));
             StandardCf.addColumn(new BufferExpiringCell(cn("gggg"), bb("gggg-value"), 2001, 1000, 2002));
 
-            SuperCf.addColumn(new BufferCell(CellNames.compositeDense(SC, bb("aaaa")), ByteBufferUtil.EMPTY_BYTE_BUFFER));
-            SuperCf.addColumn(new BufferCell(CellNames.compositeDense(SC, bb("bbbb")), bb("bbbbb-value")));
-            SuperCf.addColumn(new BufferCell(CellNames.compositeDense(SC, bb("cccc")), bb("ccccc-value"), 1000L));
-            SuperCf.addColumn(new BufferDeletedCell(CellNames.compositeDense(SC, bb("dddd")), 500, 1000));
-            SuperCf.addColumn(new BufferDeletedCell(CellNames.compositeDense(SC, bb("eeee")), bb("eeee-value"), 1001));
-            SuperCf.addColumn(new BufferExpiringCell(CellNames.compositeDense(SC, bb("ffff")), bb("ffff-value"), 2000, 1000));
-            SuperCf.addColumn(new BufferExpiringCell(CellNames.compositeDense(SC, bb("gggg")), bb("gggg-value"), 2001, 1000, 2002));
+            SuperCf.addColumn(new BufferCell(CellNames.compoundDense(SC, bb("aaaa")), ByteBufferUtil.EMPTY_BYTE_BUFFER));
+            SuperCf.addColumn(new BufferCell(CellNames.compoundDense(SC, bb("bbbb")), bb("bbbbb-value")));
+            SuperCf.addColumn(new BufferCell(CellNames.compoundDense(SC, bb("cccc")), bb("ccccc-value"), 1000L));
+            SuperCf.addColumn(new BufferDeletedCell(CellNames.compoundDense(SC, bb("dddd")), 500, 1000));
+            SuperCf.addColumn(new BufferDeletedCell(CellNames.compoundDense(SC, bb("eeee")), bb("eeee-value"), 1001));
+            SuperCf.addColumn(new BufferExpiringCell(CellNames.compoundDense(SC, bb("ffff")), bb("ffff-value"), 2000, 1000));
+            SuperCf.addColumn(new BufferExpiringCell(CellNames.compoundDense(SC, bb("gggg")), bb("gggg-value"), 2001, 1000, 2002));
         }
     }
 }

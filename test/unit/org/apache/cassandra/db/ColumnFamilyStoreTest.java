@@ -826,7 +826,7 @@ public class ColumnFamilyStoreTest extends SchemaLoader
     {
         ColumnFamily cf = ArrayBackedSortedColumns.factory.create(cfs.keyspace.getName(), cfs.name);
         for (Cell col : cols)
-            cf.addColumn(col.withUpdatedName(CellNames.compositeDense(scfName, col.name().toByteBuffer())));
+            cf.addColumn(col.withUpdatedName(CellNames.compoundDense(scfName, col.name().toByteBuffer())));
         Mutation rm = new Mutation(cfs.keyspace.getName(), key.key(), cf);
         rm.apply();
     }
@@ -944,19 +944,19 @@ public class ColumnFamilyStoreTest extends SchemaLoader
 
         // Get the entire supercolumn like normal
         ColumnFamily cfGet = cfs.getColumnFamily(QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
-        assertEquals(ByteBufferUtil.bytes("A"), cfGet.getColumn(CellNames.compositeDense(superColName, ByteBufferUtil.bytes("a"))).value());
-        assertEquals(ByteBufferUtil.bytes("B"), cfGet.getColumn(CellNames.compositeDense(superColName, ByteBufferUtil.bytes("b"))).value());
+        assertEquals(ByteBufferUtil.bytes("A"), cfGet.getColumn(CellNames.compoundDense(superColName, ByteBufferUtil.bytes("a"))).value());
+        assertEquals(ByteBufferUtil.bytes("B"), cfGet.getColumn(CellNames.compoundDense(superColName, ByteBufferUtil.bytes("b"))).value());
 
         // Now do the SliceByNamesCommand on the supercolumn, passing both subcolumns in as columns to get
         SortedSet<CellName> sliceColNames = new TreeSet<CellName>(cfs.metadata.comparator);
-        sliceColNames.add(CellNames.compositeDense(superColName, ByteBufferUtil.bytes("a")));
-        sliceColNames.add(CellNames.compositeDense(superColName, ByteBufferUtil.bytes("b")));
+        sliceColNames.add(CellNames.compoundDense(superColName, ByteBufferUtil.bytes("a")));
+        sliceColNames.add(CellNames.compoundDense(superColName, ByteBufferUtil.bytes("b")));
         SliceByNamesReadCommand cmd = new SliceByNamesReadCommand(keyspaceName, key.key(), cfName, System.currentTimeMillis(), new NamesQueryFilter(sliceColNames));
         ColumnFamily cfSliced = cmd.getRow(keyspace).cf;
 
         // Make sure the slice returns the same as the straight get
-        assertEquals(ByteBufferUtil.bytes("A"), cfSliced.getColumn(CellNames.compositeDense(superColName, ByteBufferUtil.bytes("a"))).value());
-        assertEquals(ByteBufferUtil.bytes("B"), cfSliced.getColumn(CellNames.compositeDense(superColName, ByteBufferUtil.bytes("b"))).value());
+        assertEquals(ByteBufferUtil.bytes("A"), cfSliced.getColumn(CellNames.compoundDense(superColName, ByteBufferUtil.bytes("a"))).value());
+        assertEquals(ByteBufferUtil.bytes("B"), cfSliced.getColumn(CellNames.compoundDense(superColName, ByteBufferUtil.bytes("b"))).value());
     }
 
     @Test

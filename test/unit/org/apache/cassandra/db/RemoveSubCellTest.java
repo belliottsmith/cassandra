@@ -52,7 +52,7 @@ public class RemoveSubCellTest extends SchemaLoader
         rm.apply();
         store.forceBlockingFlush();
 
-        CellName cname = CellNames.compositeDense(ByteBufferUtil.bytes("SC1"), getBytes(1L));
+        CellName cname = CellNames.compoundDense(ByteBufferUtil.bytes("SC1"), getBytes(1L));
         // remove
         rm = new Mutation("Keyspace1", dk.key());
         rm.delete("Super1", cname, 1);
@@ -79,7 +79,7 @@ public class RemoveSubCellTest extends SchemaLoader
 
         // remove the SC
         ByteBuffer scName = ByteBufferUtil.bytes("SC1");
-        CellName cname = CellNames.compositeDense(scName, getBytes(1L));
+        CellName cname = CellNames.compoundDense(scName, getBytes(1L));
         rm = new Mutation("Keyspace1", dk.key());
         rm.deleteRange("Super1", SuperColumns.startOf(scName), SuperColumns.endOf(scName), 1);
         rm.apply();

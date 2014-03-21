@@ -161,12 +161,12 @@ public class SuperColumns
 
     public static Composite startOf(ByteBuffer scName)
     {
-        return CellNames.compositeDense(scName).start();
+        return CellNames.compoundDense(scName).start();
     }
 
     public static Composite endOf(ByteBuffer scName)
     {
-        return CellNames.compositeDense(scName).end();
+        return CellNames.compoundDense(scName).end();
     }
 
     public static IDiskAtomFilter fromSCFilter(CellNameType type, ByteBuffer scName, IDiskAtomFilter filter)
