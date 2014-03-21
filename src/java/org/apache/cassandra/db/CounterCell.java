@@ -65,7 +65,7 @@ public class CounterCell extends Cell
     @Override
     public Cell withUpdatedName(CellName newName)
     {
-        return new CounterCell(newName, value, timestamp, timestampOfLastDelete);
+        return new CounterCell(newName, value(), timestamp(), timestampOfLastDelete);
     }
 
     public long timestampOfLastDelete()
@@ -75,7 +75,7 @@ public class CounterCell extends Cell
 
     public long total()
     {
-        return contextManager.total(value);
+        return contextManager.total(value());
     }
 
     @Override
@@ -123,13 +123,13 @@ public class CounterCell extends Cell
     @Override
     public void updateDigest(MessageDigest digest)
     {
-        digest.update(name.toByteBuffer().duplicate());
+        digest.update(name().toByteBuffer().duplicate());
         // We don't take the deltas into account in a digest
-        contextManager.updateDigest(digest, value);
+        contextManager.updateDigest(digest, value());
         DataOutputBuffer buffer = new DataOutputBuffer();
         try
         {
-            buffer.writeLong(timestamp);
+            buffer.writeLong(timestamp());
             buffer.writeByte(serializationFlags());
             buffer.writeLong(timestampOfLastDelete);
         }
@@ -198,16 +198,16 @@ public class CounterCell extends Cell
     @Override
     public Cell localCopy(AbstractAllocator allocator)
     {
-        return new CounterCell(name.copy(allocator), allocator.clone(value), timestamp, timestampOfLastDelete);
+        return new CounterCell(name().copy(allocator), allocator.clone(value()), timestamp(), timestampOfLastDelete);
     }
 
     @Override
     public String getString(CellNameType comparator)
     {
         return String.format("%s:false:%s@%d!%d",
-                             comparator.getString(name),
-                             contextManager.toString(value),
-                             timestamp,
+                             comparator.getString(name()),
+                             contextManager.toString(value()),
+                             timestamp(),
                              timestampOfLastDelete);
     }
 
@@ -228,7 +228,7 @@ public class CounterCell extends Cell
 
     public Cell markLocalToBeCleared()
     {
-        ByteBuffer marked = contextManager.markLocalToBeCleared(value);
-        return marked == value ? this : new CounterCell(name, marked, timestamp, timestampOfLastDelete);
+        ByteBuffer marked = contextManager.markLocalToBeCleared(value());
+        return marked == value() ? this : new CounterCell(name(), marked, timestamp(), timestampOfLastDelete);
     }
 }

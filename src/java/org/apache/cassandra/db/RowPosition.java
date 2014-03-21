@@ -50,7 +50,7 @@ public abstract class RowPosition implements RingPosition<RowPosition>
         return key == null || key.remaining() == 0 ? p.getMinimumToken().minKeyBound() : p.decorateKey(key);
     }
 
-    public abstract Token getToken();
+    public abstract Token token();
     public abstract Kind kind();
 
     public boolean isMinimum()
@@ -76,9 +76,9 @@ public abstract class RowPosition implements RingPosition<RowPosition>
             Kind kind = pos.kind();
             out.writeByte(kind.ordinal());
             if (kind == Kind.ROW_KEY)
-                ByteBufferUtil.writeWithShortLength(((DecoratedKey)pos).key, out);
+                ByteBufferUtil.writeWithShortLength(((DecoratedKey)pos).key(), out);
             else
-                Token.serializer.serialize(pos.getToken(), out);
+                Token.serializer.serialize(pos.token(), out);
         }
 
         public RowPosition deserialize(DataInput in) throws IOException
@@ -102,12 +102,12 @@ public abstract class RowPosition implements RingPosition<RowPosition>
             int size = 1; // 1 byte for enum
             if (kind == Kind.ROW_KEY)
             {
-                int keySize = ((DecoratedKey)pos).key.remaining();
+                int keySize = ((DecoratedKey)pos).key().remaining();
                 size += typeSizes.sizeof((short) keySize) + keySize;
             }
             else
             {
-                size += Token.serializer.serializedSize(pos.getToken(), typeSizes);
+                size += Token.serializer.serializedSize(pos.token(), typeSizes);
             }
             return size;
         }

@@ -1258,7 +1258,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 epDetails.add(details);
             }
 
-            TokenRange tr = new TokenRange(tf.toString(range.left.getToken()), tf.toString(range.right.getToken()), endpoints)
+            TokenRange tr = new TokenRange(tf.toString(range.left.token()), tf.toString(range.right.token()), endpoints)
                                     .setEndpoint_details(epDetails)
                                     .setRpc_endpoints(rpc_endpoints);
 
@@ -2887,7 +2887,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         List<Token> tokens = Lists.newArrayListWithExpectedSize(keys.size() + 2);
         tokens.add(range.left);
         for (DecoratedKey key : keys)
-            tokens.add(key.token);
+            tokens.add(key.token());
         tokens.add(range.right);
         return tokens;
     }
@@ -3870,7 +3870,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         List<String> sampledKeys = new ArrayList<>(keys.size());
         for (DecoratedKey key : keys)
-            sampledKeys.add(key.getToken().toString());
+            sampledKeys.add(key.token().toString());
         return sampledKeys;
     }
 

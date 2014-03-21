@@ -294,7 +294,7 @@ public class ActiveRepairService
             Set<SSTableReader> sstables = new HashSet<>();
             for (SSTableReader sstable : cfs.getSSTables())
             {
-                if (new Bounds<>(sstable.first.token, sstable.last.token).intersects(ranges))
+                if (new Bounds<>(sstable.first.token(), sstable.last.token()).intersects(ranges))
                 {
                     if (!sstable.isRepaired())
                     {

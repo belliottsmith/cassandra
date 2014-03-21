@@ -60,7 +60,7 @@ public class AtomicBTreeColumns extends ColumnFamily
     {
         public CellName apply(Cell column)
         {
-            return column.name;
+            return column.name();
         }
     };
 
@@ -305,7 +305,7 @@ public class AtomicBTreeColumns extends ColumnFamily
         {
             public int compare(Object o1, Object o2)
             {
-                return cmp.compare((CellName) o1, ((Cell) o2).name);
+                return cmp.compare((CellName) o1, ((Cell) o2).name());
             }
         };
     }

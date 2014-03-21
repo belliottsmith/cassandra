@@ -18,7 +18,6 @@
 package org.apache.cassandra.dht;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.*;
@@ -100,7 +99,7 @@ public abstract class AbstractBounds<T extends RingPosition> implements Serializ
     {
         if (value instanceof DecoratedKey)
         {
-            return keyValidator.getString(((DecoratedKey)value).key);
+            return keyValidator.getString(((DecoratedKey)value).key());
         }
         else
         {
@@ -174,8 +173,8 @@ public abstract class AbstractBounds<T extends RingPosition> implements Serializ
             }
 
             if (kind == Type.RANGE.ordinal())
-                return new Range(left, right);
-            return new Bounds(left, right);
+                return new Range<>(left, right);
+            return new Bounds<>(left, right);
         }
 
         public long serializedSize(AbstractBounds<?> ab, int version)

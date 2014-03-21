@@ -102,7 +102,7 @@ public class ExcludingBounds<T extends RingPosition> extends AbstractBounds<T>
 
     public AbstractBounds<Token> toTokenBounds()
     {
-        return (left instanceof RowPosition) ? new ExcludingBounds<Token>(((RowPosition)left).getToken(), ((RowPosition)right).getToken(), partitioner) : (ExcludingBounds<Token>)this;
+        return (left instanceof RowPosition) ? new ExcludingBounds<>(left.token(), right.token(), partitioner) : (ExcludingBounds<Token>)this;
     }
 
     public AbstractBounds<T> withNewRight(T newRight)

@@ -109,7 +109,7 @@ public class Murmur3Partitioner extends AbstractPartitioner<LongToken>
 
     private long normalize(long v)
     {
-        // We exclude the MINIMUM value; see getToken()
+        // We exclude the MINIMUM value; see token()
         return v == Long.MIN_VALUE ? Long.MAX_VALUE : v;
     }
 

@@ -48,7 +48,7 @@ public class SSTableMetadataTest extends SchemaLoader
         for(int i = 0; i < 10; i++)
         {
             DecoratedKey key = Util.dk(Integer.toString(i));
-            Mutation rm = new Mutation("Keyspace1", key.key);
+            Mutation rm = new Mutation("Keyspace1", key.key());
             for (int j = 0; j < 10; j++)
                 rm.add("Standard1", Util.cellname(Integer.toString(j)),
                        ByteBufferUtil.EMPTY_BYTE_BUFFER,
@@ -56,7 +56,7 @@ public class SSTableMetadataTest extends SchemaLoader
                        10 + j);
             rm.apply();
         }
-        Mutation rm = new Mutation("Keyspace1", Util.dk("longttl").key);
+        Mutation rm = new Mutation("Keyspace1", Util.dk("longttl").key());
         rm.add("Standard1", Util.cellname("col"),
                ByteBufferUtil.EMPTY_BYTE_BUFFER,
                timestamp,
@@ -72,7 +72,7 @@ public class SSTableMetadataTest extends SchemaLoader
             assertEquals(ttltimestamp + 10000, firstDelTime, 10);
 
         }
-        rm = new Mutation("Keyspace1", Util.dk("longttl2").key);
+        rm = new Mutation("Keyspace1", Util.dk("longttl2").key());
         rm.add("Standard1", Util.cellname("col"),
                ByteBufferUtil.EMPTY_BYTE_BUFFER,
                timestamp,
@@ -119,7 +119,7 @@ public class SSTableMetadataTest extends SchemaLoader
         ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard2");
         long timestamp = System.currentTimeMillis();
         DecoratedKey key = Util.dk("deletetest");
-        Mutation rm = new Mutation("Keyspace1", key.key);
+        Mutation rm = new Mutation("Keyspace1", key.key());
         for (int i = 0; i<5; i++)
             rm.add("Standard2", Util.cellname("deletecolumn"+i),
                        ByteBufferUtil.EMPTY_BYTE_BUFFER,
@@ -139,7 +139,7 @@ public class SSTableMetadataTest extends SchemaLoader
             firstMaxDelTime = sstable.getSSTableMetadata().maxLocalDeletionTime;
             assertEquals(ttltimestamp + 1000, firstMaxDelTime, 10);
         }
-        rm = new Mutation("Keyspace1", key.key);
+        rm = new Mutation("Keyspace1", key.key());
         rm.delete("Standard2", Util.cellname("todelete"), timestamp + 1);
         rm.apply();
         store.forceBlockingFlush();
@@ -171,7 +171,7 @@ public class SSTableMetadataTest extends SchemaLoader
         for (int j = 0; j < 8; j++)
         {
             DecoratedKey key = Util.dk("row"+j);
-            Mutation rm = new Mutation("Keyspace1", key.key);
+            Mutation rm = new Mutation("Keyspace1", key.key());
             for (int i = 100; i<150; i++)
             {
                 rm.add("Standard3", Util.cellname(j+"col"+i), ByteBufferUtil.EMPTY_BYTE_BUFFER, System.currentTimeMillis());
@@ -186,7 +186,7 @@ public class SSTableMetadataTest extends SchemaLoader
             assertEquals(ByteBufferUtil.string(sstable.getSSTableMetadata().maxColumnNames.get(0)), "7col149");
         }
         DecoratedKey key = Util.dk("row2");
-        Mutation rm = new Mutation("Keyspace1", key.key);
+        Mutation rm = new Mutation("Keyspace1", key.key());
         for (int i = 101; i<299; i++)
         {
             rm.add("Standard3", Util.cellname(9+"col"+i), ByteBufferUtil.EMPTY_BYTE_BUFFER, System.currentTimeMillis());

@@ -1303,7 +1303,7 @@ public class CassandraServer implements Cassandra.Iface
         for (Row row : rows)
         {
             List<ColumnOrSuperColumn> thriftifiedColumns = thriftifyColumnFamily(row.cf, column_parent.super_column != null, reversed, now);
-            keySlices.add(new KeySlice(row.key.key, thriftifiedColumns));
+            keySlices.add(new KeySlice(row.key.key(), thriftifiedColumns));
         }
 
         return keySlices;

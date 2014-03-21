@@ -79,13 +79,13 @@ public class ExpiringCell extends Cell
     @Override
     public Cell withUpdatedName(CellName newName)
     {
-        return new ExpiringCell(newName, value, timestamp, timeToLive, localExpirationTime);
+        return new ExpiringCell(newName, value(), timestamp(), timeToLive, localExpirationTime);
     }
 
     @Override
     public Cell withUpdatedTimestamp(long newTimestamp)
     {
-        return new ExpiringCell(name, value, newTimestamp, timeToLive, localExpirationTime);
+        return new ExpiringCell(name(), value(), newTimestamp, timeToLive, localExpirationTime);
     }
 
     @Override
@@ -108,13 +108,13 @@ public class ExpiringCell extends Cell
     @Override
     public void updateDigest(MessageDigest digest)
     {
-        digest.update(name.toByteBuffer().duplicate());
-        digest.update(value.duplicate());
+        digest.update(name().toByteBuffer().duplicate());
+        digest.update(value().duplicate());
 
         DataOutputBuffer buffer = new DataOutputBuffer();
         try
         {
-            buffer.writeLong(timestamp);
+            buffer.writeLong(timestamp());
             buffer.writeByte(serializationFlags());
             buffer.writeInt(timeToLive);
         }
@@ -134,7 +134,7 @@ public class ExpiringCell extends Cell
     @Override
     public Cell localCopy(AbstractAllocator allocator)
     {
-        return new ExpiringCell(name.copy(allocator), allocator.clone(value), timestamp, timeToLive, localExpirationTime);
+        return new ExpiringCell(name().copy(allocator), allocator.clone(value()), timestamp(), timeToLive, localExpirationTime);
     }
 
     @Override
@@ -152,7 +152,7 @@ public class ExpiringCell extends Cell
     @Override
     public long getMarkedForDeleteAt()
     {
-        return timestamp;
+        return timestamp();
     }
 
     @Override

@@ -75,9 +75,9 @@ public class Cell implements OnDiskAtom
         };
     }
 
-    protected final CellName name;
-    protected final ByteBuffer value;
-    protected final long timestamp;
+    private final CellName name;
+    private final ByteBuffer value;
+    private final long timestamp;
 
     Cell(CellName name)
     {
@@ -100,12 +100,12 @@ public class Cell implements OnDiskAtom
 
     public Cell withUpdatedName(CellName newName)
     {
-        return new Cell(newName, value, timestamp);
+        return new Cell(newName, value(), timestamp());
     }
 
     public Cell withUpdatedTimestamp(long newTimestamp)
     {
-        return new Cell(name, value, newTimestamp);
+        return new Cell(name(), value(), newTimestamp);
     }
 
     public CellName name()
@@ -141,14 +141,14 @@ public class Cell implements OnDiskAtom
 
     public int dataSize()
     {
-        return name.dataSize() + value.remaining() + TypeSizes.NATIVE.sizeof(timestamp);
+        return name().dataSize() + value().remaining() + TypeSizes.NATIVE.sizeof(timestamp());
     }
 
     // returns the size of the Cell and all references on the heap, excluding any costs associated with byte arrays
     // that would be allocated by a localCopy, as these will be accounted for by the allocator
     public long excessHeapSizeExcludingData()
     {
-        return EMPTY_SIZE + name.excessHeapSizeExcludingData() + ObjectSizes.sizeOnHeapExcludingData(value);
+        return EMPTY_SIZE + name().excessHeapSizeExcludingData() + ObjectSizes.sizeOnHeapExcludingData(value());
     }
 
     public int serializedSize(CellNameType type, TypeSizes typeSizes)
@@ -161,8 +161,8 @@ public class Cell implements OnDiskAtom
          * + 4 bytes which basically indicates the size of the byte array
          * + entire byte array.
         */
-        int valueSize = value.remaining();
-        return ((int)type.cellSerializer().serializedSize(name, typeSizes)) + 1 + typeSizes.sizeof(timestamp) + typeSizes.sizeof(valueSize) + valueSize;
+        int valueSize = value().remaining();
+        return ((int)type.cellSerializer().serializedSize(name(), typeSizes)) + 1 + typeSizes.sizeof(timestamp()) + typeSizes.sizeof(valueSize) + valueSize;
     }
 
     public int serializationFlags()
@@ -179,13 +179,13 @@ public class Cell implements OnDiskAtom
 
     public void updateDigest(MessageDigest digest)
     {
-        digest.update(name.toByteBuffer().duplicate());
-        digest.update(value.duplicate());
+        digest.update(name().toByteBuffer().duplicate());
+        digest.update(value().duplicate());
 
         DataOutputBuffer buffer = new DataOutputBuffer();
         try
         {
-            buffer.writeLong(timestamp);
+            buffer.writeLong(timestamp());
             buffer.writeByte(serializationFlags());
         }
         catch (IOException e)
@@ -225,30 +225,30 @@ public class Cell implements OnDiskAtom
 
         Cell cell = (Cell)o;
 
-        return timestamp == cell.timestamp && name.equals(cell.name) && value.equals(cell.value);
+        return timestamp() == cell.timestamp() && name().equals(cell.name()) && value().equals(cell.value());
     }
 
     @Override
     public int hashCode()
     {
-        int result = name != null ? name.hashCode() : 0;
-        result = 31 * result + (value != null ? value.hashCode() : 0);
-        result = 31 * result + (int)(timestamp ^ (timestamp >>> 32));
+        int result = name() != null ? name().hashCode() : 0;
+        result = 31 * result + (value() != null ? value().hashCode() : 0);
+        result = 31 * result + (int)(timestamp() ^ (timestamp() >>> 32));
         return result;
     }
 
     public Cell localCopy(AbstractAllocator allocator)
     {
-        return new Cell(name.copy(allocator), allocator.clone(value), timestamp);
+        return new Cell(name().copy(allocator), allocator.clone(value()), timestamp());
     }
 
     public String getString(CellNameType comparator)
     {
         return String.format("%s:%b:%d@%d",
-                             comparator.getString(name),
+                             comparator.getString(name()),
                              isMarkedForDelete(System.currentTimeMillis()),
-                             value.remaining(),
-                             timestamp);
+                             value().remaining(),
+                             timestamp());
     }
 
     protected void validateName(CFMetaData metadata) throws MarshalException

@@ -41,13 +41,13 @@ public class RemoveCellTest extends SchemaLoader
         DecoratedKey dk = Util.dk("key1");
 
         // add data
-        rm = new Mutation("Keyspace1", dk.key);
+        rm = new Mutation("Keyspace1", dk.key());
         rm.add("Standard1", Util.cellname("Column1"), ByteBufferUtil.bytes("asdf"), 0);
         rm.apply();
         store.forceBlockingFlush();
 
         // remove
-        rm = new Mutation("Keyspace1", dk.key);
+        rm = new Mutation("Keyspace1", dk.key());
         rm.delete("Standard1", Util.cellname("Column1"), 1);
         rm.apply();
 

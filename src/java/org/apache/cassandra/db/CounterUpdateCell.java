@@ -86,6 +86,6 @@ public class CounterUpdateCell extends Cell
     @Override
     public String getString(CellNameType comparator)
     {
-        return String.format("%s:%s@%d", comparator.getString(name), ByteBufferUtil.toLong(value), timestamp);
+        return String.format("%s:%s@%d", comparator.getString(name()), ByteBufferUtil.toLong(value()), timestamp());
     }
 }

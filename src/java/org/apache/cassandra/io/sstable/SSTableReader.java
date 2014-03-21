@@ -619,7 +619,7 @@ public class SSTableReader extends SSTable implements Closeable
                 last = decoratedKey;
 
                 if (recreateBloomFilter)
-                    bf.add(decoratedKey.key);
+                    bf.add(decoratedKey.key());
 
                 // if summary was already read from disk we don't want to re-populate it using primary index
                 if (!summaryLoaded)
@@ -707,8 +707,8 @@ public class SSTableReader extends SSTable implements Closeable
         {
             oStream = new DataOutputStreamAndChannel(new FileOutputStream(summariesFile));
             IndexSummary.serializer.serialize(summary, oStream, descriptor.version.hasSamplingLevel);
-            ByteBufferUtil.writeWithLength(first.key, oStream);
-            ByteBufferUtil.writeWithLength(last.key, oStream);
+            ByteBufferUtil.writeWithLength(first.key(), oStream);
+            ByteBufferUtil.writeWithLength(last.key(), oStream);
             ibuilder.serializeBounds(oStream);
             dbuilder.serializeBounds(oStream);
         }
@@ -1078,7 +1078,7 @@ public class SSTableReader extends SSTable implements Closeable
             return;
         }
 
-        KeyCacheKey cacheKey = new KeyCacheKey(metadata.cfId, descriptor, key.key);
+        KeyCacheKey cacheKey = new KeyCacheKey(metadata.cfId, descriptor, key.key());
         logger.trace("Adding cache entry for {} -> {}", cacheKey, info);
         keyCache.put(cacheKey, info);
     }
@@ -1108,7 +1108,7 @@ public class SSTableReader extends SSTable implements Closeable
 
     public RowIndexEntry getCachedPosition(DecoratedKey key, boolean updateStats)
     {
-        return getCachedPosition(new KeyCacheKey(metadata.cfId, descriptor, key.key), updateStats);
+        return getCachedPosition(new KeyCacheKey(metadata.cfId, descriptor, key.key()), updateStats);
     }
 
     private RowIndexEntry getCachedPosition(KeyCacheKey unifiedKey, boolean updateStats)
@@ -1152,7 +1152,7 @@ public class SSTableReader extends SSTable implements Closeable
         if (op == Operator.EQ)
         {
             assert key instanceof DecoratedKey; // EQ only make sense if the key is a valid row key
-            if (!bf.isPresent(((DecoratedKey)key).key))
+            if (!bf.isPresent(((DecoratedKey)key).key()))
             {
                 Tracing.trace("Bloom filter allows skipping sstable {}", descriptor.generation);
                 return null;
@@ -1163,7 +1163,7 @@ public class SSTableReader extends SSTable implements Closeable
         if ((op == Operator.EQ || op == Operator.GE) && (key instanceof DecoratedKey))
         {
             DecoratedKey decoratedKey = (DecoratedKey)key;
-            KeyCacheKey cacheKey = new KeyCacheKey(metadata.cfId, descriptor, decoratedKey.key);
+            KeyCacheKey cacheKey = new KeyCacheKey(metadata.cfId, descriptor, decoratedKey.key());
             RowIndexEntry cachedPosition = getCachedPosition(cacheKey, updateCacheAndStats);
             if (cachedPosition != null)
             {
@@ -1219,7 +1219,7 @@ public class SSTableReader extends SSTable implements Closeable
                     // Compare raw keys if possible for performance, otherwise compare decorated keys.
                     if (op == Operator.EQ)
                     {
-                        opSatisfied = exactMatch = indexKey.equals(((DecoratedKey) key).key);
+                        opSatisfied = exactMatch = indexKey.equals(((DecoratedKey) key).key());
                     }
                     else
                     {

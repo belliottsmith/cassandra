@@ -247,9 +247,9 @@ public class SSTableReaderTest extends SchemaLoader
                 firstKey = key;
             if (lastKey == null)
                 lastKey = key;
-            if (store.metadata.getKeyValidator().compare(lastKey.key, key.key) < 0)
+            if (store.metadata.getKeyValidator().compare(lastKey.key(), key.key()) < 0)
                 lastKey = key;
-            Mutation rm = new Mutation(ks, key.key);
+            Mutation rm = new Mutation(ks, key.key());
             rm.add(cf, cellname("col"),
                    ByteBufferUtil.EMPTY_BYTE_BUFFER, timestamp);
             rm.apply();
@@ -262,7 +262,7 @@ public class SSTableReaderTest extends SchemaLoader
         // test to see if sstable can be opened as expected
         SSTableReader target = SSTableReader.open(desc);
         Assert.assertEquals(target.getIndexSummarySize(), 1);
-        Assert.assertArrayEquals(ByteBufferUtil.getArray(firstKey.key), target.getIndexSummaryKey(0));
+        Assert.assertArrayEquals(ByteBufferUtil.getArray(firstKey.key()), target.getIndexSummaryKey(0));
         assert target.first.equals(firstKey);
         assert target.last.equals(lastKey);
     }
@@ -281,7 +281,7 @@ public class SSTableReaderTest extends SchemaLoader
         ColumnFamilyStore indexCfs = store.indexManager.getIndexForColumn(ByteBufferUtil.bytes("birthdate")).getIndexCfs();
         assert indexCfs.partitioner instanceof LocalPartitioner;
         SSTableReader sstable = indexCfs.getSSTables().iterator().next();
-        assert sstable.first.token instanceof LocalToken;
+        assert sstable.first.token() instanceof LocalToken;
 
         SegmentedFile.Builder ibuilder = SegmentedFile.getBuilder(DatabaseDescriptor.getIndexAccessMode());
         SegmentedFile.Builder dbuilder = sstable.compression
@@ -290,7 +290,7 @@ public class SSTableReaderTest extends SchemaLoader
         sstable.saveSummary(ibuilder, dbuilder);
 
         SSTableReader reopened = SSTableReader.open(sstable.descriptor);
-        assert reopened.first.token instanceof LocalToken;
+        assert reopened.first.token() instanceof LocalToken;
     }
 
     /** see CASSANDRA-5407 */

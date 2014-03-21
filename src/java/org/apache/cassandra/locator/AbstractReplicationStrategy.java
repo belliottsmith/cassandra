@@ -102,7 +102,7 @@ public abstract class AbstractReplicationStrategy
      */
     public ArrayList<InetAddress> getNaturalEndpoints(RingPosition searchPosition)
     {
-        Token searchToken = searchPosition.getToken();
+        Token searchToken = searchPosition.token();
         Token keyToken = TokenMetadata.firstToken(tokenMetadata.sortedTokens(), searchToken);
         ArrayList<InetAddress> endpoints = getCachedEndpoints(keyToken);
         if (endpoints == null)

@@ -1909,7 +1909,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         for (RowCacheKey key : CacheService.instance.rowCache.getKeySet())
         {
             DecoratedKey dk = partitioner.decorateKey(ByteBuffer.wrap(key.key));
-            if (key.cfId == metadata.cfId && !Range.isInRanges(dk.token, ranges))
+            if (key.cfId == metadata.cfId && !Range.isInRanges(dk.token(), ranges))
                 invalidateCachedRow(dk);
         }
 
@@ -1918,7 +1918,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             for (CounterCacheKey key : CacheService.instance.counterCache.getKeySet())
             {
                 DecoratedKey dk = partitioner.decorateKey(ByteBuffer.wrap(key.partitionKey));
-                if (key.cfId == metadata.cfId && !Range.isInRanges(dk.token, ranges))
+                if (key.cfId == metadata.cfId && !Range.isInRanges(dk.token(), ranges))
                     CacheService.instance.counterCache.remove(key);
             }
         }
@@ -1968,7 +1968,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                         return computeNext();
 
                     if (logger.isTraceEnabled())
-                        logger.trace("scanned {}", metadata.getKeyValidator().getString(key.key));
+                        logger.trace("scanned {}", metadata.getKeyValidator().getString(key.key()));
 
                     return current;
                 }

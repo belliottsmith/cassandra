@@ -18,7 +18,6 @@
 package org.apache.cassandra.db;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
@@ -222,7 +221,7 @@ public class CounterMutation implements IMutation
         SortedSet<CellName> names = new TreeSet<>(cfs.metadata.comparator);
         for (int i = 0; i < currentValues.length; i++)
             if (currentValues[i] == null)
-                names.add(counterUpdateCells.get(i).name);
+                names.add(counterUpdateCells.get(i).name());
 
         ReadCommand cmd = new SliceByNamesReadCommand(getKeyspaceName(), key(), cfs.metadata.cfName, Long.MIN_VALUE, new NamesQueryFilter(names));
         Row row = cmd.getRow(cfs.keyspace);

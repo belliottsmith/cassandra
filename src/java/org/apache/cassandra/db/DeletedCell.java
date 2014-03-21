@@ -43,13 +43,13 @@ public class DeletedCell extends Cell
     @Override
     public Cell withUpdatedName(CellName newName)
     {
-        return new DeletedCell(newName, value, timestamp);
+        return new DeletedCell(newName, value(), timestamp());
     }
 
     @Override
     public Cell withUpdatedTimestamp(long newTimestamp)
     {
-        return new DeletedCell(name, value, newTimestamp);
+        return new DeletedCell(name(), value(), newTimestamp);
     }
 
     @Override
@@ -61,18 +61,18 @@ public class DeletedCell extends Cell
     @Override
     public long getMarkedForDeleteAt()
     {
-        return timestamp;
+        return timestamp();
     }
 
     @Override
     public void updateDigest(MessageDigest digest)
     {
-        digest.update(name.toByteBuffer().duplicate());
+        digest.update(name().toByteBuffer().duplicate());
 
         DataOutputBuffer buffer = new DataOutputBuffer();
         try
         {
-            buffer.writeLong(timestamp);
+            buffer.writeLong(timestamp());
             buffer.writeByte(serializationFlags());
         }
         catch (IOException e)
@@ -85,7 +85,7 @@ public class DeletedCell extends Cell
     @Override
     public int getLocalDeletionTime()
     {
-       return value.getInt(value.position());
+       return value().getInt(value().position());
     }
 
     @Override
@@ -99,7 +99,7 @@ public class DeletedCell extends Cell
     @Override
     public Cell localCopy(AbstractAllocator allocator)
     {
-        return new DeletedCell(name.copy(allocator), allocator.clone(value), timestamp);
+        return new DeletedCell(name().copy(allocator), allocator.clone(value()), timestamp());
     }
 
     @Override

@@ -86,7 +86,7 @@ public class IndexSummaryBuilder
 
             if (!shouldSkip)
             {
-                byte[] key = ByteBufferUtil.getArray(decoratedKey.key);
+                byte[] key = ByteBufferUtil.getArray(decoratedKey.key());
                 keys.add(key);
                 offheapSize += key.length;
                 positions.add(indexPosition);

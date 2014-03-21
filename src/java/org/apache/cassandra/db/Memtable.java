@@ -177,7 +177,7 @@ public class Memtable
         if (previous == null)
         {
             AtomicBTreeColumns empty = cf.cloneMeShallow(AtomicBTreeColumns.factory, false);
-            final DecoratedKey cloneKey = new DecoratedKey(key.token, allocator.clone(key.key, opGroup));
+            final DecoratedKey cloneKey = new DecoratedKey(key.token(), allocator.clone(key.key(), opGroup));
             // We'll add the columns later. This avoids wasting works if we get beaten in the putIfAbsent
             previous = rows.putIfAbsent(cloneKey, empty);
             if (previous == null)
@@ -185,12 +185,12 @@ public class Memtable
                 previous = empty;
                 // allocate the row overhead after the fact; this saves over allocating and having to free after, but
                 // means we can overshoot our declared limit.
-                int overhead = (int) (cfs.partitioner.getHeapSizeOf(key.token) + ROW_OVERHEAD_HEAP_SIZE);
+                int overhead = (int) (cfs.partitioner.getHeapSizeOf(key.token()) + ROW_OVERHEAD_HEAP_SIZE);
                 allocator.allocate(overhead, opGroup);
             }
             else
             {
-                allocator.free(cloneKey.key);
+                allocator.free(cloneKey.key());
             }
         }
 
@@ -202,8 +202,8 @@ public class Memtable
         // allocate or free the delta in column overhead after the fact
         for (Cell cell : delta.reclaimed())
         {
-            cell.name.free(allocator);
-            allocator.free(cell.value);
+            cell.name().free(allocator);
+            allocator.free(cell.value());
         }
         allocator.allocate((int) delta.excessHeapSize(), opGroup);
     }
@@ -259,7 +259,7 @@ public class Memtable
                 if (memoryPool.needToCopyOnHeap())
                 {
                     DecoratedKey key = (DecoratedKey) entry.getKey();
-                    key = new DecoratedKey(key.token, HeapAllocator.instance.clone(key.key));
+                    key = new DecoratedKey(key.token(), HeapAllocator.instance.clone(key.key()));
                     ColumnFamily cells = ArrayBackedSortedColumns.localCopy(entry.getValue(), HeapAllocator.instance);
                     entry = new AbstractMap.SimpleImmutableEntry<>(key, cells);
                 }
@@ -307,7 +307,7 @@ public class Memtable
             {
                 //  make sure we don't write non-sensical keys
                 assert key instanceof DecoratedKey;
-                keySize += ((DecoratedKey)key).key.remaining();
+                keySize += ((DecoratedKey)key).key().remaining();
             }
             estimatedSize = (long) ((keySize // index entries
                                     + keySize // keys in data file

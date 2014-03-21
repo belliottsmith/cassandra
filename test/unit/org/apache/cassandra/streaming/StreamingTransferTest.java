@@ -167,7 +167,7 @@ public class StreamingTransferTest extends SchemaLoader
             String key = "key" + offs[i];
             String col = "col" + offs[i];
             assert cfs.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk(key), cfs.name, System.currentTimeMillis())) != null;
-            assert rows.get(i).key.key.equals(ByteBufferUtil.bytes(key));
+            assert rows.get(i).key.key().equals(ByteBufferUtil.bytes(key));
             assert rows.get(i).cf.getColumn(cellname(col)) != null;
         }
 
@@ -248,7 +248,7 @@ public class StreamingTransferTest extends SchemaLoader
             Range<RowPosition> range = Util.range("", "");
             List<Row> rows = cfs.search(range, clause, filter, 100);
             assertEquals(1, rows.size());
-            assert rows.get(0).key.key.equals(ByteBufferUtil.bytes(key));
+            assert rows.get(0).key.key().equals(ByteBufferUtil.bytes(key));
         }
     }
 
@@ -382,8 +382,8 @@ public class StreamingTransferTest extends SchemaLoader
         ColumnFamilyStore cfstore = Keyspace.open(keyspaceName).getColumnFamilyStore(cfname);
         List<Row> rows = Util.getRangeSlice(cfstore);
         assertEquals(2, rows.size());
-        assert rows.get(0).key.key.equals(ByteBufferUtil.bytes("test"));
-        assert rows.get(1).key.key.equals(ByteBufferUtil.bytes("transfer3"));
+        assert rows.get(0).key.key().equals(ByteBufferUtil.bytes("test"));
+        assert rows.get(1).key.key().equals(ByteBufferUtil.bytes("transfer3"));
         assert rows.get(0).cf.getColumnCount() == 1;
         assert rows.get(1).cf.getColumnCount() == 1;
 
@@ -422,9 +422,9 @@ public class StreamingTransferTest extends SchemaLoader
         Map.Entry<DecoratedKey,String> last = keys.lastEntry();
         Map.Entry<DecoratedKey,String> secondtolast = keys.lowerEntry(last.getKey());
         List<Range<Token>> ranges = new ArrayList<>();
-        ranges.add(new Range<>(p.getMinimumToken(), first.getKey().token));
+        ranges.add(new Range<>(p.getMinimumToken(), first.getKey().token()));
         // the left hand side of the range is exclusive, so we transfer from the second-to-last token
-        ranges.add(new Range<>(secondtolast.getKey().token, p.getMinimumToken()));
+        ranges.add(new Range<>(secondtolast.getKey().token(), p.getMinimumToken()));
 
         // Acquiring references, transferSSTables needs it
         if (!SSTableReader.acquireReferences(ssTableReaders))

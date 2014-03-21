@@ -53,12 +53,12 @@ public class RecoveryManagerTest extends SchemaLoader
 
         cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
         cf.addColumn(column("col1", "val1", 1L));
-        rm = new Mutation("Keyspace1", dk.key, cf);
+        rm = new Mutation("Keyspace1", dk.key(), cf);
         rm.apply();
 
         cf = ArrayBackedSortedColumns.factory.create("Keyspace2", "Standard3");
         cf.addColumn(column("col2", "val2", 1L));
-        rm = new Mutation("Keyspace2", dk.key, cf);
+        rm = new Mutation("Keyspace2", dk.key(), cf);
         rm.apply();
 
         keyspace1.getColumnFamilyStore("Standard1").clearUnsafe();
@@ -84,7 +84,7 @@ public class RecoveryManagerTest extends SchemaLoader
         {
             cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Counter1");
             cf.addColumn(CounterCell.createLocal(cellname("col"), 1L, 1L, Long.MIN_VALUE));
-            rm = new Mutation("Keyspace1", dk.key, cf);
+            rm = new Mutation("Keyspace1", dk.key(), cf);
             rm.apply();
         }
 
@@ -115,7 +115,7 @@ public class RecoveryManagerTest extends SchemaLoader
             long ts = TimeUnit.MILLISECONDS.toMicros(timeMS + (i * 1000));
             ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
             cf.addColumn(column("name-" + i, "value", ts));
-            Mutation rm = new Mutation("Keyspace1", dk.key, cf);
+            Mutation rm = new Mutation("Keyspace1", dk.key(), cf);
             rm.apply();
         }
         keyspace1.getColumnFamilyStore("Standard1").clearUnsafe();

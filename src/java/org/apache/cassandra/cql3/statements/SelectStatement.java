@@ -999,7 +999,7 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
             if (row.cf == null)
                 continue;
 
-            processColumnFamily(row.key.key, row.cf, variables, now, result);
+            processColumnFamily(row.key.key(), row.cf, variables, now, result);
         }
 
         ResultSet cqlRows = result.build();

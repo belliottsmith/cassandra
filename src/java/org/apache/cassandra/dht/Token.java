@@ -107,7 +107,7 @@ public abstract class Token<T> implements RingPosition<Token<T>>, Serializable
         }
     }
 
-    public Token<T> getToken()
+    public Token<T> token()
     {
         return this;
     }
@@ -184,7 +184,7 @@ public abstract class Token<T> implements RingPosition<Token<T>>, Serializable
             this.isMinimumBound = isMinimumBound;
         }
 
-        public Token getToken()
+        public Token token()
         {
             return token;
         }
@@ -194,7 +194,7 @@ public abstract class Token<T> implements RingPosition<Token<T>>, Serializable
             if (this == pos)
                 return 0;
 
-            int cmp = getToken().compareTo(pos.getToken());
+            int cmp = token().compareTo(pos.token());
             if (cmp != 0)
                 return cmp;
 
@@ -206,7 +206,7 @@ public abstract class Token<T> implements RingPosition<Token<T>>, Serializable
 
         public boolean isMinimum(IPartitioner partitioner)
         {
-            return getToken().isMinimum(partitioner);
+            return token().isMinimum(partitioner);
         }
 
         public RowPosition.Kind kind()
@@ -229,13 +229,13 @@ public abstract class Token<T> implements RingPosition<Token<T>>, Serializable
         @Override
         public int hashCode()
         {
-            return getToken().hashCode() + (isMinimumBound ? 0 : 1);
+            return token().hashCode() + (isMinimumBound ? 0 : 1);
         }
 
         @Override
         public String toString()
         {
-            return String.format("%s(%s)", isMinimumBound ? "min" : "max", getToken().toString());
+            return String.format("%s(%s)", isMinimumBound ? "min" : "max", token().toString());
         }
     }
 }

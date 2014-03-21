@@ -43,8 +43,8 @@ public class DecoratedKey extends RowPosition
         }
     };
 
-    public final Token token;
-    public final ByteBuffer key;
+    private final Token token;
+    private final ByteBuffer key;
 
     public DecoratedKey(Token token, ByteBuffer key)
     {
@@ -56,7 +56,7 @@ public class DecoratedKey extends RowPosition
     @Override
     public int hashCode()
     {
-        return key.hashCode(); // hash of key is enough
+        return key().hashCode(); // hash of key is enough
     }
 
     @Override
@@ -69,7 +69,7 @@ public class DecoratedKey extends RowPosition
 
         DecoratedKey other = (DecoratedKey)obj;
 
-        return ByteBufferUtil.compareUnsigned(key, other.key) == 0; // we compare faster than BB.equals for array backed BB
+        return ByteBufferUtil.compareUnsigned(key(), other.key()) == 0; // we compare faster than BB.equals for array backed BB
     }
 
     public int compareTo(RowPosition pos)
@@ -82,8 +82,8 @@ public class DecoratedKey extends RowPosition
             return -pos.compareTo(this);
 
         DecoratedKey otherKey = (DecoratedKey) pos;
-        int cmp = token.compareTo(otherKey.getToken());
-        return cmp == 0 ? ByteBufferUtil.compareUnsigned(key, otherKey.key) : cmp;
+        int cmp = token().compareTo(otherKey.token());
+        return cmp == 0 ? ByteBufferUtil.compareUnsigned(key(), otherKey.key()) : cmp;
     }
 
     public static int compareTo(IPartitioner partitioner, ByteBuffer key, RowPosition position)
@@ -93,8 +93,8 @@ public class DecoratedKey extends RowPosition
             return -position.compareTo(partitioner.decorateKey(key));
 
         DecoratedKey otherKey = (DecoratedKey) position;
-        int cmp = partitioner.getToken(key).compareTo(otherKey.getToken());
-        return cmp == 0 ? ByteBufferUtil.compareUnsigned(key, otherKey.key) : cmp;
+        int cmp = partitioner.getToken(key).compareTo(otherKey.token());
+        return cmp == 0 ? ByteBufferUtil.compareUnsigned(key, otherKey.key()) : cmp;
     }
 
     public boolean isMinimum(IPartitioner partitioner)
@@ -111,12 +111,17 @@ public class DecoratedKey extends RowPosition
     @Override
     public String toString()
     {
-        String keystring = key == null ? "null" : ByteBufferUtil.bytesToHex(key);
-        return "DecoratedKey(" + token + ", " + keystring + ")";
+        String keystring = key() == null ? "null" : ByteBufferUtil.bytesToHex(key());
+        return "DecoratedKey(" + token() + ", " + keystring + ")";
     }
 
-    public Token getToken()
+    public Token token()
     {
         return token;
+    }
+
+    public ByteBuffer key()
+    {
+        return key;
     }
 }
