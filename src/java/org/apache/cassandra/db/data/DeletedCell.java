@@ -17,31 +17,6 @@
  */
 package org.apache.cassandra.db.data;
 
-import java.security.MessageDigest;
-
-import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.composites.CellName;
-import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
-
 public interface DeletedCell extends Cell
 {
-    Cell withUpdatedName(CellName newName);
-
-    Cell withUpdatedTimestamp(long newTimestamp);
-
-    boolean isMarkedForDelete(long now);
-
-    long getMarkedForDeleteAt();
-
-    void updateDigest(MessageDigest digest);
-
-    int getLocalDeletionTime();
-
-    Cell localCopy(ColumnFamilyStore cfs, AbstractAllocator allocator);
-
-    int serializationFlags();
-
-    void validateFields(CFMetaData metadata) throws MarshalException;
 }

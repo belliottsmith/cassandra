@@ -26,7 +26,7 @@ import java.util.Set;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.data.BufferCounterCell;

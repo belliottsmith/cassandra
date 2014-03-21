@@ -22,13 +22,12 @@ import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ColumnSerializer;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.AbstractAllocator;
 
 public class BufferDeletedCell extends BufferCell implements DeletedCell
 {
@@ -99,7 +98,7 @@ public class BufferDeletedCell extends BufferCell implements DeletedCell
     }
 
     @Override
-    public Cell localCopy(ColumnFamilyStore cfs, AbstractAllocator allocator)
+    public Cell localCopy(AbstractAllocator allocator)
     {
         return new BufferDeletedCell(name().copy(allocator), allocator.clone(value()), timestamp());
     }

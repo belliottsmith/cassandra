@@ -22,7 +22,6 @@ import java.nio.ByteBuffer;
 
 import com.google.common.base.Function;
 
-import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
@@ -34,13 +33,11 @@ public final class ContextAllocator extends AbstractAllocator implements Functio
 {
     private final OpOrder.Group opGroup;
     private final PoolAllocator allocator;
-    private final ColumnFamilyStore cfs;
 
-    public ContextAllocator(OpOrder.Group opGroup, PoolAllocator allocator, ColumnFamilyStore cfs)
+    public ContextAllocator(OpOrder.Group opGroup, PoolAllocator allocator)
     {
         this.opGroup = opGroup;
         this.allocator = allocator;
-        this.cfs = cfs;
     }
 
     @Override
@@ -56,6 +53,6 @@ public final class ContextAllocator extends AbstractAllocator implements Functio
 
     public Cell apply(Cell column)
     {
-        return column.localCopy(cfs, this);
+        return column.localCopy(this);
     }
 }

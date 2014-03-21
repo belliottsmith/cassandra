@@ -91,7 +91,7 @@ public class ArrayBackedSortedColumns extends ColumnFamily
     {
         ArrayBackedSortedColumns copy = new ArrayBackedSortedColumns(original.metadata, false, new Cell[original.getColumnCount()], 0, 0);
         for (Cell cell : original)
-            copy.internalAdd(cell.localCopy(cfs, allocator));
+            copy.internalAdd(cell.localCopy(allocator));
         copy.sortedSize = copy.size; // internalAdd doesn't update sortedSize.
         copy.delete(original);
         return copy;

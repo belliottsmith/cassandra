@@ -27,7 +27,6 @@ import java.util.Iterator;
 import com.google.common.collect.AbstractIterator;
 
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ColumnSerializer;
 import org.apache.cassandra.db.OnDiskAtom;
 import org.apache.cassandra.db.TypeSizes;
@@ -113,7 +112,7 @@ public interface Cell extends OnDiskAtom
     @Override
     int hashCode();
 
-    Cell localCopy(ColumnFamilyStore cfs, AbstractAllocator allocator);
+    Cell localCopy(AbstractAllocator allocator);
 
     String getString(CellNameType comparator);
 

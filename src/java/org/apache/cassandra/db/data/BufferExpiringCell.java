@@ -22,7 +22,6 @@ import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ColumnSerializer;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.composites.CellName;
@@ -133,7 +132,7 @@ public class BufferExpiringCell extends BufferCell implements ExpiringCell
     }
 
     @Override
-    public Cell localCopy(ColumnFamilyStore cfs, AbstractAllocator allocator)
+    public Cell localCopy(AbstractAllocator allocator)
     {
         return new BufferExpiringCell(name().copy(allocator), allocator.clone(value()), timestamp(), timeToLive, localExpirationTime);
     }

@@ -18,19 +18,13 @@
 */
 package org.apache.cassandra.db;
 
-import java.security.MessageDigest;
-
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.security.MessageDigest;
 import java.util.Arrays;
 
-import org.apache.cassandra.db.data.BufferCounterCell;
-import org.apache.cassandra.db.data.BufferDeletedCell;
-import org.apache.cassandra.db.data.Cell;
-import org.apache.cassandra.db.data.CounterCell;
-import org.apache.cassandra.utils.memory.HeapAllocator;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -39,9 +33,16 @@ import org.apache.cassandra.Util;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.SimpleDenseCellNameType;
 import org.apache.cassandra.db.context.CounterContext;
+import org.apache.cassandra.db.data.BufferCounterCell;
+import org.apache.cassandra.db.data.BufferDeletedCell;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.CounterCell;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.io.util.DataOutputBuffer;
-import org.apache.cassandra.utils.*;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.CounterId;
+import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.HeapAllocator;
 
 import static org.apache.cassandra.Util.cellname;
 import static org.apache.cassandra.db.context.CounterContext.ContextState;

@@ -163,7 +163,7 @@ public class CounterMutation implements IMutation
             if (cell instanceof CounterUpdateCell)
                 counterUpdateCells.add((CounterUpdateCell)cell);
             else
-                resultCF.addColumn(cell.localCopy(cfs, allocator));
+                resultCF.addColumn(cell.localCopy(allocator));
         }
 
         if (counterUpdateCells.isEmpty())

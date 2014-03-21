@@ -87,7 +87,7 @@ public class CollationController
                     {
                         OnDiskAtom atom = iter.next();
                         if (copyOnHeap)
-                            atom = ((Cell) atom).localCopy(cfs, HeapAllocator.instance);
+                            atom = ((Cell) atom).localCopy(HeapAllocator.instance);
                         container.addAtom(atom);
                     }
                 }
@@ -206,7 +206,7 @@ public class CollationController
                         ColumnFamily newCf = cf.cloneMeShallow(ArrayBackedSortedColumns.factory, false);
                         for (Cell cell : cf)
                         {
-                            newCf.addColumn(cell.localCopy(cfs, HeapAllocator.instance));
+                            newCf.addColumn(cell.localCopy(HeapAllocator.instance));
                         }
                         cf = newCf;
                         iter = filter.getColumnFamilyIterator(cf);

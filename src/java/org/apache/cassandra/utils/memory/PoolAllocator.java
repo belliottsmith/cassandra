@@ -19,11 +19,10 @@ package org.apache.cassandra.utils.memory;
 
 import java.nio.ByteBuffer;
 
-import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.utils.concurrent.OpOrder;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 public abstract class PoolAllocator extends AbstractAllocator
@@ -115,9 +114,9 @@ public abstract class PoolAllocator extends AbstractAllocator
         return cloned;
     }
 
-    public ContextAllocator wrap(ColumnFamilyStore cfs, OpOrder.Group opGroup)
+    public ContextAllocator wrap(OpOrder.Group opGroup)
     {
-        return new ContextAllocator(opGroup, this, cfs);
+        return new ContextAllocator(opGroup, this);
     }
 
     /** Mark the BB as unused, permitting it to be reclaimed */

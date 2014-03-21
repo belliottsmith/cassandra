@@ -17,47 +17,9 @@
  */
 package org.apache.cassandra.db.data;
 
-import java.security.MessageDigest;
-
-import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.TypeSizes;
-import org.apache.cassandra.db.composites.CellName;
-import org.apache.cassandra.db.composites.CellNameType;
-import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
-
 public interface ExpiringCell extends Cell
 {
     public static final int MAX_TTL = 20 * 365 * 24 * 60 * 60; // 20 years in seconds
 
     int getTimeToLive();
-
-    Cell withUpdatedName(CellName newName);
-
-    Cell withUpdatedTimestamp(long newTimestamp);
-
-    int dataSize();
-
-    int serializedSize(CellNameType type, TypeSizes typeSizes);
-
-    void updateDigest(MessageDigest digest);
-
-    int getLocalDeletionTime();
-
-    Cell localCopy(ColumnFamilyStore cfs, AbstractAllocator allocator);
-
-    String getString(CellNameType comparator);
-
-    boolean isMarkedForDelete(long now);
-
-    long getMarkedForDeleteAt();
-
-    int serializationFlags();
-
-    void validateFields(CFMetaData metadata) throws MarshalException;
-
-    boolean equals(Object o);
-
-    int hashCode();
 }

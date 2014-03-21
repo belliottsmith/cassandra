@@ -19,12 +19,11 @@ package org.apache.cassandra.db.data;
 
 import java.nio.ByteBuffer;
 
-import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ColumnSerializer;
 import org.apache.cassandra.db.composites.CellName;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.db.composites.CellNameType;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.AbstractAllocator;
 
 /**
  * A counter update while it hasn't been applied yet by the leader replica.
@@ -80,7 +79,7 @@ public class CounterUpdateCell extends BufferCell
     }
 
     @Override
-    public Cell localCopy(ColumnFamilyStore cfs, AbstractAllocator allocator)
+    public Cell localCopy(AbstractAllocator allocator)
     {
         throw new UnsupportedOperationException();
     }
