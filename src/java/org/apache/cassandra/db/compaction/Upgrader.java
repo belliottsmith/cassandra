@@ -24,7 +24,7 @@ import java.util.*;
 import com.google.common.base.Throwables;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.utils.CloseableIterator;

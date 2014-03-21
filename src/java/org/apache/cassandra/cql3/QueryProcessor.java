@@ -25,6 +25,7 @@ import com.google.common.primitives.Ints;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.googlecode.concurrentlinkedhashmap.EntryWeigher;
 import org.antlr.runtime.*;
+import org.apache.cassandra.db.data.Cell;
 import org.github.jamm.MemoryMeter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

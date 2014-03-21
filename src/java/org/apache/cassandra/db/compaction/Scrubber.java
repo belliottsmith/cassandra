@@ -24,6 +24,7 @@ import java.util.*;
 import com.google.common.base.Throwables;
 
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.RandomAccessReader;

@@ -26,6 +26,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.CounterCell;
+import org.apache.cassandra.db.data.DeletedCell;
 import org.junit.Assert;
 import org.junit.Test;
 

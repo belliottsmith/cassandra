@@ -23,7 +23,7 @@ import java.nio.ByteBuffer;
 import java.util.*;
 
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.utils.ByteBufferUtil;

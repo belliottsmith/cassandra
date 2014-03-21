@@ -23,6 +23,8 @@ import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.Composite;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.DeletedCell;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.CollectionType;
 import org.apache.cassandra.db.marshal.ListType;

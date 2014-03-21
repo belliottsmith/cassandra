@@ -40,7 +40,7 @@ package org.apache.cassandra.db.columniterator;
 
 import com.google.common.collect.AbstractIterator;
 import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.OnDiskAtom;
 
 import java.io.IOException;

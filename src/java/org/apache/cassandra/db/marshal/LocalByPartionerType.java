@@ -22,7 +22,7 @@ import java.nio.ByteBuffer;
 import org.apache.cassandra.serializers.TypeSerializer;
 import org.apache.cassandra.serializers.MarshalException;
 
-import org.apache.cassandra.db.RowPosition;
+import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.utils.ByteBufferUtil;

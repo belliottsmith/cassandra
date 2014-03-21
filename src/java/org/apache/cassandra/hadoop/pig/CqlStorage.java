@@ -25,7 +25,7 @@ import java.util.*;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.composites.CellNames;
-import org.apache.cassandra.db.Cell;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.hadoop.*;

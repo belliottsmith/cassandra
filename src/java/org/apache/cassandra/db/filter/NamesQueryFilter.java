@@ -34,6 +34,8 @@ import org.apache.cassandra.db.columniterator.SSTableNamesIterator;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.Composite;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.io.ISerializer;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.sstable.SSTableReader;

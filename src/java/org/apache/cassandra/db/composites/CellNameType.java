@@ -25,7 +25,7 @@ import java.util.Comparator;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.cql3.CQL3Row;
 import org.apache.cassandra.cql3.ColumnIdentifier;
-import org.apache.cassandra.db.Cell;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.ColumnSerializer;
 import org.apache.cassandra.db.OnDiskAtom;
 import org.apache.cassandra.db.filter.IDiskAtomFilter;

@@ -20,7 +20,7 @@ package org.apache.cassandra.db.index;
 import java.nio.ByteBuffer;
 
 import org.apache.cassandra.utils.concurrent.OpOrder;
-import org.apache.cassandra.db.Cell;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.utils.FBUtilities;
 
 /**

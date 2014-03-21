@@ -29,6 +29,7 @@ import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.service.MigrationManager;

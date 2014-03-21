@@ -19,7 +19,7 @@ package org.apache.cassandra.service;
 
 import java.nio.ByteBuffer;
 
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 @SuppressWarnings("serial")

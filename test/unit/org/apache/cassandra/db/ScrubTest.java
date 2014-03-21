@@ -46,6 +46,8 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.compaction.Scrubber;
 import org.apache.cassandra.db.columniterator.IdentityQueryFilter;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.db.data.DecoratedKey;
+import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.utils.ByteBufferUtil;

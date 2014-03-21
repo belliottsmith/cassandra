@@ -20,6 +20,7 @@ package org.apache.cassandra.db.compaction;
 import java.util.*;
 
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.io.sstable.*;
 
 public class SSTableSplitter {

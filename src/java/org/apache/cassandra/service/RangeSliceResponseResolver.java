@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import com.google.common.collect.AbstractIterator;
 
 import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.RangeSliceReply;
 import org.apache.cassandra.db.Row;
 import org.apache.cassandra.net.AsyncOneResponse;

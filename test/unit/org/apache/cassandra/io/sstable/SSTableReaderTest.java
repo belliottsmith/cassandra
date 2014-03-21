@@ -46,6 +46,8 @@ import org.apache.cassandra.db.columniterator.IdentityQueryFilter;
 import org.apache.cassandra.db.composites.Composites;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.ICompactionScanner;
+import org.apache.cassandra.db.data.DecoratedKey;
+import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.dht.LocalPartitioner;
 import org.apache.cassandra.dht.LocalToken;
 import org.apache.cassandra.dht.Range;

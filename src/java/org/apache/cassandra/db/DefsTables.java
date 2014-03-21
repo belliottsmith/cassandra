@@ -34,6 +34,7 @@ import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.config.UTMetaData;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.UserType;

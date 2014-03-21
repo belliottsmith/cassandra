@@ -25,6 +25,8 @@ import org.junit.Test;
 
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNames;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.index.PerColumnSecondaryIndex;
 import org.apache.cassandra.db.index.PerRowSecondaryIndex;
 import org.apache.cassandra.db.index.SecondaryIndexSearcher;

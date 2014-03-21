@@ -18,11 +18,10 @@
 package org.apache.cassandra.db.compaction;
 
 import java.io.Closeable;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.security.MessageDigest;
 
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.RowIndexEntry;
 import org.apache.cassandra.io.sstable.ColumnStats;
 import org.apache.cassandra.io.util.DataOutputPlus;

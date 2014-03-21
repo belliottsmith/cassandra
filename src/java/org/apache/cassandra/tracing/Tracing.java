@@ -35,6 +35,7 @@ import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.CellName;
+import org.apache.cassandra.db.data.ExpiringCell;
 import org.apache.cassandra.db.marshal.TimeUUIDType;
 import org.apache.cassandra.exceptions.OverloadedException;
 import org.apache.cassandra.exceptions.UnavailableException;

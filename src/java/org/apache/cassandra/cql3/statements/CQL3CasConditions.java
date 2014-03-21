@@ -24,6 +24,7 @@ import org.apache.cassandra.cql3.*;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.Composite;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.service.CASConditions;

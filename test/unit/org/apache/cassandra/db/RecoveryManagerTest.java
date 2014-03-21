@@ -29,6 +29,9 @@ import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.commitlog.CommitLogArchiver;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.CounterCell;
+import org.apache.cassandra.db.data.DecoratedKey;
 
 import static org.apache.cassandra.Util.column;
 import static org.apache.cassandra.db.KeyspaceTest.assertColumns;

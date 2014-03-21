@@ -26,6 +26,8 @@ import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.ExpiringCell;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 import static org.junit.Assert.assertEquals;

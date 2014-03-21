@@ -29,6 +29,7 @@ import org.apache.cassandra.Util;
 import org.apache.cassandra.cache.KeyCacheKey;
 import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.utils.ByteBufferUtil;

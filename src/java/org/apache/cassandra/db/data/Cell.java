@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.db;
+package org.apache.cassandra.db.data;
 
 import java.io.DataInput;
 import java.io.IOError;
@@ -27,6 +27,10 @@ import java.util.Iterator;
 import com.google.common.collect.AbstractIterator;
 
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.ColumnSerializer;
+import org.apache.cassandra.db.OnDiskAtom;
+import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.CellNames;
@@ -46,7 +50,7 @@ public class Cell implements OnDiskAtom
 {
     public static final int MAX_NAME_LENGTH = FBUtilities.MAX_UNSIGNED_SHORT;
 
-    private static final long EMPTY_SIZE = ObjectSizes.measure(new Cell(CellNames.simpleDense(ByteBuffer.allocate(1))));
+    private static final long EMPTY_SIZE = ObjectSizes.measure(new Cell(CellNames.simpleDense(ByteBuffer.allocate(1)), ByteBufferUtil.EMPTY_BYTE_BUFFER));
 
     public static Iterator<OnDiskAtom> onDiskIterator(final DataInput in,
                                                       final ColumnSerializer.Flag flag,
@@ -78,11 +82,6 @@ public class Cell implements OnDiskAtom
     private final CellName name;
     private final ByteBuffer value;
     private final long timestamp;
-
-    Cell(CellName name)
-    {
-        this(name, ByteBufferUtil.EMPTY_BYTE_BUFFER);
-    }
 
     public Cell(CellName name, ByteBuffer value)
     {

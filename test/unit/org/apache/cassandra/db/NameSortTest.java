@@ -26,6 +26,8 @@ import java.util.Collection;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 import org.junit.Test;

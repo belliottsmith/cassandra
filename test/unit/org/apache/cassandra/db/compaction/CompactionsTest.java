@@ -35,6 +35,8 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
+import org.apache.cassandra.db.data.DecoratedKey;
+import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.dht.BytesToken;
 import org.apache.cassandra.dht.Range;

@@ -21,7 +21,7 @@ import java.nio.ByteBuffer;
 import java.util.Iterator;
 import java.util.List;
 
-import org.apache.cassandra.db.Cell;
+import org.apache.cassandra.db.data.Cell;
 
 public interface CQL3Row
 {

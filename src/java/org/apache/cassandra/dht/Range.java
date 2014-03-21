@@ -22,7 +22,7 @@ import java.util.*;
 
 import org.apache.commons.lang3.ObjectUtils;
 
-import org.apache.cassandra.db.RowPosition;
+import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.Pair;
 

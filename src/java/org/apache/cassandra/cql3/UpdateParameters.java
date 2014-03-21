@@ -25,6 +25,8 @@ import java.util.Map;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.CellName;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.DeletedCell;
 import org.apache.cassandra.db.filter.ColumnSlice;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 

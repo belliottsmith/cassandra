@@ -19,7 +19,7 @@ package org.apache.cassandra.io.sstable;
 
 import java.util.*;
 
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.io.util.Memory;

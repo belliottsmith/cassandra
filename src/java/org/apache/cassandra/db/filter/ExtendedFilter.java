@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.marshal.CollectionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

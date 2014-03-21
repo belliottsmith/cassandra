@@ -31,6 +31,7 @@ import static org.junit.Assert.assertEquals;
 import org.apache.cassandra.db.*;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 

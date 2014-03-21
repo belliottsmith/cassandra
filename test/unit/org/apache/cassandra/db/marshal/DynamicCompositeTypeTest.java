@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.serializers.MarshalException;
 import org.junit.Test;
 import static org.junit.Assert.fail;

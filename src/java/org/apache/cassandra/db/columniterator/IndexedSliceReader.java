@@ -27,6 +27,7 @@ import com.google.common.collect.AbstractIterator;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.Composite;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.filter.ColumnSlice;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.IndexHelper;

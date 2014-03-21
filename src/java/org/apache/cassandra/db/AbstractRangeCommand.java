@@ -20,6 +20,7 @@ package org.apache.cassandra.db;
 import java.util.List;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.net.MessageOut;

@@ -20,6 +20,8 @@ package org.apache.cassandra.service.pager;
 import java.util.List;
 
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.data.DecoratedKey;
+import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.db.filter.NamesQueryFilter;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.exceptions.RequestExecutionException;

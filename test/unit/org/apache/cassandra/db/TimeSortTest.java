@@ -30,6 +30,8 @@ import static org.apache.cassandra.Util.getBytes;
 import org.apache.cassandra.Util;
 
 import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.utils.ByteBufferUtil;
 

@@ -27,7 +27,7 @@ import static java.util.Arrays.asList;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Test;
 
-import org.apache.cassandra.db.RowPosition;
+import org.apache.cassandra.db.data.RowPosition;
 import static org.apache.cassandra.Util.range;
 
 

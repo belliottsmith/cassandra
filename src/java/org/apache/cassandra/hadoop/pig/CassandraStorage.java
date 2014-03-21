@@ -23,7 +23,7 @@ import java.nio.charset.CharacterCodingException;
 import java.util.*;
 
 import org.apache.cassandra.hadoop.HadoopCompat;
-import org.apache.cassandra.db.Cell;
+import org.apache.cassandra.db.data.Cell;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

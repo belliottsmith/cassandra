@@ -26,6 +26,8 @@ import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.RowPosition;
 import org.github.jamm.MemoryMeter;
 
 import org.apache.cassandra.auth.Permission;

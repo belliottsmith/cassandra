@@ -20,7 +20,7 @@
  */
 package org.apache.cassandra.db.filter;
 
-import org.apache.cassandra.db.Cell;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.ColumnFamily;

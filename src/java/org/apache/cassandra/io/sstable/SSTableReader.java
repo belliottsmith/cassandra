@@ -45,6 +45,8 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.commitlog.ReplayPosition;
 import org.apache.cassandra.db.compaction.ICompactionScanner;
+import org.apache.cassandra.db.data.DecoratedKey;
+import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.db.index.SecondaryIndex;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.io.compress.CompressedRandomAccessReader;
@@ -1132,7 +1134,7 @@ public class SSTableReader extends SSTable implements Closeable
 
     /**
      * Get position updating key cache and stats.
-     * @see #getPosition(org.apache.cassandra.db.RowPosition, org.apache.cassandra.io.sstable.SSTableReader.Operator, boolean)
+     * @see #getPosition(org.apache.cassandra.db.data.RowPosition, org.apache.cassandra.io.sstable.SSTableReader.Operator, boolean)
      */
     public RowIndexEntry getPosition(RowPosition key, Operator op)
     {

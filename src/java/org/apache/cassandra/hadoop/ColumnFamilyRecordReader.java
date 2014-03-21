@@ -24,7 +24,7 @@ import java.nio.ByteBuffer;
 import java.util.*;
 
 import com.google.common.collect.*;
-import org.apache.cassandra.db.Cell;
+import org.apache.cassandra.db.data.Cell;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

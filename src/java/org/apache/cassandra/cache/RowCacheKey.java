@@ -22,7 +22,7 @@ import java.util.Arrays;
 import java.util.UUID;
 
 import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.ObjectSizes;

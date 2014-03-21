@@ -29,6 +29,7 @@ import java.util.TreeSet;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.utils.ByteBufferUtil;

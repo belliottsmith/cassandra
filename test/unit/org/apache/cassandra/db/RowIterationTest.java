@@ -29,6 +29,7 @@ import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.utils.FBUtilities;
 import static org.junit.Assert.assertEquals;
 import org.apache.cassandra.utils.ByteBufferUtil;

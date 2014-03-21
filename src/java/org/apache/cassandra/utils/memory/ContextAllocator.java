@@ -20,9 +20,9 @@ package org.apache.cassandra.utils.memory;
 
 import java.nio.ByteBuffer;
 
-import org.apache.cassandra.db.Cell;
 import com.google.common.base.Function;
 
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 /**

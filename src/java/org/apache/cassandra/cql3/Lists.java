@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.cassandra.config.ColumnDefinition;
-import org.apache.cassandra.db.Cell;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.Composite;

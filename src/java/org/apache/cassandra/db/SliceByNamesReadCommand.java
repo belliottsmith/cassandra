@@ -24,6 +24,7 @@ import com.google.common.base.Objects;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;

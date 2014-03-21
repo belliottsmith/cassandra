@@ -30,6 +30,7 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.commitlog.CommitLog;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.io.util.FileUtils;
 
 import static org.apache.cassandra.Util.column;

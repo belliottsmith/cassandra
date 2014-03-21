@@ -21,6 +21,7 @@ package org.apache.cassandra.io.sstable;
 import java.io.File;
 
 import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.dht.IPartitioner;
 import org.junit.Test;
 

@@ -24,7 +24,7 @@ import java.nio.ByteBuffer;
 
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.db.TypeSizes;
-import org.apache.cassandra.db.RowPosition;
+import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.io.ISerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.service.StorageService;

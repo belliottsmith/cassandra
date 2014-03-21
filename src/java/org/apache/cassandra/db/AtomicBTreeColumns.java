@@ -33,6 +33,7 @@ import com.google.common.collect.*;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.Composite;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.index.SecondaryIndexManager;
 import org.apache.cassandra.db.filter.ColumnSlice;
 import org.apache.cassandra.utils.ObjectSizes;

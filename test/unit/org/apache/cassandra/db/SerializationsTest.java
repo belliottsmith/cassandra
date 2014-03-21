@@ -18,10 +18,32 @@
  */
 package org.apache.cassandra.db;
 
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.UUID;
+
+import org.junit.Test;
+
 import org.apache.cassandra.AbstractSerializationsTester;
 import org.apache.cassandra.Util;
-import org.apache.cassandra.db.composites.*;
-import org.apache.cassandra.db.filter.*;
+import org.apache.cassandra.db.composites.CellName;
+import org.apache.cassandra.db.composites.CellNames;
+import org.apache.cassandra.db.composites.Composite;
+import org.apache.cassandra.db.composites.Composites;
+import org.apache.cassandra.db.composites.CompoundDenseCellNameType;
+import org.apache.cassandra.db.composites.SimpleDenseCellNameType;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.DeletedCell;
+import org.apache.cassandra.db.data.ExpiringCell;
+import org.apache.cassandra.db.data.RowPosition;
+import org.apache.cassandra.db.filter.NamesQueryFilter;
+import org.apache.cassandra.db.filter.SliceQueryFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.dht.AbstractBounds;
@@ -35,14 +57,6 @@ import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
-
-import org.junit.Test;
-
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.*;
 
 public class SerializationsTest extends AbstractSerializationsTester
 {
@@ -369,7 +383,7 @@ public class SerializationsTest extends AbstractSerializationsTester
 
         private Statics()
         {
-            StandardCf.addColumn(new Cell(cn("aaaa")));
+            StandardCf.addColumn(new Cell(cn("aaaa"), ByteBufferUtil.EMPTY_BYTE_BUFFER));
             StandardCf.addColumn(new Cell(cn("bbbb"), bb("bbbbb-value")));
             StandardCf.addColumn(new Cell(cn("cccc"), bb("ccccc-value"), 1000L));
             StandardCf.addColumn(new DeletedCell(cn("dddd"), 500, 1000));
@@ -377,7 +391,7 @@ public class SerializationsTest extends AbstractSerializationsTester
             StandardCf.addColumn(new ExpiringCell(cn("ffff"), bb("ffff-value"), 2000, 1000));
             StandardCf.addColumn(new ExpiringCell(cn("gggg"), bb("gggg-value"), 2001, 1000, 2002));
 
-            SuperCf.addColumn(new Cell(CellNames.compositeDense(SC, bb("aaaa"))));
+            SuperCf.addColumn(new Cell(CellNames.compositeDense(SC, bb("aaaa")), ByteBufferUtil.EMPTY_BYTE_BUFFER));
             SuperCf.addColumn(new Cell(CellNames.compositeDense(SC, bb("bbbb")), bb("bbbbb-value")));
             SuperCf.addColumn(new Cell(CellNames.compositeDense(SC, bb("cccc")), bb("ccccc-value"), 1000L));
             SuperCf.addColumn(new DeletedCell(CellNames.compositeDense(SC, bb("dddd")), 500, 1000));

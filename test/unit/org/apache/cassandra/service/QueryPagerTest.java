@@ -31,6 +31,8 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.dht.*;

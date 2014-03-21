@@ -25,6 +25,8 @@ import org.junit.Test;
 
 import static org.apache.cassandra.db.KeyspaceTest.assertColumns;
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.db.data.DecoratedKey;
+
 import static org.apache.cassandra.Util.column;
 
 public class MultitableTest extends SchemaLoader

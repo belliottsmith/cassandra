@@ -25,6 +25,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertNull;
 import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.filter.QueryFilter;
 
 import static org.apache.cassandra.Util.getBytes;

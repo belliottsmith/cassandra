@@ -23,6 +23,7 @@ import java.util.Iterator;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
+import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.serializers.MarshalException;
 

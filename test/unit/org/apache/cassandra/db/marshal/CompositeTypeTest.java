@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.serializers.MarshalException;
 import org.junit.Test;
 import static org.junit.Assert.fail;

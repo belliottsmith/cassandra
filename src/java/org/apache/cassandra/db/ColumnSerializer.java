@@ -23,6 +23,11 @@ import java.nio.ByteBuffer;
 
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.CounterCell;
+import org.apache.cassandra.db.data.CounterUpdateCell;
+import org.apache.cassandra.db.data.DeletedCell;
+import org.apache.cassandra.db.data.ExpiringCell;
 import org.apache.cassandra.io.ISerializer;
 import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.util.DataOutputPlus;

@@ -28,6 +28,8 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.junit.Test;
+
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 /**

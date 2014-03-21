@@ -29,7 +29,7 @@ import org.apache.cassandra.SchemaLoader;
 import static org.apache.cassandra.Util.token;
 import static org.apache.cassandra.Util.rp;
 
-import org.apache.cassandra.db.RowPosition;
+import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;

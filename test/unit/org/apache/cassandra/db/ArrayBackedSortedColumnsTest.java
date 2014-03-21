@@ -20,18 +20,28 @@
  */
 package org.apache.cassandra.db;
 
-import java.util.*;
-import org.junit.Test;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
 
-import static org.junit.Assert.*;
+import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.composites.CellName;
+import org.apache.cassandra.db.composites.CellNameType;
+import org.apache.cassandra.db.composites.Composites;
+import org.apache.cassandra.db.composites.SimpleDenseCellNameType;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.filter.ColumnSlice;
 import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.utils.ByteBufferUtil;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class ArrayBackedSortedColumnsTest extends SchemaLoader
 {
@@ -46,6 +56,11 @@ public class ArrayBackedSortedColumnsTest extends SchemaLoader
     {
         return Schema.instance.getCFMetaData("Keyspace1", "Standard1");
     }
+    
+    private static Cell cell(CellName name)
+    {
+        return new Cell(name, ByteBufferUtil.EMPTY_BYTE_BUFFER);
+    }
 
     private void testAddInternal(boolean reversed)
     {
@@ -54,7 +69,7 @@ public class ArrayBackedSortedColumnsTest extends SchemaLoader
         int[] values = new int[]{ 1, 2, 2, 3 };
 
         for (int i = 0; i < values.length; ++i)
-            map.addColumn(new Cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
+            map.addColumn(cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
 
         Iterator<Cell> iter = map.iterator();
         assertEquals("1st column", 1, iter.next().name().toByteBuffer().getInt(0));
@@ -76,7 +91,7 @@ public class ArrayBackedSortedColumnsTest extends SchemaLoader
 
         int[] values = new int[]{ 1, 2, 1, 3, 4, 4, 5, 5, 1, 2, 6, 6, 6, 1, 2, 3 };
         for (int i = 0; i < values.length; ++i)
-            cells.addColumn(new Cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
+            cells.addColumn(cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
 
         assertEquals(6, cells.getColumnCount());
 
@@ -91,7 +106,7 @@ public class ArrayBackedSortedColumnsTest extends SchemaLoader
         // Add more values
         values = new int[]{ 11, 15, 12, 12, 12, 16, 10, 8, 8, 7, 4, 4, 5 };
         for (int i = 0; i < values.length; ++i)
-            cells.addColumn(new Cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
+            cells.addColumn(cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
 
         assertEquals(13, cells.getColumnCount());
 
@@ -125,7 +140,7 @@ public class ArrayBackedSortedColumnsTest extends SchemaLoader
 
         int[] values = new int[]{ -1, 20, 44, 55, 27, 27, 17, 1, 9, 89, 33, 44, 0, 9 };
         for (int i = 0; i < values.length; ++i)
-            cells.addColumn(new Cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
+            cells.addColumn(cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
 
         for (int i : values)
             assertEquals(i, cells.getColumn(type.makeCellName(i)).name().toByteBuffer().getInt(0));
@@ -148,10 +163,10 @@ public class ArrayBackedSortedColumnsTest extends SchemaLoader
         int[] values2 = new int[]{ 2, 4, 5, 6 };
 
         for (int i = 0; i < values1.length; ++i)
-            map.addColumn(new Cell(type.makeCellName(values1[reversed ? values1.length - 1 - i : i])));
+            map.addColumn(cell(type.makeCellName(values1[reversed ? values1.length - 1 - i : i])));
 
         for (int i = 0; i < values2.length; ++i)
-            map2.addColumn(new Cell(type.makeCellName(values2[reversed ? values2.length - 1 - i : i])));
+            map2.addColumn(cell(type.makeCellName(values2[reversed ? values2.length - 1 - i : i])));
 
         map2.addAll(map);
 
@@ -179,12 +194,12 @@ public class ArrayBackedSortedColumnsTest extends SchemaLoader
 
         List<Cell> sorted = new ArrayList<>();
         for (int v : values)
-            sorted.add(new Cell(type.makeCellName(v)));
+            sorted.add(cell(type.makeCellName(v)));
         List<Cell> reverseSorted = new ArrayList<>(sorted);
         Collections.reverse(reverseSorted);
 
         for (int i = 0; i < values.length; ++i)
-            map.addColumn(new Cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
+            map.addColumn(cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
 
         assertSame(sorted, map.getSortedColumns());
         assertSame(reverseSorted, map.getReverseSortedColumns());
@@ -205,7 +220,7 @@ public class ArrayBackedSortedColumnsTest extends SchemaLoader
         int[] values = new int[]{ 1, 2, 3, 5, 9 };
 
         for (int i = 0; i < values.length; ++i)
-            map.addColumn(new Cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
+            map.addColumn(cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
 
         assertSame(new int[]{ 3, 2, 1 }, map.reverseIterator(new ColumnSlice[]{ new ColumnSlice(type.make(3), Composites.EMPTY) }));
         assertSame(new int[]{ 3, 2, 1 }, map.reverseIterator(new ColumnSlice[]{ new ColumnSlice(type.make(4), Composites.EMPTY) }));
@@ -251,7 +266,7 @@ public class ArrayBackedSortedColumnsTest extends SchemaLoader
         int[] values = new int[]{ 1, 2, 2, 3 };
 
         for (int i = 0; i < values.length; ++i)
-            map.addColumn(new Cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
+            map.addColumn(cell(type.makeCellName(values[reversed ? values.length - 1 - i : i])));
 
         Iterator<Cell> iter = map.getReverseSortedColumns().iterator();
         assertTrue(iter.hasNext());

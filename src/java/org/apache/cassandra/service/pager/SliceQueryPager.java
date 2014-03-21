@@ -23,6 +23,7 @@ import java.util.List;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.CellName;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.filter.SliceQueryFilter;
 import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.exceptions.RequestExecutionException;
