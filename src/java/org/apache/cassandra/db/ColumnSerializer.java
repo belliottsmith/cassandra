@@ -23,10 +23,13 @@ import java.nio.ByteBuffer;
 
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
+import org.apache.cassandra.db.data.BufferCell;
+import org.apache.cassandra.db.data.BufferCounterCell;
+import org.apache.cassandra.db.data.BufferDeletedCell;
+import org.apache.cassandra.db.data.BufferExpiringCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.CounterCell;
 import org.apache.cassandra.db.data.CounterUpdateCell;
-import org.apache.cassandra.db.data.DeletedCell;
 import org.apache.cassandra.db.data.ExpiringCell;
 import org.apache.cassandra.io.ISerializer;
 import org.apache.cassandra.io.FSReadError;
@@ -121,7 +124,7 @@ public class ColumnSerializer implements ISerializer<Cell>
             long timestampOfLastDelete = in.readLong();
             long ts = in.readLong();
             ByteBuffer value = ByteBufferUtil.readWithLength(in);
-            return CounterCell.create(name, value, ts, timestampOfLastDelete, flag);
+            return BufferCounterCell.create(name, value, ts, timestampOfLastDelete, flag);
         }
         else if ((mask & EXPIRATION_MASK) != 0)
         {
@@ -129,7 +132,7 @@ public class ColumnSerializer implements ISerializer<Cell>
             int expiration = in.readInt();
             long ts = in.readLong();
             ByteBuffer value = ByteBufferUtil.readWithLength(in);
-            return ExpiringCell.create(name, value, ts, ttl, expiration, expireBefore, flag);
+            return BufferExpiringCell.create(name, value, ts, ttl, expiration, expireBefore, flag);
         }
         else
         {
@@ -138,8 +141,8 @@ public class ColumnSerializer implements ISerializer<Cell>
             return (mask & COUNTER_UPDATE_MASK) != 0
                    ? new CounterUpdateCell(name, value, ts)
                    : ((mask & DELETION_MASK) == 0
-                      ? new Cell(name, value, ts)
-                      : new DeletedCell(name, value, ts));
+                      ? new BufferCell(name, value, ts)
+                      : new BufferDeletedCell(name, value, ts));
         }
     }
 

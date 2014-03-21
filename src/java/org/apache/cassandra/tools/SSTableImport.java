@@ -38,9 +38,9 @@ import org.apache.commons.cli.PosixParser;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.*;
-import org.apache.cassandra.db.data.CounterCell;
+import org.apache.cassandra.db.data.BufferCounterCell;
+import org.apache.cassandra.db.data.BufferExpiringCell;
 import org.apache.cassandra.db.data.DecoratedKey;
-import org.apache.cassandra.db.data.ExpiringCell;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
@@ -261,11 +261,11 @@ public class SSTableImport
 
             if (col.isExpiring())
             {
-                cfamily.addColumn(new ExpiringCell(cname, col.getValue(), col.timestamp, col.ttl, col.localExpirationTime));
+                cfamily.addColumn(new BufferExpiringCell(cname, col.getValue(), col.timestamp, col.ttl, col.localExpirationTime));
             }
             else if (col.isCounter())
             {
-                cfamily.addColumn(new CounterCell(cname, col.getValue(), col.timestamp, col.timestampOfLastDelete));
+                cfamily.addColumn(new BufferCounterCell(cname, col.getValue(), col.timestamp, col.timestampOfLastDelete));
             }
             else if (col.isDeleted())
             {

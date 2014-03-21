@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.*;
 
+import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.data.RowPosition;

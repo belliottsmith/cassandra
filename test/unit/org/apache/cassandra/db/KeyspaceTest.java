@@ -34,6 +34,7 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.filter.QueryFilter;
@@ -228,7 +229,7 @@ public class KeyspaceTest extends SchemaLoader
         for (int i = 0; i < 10; i++)
         {
             ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "StandardLong1");
-            cf.addColumn(new Cell(cellname((long)i), ByteBufferUtil.EMPTY_BYTE_BUFFER, 0));
+            cf.addColumn(new BufferCell(cellname((long)i), ByteBufferUtil.EMPTY_BYTE_BUFFER, 0));
             Mutation rm = new Mutation("Keyspace1", ROW.key(), cf);
             rm.apply();
         }
@@ -238,7 +239,7 @@ public class KeyspaceTest extends SchemaLoader
         for (int i = 10; i < 20; i++)
         {
             ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "StandardLong1");
-            cf.addColumn(new Cell(cellname((long)i), ByteBufferUtil.EMPTY_BYTE_BUFFER, 0));
+            cf.addColumn(new BufferCell(cellname((long)i), ByteBufferUtil.EMPTY_BYTE_BUFFER, 0));
             Mutation rm = new Mutation("Keyspace1", ROW.key(), cf);
             rm.apply();
 

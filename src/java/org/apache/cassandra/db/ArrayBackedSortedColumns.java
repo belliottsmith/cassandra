@@ -87,11 +87,11 @@ public class ArrayBackedSortedColumns extends ColumnFamily
         this.isSorted = original.isSorted;
     }
 
-    public static ArrayBackedSortedColumns localCopy(ColumnFamily original, AbstractAllocator allocator)
+    public static ArrayBackedSortedColumns localCopy(ColumnFamilyStore cfs, ColumnFamily original, AbstractAllocator allocator)
     {
         ArrayBackedSortedColumns copy = new ArrayBackedSortedColumns(original.metadata, false, new Cell[original.getColumnCount()], 0, 0);
         for (Cell cell : original)
-            copy.internalAdd(cell.localCopy(allocator));
+            copy.internalAdd(cell.localCopy(cfs, allocator));
         copy.sortedSize = copy.size; // internalAdd doesn't update sortedSize.
         copy.delete(original);
         return copy;

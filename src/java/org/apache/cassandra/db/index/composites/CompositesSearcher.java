@@ -29,6 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ArrayBackedSortedColumns;
+import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnFamilyStore;

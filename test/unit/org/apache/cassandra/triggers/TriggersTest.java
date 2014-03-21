@@ -31,7 +31,7 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ArrayBackedSortedColumns;
-import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Mutation;
@@ -316,7 +316,7 @@ public class TriggersTest extends SchemaLoader
         public Collection<Mutation> augment(ByteBuffer key, ColumnFamily update)
         {
             ColumnFamily extraUpdate = update.cloneMeShallow(ArrayBackedSortedColumns.factory, false);
-            extraUpdate.addColumn(new Cell(update.metadata().comparator.makeCellName(bytes("v2")),
+            extraUpdate.addColumn(new BufferCell(update.metadata().comparator.makeCellName(bytes("v2")),
                                            bytes(999)));
             Mutation mutation = new Mutation(ksName, key);
             mutation.add(extraUpdate);
@@ -329,7 +329,7 @@ public class TriggersTest extends SchemaLoader
         public Collection<Mutation> augment(ByteBuffer key, ColumnFamily update)
         {
             ColumnFamily extraUpdate = update.cloneMeShallow(ArrayBackedSortedColumns.factory, false);
-            extraUpdate.addColumn(new Cell(update.metadata().comparator.makeCellName(bytes("v2")),
+            extraUpdate.addColumn(new BufferCell(update.metadata().comparator.makeCellName(bytes("v2")),
                                            bytes(999)));
 
             int newKey = toInt(key) + 1000;
@@ -344,7 +344,7 @@ public class TriggersTest extends SchemaLoader
         public Collection<Mutation> augment(ByteBuffer key, ColumnFamily update)
         {
             ColumnFamily extraUpdate = ArrayBackedSortedColumns.factory.create(ksName, otherCf);
-            extraUpdate.addColumn(new Cell(extraUpdate.metadata().comparator.makeCellName(bytes("v2")),
+            extraUpdate.addColumn(new BufferCell(extraUpdate.metadata().comparator.makeCellName(bytes("v2")),
                                            bytes(999)));
 
             Mutation mutation = new Mutation(ksName, key);

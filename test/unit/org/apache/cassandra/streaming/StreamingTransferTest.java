@@ -39,8 +39,8 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.columniterator.IdentityQueryFilter;
 import org.apache.cassandra.db.context.CounterContext;
-import org.apache.cassandra.db.data.Cell;
-import org.apache.cassandra.db.data.CounterCell;
+import org.apache.cassandra.db.data.BufferCell;
+import org.apache.cassandra.db.data.BufferCounterCell;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.db.filter.IDiskAtomFilter;
@@ -233,7 +233,7 @@ public class StreamingTransferTest extends SchemaLoader
                 long val = key.hashCode();
                 ColumnFamily cf = ArrayBackedSortedColumns.factory.create(keyspace.getName(), cfs.name);
                 cf.addColumn(column(col, "v", timestamp));
-                cf.addColumn(new Cell(cellname("birthdate"), ByteBufferUtil.bytes(val), timestamp));
+                cf.addColumn(new BufferCell(cellname("birthdate"), ByteBufferUtil.bytes(val), timestamp));
                 Mutation rm = new Mutation("Keyspace1", ByteBufferUtil.bytes(key), cf);
                 logger.debug("Applying row to transfer " + rm);
                 rm.apply();
@@ -324,8 +324,8 @@ public class StreamingTransferTest extends SchemaLoader
                 state.writeRemote(CounterId.fromInt(4), 4L, 2L);
                 state.writeRemote(CounterId.fromInt(6), 3L, 3L);
                 state.writeRemote(CounterId.fromInt(8), 2L, 4L);
-                cf.addColumn(new CounterCell(cellname(col), state.context, timestamp));
-                cfCleaned.addColumn(new CounterCell(cellname(col), cc.clearAllLocal(state.context), timestamp));
+                cf.addColumn(new BufferCounterCell(cellname(col), state.context, timestamp));
+                cfCleaned.addColumn(new BufferCounterCell(cellname(col), cc.clearAllLocal(state.context), timestamp));
 
                 entries.put(key, cf);
                 cleanedEntries.put(key, cfCleaned);
@@ -457,7 +457,7 @@ public class StreamingTransferTest extends SchemaLoader
             {
                 ColumnFamily cf = ArrayBackedSortedColumns.factory.create(keyspace.getName(), cfs.name);
                 cf.addColumn(column(colName, "value", timestamp));
-                cf.addColumn(new Cell(cellname("birthdate"), ByteBufferUtil.bytes(new Date(timestamp).toString()), timestamp));
+                cf.addColumn(new BufferCell(cellname("birthdate"), ByteBufferUtil.bytes(new Date(timestamp).toString()), timestamp));
                 Mutation rm = new Mutation("Keyspace1", ByteBufferUtil.bytes(key), cf);
                 logger.debug("Applying row to transfer " + rm);
                 rm.apply();

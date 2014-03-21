@@ -23,8 +23,8 @@ import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.Composite;
-import org.apache.cassandra.db.data.Cell;
-import org.apache.cassandra.db.data.DeletedCell;
+import org.apache.cassandra.db.data.BufferCell;
+import org.apache.cassandra.db.data.BufferDeletedCell;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.CollectionType;
 import org.apache.cassandra.db.marshal.ListType;
@@ -54,7 +54,7 @@ public class CFRowAdder
 
         // If a CQL3 table, add the row marker
         if (cf.metadata().isCQL3Table() && !prefix.isStatic())
-            cf.addColumn(new Cell(cf.getComparator().rowMarker(prefix), ByteBufferUtil.EMPTY_BYTE_BUFFER, timestamp));
+            cf.addColumn(new BufferCell(cf.getComparator().rowMarker(prefix), ByteBufferUtil.EMPTY_BYTE_BUFFER, timestamp));
     }
 
     public CFRowAdder add(String cql3ColumnName, Object value)
@@ -98,14 +98,14 @@ public class CFRowAdder
     {
         if (value == null)
         {
-            cf.addColumn(new DeletedCell(name, ldt, timestamp));
+            cf.addColumn(new BufferDeletedCell(name, ldt, timestamp));
         }
         else
         {
             AbstractType valueType = def.type.isCollection()
                                    ? ((CollectionType) def.type).valueComparator()
                                    : def.type;
-            cf.addColumn(new Cell(name, value instanceof ByteBuffer ? (ByteBuffer)value : valueType.decompose(value), timestamp));
+            cf.addColumn(new BufferCell(name, value instanceof ByteBuffer ? (ByteBuffer)value : valueType.decompose(value), timestamp));
         }
         return this;
     }

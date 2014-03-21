@@ -26,8 +26,8 @@ import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.data.BufferExpiringCell;
 import org.apache.cassandra.db.data.Cell;
-import org.apache.cassandra.db.data.ExpiringCell;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 import static org.junit.Assert.assertEquals;
@@ -70,7 +70,7 @@ public class RowTest extends SchemaLoader
     @Test
     public void testExpiringColumnExpiration()
     {
-        Cell c = new ExpiringCell(CellNames.simpleDense(ByteBufferUtil.bytes("one")), ByteBufferUtil.bytes("A"), 0, 1);
+        Cell c = new BufferExpiringCell(CellNames.simpleDense(ByteBufferUtil.bytes("one")), ByteBufferUtil.bytes("A"), 0, 1);
         assert !c.isMarkedForDelete(System.currentTimeMillis());
 
         // Because we keep the local deletion time with a precision of a

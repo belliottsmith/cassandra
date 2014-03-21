@@ -23,6 +23,9 @@ import java.util.concurrent.Future;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.ArrayBackedSortedColumns;
+import org.apache.cassandra.db.data.BufferCell;
+import org.apache.cassandra.db.data.BufferDecoratedKey;
+import org.apache.cassandra.db.data.BufferExpiringCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -75,7 +78,7 @@ public abstract class AbstractSimplePerColumnSecondaryIndex extends PerColumnSec
     @Override
     public DecoratedKey getIndexKeyFor(ByteBuffer value)
     {
-        return new DecoratedKey(new LocalToken(getIndexKeyComparator(), value), value);
+        return new BufferDecoratedKey(new LocalToken(getIndexKeyComparator(), value), value);
     }
 
     protected abstract CellName makeIndexColumnName(ByteBuffer rowKey, Cell cell);
@@ -115,11 +118,11 @@ public abstract class AbstractSimplePerColumnSecondaryIndex extends PerColumnSec
         if (cell instanceof ExpiringCell)
         {
             ExpiringCell ec = (ExpiringCell) cell;
-            cfi.addColumn(new ExpiringCell(name, ByteBufferUtil.EMPTY_BYTE_BUFFER, ec.timestamp(), ec.getTimeToLive(), ec.getLocalDeletionTime()));
+            cfi.addColumn(new BufferExpiringCell(name, ByteBufferUtil.EMPTY_BYTE_BUFFER, ec.timestamp(), ec.getTimeToLive(), ec.getLocalDeletionTime()));
         }
         else
         {
-            cfi.addColumn(new Cell(name, ByteBufferUtil.EMPTY_BYTE_BUFFER, cell.timestamp()));
+            cfi.addColumn(new BufferCell(name, ByteBufferUtil.EMPTY_BYTE_BUFFER, cell.timestamp()));
         }
         if (logger.isDebugEnabled())
             logger.debug("applying index row {} in {}", indexCfs.metadata.getKeyValidator().getString(valueKey.key()), cfi);

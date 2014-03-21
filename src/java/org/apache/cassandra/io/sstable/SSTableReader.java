@@ -45,6 +45,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.commitlog.ReplayPosition;
 import org.apache.cassandra.db.compaction.ICompactionScanner;
+import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.db.index.SecondaryIndex;

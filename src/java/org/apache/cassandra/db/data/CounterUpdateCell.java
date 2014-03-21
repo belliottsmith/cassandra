@@ -33,7 +33,7 @@ import org.apache.cassandra.db.composites.CellNameType;
  * is transformed to a relevant CounterCell. This Cell is a temporary data
  * structure that should never be stored inside a memtable or an sstable.
  */
-public class CounterUpdateCell extends Cell
+public class CounterUpdateCell extends BufferCell
 {
     public CounterUpdateCell(CellName name, long value, long timestamp)
     {
@@ -80,7 +80,7 @@ public class CounterUpdateCell extends Cell
     }
 
     @Override
-    public Cell localCopy(AbstractAllocator allocator)
+    public Cell localCopy(ColumnFamilyStore cfs, AbstractAllocator allocator)
     {
         throw new UnsupportedOperationException();
     }

@@ -25,6 +25,7 @@ import org.junit.Test;
 
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNames;
+import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.index.PerColumnSecondaryIndex;
@@ -53,7 +54,7 @@ public class SecondaryIndexCellSizeTest
 
         // for read
         buffer.flip();
-        Cell cell = new Cell(CellNames.simpleDense(ByteBufferUtil.bytes("test")), buffer, 0);
+        Cell cell = new BufferCell(CellNames.simpleDense(ByteBufferUtil.bytes("test")), buffer, 0);
 
         SecondaryIndexCellSizeTest.MockRowIndex mockRowIndex = new SecondaryIndexCellSizeTest.MockRowIndex();
         SecondaryIndexCellSizeTest.MockColumnIndex mockColumnIndex = new SecondaryIndexCellSizeTest.MockColumnIndex();

@@ -29,7 +29,7 @@ import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.service.MigrationManager;
@@ -55,7 +55,7 @@ public class LongFlushMemtableTest extends SchemaLoader
                 ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "_CF" + i);
                 // don't cheat by allocating this outside of the loop; that defeats the purpose of deliberately using lots of memory
                 ByteBuffer value = ByteBuffer.allocate(100000);
-                cf.addColumn(new Cell(Util.cellname("c"), value));
+                cf.addColumn(new BufferCell(Util.cellname("c"), value));
                 rm.add(cf);
                 rm.applyUnsafe();
             }

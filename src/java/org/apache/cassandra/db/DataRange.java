@@ -27,8 +27,13 @@ import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.Composite;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.data.RowPosition;
-import org.apache.cassandra.db.filter.*;
-import org.apache.cassandra.dht.*;
+import org.apache.cassandra.db.filter.ColumnSlice;
+import org.apache.cassandra.db.filter.IDiskAtomFilter;
+import org.apache.cassandra.db.filter.SliceQueryFilter;
+import org.apache.cassandra.dht.AbstractBounds;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 
 /**
  * Groups key range and column filter for range queries.

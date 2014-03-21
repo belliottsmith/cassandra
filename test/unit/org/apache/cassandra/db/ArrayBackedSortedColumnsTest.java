@@ -34,6 +34,7 @@ import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.Composites;
 import org.apache.cassandra.db.composites.SimpleDenseCellNameType;
+import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.filter.ColumnSlice;
 import org.apache.cassandra.db.marshal.Int32Type;
@@ -59,7 +60,7 @@ public class ArrayBackedSortedColumnsTest extends SchemaLoader
     
     private static Cell cell(CellName name)
     {
-        return new Cell(name, ByteBufferUtil.EMPTY_BYTE_BUFFER);
+        return new BufferCell(name, ByteBufferUtil.EMPTY_BYTE_BUFFER);
     }
 
     private void testAddInternal(boolean reversed)

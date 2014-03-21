@@ -35,7 +35,7 @@ import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.CellName;
-import org.apache.cassandra.db.data.ExpiringCell;
+import org.apache.cassandra.db.data.BufferExpiringCell;
 import org.apache.cassandra.db.marshal.TimeUUIDType;
 import org.apache.cassandra.exceptions.OverloadedException;
 import org.apache.cassandra.exceptions.UnavailableException;
@@ -94,14 +94,14 @@ public class Tracing
 
     private static void addColumn(ColumnFamily cf, CellName name, ByteBuffer value)
     {
-        cf.addColumn(new ExpiringCell(name, value, System.currentTimeMillis(), TTL));
+        cf.addColumn(new BufferExpiringCell(name, value, System.currentTimeMillis(), TTL));
     }
 
     public void addParameterColumns(ColumnFamily cf, Map<String, String> rawPayload)
     {
         for (Map.Entry<String, String> entry : rawPayload.entrySet())
         {
-            cf.addColumn(new ExpiringCell(buildName(CFMetaData.TraceSessionsCf, "parameters", entry.getKey()),
+            cf.addColumn(new BufferExpiringCell(buildName(CFMetaData.TraceSessionsCf, "parameters", entry.getKey()),
                                           bytes(entry.getValue()), System.currentTimeMillis(), TTL));
         }
     }

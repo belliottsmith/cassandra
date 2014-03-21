@@ -28,10 +28,11 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.context.CounterContext;
+import org.apache.cassandra.db.data.BufferCell;
+import org.apache.cassandra.db.data.BufferCounterCell;
+import org.apache.cassandra.db.data.BufferExpiringCell;
 import org.apache.cassandra.db.data.Cell;
-import org.apache.cassandra.db.data.CounterCell;
 import org.apache.cassandra.db.data.DecoratedKey;
-import org.apache.cassandra.db.data.ExpiringCell;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -135,7 +136,7 @@ public abstract class AbstractSSTableSimpleWriter
      */
     public void addColumn(ByteBuffer name, ByteBuffer value, long timestamp)
     {
-        addColumn(new Cell(metadata.comparator.cellFromByteBuffer(name), value, timestamp));
+        addColumn(new BufferCell(metadata.comparator.cellFromByteBuffer(name), value, timestamp));
     }
 
     /**
@@ -150,7 +151,7 @@ public abstract class AbstractSSTableSimpleWriter
      */
     public void addExpiringColumn(ByteBuffer name, ByteBuffer value, long timestamp, int ttl, long expirationTimestampMS)
     {
-        addColumn(new ExpiringCell(metadata.comparator.cellFromByteBuffer(name), value, timestamp, ttl, (int)(expirationTimestampMS / 1000)));
+        addColumn(new BufferExpiringCell(metadata.comparator.cellFromByteBuffer(name), value, timestamp, ttl, (int)(expirationTimestampMS / 1000)));
     }
 
     /**
@@ -160,7 +161,7 @@ public abstract class AbstractSSTableSimpleWriter
      */
     public void addCounterColumn(ByteBuffer name, long value)
     {
-        addColumn(new CounterCell(metadata.comparator.cellFromByteBuffer(name),
+        addColumn(new BufferCounterCell(metadata.comparator.cellFromByteBuffer(name),
                                   CounterContext.instance().createGlobal(counterid, 1L, value),
                                   System.currentTimeMillis()));
     }

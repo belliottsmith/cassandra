@@ -398,8 +398,8 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
             ByteBuffer startKeyBytes = getKeyBound(Bound.START, variables);
             ByteBuffer finishKeyBytes = getKeyBound(Bound.END, variables);
 
-            RowPosition startKey = RowPosition.forKey(startKeyBytes, p);
-            RowPosition finishKey = RowPosition.forKey(finishKeyBytes, p);
+            RowPosition startKey = RowPosition.Impl.forKey(startKeyBytes, p);
+            RowPosition finishKey = RowPosition.Impl.forKey(finishKeyBytes, p);
 
             if (startKey.compareTo(finishKey) > 0 && !finishKey.isMinimum(p))
                 return null;

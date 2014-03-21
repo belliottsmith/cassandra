@@ -30,6 +30,7 @@ import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.data.RowPosition;
@@ -751,16 +752,16 @@ public class ColumnFamilyStoreTest extends SchemaLoader
 
         // create an isolated sstable.
         putColsSuper(cfs, key, scfName,
-                new Cell(cellname(1L), ByteBufferUtil.bytes("val1"), 1),
-                new Cell(cellname(2L), ByteBufferUtil.bytes("val2"), 1),
-                new Cell(cellname(3L), ByteBufferUtil.bytes("val3"), 1));
+                new BufferCell(cellname(1L), ByteBufferUtil.bytes("val1"), 1),
+                new BufferCell(cellname(2L), ByteBufferUtil.bytes("val2"), 1),
+                new BufferCell(cellname(3L), ByteBufferUtil.bytes("val3"), 1));
         cfs.forceBlockingFlush();
 
         // insert, don't flush.
         putColsSuper(cfs, key, scfName,
-                new Cell(cellname(4L), ByteBufferUtil.bytes("val4"), 1),
-                new Cell(cellname(5L), ByteBufferUtil.bytes("val5"), 1),
-                new Cell(cellname(6L), ByteBufferUtil.bytes("val6"), 1));
+                new BufferCell(cellname(4L), ByteBufferUtil.bytes("val4"), 1),
+                new BufferCell(cellname(5L), ByteBufferUtil.bytes("val5"), 1),
+                new BufferCell(cellname(6L), ByteBufferUtil.bytes("val6"), 1));
 
         // verify insert.
         final SlicePredicate sp = new SlicePredicate();
@@ -787,17 +788,17 @@ public class ColumnFamilyStoreTest extends SchemaLoader
 
         // late insert.
         putColsSuper(cfs, key, scfName,
-                new Cell(cellname(4L), ByteBufferUtil.bytes("val4"), 1L),
-                new Cell(cellname(7L), ByteBufferUtil.bytes("val7"), 1L));
+                new BufferCell(cellname(4L), ByteBufferUtil.bytes("val4"), 1L),
+                new BufferCell(cellname(7L), ByteBufferUtil.bytes("val7"), 1L));
 
         // re-verify delete.
         assertRowAndColCount(1, 0, false, cfs.getRangeSlice(Util.range("f", "g"), null, ThriftValidation.asIFilter(sp, cfs.metadata, scfName), 100));
 
         // make sure new writes are recognized.
         putColsSuper(cfs, key, scfName,
-                new Cell(cellname(3L), ByteBufferUtil.bytes("val3"), 3),
-                new Cell(cellname(8L), ByteBufferUtil.bytes("val8"), 3),
-                new Cell(cellname(9L), ByteBufferUtil.bytes("val9"), 3));
+                new BufferCell(cellname(3L), ByteBufferUtil.bytes("val3"), 3),
+                new BufferCell(cellname(8L), ByteBufferUtil.bytes("val8"), 3),
+                new BufferCell(cellname(9L), ByteBufferUtil.bytes("val9"), 3));
         assertRowAndColCount(1, 3, false, cfs.getRangeSlice(Util.range("f", "g"), null, ThriftValidation.asIFilter(sp, cfs.metadata, scfName), 100));
     }
 
@@ -938,8 +939,8 @@ public class ColumnFamilyStoreTest extends SchemaLoader
         DecoratedKey key = Util.dk("slice-get-uuid-type");
 
         // Insert a row with one supercolumn and multiple subcolumns
-        putColsSuper(cfs, key, superColName, new Cell(cellname("a"), ByteBufferUtil.bytes("A"), 1),
-                                             new Cell(cellname("b"), ByteBufferUtil.bytes("B"), 1));
+        putColsSuper(cfs, key, superColName, new BufferCell(cellname("a"), ByteBufferUtil.bytes("A"), 1),
+                                             new BufferCell(cellname("b"), ByteBufferUtil.bytes("B"), 1));
 
         // Get the entire supercolumn like normal
         ColumnFamily cfGet = cfs.getColumnFamily(QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
@@ -970,7 +971,7 @@ public class ColumnFamilyStoreTest extends SchemaLoader
         cfs.clearUnsafe();
 
         // Create a cell a 'high timestamp'
-        putColsStandard(cfs, key, new Cell(cname, ByteBufferUtil.bytes("a"), 2));
+        putColsStandard(cfs, key, new BufferCell(cname, ByteBufferUtil.bytes("a"), 2));
         cfs.forceBlockingFlush();
 
         // Nuke the metadata and reload that sstable
@@ -983,7 +984,7 @@ public class ColumnFamilyStoreTest extends SchemaLoader
         cfs.loadNewSSTables();
 
         // Add another cell with a lower timestamp
-        putColsStandard(cfs, key, new Cell(cname, ByteBufferUtil.bytes("b"), 1));
+        putColsStandard(cfs, key, new BufferCell(cname, ByteBufferUtil.bytes("b"), 1));
 
         // Test fetching the cell by name returns the first cell
         SliceByNamesReadCommand cmd = new SliceByNamesReadCommand(keyspaceName, key.key(), cfName, System.currentTimeMillis(), new NamesQueryFilter(FBUtilities.singleton(cname, cfs.getComparator())));
@@ -1364,7 +1365,7 @@ public class ColumnFamilyStoreTest extends SchemaLoader
         Cell[] cols = new Cell[letters.length];
         for (int i = 0; i < cols.length; i++)
         {
-            cols[i] = new Cell(cellname("col" + letters[i].toUpperCase()),
+            cols[i] = new BufferCell(cellname("col" + letters[i].toUpperCase()),
                     ByteBuffer.wrap(new byte[1]), 1);
         }
 
@@ -1413,7 +1414,7 @@ public class ColumnFamilyStoreTest extends SchemaLoader
         Cell[] cols = new Cell[letters.length];
         for (int i = 0; i < cols.length; i++)
         {
-            cols[i] = new Cell(cellname("col" + letters[i].toUpperCase()),
+            cols[i] = new BufferCell(cellname("col" + letters[i].toUpperCase()),
                     ByteBuffer.wrap(new byte[1366]), 1);
         }
 
@@ -1462,7 +1463,7 @@ public class ColumnFamilyStoreTest extends SchemaLoader
         Cell[] cols = new Cell[letters.length];
         for (int i = 0; i < cols.length; i++)
         {
-            cols[i] = new Cell(cellname("col" + letters[i].toUpperCase()),
+            cols[i] = new BufferCell(cellname("col" + letters[i].toUpperCase()),
                     ByteBuffer.wrap(new byte[1]), 1);
         }
 
@@ -1512,7 +1513,7 @@ public class ColumnFamilyStoreTest extends SchemaLoader
         Cell[] cols = new Cell[letters.length];
         for (int i = 0; i < cols.length; i++)
         {
-            cols[i] = new Cell(cellname("col" + letters[i].toUpperCase()),
+            cols[i] = new BufferCell(cellname("col" + letters[i].toUpperCase()),
                     ByteBuffer.wrap(new byte[1366]), 1);
         }
 
@@ -1560,7 +1561,7 @@ public class ColumnFamilyStoreTest extends SchemaLoader
         Cell[] cols = new Cell[letters.length];
         for (int i = 0; i < cols.length; i++)
         {
-            cols[i] = new Cell(cellname("col" + letters[i].toUpperCase()),
+            cols[i] = new BufferCell(cellname("col" + letters[i].toUpperCase()),
                     // use 1366 so that three cols make an index segment
                     ByteBuffer.wrap(new byte[1366]), 1);
         }
@@ -1821,7 +1822,7 @@ public class ColumnFamilyStoreTest extends SchemaLoader
         Cell[] cols = new Cell[12];
         for (int i = 0; i < cols.length; i++)
         {
-            cols[i] = new Cell(cellname("col" + letters[i]), ByteBuffer.wrap(new byte[valueSize]), 1);
+            cols[i] = new BufferCell(cellname("col" + letters[i]), ByteBuffer.wrap(new byte[valueSize]), 1);
         }
 
         for (int i = 0; i < 12; i++)

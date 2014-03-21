@@ -27,6 +27,7 @@ import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.RowIndexEntry;
@@ -109,7 +110,7 @@ public class ValidatorTest extends SchemaLoader
 
         // add a row
         Token mid = partitioner.midpoint(range.left, range.right);
-        validator.add(new CompactedRowStub(new DecoratedKey(mid, ByteBufferUtil.bytes("inconceivable!"))));
+        validator.add(new CompactedRowStub(new BufferDecoratedKey(mid, ByteBufferUtil.bytes("inconceivable!"))));
         validator.complete();
 
         // confirm that the tree was validated

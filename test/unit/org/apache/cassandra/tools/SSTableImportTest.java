@@ -18,10 +18,6 @@
 */
 package org.apache.cassandra.tools;
 
-import static org.junit.Assert.assertEquals;
-import static org.apache.cassandra.io.sstable.SSTableUtils.tempSSTableFile;
-import static org.apache.cassandra.utils.ByteBufferUtil.hexToBytes;
-
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
@@ -31,7 +27,10 @@ import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
-import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.ArrayBackedSortedColumns;
+import org.apache.cassandra.db.ColumnFamily;
+import org.apache.cassandra.db.DeletionInfo;
+import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.CounterCell;
@@ -41,6 +40,10 @@ import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.utils.ByteBufferUtil;
+
+import static org.apache.cassandra.io.sstable.SSTableUtils.tempSSTableFile;
+import static org.apache.cassandra.utils.ByteBufferUtil.hexToBytes;
+import static org.junit.Assert.assertEquals;
 
 public class SSTableImportTest extends SchemaLoader
 {

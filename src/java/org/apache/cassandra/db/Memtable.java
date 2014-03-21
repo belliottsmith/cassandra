@@ -36,6 +36,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.commitlog.ReplayPosition;
 import org.apache.cassandra.db.composites.CellNameType;
+import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.data.RowPosition;
@@ -180,7 +181,7 @@ public class Memtable
         if (previous == null)
         {
             AtomicBTreeColumns empty = cf.cloneMeShallow(AtomicBTreeColumns.factory, false);
-            final DecoratedKey cloneKey = new DecoratedKey(key.token(), allocator.clone(key.key(), opGroup));
+            final DecoratedKey cloneKey = new BufferDecoratedKey(key.token(), allocator.clone(key.key(), opGroup));
             // We'll add the columns later. This avoids wasting works if we get beaten in the putIfAbsent
             previous = rows.putIfAbsent(cloneKey, empty);
             if (previous == null)
@@ -197,7 +198,7 @@ public class Memtable
             }
         }
 
-        ContextAllocator contextAllocator = allocator.wrap(opGroup);
+        ContextAllocator contextAllocator = allocator.wrap(cfs, opGroup);
         AtomicBTreeColumns.Delta delta = previous.addAllWithSizeDelta(cf, contextAllocator, indexer, new AtomicBTreeColumns.Delta());
         liveDataSize.addAndGet(delta.dataSize());
         currentOperations.addAndGet(cf.getColumnCount() + (cf.isMarkedForDelete() ? 1 : 0) + cf.deletionInfo().rangeCount());
@@ -262,8 +263,8 @@ public class Memtable
                 if (memoryPool.needToCopyOnHeap())
                 {
                     DecoratedKey key = (DecoratedKey) entry.getKey();
-                    key = new DecoratedKey(key.token(), HeapAllocator.instance.clone(key.key()));
-                    ColumnFamily cells = ArrayBackedSortedColumns.localCopy(entry.getValue(), HeapAllocator.instance);
+                    key = new BufferDecoratedKey(key.token(), HeapAllocator.instance.clone(key.key()));
+                    ColumnFamily cells = ArrayBackedSortedColumns.localCopy(cfs, entry.getValue(), HeapAllocator.instance);
                     entry = new AbstractMap.SimpleImmutableEntry<>(key, cells);
                 }
                 // Store the reference to the current entry so that remove() can update the current size.
@@ -418,7 +419,7 @@ public class Memtable
         final int count = 100000;
         final Object val = new Object();
         for (int i = 0 ; i < count ; i++)
-            rows.put(new DecoratedKey(new LongToken((long) i), ByteBufferUtil.EMPTY_BYTE_BUFFER), val);
+            rows.put(new BufferDecoratedKey(new LongToken((long) i), ByteBufferUtil.EMPTY_BYTE_BUFFER), val);
         double avgSize = ObjectSizes.measureDeep(rows) / (double) count;
         rowOverhead = (int) ((avgSize - Math.floor(avgSize)) < 0.05 ? Math.floor(avgSize) : Math.ceil(avgSize));
         rowOverhead -= ObjectSizes.measureDeep(new LongToken((long) 0));

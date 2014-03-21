@@ -32,6 +32,8 @@ import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.Composite;
 import org.apache.cassandra.db.composites.Composites;
+import org.apache.cassandra.db.data.BufferCell;
+import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.data.RowPosition;
@@ -194,7 +196,7 @@ public class KeysSearcher extends SecondaryIndexSearcher
                         if (((KeysIndex)index).isIndexEntryStale(indexKey.key(), data, filter.timestamp))
                         {
                             // delete the index entry w/ its own timestamp
-                            Cell dummyCell = new Cell(primaryColumn, indexKey.key(), cell.timestamp());
+                            Cell dummyCell = new BufferCell(primaryColumn, indexKey.key(), cell.timestamp());
                             ((PerColumnSecondaryIndex)index).delete(dk.key(), dummyCell, writeOp);
                             continue;
                         }

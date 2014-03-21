@@ -25,8 +25,9 @@ import java.util.Map;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.CellName;
+import org.apache.cassandra.db.data.BufferCell;
+import org.apache.cassandra.db.data.BufferDeletedCell;
 import org.apache.cassandra.db.data.Cell;
-import org.apache.cassandra.db.data.DeletedCell;
 import org.apache.cassandra.db.filter.ColumnSlice;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 
@@ -57,13 +58,13 @@ public class UpdateParameters
     public Cell makeColumn(CellName name, ByteBuffer value) throws InvalidRequestException
     {
         QueryProcessor.validateCellName(name, metadata.comparator);
-        return Cell.create(name, value, timestamp, ttl, metadata);
+        return BufferCell.create(name, value, timestamp, ttl, metadata);
     }
 
     public Cell makeTombstone(CellName name) throws InvalidRequestException
     {
         QueryProcessor.validateCellName(name, metadata.comparator);
-        return new DeletedCell(name, localDeletionTime, timestamp);
+        return new BufferDeletedCell(name, localDeletionTime, timestamp);
     }
 
     public RangeTombstone makeRangeTombstone(ColumnSlice slice) throws InvalidRequestException

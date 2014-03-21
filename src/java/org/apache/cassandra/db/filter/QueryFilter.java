@@ -23,6 +23,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.SortedSet;
 
+import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.data.DecoratedKey;

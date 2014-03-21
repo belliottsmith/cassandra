@@ -30,6 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.RowIndexEntry;
 import org.apache.cassandra.dht.IPartitioner;
@@ -126,7 +127,7 @@ public abstract class SSTable
     public static DecoratedKey getMinimalKey(DecoratedKey key)
     {
         return key.key().position() > 0 || key.key().hasRemaining() || !key.key().hasArray()
-                                       ? new DecoratedKey(key.token(), HeapAllocator.instance.clone(key.key()))
+                                       ? new BufferDecoratedKey(key.token(), HeapAllocator.instance.clone(key.key()))
                                        : key;
     }
 

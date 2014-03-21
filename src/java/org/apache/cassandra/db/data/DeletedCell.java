@@ -17,106 +17,31 @@
  */
 package org.apache.cassandra.db.data;
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.ColumnSerializer;
 import org.apache.cassandra.db.composites.CellName;
-import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.utils.memory.AbstractAllocator;
-import org.apache.cassandra.utils.ByteBufferUtil;
 
-public class DeletedCell extends Cell
+public interface DeletedCell extends Cell
 {
-    public DeletedCell(CellName name, int localDeletionTime, long timestamp)
-    {
-        this(name, ByteBufferUtil.bytes(localDeletionTime), timestamp);
-    }
+    Cell withUpdatedName(CellName newName);
 
-    public DeletedCell(CellName name, ByteBuffer value, long timestamp)
-    {
-        super(name, value, timestamp);
-    }
+    Cell withUpdatedTimestamp(long newTimestamp);
 
-    @Override
-    public Cell withUpdatedName(CellName newName)
-    {
-        return new DeletedCell(newName, value(), timestamp());
-    }
+    boolean isMarkedForDelete(long now);
 
-    @Override
-    public Cell withUpdatedTimestamp(long newTimestamp)
-    {
-        return new DeletedCell(name(), value(), newTimestamp);
-    }
+    long getMarkedForDeleteAt();
 
-    @Override
-    public boolean isMarkedForDelete(long now)
-    {
-        return true;
-    }
+    void updateDigest(MessageDigest digest);
 
-    @Override
-    public long getMarkedForDeleteAt()
-    {
-        return timestamp();
-    }
+    int getLocalDeletionTime();
 
-    @Override
-    public void updateDigest(MessageDigest digest)
-    {
-        digest.update(name().toByteBuffer().duplicate());
+    Cell localCopy(ColumnFamilyStore cfs, AbstractAllocator allocator);
 
-        DataOutputBuffer buffer = new DataOutputBuffer();
-        try
-        {
-            buffer.writeLong(timestamp());
-            buffer.writeByte(serializationFlags());
-        }
-        catch (IOException e)
-        {
-            throw new RuntimeException(e);
-        }
-        digest.update(buffer.getData(), 0, buffer.getLength());
-    }
+    int serializationFlags();
 
-    @Override
-    public int getLocalDeletionTime()
-    {
-       return value().getInt(value().position());
-    }
-
-    @Override
-    public Cell reconcile(Cell cell)
-    {
-        if (cell instanceof DeletedCell)
-            return super.reconcile(cell);
-        return cell.reconcile(this);
-    }
-
-    @Override
-    public Cell localCopy(AbstractAllocator allocator)
-    {
-        return new DeletedCell(name().copy(allocator), allocator.clone(value()), timestamp());
-    }
-
-    @Override
-    public int serializationFlags()
-    {
-        return ColumnSerializer.DELETION_MASK;
-    }
-
-    @Override
-    public void validateFields(CFMetaData metadata) throws MarshalException
-    {
-        validateName(metadata);
-        if (value().remaining() != 4)
-            throw new MarshalException("A tombstone value should be 4 bytes long");
-        if (getLocalDeletionTime() < 0)
-            throw new MarshalException("The local deletion time should not be negative");
-    }
+    void validateFields(CFMetaData metadata) throws MarshalException;
 }

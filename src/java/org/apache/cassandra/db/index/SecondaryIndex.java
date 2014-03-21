@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
+import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.data.DecoratedKey;
@@ -284,7 +285,7 @@ public abstract class SecondaryIndex
     {
         // FIXME: this imply one column definition per index
         ByteBuffer name = columnDefs.iterator().next().name.bytes;
-        return new DecoratedKey(new LocalToken(baseCfs.metadata.getColumnDefinition(name).type, value), value);
+        return new BufferDecoratedKey(new LocalToken(baseCfs.metadata.getColumnDefinition(name).type, value), value);
     }
 
     /**

@@ -20,13 +20,22 @@ package org.apache.cassandra.db.composites;
 import java.io.DataInput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 import com.google.common.collect.AbstractIterator;
+
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.cql3.CQL3Row;
 import org.apache.cassandra.cql3.ColumnIdentifier;
-import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.ColumnSerializer;
+import org.apache.cassandra.db.OnDiskAtom;
+import org.apache.cassandra.db.RangeTombstone;
+import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.filter.IDiskAtomFilter;
 import org.apache.cassandra.db.filter.NamesQueryFilter;
@@ -405,7 +414,7 @@ public abstract class AbstractCellNameType extends AbstractCType implements Cell
                 List<Cell> values = collections.get(columnName);
                 if (values == null)
                 {
-                    values = new ArrayList<Cell>();
+                    values = new ArrayList<>();
                     collections.put(columnName, values);
                 }
                 values.add(cell);

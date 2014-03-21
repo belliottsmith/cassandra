@@ -29,6 +29,7 @@ import com.google.common.collect.AbstractIterator;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.io.ISerializer;
@@ -219,7 +220,7 @@ public class ColumnSlice
 
     private static Cell fakeCell(Composite name)
     {
-        return new Cell(new FakeCellName(name), ByteBufferUtil.EMPTY_BYTE_BUFFER);
+        return new BufferCell(new FakeCellName(name), ByteBufferUtil.EMPTY_BYTE_BUFFER);
     }
 
     /*

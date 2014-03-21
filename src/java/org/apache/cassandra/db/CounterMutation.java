@@ -20,13 +20,20 @@ package org.apache.cassandra.db;
 import java.io.DataInput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.context.CounterContext;
+import org.apache.cassandra.db.data.BufferCounterCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.CounterCell;
 import org.apache.cassandra.db.data.CounterUpdateCell;
@@ -36,12 +43,12 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
-import org.apache.cassandra.utils.memory.HeapAllocator;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.tracing.Tracing;
-import org.apache.cassandra.utils.*;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.CounterId;
+import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.HeapAllocator;
 
 public class CounterMutation implements IMutation
 {
@@ -156,7 +163,7 @@ public class CounterMutation implements IMutation
             if (cell instanceof CounterUpdateCell)
                 counterUpdateCells.add((CounterUpdateCell)cell);
             else
-                resultCF.addColumn(cell.localCopy(allocator));
+                resultCF.addColumn(cell.localCopy(cfs, allocator));
         }
 
         if (counterUpdateCells.isEmpty())
@@ -171,7 +178,7 @@ public class CounterMutation implements IMutation
             long clock = currentValue.clock + 1L;
             long count = currentValue.count + update.delta();
 
-            resultCF.addColumn(new CounterCell(update.name().copy(allocator),
+            resultCF.addColumn(new BufferCounterCell(update.name().copy(allocator),
                                                CounterContext.instance().createGlobal(CounterId.getLocalId(), clock, count),
                                                update.timestamp()));
         }

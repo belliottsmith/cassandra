@@ -28,7 +28,7 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-public abstract class RowPosition implements RingPosition<RowPosition>
+public interface RowPosition extends RingPosition<RowPosition>
 {
     public static enum Kind
     {
@@ -46,18 +46,17 @@ public abstract class RowPosition implements RingPosition<RowPosition>
 
     public static final RowPositionSerializer serializer = new RowPositionSerializer();
 
-    public static RowPosition forKey(ByteBuffer key, IPartitioner p)
+    public static class Impl
     {
-        return key == null || key.remaining() == 0 ? p.getMinimumToken().minKeyBound() : p.decorateKey(key);
+        public static RowPosition forKey(ByteBuffer key, IPartitioner p)
+        {
+            return key == null || key.remaining() == 0 ? p.getMinimumToken().minKeyBound() : p.decorateKey(key);
+        }
     }
 
-    public abstract Token token();
-    public abstract Kind kind();
-
-    public boolean isMinimum()
-    {
-        return isMinimum(StorageService.getPartitioner());
-    }
+    public Token token();
+    public Kind kind();
+    public boolean isMinimum();
 
     public static class RowPositionSerializer implements ISerializer<RowPosition>
     {

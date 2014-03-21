@@ -23,6 +23,7 @@ import org.junit.Test;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import org.apache.cassandra.db.data.BufferDeletedCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.data.DeletedCell;
@@ -65,7 +66,7 @@ public class RemoveCellTest extends SchemaLoader
 
     private static DeletedCell dc(String name, int ldt, long timestamp)
     {
-        return new DeletedCell(Util.cellname(name), ldt, timestamp);
+        return new BufferDeletedCell(Util.cellname(name), ldt, timestamp);
     }
 
     @Test

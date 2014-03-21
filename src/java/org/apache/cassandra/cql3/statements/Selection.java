@@ -23,20 +23,23 @@ import java.util.List;
 
 import com.google.common.collect.Iterators;
 
-import org.apache.cassandra.cql3.*;
-import org.apache.cassandra.cql3.functions.Function;
-import org.apache.cassandra.cql3.functions.Functions;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
+import org.apache.cassandra.cql3.AssignementTestable;
+import org.apache.cassandra.cql3.ColumnIdentifier;
+import org.apache.cassandra.cql3.ColumnSpecification;
+import org.apache.cassandra.cql3.ResultSet;
+import org.apache.cassandra.cql3.functions.Function;
+import org.apache.cassandra.cql3.functions.Functions;
+import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.CounterCell;
 import org.apache.cassandra.db.data.ExpiringCell;
-import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.LongType;
-import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.db.marshal.UTF8Type;
+import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.utils.ByteBufferUtil;
 

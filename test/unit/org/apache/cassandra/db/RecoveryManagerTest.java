@@ -29,6 +29,7 @@ import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.commitlog.CommitLogArchiver;
+import org.apache.cassandra.db.data.BufferCounterCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.CounterCell;
 import org.apache.cassandra.db.data.DecoratedKey;
@@ -86,7 +87,7 @@ public class RecoveryManagerTest extends SchemaLoader
         for (int i = 0; i < 10; ++i)
         {
             cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Counter1");
-            cf.addColumn(CounterCell.createLocal(cellname("col"), 1L, 1L, Long.MIN_VALUE));
+            cf.addColumn(BufferCounterCell.createLocal(cellname("col"), 1L, 1L, Long.MIN_VALUE));
             rm = new Mutation("Keyspace1", dk.key(), cf);
             rm.apply();
         }

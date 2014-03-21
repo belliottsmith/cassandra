@@ -21,19 +21,50 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
-import com.google.common.collect.*;
-import org.apache.cassandra.db.data.Cell;
+import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Iterators;
+import com.google.common.collect.PeekingIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.composites.CellName;
+import org.apache.cassandra.db.composites.CellNameType;
+import org.apache.cassandra.db.composites.CellNames;
+import org.apache.cassandra.db.composites.Composite;
+import org.apache.cassandra.db.composites.Composites;
+import org.apache.cassandra.db.composites.CompoundDenseCellNameType;
+import org.apache.cassandra.db.data.BufferCell;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.TypeParser;
 import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.thrift.*;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.thrift.Cassandra;
+import org.apache.cassandra.thrift.CfDef;
+import org.apache.cassandra.thrift.ColumnOrSuperColumn;
+import org.apache.cassandra.thrift.ColumnParent;
+import org.apache.cassandra.thrift.Compression;
+import org.apache.cassandra.thrift.ConsistencyLevel;
+import org.apache.cassandra.thrift.CounterColumn;
+import org.apache.cassandra.thrift.CounterSuperColumn;
+import org.apache.cassandra.thrift.CqlResult;
+import org.apache.cassandra.thrift.CqlRow;
+import org.apache.cassandra.thrift.IndexExpression;
+import org.apache.cassandra.thrift.KeyRange;
+import org.apache.cassandra.thrift.KeySlice;
+import org.apache.cassandra.thrift.SlicePredicate;
+import org.apache.cassandra.thrift.SuperColumn;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
@@ -304,14 +335,14 @@ public class ColumnFamilyRecordReader extends RecordReader<ByteBuffer, SortedMap
 
         protected Cell unthriftifySimple(org.apache.cassandra.thrift.Column column)
         {
-            return new Cell(comparator.cellFromByteBuffer(column.name), column.value, column.timestamp);
+            return new BufferCell(comparator.cellFromByteBuffer(column.name), column.value, column.timestamp);
         }
 
         private Cell unthriftifyCounter(CounterColumn column)
         {
             //CounterColumns read the counterID from the System keyspace, so need the StorageService running and access
             //to cassandra.yaml. To avoid a Hadoop needing access to yaml return a regular Cell.
-            return new Cell(comparator.cellFromByteBuffer(column.name), ByteBufferUtil.bytes(column.value), 0);
+            return new BufferCell(comparator.cellFromByteBuffer(column.name), ByteBufferUtil.bytes(column.value), 0);
         }
 
         private List<Cell> unthriftifySuperCounter(CounterSuperColumn super_column)
@@ -539,7 +570,7 @@ public class ColumnFamilyRecordReader extends RecordReader<ByteBuffer, SortedMap
                         else
                         {
                             assert isSuper;
-                            map = new TreeMap<CellName, Cell>(cellType);
+                            map = new TreeMap<>(cellType);
                             for (Cell cell : cells)
                                 map.put(cell.name(), cell);
                         }
@@ -583,7 +614,7 @@ public class ColumnFamilyRecordReader extends RecordReader<ByteBuffer, SortedMap
 
     public SortedMap<CellName, Cell> createValue()
     {
-        return new TreeMap<CellName, Cell>();
+        return new TreeMap<>();
     }
 
     public long getPos() throws IOException

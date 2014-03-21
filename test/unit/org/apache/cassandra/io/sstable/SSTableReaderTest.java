@@ -46,6 +46,7 @@ import org.apache.cassandra.db.columniterator.IdentityQueryFilter;
 import org.apache.cassandra.db.composites.Composites;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.ICompactionScanner;
+import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.dht.LocalPartitioner;
@@ -433,6 +434,6 @@ public class SSTableReaderTest extends SchemaLoader
 
     private DecoratedKey k(int i)
     {
-        return new DecoratedKey(t(i), ByteBufferUtil.bytes(String.valueOf(i)));
+        return new BufferDecoratedKey(t(i), ByteBufferUtil.bytes(String.valueOf(i)));
     }
 }

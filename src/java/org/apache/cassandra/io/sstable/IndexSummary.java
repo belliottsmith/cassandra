@@ -89,7 +89,7 @@ public class IndexSummary implements Closeable
         while (low <= high)
         {
             mid = (low + high) >> 1;
-            result = -DecoratedKey.compareTo(partitioner, ByteBuffer.wrap(getKey(mid)), key);
+            result = -DecoratedKey.Impl.compareTo(partitioner, ByteBuffer.wrap(getKey(mid)), key);
             if (result > 0)
             {
                 low = mid + 1;

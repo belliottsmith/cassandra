@@ -37,9 +37,10 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.CellNames;
+import org.apache.cassandra.db.data.BufferCell;
+import org.apache.cassandra.db.data.BufferDeletedCell;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.CounterUpdateCell;
-import org.apache.cassandra.db.data.DeletedCell;
 import org.apache.cassandra.db.filter.ColumnCounter;
 import org.apache.cassandra.db.filter.ColumnSlice;
 import org.apache.cassandra.io.sstable.ColumnNameHelper;
@@ -131,7 +132,7 @@ public abstract class ColumnFamily implements Iterable<Cell>, IRowCacheEntry
     public void addColumn(CellName name, ByteBuffer value, long timestamp, int timeToLive)
     {
         assert !metadata().isCounter();
-        Cell cell = Cell.create(name, value, timestamp, timeToLive, metadata());
+        Cell cell = BufferCell.create(name, value, timestamp, timeToLive, metadata());
         addColumn(cell);
     }
 
@@ -142,12 +143,12 @@ public abstract class ColumnFamily implements Iterable<Cell>, IRowCacheEntry
 
     public void addTombstone(CellName name, ByteBuffer localDeletionTime, long timestamp)
     {
-        addColumn(new DeletedCell(name, localDeletionTime, timestamp));
+        addColumn(new BufferDeletedCell(name, localDeletionTime, timestamp));
     }
 
     public void addTombstone(CellName name, int localDeletionTime, long timestamp)
     {
-        addColumn(new DeletedCell(name, localDeletionTime, timestamp));
+        addColumn(new BufferDeletedCell(name, localDeletionTime, timestamp));
     }
 
     public void addAtom(OnDiskAtom atom)
