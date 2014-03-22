@@ -31,6 +31,7 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 /**
@@ -200,6 +201,11 @@ public class BufferCell implements Cell
     public Cell localCopy(ByteBufferAllocator allocator)
     {
         return new BufferCell(name().copy(allocator), allocator.clone(value()), timestamp());
+    }
+
+    public Cell localCopy(DataAllocator allocator, OpOrder.Group writeOp)
+    {
+        return allocator.clone(this, writeOp);
     }
 
     public String getString(CellNameType comparator)

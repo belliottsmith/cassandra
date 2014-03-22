@@ -37,7 +37,7 @@ import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.commitlog.ReplayPosition;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.data.BufferDecoratedKey;
-import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.DataAllocator;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.db.index.SecondaryIndexManager;
@@ -50,19 +50,16 @@ import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.concurrent.OpOrder;
-import org.apache.cassandra.utils.memory.ByteBufferPool;
-import org.apache.cassandra.utils.memory.ContextAllocator;
 import org.apache.cassandra.utils.memory.HeapAllocator;
-import org.apache.cassandra.utils.memory.PoolAllocator;
 
 public class Memtable
 {
     private static final Logger logger = LoggerFactory.getLogger(Memtable.class);
 
-    static final ByteBufferPool memoryPool = DatabaseDescriptor.getMemtableAllocatorPool();
+    static final DataAllocator.DataPool dataPool = DatabaseDescriptor.getMemtableAllocatorPool();
     private static final int ROW_OVERHEAD_HEAP_SIZE;
 
-    private final ByteBufferPool.Allocator allocator;
+    private final DataAllocator allocator;
     private final AtomicLong liveDataSize = new AtomicLong(0);
     private final AtomicLong currentOperations = new AtomicLong(0);
 
@@ -89,12 +86,12 @@ public class Memtable
     public Memtable(ColumnFamilyStore cfs)
     {
         this.cfs = cfs;
-        this.allocator = memoryPool.newAllocator();
+        this.allocator = dataPool.newAllocator();
         this.initialComparator = cfs.metadata.comparator;
         this.cfs.scheduleFlush();
     }
 
-    public PoolAllocator getAllocator()
+    public DataAllocator getAllocator()
     {
         return allocator;
     }
@@ -181,7 +178,7 @@ public class Memtable
         if (previous == null)
         {
             AtomicBTreeColumns empty = cf.cloneMeShallow(AtomicBTreeColumns.factory, false);
-            final DecoratedKey cloneKey = new BufferDecoratedKey(key.token(), allocator.clone(key.key(), opGroup));
+            final DecoratedKey cloneKey = allocator.clone(key, opGroup);
             // We'll add the columns later. This avoids wasting works if we get beaten in the putIfAbsent
             previous = rows.putIfAbsent(cloneKey, empty);
             if (previous == null)
@@ -190,26 +187,14 @@ public class Memtable
                 // allocate the row overhead after the fact; this saves over allocating and having to free after, but
                 // means we can overshoot our declared limit.
                 int overhead = (int) (cfs.partitioner.getHeapSizeOf(key.token()) + ROW_OVERHEAD_HEAP_SIZE);
-                allocator.allocate(overhead, opGroup);
+                allocator.onHeap().allocate(overhead, opGroup);
             }
             else
-            {
-                allocator.free(cloneKey.key());
-            }
+                allocator.reclaimer().reclaimImmediately(cloneKey).commit();
         }
 
-        ContextAllocator contextAllocator = allocator.context(opGroup);
-        AtomicBTreeColumns.Delta delta = previous.addAllWithSizeDelta(cf, contextAllocator, contextAllocator, indexer, new AtomicBTreeColumns.Delta());
-        liveDataSize.addAndGet(delta.dataSize());
+        liveDataSize.addAndGet(previous.addAllWithSizeDelta(cf, allocator, opGroup, indexer));
         currentOperations.addAndGet(cf.getColumnCount() + (cf.isMarkedForDelete() ? 1 : 0) + cf.deletionInfo().rangeCount());
-
-        // allocate or free the delta in column overhead after the fact
-        for (Cell cell : delta.reclaimed())
-        {
-            cell.name().free(allocator);
-            allocator.free(cell.value());
-        }
-        allocator.allocate((int) delta.unsharedHeapSize(), opGroup);
     }
 
     // for debugging

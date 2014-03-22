@@ -29,6 +29,7 @@ import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 /**
@@ -196,9 +197,14 @@ public class BufferCounterCell extends BufferCell implements CounterCell
     }
 
     @Override
-    public Cell localCopy(ByteBufferAllocator allocator)
+    public CounterCell localCopy(ByteBufferAllocator allocator)
     {
         return new BufferCounterCell(name().copy(allocator), allocator.clone(value()), timestamp(), timestampOfLastDelete);
+    }
+
+    public Cell localCopy(DataAllocator allocator, OpOrder.Group writeOp)
+    {
+        return allocator.clone(this, writeOp);
     }
 
     @Override

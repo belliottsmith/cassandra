@@ -17,6 +17,9 @@
  */
 package org.apache.cassandra.db.data;
 
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
+
 public interface DeletedCell extends Cell
 {
+    DeletedCell localCopy(ByteBufferAllocator allocator);
 }

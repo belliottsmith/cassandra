@@ -35,6 +35,7 @@ import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.data.DataAllocator;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.compaction.CompactionManager;
@@ -153,7 +154,7 @@ public abstract class SecondaryIndex
     /**
      * Get current amount of memory this index is consuming (in bytes)
      */
-    public abstract PoolAllocator getAllocator();
+    public abstract DataAllocator getAllocator();
 
     /**
      * Allow access to the underlying column family store if there is one

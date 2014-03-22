@@ -18,6 +18,7 @@
 package org.apache.cassandra.db.data;
 
 import org.apache.cassandra.db.context.CounterContext;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 public interface CounterCell extends Cell
 {
@@ -35,4 +36,6 @@ public interface CounterCell extends Cell
          */
 
     Cell markLocalToBeCleared();
+
+    CounterCell localCopy(ByteBufferAllocator allocator);
 }

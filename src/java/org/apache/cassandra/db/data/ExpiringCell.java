@@ -17,9 +17,13 @@
  */
 package org.apache.cassandra.db.data;
 
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
+
 public interface ExpiringCell extends Cell
 {
     public static final int MAX_TTL = 20 * 365 * 24 * 60 * 60; // 20 years in seconds
 
     int getTimeToLive();
+
+    ExpiringCell localCopy(ByteBufferAllocator allocator);
 }
