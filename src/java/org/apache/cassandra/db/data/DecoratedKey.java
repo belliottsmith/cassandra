@@ -21,7 +21,6 @@ import java.nio.ByteBuffer;
 import java.util.Comparator;
 
 import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 public interface DecoratedKey extends RowPosition
@@ -33,6 +32,8 @@ public interface DecoratedKey extends RowPosition
             return o1.compareTo(o2);
         }
     };
+
+    public ByteBuffer key();
 
     public static class Impl
     {
@@ -46,24 +47,60 @@ public interface DecoratedKey extends RowPosition
             int cmp = partitioner.getToken(key).compareTo(otherKey.token());
             return cmp == 0 ? ByteBufferUtil.compareUnsigned(key, otherKey.key()) : cmp;
         }
+
+        public static int hashCode(DecoratedKey me)
+        {
+            return me.key().hashCode(); // hash of key is enough
+        }
+
+        public static boolean equals(DecoratedKey me, Object obj)
+        {
+            if (me == obj)
+                return true;
+            if (!(obj instanceof DecoratedKey))
+                return false;
+
+            DecoratedKey other = (DecoratedKey)obj;
+            // TODO : optimise this for native comparison
+            return ByteBufferUtil.compareUnsigned(me.key(), other.key()) == 0; // we compare faster than BB.equals for array backed BB
+        }
+
+        public static int compareTo(DecoratedKey me, RowPosition pos)
+        {
+            if (me == pos)
+                return 0;
+
+            // delegate to Token.KeyBound if needed
+            if (!(pos instanceof DecoratedKey))
+                return -pos.compareTo(me);
+
+            // TODO : optimise this for native comparison
+            DecoratedKey otherKey = (DecoratedKey) pos;
+            int cmp = me.token().compareTo(otherKey.token());
+            return cmp == 0 ? ByteBufferUtil.compareUnsigned(me.key(), otherKey.key()) : cmp;
+        }
+
+        public static boolean isMinimum(IPartitioner partitioner)
+        {
+            // A DecoratedKey can never be the minimum position on the ring
+            return false;
+        }
+
+        public static boolean isMinimum()
+        {
+            return false;
+        }
+
+        public static Kind kind()
+        {
+            return Kind.ROW_KEY;
+        }
+
+        public static String toString(DecoratedKey me)
+        {
+            String keystring = me.key() == null ? "null" : ByteBufferUtil.bytesToHex(me.key());
+            return "DecoratedKey(" + me.token() + ", " + keystring + ")";
+        }
     }
 
-    @Override
-    int hashCode();
-
-    @Override
-    boolean equals(Object obj);
-
-    int compareTo(RowPosition pos);
-
-    boolean isMinimum(IPartitioner partitioner);
-
-    Kind kind();
-
-    @Override
-    String toString();
-
-    Token token();
-
-    ByteBuffer key();
 }

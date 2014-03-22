@@ -46,7 +46,7 @@ public interface RowPosition extends RingPosition<RowPosition>
 
     public static final RowPositionSerializer serializer = new RowPositionSerializer();
 
-    public static class Impl
+    public static final class Impl
     {
         public static RowPosition forKey(ByteBuffer key, IPartitioner p)
         {
@@ -54,7 +54,6 @@ public interface RowPosition extends RingPosition<RowPosition>
         }
     }
 
-    public Token token();
     public Kind kind();
     public boolean isMinimum();
 

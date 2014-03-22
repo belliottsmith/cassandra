@@ -49,7 +49,7 @@ import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
             state.doSomethingToPrepareForBarrier();
 
             state.barrier = order.newBarrier();
-            // seal() MUST be called after newBarrier() else barrier.isAfter()
+            // issue() MUST be called after newBarrier() else barrier.isAfter()
             // will always return true, and barrier.await() will fail
             state.barrier.issue();
 

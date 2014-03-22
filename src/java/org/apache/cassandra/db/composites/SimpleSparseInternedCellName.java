@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.composites;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 import org.apache.cassandra.utils.memory.ByteBufferPool;
@@ -43,16 +44,14 @@ public class SimpleSparseInternedCellName extends SimpleSparseCellName
     }
 
     @Override
-    public CellName copy(ByteBufferAllocator allocator)
+    public CellName copy(CFMetaData cfMetaData, ByteBufferAllocator allocator)
     {
         // We're interning those instance in SparceCellNameType so don't need to copy.
         return this;
     }
 
-    @Override
     public void free(ByteBufferPool.Allocator allocator)
     {
         // no-op, never copied
     }
-
 }

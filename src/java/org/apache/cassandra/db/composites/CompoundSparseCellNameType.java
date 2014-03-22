@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.cql3.CQL3Row;
 import org.apache.cassandra.cql3.ColumnIdentifier;
@@ -38,7 +39,7 @@ import org.apache.cassandra.utils.memory.ByteBufferPool;
 
 public class CompoundSparseCellNameType extends AbstractCompoundCellNameType
 {
-    private static final ColumnIdentifier rowMarkerId = new ColumnIdentifier(ByteBufferUtil.EMPTY_BYTE_BUFFER, UTF8Type.instance);
+    public static final ColumnIdentifier rowMarkerId = new ColumnIdentifier(ByteBufferUtil.EMPTY_BYTE_BUFFER, UTF8Type.instance);
     private static final CellName rowMarkerNoPrefix = new CompoundSparseCellName(rowMarkerId, false);
 
     // For CQL3 columns, this is always UTF8Type. However, for compatibility with super columns, we need to allow it to be non-UTF8.
@@ -47,12 +48,12 @@ public class CompoundSparseCellNameType extends AbstractCompoundCellNameType
 
     private final Composite staticPrefix;
 
-    public CompoundSparseCellNameType(List<AbstractType<?>> types)
+    public CompoundSparseCellNameType(List<? extends AbstractType<?>> types)
     {
         this(types, UTF8Type.instance);
     }
 
-    public CompoundSparseCellNameType(List<AbstractType<?>> types, AbstractType<?> columnNameType)
+    public CompoundSparseCellNameType(List<? extends AbstractType<?>> types, AbstractType<?> columnNameType)
     {
         this(new CompoundCType(types), columnNameType);
     }
@@ -92,12 +93,11 @@ public class CompoundSparseCellNameType extends AbstractCompoundCellNameType
             }
 
             @Override
-            public Composite copy(ByteBufferAllocator allocator)
+            public Composite copy(CFMetaData cfMetaData, ByteBufferAllocator allocator)
             {
                 return this;
             }
 
-            @Override
             public void free(ByteBufferPool.Allocator allocator)
             {
             }
@@ -209,9 +209,9 @@ public class CompoundSparseCellNameType extends AbstractCompoundCellNameType
         internedIds.remove(id.bytes);
     }
 
-    public CQL3Row.Builder CQL3RowBuilder(long now)
+    public CQL3Row.Builder CQL3RowBuilder(CFMetaData cfMetaData, long now)
     {
-        return makeSparseCQL3RowBuilder(this, now);
+        return makeSparseCQL3RowBuilder(this, cfMetaData, now);
     }
 
     public static class WithCollection extends CompoundSparseCellNameType

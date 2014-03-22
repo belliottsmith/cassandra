@@ -19,10 +19,12 @@ package org.apache.cassandra.db.data;
 
 import java.nio.ByteBuffer;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.ColumnSerializer;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 /**
@@ -79,7 +81,12 @@ public class CounterUpdateCell extends BufferCell
     }
 
     @Override
-    public Cell localCopy(ByteBufferAllocator allocator)
+    public Cell localCopy(CFMetaData cfMetaData, ByteBufferAllocator allocator)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    public Cell localCopy(CFMetaData cfMetaData, ByteBufferAllocator allocator, OpOrder.Group writeOp)
     {
         throw new UnsupportedOperationException();
     }

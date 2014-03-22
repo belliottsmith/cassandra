@@ -47,7 +47,6 @@ import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CounterId;
-import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 import org.apache.cassandra.utils.memory.HeapAllocator;
 
 public class CounterMutation implements IMutation
@@ -152,7 +151,6 @@ public class CounterMutation implements IMutation
     // Replaces all the CounterUpdateCell-s with updated regular CounterCell-s
     private ColumnFamily processModifications(ColumnFamily changesCF)
     {
-        ByteBufferAllocator allocator = HeapAllocator.instance;
         ColumnFamilyStore cfs = Keyspace.open(getKeyspaceName()).getColumnFamilyStore(changesCF.id());
 
         ColumnFamily resultCF = changesCF.cloneMeShallow();
@@ -163,7 +161,7 @@ public class CounterMutation implements IMutation
             if (cell instanceof CounterUpdateCell)
                 counterUpdateCells.add((CounterUpdateCell)cell);
             else
-                resultCF.addColumn(cell.localCopy(allocator));
+                resultCF.addColumn(cell.localCopy(cfs.metadata, HeapAllocator.instance));
         }
 
         if (counterUpdateCells.isEmpty())
@@ -178,7 +176,7 @@ public class CounterMutation implements IMutation
             long clock = currentValue.clock + 1L;
             long count = currentValue.count + update.delta();
 
-            resultCF.addColumn(new BufferCounterCell(update.name().copy(allocator),
+            resultCF.addColumn(new BufferCounterCell(update.name().copy(cfs.metadata, HeapAllocator.instance),
                                                CounterContext.instance().createGlobal(CounterId.getLocalId(), clock, count),
                                                update.timestamp()));
         }

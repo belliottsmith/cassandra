@@ -67,7 +67,7 @@ public class CompositeType extends AbstractCompositeType
     public final List<AbstractType<?>> types;
 
     // interning instances
-    private static final Map<List<AbstractType<?>>, CompositeType> instances = new HashMap<List<AbstractType<?>>, CompositeType>();
+    private static final Map<List<? extends AbstractType<?>>, CompositeType> instances = new HashMap<>();
 
     public static CompositeType getInstance(TypeParser parser) throws ConfigurationException, SyntaxException
     {
@@ -97,7 +97,7 @@ public class CompositeType extends AbstractCompositeType
         return true;
     }
 
-    public static synchronized CompositeType getInstance(List<AbstractType<?>> types)
+    public static synchronized CompositeType getInstance(List<? extends AbstractType<?>> types)
     {
         assert types != null && !types.isEmpty();
 
@@ -110,7 +110,7 @@ public class CompositeType extends AbstractCompositeType
         return ct;
     }
 
-    protected CompositeType(List<AbstractType<?>> types)
+    protected CompositeType(List<? extends AbstractType<?>> types)
     {
         this.types = ImmutableList.copyOf(types);
     }

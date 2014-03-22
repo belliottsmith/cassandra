@@ -20,6 +20,7 @@ package org.apache.cassandra.db.composites;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.ColumnToCollectionType;
@@ -80,6 +81,21 @@ public abstract class CellNames
     public static CellName compoundDense(ByteBuffer... bbs)
     {
         return new CompoundDenseCellName(bbs);
+    }
+
+    public static CellName simpleSparse(ColumnIdentifier identifier)
+    {
+        return new SimpleSparseCellName(identifier);
+    }
+
+    public static CellName compoundSparse(ByteBuffer[] bbs, ColumnIdentifier identifier, boolean isStatic)
+    {
+        return new CompoundSparseCellName(bbs, identifier, isStatic);
+    }
+
+    public static CellName compoundSparseWithCollection(ByteBuffer[] bbs, ByteBuffer collectionElement, ColumnIdentifier identifier, boolean isStatic)
+    {
+        return new CompoundSparseCellName.WithCollection(bbs, identifier, collectionElement, isStatic);
     }
 
     public static String getColumnsString(CellNameType type, Iterable<Cell> columns)

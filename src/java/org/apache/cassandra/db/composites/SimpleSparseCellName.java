@@ -19,6 +19,7 @@ package org.apache.cassandra.db.composites;
 
 import java.nio.ByteBuffer;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
@@ -62,12 +63,18 @@ public class SimpleSparseCellName extends AbstractComposite implements CellName
         return columnName.bytes;
     }
 
+    @Override
+    public int dataSize()
+    {
+        return columnName.bytes.remaining();
+    }
+
     public int clusteringSize()
     {
         return 0;
     }
 
-    public ColumnIdentifier cql3ColumnName()
+    public ColumnIdentifier cql3ColumnName(CFMetaData metadata)
     {
         return columnName;
     }
@@ -92,12 +99,17 @@ public class SimpleSparseCellName extends AbstractComposite implements CellName
         return EMPTY_SIZE + columnName.unsharedHeapSizeExcludingData();
     }
 
+    public boolean equals(CellName that)
+    {
+        return super.equals(that);
+    }
+
     public long unsharedHeapSize()
     {
         return EMPTY_SIZE + columnName.unsharedHeapSize();
     }
 
-    public CellName copy(ByteBufferAllocator allocator)
+    public CellName copy(CFMetaData cfMetaData, ByteBufferAllocator allocator)
     {
         return new SimpleSparseCellName(columnName.clone(allocator));
     }

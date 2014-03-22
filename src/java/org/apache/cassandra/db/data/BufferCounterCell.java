@@ -17,19 +17,20 @@
  */
 package org.apache.cassandra.db.data;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 
-import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.ColumnSerializer;
 import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.db.composites.CellNames;
+import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.ObjectSizes;
+import org.apache.cassandra.utils.concurrent.OpOrder;
+
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
-import org.apache.cassandra.db.context.CounterContext;
-import org.apache.cassandra.io.util.DataOutputBuffer;
-import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 /**
@@ -38,6 +39,7 @@ import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 public class BufferCounterCell extends BufferCell implements CounterCell
 {
     private final long timestampOfLastDelete;
+    private static final long EMPTY_SIZE = ObjectSizes.measure(new BufferCounterCell(CellNames.simpleDense(ByteBuffer.allocate(1)), ByteBufferUtil.EMPTY_BYTE_BUFFER, 1));
 
     public BufferCounterCell(CellName name, ByteBuffer value, long timestamp)
     {
@@ -50,191 +52,90 @@ public class BufferCounterCell extends BufferCell implements CounterCell
         this.timestampOfLastDelete = timestampOfLastDelete;
     }
 
+    public long timestampOfLastDelete()
+    {
+        return timestampOfLastDelete;
+    }
+
+    public long unsharedHeapSizeExcludingData()
+    {
+        return EMPTY_SIZE + name().unsharedHeapSizeExcludingData() + ObjectSizes.sizeOnHeapExcludingData(value());
+    }
+
+
+    public Cell withUpdatedName(CellName newName)
+    {
+        return new BufferCounterCell(newName, value(), timestamp(), timestampOfLastDelete());
+    }
+    public Cell withUpdatedTimestamp(long timestamp)
+    {
+        return new BufferCounterCell(name(), value(), timestamp, timestampOfLastDelete());
+    }
+    public long total()
+    {
+        return CounterCell.Impl.total(this);
+    }
+    public int cellDataSize()
+    {
+        return CounterCell.Impl.cellDataSize(this);
+    }
+    public int serializedSize(CellNameType type, TypeSizes typeSizes)
+    {
+        return CounterCell.Impl.serializedSize(this, type, typeSizes);
+    }
+    public Cell diff(Cell cell)
+    {
+        return CounterCell.Impl.diff(this, cell);
+    }
+    public void updateDigest(MessageDigest digest)
+    {
+        CounterCell.Impl.updateDigest(this, digest);
+    }
+    public Cell reconcile(Cell cell)
+    {
+        return CounterCell.Impl.reconcile(this, cell);
+    }
+    public CounterCell localCopy(CFMetaData cfMetaData, ByteBufferAllocator allocator)
+    {
+        return CounterCell.Impl.localCopy(this, cfMetaData, allocator);
+    }
+    public CounterCell localCopy(CFMetaData cfMetaData, DataAllocator allocator, OpOrder.Group writeOp)
+    {
+        return allocator.clone(this, cfMetaData, writeOp);
+    }
+    public String getString(CellNameType comparator)
+    {
+        return CounterCell.Impl.getString(this, comparator);
+    }
+    public int serializationFlags()
+    {
+        return CounterCell.Impl.serializationFlags();
+    }
+    public void validateFields(CFMetaData metadata) throws MarshalException
+    {
+        CounterCell.Impl.validateFields(this, metadata);
+    }
+    public Cell markLocalToBeCleared()
+    {
+        return CounterCell.Impl.markLocalToBeCleared(this);
+    }
+
     public static CounterCell create(CellName name, ByteBuffer value, long timestamp, long timestampOfLastDelete, ColumnSerializer.Flag flag)
     {
-        if (flag == ColumnSerializer.Flag.FROM_REMOTE || (flag == ColumnSerializer.Flag.LOCAL && contextManager.shouldClearLocal(value)))
-            value = contextManager.clearAllLocal(value);
+        if (flag == ColumnSerializer.Flag.FROM_REMOTE || (flag == ColumnSerializer.Flag.LOCAL && CounterCell.Impl.contextManager.shouldClearLocal(value)))
+            value = CounterCell.Impl.contextManager.clearAllLocal(value);
         return new BufferCounterCell(name, value, timestamp, timestampOfLastDelete);
     }
 
     // For use by tests of compatibility with pre-2.1 counter only.
     public static CounterCell createLocal(CellName name, long value, long timestamp, long timestampOfLastDelete)
     {
-        return new BufferCounterCell(name, contextManager.createLocal(value), timestamp, timestampOfLastDelete);
+        return new BufferCounterCell(name, CounterCell.Impl.contextManager.createLocal(value), timestamp, timestampOfLastDelete);
     }
 
-    @Override
-    public Cell withUpdatedName(CellName newName)
+    public boolean equals(Object obj)
     {
-        return new BufferCounterCell(newName, value(), timestamp(), timestampOfLastDelete);
+        return CounterCell.Impl.equals(this, obj);
     }
 
-    public long timestampOfLastDelete()
-    {
-        return timestampOfLastDelete;
-    }
-
-    public long total()
-    {
-        return contextManager.total(value());
-    }
-
-    @Override
-    public int dataSize()
-    {
-        // A counter column adds 8 bytes for timestampOfLastDelete to Cell.
-        return super.dataSize() + TypeSizes.NATIVE.sizeof(timestampOfLastDelete);
-    }
-
-    @Override
-    public int serializedSize(CellNameType type, TypeSizes typeSizes)
-    {
-        return super.serializedSize(type, typeSizes) + typeSizes.sizeof(timestampOfLastDelete);
-    }
-
-    @Override
-    public Cell diff(Cell cell)
-    {
-        assert (cell instanceof CounterCell) || (cell instanceof DeletedCell) : "Wrong class type: " + cell.getClass();
-
-        if (timestamp() < cell.timestamp())
-            return cell;
-
-        // Note that if at that point, cell can't be a tombstone. Indeed,
-        // cell is the result of merging us with other nodes results, and
-        // merging a CounterCell with a tombstone never return a tombstone
-        // unless that tombstone timestamp is greater that the CounterCell
-        // one.
-        assert cell instanceof CounterCell : "Wrong class type: " + cell.getClass();
-
-        if (timestampOfLastDelete() < ((CounterCell) cell).timestampOfLastDelete())
-            return cell;
-        CounterContext.Relationship rel = contextManager.diff(cell.value(), value());
-        if (rel == CounterContext.Relationship.GREATER_THAN || rel == CounterContext.Relationship.DISJOINT)
-            return cell;
-        return null;
-    }
-
-    /*
-     * We have to special case digest creation for counter column because
-     * we don't want to include the information about which shard of the
-     * context is a delta or not, since this information differs from node to
-     * node.
-     */
-    @Override
-    public void updateDigest(MessageDigest digest)
-    {
-        digest.update(name().toByteBuffer().duplicate());
-        // We don't take the deltas into account in a digest
-        contextManager.updateDigest(digest, value());
-        DataOutputBuffer buffer = new DataOutputBuffer();
-        try
-        {
-            buffer.writeLong(timestamp());
-            buffer.writeByte(serializationFlags());
-            buffer.writeLong(timestampOfLastDelete);
-        }
-        catch (IOException e)
-        {
-            throw new RuntimeException(e);
-        }
-        digest.update(buffer.getData(), 0, buffer.getLength());
-    }
-
-    @Override
-    public Cell reconcile(Cell cell)
-    {
-        // live + tombstone: track last tombstone
-        if (cell.isMarkedForDelete(Long.MIN_VALUE)) // cannot be an expired cell, so the current time is irrelevant
-        {
-            // live < tombstone
-            if (timestamp() < cell.timestamp())
-            {
-                return cell;
-            }
-            // live last delete >= tombstone
-            if (timestampOfLastDelete() >= cell.timestamp())
-            {
-                return this;
-            }
-            // live last delete < tombstone
-            return new BufferCounterCell(name(), value(), timestamp(), cell.timestamp());
-        }
-
-        assert cell instanceof CounterCell : "Wrong class type: " + cell.getClass();
-
-        // live < live last delete
-        if (timestamp() < ((CounterCell) cell).timestampOfLastDelete())
-            return cell;
-        // live last delete > live
-        if (timestampOfLastDelete() > cell.timestamp())
-            return this;
-
-        // live + live. return one of the cells if its context is a superset of the other's, or merge them otherwise
-        ByteBuffer context = contextManager.merge(value(), cell.value());
-        if (context == value() && timestamp() >= cell.timestamp() && timestampOfLastDelete() >= ((CounterCell) cell).timestampOfLastDelete())
-            return this;
-        else if (context == cell.value() && cell.timestamp() >= timestamp() && ((CounterCell) cell).timestampOfLastDelete() >= timestampOfLastDelete())
-            return cell;
-        else // merge clocks and timsestamps.
-            return new BufferCounterCell(name(),
-                                   context,
-                                   Math.max(timestamp(), cell.timestamp()),
-                                   Math.max(timestampOfLastDelete(), ((CounterCell) cell).timestampOfLastDelete()));
-    }
-
-    @Override
-    public boolean equals(Object o)
-    {
-        // super.equals() returns false if o is not a CounterCell
-        return super.equals(o) && timestampOfLastDelete == ((BufferCounterCell)o).timestampOfLastDelete;
-    }
-
-    @Override
-    public int hashCode()
-    {
-        return 31 * super.hashCode() + (int)(timestampOfLastDelete ^ (timestampOfLastDelete >>> 32));
-    }
-
-    @Override
-    public CounterCell localCopy(ByteBufferAllocator allocator)
-    {
-        return new BufferCounterCell(name().copy(allocator), allocator.clone(value()), timestamp(), timestampOfLastDelete);
-    }
-
-    public Cell localCopy(DataAllocator allocator, OpOrder.Group writeOp)
-    {
-        return allocator.clone(this, writeOp);
-    }
-
-    @Override
-    public String getString(CellNameType comparator)
-    {
-        return String.format("%s:false:%s@%d!%d",
-                             comparator.getString(name()),
-                             contextManager.toString(value()),
-                             timestamp(),
-                             timestampOfLastDelete);
-    }
-
-    @Override
-    public int serializationFlags()
-    {
-        return ColumnSerializer.COUNTER_MASK;
-    }
-
-    @Override
-    public void validateFields(CFMetaData metadata) throws MarshalException
-    {
-        validateName(metadata);
-        // We cannot use the value validator as for other columns as the CounterColumnType validate a long,
-        // which is not the internal representation of counters
-        contextManager.validateContext(value());
-    }
-
-    public Cell markLocalToBeCleared()
-    {
-        ByteBuffer marked = contextManager.markLocalToBeCleared(value());
-        return marked == value() ? this : new BufferCounterCell(name(), marked, timestamp(), timestampOfLastDelete);
-    }
 }

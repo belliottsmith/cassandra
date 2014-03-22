@@ -446,7 +446,7 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
             if (row.cf == null || row.cf.isEmpty())
                 continue;
 
-            Iterator<CQL3Row> iter = cfm.comparator.CQL3RowBuilder(now).group(row.cf.getSortedColumns().iterator());
+            Iterator<CQL3Row> iter = cfm.comparator.CQL3RowBuilder(cfm, now).group(row.cf.getSortedColumns().iterator());
             if (iter.hasNext())
             {
                 map.put(row.key.key(), iter.next());

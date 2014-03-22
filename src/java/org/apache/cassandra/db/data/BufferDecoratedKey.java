@@ -21,7 +21,6 @@ import java.nio.ByteBuffer;
 
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.utils.ByteBufferUtil;
 
 /**
  * Represents a decorated key, handy for certain operations
@@ -40,64 +39,8 @@ public class BufferDecoratedKey implements DecoratedKey
     public BufferDecoratedKey(Token token, ByteBuffer key)
     {
         assert token != null && key != null;
-        this.token = token;
         this.key = key;
-    }
-
-    @Override
-    public int hashCode()
-    {
-        return key().hashCode(); // hash of key is enough
-    }
-
-    @Override
-    public boolean equals(Object obj)
-    {
-        if (this == obj)
-            return true;
-        if (obj == null || this.getClass() != obj.getClass())
-            return false;
-
-        DecoratedKey other = (DecoratedKey)obj;
-
-        return ByteBufferUtil.compareUnsigned(key(), other.key()) == 0; // we compare faster than BB.equals for array backed BB
-    }
-
-    public int compareTo(RowPosition pos)
-    {
-        if (this == pos)
-            return 0;
-
-        // delegate to Token.KeyBound if needed
-        if (!(pos instanceof DecoratedKey))
-            return -pos.compareTo(this);
-
-        DecoratedKey otherKey = (DecoratedKey) pos;
-        int cmp = token().compareTo(otherKey.token());
-        return cmp == 0 ? ByteBufferUtil.compareUnsigned(key(), otherKey.key()) : cmp;
-    }
-
-    public boolean isMinimum()
-    {
-        return false;
-    }
-
-    public boolean isMinimum(IPartitioner partitioner)
-    {
-        // A DecoratedKey can never be the minimum position on the ring
-        return false;
-    }
-
-    public RowPosition.Kind kind()
-    {
-        return RowPosition.Kind.ROW_KEY;
-    }
-
-    @Override
-    public String toString()
-    {
-        String keystring = key() == null ? "null" : ByteBufferUtil.bytesToHex(key());
-        return "DecoratedKey(" + token() + ", " + keystring + ")";
+        this.token = token;
     }
 
     public Token token()
@@ -108,5 +51,34 @@ public class BufferDecoratedKey implements DecoratedKey
     public ByteBuffer key()
     {
         return key;
+    }
+
+    public boolean isMinimum(IPartitioner partitioner)
+    {
+        return Impl.isMinimum(partitioner);
+    }
+    public Kind kind()
+    {
+        return Impl.kind();
+    }
+    public boolean isMinimum()
+    {
+        return Impl.isMinimum();
+    }
+    public int compareTo(RowPosition that)
+    {
+        return Impl.compareTo(this, that);
+    }
+    public int hashCode()
+    {
+        return Impl.hashCode(this);
+    }
+    public boolean equals(Object obj)
+    {
+        return Impl.equals(this, obj);
+    }
+    public String toString()
+    {
+        return Impl.toString(this);
     }
 }

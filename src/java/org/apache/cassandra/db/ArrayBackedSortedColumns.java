@@ -35,7 +35,7 @@ import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.Composite;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.filter.ColumnSlice;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
 /**
  * A ColumnFamily backed by an array.
@@ -87,11 +87,11 @@ public class ArrayBackedSortedColumns extends ColumnFamily
         this.isSorted = original.isSorted;
     }
 
-    public static ArrayBackedSortedColumns localCopy(ColumnFamilyStore cfs, ColumnFamily original, AbstractAllocator allocator)
+    public static ArrayBackedSortedColumns localCopy(ColumnFamily original, ByteBufferAllocator allocator)
     {
         ArrayBackedSortedColumns copy = new ArrayBackedSortedColumns(original.metadata, false, new Cell[original.getColumnCount()], 0, 0);
         for (Cell cell : original)
-            copy.internalAdd(cell.localCopy(allocator));
+            copy.internalAdd(cell.localCopy(original.metadata, allocator));
         copy.sortedSize = copy.size; // internalAdd doesn't update sortedSize.
         copy.delete(original);
         return copy;

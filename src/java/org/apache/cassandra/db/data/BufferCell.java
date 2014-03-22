@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.db.data;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 
@@ -26,24 +25,24 @@ import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.CellNames;
-import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.concurrent.OpOrder;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 
-/**
- * Cell is immutable, which prevents all kinds of confusion in a multithreaded environment.
- */
 public class BufferCell implements Cell
 {
-    private static final long EMPTY_SIZE = ObjectSizes.measure(new BufferCell(CellNames.simpleDense(ByteBuffer.allocate(1)), ByteBufferUtil.EMPTY_BYTE_BUFFER));
+    private static final long EMPTY_SIZE = ObjectSizes.measure(new BufferCell(CellNames.simpleDense(ByteBuffer.allocate(1))));
 
     private final CellName name;
     private final ByteBuffer value;
     private final long timestamp;
+
+    public BufferCell(CellName name)
+    {
+        this(name, ByteBufferUtil.EMPTY_BYTE_BUFFER);
+    }
 
     public BufferCell(CellName name, ByteBuffer value)
     {
@@ -59,178 +58,87 @@ public class BufferCell implements Cell
         this.timestamp = timestamp;
     }
 
-    public Cell withUpdatedName(CellName newName)
-    {
-        return new BufferCell(newName, value(), timestamp());
-    }
-
-    public Cell withUpdatedTimestamp(long newTimestamp)
-    {
-        return new BufferCell(name(), value(), newTimestamp);
-    }
-
     public CellName name()
     {
         return name;
     }
-
     public ByteBuffer value()
     {
         return value;
     }
-
     public long timestamp()
     {
         return timestamp;
     }
-
-    public boolean isMarkedForDelete(long now)
-    {
-        return false;
-    }
-
-    public boolean isLive(long now)
-    {
-        return !isMarkedForDelete(now);
-    }
-
-    // Don't call unless the column is actually marked for delete.
-    public long getMarkedForDeleteAt()
-    {
-        return Long.MAX_VALUE;
-    }
-
-    public int dataSize()
-    {
-        return name().dataSize() + value().remaining() + TypeSizes.NATIVE.sizeof(timestamp());
-    }
-
-    // returns the size of the Cell and all references on the heap, excluding any costs associated with byte arrays
-    // that would be allocated by a localCopy, as these will be accounted for by the allocator
     public long unsharedHeapSizeExcludingData()
     {
         return EMPTY_SIZE + name().unsharedHeapSizeExcludingData() + ObjectSizes.sizeOnHeapExcludingData(value());
     }
 
+    public Cell withUpdatedName(CellName newName)
+    {
+        return new BufferCell(newName, value(), timestamp());
+    }
+    public Cell withUpdatedTimestamp(long newTimestamp)
+    {
+        return new BufferCell(name(), value(), newTimestamp);
+    }
+    public boolean isMarkedForDelete(long now)
+    {
+        return Impl.isMarkedForDelete(this, now);
+    }
+    public boolean isLive(long now)
+    {
+        return Impl.isLive(this, now);
+    }
+    public long getMarkedForDeleteAt()
+    {
+        return Impl.getMarkedForDeleteAt();
+    }
+    public int cellDataSize()
+    {
+        return Impl.cellDataSize(this);
+    }
     public int serializedSize(CellNameType type, TypeSizes typeSizes)
     {
-        /*
-         * Size of a column is =
-         *   size of a name (short + length of the string)
-         * + 1 byte to indicate if the column has been deleted
-         * + 8 bytes for timestamp
-         * + 4 bytes which basically indicates the size of the byte array
-         * + entire byte array.
-        */
-        int valueSize = value().remaining();
-        return ((int)type.cellSerializer().serializedSize(name(), typeSizes)) + 1 + typeSizes.sizeof(timestamp()) + typeSizes.sizeof(valueSize) + valueSize;
+        return Impl.serializedSize(this, type, typeSizes);
     }
-
     public int serializationFlags()
     {
-        return 0;
+        return Impl.serializationFlags();
     }
-
     public Cell diff(Cell cell)
     {
-        if (timestamp() < cell.timestamp())
-            return cell;
-        return null;
+        return Impl.diff(this, cell);
     }
-
     public void updateDigest(MessageDigest digest)
     {
-        digest.update(name().toByteBuffer().duplicate());
-        digest.update(value().duplicate());
-
-        DataOutputBuffer buffer = new DataOutputBuffer();
-        try
-        {
-            buffer.writeLong(timestamp());
-            buffer.writeByte(serializationFlags());
-        }
-        catch (IOException e)
-        {
-            throw new RuntimeException(e);
-        }
-        digest.update(buffer.getData(), 0, buffer.getLength());
+        Impl.updateDigest(this, digest);
     }
-
     public int getLocalDeletionTime()
     {
-        return Integer.MAX_VALUE;
+        return Impl.getLocalDeletionTime();
     }
-
     public Cell reconcile(Cell cell)
     {
-        // tombstones take precedence.  (if both are tombstones, then it doesn't matter which one we use.)
-        if (isMarkedForDelete(System.currentTimeMillis()))
-            return timestamp() < cell.timestamp() ? cell : this;
-        if (cell.isMarkedForDelete(System.currentTimeMillis()))
-            return timestamp() > cell.timestamp() ? this : cell;
-        // break ties by comparing values.
-        if (timestamp() == cell.timestamp())
-            return value().compareTo(cell.value()) < 0 ? cell : this;
-        // neither is tombstoned and timestamps are different
-        return timestamp() < cell.timestamp() ? cell : this;
+        return Impl.reconcile(this, cell);
     }
-
-    @Override
-    public boolean equals(Object o)
+    public Cell localCopy(CFMetaData cfMetaData, ByteBufferAllocator allocator)
     {
-        if (this == o)
-            return true;
-
-        if (o == null || getClass() != o.getClass())
-            return false;
-
-        Cell cell = (Cell)o;
-
-        return timestamp() == cell.timestamp() && name().equals(cell.name()) && value().equals(cell.value());
+        return Impl.localCopy(this, cfMetaData, allocator);
     }
-
-    @Override
-    public int hashCode()
+    public Cell localCopy(CFMetaData cfMetaData, DataAllocator allocator, OpOrder.Group writeOp)
     {
-        int result = name() != null ? name().hashCode() : 0;
-        result = 31 * result + (value() != null ? value().hashCode() : 0);
-        result = 31 * result + (int)(timestamp() ^ (timestamp() >>> 32));
-        return result;
+        return allocator.clone(this, cfMetaData, writeOp);
     }
-
-    public Cell localCopy(ByteBufferAllocator allocator)
-    {
-        return new BufferCell(name().copy(allocator), allocator.clone(value()), timestamp());
-    }
-
-    public Cell localCopy(DataAllocator allocator, OpOrder.Group writeOp)
-    {
-        return allocator.clone(this, writeOp);
-    }
-
     public String getString(CellNameType comparator)
     {
-        return String.format("%s:%b:%d@%d",
-                             comparator.getString(name()),
-                             isMarkedForDelete(System.currentTimeMillis()),
-                             value().remaining(),
-                             timestamp());
+        return Impl.getString(this, comparator);
     }
-
-    protected void validateName(CFMetaData metadata) throws MarshalException
-    {
-        metadata.comparator.validate(name());
-    }
-
     public void validateFields(CFMetaData metadata) throws MarshalException
     {
-        validateName(metadata);
-
-        AbstractType<?> valueValidator = metadata.getValueValidator(name());
-        if (valueValidator != null)
-            valueValidator.validate(value());
+        Impl.validateFields(this, metadata);
     }
-
     public static Cell create(CellName name, ByteBuffer value, long timestamp, int ttl, CFMetaData metadata)
     {
         if (ttl <= 0)
@@ -239,5 +147,15 @@ public class BufferCell implements Cell
         return ttl > 0
                ? new BufferExpiringCell(name, value, timestamp, ttl)
                : new BufferCell(name, value, timestamp);
+    }
+
+    public int hashCode()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    public boolean equals(Object obj)
+    {
+        return Cell.Impl.equals(this, obj);
     }
 }

@@ -30,10 +30,10 @@ import org.apache.cassandra.db.marshal.CompositeType;
  */
 public class CompoundCType extends AbstractCType
 {
-    final List<AbstractType<?>> types;
+    final List<? extends AbstractType<?>> types;
 
     // It's up to the caller to pass a list that is effectively immutable
-    public CompoundCType(List<AbstractType<?>> types)
+    public CompoundCType(List<? extends AbstractType<?>> types)
     {
         this.types = types;
     }

@@ -19,6 +19,7 @@ package org.apache.cassandra.db.composites;
 
 import java.nio.ByteBuffer;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
 import org.apache.cassandra.utils.memory.ByteBufferPool;
@@ -81,7 +82,7 @@ public class CompoundComposite extends AbstractComposite
         return EMPTY_SIZE + ObjectSizes.sizeOnHeapExcludingData(elements);
     }
 
-    public Composite copy(ByteBufferAllocator allocator)
+    public Composite copy(CFMetaData cfMetaData, ByteBufferAllocator allocator)
     {
         return new CompoundComposite(elementsCopy(allocator), size, isStatic);
     }

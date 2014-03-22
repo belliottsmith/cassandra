@@ -19,6 +19,7 @@ package org.apache.cassandra.db.composites;
 
 import java.nio.ByteBuffer;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.filter.ColumnSlice;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
@@ -108,7 +109,7 @@ public abstract class Composites
             return true;
         }
 
-        public Composite copy(ByteBufferAllocator allocator)
+        public Composite copy(CFMetaData cfMetaData, ByteBufferAllocator allocator)
         {
             return this;
         }

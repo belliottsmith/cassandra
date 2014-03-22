@@ -19,6 +19,7 @@ package org.apache.cassandra.db.composites;
 
 import java.nio.ByteBuffer;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
@@ -65,7 +66,7 @@ public class CompoundSparseCellName extends CompoundComposite implements CellNam
         return size;
     }
 
-    public ColumnIdentifier cql3ColumnName()
+    public ColumnIdentifier cql3ColumnName(CFMetaData metadata)
     {
         return columnName;
     }
@@ -82,12 +83,16 @@ public class CompoundSparseCellName extends CompoundComposite implements CellNam
 
     public long unsharedHeapSizeExcludingData()
     {
-        return EMPTY_SIZE + ObjectSizes.sizeOnHeapExcludingData(elements);
+        return EMPTY_SIZE
+               + columnName.unsharedHeapSizeExcludingData()
+               + ObjectSizes.sizeOnHeapExcludingData(elements);
     }
 
     public long unsharedHeapSize()
     {
-        return EMPTY_SIZE + ObjectSizes.sizeOnHeapOf(elements);
+        return EMPTY_SIZE
+               + columnName.unsharedHeapSize()
+               + ObjectSizes.sizeOnHeapOf(elements);
     }
 
     public boolean isSameCQL3RowAs(CellNameType type, CellName other)
@@ -103,13 +108,18 @@ public class CompoundSparseCellName extends CompoundComposite implements CellNam
         return true;
     }
 
-    public CellName copy(ByteBufferAllocator allocator)
+    public CellName copy(CFMetaData cfMetaData, ByteBufferAllocator allocator)
     {
         if (elements.length == 0)
             return this;
 
         // We don't copy columnName because it's interned in SparseCellNameType
         return new CompoundSparseCellName(elementsCopy(allocator), columnName, isStatic());
+    }
+
+    public boolean equals(CellName that)
+    {
+        return super.equals(that);
     }
 
     public static class WithCollection extends CompoundSparseCellName
@@ -157,7 +167,7 @@ public class CompoundSparseCellName extends CompoundComposite implements CellNam
         }
 
         @Override
-        public CellName copy(ByteBufferAllocator allocator)
+        public CellName copy(CFMetaData cfMetaData, ByteBufferAllocator allocator)
         {
             // We don't copy columnName because it's interned in SparseCellNameType
             return new CompoundSparseCellName.WithCollection(elements.length == 0 ? elements : elementsCopy(allocator), size, columnName, allocator.clone(collectionElement), isStatic());
@@ -166,13 +176,19 @@ public class CompoundSparseCellName extends CompoundComposite implements CellNam
         @Override
         public long unsharedHeapSize()
         {
-            return EMPTY_SIZE + ObjectSizes.sizeOnHeapOf(elements) + ObjectSizes.sizeOnHeapOf(collectionElement);
+            return EMPTY_SIZE
+                   + columnName.unsharedHeapSize()
+                   + ObjectSizes.sizeOnHeapOf(elements)
+                   + ObjectSizes.sizeOnHeapOf(collectionElement);
         }
 
         @Override
         public long unsharedHeapSizeExcludingData()
         {
-            return EMPTY_SIZE + ObjectSizes.sizeOnHeapExcludingData(elements) + ObjectSizes.sizeOnHeapExcludingData(collectionElement);
+            return EMPTY_SIZE
+                   + columnName.unsharedHeapSize()
+                   + ObjectSizes.sizeOnHeapExcludingData(elements)
+                   + ObjectSizes.sizeOnHeapExcludingData(collectionElement);
         }
 
         @Override

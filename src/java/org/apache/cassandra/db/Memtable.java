@@ -39,6 +39,7 @@ import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.DataAllocator;
 import org.apache.cassandra.db.data.DecoratedKey;
+import org.apache.cassandra.db.data.HeapDataAllocator;
 import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.db.index.SecondaryIndexManager;
 import org.apache.cassandra.dht.LongToken;
@@ -245,11 +246,11 @@ public class Memtable
                 Map.Entry<? extends RowPosition, ? extends ColumnFamily> entry = iter.next();
                 // Actual stored key should be true DecoratedKey
                 assert entry.getKey() instanceof DecoratedKey;
-                if (memoryPool.needToCopyOnHeap())
+                if (dataPool.needToCopyOnHeap())
                 {
                     DecoratedKey key = (DecoratedKey) entry.getKey();
                     key = new BufferDecoratedKey(key.token(), HeapAllocator.instance.clone(key.key()));
-                    ColumnFamily cells = ArrayBackedSortedColumns.localCopy(cfs, entry.getValue(), HeapAllocator.instance);
+                    ColumnFamily cells = ArrayBackedSortedColumns.localCopy(entry.getValue(), HeapAllocator.instance);
                     entry = new AbstractMap.SimpleImmutableEntry<>(key, cells);
                 }
                 // Store the reference to the current entry so that remove() can update the current size.

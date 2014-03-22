@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.data;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.PoolAllocator;
 
@@ -41,10 +42,10 @@ public interface DataAllocator
         void commit();
     }
 
-    Cell clone(Cell cell, OpOrder.Group writeOp);
-    CounterCell clone(CounterCell cell, OpOrder.Group writeOp);
-    DeletedCell clone(DeletedCell cell, OpOrder.Group writeOp);
-    ExpiringCell clone(ExpiringCell cell, OpOrder.Group writeOp);
+    Cell clone(Cell cell, CFMetaData cfMetaData, OpOrder.Group writeOp);
+    CounterCell clone(CounterCell cell, CFMetaData cfMetaData, OpOrder.Group writeOp);
+    DeletedCell clone(DeletedCell cell, CFMetaData cfMetaData, OpOrder.Group writeOp);
+    ExpiringCell clone(ExpiringCell cell, CFMetaData cfMetaData, OpOrder.Group writeOp);
     DecoratedKey clone(DecoratedKey key, OpOrder.Group writeOp);
     DataReclaimer reclaimer();
 

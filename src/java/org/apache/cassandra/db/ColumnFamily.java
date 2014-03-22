@@ -326,7 +326,7 @@ public abstract class ColumnFamily implements Iterable<Cell>, IRowCacheEntry
     {
         long size = 0;
         for (Cell cell : this)
-            size += cell.dataSize();
+            size += cell.cellDataSize();
         return size;
     }
 

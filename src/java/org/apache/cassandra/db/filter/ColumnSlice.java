@@ -27,6 +27,7 @@ import java.util.NavigableSet;
 
 import com.google.common.collect.AbstractIterator;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.composites.AbstractComposite;
@@ -272,7 +273,7 @@ public class ColumnSlice
             throw new UnsupportedOperationException();
         }
 
-        public ColumnIdentifier cql3ColumnName()
+        public ColumnIdentifier cql3ColumnName(CFMetaData metadata)
         {
             throw new UnsupportedOperationException();
         }
@@ -292,18 +293,21 @@ public class ColumnSlice
             throw new UnsupportedOperationException();
         }
 
-        public CellName copy(ByteBufferAllocator allocator)
+        public CellName copy(CFMetaData cfMetaData, ByteBufferAllocator allocator)
         {
             throw new UnsupportedOperationException();
         }
 
-        @Override
         public long unsharedHeapSizeExcludingData()
         {
             throw new UnsupportedOperationException();
         }
 
-        @Override
+        public boolean equals(CellName that)
+        {
+            return super.equals(that);
+        }
+
         public void free(ByteBufferPool.Allocator allocator)
         {
             throw new UnsupportedOperationException();

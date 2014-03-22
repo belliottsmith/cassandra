@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.data;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.HeapAllocator;
 import org.apache.cassandra.utils.memory.PoolAllocator;
@@ -28,24 +29,24 @@ public class HeapDataAllocator implements DataAllocator
 
     private HeapDataAllocator() {}
 
-    public Cell clone(Cell cell, OpOrder.Group writeOp)
+    public Cell clone(Cell cell, CFMetaData cfMetaData, OpOrder.Group writeOp)
     {
-        return cell.localCopy(HeapAllocator.instance);
+        return cell.localCopy(cfMetaData, HeapAllocator.instance);
     }
 
-    public CounterCell clone(CounterCell cell, OpOrder.Group writeOp)
+    public CounterCell clone(CounterCell cell, CFMetaData cfMetaData, OpOrder.Group writeOp)
     {
-        return cell.localCopy(HeapAllocator.instance);
+        return cell.localCopy(cfMetaData, HeapAllocator.instance);
     }
 
-    public DeletedCell clone(DeletedCell cell, OpOrder.Group writeOp)
+    public DeletedCell clone(DeletedCell cell, CFMetaData cfMetaData, OpOrder.Group writeOp)
     {
-        return cell.localCopy(HeapAllocator.instance);
+        return cell.localCopy(cfMetaData, HeapAllocator.instance);
     }
 
-    public ExpiringCell clone(ExpiringCell cell, OpOrder.Group writeOp)
+    public ExpiringCell clone(ExpiringCell cell, CFMetaData cfMetaData, OpOrder.Group writeOp)
     {
-        return cell.localCopy(HeapAllocator.instance);
+        return cell.localCopy(cfMetaData, HeapAllocator.instance);
     }
 
     public DecoratedKey clone(DecoratedKey key, OpOrder.Group writeOp)

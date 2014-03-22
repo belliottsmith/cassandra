@@ -20,6 +20,7 @@ package org.apache.cassandra.db.data;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.ByteBufferPool;
 import org.apache.cassandra.utils.memory.PoolAllocator;
@@ -97,24 +98,24 @@ public class BufferDataAllocator implements DataAllocator
         this.allocator = allocator;
     }
 
-    public Cell clone(Cell cell, OpOrder.Group writeOp)
+    public Cell clone(Cell cell, CFMetaData cfMetaData, OpOrder.Group writeOp)
     {
-        return cell.localCopy(allocator.context(writeOp));
+        return cell.localCopy(cfMetaData, allocator.context(writeOp));
     }
 
-    public CounterCell clone(CounterCell cell, OpOrder.Group writeOp)
+    public CounterCell clone(CounterCell cell, CFMetaData cfMetaData, OpOrder.Group writeOp)
     {
-        return cell.localCopy(allocator.context(writeOp));
+        return cell.localCopy(cfMetaData, allocator.context(writeOp));
     }
 
-    public DeletedCell clone(DeletedCell cell, OpOrder.Group writeOp)
+    public DeletedCell clone(DeletedCell cell, CFMetaData cfMetaData, OpOrder.Group writeOp)
     {
-        return cell.localCopy(allocator.context(writeOp));
+        return cell.localCopy(cfMetaData, allocator.context(writeOp));
     }
 
-    public ExpiringCell clone(ExpiringCell cell, OpOrder.Group writeOp)
+    public ExpiringCell clone(ExpiringCell cell, CFMetaData cfMetaData, OpOrder.Group writeOp)
     {
-        return cell.localCopy(allocator.context(writeOp));
+        return cell.localCopy(cfMetaData, allocator.context(writeOp));
     }
 
     public DecoratedKey clone(DecoratedKey key, OpOrder.Group writeOp)

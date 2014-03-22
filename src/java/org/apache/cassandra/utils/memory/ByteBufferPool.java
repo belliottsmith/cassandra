@@ -56,9 +56,15 @@ public abstract class ByteBufferPool extends Pool
 
         public abstract void free(ByteBuffer buffer);
 
-        public ContextAllocator context(final OpOrder.Group writeOp)
+        public ByteBufferAllocator context(final OpOrder.Group writeOp)
         {
-            return new ContextAllocator(writeOp, this);
+            return new ByteBufferAllocator.AbstractAllocator()
+            {
+                public ByteBuffer allocate(int size)
+                {
+                    return Allocator.this.allocate(size, writeOp);
+                }
+            };
         }
     }
 

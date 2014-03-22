@@ -21,6 +21,7 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.cql3.CQL3Row;
 import org.apache.cassandra.cql3.ColumnIdentifier;
@@ -28,7 +29,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 
 public class CompoundDenseCellNameType extends AbstractCompoundCellNameType
 {
-    public CompoundDenseCellNameType(List<AbstractType<?>> types)
+    public CompoundDenseCellNameType(List<? extends AbstractType<?>> types)
     {
         this(new CompoundCType(types));
     }
@@ -80,7 +81,7 @@ public class CompoundDenseCellNameType extends AbstractCompoundCellNameType
     public void addCQL3Column(ColumnIdentifier id) {}
     public void removeCQL3Column(ColumnIdentifier id) {}
 
-    public CQL3Row.Builder CQL3RowBuilder(long now)
+    public CQL3Row.Builder CQL3RowBuilder(CFMetaData cfMetaData, long now)
     {
         return makeDenseCQL3RowBuilder(now);
     }

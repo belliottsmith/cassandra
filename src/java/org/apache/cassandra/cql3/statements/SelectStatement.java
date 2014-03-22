@@ -1036,7 +1036,7 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
         if (sliceRestriction != null)
             cells = applySliceRestriction(cells, variables);
 
-        CQL3Row.RowIterator iter = cfm.comparator.CQL3RowBuilder(now).group(cells);
+        CQL3Row.RowIterator iter = cfm.comparator.CQL3RowBuilder(cf.metadata(), now).group(cells);
 
         // If there is static columns but there is no non-static row, then provided the select was a full
         // partition selection (i.e. not a 2ndary index search and there was no condition on clustering columns)

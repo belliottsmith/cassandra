@@ -1,53 +1,35 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package org.apache.cassandra.db.data;
 
-import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.ByteBufferAllocator;
+import org.apache.cassandra.utils.memory.NativeAllocator;
 
-public class BufferDeletedCell extends BufferCell implements DeletedCell
+public class NativeDeletedCell extends NativeCell implements DeletedCell, CellName
 {
-    public BufferDeletedCell(CellName name, int localDeletionTime, long timestamp)
-    {
-        this(name, ByteBufferUtil.bytes(localDeletionTime), timestamp);
-    }
 
-    public BufferDeletedCell(CellName name, ByteBuffer value, long timestamp)
+    public NativeDeletedCell(NativeAllocator allocator, OpOrder.Group writeOp, DeletedCell copyOf)
     {
-        super(name, value, timestamp);
+        super(allocator, writeOp, copyOf);
     }
-
-    @Override
     public Cell withUpdatedName(CellName newName)
     {
-        return new BufferDeletedCell(newName, value(), timestamp());
+        throw new UnsupportedOperationException();
     }
-    @Override
     public Cell withUpdatedTimestamp(long newTimestamp)
     {
-        return new BufferDeletedCell(name(), value(), newTimestamp);
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public int getLocalDeletionTime()
+    {
+        // can optimise this to avoid allocating ByteBuffer
+        return DeletedCell.Impl.getLocalDeletionTime(this);
     }
 
     @Override
@@ -64,11 +46,6 @@ public class BufferDeletedCell extends BufferCell implements DeletedCell
     public void updateDigest(MessageDigest digest)
     {
         DeletedCell.Impl.updateDigest(this, digest);
-    }
-    @Override
-    public int getLocalDeletionTime()
-    {
-        return DeletedCell.Impl.getLocalDeletionTime(this);
     }
     @Override
     public Cell reconcile(Cell cell)
@@ -95,9 +72,15 @@ public class BufferDeletedCell extends BufferCell implements DeletedCell
     {
         DeletedCell.Impl.validateFields(this, metadata);
     }
-    @Override
-    public boolean equals(Object that)
+
+    public boolean equals(Object obj)
     {
-        return DeletedCell.Impl.equals(this, that);
+        if (obj == this)
+            return true;
+        if (obj instanceof CellName)
+            return equals((CellName) obj);
+        if (obj instanceof DeletedCell)
+            return DeletedCell.Impl.equals(this, (DeletedCell) obj);
+        return false;
     }
 }

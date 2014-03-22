@@ -29,6 +29,7 @@ import java.util.Map;
 
 import com.google.common.collect.AbstractIterator;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.cql3.CQL3Row;
 import org.apache.cassandra.cql3.ColumnIdentifier;
@@ -304,13 +305,13 @@ public abstract class AbstractCellNameType extends AbstractCType implements Cell
         }
     }
 
-    protected static CQL3Row.Builder makeSparseCQL3RowBuilder(final CellNameType type, final long now)
+    protected static CQL3Row.Builder makeSparseCQL3RowBuilder(final CellNameType type, final CFMetaData cfMetaData, final long now)
     {
         return new CQL3Row.Builder()
         {
             public CQL3Row.RowIterator group(Iterator<Cell> cells)
             {
-                return new SparseRowIterator(type, cells, now);
+                return new SparseRowIterator(type, cfMetaData, cells, now);
             }
         };
     }
@@ -318,6 +319,7 @@ public abstract class AbstractCellNameType extends AbstractCType implements Cell
     private static class SparseRowIterator extends AbstractIterator<CQL3Row> implements CQL3Row.RowIterator
     {
         private final CellNameType type;
+        private final CFMetaData cfMetaData;
         private final Iterator<Cell> cells;
         private final long now;
         private final CQL3Row staticRow;
@@ -326,8 +328,9 @@ public abstract class AbstractCellNameType extends AbstractCType implements Cell
         private CellName previous;
         private CQL3RowOfSparse currentRow;
 
-        public SparseRowIterator(CellNameType type, Iterator<Cell> cells, long now)
+        public SparseRowIterator(CellNameType type, CFMetaData cfMetaData, Iterator<Cell> cells, long now)
         {
+            this.cfMetaData = cfMetaData;
             this.type = type;
             this.cells = cells;
             this.now = now;
@@ -367,7 +370,7 @@ public abstract class AbstractCellNameType extends AbstractCType implements Cell
                 if (currentRow == null || !current.isSameCQL3RowAs(type, previous))
                 {
                     toReturn = currentRow;
-                    currentRow = new CQL3RowOfSparse(current);
+                    currentRow = new CQL3RowOfSparse(cfMetaData, current);
                 }
                 currentRow.add(nextCell);
                 nextCell = null;
@@ -388,13 +391,15 @@ public abstract class AbstractCellNameType extends AbstractCType implements Cell
 
     private static class CQL3RowOfSparse implements CQL3Row
     {
+        private final CFMetaData cfMetaData;
         private final CellName cell;
         private Map<ColumnIdentifier, Cell> columns;
         private Map<ColumnIdentifier, List<Cell>> collections;
 
-        CQL3RowOfSparse(CellName cell)
+        CQL3RowOfSparse(CFMetaData cfMetaData, CellName cell)
         {
             this.cell = cell;
+            this.cfMetaData = cfMetaData;
         }
 
         public ByteBuffer getClusteringColumn(int i)
@@ -405,7 +410,7 @@ public abstract class AbstractCellNameType extends AbstractCType implements Cell
         void add(Cell cell)
         {
             CellName cellName = cell.name();
-            ColumnIdentifier columnName =  cellName.cql3ColumnName();
+            ColumnIdentifier columnName =  cellName.cql3ColumnName(cfMetaData);
             if (cellName.isCollectionCell())
             {
                 if (collections == null)
