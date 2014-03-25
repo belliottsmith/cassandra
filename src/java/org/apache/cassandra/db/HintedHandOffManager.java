@@ -70,6 +70,8 @@ import org.apache.cassandra.service.*;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDGen;
+import org.apache.cassandra.utils.memory.RefAction;
+
 import org.cliffc.high_scale_lib.NonBlockingHashSet;
 
 /**
@@ -291,7 +293,7 @@ public class HintedHandOffManager implements HintedHandOffManagerMBean
         // here we check the one in gossip instead; this serves as a canary to warn us if we introduce a bug that
         // causes the two to diverge (see CASSANDRA-2946)
         while (gossiper.getEndpointStateForEndpoint(endpoint) != null && !gossiper.getEndpointStateForEndpoint(endpoint).getApplicationState(ApplicationState.SCHEMA).value.equals(
-                gossiper.getEndpointStateForEndpoint(FBUtilities.getBroadcastAddress()).getApplicationState(ApplicationState.SCHEMA).value))
+                                                                                                                                                                                  gossiper.getEndpointStateForEndpoint(FBUtilities.getBroadcastAddress()).getApplicationState(ApplicationState.SCHEMA).value))
         {
             Uninterruptibles.sleepUninterruptibly(1, TimeUnit.SECONDS);
             waited += 1000;
@@ -375,7 +377,7 @@ public class HintedHandOffManager implements HintedHandOffManagerMBean
                                                             pageSize,
                                                             now);
 
-            ColumnFamily hintsPage = ColumnFamilyStore.removeDeleted(hintStore.getColumnFamily(filter), (int) (now / 1000));
+            ColumnFamily hintsPage = ColumnFamilyStore.removeDeleted(hintStore.getColumnFamily(RefAction.allocateOnHeap(), filter), (int) (now / 1000));
 
             if (pagingFinished(hintsPage, startColumn))
             {
@@ -519,13 +521,13 @@ public class HintedHandOffManager implements HintedHandOffManagerMBean
     private void scheduleAllDeliveries()
     {
         if (logger.isDebugEnabled())
-          logger.debug("Started scheduleAllDeliveries");
+            logger.debug("Started scheduleAllDeliveries");
 
         IPartitioner p = StorageService.getPartitioner();
         RowPosition minPos = p.getMinimumToken().minKeyBound();
         Range<RowPosition> range = new Range<RowPosition>(minPos, minPos, p);
         IDiskAtomFilter filter = new NamesQueryFilter(ImmutableSortedSet.<CellName>of());
-        List<Row> rows = hintStore.getRangeSlice(range, null, filter, Integer.MAX_VALUE, System.currentTimeMillis());
+        List<Row> rows = hintStore.getRangeSlice(RefAction.allocateOnHeap(), range, null, filter, Integer.MAX_VALUE, System.currentTimeMillis());
         for (Row row : rows)
         {
             UUID hostId = UUIDGen.getUUID(row.key.key());
@@ -536,7 +538,7 @@ public class HintedHandOffManager implements HintedHandOffManagerMBean
         }
 
         if (logger.isDebugEnabled())
-          logger.debug("Finished scheduleAllDeliveries");
+            logger.debug("Finished scheduleAllDeliveries");
     }
 
     /*
@@ -602,7 +604,7 @@ public class HintedHandOffManager implements HintedHandOffManagerMBean
         // From keys "" to ""...
         IPartitioner<?> partitioner = StorageService.getPartitioner();
         RowPosition minPos = partitioner.getMinimumToken().minKeyBound();
-        Range<RowPosition> range = new Range<RowPosition>(minPos, minPos);
+        Range<RowPosition> range = new Range<>(minPos, minPos);
 
         try
         {
@@ -613,7 +615,7 @@ public class HintedHandOffManager implements HintedHandOffManagerMBean
                                                           range,
                                                           null,
                                                           LARGE_NUMBER);
-            return StorageProxy.getRangeSlice(cmd, ConsistencyLevel.ONE);
+            return StorageProxy.getRangeSlice(RefAction.allocateOnHeap(), cmd, ConsistencyLevel.ONE);
         }
         catch (Exception e)
         {

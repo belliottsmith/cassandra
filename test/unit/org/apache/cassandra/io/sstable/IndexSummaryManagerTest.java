@@ -38,6 +38,7 @@ import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.metrics.RestorableMeter;
+import org.apache.cassandra.utils.memory.RefAction;
 
 import static org.apache.cassandra.io.sstable.Downsampling.BASE_SAMPLING_LEVEL;
 import static org.apache.cassandra.io.sstable.IndexSummaryManager.DOWNSAMPLE_THESHOLD;
@@ -107,7 +108,7 @@ public class IndexSummaryManagerTest extends SchemaLoader
         {
             DecoratedKey key = Util.dk(String.format("%3d", i));
             QueryFilter filter = QueryFilter.getIdentityFilter(key, cfs.getColumnFamilyName(), System.currentTimeMillis());
-            ColumnFamily row = cfs.getColumnFamily(filter);
+            ColumnFamily row = cfs.getColumnFamily(RefAction.allocateOnHeap(), filter);
             assertNotNull(row);
             Cell cell = row.getColumn(Util.cellname("column"));
             assertNotNull(cell);

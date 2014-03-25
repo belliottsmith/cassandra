@@ -53,6 +53,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.ReducingKeyIterator;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.memory.RefAction;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 /**
@@ -575,7 +576,7 @@ public class SecondaryIndexManager
      * @param filter the column range to restrict to
      * @return found indexed rows
      */
-    public List<Row> search(ExtendedFilter filter)
+    public List<Row> search(RefAction refAction, ExtendedFilter filter)
     {
         List<SecondaryIndexSearcher> indexSearchers = getIndexSearchersForQuery(filter.getClause());
 
@@ -586,7 +587,7 @@ public class SecondaryIndexManager
         if (indexSearchers.size() > 1)
             throw new RuntimeException("Unable to search across multiple secondary index types");
 
-        return indexSearchers.get(0).search(filter);
+        return indexSearchers.get(0).search(refAction, filter);
     }
 
     public Set<SecondaryIndex> getIndexesByNames(Set<String> idxNames)

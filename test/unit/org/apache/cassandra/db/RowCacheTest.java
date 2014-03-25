@@ -28,8 +28,9 @@ import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.cache.RowCacheKey;
-import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.db.composites.CellNames;
+import org.apache.cassandra.db.composites.Composites;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.filter.QueryFilter;
@@ -38,6 +39,8 @@ import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
+
 import static org.junit.Assert.assertEquals;
 
 public class RowCacheTest extends SchemaLoader
@@ -73,12 +76,12 @@ public class RowCacheTest extends SchemaLoader
         {
             DecoratedKey key = Util.dk("key" + i);
 
-            cachedStore.getColumnFamily(key, Composites.EMPTY, Composites.EMPTY, false, 1, System.currentTimeMillis());
+            cachedStore.getColumnFamily(RefAction.allocateOnHeap(), key, Composites.EMPTY, Composites.EMPTY, false, 1, System.currentTimeMillis());
             assert CacheService.instance.rowCache.size() == i + 1;
             assert cachedStore.containsCachedRow(key); // current key should be stored in the cache
 
             // checking if cell is read correctly after cache
-            ColumnFamily cf = cachedStore.getColumnFamily(key, Composites.EMPTY, Composites.EMPTY, false, 1, System.currentTimeMillis());
+            ColumnFamily cf = cachedStore.getColumnFamily(RefAction.allocateOnHeap(), key, Composites.EMPTY, Composites.EMPTY, false, 1, System.currentTimeMillis());
             Collection<Cell> cells = cf.getSortedColumns();
 
             Cell cell = cells.iterator().next();
@@ -95,11 +98,11 @@ public class RowCacheTest extends SchemaLoader
         {
             DecoratedKey key = Util.dk("key" + i);
 
-            cachedStore.getColumnFamily(key, Composites.EMPTY, Composites.EMPTY, false, 1, System.currentTimeMillis());
+            cachedStore.getColumnFamily(RefAction.allocateOnHeap(), key, Composites.EMPTY, Composites.EMPTY, false, 1, System.currentTimeMillis());
             assert cachedStore.containsCachedRow(key); // cache should be populated with the latest rows read (old ones should be popped)
 
             // checking if cell is read correctly after cache
-            ColumnFamily cf = cachedStore.getColumnFamily(key, Composites.EMPTY, Composites.EMPTY, false, 1, System.currentTimeMillis());
+            ColumnFamily cf = cachedStore.getColumnFamily(RefAction.allocateOnHeap(), key, Composites.EMPTY, Composites.EMPTY, false, 1, System.currentTimeMillis());
             Collection<Cell> cells = cf.getSortedColumns();
 
             Cell cell = cells.iterator().next();
@@ -183,33 +186,33 @@ public class RowCacheTest extends SchemaLoader
         mutation.applyUnsafe();
 
         // populate row cache, we should not get a row cache hit;
-        cachedStore.getColumnFamily(QueryFilter.getSliceFilter(dk, cf,
-                                                                Composites.EMPTY,
-                                                                Composites.EMPTY,
-                                                                false, 10, System.currentTimeMillis()));
+        cachedStore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk, cf,
+                                                                                           Composites.EMPTY,
+                                                                                           Composites.EMPTY,
+                                                                                           false, 10, System.currentTimeMillis()));
         assertEquals(startRowCacheHits, cachedStore.metric.rowCacheHit.count());
 
         // do another query, limit is 20, which is < 100 that we cache, we should get a hit and it should be in range
-        cachedStore.getColumnFamily(QueryFilter.getSliceFilter(dk, cf,
-                                                                Composites.EMPTY,
-                                                                Composites.EMPTY,
-                                                                false, 20, System.currentTimeMillis()));
+        cachedStore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk, cf,
+                                                                                           Composites.EMPTY,
+                                                                                           Composites.EMPTY,
+                                                                                           false, 20, System.currentTimeMillis()));
         assertEquals(++startRowCacheHits, cachedStore.metric.rowCacheHit.count());
         assertEquals(startRowCacheOutOfRange, cachedStore.metric.rowCacheHitOutOfRange.count());
 
         // get a slice from 95 to 105, 95->99 are in cache, we should not get a hit and then row cache is out of range
-        cachedStore.getColumnFamily(QueryFilter.getSliceFilter(dk, cf,
-                                                               CellNames.simpleDense(ByteBufferUtil.bytes(95)),
-                                                               CellNames.simpleDense(ByteBufferUtil.bytes(105)),
-                                                               false, 10, System.currentTimeMillis()));
+        cachedStore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk, cf,
+                                                                                           CellNames.simpleDense(ByteBufferUtil.bytes(95)),
+                                                                                           CellNames.simpleDense(ByteBufferUtil.bytes(105)),
+                                                                                           false, 10, System.currentTimeMillis()));
         assertEquals(startRowCacheHits, cachedStore.metric.rowCacheHit.count());
         assertEquals(++startRowCacheOutOfRange, cachedStore.metric.rowCacheHitOutOfRange.count());
 
         // get a slice with limit > 100, we should get a hit out of range.
-        cachedStore.getColumnFamily(QueryFilter.getSliceFilter(dk, cf,
-                                                               Composites.EMPTY,
-                                                               Composites.EMPTY,
-                                                               false, 101, System.currentTimeMillis()));
+        cachedStore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk, cf,
+                                                                                           Composites.EMPTY,
+                                                                                           Composites.EMPTY,
+                                                                                           false, 101, System.currentTimeMillis()));
         assertEquals(startRowCacheHits, cachedStore.metric.rowCacheHit.count());
         assertEquals(++startRowCacheOutOfRange, cachedStore.metric.rowCacheHitOutOfRange.count());
 
@@ -217,10 +220,10 @@ public class RowCacheTest extends SchemaLoader
         CacheService.instance.invalidateRowCache();
 
         // try to populate row cache with a limit > rows to cache, we should still populate row cache;
-        cachedStore.getColumnFamily(QueryFilter.getSliceFilter(dk, cf,
-                                                                Composites.EMPTY,
-                                                                Composites.EMPTY,
-                                                                false, 105, System.currentTimeMillis()));
+        cachedStore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk, cf,
+                                                                                           Composites.EMPTY,
+                                                                                           Composites.EMPTY,
+                                                                                           false, 105, System.currentTimeMillis()));
         assertEquals(startRowCacheHits, cachedStore.metric.rowCacheHit.count());
         // validate the stuff in cache;
         ColumnFamily cachedCf = (ColumnFamily)CacheService.instance.rowCache.get(rck);

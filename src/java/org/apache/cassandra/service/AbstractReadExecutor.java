@@ -44,6 +44,7 @@ import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageProxy.LocalReadRunnable;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.memory.RefAction;
 
 /**
  * Sends a read request to the replicas needed to satisfy a given ConsistencyLevel.
@@ -75,14 +76,14 @@ public abstract class AbstractReadExecutor
         return replica.equals(FBUtilities.getBroadcastAddress()) && StorageProxy.OPTIMIZE_LOCAL_REQUESTS;
     }
 
-    protected void makeDataRequests(Iterable<InetAddress> endpoints)
+    protected void makeDataRequests(RefAction refAction, Iterable<InetAddress> endpoints)
     {
         for (InetAddress endpoint : endpoints)
         {
             if (isLocalRequest(endpoint))
             {
                 logger.trace("reading data locally");
-                StageManager.getStage(Stage.READ).execute(new LocalReadRunnable(command, handler));
+                StageManager.getStage(Stage.READ).execute(new LocalReadRunnable(refAction, command, handler));
             }
             else
             {
@@ -102,7 +103,7 @@ public abstract class AbstractReadExecutor
             if (isLocalRequest(endpoint))
             {
                 logger.trace("reading digest locally");
-                StageManager.getStage(Stage.READ).execute(new LocalReadRunnable(digestCommand, handler));
+                StageManager.getStage(Stage.READ).execute(new LocalReadRunnable(RefAction.impossible(), digestCommand, handler));
             }
             else
             {
@@ -128,7 +129,7 @@ public abstract class AbstractReadExecutor
     /**
      * send the initial set of requests
      */
-    public abstract void executeAsync();
+    public abstract void executeAsync(RefAction refAction);
 
     /**
      * wait for an answer.  Blocks until success or timeout, so it is caller's
@@ -205,9 +206,9 @@ public abstract class AbstractReadExecutor
             super(command, consistencyLevel, targetReplicas);
         }
 
-        public void executeAsync()
+        public void executeAsync(RefAction refAction)
         {
-            makeDataRequests(targetReplicas.subList(0, 1));
+            makeDataRequests(refAction, targetReplicas.subList(0, 1));
             if (targetReplicas.size() > 1)
                 makeDigestRequests(targetReplicas.subList(1, targetReplicas.size()));
         }
@@ -237,7 +238,7 @@ public abstract class AbstractReadExecutor
             this.cfs = cfs;
         }
 
-        public void executeAsync()
+        public void executeAsync(RefAction refAction)
         {
             // if CL + RR result in covering all replicas, getReadExecutor forces AlwaysSpeculating.  So we know
             // that the last replica in our list is "extra."
@@ -248,7 +249,7 @@ public abstract class AbstractReadExecutor
                 // We're hitting additional targets for read repair.  Since our "extra" replica is the least-
                 // preferred by the snitch, we do an extra data read to start with against a replica more
                 // likely to reply; better to let RR fail than the entire query.
-                makeDataRequests(initialReplicas.subList(0, 2));
+                makeDataRequests(refAction, initialReplicas.subList(0, 2));
                 if (initialReplicas.size() > 2)
                     makeDigestRequests(initialReplicas.subList(2, initialReplicas.size()));
             }
@@ -256,7 +257,7 @@ public abstract class AbstractReadExecutor
             {
                 // not doing read repair; all replies are important, so it doesn't matter which nodes we
                 // perform data reads against vs digest.
-                makeDataRequests(initialReplicas.subList(0, 1));
+                makeDataRequests(refAction, initialReplicas.subList(0, 1));
                 if (initialReplicas.size() > 1)
                     makeDigestRequests(initialReplicas.subList(1, initialReplicas.size()));
             }
@@ -319,9 +320,9 @@ public abstract class AbstractReadExecutor
         }
 
         @Override
-        public void executeAsync()
+        public void executeAsync(RefAction refAction)
         {
-            makeDataRequests(targetReplicas.subList(0, targetReplicas.size() > 1 ? 2 : 1));
+            makeDataRequests(refAction, targetReplicas.subList(0, targetReplicas.size() > 1 ? 2 : 1));
             if (targetReplicas.size() > 2)
                 makeDigestRequests(targetReplicas.subList(2, targetReplicas.size()));
             cfs.metric.speculativeRetries.inc();

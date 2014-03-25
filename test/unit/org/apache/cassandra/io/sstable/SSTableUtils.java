@@ -24,6 +24,9 @@ import java.io.IOException;
 import java.util.*;
 
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.DecoratedKey;
+import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.data.Cell;

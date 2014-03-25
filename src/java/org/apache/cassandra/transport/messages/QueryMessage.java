@@ -22,6 +22,8 @@ import java.util.Collections;
 import java.util.UUID;
 
 import com.google.common.collect.ImmutableMap;
+
+import org.apache.cassandra.utils.memory.RefAction;
 import io.netty.buffer.ByteBuf;
 
 import org.apache.cassandra.cql3.QueryHandler;
@@ -89,7 +91,7 @@ public class QueryMessage extends Message.Request
         this.options = options;
     }
 
-    public Message.Response execute(QueryState state)
+    public Message.Response execute(RefAction refAction, QueryState state)
     {
         try
         {
@@ -115,7 +117,7 @@ public class QueryMessage extends Message.Request
                 Tracing.instance.begin("Execute CQL3 query", builder.build());
             }
 
-            Message.Response response = state.getClientState().getCQLQueryHandler().process(query, state, options);
+            Message.Response response = state.getClientState().getCQLQueryHandler().process(refAction, query, state, options);
             if (options.skipMetadata() && response instanceof ResultMessage.Rows)
                 ((ResultMessage.Rows)response).result.metadata.setSkipMetadata();
 

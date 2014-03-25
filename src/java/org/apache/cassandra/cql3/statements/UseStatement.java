@@ -24,6 +24,7 @@ import org.apache.cassandra.exceptions.UnauthorizedException;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class UseStatement extends ParsedStatement implements CQLStatement
 {
@@ -53,7 +54,7 @@ public class UseStatement extends ParsedStatement implements CQLStatement
     {
     }
 
-    public ResultMessage execute(QueryState state, QueryOptions options) throws InvalidRequestException
+    public ResultMessage execute(RefAction refAction, QueryState state, QueryOptions options) throws InvalidRequestException
     {
         state.getClientState().setKeyspace(keyspace);
         return new ResultMessage.SetKeyspace(keyspace);

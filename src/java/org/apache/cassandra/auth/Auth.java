@@ -46,6 +46,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class Auth
 {
@@ -101,7 +102,8 @@ public class Auth
      */
     public static void insertUser(String username, boolean isSuper) throws RequestExecutionException
     {
-        QueryProcessor.process(String.format("INSERT INTO %s.%s (name, super) VALUES ('%s', %s)",
+        QueryProcessor.process(RefAction.allocateOnHeap(),
+                               String.format("INSERT INTO %s.%s (name, super) VALUES ('%s', %s)",
                                              AUTH_KS,
                                              USERS_CF,
                                              escape(username),
@@ -117,7 +119,8 @@ public class Auth
      */
     public static void deleteUser(String username) throws RequestExecutionException
     {
-        QueryProcessor.process(String.format("DELETE FROM %s.%s WHERE name = '%s'",
+        QueryProcessor.process(RefAction.allocateOnHeap(),
+                               String.format("DELETE FROM %s.%s WHERE name = '%s'",
                                              AUTH_KS,
                                              USERS_CF,
                                              escape(username)),
@@ -226,7 +229,8 @@ public class Auth
             // insert a default superuser if AUTH_KS.USERS_CF is empty.
             if (!hasExistingUsers())
             {
-                QueryProcessor.process(String.format("INSERT INTO %s.%s (name, super) VALUES ('%s', %s) USING TIMESTAMP 0",
+                QueryProcessor.process(RefAction.allocateOnHeap(),
+                                       String.format("INSERT INTO %s.%s (name, super) VALUES ('%s', %s) USING TIMESTAMP 0",
                                                      AUTH_KS,
                                                      USERS_CF,
                                                      DEFAULT_SUPERUSER_NAME,
@@ -246,8 +250,8 @@ public class Auth
         // Try looking up the 'cassandra' default super user first, to avoid the range query if possible.
         String defaultSUQuery = String.format("SELECT * FROM %s.%s WHERE name = '%s'", AUTH_KS, USERS_CF, DEFAULT_SUPERUSER_NAME);
         String allUsersQuery = String.format("SELECT * FROM %s.%s LIMIT 1", AUTH_KS, USERS_CF);
-        return !QueryProcessor.process(defaultSUQuery, ConsistencyLevel.QUORUM).isEmpty()
-            || !QueryProcessor.process(allUsersQuery, ConsistencyLevel.QUORUM).isEmpty();
+        return !QueryProcessor.process(RefAction.allocateOnHeap(), defaultSUQuery, ConsistencyLevel.QUORUM).isEmpty()
+            || !QueryProcessor.process(RefAction.allocateOnHeap(), allUsersQuery, ConsistencyLevel.QUORUM).isEmpty();
     }
 
     // we only worry about one character ('). Make sure it's properly escaped.
@@ -260,7 +264,8 @@ public class Auth
     {
         try
         {
-            ResultMessage.Rows rows = selectUserStatement.execute(QueryState.forInternalCalls(),
+            ResultMessage.Rows rows = selectUserStatement.execute(RefAction.allocateOnHeap(),
+                                                                  QueryState.forInternalCalls(),
                                                                   new QueryOptions(consistencyForUser(username),
                                                                                    Lists.newArrayList(ByteBufferUtil.bytes(username))));
             return UntypedResultSet.create(rows.result);

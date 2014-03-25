@@ -23,30 +23,34 @@ import java.nio.ByteBuffer;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
 
 /*
  * The read response message is sent by the server when reading data
  * this encapsulates the keyspacename and the row that has been read.
  * The keyspace name is needed so that we can use it to create repairs.
  */
-public class ReadResponse
+public class ReadResponse implements Closeable
 {
     public static final IVersionedSerializer<ReadResponse> serializer = new ReadResponseSerializer();
 
     private final Row row;
     private final ByteBuffer digest;
+    private final RefAction refAction;
 
     public ReadResponse(ByteBuffer digest)
     {
         assert digest != null;
         this.digest= digest;
         this.row = null;
+        this.refAction = RefAction.impossible();
     }
 
-    public ReadResponse(Row row)
+    public ReadResponse(RefAction refAction, Row row)
     {
         assert row != null;
         this.row = row;
+        this.refAction = refAction;
         this.digest = null;
     }
 
@@ -63,6 +67,11 @@ public class ReadResponse
     public boolean isDigestQuery()
     {
         return digest != null;
+    }
+
+    public void close() throws IOException
+    {
+        refAction.close();
     }
 }
 
@@ -97,7 +106,7 @@ class ReadResponseSerializer implements IVersionedSerializer<ReadResponse>
             row = Row.serializer.deserialize(in, version, ColumnSerializer.Flag.FROM_REMOTE);
         }
 
-        return isDigest ? new ReadResponse(ByteBuffer.wrap(digest)) : new ReadResponse(row);
+        return isDigest ? new ReadResponse(ByteBuffer.wrap(digest)) : new ReadResponse(RefAction.impossible(), row);
     }
 
     public long serializedSize(ReadResponse response, int version)

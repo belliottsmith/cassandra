@@ -32,6 +32,7 @@ import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
 
 
 public class RemoveCellTest extends SchemaLoader
@@ -55,12 +56,12 @@ public class RemoveCellTest extends SchemaLoader
         rm.delete("Standard1", Util.cellname("Column1"), 1);
         rm.apply();
 
-        ColumnFamily retrieved = store.getColumnFamily(Util.namesQueryFilter(store, dk, "Column1"));
+        ColumnFamily retrieved = store.getColumnFamily(RefAction.allocateOnHeap(), Util.namesQueryFilter(store, dk, "Column1"));
         assert retrieved.getColumn(Util.cellname("Column1")).isMarkedForDelete(System.currentTimeMillis());
         assertNull(Util.cloneAndRemoveDeleted(retrieved, Integer.MAX_VALUE));
-        assertNull(Util.cloneAndRemoveDeleted(store.getColumnFamily(QueryFilter.getIdentityFilter(dk,
-                                                                                                  "Standard1",
-                                                                                                  System.currentTimeMillis())),
+        assertNull(Util.cloneAndRemoveDeleted(store.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk,
+                                                                                                                              "Standard1",
+                                                                                                                              System.currentTimeMillis())),
                                               Integer.MAX_VALUE));
     }
 

@@ -35,6 +35,10 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.CounterUpdateCell;
+import org.apache.cassandra.db.data.DecoratedKey;
+import org.apache.cassandra.db.data.BufferCell;
 import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.db.compaction.AbstractCompactionTask;
 import org.apache.cassandra.db.compaction.CompactionManager;
@@ -59,6 +63,7 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CounterId;
+import org.apache.cassandra.utils.memory.RefAction;
 
 import static org.junit.Assert.assertTrue;
 
@@ -150,8 +155,8 @@ public class Util
     public static void addMutation(Mutation rm, String columnFamilyName, String superColumnName, long columnName, String value, long timestamp)
     {
         CellName cname = superColumnName == null
-                       ? CellNames.simpleDense(getBytes(columnName))
-                       : CellNames.compoundDense(ByteBufferUtil.bytes(superColumnName), getBytes(columnName));
+                         ? CellNames.simpleDense(getBytes(columnName))
+                         : CellNames.compoundDense(ByteBufferUtil.bytes(superColumnName), getBytes(columnName));
         rm.add(columnFamilyName, cname, ByteBufferUtil.bytes(value), timestamp);
     }
 
@@ -181,11 +186,11 @@ public class Util
     public static List<Row> getRangeSlice(ColumnFamilyStore cfs, ByteBuffer superColumn)
     {
         IDiskAtomFilter filter = superColumn == null
-                               ? new IdentityQueryFilter()
-                               : new SliceQueryFilter(SuperColumns.startOf(superColumn), SuperColumns.endOf(superColumn), false, Integer.MAX_VALUE);
+                                 ? new IdentityQueryFilter()
+                                 : new SliceQueryFilter(SuperColumns.startOf(superColumn), SuperColumns.endOf(superColumn), false, Integer.MAX_VALUE);
 
         Token min = StorageService.getPartitioner().getMinimumToken();
-        return cfs.getRangeSlice(new Bounds<Token>(min, min).toRowBounds(), null, filter, 10000);
+        return cfs.getRangeSlice(RefAction.allocateOnHeap(), new Bounds<Token>(min, min).toRowBounds(), null, filter, 10000);
     }
 
     /**
@@ -212,7 +217,7 @@ public class Util
     {
         ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(cfName);
         assert cfStore != null : "Column family " + cfName + " has not been defined";
-        return cfStore.getColumnFamily(QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
+        return cfStore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
     }
 
     public static byte[] concatByteArrays(byte[] first, byte[]... remaining)
@@ -250,8 +255,8 @@ public class Util
      * Creates initial set of nodes and tokens. Nodes are added to StorageService as 'normal'
      */
     public static void createInitialRing(StorageService ss, IPartitioner partitioner, List<Token> endpointTokens,
-                                   List<Token> keyTokens, List<InetAddress> hosts, List<UUID> hostIds, int howMany)
-        throws UnknownHostException
+                                         List<Token> keyTokens, List<InetAddress> hosts, List<UUID> hostIds, int howMany)
+    throws UnknownHostException
     {
         // Expand pool of host IDs as necessary
         for (int i = hostIdPool.size(); i < howMany; i++)

@@ -21,6 +21,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.NativeAllocator;
 import org.apache.cassandra.utils.memory.NativePool;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class NativeDataAllocator extends NativeAllocator implements DataAllocator
 {
@@ -34,6 +35,11 @@ public class NativeDataAllocator extends NativeAllocator implements DataAllocato
         public NativeDataAllocator newAllocator()
         {
             return new NativeDataAllocator(this);
+        }
+
+        public void complete(RefAction refAction, OpOrder.Group readOp, Object referent)
+        {
+            refAction.complete(this, readOp, referent);
         }
     }
 

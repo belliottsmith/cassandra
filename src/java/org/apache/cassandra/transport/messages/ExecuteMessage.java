@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.UUID;
 
 import com.google.common.collect.ImmutableMap;
+
+import org.apache.cassandra.utils.memory.RefAction;
 import io.netty.buffer.ByteBuf;
 
 import org.apache.cassandra.cql3.CQLStatement;
@@ -95,7 +97,7 @@ public class ExecuteMessage extends Message.Request
         this.options = options;
     }
 
-    public Message.Response execute(QueryState state)
+    public Message.Response execute(RefAction refAction, QueryState state)
     {
         try
         {
@@ -127,7 +129,7 @@ public class ExecuteMessage extends Message.Request
                 Tracing.instance.begin("Execute CQL3 prepared query", builder.build());
             }
 
-            Message.Response response = handler.processPrepared(statement, state, options);
+            Message.Response response = handler.processPrepared(refAction, statement, state, options);
             if (options.skipMetadata() && response instanceof ResultMessage.Rows)
                 ((ResultMessage.Rows)response).result.metadata.setSkipMetadata();
 

@@ -20,6 +20,7 @@ package org.apache.cassandra.transport.messages;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.cassandra.utils.memory.RefAction;
 import io.netty.buffer.ByteBuf;
 
 import org.apache.cassandra.service.QueryState;
@@ -62,7 +63,7 @@ public class RegisterMessage extends Message.Request
         this.eventTypes = eventTypes;
     }
 
-    public Response execute(QueryState state)
+    public Response execute(RefAction refAction, QueryState state)
     {
         assert connection instanceof ServerConnection;
         Connection.Tracker tracker = ((ServerConnection)connection).getTracker();

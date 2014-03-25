@@ -48,6 +48,7 @@ import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CounterId;
 import org.apache.cassandra.utils.memory.HeapAllocator;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class CounterMutation implements IMutation
 {
@@ -161,7 +162,7 @@ public class CounterMutation implements IMutation
             if (cell instanceof CounterUpdateCell)
                 counterUpdateCells.add((CounterUpdateCell)cell);
             else
-                resultCF.addColumn(cell.localCopy(cfs.metadata, HeapAllocator.instance));
+                resultCF.addColumn(cell.localCopy(changesCF.metadata, HeapAllocator.instance));
         }
 
         if (counterUpdateCells.isEmpty())
@@ -176,7 +177,7 @@ public class CounterMutation implements IMutation
             long clock = currentValue.clock + 1L;
             long count = currentValue.count + update.delta();
 
-            resultCF.addColumn(new BufferCounterCell(update.name().copy(cfs.metadata, HeapAllocator.instance),
+            resultCF.addColumn(new BufferCounterCell(update.name().copy(changesCF.metadata, HeapAllocator.instance),
                                                CounterContext.instance().createGlobal(CounterId.getLocalId(), clock, count),
                                                update.timestamp()));
         }
@@ -232,19 +233,22 @@ public class CounterMutation implements IMutation
                 names.add(counterUpdateCells.get(i).name());
 
         ReadCommand cmd = new SliceByNamesReadCommand(getKeyspaceName(), key(), cfs.metadata.cfName, Long.MIN_VALUE, new NamesQueryFilter(names));
-        Row row = cmd.getRow(cfs.keyspace);
-        ColumnFamily cf = row == null ? null : row.cf;
-
-        for (int i = 0; i < currentValues.length; i++)
+        try (RefAction refAction = RefAction.refer())
         {
-            if (currentValues[i] != null)
-                continue;
+            Row row = cmd.getRow(refAction, cfs.keyspace);
+            ColumnFamily cf = row == null ? null : row.cf;
 
-            Cell cell = cf == null ? null : cf.getColumn(counterUpdateCells.get(i).name());
-            if (cell == null || cell.isMarkedForDelete(Long.MIN_VALUE)) // absent or a tombstone.
-                currentValues[i] = ClockAndCount.BLANK;
-            else
-                currentValues[i] = CounterContext.instance().getLocalClockAndCount(cell.value());
+            for (int i = 0; i < currentValues.length; i++)
+            {
+                if (currentValues[i] != null)
+                    continue;
+
+                Cell cell = cf == null ? null : cf.getColumn(counterUpdateCells.get(i).name());
+                if (cell == null || cell.isMarkedForDelete(Long.MIN_VALUE)) // absent or a tombstone.
+                    currentValues[i] = ClockAndCount.BLANK;
+                else
+                    currentValues[i] = CounterContext.instance().getLocalClockAndCount(cell.value());
+            }
         }
     }
 

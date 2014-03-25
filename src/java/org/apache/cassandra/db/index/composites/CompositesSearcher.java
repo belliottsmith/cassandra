@@ -50,6 +50,7 @@ import org.apache.cassandra.db.index.SecondaryIndexSearcher;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.concurrent.OpOrder;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class CompositesSearcher extends SecondaryIndexSearcher
 {
@@ -61,7 +62,7 @@ public class CompositesSearcher extends SecondaryIndexSearcher
     }
 
     @Override
-    public List<Row> search(ExtendedFilter filter)
+    public List<Row> search(RefAction refAction, ExtendedFilter filter)
     {
         assert filter.getClause() != null && !filter.getClause().isEmpty();
         final IndexExpression primary = highestSelectivityPredicate(filter.getClause());
@@ -70,7 +71,10 @@ public class CompositesSearcher extends SecondaryIndexSearcher
         // as it stands, we open a writeOp and keep it open for the duration to ensure that should this CF get flushed to make room we don't block the reclamation of any room being made
         try (OpOrder.Group writeOp = baseCfs.keyspace.writeOrder.start(); OpOrder.Group baseOp = baseCfs.readOrdering.start(); OpOrder.Group indexOp = index.getIndexCfs().readOrdering.start())
         {
-            return baseCfs.filter(getIndexedIterator(writeOp, filter, primary, index), filter);
+            List<Row> result = baseCfs.filter(refAction.subAction(), getIndexedIterator(refAction.subAction(), writeOp, filter, primary, index), filter);
+            baseCfs.dataGroup.complete(refAction, baseOp, result);
+            index.getIndexCfs().dataGroup.complete(refAction, indexOp, result);
+            return result;
         }
     }
 
@@ -93,7 +97,7 @@ public class CompositesSearcher extends SecondaryIndexSearcher
         return isStart ? prefix.start() : prefix.end();
     }
 
-    private ColumnFamilyStore.AbstractScanIterator getIndexedIterator(final OpOrder.Group writeOp, final ExtendedFilter filter, final IndexExpression primary, final CompositesIndex index)
+    private ColumnFamilyStore.AbstractScanIterator getIndexedIterator(final RefAction refAction, final OpOrder.Group writeOp, final ExtendedFilter filter, final IndexExpression primary, final CompositesIndex index)
     {
         // Start with the most-restrictive indexed clause, then apply remaining clauses
         // to each row matching that clause.
@@ -184,7 +188,7 @@ public class CompositesSearcher extends SecondaryIndexSearcher
                                                                              false,
                                                                              rowsPerQuery,
                                                                              filter.timestamp);
-                        ColumnFamily indexRow = index.getIndexCfs().getColumnFamily(indexFilter);
+                        ColumnFamily indexRow = index.getIndexCfs().getColumnFamily(refAction, indexFilter);
                         if (indexRow == null || !indexRow.hasColumns())
                             return makeReturn(currentKey, data);
 
@@ -283,7 +287,7 @@ public class CompositesSearcher extends SecondaryIndexSearcher
                                              ? new ColumnSlice[]{ baseCfs.metadata.comparator.staticPrefix().slice(), dataSlice }
                                              : new ColumnSlice[]{ dataSlice };
                         SliceQueryFilter dataFilter = new SliceQueryFilter(slices, false, Integer.MAX_VALUE, baseCfs.metadata.clusteringColumns().size());
-                        ColumnFamily newData = baseCfs.getColumnFamily(new QueryFilter(dk, baseCfs.name, dataFilter, filter.timestamp));
+                        ColumnFamily newData = baseCfs.getColumnFamily(refAction, new QueryFilter(dk, baseCfs.name, dataFilter, filter.timestamp));
                         if (newData == null || index.isStale(entry, newData, filter.timestamp))
                         {
                             index.delete(entry, writeOp);

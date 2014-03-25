@@ -19,21 +19,25 @@
 package org.apache.cassandra.db;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.TreeSet;
 
 import org.junit.Test;
-import static org.junit.Assert.assertEquals;
 
 import org.apache.cassandra.SchemaLoader;
-import static org.apache.cassandra.Util.cellname;
-import static org.apache.cassandra.Util.getBytes;
 import org.apache.cassandra.Util;
-
-import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.composites.CellName;
+import org.apache.cassandra.db.composites.Composites;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
+
+import static org.apache.cassandra.Util.cellname;
+import static org.apache.cassandra.Util.getBytes;
+import static org.junit.Assert.assertEquals;
 
 
 public class TimeSortTest extends SchemaLoader
@@ -55,7 +59,7 @@ public class TimeSortTest extends SchemaLoader
         rm.add("StandardLong1", cellname(0), ByteBufferUtil.bytes("b"), 0);
         rm.apply();
 
-        ColumnFamily cf = cfStore.getColumnFamily(key, cellname(10), Composites.EMPTY, false, 1000, System.currentTimeMillis());
+        ColumnFamily cf = cfStore.getColumnFamily(RefAction.allocateOnHeap(), key, cellname(10), Composites.EMPTY, false, 1000, System.currentTimeMillis());
         Collection<Cell> cells = cf.getSortedColumns();
         assert cells.size() == 1;
     }
@@ -96,7 +100,7 @@ public class TimeSortTest extends SchemaLoader
         rm.apply();
 
         // verify
-        ColumnFamily cf = cfStore.getColumnFamily(key, cellname(0), Composites.EMPTY, false, 1000, System.currentTimeMillis());
+        ColumnFamily cf = cfStore.getColumnFamily(RefAction.allocateOnHeap(), key, cellname(0), Composites.EMPTY, false, 1000, System.currentTimeMillis());
         Collection<Cell> cells = cf.getSortedColumns();
         assertEquals(12, cells.size());
         Iterator<Cell> iter = cells.iterator();
@@ -109,7 +113,7 @@ public class TimeSortTest extends SchemaLoader
         TreeSet<CellName> columnNames = new TreeSet<CellName>(cfStore.getComparator());
         columnNames.add(cellname(10));
         columnNames.add(cellname(0));
-        cf = cfStore.getColumnFamily(QueryFilter.getNamesFilter(Util.dk("900"), "StandardLong1", columnNames, System.currentTimeMillis()));
+        cf = cfStore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getNamesFilter(Util.dk("900"), "StandardLong1", columnNames, System.currentTimeMillis()));
         assert "c".equals(ByteBufferUtil.string(cf.getColumn(cellname(0)).value()));
         assert "c".equals(ByteBufferUtil.string(cf.getColumn(cellname(10)).value()));
     }
@@ -122,7 +126,7 @@ public class TimeSortTest extends SchemaLoader
             for (int j = 0; j < 8; j += 3)
             {
                 ColumnFamilyStore cfs = keyspace.getColumnFamilyStore("StandardLong1");
-                ColumnFamily cf = cfs.getColumnFamily(key, cellname(j * 2), Composites.EMPTY, false, 1000, System.currentTimeMillis());
+                ColumnFamily cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), key, cellname(j * 2), Composites.EMPTY, false, 1000, System.currentTimeMillis());
                 Collection<Cell> cells = cf.getSortedColumns();
                 assert cells.size() == 8 - j;
                 int k = j;

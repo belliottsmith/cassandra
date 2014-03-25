@@ -71,6 +71,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CounterId;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.memory.RefAction;
 
 import static org.apache.cassandra.Util.cellname;
 import static org.apache.cassandra.Util.column;
@@ -126,8 +127,8 @@ public class StreamingTransferTest extends SchemaLoader
         ranges.add(new Range<>(p.getToken(ByteBufferUtil.bytes("key2")), p.getMinimumToken()));
 
         StreamResultFuture futureResult = new StreamPlan("StreamingTransferTest")
-                                                  .requestRanges(LOCAL, "Keyspace2", ranges)
-                                                  .execute();
+                                          .requestRanges(LOCAL, "Keyspace2", ranges)
+                                          .execute();
 
         UUID planId = futureResult.planId;
         StreamState result = futureResult.get();
@@ -187,7 +188,7 @@ public class StreamingTransferTest extends SchemaLoader
         {
             String key = "key" + offs[i];
             String col = "col" + offs[i];
-            assert cfs.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk(key), cfs.name, System.currentTimeMillis())) != null;
+            assert cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(Util.dk(key), cfs.name, System.currentTimeMillis())) != null;
             assert rows.get(i).key.key().equals(ByteBufferUtil.bytes(key));
             assert rows.get(i).cf.getColumn(cellname(col)) != null;
         }
@@ -267,7 +268,7 @@ public class StreamingTransferTest extends SchemaLoader
             List<IndexExpression> clause = Arrays.asList(expr);
             IDiskAtomFilter filter = new IdentityQueryFilter();
             Range<RowPosition> range = Util.range("", "");
-            List<Row> rows = cfs.search(range, clause, filter, 100);
+            List<Row> rows = cfs.search(RefAction.allocateOnHeap(), range, clause, filter, 100);
             assertEquals(1, rows.size());
             assert rows.get(0).key.key().equals(ByteBufferUtil.bytes(key));
         }
@@ -347,20 +348,20 @@ public class StreamingTransferTest extends SchemaLoader
                 entries.put(key, cf);
                 cleanedEntries.put(key, cfCleaned);
                 cfs.addSSTable(SSTableUtils.prepare()
-                    .ks(keyspace.getName())
-                    .cf(cfs.name)
-                    .generation(0)
-                    .write(entries));
+                                           .ks(keyspace.getName())
+                                           .cf(cfs.name)
+                                           .generation(0)
+                                           .write(entries));
             }
         }, true);
 
         // filter pre-cleaned entries locally, and ensure that the end result is equal
         cleanedEntries.keySet().retainAll(keys);
         SSTableReader cleaned = SSTableUtils.prepare()
-            .ks(keyspace.getName())
-            .cf(cfs.name)
-            .generation(0)
-            .write(cleanedEntries);
+                                            .ks(keyspace.getName())
+                                            .cf(cfs.name)
+                                            .generation(0)
+                                            .write(cleanedEntries);
         SSTableReader streamed = cfs.getSSTables().iterator().next();
         SSTableUtils.assertContentEquals(cleaned, streamed);
 
@@ -409,10 +410,10 @@ public class StreamingTransferTest extends SchemaLoader
         assert rows.get(1).cf.getColumnCount() == 1;
 
         // these keys fall outside of the ranges and should not be transferred
-        assert cfstore.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk("transfer1"), "Standard1", System.currentTimeMillis())) == null;
-        assert cfstore.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk("transfer2"), "Standard1", System.currentTimeMillis())) == null;
-        assert cfstore.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk("test2"), "Standard1", System.currentTimeMillis())) == null;
-        assert cfstore.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk("test3"), "Standard1", System.currentTimeMillis())) == null;
+        assert cfstore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(Util.dk("transfer1"), "Standard1", System.currentTimeMillis())) == null;
+        assert cfstore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(Util.dk("transfer2"), "Standard1", System.currentTimeMillis())) == null;
+        assert cfstore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(Util.dk("test2"), "Standard1", System.currentTimeMillis())) == null;
+        assert cfstore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(Util.dk("test3"), "Standard1", System.currentTimeMillis())) == null;
     }
 
     @Test

@@ -41,6 +41,8 @@ import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
+
 import org.junit.Test;
 
 public class CleanupTest extends SchemaLoader
@@ -110,7 +112,7 @@ public class CleanupTest extends SchemaLoader
         List<IndexExpression> clause = Arrays.asList(expr);
         IDiskAtomFilter filter = new IdentityQueryFilter();
         Range<RowPosition> range = Util.range("", "");
-        rows = keyspace.getColumnFamilyStore(CF1).search(range, clause, filter, Integer.MAX_VALUE);
+        rows = keyspace.getColumnFamilyStore(CF1).search(RefAction.allocateOnHeap(), range, clause, filter, Integer.MAX_VALUE);
         assertEquals(LOOPS, rows.size());
 
         // we don't allow cleanup when the local host has no range to avoid wipping up all data when a node has not join the ring.
@@ -132,7 +134,7 @@ public class CleanupTest extends SchemaLoader
         assert cfs.getSSTables().isEmpty();
 
         // 2ary indexes should result in no results, too (although tombstones won't be gone until compacted)
-        rows = cfs.search(range, clause, filter, Integer.MAX_VALUE);
+        rows = cfs.search(RefAction.allocateOnHeap(), range, clause, filter, Integer.MAX_VALUE);
         assertEquals(0, rows.size());
     }
 

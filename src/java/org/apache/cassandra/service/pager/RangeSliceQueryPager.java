@@ -19,17 +19,24 @@ package org.apache.cassandra.service.pager;
 
 import java.util.List;
 
-import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.PagedRangeCommand;
+import org.apache.cassandra.db.RangeSliceCommand;
+import org.apache.cassandra.db.Row;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.Composite;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.db.filter.SliceQueryFilter;
-import org.apache.cassandra.dht.*;
+import org.apache.cassandra.dht.AbstractBounds;
+import org.apache.cassandra.dht.Bounds;
+import org.apache.cassandra.dht.IncludingExcludingBounds;
+import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.memory.RefAction;
 
 /**
  * Pages a RangeSliceCommand whose predicate is a slice query.
@@ -70,7 +77,7 @@ public class RangeSliceQueryPager extends AbstractQueryPager
              : new PagingState(lastReturnedKey.key(), lastReturnedName.toByteBuffer(), maxRemaining());
     }
 
-    protected List<Row> queryNextPage(int pageSize, ConsistencyLevel consistencyLevel, boolean localQuery)
+    protected List<Row> queryNextPage(RefAction refAction, int pageSize, ConsistencyLevel consistencyLevel, boolean localQuery)
     throws RequestExecutionException
     {
         SliceQueryFilter sf = (SliceQueryFilter)columnFilter;
@@ -88,8 +95,8 @@ public class RangeSliceQueryPager extends AbstractQueryPager
                                                           command.countCQL3Rows);
 
         return localQuery
-             ? pageCmd.executeLocally()
-             : StorageProxy.getRangeSlice(pageCmd, consistencyLevel);
+             ? pageCmd.executeLocally(refAction)
+             : StorageProxy.getRangeSlice(refAction, pageCmd, consistencyLevel);
     }
 
     protected boolean containsPreviousLast(Row first)

@@ -23,6 +23,7 @@ import java.util.Map;
 import org.apache.cassandra.auth.AuthenticatedUser;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.transport.ProtocolException;
+import org.apache.cassandra.utils.memory.RefAction;
 import io.netty.buffer.ByteBuf;
 
 import org.apache.cassandra.exceptions.AuthenticationException;
@@ -71,7 +72,7 @@ public class CredentialsMessage extends Message.Request
         this.credentials = credentials;
     }
 
-    public Message.Response execute(QueryState state)
+    public Message.Response execute(RefAction refAction, QueryState state)
     {
         try
         {

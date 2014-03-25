@@ -26,57 +26,59 @@ import java.io.IOException;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.junit.Test;
 
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
 
 /**
  * Test for the truncate operation.
  */
 public class RecoveryManagerTruncateTest extends SchemaLoader
 {
-	@Test
-	public void testTruncate() throws IOException
-	{
-		Keyspace keyspace = Keyspace.open("Keyspace1");
-		ColumnFamilyStore cfs = keyspace.getColumnFamilyStore("Standard1");
+    @Test
+    public void testTruncate() throws IOException
+    {
+        Keyspace keyspace = Keyspace.open("Keyspace1");
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore("Standard1");
 
-		Mutation rm;
-		ColumnFamily cf;
+        Mutation rm;
+        ColumnFamily cf;
 
-		// add a single cell
+        // add a single cell
         cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
-		cf.addColumn(column("col1", "val1", 1L));
+        cf.addColumn(column("col1", "val1", 1L));
         rm = new Mutation("Keyspace1", ByteBufferUtil.bytes("keymulti"), cf);
-		rm.apply();
+        rm.apply();
 
-		// Make sure data was written
-		assertNotNull(getFromTable(keyspace, "Standard1", "keymulti", "col1"));
+        // Make sure data was written
+        assertNotNull(getFromTable(keyspace, "Standard1", "keymulti", "col1"));
 
-		// and now truncate it
-		cfs.truncateBlocking();
+        // and now truncate it
+        cfs.truncateBlocking();
         CommitLog.instance.resetUnsafe();
-		CommitLog.instance.recover();
+        CommitLog.instance.recover();
 
-		// and validate truncation.
-		assertNull(getFromTable(keyspace, "Standard1", "keymulti", "col1"));
-	}
+        // and validate truncation.
+        assertNull(getFromTable(keyspace, "Standard1", "keymulti", "col1"));
+    }
 
-	private Cell getFromTable(Keyspace keyspace, String cfName, String keyName, String columnName)
-	{
-		ColumnFamily cf;
-		ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(cfName);
-		if (cfStore == null)
-		{
-			return null;
-		}
-		cf = cfStore.getColumnFamily(Util.namesQueryFilter(cfStore, Util.dk(keyName), columnName));
-		if (cf == null)
-		{
-			return null;
-		}
-		return cf.getColumn(Util.cellname(columnName));
-	}
+    private Cell getFromTable(Keyspace keyspace, String cfName, String keyName, String columnName)
+    {
+        ColumnFamily cf;
+        ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(cfName);
+        if (cfStore == null)
+        {
+            return null;
+        }
+        cf = cfStore.getColumnFamily(RefAction.allocateOnHeap(), Util.namesQueryFilter(cfStore, Util.dk(keyName), columnName));
+        if (cf == null)
+        {
+            return null;
+        }
+        return cf.getColumn(Util.cellname(columnName));
+    }
 }

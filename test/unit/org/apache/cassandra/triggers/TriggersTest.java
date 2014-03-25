@@ -38,6 +38,7 @@ import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.thrift.*;
+import org.apache.cassandra.utils.memory.RefAction;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
 import static org.junit.Assert.assertEquals;
@@ -68,20 +69,20 @@ public class TriggersTest extends SchemaLoader
         String cql = String.format("CREATE KEYSPACE IF NOT EXISTS %s " +
                                    "WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1}",
                                    ksName);
-        QueryProcessor.process(cql, ConsistencyLevel.ONE);
+        QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
 
         cql = String.format("CREATE TABLE IF NOT EXISTS %s.%s (k int, v1 int, v2 int, PRIMARY KEY (k))", ksName, cfName);
-        QueryProcessor.process(cql, ConsistencyLevel.ONE);
+        QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
 
         cql = String.format("CREATE TABLE IF NOT EXISTS %s.%s (k int, v1 int, v2 int, PRIMARY KEY (k))", ksName, otherCf);
-        QueryProcessor.process(cql, ConsistencyLevel.ONE);
+        QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
 
         // no conditional execution of create trigger stmt yet
         if (! triggerCreated)
         {
             cql = String.format("CREATE TRIGGER trigger_1 ON %s.%s USING '%s'",
                                 ksName, cfName, TestTrigger.class.getName());
-            QueryProcessor.process(cql, ConsistencyLevel.ONE);
+            QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
             triggerCreated = true;
         }
     }
@@ -99,7 +100,7 @@ public class TriggersTest extends SchemaLoader
     public void executeTriggerOnCqlInsert() throws Exception
     {
         String cql = String.format("INSERT INTO %s.%s (k, v1) VALUES (0, 0)", ksName, cfName);
-        QueryProcessor.process(cql, ConsistencyLevel.ONE);
+        QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
         assertUpdateIsAugmented(0);
     }
 
@@ -110,7 +111,7 @@ public class TriggersTest extends SchemaLoader
                                    "    INSERT INTO %s.%s (k, v1) VALUES (1, 1); " +
                                    "APPLY BATCH",
                                    ksName, cfName);
-        QueryProcessor.process(cql, ConsistencyLevel.ONE);
+        QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
         assertUpdateIsAugmented(1);
     }
 
@@ -155,7 +156,7 @@ public class TriggersTest extends SchemaLoader
     public void executeTriggerOnCqlInsertWithConditions() throws Exception
     {
         String cql = String.format("INSERT INTO %s.%s (k, v1) VALUES (4, 4) IF NOT EXISTS", ksName, cfName);
-        QueryProcessor.process(cql, ConsistencyLevel.ONE);
+        QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
         assertUpdateIsAugmented(4);
     }
 
@@ -167,7 +168,7 @@ public class TriggersTest extends SchemaLoader
                                    "  INSERT INTO %1$s.%2$s (k, v1) VALUES (5, 5); " +
                                    "APPLY BATCH",
                                     ksName, cfName);
-        QueryProcessor.process(cql, ConsistencyLevel.ONE);
+        QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
         assertUpdateIsAugmented(5);
     }
 
@@ -199,7 +200,7 @@ public class TriggersTest extends SchemaLoader
         {
             setupTableWithTrigger(cf, CrossPartitionTrigger.class);
             String cql = String.format("INSERT INTO %s.%s (k, v1) VALUES (7, 7) IF NOT EXISTS", ksName, cf);
-            QueryProcessor.process(cql, ConsistencyLevel.ONE);
+            QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
         }
         finally
         {
@@ -217,7 +218,7 @@ public class TriggersTest extends SchemaLoader
         {
             setupTableWithTrigger(cf, CrossTableTrigger.class);
             String cql = String.format("INSERT INTO %s.%s (k, v1) VALUES (8, 8) IF NOT EXISTS", ksName, cf);
-            QueryProcessor.process(cql, ConsistencyLevel.ONE);
+            QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
         }
         finally
         {
@@ -279,12 +280,12 @@ public class TriggersTest extends SchemaLoader
     throws RequestExecutionException
     {
         String cql = String.format("CREATE TABLE IF NOT EXISTS %s.%s (k int, v1 int, v2 int, PRIMARY KEY (k))", ksName, cf);
-        QueryProcessor.process(cql, ConsistencyLevel.ONE);
+        QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
 
         // no conditional execution of create trigger stmt yet
         cql = String.format("CREATE TRIGGER trigger_1 ON %s.%s USING '%s'",
                             ksName, cf, triggerImpl.getName());
-        QueryProcessor.process(cql, ConsistencyLevel.ONE);
+        QueryProcessor.process(RefAction.allocateOnHeap(), cql, ConsistencyLevel.ONE);
     }
 
     private void assertUpdateIsAugmented(int key)

@@ -26,6 +26,7 @@ import org.apache.cassandra.exceptions.UnauthorizedException;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.messages.ResultMessage;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class ListUsersStatement extends AuthenticationStatement
 {
@@ -38,9 +39,9 @@ public class ListUsersStatement extends AuthenticationStatement
         state.ensureNotAnonymous();
     }
 
-    public ResultMessage execute(ClientState state) throws RequestValidationException, RequestExecutionException
+    public ResultMessage execute(RefAction refAction, ClientState state) throws RequestValidationException, RequestExecutionException
     {
-        return QueryProcessor.process(String.format("SELECT * FROM %s.%s", Auth.AUTH_KS, Auth.USERS_CF),
+        return QueryProcessor.process(refAction, String.format("SELECT * FROM %s.%s", Auth.AUTH_KS, Auth.USERS_CF),
                                       ConsistencyLevel.QUORUM,
                                       QueryState.forInternalCalls());
     }

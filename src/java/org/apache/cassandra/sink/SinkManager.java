@@ -27,6 +27,9 @@ import org.apache.cassandra.net.MessageOut;
 
 public class SinkManager
 {
+
+    private static final boolean enabled = System.getProperty("cassandra.startSinkManager") != null;
+
     private static final Set<IMessageSink> messageSinks = new CopyOnWriteArraySet<>();
     private static final Set<IRequestSink> requestSinks = new CopyOnWriteArraySet<>();
 
@@ -58,12 +61,17 @@ public class SinkManager
 
     public static MessageOut processOutboundMessage(MessageOut message, int id, InetAddress to)
     {
-        if (messageSinks.isEmpty())
+        if (!enabled)
             return message;
 
         for (IMessageSink ms : messageSinks)
         {
-            message = ms.handleMessage(message, id, to);
+            MessageOut next = ms.handleMessage(message, id, to);
+            // even though we only use these in testing for messages that shouldn't be affected, we ensure
+            // these are closed in case somebody else uses them, or we use them in future and forget
+            if (next != message)
+                message.close();
+            message = next;
             if (message == null)
                 return null;
         }
@@ -72,7 +80,7 @@ public class SinkManager
 
     public static MessageIn processInboundMessage(MessageIn message, int id)
     {
-        if (messageSinks.isEmpty())
+        if (!enabled)
             return message;
 
         for (IMessageSink ms : messageSinks)
@@ -86,7 +94,7 @@ public class SinkManager
 
     public static IMutation processWriteRequest(IMutation mutation)
     {
-        if (requestSinks.isEmpty())
+        if (!enabled)
             return mutation;
 
         for (IRequestSink rs : requestSinks)

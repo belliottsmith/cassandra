@@ -54,6 +54,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.concurrent.OpOrder;
+import org.apache.cassandra.utils.memory.RefAction;
 
 import static org.apache.cassandra.Util.dk;
 import static org.junit.Assert.assertEquals;
@@ -107,7 +108,7 @@ public class RangeTombstoneTest extends SchemaLoader
             columns.add(b(i));
         for (int i : dead)
             columns.add(b(i));
-        cf = cfs.getColumnFamily(QueryFilter.getNamesFilter(dk(key), CFNAME, columns, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getNamesFilter(dk(key), CFNAME, columns, System.currentTimeMillis()));
 
         for (int i : live)
             assert isLive(cf, cf.getColumn(b(i))) : "Cell " + i + " should be live";
@@ -115,7 +116,7 @@ public class RangeTombstoneTest extends SchemaLoader
             assert !isLive(cf, cf.getColumn(b(i))) : "Cell " + i + " shouldn't be live";
 
         // Queries by slices
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(7), b(30), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(7), b(30), false, Integer.MAX_VALUE, System.currentTimeMillis()));
 
         for (int i : new int[]{ 7, 8, 9, 11, 13, 15, 17, 28, 29, 30 })
             assert isLive(cf, cf.getColumn(b(i))) : "Cell " + i + " should be live";
@@ -150,69 +151,69 @@ public class RangeTombstoneTest extends SchemaLoader
         delete(cf, 15, 20, 2);
         rm.apply();
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(11), b(14), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(11), b(14), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         Collection<RangeTombstone> rt = rangeTombstones(cf);
         assertEquals(0, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(11), b(15), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(11), b(15), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(1, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(20), b(25), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(20), b(25), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(1, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(12), b(25), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(12), b(25), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(1, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(25), b(35), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(25), b(35), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(0, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(1), b(40), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(1), b(40), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(2, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(7), b(17), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(7), b(17), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(2, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(5), b(20), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(5), b(20), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(2, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(5), b(15), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(5), b(15), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(2, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(1), b(2), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(1), b(2), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(0, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(1), b(5), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(1), b(5), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(1, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(1), b(10), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(1), b(10), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(1, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(5), b(6), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(5), b(6), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(1, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(17), b(20), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(17), b(20), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(1, rt.size());
 
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, b(17), b(18), false, Integer.MAX_VALUE, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, b(17), b(18), false, Integer.MAX_VALUE, System.currentTimeMillis()));
         rt = rangeTombstones(cf);
         assertEquals(1, rt.size());
 
         ColumnSlice[] slices = new ColumnSlice[]{new ColumnSlice( b(1), b(10)), new ColumnSlice( b(16), b(20))};
         IDiskAtomFilter sqf = new SliceQueryFilter(slices, false, Integer.MAX_VALUE);
-        cf = cfs.getColumnFamily( new QueryFilter(dk(key), CFNAME, sqf, System.currentTimeMillis()) );
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), new QueryFilter(dk(key), CFNAME, sqf, System.currentTimeMillis()) );
         rt = rangeTombstones(cf);
         assertEquals(2, rt.size());
     }
@@ -260,7 +261,7 @@ public class RangeTombstoneTest extends SchemaLoader
         rm.apply();
         cfs.forceBlockingFlush();
 
-        cf = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(key), CFNAME, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(key), CFNAME, System.currentTimeMillis()));
 
         for (int i = 0; i < 5; i++)
             assert isLive(cf, cf.getColumn(b(i))) : "Cell " + i + " should be live";
@@ -271,7 +272,7 @@ public class RangeTombstoneTest extends SchemaLoader
 
         // Compact everything and re-test
         CompactionManager.instance.performMaximal(cfs);
-        cf = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(key), CFNAME, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(key), CFNAME, System.currentTimeMillis()));
 
         for (int i = 0; i < 5; i++)
             assert isLive(cf, cf.getColumn(b(i))) : "Cell " + i + " should be live";
@@ -305,7 +306,7 @@ public class RangeTombstoneTest extends SchemaLoader
         cfs.forceBlockingFlush();
 
         // Get the last value of the row
-        cf = cfs.getColumnFamily(QueryFilter.getSliceFilter(dk(key), CFNAME, Composites.EMPTY, Composites.EMPTY, true, 1, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(dk(key), CFNAME, Composites.EMPTY, Composites.EMPTY, true, 1, System.currentTimeMillis()));
 
         assert !cf.isEmpty();
         int last = i(cf.getSortedColumns().iterator().next().name());
@@ -586,7 +587,6 @@ public class RangeTombstoneTest extends SchemaLoader
         {
             return null;
         }
-
 
         public ColumnFamilyStore getIndexCfs(){ return null; }
 

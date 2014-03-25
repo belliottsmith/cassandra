@@ -28,6 +28,7 @@ import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
 
 
 public class RemoveColumnFamilyWithFlush2Test extends SchemaLoader
@@ -50,7 +51,7 @@ public class RemoveColumnFamilyWithFlush2Test extends SchemaLoader
         rm.apply();
         store.forceBlockingFlush();
 
-        ColumnFamily retrieved = store.getColumnFamily(QueryFilter.getIdentityFilter(dk, "Standard1", System.currentTimeMillis()));
+        ColumnFamily retrieved = store.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk, "Standard1", System.currentTimeMillis()));
         assert retrieved.isMarkedForDelete();
         assertNull(retrieved.getColumn(Util.cellname("Column1")));
         assertNull(Util.cloneAndRemoveDeleted(retrieved, Integer.MAX_VALUE));

@@ -56,6 +56,11 @@ public class ValidatorTest extends SchemaLoader
     private final String columnFamily = "Standard1";
     private final IPartitioner partitioner = StorageService.getPartitioner();
 
+    static
+    {
+        System.setProperty("cassandra.startSinkManager", "");
+    }
+
     @After
     public void tearDown()
     {

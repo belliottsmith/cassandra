@@ -110,6 +110,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.SemanticVersion;
 import org.apache.cassandra.utils.UUIDGen;
+import org.apache.cassandra.utils.memory.RefAction;
 import org.apache.thrift.TException;
 
 public class CassandraServer implements Cassandra.Iface
@@ -150,7 +151,7 @@ public class CassandraServer implements Cassandra.Iface
             schedule(DatabaseDescriptor.getReadRpcTimeout());
             try
             {
-                rows = StorageProxy.read(commands, consistency_level);
+                rows = StorageProxy.read(RefAction.allocateOnHeap(), commands, consistency_level);
             }
             finally
             {
@@ -811,7 +812,8 @@ public class CassandraServer implements Cassandra.Iface
             }
 
             schedule(DatabaseDescriptor.getWriteRpcTimeout());
-            ColumnFamily result = StorageProxy.cas(cState.getKeyspace(),
+            ColumnFamily result = StorageProxy.cas(RefAction.allocateOnHeap(),
+                                                   cState.getKeyspace(),
                                                    column_family,
                                                    key,
                                                    new ThriftCASConditions(cfExpected),
@@ -1212,7 +1214,7 @@ public class CassandraServer implements Cassandra.Iface
             try
             {
                 IDiskAtomFilter filter = ThriftValidation.asIFilter(predicate, metadata, column_parent.super_column);
-                rows = StorageProxy.getRangeSlice(new RangeSliceCommand(keyspace,
+                rows = StorageProxy.getRangeSlice(RefAction.allocateOnHeap(), new RangeSliceCommand(keyspace,
                                                                         column_parent.column_family,
                                                                         now,
                                                                         filter,
@@ -1293,7 +1295,7 @@ public class CassandraServer implements Cassandra.Iface
                 RowPosition end = range.end_key == null
                                 ? p.getTokenFactory().fromString(range.end_token).maxKeyBound(p)
                                 : RowPosition.Impl.forKey(range.end_key, p);
-                bounds = new Bounds<RowPosition>(RowPosition.Impl.forKey(range.start_key, p), end);
+                bounds = new Bounds<>(RowPosition.Impl.forKey(range.start_key, p), end);
             }
 
             if (range.row_filter != null && !range.row_filter.isEmpty())
@@ -1305,7 +1307,7 @@ public class CassandraServer implements Cassandra.Iface
             try
             {
                 IDiskAtomFilter filter = ThriftValidation.asIFilter(predicate, metadata, null);
-                rows = StorageProxy.getRangeSlice(new RangeSliceCommand(keyspace, column_family, now, filter, bounds, null, range.count, true, true), consistencyLevel);
+                rows = StorageProxy.getRangeSlice(RefAction.allocateOnHeap(), new RangeSliceCommand(keyspace, column_family, now, filter, bounds, null, range.count, true, true), consistencyLevel);
             }
             finally
             {
@@ -1375,7 +1377,7 @@ public class CassandraServer implements Cassandra.Iface
             consistencyLevel.validateForRead(keyspace);
 
             IPartitioner p = StorageService.getPartitioner();
-            AbstractBounds<RowPosition> bounds = new Bounds<RowPosition>(RowPosition.Impl.forKey(index_clause.start_key, p),
+            AbstractBounds<RowPosition> bounds = new Bounds<>(RowPosition.Impl.forKey(index_clause.start_key, p),
                                                                          p.getMinimumToken().minKeyBound());
 
             IDiskAtomFilter filter = ThriftValidation.asIFilter(column_predicate, metadata, column_parent.super_column);
@@ -1388,7 +1390,7 @@ public class CassandraServer implements Cassandra.Iface
                                                               ThriftConversion.fromThrift(index_clause.expressions),
                                                               index_clause.count);
 
-            List<Row> rows = StorageProxy.getRangeSlice(command, consistencyLevel);
+            List<Row> rows = StorageProxy.getRangeSlice(RefAction.allocateOnHeap(), command, consistencyLevel);
             return thriftifyKeySlices(rows, column_parent, column_predicate, now);
         }
         catch (RequestValidationException e)
@@ -1973,7 +1975,7 @@ public class CassandraServer implements Cassandra.Iface
                 logger.debug("execute_cql_query");
             }
 
-            return QueryProcessor.process(queryString, state());
+            return QueryProcessor.process(RefAction.allocateOnHeap(), queryString, state());
         }
         catch (RequestExecutionException e)
         {
@@ -2007,7 +2009,7 @@ public class CassandraServer implements Cassandra.Iface
             }
 
             ThriftClientState cState = state();
-            return cState.getCQLQueryHandler().process(queryString, cState.getQueryState(), new QueryOptions(ThriftConversion.fromThrift(cLevel), Collections.<ByteBuffer>emptyList())).toThriftResult();
+            return cState.getCQLQueryHandler().process(RefAction.allocateOnHeap(), queryString, cState.getQueryState(), new QueryOptions(ThriftConversion.fromThrift(cLevel), Collections.<ByteBuffer>emptyList())).toThriftResult();
         }
         catch (RequestExecutionException e)
         {
@@ -2093,7 +2095,7 @@ public class CassandraServer implements Cassandra.Iface
                 throw new InvalidRequestException(String.format("Prepared query with ID %d not found", itemId));
             logger.trace("Retrieved prepared statement #{} with {} bind markers", itemId, statement.boundTerms);
 
-            return QueryProcessor.processPrepared(statement, cState, bindVariables);
+            return QueryProcessor.processPrepared(RefAction.allocateOnHeap(), statement, cState, bindVariables);
         }
         catch (RequestExecutionException e)
         {
@@ -2136,7 +2138,7 @@ public class CassandraServer implements Cassandra.Iface
                                                                 itemId));
             logger.trace("Retrieved prepared statement #{} with {} bind markers", itemId, statement.getBoundTerms());
 
-            return cState.getCQLQueryHandler().processPrepared(statement,
+            return cState.getCQLQueryHandler().processPrepared(RefAction.allocateOnHeap(), statement,
                                                                cState.getQueryState(),
                                                                new QueryOptions(ThriftConversion.fromThrift(cLevel), bindVariables)).toThriftResult();
         }

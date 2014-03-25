@@ -26,6 +26,7 @@ import org.apache.cassandra.db.filter.ColumnCounter;
 import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.service.StorageProxy;
+import org.apache.cassandra.utils.memory.RefAction;
 
 /**
  * Pager over a SliceByNamesReadCommand.
@@ -77,17 +78,17 @@ public class NamesQueryPager implements SinglePartitionPager
         return queried;
     }
 
-    public List<Row> fetchPage(int pageSize) throws RequestValidationException, RequestExecutionException
+    public List<Row> fetchPage(RefAction refAction, int pageSize) throws RequestValidationException, RequestExecutionException
     {
         assert command.filter.countCQL3Rows() || command.filter.columns.size() <= pageSize;
 
         if (isExhausted())
-            return Collections.<Row>emptyList();
+            return Collections.emptyList();
 
         queried = true;
         return localQuery
-             ? Collections.singletonList(command.getRow(Keyspace.open(command.ksName)))
-             : StorageProxy.read(Collections.<ReadCommand>singletonList(command), consistencyLevel);
+             ? Collections.singletonList(command.getRow(refAction, Keyspace.open(command.ksName)))
+             : StorageProxy.read(refAction, Collections.<ReadCommand>singletonList(command), consistencyLevel);
     }
 
     public int maxRemaining()

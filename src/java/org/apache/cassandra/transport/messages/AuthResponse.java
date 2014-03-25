@@ -26,6 +26,7 @@ import org.apache.cassandra.transport.Message;
 import org.apache.cassandra.transport.ProtocolException;
 import org.apache.cassandra.transport.ServerConnection;
 
+import org.apache.cassandra.utils.memory.RefAction;
 import io.netty.buffer.ByteBuf;
 
 import java.nio.ByteBuffer;
@@ -70,7 +71,7 @@ public class AuthResponse extends Message.Request
     }
 
     @Override
-    public Response execute(QueryState queryState)
+    public Response execute(RefAction refAction, QueryState queryState)
     {
         try
         {

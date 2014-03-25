@@ -38,6 +38,7 @@ import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 import static org.junit.Assert.assertEquals;
@@ -137,7 +138,7 @@ public class PerRowSecondaryIndexTest extends SchemaLoader
             QueryFilter filter = QueryFilter.getIdentityFilter(DatabaseDescriptor.getPartitioner().decorateKey(rowKey),
                                                                baseCfs.getColumnFamilyName(),
                                                                System.currentTimeMillis());
-            LAST_INDEXED_ROW = baseCfs.getColumnFamily(filter);
+            LAST_INDEXED_ROW = baseCfs.getColumnFamily(RefAction.allocateOnHeap(), filter);
             LAST_INDEXED_KEY = rowKey;
         }
 

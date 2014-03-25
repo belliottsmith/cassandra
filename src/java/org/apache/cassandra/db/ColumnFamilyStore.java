@@ -22,73 +22,38 @@ import java.io.FileFilter;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.regex.Pattern;
-import javax.management.InstanceNotFoundException;
-import javax.management.MBeanRegistrationException;
-import javax.management.MBeanServer;
-import javax.management.MalformedObjectNameException;
-import javax.management.ObjectName;
+import javax.management.*;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
-import com.google.common.collect.AbstractIterator;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
+import com.google.common.collect.*;
+import com.google.common.util.concurrent.*;
+
 import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListenableFutureTask;
-import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.Striped;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.cache.CachingOptions;
-import org.apache.cassandra.cache.CounterCacheKey;
-import org.apache.cassandra.cache.IRowCacheEntry;
-import org.apache.cassandra.cache.RowCacheKey;
-import org.apache.cassandra.cache.RowCacheSentinel;
+import org.apache.cassandra.cache.*;
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.StageManager;
-import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.*;
 import org.apache.cassandra.config.CFMetaData.SpeculativeRetry;
-import org.apache.cassandra.config.ColumnDefinition;
-import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.commitlog.ReplayPosition;
-import org.apache.cassandra.db.compaction.AbstractCompactionStrategy;
-import org.apache.cassandra.db.compaction.CompactionManager;
-import org.apache.cassandra.db.compaction.LeveledCompactionStrategy;
-import org.apache.cassandra.db.compaction.OperationType;
+import org.apache.cassandra.db.compaction.*;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.Composite;
+import org.apache.cassandra.db.data.BufferDecoratedKey;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.DataAllocator;
 import org.apache.cassandra.db.data.DecoratedKey;
@@ -100,19 +65,13 @@ import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.filter.SliceQueryFilter;
 import org.apache.cassandra.db.index.SecondaryIndex;
 import org.apache.cassandra.db.index.SecondaryIndexManager;
-import org.apache.cassandra.dht.AbstractBounds;
-import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.LocalPartitioner;
+import org.apache.cassandra.dht.*;
 import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.compress.CompressionParameters;
-import org.apache.cassandra.io.sstable.Component;
+import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.sstable.Descriptor;
-import org.apache.cassandra.io.sstable.SSTable;
-import org.apache.cassandra.io.sstable.SSTableReader;
-import org.apache.cassandra.io.sstable.SSTableWriter;
 import org.apache.cassandra.io.sstable.metadata.CompactionMetadata;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.util.FileUtils;
@@ -121,13 +80,10 @@ import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.StreamLockfile;
 import org.apache.cassandra.tracing.Tracing;
-import org.apache.cassandra.utils.CloseableIterator;
-import org.apache.cassandra.utils.DefaultInteger;
-import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.Interval;
-import org.apache.cassandra.utils.Pair;
-import org.apache.cassandra.utils.WrappedRunnable;
+import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.concurrent.OpOrder;
+import org.apache.cassandra.utils.concurrent.WaitQueue;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 {
@@ -495,10 +451,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     private static synchronized ColumnFamilyStore createColumnFamilyStore(Keyspace keyspace,
-                                                                         String columnFamily,
-                                                                         IPartitioner partitioner,
-                                                                         CFMetaData metadata,
-                                                                         boolean loadSSTables)
+                                                                          String columnFamily,
+                                                                          IPartitioner partitioner,
+                                                                          CFMetaData metadata,
+                                                                          boolean loadSSTables)
     {
         // get the max generation number, to prevent generation conflicts
         Directories directories = new Directories(metadata);
@@ -1544,14 +1500,15 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return metric.writeLatency.recentLatencyHistogram.getBuckets(true);
     }
 
-    public ColumnFamily getColumnFamily(DecoratedKey key,
+    public ColumnFamily getColumnFamily(RefAction refAction,
+                                        DecoratedKey key,
                                         Composite start,
                                         Composite finish,
                                         boolean reversed,
                                         int limit,
                                         long timestamp)
     {
-        return getColumnFamily(QueryFilter.getSliceFilter(key, name, start, finish, reversed, limit, timestamp));
+        return getColumnFamily(refAction, QueryFilter.getSliceFilter(key, name, start, finish, reversed, limit, timestamp));
     }
 
     /**
@@ -1566,10 +1523,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @param filter the columns being queried.
      * @return the requested data for the filter provided
      */
-    private ColumnFamily getThroughCache(UUID cfId, QueryFilter filter)
+    private ColumnFamily getThroughCache(RefAction refAction, UUID cfId, QueryFilter filter)
     {
         assert isRowCacheEnabled()
-               : String.format("Row cache is not enabled on column family [" + name + "]");
+        : String.format("Row cache is not enabled on column family [" + name + "]");
 
         RowCacheKey key = new RowCacheKey(cfId, filter.key);
 
@@ -1584,7 +1541,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 // Some other read is trying to cache the value, just do a normal non-caching read
                 Tracing.trace("Row cache miss (race)");
                 metric.rowCacheMiss.inc();
-                return getTopLevelColumns(filter, Integer.MIN_VALUE);
+                return getTopLevelColumns(refAction, filter, Integer.MIN_VALUE);
             }
 
             ColumnFamily cachedCf = (ColumnFamily)cached;
@@ -1597,7 +1554,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
             metric.rowCacheHitOutOfRange.inc();
             Tracing.trace("Ignoring row cache as cached value could not satisfy query");
-            return getTopLevelColumns(filter, Integer.MIN_VALUE);
+            return getTopLevelColumns(refAction, filter, Integer.MIN_VALUE);
         }
 
         metric.rowCacheMiss.inc();
@@ -1611,7 +1568,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             // If we are explicitely asked to fill the cache with full partitions, we go ahead and query the whole thing
             if (metadata.getCaching().rowCache.cacheFullPartitions())
             {
-                data = getTopLevelColumns(QueryFilter.getIdentityFilter(filter.key, name, filter.timestamp), Integer.MIN_VALUE);
+                data = getTopLevelColumns(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(filter.key, name, filter.timestamp), Integer.MIN_VALUE);
                 toCache = data;
                 Tracing.trace("Populating row cache with the whole partition");
                 if (sentinelSuccess && toCache != null)
@@ -1642,7 +1599,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 // needs to be cached afterwards.
                 if (sliceFilter.count < rowsToCache)
                 {
-                    toCache = getTopLevelColumns(cacheFilter, Integer.MIN_VALUE);
+                    toCache = getTopLevelColumns(refAction, cacheFilter, Integer.MIN_VALUE);
                     if (toCache != null)
                     {
                         Tracing.trace("Populating row cache ({} rows cached)", cacheSlice.lastCounted());
@@ -1651,7 +1608,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 }
                 else
                 {
-                    data = getTopLevelColumns(filter, Integer.MIN_VALUE);
+                    data = getTopLevelColumns(refAction, filter, Integer.MIN_VALUE);
                     if (data != null)
                     {
                         // The filter limit was greater than the number of rows to cache. But, if the filter had a non-empty
@@ -1676,7 +1633,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             else
             {
                 Tracing.trace("Fetching data but not populating cache as query does not query from the start of the partition");
-                return getTopLevelColumns(filter, Integer.MIN_VALUE);
+                return getTopLevelColumns(refAction, filter, Integer.MIN_VALUE);
             }
         }
         finally
@@ -1722,7 +1679,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * only the latest version of a column is returned.
      * @return null if there is no data and no tombstones; otherwise a ColumnFamily
      */
-    public ColumnFamily getColumnFamily(QueryFilter filter)
+    public ColumnFamily getColumnFamily(RefAction refAction, QueryFilter filter)
     {
         assert name.equals(filter.getColumnFamilyName()) : filter.getColumnFamilyName();
 
@@ -1737,7 +1694,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 assert !isIndex(); // CASSANDRA-5732
                 UUID cfId = metadata.cfId;
 
-                ColumnFamily cached = getThroughCache(cfId, filter);
+                ColumnFamily cached = getThroughCache(refAction, cfId, filter);
                 if (cached == null)
                 {
                     logger.trace("cached row is empty");
@@ -1748,12 +1705,12 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             }
             else
             {
-                ColumnFamily cf = getTopLevelColumns(filter, gcBefore);
+                result = getTopLevelColumns(refAction, filter, gcBefore);
 
-                if (cf == null)
+                if (result == null)
                     return null;
 
-                result = removeDeletedCF(cf, gcBefore);
+                result = removeDeletedCF(result, gcBefore);
             }
 
             removeDroppedColumns(result);
@@ -1944,14 +1901,15 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
     }
 
-    public ColumnFamily getTopLevelColumns(QueryFilter filter, int gcBefore)
+    public ColumnFamily getTopLevelColumns(RefAction action, QueryFilter filter, int gcBefore)
     {
         Tracing.trace("Executing single-partition query on {}", name);
         CollationController controller = new CollationController(this, filter, gcBefore);
         ColumnFamily columns;
         try (OpOrder.Group op = readOrdering.start())
         {
-            columns = controller.getTopLevelColumns(Memtable.dataPool.needToCopyOnHeap());
+            columns = controller.getTopLevelColumns(action.copyOnHeap(Memtable.dataPool));
+            dataGroup.complete(action, op, columns);
         }
         metric.updateSSTableIterated(controller.getSstablesIterated());
         return columns;
@@ -1988,11 +1946,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     /**
-      * Iterate over a range of rows and columns from memtables/sstables.
-      *
-      * @param range The range of keys and columns within those keys to fetch
+     * Iterate over a range of rows and columns from memtables/sstables.
+     *
+     * @param range The range of keys and columns within those keys to fetch
      */
-    private AbstractScanIterator getSequentialIterator(final DataRange range, long now)
+    private AbstractScanIterator getSequentialIterator(boolean copyOnHeap, final DataRange range, long now)
     {
         assert !(range.keyRange() instanceof Range) || !((Range)range.keyRange()).isWrapAround() || range.keyRange().right.isMinimum(partitioner) : range.keyRange();
 
@@ -2001,7 +1959,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         try
         {
-            final CloseableIterator<Row> iterator = RowIteratorFactory.getIterator(view.memtables, view.sstables, range, this, now);
+            final CloseableIterator<Row> iterator = RowIteratorFactory.getIterator(copyOnHeap, view.memtables, view.sstables, range, this, now);
 
             // todo this could be pushed into SSTableScanner
             return new AbstractScanIterator()
@@ -2044,21 +2002,23 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     @VisibleForTesting
-    public List<Row> getRangeSlice(final AbstractBounds<RowPosition> range,
+    public List<Row> getRangeSlice(RefAction refAction,
+                                   final AbstractBounds<RowPosition> range,
                                    List<IndexExpression> rowFilter,
                                    IDiskAtomFilter columnFilter,
                                    int maxResults)
     {
-        return getRangeSlice(range, rowFilter, columnFilter, maxResults, System.currentTimeMillis());
+        return getRangeSlice(refAction, range, rowFilter, columnFilter, maxResults, System.currentTimeMillis());
     }
 
-    public List<Row> getRangeSlice(final AbstractBounds<RowPosition> range,
+    public List<Row> getRangeSlice(RefAction refAction,
+                                   final AbstractBounds<RowPosition> range,
                                    List<IndexExpression> rowFilter,
                                    IDiskAtomFilter columnFilter,
                                    int maxResults,
                                    long now)
     {
-        return getRangeSlice(makeExtendedFilter(range, columnFilter, rowFilter, maxResults, false, false, now));
+        return getRangeSlice(refAction, makeExtendedFilter(range, columnFilter, rowFilter, maxResults, false, false, now));
     }
 
     /**
@@ -2084,7 +2044,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return ExtendedFilter.create(this, dataRange, rowFilter, maxResults, countCQL3Rows, now);
     }
 
-    public List<Row> getRangeSlice(AbstractBounds<RowPosition> range,
+    public List<Row> getRangeSlice(RefAction refAction,
+                                   AbstractBounds<RowPosition> range,
                                    List<IndexExpression> rowFilter,
                                    IDiskAtomFilter columnFilter,
                                    int maxResults,
@@ -2092,7 +2053,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                                    boolean countCQL3Rows,
                                    boolean isPaging)
     {
-        return getRangeSlice(makeExtendedFilter(range, columnFilter, rowFilter, maxResults, countCQL3Rows, isPaging, now));
+        return getRangeSlice(refAction, makeExtendedFilter(range, columnFilter, rowFilter, maxResults, countCQL3Rows, isPaging, now));
     }
 
     public ExtendedFilter makeExtendedFilter(AbstractBounds<RowPosition> range,
@@ -2119,42 +2080,46 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return ExtendedFilter.create(this, dataRange, rowFilter, maxResults, countCQL3Rows, timestamp);
     }
 
-    public List<Row> getRangeSlice(ExtendedFilter filter)
+    public List<Row> getRangeSlice(RefAction refAction, ExtendedFilter filter)
     {
-        try (OpOrder.Group op = readOrdering.start())
+        try (OpOrder.Group readOp = readOrdering.start())
         {
-            return filter(getSequentialIterator(filter.dataRange, filter.timestamp), filter);
+            List<Row> result = filter(refAction.subAction(), getSequentialIterator(refAction.copyOnHeap(Memtable.dataPool), filter.dataRange, filter.timestamp), filter);
+            dataGroup.complete(refAction, readOp, result);
+            return result;
         }
     }
 
     @VisibleForTesting
-    public List<Row> search(AbstractBounds<RowPosition> range,
+    public List<Row> search(RefAction refAction,
+                            AbstractBounds<RowPosition> range,
                             List<IndexExpression> clause,
                             IDiskAtomFilter dataFilter,
                             int maxResults)
     {
-        return search(range, clause, dataFilter, maxResults, System.currentTimeMillis());
+        return search(refAction, range, clause, dataFilter, maxResults, System.currentTimeMillis());
     }
 
-    public List<Row> search(AbstractBounds<RowPosition> range,
+    public List<Row> search(RefAction refAction,
+                            AbstractBounds<RowPosition> range,
                             List<IndexExpression> clause,
                             IDiskAtomFilter dataFilter,
                             int maxResults,
                             long now)
     {
-        return search(makeExtendedFilter(range, dataFilter, clause, maxResults, false, false, now));
+        return search(refAction, makeExtendedFilter(range, dataFilter, clause, maxResults, false, false, now));
     }
 
-    public List<Row> search(ExtendedFilter filter)
+    public List<Row> search(RefAction refAction, ExtendedFilter filter)
     {
         Tracing.trace("Executing indexed scan for {}", filter.dataRange.keyRange().getString(metadata.getKeyValidator()));
-        return indexManager.search(filter);
+        return indexManager.search(refAction, filter);
     }
 
-    public List<Row> filter(AbstractScanIterator rowIterator, ExtendedFilter filter)
+    public List<Row> filter(RefAction refAction, AbstractScanIterator rowIterator, ExtendedFilter filter)
     {
         logger.trace("Filtering {} for rows matching {}", rowIterator, filter);
-        List<Row> rows = new ArrayList<Row>();
+        List<Row> rows = new ArrayList<>();
         int columnsCount = 0;
         int total = 0, matched = 0;
 
@@ -2172,7 +2137,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     IDiskAtomFilter extraFilter = filter.getExtraFilter(rawRow.key, data);
                     if (extraFilter != null)
                     {
-                        ColumnFamily cf = filter.cfs.getColumnFamily(new QueryFilter(rawRow.key, name, extraFilter, filter.timestamp));
+                        ColumnFamily cf = filter.cfs.getColumnFamily(refAction, new QueryFilter(rawRow.key, name, extraFilter, filter.timestamp));
                         if (cf != null)
                             data.addAll(cf);
                     }
@@ -2752,7 +2717,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public List<String> getBuiltIndexes()
     {
-       return indexManager.getBuiltIndexes();
+        return indexManager.getBuiltIndexes();
     }
 
     public int getUnleveledSSTables()

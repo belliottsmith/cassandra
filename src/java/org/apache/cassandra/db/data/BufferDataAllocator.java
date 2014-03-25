@@ -24,6 +24,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.ByteBufferPool;
 import org.apache.cassandra.utils.memory.PoolAllocator;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class BufferDataAllocator implements DataAllocator
 {
@@ -63,6 +64,10 @@ public class BufferDataAllocator implements DataAllocator
         public DataAllocator newAllocator()
         {
             return new BufferDataAllocator(wrapped.newAllocator());
+        }
+
+        public void complete(RefAction refAction, OpOrder.Group readOp, Object referent)
+        {
         }
     }
 

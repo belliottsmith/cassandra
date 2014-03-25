@@ -24,6 +24,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ExtendedFilter;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public abstract class SecondaryIndexSearcher
 {
@@ -44,7 +45,7 @@ public abstract class SecondaryIndexSearcher
         return expr == null ? null : indexManager.getIndexForColumn(expr.column);
     }
 
-    public abstract List<Row> search(ExtendedFilter filter);
+    public abstract List<Row> search(RefAction refAction, ExtendedFilter filter);
 
     /**
      * @return true this index is able to handle given clauses.

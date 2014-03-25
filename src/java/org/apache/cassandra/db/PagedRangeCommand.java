@@ -33,6 +33,7 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class PagedRangeCommand extends AbstractRangeCommand
 {
@@ -106,15 +107,15 @@ public class PagedRangeCommand extends AbstractRangeCommand
         return countCQL3Rows;
     }
 
-    public List<Row> executeLocally()
+    public List<Row> executeLocally(RefAction refAction)
     {
         ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(columnFamily);
 
         ExtendedFilter exFilter = cfs.makeExtendedFilter(keyRange, (SliceQueryFilter)predicate, start, stop, rowFilter, limit, countCQL3Rows(), timestamp);
         if (cfs.indexManager.hasIndexFor(rowFilter))
-            return cfs.search(exFilter);
+            return cfs.search(refAction, exFilter);
         else
-            return cfs.getRangeSlice(exFilter);
+            return cfs.getRangeSlice(refAction, exFilter);
     }
 
     @Override

@@ -58,6 +58,11 @@ public class RemoveTest
     InetAddress removalhost;
     UUID removalId;
 
+    static
+    {
+        System.setProperty("cassandra.startSinkManager", "");
+    }
+
     @BeforeClass
     public static void setupClass() throws ConfigurationException
     {

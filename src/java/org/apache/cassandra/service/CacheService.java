@@ -56,6 +56,7 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class CacheService implements CacheServiceMBean
 {
@@ -409,7 +410,7 @@ public class CacheService implements CacheServiceMBean
                                                                         cfs.metadata.cfName,
                                                                         FBUtilities.singleton(cellName, cfs.metadata.comparator),
                                                                         Long.MIN_VALUE);
-                        ColumnFamily cf = cfs.getTopLevelColumns(filter, Integer.MIN_VALUE);
+                        ColumnFamily cf = cfs.getTopLevelColumns(RefAction.allocateOnHeap(), filter, Integer.MIN_VALUE);
                         if (cf == null)
                             return null;
                         Cell cell = cf.getColumn(cellName);
@@ -443,7 +444,7 @@ public class CacheService implements CacheServiceMBean
                 {
                     DecoratedKey key = cfs.partitioner.decorateKey(buffer);
                     QueryFilter cacheFilter = new QueryFilter(key, cfs.getColumnFamilyName(), cfs.readFilterForCache(), Integer.MIN_VALUE);
-                    ColumnFamily data = cfs.getTopLevelColumns(cacheFilter, Integer.MIN_VALUE);
+                    ColumnFamily data = cfs.getTopLevelColumns(RefAction.allocateOnHeap(), cacheFilter, Integer.MIN_VALUE);
                     return Pair.create(new RowCacheKey(cfs.metadata.cfId, key), (IRowCacheEntry) data);
                 }
             });

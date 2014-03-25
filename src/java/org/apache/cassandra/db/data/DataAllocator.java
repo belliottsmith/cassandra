@@ -20,6 +20,7 @@ package org.apache.cassandra.db.data;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.PoolAllocator;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public interface DataAllocator
 {
@@ -27,6 +28,7 @@ public interface DataAllocator
     public static interface DataGroup
     {
         DataAllocator newAllocator();
+        void complete(RefAction refAction, OpOrder.Group readOp, Object referent);
     }
 
     public static interface DataPool

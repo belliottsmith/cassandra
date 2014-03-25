@@ -43,6 +43,7 @@ import static org.apache.cassandra.cql3.QueryProcessor.processInternal;
 
 import static org.apache.cassandra.Util.cellname;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
 
 
 public class CompactionsPurgeTest extends SchemaLoader
@@ -89,7 +90,7 @@ public class CompactionsPurgeTest extends SchemaLoader
         // major compact and test that all columns but the resurrected one is completely gone
         CompactionManager.instance.submitMaximal(cfs, Integer.MAX_VALUE).get();
         cfs.invalidateCachedRow(key);
-        ColumnFamily cf = cfs.getColumnFamily(QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
+        ColumnFamily cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
         assertColumns(cf, "5");
         assert cf.getColumn(cellname(String.valueOf(5))) != null;
     }
@@ -141,12 +142,12 @@ public class CompactionsPurgeTest extends SchemaLoader
 
         // verify that minor compaction does GC when key is provably not
         // present in a non-compacted sstable
-        ColumnFamily cf = cfs.getColumnFamily(QueryFilter.getIdentityFilter(key2, cfName, System.currentTimeMillis()));
+        ColumnFamily cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(key2, cfName, System.currentTimeMillis()));
         assert cf == null;
 
         // verify that minor compaction still GC when key is present
         // in a non-compacted sstable but the timestamp ensures we won't miss anything
-        cf = cfs.getColumnFamily(QueryFilter.getIdentityFilter(key1, cfName, System.currentTimeMillis()));
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(key1, cfName, System.currentTimeMillis()));
         assertEquals(1, cf.getColumnCount());
     }
 
@@ -188,7 +189,7 @@ public class CompactionsPurgeTest extends SchemaLoader
 
         // We should have both the c1 and c2 tombstones still. Since the min timestamp in the c2 tombstone
         // sstable is older than the c1 tombstone, it is invalid to throw out the c1 tombstone.
-        ColumnFamily cf = cfs.getColumnFamily(QueryFilter.getIdentityFilter(key3, cfName, System.currentTimeMillis()));
+        ColumnFamily cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(key3, cfName, System.currentTimeMillis()));
         assertFalse(cf.getColumn(cellname("c2")).isLive(System.currentTimeMillis()));
         assertEquals(2, cf.getColumnCount());
     }
@@ -226,7 +227,7 @@ public class CompactionsPurgeTest extends SchemaLoader
         // compact and test that the row is completely gone
         Util.compactAll(cfs, Integer.MAX_VALUE).get();
         assert cfs.getSSTables().isEmpty();
-        ColumnFamily cf = keyspace.getColumnFamilyStore(cfName).getColumnFamily(QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
+        ColumnFamily cf = keyspace.getColumnFamilyStore(cfName).getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
         assert cf == null : cf;
     }
 
@@ -252,7 +253,7 @@ public class CompactionsPurgeTest extends SchemaLoader
         rm.apply();
 
         // move the key up in row cache
-        cfs.getColumnFamily(QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
+        cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
 
         // deletes row
         rm = new Mutation(keyspaceName, key.key());
@@ -272,7 +273,7 @@ public class CompactionsPurgeTest extends SchemaLoader
         rm.apply();
 
         // Check that the second insert did went in
-        ColumnFamily cf = cfs.getColumnFamily(QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
+        ColumnFamily cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(key, cfName, System.currentTimeMillis()));
         assertEquals(10, cf.getColumnCount());
         for (Cell c : cf)
             assert !c.isMarkedForDelete(System.currentTimeMillis());
@@ -301,13 +302,13 @@ public class CompactionsPurgeTest extends SchemaLoader
         rm = new Mutation(keyspaceName, key.key());
         rm.delete(cfName, 4);
         rm.apply();
-        ColumnFamily cf = cfs.getColumnFamily(filter);
+        ColumnFamily cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), filter);
         assertTrue(cf.isMarkedForDelete());
 
         // flush and major compact (with tombstone purging)
         cfs.forceBlockingFlush();
         Util.compactAll(cfs, Integer.MAX_VALUE).get();
-        assertFalse(cfs.getColumnFamily(filter).isMarkedForDelete());
+        assertFalse(cfs.getColumnFamily(RefAction.allocateOnHeap(), filter).isMarkedForDelete());
 
         // re-inserts with timestamp lower than delete
         rm = new Mutation(keyspaceName, key.key());
@@ -316,7 +317,7 @@ public class CompactionsPurgeTest extends SchemaLoader
         rm.apply();
 
         // Check that the second insert went in
-        cf = cfs.getColumnFamily(filter);
+        cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), filter);
         assertEquals(10, cf.getColumnCount());
         for (Cell c : cf)
             assert !c.isMarkedForDelete(System.currentTimeMillis());

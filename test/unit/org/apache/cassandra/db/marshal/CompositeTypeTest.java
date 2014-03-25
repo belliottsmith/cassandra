@@ -38,6 +38,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.CellNames;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.utils.*;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class CompositeTypeTest extends SchemaLoader
 {
@@ -64,12 +65,12 @@ public class CompositeTypeTest extends SchemaLoader
     public void testEndOfComponent()
     {
         ByteBuffer[] cnames = {
-            createCompositeKey("test1", uuids[0], -1, false),
-            createCompositeKey("test1", uuids[1], 24, false),
-            createCompositeKey("test1", uuids[1], 42, false),
-            createCompositeKey("test1", uuids[1], 83, false),
-            createCompositeKey("test1", uuids[2], -1, false),
-            createCompositeKey("test1", uuids[2], 42, false),
+                              createCompositeKey("test1", uuids[0], -1, false),
+                              createCompositeKey("test1", uuids[1], 24, false),
+                              createCompositeKey("test1", uuids[1], 42, false),
+                              createCompositeKey("test1", uuids[1], 83, false),
+                              createCompositeKey("test1", uuids[2], -1, false),
+                              createCompositeKey("test1", uuids[2], 42, false),
         };
 
         ByteBuffer start = createCompositeKey("test1", uuids[1], -1, false);
@@ -183,7 +184,7 @@ public class CompositeTypeTest extends SchemaLoader
         addColumn(rm, cname3);
         rm.apply();
 
-        ColumnFamily cf = cfs.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk("k"), cfName, System.currentTimeMillis()));
+        ColumnFamily cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(Util.dk("k"), cfName, System.currentTimeMillis()));
 
         Iterator<Cell> iter = cf.getSortedColumns().iterator();
 
@@ -235,13 +236,13 @@ public class CompositeTypeTest extends SchemaLoader
         CompositeType comp = CompositeType.getInstance(subComparators);
 
         String[][] inputs = new String[][]{
-            new String[]{ "foo", "bar" },
-            new String[]{ "", "" },
-            new String[]{ "foo\\", "bar" },
-            new String[]{ "foo\\:", "bar" },
-            new String[]{ "foo:", "bar" },
-            new String[]{ "foo", "b:ar" },
-            new String[]{ "foo!", "b:ar" },
+                                          new String[]{ "foo", "bar" },
+                                          new String[]{ "", "" },
+                                          new String[]{ "foo\\", "bar" },
+                                          new String[]{ "foo\\:", "bar" },
+                                          new String[]{ "foo:", "bar" },
+                                          new String[]{ "foo", "b:ar" },
+                                          new String[]{ "foo!", "b:ar" },
         };
 
         for (String[] input : inputs)

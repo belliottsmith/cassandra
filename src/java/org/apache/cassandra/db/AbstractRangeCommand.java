@@ -25,6 +25,7 @@ import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.service.IReadCommand;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public abstract class AbstractRangeCommand implements IReadCommand
 {
@@ -57,7 +58,7 @@ public abstract class AbstractRangeCommand implements IReadCommand
 
     public abstract int limit();
     public abstract boolean countCQL3Rows();
-    public abstract List<Row> executeLocally();
+    public abstract List<Row> executeLocally(RefAction refAction);
 
     public long getTimeout()
     {

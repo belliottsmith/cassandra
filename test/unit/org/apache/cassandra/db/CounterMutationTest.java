@@ -19,6 +19,7 @@ package org.apache.cassandra.db;
 
 import java.nio.ByteBuffer;
 
+import org.apache.cassandra.utils.memory.HeapAllocator;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
@@ -26,6 +27,7 @@ import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.memory.RefAction;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -50,21 +52,21 @@ public class CounterMutationTest extends SchemaLoader
         ColumnFamily cells = ArrayBackedSortedColumns.factory.create(cfs.metadata);
         cells.addCounter(cellname(1), 1L);
         new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
-        ColumnFamily current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        ColumnFamily current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         assertEquals(1L, CounterContext.instance().total(current.getColumn(cellname(1)).value()));
 
         // Make another increment (+2)
         cells = ArrayBackedSortedColumns.factory.create(cfs.metadata);
         cells.addCounter(cellname(1), 2L);
         new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
-        current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         assertEquals(3L, CounterContext.instance().total(current.getColumn(cellname(1)).value()));
 
         // Decrement to 0 (-3)
         cells = ArrayBackedSortedColumns.factory.create(cfs.metadata);
         cells.addCounter(cellname(1), -3L);
         new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
-        current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         assertEquals(0L, CounterContext.instance().total(current.getColumn(cellname(1)).value()));
         assertEquals(ClockAndCount.create(3L, 0L), cfs.getCachedCounter(bytes(1), cellname(1)));
     }
@@ -80,7 +82,7 @@ public class CounterMutationTest extends SchemaLoader
         cells.addCounter(cellname(1), 1L);
         cells.addCounter(cellname(2), -1L);
         new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
-        ColumnFamily current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        ColumnFamily current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         assertEquals(1L, CounterContext.instance().total(current.getColumn(cellname(1)).value()));
         assertEquals(-1L, CounterContext.instance().total(current.getColumn(cellname(2)).value()));
 
@@ -89,7 +91,7 @@ public class CounterMutationTest extends SchemaLoader
         cells.addCounter(cellname(1), 2L);
         cells.addCounter(cellname(2), -2L);
         new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
-        current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         assertEquals(3L, CounterContext.instance().total(current.getColumn(cellname(1)).value()));
 
         // Decrement to 0 (-3, +3)
@@ -97,7 +99,7 @@ public class CounterMutationTest extends SchemaLoader
         cells.addCounter(cellname(1), -3L);
         cells.addCounter(cellname(2), 3L);
         new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
-        current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         assertEquals(0L, CounterContext.instance().total(current.getColumn(cellname(1)).value()));
         assertEquals(0L, CounterContext.instance().total(current.getColumn(cellname(2)).value()));
 
@@ -131,8 +133,8 @@ public class CounterMutationTest extends SchemaLoader
         new CounterMutation(mutation, ConsistencyLevel.ONE).apply();
 
         // Validate all values
-        ColumnFamily current1 = cfs1.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
-        ColumnFamily current2 = cfs2.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF2, System.currentTimeMillis()));
+        ColumnFamily current1 = cfs1.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        ColumnFamily current2 = cfs2.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF2, System.currentTimeMillis()));
 
         assertEquals(1L, CounterContext.instance().total(current1.getColumn(cellname(1)).value()));
         assertEquals(-1L, CounterContext.instance().total(current1.getColumn(cellname(2)).value()));
@@ -157,7 +159,7 @@ public class CounterMutationTest extends SchemaLoader
         cells.addCounter(cellname(1), 1L);
         cells.addCounter(cellname(2), 1L);
         new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
-        ColumnFamily current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        ColumnFamily current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         assertEquals(1L, CounterContext.instance().total(current.getColumn(cellname(1)).value()));
         assertEquals(1L, CounterContext.instance().total(current.getColumn(cellname(2)).value()));
 
@@ -166,7 +168,7 @@ public class CounterMutationTest extends SchemaLoader
         cells.addTombstone(cellname(1), (int) System.currentTimeMillis() / 1000, FBUtilities.timestampMicros());
         cells.addCounter(cellname(2), 1L);
         new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
-        current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         assertNull(current.getColumn(cellname(1)));
         assertEquals(2L, CounterContext.instance().total(current.getColumn(cellname(2)).value()));
 
@@ -174,14 +176,14 @@ public class CounterMutationTest extends SchemaLoader
         cells = ArrayBackedSortedColumns.factory.create(cfs.metadata);
         cells.addCounter(cellname(1), 1L);
         new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
-        current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         assertNull(current.getColumn(cellname(1)));
 
         // Get rid of the complete partition
         Mutation mutation = new Mutation(KS, bytes(1));
         mutation.delete(CF1, FBUtilities.timestampMicros());
         new CounterMutation(mutation, ConsistencyLevel.ONE).apply();
-        current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         assertNull(current.getColumn(cellname(1)));
         assertNull(current.getColumn(cellname(2)));
 
@@ -190,7 +192,7 @@ public class CounterMutationTest extends SchemaLoader
         cells.addCounter(cellname(1), 1L);
         cells.addCounter(cellname(2), 1L);
         new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
-        current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         assertNull(current.getColumn(cellname(1)));
         assertNull(current.getColumn(cellname(2)));
     }
@@ -208,7 +210,7 @@ public class CounterMutationTest extends SchemaLoader
         cells.addCounter(cellname(1), 4L);
         new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
 
-        ColumnFamily current = cfs.getColumnFamily(QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
+        ColumnFamily current = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(dk(bytes(1)), CF1, System.currentTimeMillis()));
         ByteBuffer context = current.getColumn(cellname(1)).value();
         assertEquals(10L, CounterContext.instance().total(context));
         assertEquals(ClockAndCount.create(1L, 10L), CounterContext.instance().getLocalClockAndCount(context));

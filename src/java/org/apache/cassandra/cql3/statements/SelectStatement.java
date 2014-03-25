@@ -28,6 +28,7 @@ import com.google.common.collect.Iterators;
 
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.data.RowPosition;
+import org.apache.cassandra.utils.memory.RefAction;
 import org.github.jamm.MemoryMeter;
 
 import org.apache.cassandra.auth.Permission;
@@ -151,22 +152,22 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
     public ResultSet.Metadata getResultMetadata()
     {
         return parameters.isCount
-             ? ResultSet.makeCountMetadata(keyspace(), columnFamily(), parameters.countAlias)
-             : selection.getResultMetadata();
+               ? ResultSet.makeCountMetadata(keyspace(), columnFamily(), parameters.countAlias)
+               : selection.getResultMetadata();
     }
 
     public long measureForPreparedCache(MemoryMeter meter)
     {
         return meter.measure(this)
-             + meter.measureDeep(parameters)
-             + meter.measureDeep(selection)
-             + (limit == null ? 0 : meter.measureDeep(limit))
-             + meter.measureDeep(keyRestrictions)
-             + meter.measureDeep(columnRestrictions)
-             + meter.measureDeep(metadataRestrictions)
-             + meter.measureDeep(restrictedColumns)
-             + (sliceRestriction == null ? 0 : meter.measureDeep(sliceRestriction))
-             + (orderingIndexes == null ? 0 : meter.measureDeep(orderingIndexes));
+               + meter.measureDeep(parameters)
+               + meter.measureDeep(selection)
+               + (limit == null ? 0 : meter.measureDeep(limit))
+               + meter.measureDeep(keyRestrictions)
+               + meter.measureDeep(columnRestrictions)
+               + meter.measureDeep(metadataRestrictions)
+               + meter.measureDeep(restrictedColumns)
+               + (sliceRestriction == null ? 0 : meter.measureDeep(sliceRestriction))
+               + (orderingIndexes == null ? 0 : meter.measureDeep(orderingIndexes));
     }
 
     public int getBoundTerms()
@@ -184,7 +185,7 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
         // Nothing to do, all validation has been done by RawStatement.prepare()
     }
 
-    public ResultMessage.Rows execute(QueryState state, QueryOptions options) throws RequestExecutionException, RequestValidationException
+    public ResultMessage.Rows execute(RefAction refAction, QueryState state, QueryOptions options) throws RequestExecutionException, RequestValidationException
     {
         ConsistencyLevel cl = options.getConsistency();
         List<ByteBuffer> variables = options.getValues();
@@ -215,7 +216,7 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
 
         if (pageSize <= 0 || command == null || !QueryPagers.mayNeedPaging(command, pageSize))
         {
-            return execute(command, cl, variables, limit, now);
+            return execute(refAction, command, cl, variables, limit, now);
         }
         else
         {
@@ -226,62 +227,63 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
             // We can't properly do post-query ordering if we page (see #6722)
             if (needsPostQueryOrdering())
                 throw new InvalidRequestException("Cannot page queries with both ORDER BY and a IN restriction on the partition key; you must either remove the "
-                                                + "ORDER BY or the IN and sort client side, or disable paging for this query");
+                                                  + "ORDER BY or the IN and sort client side, or disable paging for this query");
 
-            List<Row> page = pager.fetchPage(pageSize);
-            ResultMessage.Rows msg = processResults(page, variables, limit, now);
+            List<Row> page = pager.fetchPage(refAction, pageSize);
+            ResultMessage.Rows msg = processResults(refAction, page, variables, limit, now);
             if (!pager.isExhausted())
                 msg.result.metadata.setHasMorePages(pager.state());
             return msg;
         }
     }
 
-    private ResultMessage.Rows execute(Pageable command, ConsistencyLevel cl, List<ByteBuffer> variables, int limit, long now) throws RequestValidationException, RequestExecutionException
+    private ResultMessage.Rows execute(RefAction refAction, Pageable command, ConsistencyLevel cl, List<ByteBuffer> variables, int limit, long now) throws RequestValidationException, RequestExecutionException
     {
         List<Row> rows;
         if (command == null)
         {
-            rows = Collections.<Row>emptyList();
+            rows = Collections.emptyList();
         }
         else
         {
             rows = command instanceof Pageable.ReadCommands
-                 ? StorageProxy.read(((Pageable.ReadCommands)command).commands, cl)
-                 : StorageProxy.getRangeSlice((RangeSliceCommand)command, cl);
+                   ? StorageProxy.read(refAction, ((Pageable.ReadCommands)command).commands, cl)
+                   : StorageProxy.getRangeSlice(refAction, (RangeSliceCommand)command, cl);
         }
 
-        return processResults(rows, variables, limit, now);
+        return processResults(refAction, rows, variables, limit, now);
     }
 
     private ResultMessage.Rows pageCountQuery(QueryPager pager, List<ByteBuffer> variables, int pageSize, long now) throws RequestValidationException, RequestExecutionException
     {
         int count = 0;
-        while (!pager.isExhausted())
+
+        try (RefAction refAction = RefAction.refer())
         {
             int maxLimit = pager.maxRemaining();
             logger.debug("New maxLimit for paged count query is {}", maxLimit);
-            ResultSet rset = process(pager.fetchPage(pageSize), variables, maxLimit, now);
+            ResultSet rset = process(pager.fetchPage(refAction, pageSize), variables, maxLimit, now);
             count += rset.rows.size();
         }
 
         ResultSet result = ResultSet.makeCountResult(keyspace(), columnFamily(), count, parameters.countAlias);
-        return new ResultMessage.Rows(result);
+        return new ResultMessage.Rows(RefAction.impossible(), result);
     }
 
-    public ResultMessage.Rows processResults(List<Row> rows, List<ByteBuffer> variables, int limit, long now) throws RequestValidationException
+    public ResultMessage.Rows processResults(RefAction refAction, List<Row> rows, List<ByteBuffer> variables, int limit, long now) throws RequestValidationException
     {
         // Even for count, we need to process the result as it'll group some column together in sparse column families
         ResultSet rset = process(rows, variables, limit, now);
         rset = parameters.isCount ? rset.makeCountResult(parameters.countAlias) : rset;
-        return new ResultMessage.Rows(rset);
+        return new ResultMessage.Rows(refAction, rset);
     }
 
-    static List<Row> readLocally(String keyspaceName, List<ReadCommand> cmds)
+    static List<Row> readLocally(RefAction refAction, String keyspaceName, List<ReadCommand> cmds)
     {
         Keyspace keyspace = Keyspace.open(keyspaceName);
-        List<Row> rows = new ArrayList<Row>(cmds.size());
+        List<Row> rows = new ArrayList<>(cmds.size());
         for (ReadCommand cmd : cmds)
-            rows.add(cmd.getRow(keyspace));
+            rows.add(cmd.getRow(refAction, keyspace));
         return rows;
     }
 
@@ -294,15 +296,15 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
         if (isKeyRange || usesSecondaryIndexing)
         {
             RangeSliceCommand command = getRangeCommand(variables, limit, now);
-            rows = command == null ? Collections.<Row>emptyList() : command.executeLocally();
+            rows = command == null ? Collections.<Row>emptyList() : command.executeLocally(RefAction.allocateOnHeap());
         }
         else
         {
             List<ReadCommand> commands = getSliceCommands(variables, limit, now);
-            rows = commands == null ? Collections.<Row>emptyList() : readLocally(keyspace(), commands);
+            rows = commands == null ? Collections.<Row>emptyList() : readLocally(RefAction.allocateOnHeap(), keyspace(), commands);
         }
 
-        return processResults(rows, variables, limit, now);
+        return processResults(RefAction.impossible(), rows, variables, limit, now);
     }
 
     public ResultSet process(List<Row> rows) throws InvalidRequestException
@@ -358,8 +360,8 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
         // We want to have getRangeSlice to count the number of columns, not the number of keys.
         AbstractBounds<RowPosition> keyBounds = getKeyBounds(variables);
         return keyBounds == null
-             ? null
-             : new RangeSliceCommand(keyspace(), columnFamily(), now,  filter, keyBounds, expressions, limit, !parameters.isDistinct, false);
+               ? null
+               : new RangeSliceCommand(keyspace(), columnFamily(), now,  filter, keyBounds, expressions, limit, !parameters.isDistinct, false);
     }
 
     private AbstractBounds<RowPosition> getKeyBounds(List<ByteBuffer> variables) throws InvalidRequestException
@@ -407,14 +409,14 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
             if (includeKeyBound(Bound.START))
             {
                 return includeKeyBound(Bound.END)
-                     ? new Bounds<RowPosition>(startKey, finishKey)
-                     : new IncludingExcludingBounds<RowPosition>(startKey, finishKey);
+                       ? new Bounds<RowPosition>(startKey, finishKey)
+                       : new IncludingExcludingBounds<RowPosition>(startKey, finishKey);
             }
             else
             {
                 return includeKeyBound(Bound.END)
-                     ? new Range<RowPosition>(startKey, finishKey)
-                     : new ExcludingBounds<RowPosition>(startKey, finishKey);
+                       ? new Range<RowPosition>(startKey, finishKey)
+                       : new ExcludingBounds<RowPosition>(startKey, finishKey);
             }
         }
     }
@@ -442,8 +444,8 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
                 // Note: we could use staticPrefix.start() for the start bound, but EMPTY gives us the
                 // same effect while saving a few CPU cycles.
                 staticSlice = isReversed
-                            ? new ColumnSlice(cfm.comparator.staticPrefix().end(), Composites.EMPTY)
-                            : new ColumnSlice(Composites.EMPTY, cfm.comparator.staticPrefix().end());
+                              ? new ColumnSlice(cfm.comparator.staticPrefix().end(), Composites.EMPTY)
+                              : new ColumnSlice(Composites.EMPTY, cfm.comparator.staticPrefix().end());
 
                 // In the case where we only select static columns, we want to really only check the static columns.
                 // So we return early as the rest of that method would actually make us query everything
@@ -459,9 +461,9 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
                     return staticSlice == null ? null : sliceFilter(staticSlice, limit, toGroup);
 
                 return staticSlice == null
-                     ? sliceFilter(slice, limit, toGroup)
-                     : (slice.includes(cfm.comparator, staticSlice.finish) ? sliceFilter(new ColumnSlice(staticSlice.start, slice.finish), limit, toGroup)
-                                                                           : sliceFilter(new ColumnSlice[]{ staticSlice, slice }, limit, toGroup));
+                       ? sliceFilter(slice, limit, toGroup)
+                       : (slice.includes(cfm.comparator, staticSlice.finish) ? sliceFilter(new ColumnSlice(staticSlice.start, slice.finish), limit, toGroup)
+                                                                             : sliceFilter(new ColumnSlice[]{ staticSlice, slice }, limit, toGroup));
             }
 
             List<ColumnSlice> l = new ArrayList<ColumnSlice>(startBounds.size());
@@ -982,7 +984,7 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
                     // For dynamic CF, the column could be out of the requested bounds (because we don't support strict bounds internally (unless
                     // the comparator is composite that is)), filter here
                     if ( (excludedStart != null && type.compare(c.name(), excludedStart) == 0)
-                      || (excludedEnd != null && type.compare(c.name(), excludedEnd) == 0) )
+                         || (excludedEnd != null && type.compare(c.name(), excludedEnd) == 0) )
                         continue;
 
                     return c;
@@ -1105,8 +1107,8 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
         {
             List<Cell> collection = row.getCollection(def.name);
             ByteBuffer value = collection == null
-                             ? null
-                             : ((CollectionType)def.type).serialize(collection);
+                               ? null
+                               : ((CollectionType)def.type).serialize(collection);
             result.add(value);
             return;
         }
@@ -1149,8 +1151,8 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
         }
 
         Comparator<List<ByteBuffer>> comparator = idToSort.size() == 1
-                                                ? new SingleColumnComparator(idToSort.get(0), sorters.get(0))
-                                                : new CompositeComparator(sorters, idToSort);
+                                                  ? new SingleColumnComparator(idToSort.get(0), sorters.get(0))
+                                                  : new CompositeComparator(sorters, idToSort);
         Collections.sort(cqlRows.rows, comparator);
     }
 
@@ -1204,8 +1206,8 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
                 throw new InvalidRequestException("Only COUNT(*) and COUNT(1) operations are currently supported.");
 
             Selection selection = selectClause.isEmpty()
-                                ? Selection.wildcard(cfm)
-                                : Selection.fromSelectors(cfm, selectClause);
+                                  ? Selection.wildcard(cfm)
+                                  : Selection.fromSelectors(cfm, selectClause);
 
             if (parameters.isDistinct)
                 validateDistinctSelection(selection.getColumnsList(), cfm.partitionKeyColumns());
@@ -1527,7 +1529,7 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
                 //  - Have no index expression and the column filter is not the identity
                 if (stmt.restrictedColumns.size() > 1 || (stmt.restrictedColumns.isEmpty() && !stmt.columnFilterIsIdentity()))
                     throw new InvalidRequestException("Cannot execute this query as it might involve data filtering and thus may have unpredictable performance. "
-                                                    + "If you want to execute this query despite the performance unpredictability, use ALLOW FILTERING");
+                                                      + "If you want to execute this query despite the performance unpredictability, use ALLOW FILTERING");
             }
 
             return new ParsedStatement.Prepared(stmt, names);
@@ -1541,12 +1543,12 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
         private int indexOf(final ColumnDefinition def, Iterator<ColumnDefinition> defs)
         {
             return Iterators.indexOf(defs, new Predicate<ColumnDefinition>()
-                                           {
-                                               public boolean apply(ColumnDefinition n)
-                                               {
-                                                   return def.name.equals(n.name);
-                                               }
-                                           });
+            {
+                public boolean apply(ColumnDefinition n)
+                {
+                    return def.name.equals(n.name);
+                }
+            });
         }
 
         private void validateDistinctSelection(Collection<ColumnDefinition> requestedColumns, Collection<ColumnDefinition> partitionKey)
@@ -1564,12 +1566,12 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
         private boolean containsAlias(final ColumnIdentifier name)
         {
             return Iterables.any(selectClause, new Predicate<RawSelector>()
-                                               {
-                                                   public boolean apply(RawSelector raw)
-                                                   {
-                                                       return name.equals(raw.alias);
-                                                   }
-                                               });
+            {
+                public boolean apply(RawSelector raw)
+                {
+                    return name.equals(raw.alias);
+                }
+            });
         }
 
         private ColumnSpecification limitReceiver()
@@ -1598,14 +1600,14 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
             switch (newRel.operator())
             {
                 case EQ:
-                    {
-                        if (restriction != null)
-                            throw new InvalidRequestException(String.format("%s cannot be restricted by more than one relation if it includes an Equal", def.name));
-                        Term t = newRel.getValue().prepare(keyspace(), receiver);
-                        t.collectMarkerSpecification(boundNames);
-                        restriction = new Restriction.EQ(t, newRel.onToken);
-                    }
-                    break;
+                {
+                    if (restriction != null)
+                        throw new InvalidRequestException(String.format("%s cannot be restricted by more than one relation if it includes an Equal", def.name));
+                    Term t = newRel.getValue().prepare(keyspace(), receiver);
+                    t.collectMarkerSpecification(boundNames);
+                    restriction = new Restriction.EQ(t, newRel.onToken);
+                }
+                break;
                 case IN:
                     if (restriction != null)
                         throw new InvalidRequestException(String.format("%s cannot be restricted by more than one relation if it includes a IN", def.name));
@@ -1634,36 +1636,36 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
                 case GTE:
                 case LT:
                 case LTE:
-                    {
-                        if (restriction == null)
-                            restriction = new Restriction.Slice(newRel.onToken);
-                        else if (!restriction.isSlice())
-                            throw new InvalidRequestException(String.format("%s cannot be restricted by both an equal and an inequal relation", def.name));
-                        Term t = newRel.getValue().prepare(keyspace(), receiver);
-                        t.collectMarkerSpecification(boundNames);
-                        if (newRel.previousInTuple != null && (def.position() == 0 || !cfm.clusteringColumns().get(def.position() - 1).name.equals(newRel.previousInTuple)))
-                            throw new InvalidRequestException(String.format("Invalid tuple notation, column %s is not before column %s in the clustering order", newRel.previousInTuple, def.name));
-                        ((Restriction.Slice)restriction).setBound(def.name, newRel.operator(), t, newRel.previousInTuple);
-                    }
-                    break;
+                {
+                    if (restriction == null)
+                        restriction = new Restriction.Slice(newRel.onToken);
+                    else if (!restriction.isSlice())
+                        throw new InvalidRequestException(String.format("%s cannot be restricted by both an equal and an inequal relation", def.name));
+                    Term t = newRel.getValue().prepare(keyspace(), receiver);
+                    t.collectMarkerSpecification(boundNames);
+                    if (newRel.previousInTuple != null && (def.position() == 0 || !cfm.clusteringColumns().get(def.position() - 1).name.equals(newRel.previousInTuple)))
+                        throw new InvalidRequestException(String.format("Invalid tuple notation, column %s is not before column %s in the clustering order", newRel.previousInTuple, def.name));
+                    ((Restriction.Slice)restriction).setBound(def.name, newRel.operator(), t, newRel.previousInTuple);
+                }
+                break;
                 case CONTAINS_KEY:
                     if (!(receiver.type instanceof MapType))
                         throw new InvalidRequestException(String.format("Cannot use CONTAINS_KEY on non-map column %s", def.name));
                     // Fallthrough on purpose
                 case CONTAINS:
-                    {
-                        if (!receiver.type.isCollection())
-                            throw new InvalidRequestException(String.format("Cannot use %s relation on non collection column %s", newRel.operator(), def.name));
+                {
+                    if (!receiver.type.isCollection())
+                        throw new InvalidRequestException(String.format("Cannot use %s relation on non collection column %s", newRel.operator(), def.name));
 
-                        if (restriction == null)
-                            restriction = new Restriction.Contains();
-                        else if (!restriction.isContains())
-                            throw new InvalidRequestException(String.format("Collection column %s can only be restricted by CONTAINS or CONTAINS KEY", def.name));
-                        boolean isKey = newRel.operator() == Relation.Type.CONTAINS_KEY;
-                        receiver = makeCollectionReceiver(receiver, isKey);
-                        Term t = newRel.getValue().prepare(keyspace(), receiver);
-                        ((Restriction.Contains)restriction).add(t, isKey);
-                    }
+                    if (restriction == null)
+                        restriction = new Restriction.Contains();
+                    else if (!restriction.isContains())
+                        throw new InvalidRequestException(String.format("Collection column %s can only be restricted by CONTAINS or CONTAINS KEY", def.name));
+                    boolean isKey = newRel.operator() == Relation.Type.CONTAINS_KEY;
+                    receiver = makeCollectionReceiver(receiver, isKey);
+                    Term t = newRel.getValue().prepare(keyspace(), receiver);
+                    ((Restriction.Contains)restriction).add(t, isKey);
+                }
             }
             return restriction;
         }

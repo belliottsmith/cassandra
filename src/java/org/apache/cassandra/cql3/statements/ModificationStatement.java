@@ -20,6 +20,7 @@ package org.apache.cassandra.cql3.statements;
 import java.nio.ByteBuffer;
 import java.util.*;
 
+import org.apache.cassandra.utils.memory.RefAction;
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
 import org.github.jamm.MemoryMeter;
@@ -89,11 +90,11 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
     public long measureForPreparedCache(MemoryMeter meter)
     {
         return meter.measure(this)
-             + meter.measureDeep(attrs)
-             + meter.measureDeep(processedKeys)
-             + meter.measureDeep(columnOperations)
-             + (columnConditions == null ? 0 : meter.measureDeep(columnConditions))
-             + (staticConditions == null ? 0 : meter.measureDeep(staticConditions));
+               + meter.measureDeep(attrs)
+               + meter.measureDeep(processedKeys)
+               + meter.measureDeep(columnOperations)
+               + (columnConditions == null ? 0 : meter.measureDeep(columnConditions))
+               + (staticConditions == null ? 0 : meter.measureDeep(staticConditions));
     }
 
     public abstract boolean requireFullClusteringKey();
@@ -397,7 +398,7 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
         return null;
     }
 
-    protected Map<ByteBuffer, CQL3Row> readRequiredRows(Collection<ByteBuffer> partitionKeys, Composite clusteringPrefix, boolean local, ConsistencyLevel cl)
+    protected Map<ByteBuffer, CQL3Row> readRequiredRows(RefAction refAction, Collection<ByteBuffer> partitionKeys, Composite clusteringPrefix, boolean local, ConsistencyLevel cl)
     throws RequestExecutionException, RequestValidationException
     {
         // Lists SET operation incurs a read.
@@ -411,10 +412,10 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
             }
         }
 
-        return requiresRead ? readRows(partitionKeys, clusteringPrefix, cfm, local, cl) : null;
+        return requiresRead ? readRows(refAction, partitionKeys, clusteringPrefix, cfm, local, cl) : null;
     }
 
-    protected Map<ByteBuffer, CQL3Row> readRows(Collection<ByteBuffer> partitionKeys, Composite rowPrefix, CFMetaData cfm, boolean local, ConsistencyLevel cl)
+    protected Map<ByteBuffer, CQL3Row> readRows(RefAction refAction, Collection<ByteBuffer> partitionKeys, Composite rowPrefix, CFMetaData cfm, boolean local, ConsistencyLevel cl)
     throws RequestExecutionException, RequestValidationException
     {
         try
@@ -437,8 +438,8 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
                                                   new SliceQueryFilter(slices, false, Integer.MAX_VALUE)));
 
         List<Row> rows = local
-                       ? SelectStatement.readLocally(keyspace(), commands)
-                       : StorageProxy.read(commands, cl);
+                         ? SelectStatement.readLocally(refAction, keyspace(), commands)
+                         : StorageProxy.read(refAction, commands, cl);
 
         Map<ByteBuffer, CQL3Row> map = new HashMap<ByteBuffer, CQL3Row>();
         for (Row row : rows)
@@ -460,12 +461,12 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
     public boolean hasConditions()
     {
         return ifNotExists
-            || ifExists
-            || (columnConditions != null && !columnConditions.isEmpty())
-            || (staticConditions != null && !staticConditions.isEmpty());
+               || ifExists
+               || (columnConditions != null && !columnConditions.isEmpty())
+               || (staticConditions != null && !staticConditions.isEmpty());
     }
 
-    public ResultMessage execute(QueryState queryState, QueryOptions options)
+    public ResultMessage execute(RefAction refAction, QueryState queryState, QueryOptions options)
     throws RequestExecutionException, RequestValidationException
     {
         if (options.getConsistency() == null)
@@ -475,8 +476,8 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
             throw new InvalidRequestException("Conditional updates are not supported by the protocol version in use. You need to upgrade to a driver using the native protocol v2.");
 
         return hasConditions()
-             ? executeWithCondition(queryState, options)
-             : executeWithoutCondition(queryState, options);
+               ? executeWithCondition(refAction, queryState, options)
+               : executeWithoutCondition(queryState, options);
     }
 
     private ResultMessage executeWithoutCondition(QueryState queryState, QueryOptions options)
@@ -488,14 +489,19 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
         else
             cl.validateForWrite(cfm.ksName);
 
-        Collection<? extends IMutation> mutations = getMutations(options.getValues(), false, cl, queryState.getTimestamp());
-        if (!mutations.isEmpty())
-            StorageProxy.mutateWithTriggers(mutations, cl, false);
+        try (RefAction refAction = RefAction.refer())
+        {
+            Collection<? extends IMutation> mutations = getMutations(refAction, options.getValues(), false, cl, queryState.getTimestamp());
 
+            // we rely on the fact that StorageProxy.mutateWithTriggers is synchronous, so we can invalidate our references
+            // as soon as it returns
+            if (!mutations.isEmpty())
+                StorageProxy.mutateWithTriggers(mutations, cl, false);
+        }
         return null;
     }
 
-    public ResultMessage executeWithCondition(QueryState queryState, QueryOptions options)
+    public ResultMessage executeWithCondition(RefAction refAction, QueryState queryState, QueryOptions options)
     throws RequestExecutionException, RequestValidationException
     {
         List<ByteBuffer> variables = options.getValues();
@@ -511,14 +517,15 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
         ColumnFamily updates = ArrayBackedSortedColumns.factory.create(cfm);
         addUpdatesAndConditions(key, prefix, updates, conditions, variables, getTimestamp(queryState.getTimestamp(), variables));
 
-        ColumnFamily result = StorageProxy.cas(keyspace(),
+        ColumnFamily result = StorageProxy.cas(refAction,
+                                               keyspace(),
                                                columnFamily(),
                                                key,
                                                conditions,
                                                updates,
                                                options.getSerialConsistency(),
                                                options.getConsistency());
-        return new ResultMessage.Rows(buildCasResultSet(key, result));
+        return new ResultMessage.Rows(refAction, buildCasResultSet(key, result));
     }
 
     public void addUpdatesAndConditions(ByteBuffer key, Composite clusteringPrefix, ColumnFamily updates, CQL3CasConditions conditions, List<ByteBuffer> variables, long now)
@@ -624,11 +631,14 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
         if (hasConditions())
             throw new UnsupportedOperationException();
 
-        for (IMutation mutation : getMutations(Collections.<ByteBuffer>emptyList(), true, null, queryState.getTimestamp()))
+        try (RefAction refAction = RefAction.refer())
         {
-            // We don't use counters internally.
-            assert mutation instanceof Mutation;
-            ((Mutation) mutation).apply();
+            for (IMutation mutation : getMutations(refAction, Collections.<ByteBuffer>emptyList(), true, null, queryState.getTimestamp()))
+            {
+                // We don't use counters internally.
+                assert mutation instanceof Mutation;
+                ((Mutation) mutation).apply();
+            }
         }
         return null;
     }
@@ -644,13 +654,13 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
      * @return list of the mutations
      * @throws InvalidRequestException on invalid requests
      */
-    private Collection<? extends IMutation> getMutations(List<ByteBuffer> variables, boolean local, ConsistencyLevel cl, long now)
+    public Collection<? extends IMutation> getMutations(RefAction refAction, List<ByteBuffer> variables, boolean local, ConsistencyLevel cl, long now)
     throws RequestExecutionException, RequestValidationException
     {
         List<ByteBuffer> keys = buildPartitionKeyNames(variables);
         Composite clusteringPrefix = createClusteringPrefix(variables);
 
-        UpdateParameters params = makeUpdateParameters(keys, clusteringPrefix, variables, local, cl, now);
+        UpdateParameters params = makeUpdateParameters(refAction, keys, clusteringPrefix, variables, local, cl, now);
 
         Collection<IMutation> mutations = new ArrayList<IMutation>();
         for (ByteBuffer key: keys)
@@ -664,7 +674,8 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
         return mutations;
     }
 
-    public UpdateParameters makeUpdateParameters(Collection<ByteBuffer> keys,
+    public UpdateParameters makeUpdateParameters(RefAction refAction,
+                                                 Collection<ByteBuffer> keys,
                                                  Composite prefix,
                                                  List<ByteBuffer> variables,
                                                  boolean local,
@@ -673,7 +684,7 @@ public abstract class ModificationStatement implements CQLStatement, MeasurableF
     throws RequestExecutionException, RequestValidationException
     {
         // Some lists operation requires reading
-        Map<ByteBuffer, CQL3Row> rows = readRequiredRows(keys, prefix, local, cl);
+        Map<ByteBuffer, CQL3Row> rows = readRequiredRows(refAction, keys, prefix, local, cl);
         return new UpdateParameters(cfm, variables, getTimestamp(now, variables), getTimeToLive(variables), rows);
     }
 

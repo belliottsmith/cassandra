@@ -56,7 +56,8 @@ public class RowIteratorFactory
      * @param cfs
      * @return A row iterator following all the given restrictions
      */
-    public static CloseableIterator<Row> getIterator(final Iterable<Memtable> memtables,
+    public static CloseableIterator<Row> getIterator(final boolean copyOnHeap,
+                                                     final Iterable<Memtable> memtables,
                                                      final Collection<SSTableReader> sstables,
                                                      final DataRange range,
                                                      final ColumnFamilyStore cfs,
@@ -68,7 +69,7 @@ public class RowIteratorFactory
         // memtables
         for (Memtable memtable : memtables)
         {
-            iterators.add(new ConvertToColumnIterator(range, memtable.getEntryIterator(range.startKey(), range.stopKey())));
+            iterators.add(new ConvertToColumnIterator(range, memtable.getEntryIterator(copyOnHeap, range.startKey(), range.stopKey())));
         }
 
         for (SSTableReader sstable : sstables)

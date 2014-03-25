@@ -22,11 +22,15 @@ import java.util.Collections;
 import java.util.List;
 
 import com.google.common.primitives.Ints;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.googlecode.concurrentlinkedhashmap.EntryWeigher;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.utils.memory.RefAction;
+import org.github.jamm.MemoryMeter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.antlr.runtime.ANTLRStringStream;
 import org.antlr.runtime.CharStream;
 import org.antlr.runtime.CommonTokenStream;
@@ -69,7 +73,6 @@ public class QueryProcessor implements QueryHandler
     private static final Logger logger = LoggerFactory.getLogger(QueryProcessor.class);
     private static final MemoryMeter meter = new MemoryMeter().withGuessing(MemoryMeter.Guess.FALLBACK_BEST);
     private static final long MAX_CACHE_PREPARED_MEMORY = Runtime.getRuntime().maxMemory() / 256;
-    private static final int MAX_CACHE_PREPARED_COUNT = 10000;
 
     private static EntryWeigher<MD5Digest, CQLStatement> cqlMemoryUsageWeigher = new EntryWeigher<MD5Digest, CQLStatement>()
     {
@@ -155,7 +158,8 @@ public class QueryProcessor implements QueryHandler
                                                             Cell.MAX_NAME_LENGTH));
     }
 
-    public static ResultMessage processStatement(CQLStatement statement,
+    public static ResultMessage processStatement(RefAction refAction,
+                                                  CQLStatement statement,
                                                   QueryState queryState,
                                                   QueryOptions options)
     throws RequestExecutionException, RequestValidationException
@@ -165,24 +169,24 @@ public class QueryProcessor implements QueryHandler
         statement.checkAccess(clientState);
         statement.validate(clientState);
 
-        ResultMessage result = statement.execute(queryState, options);
+        ResultMessage result = statement.execute(refAction, queryState, options);
         return result == null ? new ResultMessage.Void() : result;
     }
 
-    public static ResultMessage process(String queryString, ConsistencyLevel cl, QueryState queryState)
+    public static ResultMessage process(RefAction refAction, String queryString, ConsistencyLevel cl, QueryState queryState)
     throws RequestExecutionException, RequestValidationException
     {
-        return instance.process(queryString, queryState, new QueryOptions(cl, Collections.<ByteBuffer>emptyList()));
+        return instance.process(refAction, queryString, queryState, new QueryOptions(cl, Collections.<ByteBuffer>emptyList()));
     }
 
-    public ResultMessage process(String queryString, QueryState queryState, QueryOptions options)
+    public ResultMessage process(RefAction refAction, String queryString, QueryState queryState, QueryOptions options)
     throws RequestExecutionException, RequestValidationException
     {
         CQLStatement prepared = getStatement(queryString, queryState.getClientState()).statement;
         if (prepared.getBoundTerms() != options.getValues().size())
             throw new InvalidRequestException("Invalid amount of bind variables");
 
-        return processStatement(prepared, queryState, options);
+        return processStatement(refAction, prepared, queryState, options);
     }
 
     public static CQLStatement parseStatement(String queryStr, QueryState queryState) throws RequestValidationException
@@ -190,11 +194,11 @@ public class QueryProcessor implements QueryHandler
         return getStatement(queryStr, queryState.getClientState()).statement;
     }
 
-    public static UntypedResultSet process(String query, ConsistencyLevel cl) throws RequestExecutionException
+    public static UntypedResultSet process(RefAction refAction, String query, ConsistencyLevel cl) throws RequestExecutionException
     {
         try
         {
-            ResultMessage result = instance.process(query, QueryState.forInternalCalls(), new QueryOptions(cl, Collections.<ByteBuffer>emptyList()));
+            ResultMessage result = instance.process(refAction, query, QueryState.forInternalCalls(), new QueryOptions(cl, Collections.<ByteBuffer>emptyList()));
             if (result instanceof ResultMessage.Rows)
                 return UntypedResultSet.create(((ResultMessage.Rows)result).result);
             else
@@ -302,7 +306,7 @@ public class QueryProcessor implements QueryHandler
         }
     }
 
-    public ResultMessage processPrepared(CQLStatement statement, QueryState queryState, QueryOptions options)
+    public ResultMessage processPrepared(RefAction refAction, CQLStatement statement, QueryState queryState, QueryOptions options)
     throws RequestExecutionException, RequestValidationException
     {
         List<ByteBuffer> variables = options.getValues();
@@ -321,17 +325,17 @@ public class QueryProcessor implements QueryHandler
                     logger.trace("[{}] '{}'", i+1, variables.get(i));
         }
 
-        return processStatement(statement, queryState, options);
+        return processStatement(refAction, statement, queryState, options);
     }
 
-    public ResultMessage processBatch(BatchStatement batch, QueryState queryState, BatchQueryOptions options)
+    public ResultMessage processBatch(RefAction refAction, BatchStatement batch, QueryState queryState, BatchQueryOptions options)
     throws RequestExecutionException, RequestValidationException
     {
         ClientState clientState = queryState.getClientState();
         batch.checkAccess(clientState);
         batch.validate(clientState);
 
-        batch.executeWithPerStatementVariables(options.getConsistency(), queryState, options.getValues());
+        batch.executeWithPerStatementVariables(refAction, options.getConsistency(), queryState, options.getValues());
         return new ResultMessage.Void();
     }
 
@@ -385,7 +389,7 @@ public class QueryProcessor implements QueryHandler
     private static long measure(Object key)
     {
         return key instanceof MeasurableForPreparedCache
-             ? ((MeasurableForPreparedCache)key).measureForPreparedCache(meter)
-             : meter.measureDeep(key);
+               ? ((MeasurableForPreparedCache)key).measureForPreparedCache(meter)
+               : meter.measureDeep(key);
     }
 }

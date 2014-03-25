@@ -35,6 +35,7 @@ import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.exceptions.RequestValidationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.cassandra.utils.memory.RefAction;
 
 abstract class AbstractQueryPager implements QueryPager
 {
@@ -79,14 +80,14 @@ abstract class AbstractQueryPager implements QueryPager
         this.remaining = toFetch;
     }
 
-
-    public List<Row> fetchPage(int pageSize) throws RequestValidationException, RequestExecutionException
+    public List<Row> fetchPage(RefAction refAction, int pageSize) throws RequestValidationException, RequestExecutionException
     {
         if (isExhausted())
             return Collections.emptyList();
 
         int currentPageSize = nextPageSize(pageSize);
-        List<Row> rows = filterEmpty(queryNextPage(currentPageSize, consistencyLevel, localQuery));
+        List<Row> rows = queryNextPage(refAction, currentPageSize, consistencyLevel, localQuery);
+        rows = filterEmpty(rows);
 
         if (rows.isEmpty())
         {
@@ -193,7 +194,7 @@ abstract class AbstractQueryPager implements QueryPager
         return columnFilter.columnCounter(cfm.comparator, timestamp);
     }
 
-    protected abstract List<Row> queryNextPage(int pageSize, ConsistencyLevel consistency, boolean localQuery) throws RequestValidationException, RequestExecutionException;
+    protected abstract List<Row> queryNextPage(RefAction refAction, int pageSize, ConsistencyLevel consistency, boolean localQuery) throws RequestValidationException, RequestExecutionException;
     protected abstract boolean containsPreviousLast(Row first);
     protected abstract boolean recordLast(Row last);
     protected abstract boolean isReversed();

@@ -32,6 +32,7 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.IReadCommand;
 import org.apache.cassandra.service.RowDataResolver;
 import org.apache.cassandra.service.pager.Pageable;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public abstract class ReadCommand implements IReadCommand, Pageable
 {
@@ -101,7 +102,7 @@ public abstract class ReadCommand implements IReadCommand, Pageable
 
     public abstract ReadCommand copy();
 
-    public abstract Row getRow(Keyspace keyspace);
+    public abstract Row getRow(RefAction refAction, Keyspace keyspace);
 
     public abstract IDiskAtomFilter filter();
 

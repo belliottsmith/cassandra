@@ -25,6 +25,7 @@ import org.apache.cassandra.utils.WrappedRunnable;
 import static org.apache.cassandra.Util.column;
 
 import org.apache.cassandra.Util;
+import org.apache.cassandra.utils.memory.RefAction;
 
 
 public class LongKeyspaceTest extends SchemaLoader
@@ -54,7 +55,7 @@ public class LongKeyspaceTest extends SchemaLoader
                 {
                     for (int j = 0; j < i; j++)
                     {
-                        cf = cfStore.getColumnFamily(Util.namesQueryFilter(cfStore, Util.dk("key" + i), "c" + j));
+                        cf = cfStore.getColumnFamily(RefAction.allocateOnHeap(), Util.namesQueryFilter(cfStore, Util.dk("key" + i), "c" + j));
                         KeyspaceTest.assertColumns(cf, "c" + j);
                     }
                 }

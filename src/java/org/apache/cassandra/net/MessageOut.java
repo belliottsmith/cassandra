@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.net;
 
+import java.io.Closeable;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -75,6 +76,21 @@ public class MessageOut<T>
         this.payload = payload;
         this.serializer = serializer;
         this.parameters = parameters;
+    }
+
+    public void close()
+    {
+        if (payload instanceof Closeable)
+        {
+            try
+            {
+                ((Closeable) payload).close();
+            }
+            catch (IOException e)
+            {
+                throw new AssertionError(e);
+            }
+        }
     }
 
     public MessageOut<T> withParameter(String key, byte[] value)

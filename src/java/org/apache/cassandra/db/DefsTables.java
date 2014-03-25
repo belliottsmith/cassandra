@@ -41,6 +41,7 @@ import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.memory.RefAction;
 
 /**
  * SCHEMA_{KEYSPACES, COLUMNFAMILIES, COLUMNS}_CF are used to store Keyspace/ColumnFamily attributes to make schema
@@ -138,17 +139,17 @@ public class DefsTables
     private static Row serializedColumnFamilies(DecoratedKey ksNameKey)
     {
         ColumnFamilyStore cfsStore = SystemKeyspace.schemaCFS(SystemKeyspace.SCHEMA_COLUMNFAMILIES_CF);
-        return new Row(ksNameKey, cfsStore.getColumnFamily(QueryFilter.getIdentityFilter(ksNameKey,
-                                                                                         SystemKeyspace.SCHEMA_COLUMNFAMILIES_CF,
-                                                                                         System.currentTimeMillis())));
+        return new Row(ksNameKey, cfsStore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(ksNameKey,
+                                                                                                                     SystemKeyspace.SCHEMA_COLUMNFAMILIES_CF,
+                                                                                                                     System.currentTimeMillis())));
     }
 
     private static Row serializedUserTypes(DecoratedKey ksNameKey)
     {
         ColumnFamilyStore cfsStore = SystemKeyspace.schemaCFS(SystemKeyspace.SCHEMA_USER_TYPES_CF);
-        return new Row(ksNameKey, cfsStore.getColumnFamily(QueryFilter.getIdentityFilter(ksNameKey,
-                                                                                         SystemKeyspace.SCHEMA_USER_TYPES_CF,
-                                                                                         System.currentTimeMillis())));
+        return new Row(ksNameKey, cfsStore.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(ksNameKey,
+                                                                                                                     SystemKeyspace.SCHEMA_USER_TYPES_CF,
+                                                                                                                     System.currentTimeMillis())));
     }
 
     /**
@@ -267,7 +268,7 @@ public class DefsTables
 
             if (cfAttrs.hasColumns())
             {
-               Map<String, CFMetaData> cfDefs = KSMetaData.deserializeColumnFamilies(new Row(entry.getKey(), cfAttrs));
+                Map<String, CFMetaData> cfDefs = KSMetaData.deserializeColumnFamilies(new Row(entry.getKey(), cfAttrs));
 
                 for (CFMetaData cfDef : cfDefs.values())
                     addColumnFamily(cfDef);

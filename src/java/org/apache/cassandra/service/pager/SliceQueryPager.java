@@ -21,15 +21,20 @@ import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
 
-import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.ReadCommand;
+import org.apache.cassandra.db.Row;
+import org.apache.cassandra.db.SliceFromReadCommand;
 import org.apache.cassandra.db.composites.CellName;
 import org.apache.cassandra.db.data.Cell;
 import org.apache.cassandra.db.filter.SliceQueryFilter;
-import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.exceptions.RequestExecutionException;
+import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.service.StorageProxy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.cassandra.utils.memory.RefAction;
 
 /**
  * Pager over a SliceFromReadCommand.
@@ -72,7 +77,7 @@ public class SliceQueryPager extends AbstractQueryPager implements SinglePartiti
              : new PagingState(null, lastReturned.toByteBuffer(), maxRemaining());
     }
 
-    protected List<Row> queryNextPage(int pageSize, ConsistencyLevel consistencyLevel, boolean localQuery)
+    protected List<Row> queryNextPage(RefAction refAction, int pageSize, ConsistencyLevel consistencyLevel, boolean localQuery)
     throws RequestValidationException, RequestExecutionException
     {
         SliceQueryFilter filter = command.filter.withUpdatedCount(pageSize);
@@ -82,8 +87,8 @@ public class SliceQueryPager extends AbstractQueryPager implements SinglePartiti
         logger.debug("Querying next page of slice query; new filter: {}", filter);
         ReadCommand pageCmd = command.withUpdatedFilter(filter);
         return localQuery
-             ? Collections.singletonList(pageCmd.getRow(Keyspace.open(command.ksName)))
-             : StorageProxy.read(Collections.singletonList(pageCmd), consistencyLevel);
+             ? Collections.singletonList(pageCmd.getRow(refAction, Keyspace.open(command.ksName)))
+             : StorageProxy.read(refAction, Collections.singletonList(pageCmd), consistencyLevel);
     }
 
     protected boolean containsPreviousLast(Row first)

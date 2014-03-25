@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db;
 
+import java.io.Closeable;
 import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -30,21 +31,24 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.io.util.FastByteArrayInputStream;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.utils.memory.RefAction;
 
-public class RangeSliceReply
+public class RangeSliceReply implements Closeable
 {
     public static final RangeSliceReplySerializer serializer = new RangeSliceReplySerializer();
 
     public final List<Row> rows;
+    public final RefAction refAction;
 
-    public RangeSliceReply(List<Row> rows)
+    public RangeSliceReply(RefAction refAction, List<Row> rows)
     {
         this.rows = rows;
+        this.refAction = refAction;
     }
 
     public MessageOut<RangeSliceReply> createMessage()
     {
-        return new MessageOut<RangeSliceReply>(MessagingService.Verb.REQUEST_RESPONSE, this, serializer);
+        return new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, this, serializer);
     }
 
     @Override
@@ -60,6 +64,11 @@ public class RangeSliceReply
         return serializer.deserialize(new DataInputStream(new FastByteArrayInputStream(body)), version);
     }
 
+    public void close() throws IOException
+    {
+        refAction.close();
+    }
+
     private static class RangeSliceReplySerializer implements IVersionedSerializer<RangeSliceReply>
     {
         public void serialize(RangeSliceReply rsr, DataOutputPlus out, int version) throws IOException
@@ -72,10 +81,10 @@ public class RangeSliceReply
         public RangeSliceReply deserialize(DataInput in, int version) throws IOException
         {
             int rowCount = in.readInt();
-            List<Row> rows = new ArrayList<Row>(rowCount);
+            List<Row> rows = new ArrayList<>(rowCount);
             for (int i = 0; i < rowCount; i++)
                 rows.add(Row.serializer.deserialize(in, version));
-            return new RangeSliceReply(rows);
+            return new RangeSliceReply(RefAction.impossible(), rows);
         }
 
         public long serializedSize(RangeSliceReply rsr, int version)

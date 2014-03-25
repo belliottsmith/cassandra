@@ -219,14 +219,14 @@ public class Memtable
     public String toString()
     {
         return String.format("Memtable-%s@%s(%s serialized bytes, %s ops, %.0f%%/%.0f%% of on/off-heap limit)",
-                             cfs.name, hashCode(), liveDataSize, currentOperations, 100 * allocator.onHeap().ownershipRatio(), 100 * allocator.offHeap().ownershipRatio());
+                cfs.name, hashCode(), liveDataSize, currentOperations, 100 * allocator.onHeap().ownershipRatio(), 100 * allocator.offHeap().ownershipRatio());
     }
 
     /**
      * @param startWith Include data in the result from and including this key and to the end of the memtable
      * @return An iterator of entries with the data from the start key
      */
-    public Iterator<Map.Entry<DecoratedKey, ColumnFamily>> getEntryIterator(final RowPosition startWith, final RowPosition stopAt)
+    public Iterator<Map.Entry<DecoratedKey, ColumnFamily>> getEntryIterator(final boolean copyToHeap, final RowPosition startWith, final RowPosition stopAt)
     {
         return new Iterator<Map.Entry<DecoratedKey, ColumnFamily>>()
         {
@@ -246,7 +246,7 @@ public class Memtable
                 Map.Entry<? extends RowPosition, ? extends ColumnFamily> entry = iter.next();
                 // Actual stored key should be true DecoratedKey
                 assert entry.getKey() instanceof DecoratedKey;
-                if (dataPool.needToCopyOnHeap())
+                if (copyToHeap)
                 {
                     DecoratedKey key = (DecoratedKey) entry.getKey();
                     key = new BufferDecoratedKey(key.token(), HeapAllocator.instance.clone(key.key()));
@@ -336,7 +336,7 @@ public class Memtable
             SSTableReader ssTable;
             // errors when creating the writer that may leave empty temp files.
             SSTableWriter writer = createFlushWriter(cfs.getTempSSTablePath(sstableDirectory));
-            try
+            try (OpOrder.SyncingGroup op = cfs.readOrdering.startSync())
             {
                 // (we can't clear out the map as-we-go to free up memory,
                 //  since the memtable is being used for queries in the "pending flush" category)

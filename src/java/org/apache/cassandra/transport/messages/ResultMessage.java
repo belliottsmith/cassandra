@@ -19,6 +19,7 @@ package org.apache.cassandra.transport.messages;
 
 import java.util.*;
 
+import org.apache.cassandra.utils.memory.RefAction;
 import io.netty.buffer.ByteBuf;
 
 import org.apache.cassandra.cql3.ColumnSpecification;
@@ -193,7 +194,7 @@ public abstract class ResultMessage extends Message.Response
         {
             public ResultMessage decode(ByteBuf body, int version)
             {
-                return new Rows(ResultSet.codec.decode(body, version));
+                return new Rows(RefAction.impossible(), ResultSet.codec.decode(body, version));
             }
 
             public void encode(ResultMessage msg, ByteBuf dest, int version)
@@ -201,6 +202,8 @@ public abstract class ResultMessage extends Message.Response
                 assert msg instanceof Rows;
                 Rows rowMsg = (Rows)msg;
                 ResultSet.codec.encode(rowMsg.result, dest, version);
+                // try-finally not necessary, as should be covered by Dispatcher.messageReceived()
+                rowMsg.refAction.close();
             }
 
             public int encodedSize(ResultMessage msg, int version)
@@ -212,11 +215,13 @@ public abstract class ResultMessage extends Message.Response
         };
 
         public final ResultSet result;
+        private final RefAction refAction;
 
-        public Rows(ResultSet result)
+        public Rows(RefAction refAction, ResultSet result)
         {
             super(Kind.ROWS);
             this.result = result;
+            this.refAction = refAction;
         }
 
         public CqlResult toThriftResult()

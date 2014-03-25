@@ -21,6 +21,7 @@ import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.exceptions.*;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public interface CQLStatement
 {
@@ -47,10 +48,11 @@ public interface CQLStatement
     /**
      * Execute the statement and return the resulting result or null if there is no result.
      *
+     * @param refAction the action to take with references to data whose lifecycle is not managed by normal Java GC
      * @param state the current query state
      * @param options options for this query (consistency, variables, pageSize, ...)
      */
-    public ResultMessage execute(QueryState state, QueryOptions options) throws RequestValidationException, RequestExecutionException;
+    public ResultMessage execute(RefAction refAction, QueryState state, QueryOptions options) throws RequestValidationException, RequestExecutionException;
 
     /**
      * Variante of execute used for internal query against the system tables, and thus only query the local node.

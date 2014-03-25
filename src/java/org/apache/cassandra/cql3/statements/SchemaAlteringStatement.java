@@ -24,6 +24,7 @@ import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.messages.ResultMessage;
+import org.apache.cassandra.utils.memory.RefAction;
 
 /**
  * Abstract class for statements that alter the schema.
@@ -66,7 +67,7 @@ public abstract class SchemaAlteringStatement extends CFStatement implements CQL
 
     public abstract void announceMigration() throws RequestValidationException;
 
-    public ResultMessage execute(QueryState state, QueryOptions options) throws RequestValidationException
+    public ResultMessage execute(RefAction refAction, QueryState state, QueryOptions options) throws RequestValidationException
     {
         announceMigration();
         String tableName = cfName == null || columnFamily() == null ? "" : columnFamily();

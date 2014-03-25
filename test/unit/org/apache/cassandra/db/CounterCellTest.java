@@ -18,13 +18,22 @@
 */
 package org.apache.cassandra.db;
 
+import java.security.MessageDigest;
+
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 import java.util.Arrays;
 
+import org.apache.cassandra.db.composites.CellName;
+import org.apache.cassandra.db.data.BufferCounterCell;
+import org.apache.cassandra.db.data.Cell;
+import org.apache.cassandra.db.data.CounterCell;
+import org.apache.cassandra.db.data.BufferDeletedCell;
+import org.apache.cassandra.db.data.DeletedCell;
+import org.apache.cassandra.db.data.NativeDataAllocator;
+import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -33,16 +42,9 @@ import org.apache.cassandra.Util;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.composites.SimpleDenseCellNameType;
 import org.apache.cassandra.db.context.CounterContext;
-import org.apache.cassandra.db.data.BufferCounterCell;
-import org.apache.cassandra.db.data.BufferDeletedCell;
-import org.apache.cassandra.db.data.Cell;
-import org.apache.cassandra.db.data.CounterCell;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.io.util.DataOutputBuffer;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.CounterId;
-import org.apache.cassandra.utils.memory.ByteBufferAllocator;
-import org.apache.cassandra.utils.memory.HeapAllocator;
+import org.apache.cassandra.utils.*;
 
 import static org.apache.cassandra.Util.cellname;
 import static org.apache.cassandra.db.context.CounterContext.ContextState;
@@ -66,14 +68,22 @@ public class CounterCellTest extends SchemaLoader
         stepLength    = idLength + clockLength + countLength;
     }
 
+    private static enum CellType { buf, nat }
+
+    private static final NativeDataAllocator nativeAllocator = new NativeDataAllocator.NativeDataPool(Integer.MAX_VALUE, Integer.MAX_VALUE, 1f, null)
+                                                               .newGroup("", new OpOrder(), new OpOrder()).newAllocator();
+    private static final OpOrder.Group group = new OpOrder().start();
+
     @Test
     public void testCreate()
     {
+        runCreate(CellType.buf);
+        runCreate(CellType.nat);
+    }
+    public void runCreate(CellType type)
+    {
         long delta = 3L;
-        CounterCell cell = new BufferCounterCell(Util.cellname("x"),
-                                           CounterContext.instance().createLocal(delta),
-                                           1L,
-                                           Long.MIN_VALUE);
+        CounterCell cell = make(type, Util.cellname("x"), delta, 1L, Long.MIN_VALUE);
 
         Assert.assertEquals(delta, cell.total());
         Assert.assertEquals(1, cell.value().getShort(0));
@@ -86,6 +96,11 @@ public class CounterCellTest extends SchemaLoader
     @Test
     public void testReconcile()
     {
+        runReconcile(CellType.buf);
+        runReconcile(CellType.nat);
+    }
+    public void runReconcile(CellType type)
+    {
         Cell left;
         Cell right;
         Cell reconciled;
@@ -93,101 +108,101 @@ public class CounterCellTest extends SchemaLoader
         ByteBuffer context;
 
         // tombstone + tombstone
-        left  = new BufferDeletedCell(cellname("x"), 1, 1L);
-        right = new BufferDeletedCell(cellname("x"), 2, 2L);
+        left  = makeDelete(type, cellname("x"), 1, 1L);
+        right = makeDelete(type, cellname("x"), 2, 2L);
 
-        assert left.reconcile(right).getMarkedForDeleteAt() == right.getMarkedForDeleteAt();
-        assert right.reconcile(left).getMarkedForDeleteAt() == right.getMarkedForDeleteAt();
+        assert reconcile(type, left, right).getMarkedForDeleteAt() == right.getMarkedForDeleteAt();
+        assert reconcile(type, right, left).getMarkedForDeleteAt() == right.getMarkedForDeleteAt();
 
         // tombstone > live
-        left  = new BufferDeletedCell(cellname("x"), 1, 2L);
-        right = BufferCounterCell.createLocal(cellname("x"), 0L, 1L, Long.MIN_VALUE);
+        left  = makeDelete(type, cellname("x"), 1, 2L);
+        right = make(type, cellname("x"), 0L, 1L, Long.MIN_VALUE);
 
-        assert left.reconcile(right) == left;
+        assert reconcile(type, left, right) == left;
 
         // tombstone < live last delete
-        left  = new BufferDeletedCell(cellname("x"), 1, 1L);
-        right = BufferCounterCell.createLocal(cellname("x"), 0L, 4L, 2L);
+        left  = makeDelete(type, cellname("x"), 1, 1L);
+        right = make(type, cellname("x"), 0L, 4L, 2L);
 
-        assert left.reconcile(right) == right;
+        assert reconcile(type, left, right) == right;
 
         // tombstone == live last delete
-        left  = new BufferDeletedCell(cellname("x"), 1, 2L);
-        right = BufferCounterCell.createLocal(cellname("x"), 0L, 4L, 2L);
+        left  = makeDelete(type, cellname("x"), 1, 2L);
+        right = make(type, cellname("x"), 0L, 4L, 2L);
 
-        assert left.reconcile(right) == right;
+        assert reconcile(type, left, right) == right;
 
         // tombstone > live last delete
-        left  = new BufferDeletedCell(cellname("x"), 1, 4L);
-        right = BufferCounterCell.createLocal(cellname("x"), 0L, 9L, 1L);
+        left  = makeDelete(type, cellname("x"), 1, 4L);
+        right = make(type, cellname("x"), 0L, 9L, 1L);
 
-        reconciled = left.reconcile(right);
-        assert reconciled.name() == right.name();
-        assert reconciled.value() == right.value();
+        reconciled = reconcile(type, left, right);
+        assert reconciled.name().equals(right.name());
+        assert reconciled.value().equals(right.value());
         assert reconciled.timestamp() == right.timestamp();
         assert ((CounterCell)reconciled).timestampOfLastDelete() == left.getMarkedForDeleteAt();
 
         // live < tombstone
-        left  = BufferCounterCell.createLocal(cellname("x"), 0L, 1L, Long.MIN_VALUE);
+        left  = make(type, cellname("x"), 0L, 1L, Long.MIN_VALUE);
         right = new BufferDeletedCell(cellname("x"), 1, 2L);
 
-        assert left.reconcile(right) == right;
+        assert reconcile(type, left, right) == right;
 
         // live last delete > tombstone
-        left  = BufferCounterCell.createLocal(cellname("x"), 0L, 4L, 2L);
+        left  = make(type, cellname("x"), 0L, 4L, 2L);
         right = new BufferDeletedCell(cellname("x"), 1, 1L);
 
-        assert left.reconcile(right) == left;
+        assert reconcile(type, left, right) == left;
 
         // live last delete == tombstone
-        left  = BufferCounterCell.createLocal(cellname("x"), 0L, 4L, 2L);
+        left  = make(type, cellname("x"), 0L, 4L, 2L);
         right = new BufferDeletedCell(cellname("x"), 1, 2L);
 
-        assert left.reconcile(right) == left;
+        assert reconcile(type, left, right) == left;
 
         // live last delete < tombstone
-        left  = BufferCounterCell.createLocal(cellname("x"), 0L, 9L, 1L);
+        left  = make(type, cellname("x"), 0L, 9L, 1L);
         right = new BufferDeletedCell(cellname("x"), 1, 4L);
 
-        reconciled = left.reconcile(right);
-        assert reconciled.name() == left.name();
-        assert reconciled.value() == left.value();
+        reconciled = reconcile(type, left, right);
+        assert reconciled.name().equals(left.name());
+        assert reconciled.value().equals(left.value());
         assert reconciled.timestamp() == left.timestamp();
         assert ((CounterCell)reconciled).timestampOfLastDelete() == right.getMarkedForDeleteAt();
 
         // live < live last delete
-        left  = new BufferCounterCell(cellname("x"), cc.createRemote(CounterId.fromInt(1), 2L, 3L), 1L, Long.MIN_VALUE);
-        right = new BufferCounterCell(cellname("x"), cc.createRemote(CounterId.fromInt(1), 1L, 1L), 4L, 3L);
+        left  = make(type, cellname("x"), cc.createRemote(CounterId.fromInt(1), 2L, 3L), 1L, Long.MIN_VALUE);
+        right = make(type, cellname("x"), cc.createRemote(CounterId.fromInt(1), 1L, 1L), 4L, 3L);
 
-        assert left.reconcile(right) == right;
+        assert reconcile(type, left, right) == right;
 
         // live last delete > live
-        left  = new BufferCounterCell(cellname("x"), cc.createRemote(CounterId.fromInt(1), 2L, 3L), 6L, 5L);
-        right = new BufferCounterCell(cellname("x"), cc.createRemote(CounterId.fromInt(1), 1L, 1L), 4L, 3L);
+        left  = make(type, cellname("x"), cc.createRemote(CounterId.fromInt(1), 2L, 3L), 6L, 5L);
+        right = make(type, cellname("x"), cc.createRemote(CounterId.fromInt(1), 1L, 1L), 4L, 3L);
 
-        assert left.reconcile(right) == left;
+        assert reconcile(type, left, right) == left;
 
         // live + live
-        left = new BufferCounterCell(cellname("x"), cc.createRemote(CounterId.fromInt(1), 1L, 1L), 4L, Long.MIN_VALUE);
-        right = new BufferCounterCell(cellname("x"), cc.createRemote(CounterId.fromInt(1), 2L, 3L), 1L, Long.MIN_VALUE);
+        left = make(type, cellname("x"), cc.createRemote(CounterId.fromInt(1), 1L, 1L), 4L, Long.MIN_VALUE);
+        right = make(type, cellname("x"), cc.createRemote(CounterId.fromInt(1), 2L, 3L), 1L, Long.MIN_VALUE);
 
-        reconciled = left.reconcile(right);
+        reconciled = reconcile(type, left, right);
         assert reconciled.name().equals(left.name());
         assert ((CounterCell)reconciled).total() == 3L;
         assert reconciled.timestamp() == 4L;
 
         left = reconciled;
-        right = new BufferCounterCell(cellname("x"), cc.createRemote(CounterId.fromInt(2), 1L, 5L), 2L, Long.MIN_VALUE);
+        right = make(type, cellname("x"), cc.createRemote(CounterId.fromInt(2), 1L, 5L), 2L, Long.MIN_VALUE);
 
-        reconciled = left.reconcile(right);
+        reconciled = reconcile(type, left, right);
         assert reconciled.name().equals(left.name());
         assert ((CounterCell)reconciled).total() == 8L;
         assert reconciled.timestamp() == 4L;
 
         left = reconciled;
-        right = new BufferCounterCell(cellname("x"), cc.createRemote(CounterId.fromInt(2), 2L, 2L), 6L, Long.MIN_VALUE);
+        right = make(type, cellname("x"), cc.createRemote(CounterId.fromInt(2), 2L, 2L), 6L, Long.MIN_VALUE);
 
-        reconciled = left.reconcile(right);
+        reconciled = reconcile(type, left, right);
         assert reconciled.name().equals(left.name());
         assert ((CounterCell)reconciled).total() == 5L;
         assert reconciled.timestamp() == 6L;
@@ -210,6 +225,11 @@ public class CounterCellTest extends SchemaLoader
     @Test
     public void testDiff()
     {
+        runDiff(CellType.buf);
+        runDiff(CellType.nat);
+    }
+    public void runDiff(CellType type)
+    {
         ContextState left;
         ContextState right;
 
@@ -217,15 +237,15 @@ public class CounterCellTest extends SchemaLoader
         CounterCell rightCell;
 
         // timestamp
-        leftCell = BufferCounterCell.createLocal(cellname("x"), 0, 1L, Long.MIN_VALUE);
-        rightCell = BufferCounterCell.createLocal(cellname("x"), 0, 2L, Long.MIN_VALUE);
+        leftCell = make(type, cellname("x"), 0, 1L, Long.MIN_VALUE);
+        rightCell = make(type, cellname("x"), 0, 2L, Long.MIN_VALUE);
 
         assert rightCell == leftCell.diff(rightCell);
         assert null      == rightCell.diff(leftCell);
 
         // timestampOfLastDelete
-        leftCell = BufferCounterCell.createLocal(cellname("x"), 0, 1L, 1L);
-        rightCell = BufferCounterCell.createLocal(cellname("x"), 0, 1L, 2L);
+        leftCell = make(type, cellname("x"), 0, 1L, 1L);
+        rightCell = make(type, cellname("x"), 0, 1L, 2L);
 
         assert rightCell == leftCell.diff(rightCell);
         assert null      == rightCell.diff(leftCell);
@@ -237,8 +257,8 @@ public class CounterCellTest extends SchemaLoader
         left.writeRemote(CounterId.fromInt(9), 1L, 0L);
         right = ContextState.wrap(ByteBufferUtil.clone(left.context));
 
-        leftCell  = new BufferCounterCell(cellname("x"), left.context,  1L);
-        rightCell = new BufferCounterCell(cellname("x"), right.context, 1L);
+        leftCell  = make(type, cellname("x"), left.context,  1L);
+        rightCell = make(type, cellname("x"), right.context, 1L);
         assert leftCell.diff(rightCell) == null;
 
         // greater than: left has superset of nodes (counts equal)
@@ -253,8 +273,8 @@ public class CounterCellTest extends SchemaLoader
         right.writeRemote(CounterId.fromInt(6), 2L, 0L);
         right.writeRemote(CounterId.fromInt(9), 1L, 0L);
 
-        leftCell  = new BufferCounterCell(cellname("x"), left.context,  1L);
-        rightCell = new BufferCounterCell(cellname("x"), right.context, 1L);
+        leftCell  = make(type, cellname("x"), left.context,  1L);
+        rightCell = make(type, cellname("x"), right.context, 1L);
         assert leftCell.diff(rightCell) == null;
 
         // less than: right has subset of nodes (counts equal)
@@ -271,14 +291,19 @@ public class CounterCellTest extends SchemaLoader
         right.writeRemote(CounterId.fromInt(6), 1L, 0L);
         right.writeRemote(CounterId.fromInt(9), 1L, 0L);
 
-        leftCell  = new BufferCounterCell(cellname("x"), left.context,  1L);
-        rightCell = new BufferCounterCell(cellname("x"), right.context, 1L);
+        leftCell  = make(type, cellname("x"), left.context,  1L);
+        rightCell = make(type, cellname("x"), right.context, 1L);
         assert rightCell == leftCell.diff(rightCell);
         assert leftCell  == rightCell.diff(leftCell);
     }
 
     @Test
     public void testSerializeDeserialize() throws IOException
+    {
+        runSerializeDeserialize(CellType.buf);
+        runSerializeDeserialize(CellType.nat);
+    }
+    public void runSerializeDeserialize(CellType celltype) throws IOException
     {
         CounterContext.ContextState state = CounterContext.ContextState.allocate(0, 2, 2);
         state.writeRemote(CounterId.fromInt(1), 4L, 4L);
@@ -287,7 +312,7 @@ public class CounterCellTest extends SchemaLoader
         state.writeLocal(CounterId.fromInt(4), 4L, 4L);
 
         CellNameType type = new SimpleDenseCellNameType(UTF8Type.instance);
-        CounterCell original = new BufferCounterCell(cellname("x"), state.context, 1L);
+        CounterCell original = make(celltype, cellname("x"), state.context, 1L);
         byte[] serialized;
         try (DataOutputBuffer bufOut = new DataOutputBuffer())
         {
@@ -312,6 +337,11 @@ public class CounterCellTest extends SchemaLoader
     @Test
     public void testUpdateDigest() throws Exception
     {
+        runUpdateDigest(CellType.buf);
+        runUpdateDigest(CellType.nat);
+    }
+    public void runUpdateDigest(CellType type) throws Exception
+    {
         MessageDigest digest1 = MessageDigest.getInstance("md5");
         MessageDigest digest2 = MessageDigest.getInstance("md5");
 
@@ -321,12 +351,56 @@ public class CounterCellTest extends SchemaLoader
         state.writeRemote(CounterId.fromInt(3), 4L, 4L);
         state.writeLocal(CounterId.fromInt(4), 4L, 4L);
 
-        CounterCell original = new BufferCounterCell(cellname("x"), state.context, 1L);
-        CounterCell cleared = new BufferCounterCell(cellname("x"), cc.clearAllLocal(state.context), 1L);
+        CounterCell original = make(type, cellname("x"), state.context, 1L);
+        CounterCell cleared = make(type, cellname("x"), cc.clearAllLocal(state.context), 1L);
 
         original.updateDigest(digest1);
         cleared.updateDigest(digest2);
 
         assert Arrays.equals(digest1.digest(), digest2.digest());
+    }
+
+    private static CounterCell make(CellType type, CellName name, long delta, long timestamp, long timestampOfLastDelete)
+    {
+        return make(type, name, CounterContext.instance().createLocal(delta), timestamp, timestampOfLastDelete);
+    }
+
+    private static CounterCell make(CellType type, CellName name, ByteBuffer value, long timestamp, long timestampOfLastDelete)
+    {
+        CounterCell cell = new BufferCounterCell(name, value, timestamp, timestampOfLastDelete);
+        if (type == CellType.nat)
+            return cell.localCopy(null, nativeAllocator, group);
+        return cell;
+    }
+
+    private static CounterCell make(CellType type, CellName name, ByteBuffer value, long timestamp)
+    {
+        CounterCell cell = new BufferCounterCell(name, value, timestamp);
+        if (type == CellType.nat)
+            return cell.localCopy(null, nativeAllocator, group);
+        return cell;
+    }
+
+    private static DeletedCell makeDelete(CellType type, CellName name, int localDeletionTime, long timestamp)
+    {
+        DeletedCell cell = new BufferDeletedCell(name, localDeletionTime, timestamp);
+        if (type == CellType.nat)
+            return cell.localCopy(null, nativeAllocator, group);
+        return cell;
+    }
+
+    private static Cell clone(CellType type, Cell cell)
+    {
+        if (type == CellType.nat)
+            return cell.localCopy(null, nativeAllocator, group);
+        return cell;
+    }
+
+    private static Cell reconcile(CellType type, Cell a, Cell b)
+    {
+        Cell r = a.reconcile(b);
+        if (r == a || r == b)
+            return r;
+        return clone(type, r);
     }
 }

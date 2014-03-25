@@ -35,6 +35,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.utils.*;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class DynamicCompositeTypeTest extends SchemaLoader
 {
@@ -61,12 +62,12 @@ public class DynamicCompositeTypeTest extends SchemaLoader
     public void testEndOfComponent()
     {
         ByteBuffer[] cnames = {
-            createDynamicCompositeKey("test1", uuids[0], -1, false),
-            createDynamicCompositeKey("test1", uuids[1], 24, false),
-            createDynamicCompositeKey("test1", uuids[1], 42, false),
-            createDynamicCompositeKey("test1", uuids[1], 83, false),
-            createDynamicCompositeKey("test1", uuids[2], -1, false),
-            createDynamicCompositeKey("test1", uuids[2], 42, false),
+                              createDynamicCompositeKey("test1", uuids[0], -1, false),
+                              createDynamicCompositeKey("test1", uuids[1], 24, false),
+                              createDynamicCompositeKey("test1", uuids[1], 42, false),
+                              createDynamicCompositeKey("test1", uuids[1], 83, false),
+                              createDynamicCompositeKey("test1", uuids[2], -1, false),
+                              createDynamicCompositeKey("test1", uuids[2], 42, false),
         };
 
         ByteBuffer start = createDynamicCompositeKey("test1", uuids[1], -1, false);
@@ -182,7 +183,7 @@ public class DynamicCompositeTypeTest extends SchemaLoader
         addColumn(rm, cname3);
         rm.apply();
 
-        ColumnFamily cf = cfs.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk("k"), cfName, System.currentTimeMillis()));
+        ColumnFamily cf = cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getIdentityFilter(Util.dk("k"), cfName, System.currentTimeMillis()));
 
         Iterator<Cell> iter = cf.getSortedColumns().iterator();
 

@@ -25,6 +25,7 @@ import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.messages.ResultMessage;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public abstract class AuthorizationStatement extends ParsedStatement implements CQLStatement
 {
@@ -39,13 +40,13 @@ public abstract class AuthorizationStatement extends ParsedStatement implements 
         return 0;
     }
 
-    public ResultMessage execute(QueryState state, QueryOptions options)
+    public ResultMessage execute(RefAction refAction, QueryState state, QueryOptions options)
     throws RequestValidationException, RequestExecutionException
     {
-        return execute(state.getClientState());
+        return execute(refAction, state.getClientState());
     }
 
-    public abstract ResultMessage execute(ClientState state) throws RequestValidationException, RequestExecutionException;
+    public abstract ResultMessage execute(RefAction refAction, ClientState state) throws RequestValidationException, RequestExecutionException;
 
     public ResultMessage executeInternal(QueryState state)
     {

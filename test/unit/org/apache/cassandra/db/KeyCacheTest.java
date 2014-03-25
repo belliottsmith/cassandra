@@ -33,6 +33,7 @@ import org.apache.cassandra.db.data.DecoratedKey;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
 
 import static org.junit.Assert.assertEquals;
 
@@ -128,21 +129,21 @@ public class KeyCacheTest extends SchemaLoader
         cfs.forceBlockingFlush();
 
         // reads to cache key position
-        cfs.getColumnFamily(QueryFilter.getSliceFilter(key1,
-                                                       COLUMN_FAMILY1,
-                                                       Composites.EMPTY,
-                                                       Composites.EMPTY,
-                                                       false,
-                                                       10,
-                                                       System.currentTimeMillis()));
+        cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(key1,
+                                                                                   COLUMN_FAMILY1,
+                                                                                   Composites.EMPTY,
+                                                                                   Composites.EMPTY,
+                                                                                   false,
+                                                                                   10,
+                                                                                   System.currentTimeMillis()));
 
-        cfs.getColumnFamily(QueryFilter.getSliceFilter(key2,
-                                                       COLUMN_FAMILY1,
-                                                       Composites.EMPTY,
-                                                       Composites.EMPTY,
-                                                       false,
-                                                       10,
-                                                       System.currentTimeMillis()));
+        cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(key2,
+                                                                                   COLUMN_FAMILY1,
+                                                                                   Composites.EMPTY,
+                                                                                   Composites.EMPTY,
+                                                                                   false,
+                                                                                   10,
+                                                                                   System.currentTimeMillis()));
 
         assertKeyCacheSize(2, KEYSPACE1, COLUMN_FAMILY1);
 
@@ -152,21 +153,21 @@ public class KeyCacheTest extends SchemaLoader
         assertKeyCacheSize(4, KEYSPACE1, COLUMN_FAMILY1);
 
         // re-read same keys to verify that key cache didn't grow further
-        cfs.getColumnFamily(QueryFilter.getSliceFilter(key1,
-                                                       COLUMN_FAMILY1,
-                                                       Composites.EMPTY,
-                                                       Composites.EMPTY,
-                                                       false,
-                                                       10,
-                                                       System.currentTimeMillis()));
+        cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(key1,
+                                                                                   COLUMN_FAMILY1,
+                                                                                   Composites.EMPTY,
+                                                                                   Composites.EMPTY,
+                                                                                   false,
+                                                                                   10,
+                                                                                   System.currentTimeMillis()));
 
-        cfs.getColumnFamily(QueryFilter.getSliceFilter(key2,
-                                                       COLUMN_FAMILY1,
-                                                       Composites.EMPTY,
-                                                       Composites.EMPTY,
-                                                       false,
-                                                       10,
-                                                       System.currentTimeMillis()));
+        cfs.getColumnFamily(RefAction.allocateOnHeap(), QueryFilter.getSliceFilter(key2,
+                                                                                   COLUMN_FAMILY1,
+                                                                                   Composites.EMPTY,
+                                                                                   Composites.EMPTY,
+                                                                                   false,
+                                                                                   10,
+                                                                                   System.currentTimeMillis()));
 
         assertKeyCacheSize(4, KEYSPACE1, COLUMN_FAMILY1);
     }

@@ -42,6 +42,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.memory.RefAction;
 import org.mindrot.jbcrypt.BCrypt;
 
 /**
@@ -105,7 +106,7 @@ public class PasswordAuthenticator implements ISaslAwareAuthenticator
         UntypedResultSet result;
         try
         {
-            ResultMessage.Rows rows = authenticateStatement.execute(QueryState.forInternalCalls(),
+            ResultMessage.Rows rows = authenticateStatement.execute(RefAction.allocateOnHeap(), QueryState.forInternalCalls(),
                                                                     new QueryOptions(consistencyForUser(username),
                                                                                      Lists.newArrayList(ByteBufferUtil.bytes(username))));
             result = UntypedResultSet.create(rows.result);
@@ -131,7 +132,7 @@ public class PasswordAuthenticator implements ISaslAwareAuthenticator
         if (password == null)
             throw new InvalidRequestException("PasswordAuthenticator requires PASSWORD option");
 
-        process(String.format("INSERT INTO %s.%s (username, salted_hash) VALUES ('%s', '%s')",
+        process(RefAction.allocateOnHeap(), String.format("INSERT INTO %s.%s (username, salted_hash) VALUES ('%s', '%s')",
                               Auth.AUTH_KS,
                               CREDENTIALS_CF,
                               escape(username),
@@ -141,7 +142,7 @@ public class PasswordAuthenticator implements ISaslAwareAuthenticator
 
     public void alter(String username, Map<Option, Object> options) throws RequestExecutionException
     {
-        process(String.format("UPDATE %s.%s SET salted_hash = '%s' WHERE username = '%s'",
+        process(RefAction.allocateOnHeap(), String.format("UPDATE %s.%s SET salted_hash = '%s' WHERE username = '%s'",
                               Auth.AUTH_KS,
                               CREDENTIALS_CF,
                               escape(hashpw((String) options.get(Option.PASSWORD))),
@@ -151,7 +152,7 @@ public class PasswordAuthenticator implements ISaslAwareAuthenticator
 
     public void drop(String username) throws RequestExecutionException
     {
-        process(String.format("DELETE FROM %s.%s WHERE username = '%s'", Auth.AUTH_KS, CREDENTIALS_CF, escape(username)),
+        process(RefAction.allocateOnHeap(), String.format("DELETE FROM %s.%s WHERE username = '%s'", Auth.AUTH_KS, CREDENTIALS_CF, escape(username)),
                 consistencyForUser(username));
     }
 
@@ -211,7 +212,8 @@ public class PasswordAuthenticator implements ISaslAwareAuthenticator
             // insert the default superuser if AUTH_KS.CREDENTIALS_CF is empty.
             if (!hasExistingUsers())
             {
-                process(String.format("INSERT INTO %s.%s (username, salted_hash) VALUES ('%s', '%s') USING TIMESTAMP 0",
+                process(RefAction.allocateOnHeap(),
+                        String.format("INSERT INTO %s.%s (username, salted_hash) VALUES ('%s', '%s') USING TIMESTAMP 0",
                                       Auth.AUTH_KS,
                                       CREDENTIALS_CF,
                                       DEFAULT_USER_NAME,
@@ -231,7 +233,7 @@ public class PasswordAuthenticator implements ISaslAwareAuthenticator
         // Try looking up the 'cassandra' default user first, to avoid the range query if possible.
         String defaultSUQuery = String.format("SELECT * FROM %s.%s WHERE username = '%s'", Auth.AUTH_KS, CREDENTIALS_CF, DEFAULT_USER_NAME);
         String allUsersQuery = String.format("SELECT * FROM %s.%s LIMIT 1", Auth.AUTH_KS, CREDENTIALS_CF);
-        return !process(defaultSUQuery, ConsistencyLevel.QUORUM).isEmpty() || !process(allUsersQuery, ConsistencyLevel.QUORUM).isEmpty();
+        return !process(RefAction.allocateOnHeap(), defaultSUQuery, ConsistencyLevel.QUORUM).isEmpty() || !process(RefAction.allocateOnHeap(), allUsersQuery, ConsistencyLevel.QUORUM).isEmpty();
     }
 
     private static String hashpw(String password)
@@ -244,9 +246,9 @@ public class PasswordAuthenticator implements ISaslAwareAuthenticator
         return StringUtils.replace(name, "'", "''");
     }
 
-    private static UntypedResultSet process(String query, ConsistencyLevel cl) throws RequestExecutionException
+    private static UntypedResultSet process(RefAction refAction, String query, ConsistencyLevel cl) throws RequestExecutionException
     {
-        return QueryProcessor.process(query, cl);
+        return QueryProcessor.process(refAction, query, cl);
     }
 
     private static ConsistencyLevel consistencyForUser(String username)

@@ -30,6 +30,7 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class SliceByNamesReadCommand extends ReadCommand
 {
@@ -50,10 +51,10 @@ public class SliceByNamesReadCommand extends ReadCommand
         return readCommand;
     }
 
-    public Row getRow(Keyspace keyspace)
+    public Row getRow(RefAction refAction, Keyspace keyspace)
     {
         DecoratedKey dk = StorageService.getPartitioner().decorateKey(key);
-        return keyspace.getRow(new QueryFilter(dk, cfName, filter, timestamp));
+        return keyspace.getRow(refAction, new QueryFilter(dk, cfName, filter, timestamp));
     }
 
     @Override

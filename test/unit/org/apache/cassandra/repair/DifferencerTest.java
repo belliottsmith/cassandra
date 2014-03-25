@@ -49,6 +49,10 @@ import static org.junit.Assert.assertTrue;
 public class DifferencerTest extends SchemaLoader
 {
     private static final IPartitioner partirioner = new Murmur3Partitioner();
+    static
+    {
+        System.setProperty("cassandra.startSinkManager", "");
+    }
 
     @After
     public void tearDown()

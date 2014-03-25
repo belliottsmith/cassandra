@@ -35,6 +35,7 @@ import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
 
 /**
  * CassandraAuthorizer is an IAuthorizer implementation that keeps
@@ -70,7 +71,7 @@ public class CassandraAuthorizer implements IAuthorizer
         UntypedResultSet result;
         try
         {
-            ResultMessage.Rows rows = authorizeStatement.execute(QueryState.forInternalCalls(),
+            ResultMessage.Rows rows = authorizeStatement.execute(RefAction.allocateOnHeap(), QueryState.forInternalCalls(),
                                                                  new QueryOptions(ConsistencyLevel.ONE,
                                                                                   Lists.newArrayList(ByteBufferUtil.bytes(user.getName()),
                                                                                                      ByteBufferUtil.bytes(resource.getName()))));
@@ -259,6 +260,6 @@ public class CassandraAuthorizer implements IAuthorizer
 
     private static UntypedResultSet process(String query) throws RequestExecutionException
     {
-        return QueryProcessor.process(query, ConsistencyLevel.ONE);
+        return QueryProcessor.process(RefAction.allocateOnHeap(), query, ConsistencyLevel.ONE);
     }
 }

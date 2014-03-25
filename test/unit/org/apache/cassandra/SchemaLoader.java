@@ -45,6 +45,7 @@ import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class SchemaLoader
 {
@@ -163,15 +164,14 @@ public class SchemaLoader
                                            CFMetaData.denseCFMetaData(ks1, "StandardComposite2", compositeMaxMin),
                                            CFMetaData.denseCFMetaData(ks1, "StandardDynamicComposite", dynamicComposite),
                                            standardCFMD(ks1, "StandardLeveled")
-                                                                               .compactionStrategyClass(LeveledCompactionStrategy.class)
-                                                                               .compactionStrategyOptions(leveledOptions),
+                                           .compactionStrategyClass(LeveledCompactionStrategy.class)
+                                           .compactionStrategyOptions(leveledOptions),
                                            standardCFMD(ks1, "legacyleveled")
-                                                                               .compactionStrategyClass(LeveledCompactionStrategy.class)
-                                                                               .compactionStrategyOptions(leveledOptions),
+                                           .compactionStrategyClass(LeveledCompactionStrategy.class)
+                                           .compactionStrategyOptions(leveledOptions),
                                            standardCFMD(ks1, "StandardLowIndexInterval").minIndexInterval(8)
                                                                                         .maxIndexInterval(256)
                                                                                         .caching(CachingOptions.NONE),
-
                                            standardCFMD(ks1, "UUIDKeys").keyValidator(UUIDType.instance),
                                            CFMetaData.denseCFMetaData(ks1, "MixedTypes", LongType.instance).keyValidator(UUIDType.instance).defaultValidator(BooleanType.instance),
                                            CFMetaData.denseCFMetaData(ks1, "MixedTypesComposite", composite).keyValidator(composite).defaultValidator(BooleanType.instance)
@@ -218,7 +218,7 @@ public class SchemaLoader
                                            opts_rf2,
                                            standardCFMD(ks5, "Standard1"),
                                            standardCFMD(ks5, "Counter1")
-                                                   .defaultValidator(CounterColumnType.instance)));
+                                           .defaultValidator(CounterColumnType.instance)));
 
         // Keyspace 6
         schema.add(KSMetaData.testMetadata(ks6,
@@ -241,9 +241,9 @@ public class SchemaLoader
                                            standardCFMD(ks_rcs, "CFWithoutCache").caching(CachingOptions.NONE),
                                            standardCFMD(ks_rcs, "CachedCF").caching(CachingOptions.ALL),
                                            standardCFMD(ks_rcs, "CachedIntCF").
-                                                   defaultValidator(IntegerType.instance).
-                                                   caching(new CachingOptions(new CachingOptions.KeyCache(CachingOptions.KeyCache.Type.ALL),
-                                                                                  new CachingOptions.RowCache(CachingOptions.RowCache.Type.HEAD, 100)))));
+                                                                              defaultValidator(IntegerType.instance).
+                                                                                                                    caching(new CachingOptions(new CachingOptions.KeyCache(CachingOptions.KeyCache.Type.ALL),
+                                                                                                                                               new CachingOptions.RowCache(CachingOptions.RowCache.Type.HEAD, 100)))));
 
         // CounterCacheSpace
         schema.add(KSMetaData.testMetadata(ks_ccs,
@@ -280,7 +280,7 @@ public class SchemaLoader
                                                               + "c text,"
                                                               + "v text,"
                                                               + "PRIMARY KEY (k, c))", ks_cql)
-                                           ));
+        ));
 
 
         if (Boolean.parseBoolean(System.getProperty("cassandra.test.compression", "false")))
@@ -318,8 +318,8 @@ public class SchemaLoader
     private static CFMetaData perRowIndexedCFMD(String ksName, String cfName)
     {
         final Map<String, String> indexOptions = Collections.singletonMap(
-                                                      SecondaryIndex.CUSTOM_INDEX_OPTION_NAME,
-                                                      PerRowSecondaryIndexTest.TestIndex.class.getName());
+                                                                         SecondaryIndex.CUSTOM_INDEX_OPTION_NAME,
+                                                                         PerRowSecondaryIndexTest.TestIndex.class.getName());
 
         CFMetaData cfm =  CFMetaData.sparseCFMetaData(ksName, cfName, BytesType.instance).keyValidator(AsciiType.instance);
 
@@ -362,7 +362,7 @@ public class SchemaLoader
     }
     private static CFMetaData compositeIndexCFMD(String ksName, String cfName, final Boolean withIdxType) throws ConfigurationException
     {
-        final CompositeType composite = CompositeType.getInstance(Arrays.asList(new AbstractType<?>[]{UTF8Type.instance, UTF8Type.instance})); 
+        final CompositeType composite = CompositeType.getInstance(Arrays.asList(new AbstractType<?>[]{UTF8Type.instance, UTF8Type.instance}));
         CFMetaData cfm = CFMetaData.sparseCFMetaData(ksName, cfName, composite);
 
         ByteBuffer cName = ByteBufferUtil.bytes("col1");
@@ -370,7 +370,7 @@ public class SchemaLoader
         return cfm.addColumnDefinition(ColumnDefinition.regularDef(cfm, cName, UTF8Type.instance, 1)
                                                        .setIndex(withIdxType ? "col1_idx" : null, idxType, Collections.<String, String>emptyMap()));
     }
-    
+
     private static CFMetaData jdbcCFMD(String ksName, String cfName, AbstractType comp)
     {
         return CFMetaData.denseCFMetaData(ksName, cfName, comp).defaultValidator(comp);
@@ -436,7 +436,7 @@ public class SchemaLoader
         for (int i = offset; i < offset + numberOfRows; i++)
         {
             DecoratedKey key = Util.dk("key" + i);
-            store.getColumnFamily(Util.namesQueryFilter(store, key, "col" + i));
+            store.getColumnFamily(RefAction.allocateOnHeap(), Util.namesQueryFilter(store, key, "col" + i));
         }
     }
 

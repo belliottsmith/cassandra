@@ -22,6 +22,7 @@ import java.util.List;
 import org.apache.cassandra.db.Row;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.exceptions.RequestValidationException;
+import org.apache.cassandra.utils.memory.RefAction;
 
 /**
  * Perform a query, paging it by page of a given size.
@@ -50,7 +51,7 @@ public interface QueryPager
      * @param pageSize the maximum number of elements to return in the next page.
      * @return the page of result.
      */
-    public List<Row> fetchPage(int pageSize) throws RequestValidationException, RequestExecutionException;
+    public List<Row> fetchPage(RefAction refAction, int pageSize) throws RequestValidationException, RequestExecutionException;
 
     /**
      * Whether or not this pager is exhausted, i.e. whether or not a call to

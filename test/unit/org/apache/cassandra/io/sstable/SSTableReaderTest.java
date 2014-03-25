@@ -60,6 +60,7 @@ import org.apache.cassandra.io.util.SegmentedFile;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.memory.RefAction;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -288,8 +289,8 @@ public class SSTableReaderTest extends SchemaLoader
 
         SegmentedFile.Builder ibuilder = SegmentedFile.getBuilder(DatabaseDescriptor.getIndexAccessMode());
         SegmentedFile.Builder dbuilder = sstable.compression
-                                          ? SegmentedFile.getCompressedBuilder()
-                                          : SegmentedFile.getBuilder(DatabaseDescriptor.getDiskAccessMode());
+                                         ? SegmentedFile.getCompressedBuilder()
+                                         : SegmentedFile.getBuilder(DatabaseDescriptor.getDiskAccessMode());
         sstable.saveSummary(ibuilder, dbuilder);
 
         SSTableReader reopened = SSTableReader.open(sstable.descriptor);
@@ -386,7 +387,7 @@ public class SSTableReaderTest extends SchemaLoader
             {
                 public void run()
                 {
-                    ColumnFamily result = store.getColumnFamily(sstable.partitioner.decorateKey(key), Composites.EMPTY, Composites.EMPTY, false, 100, 100);
+                    ColumnFamily result = store.getColumnFamily(RefAction.allocateOnHeap(), sstable.partitioner.decorateKey(key), Composites.EMPTY, Composites.EMPTY, false, 100, 100);
                     assertFalse(result.isEmpty());
                     assertEquals(0, ByteBufferUtil.compare(String.format("%3d", index).getBytes(), result.getColumn(Util.cellname("0")).value()));
                 }
@@ -397,7 +398,7 @@ public class SSTableReaderTest extends SchemaLoader
                 public void run()
                 {
                     Iterable<DecoratedKey> results = store.keySamples(
-                            new Range<>(sstable.partitioner.getMinimumToken(), sstable.partitioner.getToken(key)));
+                                                                     new Range<>(sstable.partitioner.getMinimumToken(), sstable.partitioner.getToken(key)));
                     assertTrue(results.iterator().hasNext());
                 }
             }));
@@ -423,7 +424,7 @@ public class SSTableReaderTest extends SchemaLoader
         IndexExpression expr = new IndexExpression(ByteBufferUtil.bytes("birthdate"), IndexExpression.Operator.EQ, ByteBufferUtil.bytes(1L));
         List<IndexExpression> clause = Arrays.asList(expr);
         Range<RowPosition> range = Util.range("", "");
-        List<Row> rows = indexedCFS.search(range, clause, new IdentityQueryFilter(), 100);
+        List<Row> rows = indexedCFS.search(RefAction.allocateOnHeap(), range, clause, new IdentityQueryFilter(), 100);
         assert rows.size() == 1;
     }
 

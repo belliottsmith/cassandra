@@ -21,6 +21,8 @@ import java.nio.ByteBuffer;
 import java.util.*;
 
 import com.google.common.collect.Iterables;
+
+import org.apache.cassandra.utils.memory.RefAction;
 import org.github.jamm.MemoryMeter;
 
 import org.apache.cassandra.config.ColumnDefinition;
@@ -75,9 +77,9 @@ public class BatchStatement implements CQLStatement, MeasurableForPreparedCache
     public long measureForPreparedCache(MemoryMeter meter)
     {
         long size = meter.measure(this)
-                  + meter.measureDeep(type)
-                  + meter.measure(statements)
-                  + meter.measureDeep(attrs);
+                    + meter.measureDeep(type)
+                    + meter.measure(statements)
+                    + meter.measureDeep(attrs);
         for (ModificationStatement stmt : statements)
             size += stmt.measureForPreparedCache(meter);
         return size;
@@ -111,7 +113,7 @@ public class BatchStatement implements CQLStatement, MeasurableForPreparedCache
         return statements;
     }
 
-    private Collection<? extends IMutation> getMutations(BatchVariables variables, boolean local, ConsistencyLevel cl, long now)
+    private Collection<? extends IMutation> getMutations(RefAction refAction, BatchVariables variables, boolean local, ConsistencyLevel cl, long now)
     throws RequestExecutionException, RequestValidationException
     {
         Map<String, Map<ByteBuffer, IMutation>> mutations = new HashMap<>();
@@ -119,7 +121,7 @@ public class BatchStatement implements CQLStatement, MeasurableForPreparedCache
         {
             ModificationStatement statement = statements.get(i);
             List<ByteBuffer> statementVariables = variables.getVariablesForStatement(i);
-            addStatementMutations(statement, statementVariables, local, cl, now, mutations);
+            addStatementMutations(refAction, statement, statementVariables, local, cl, now, mutations);
         }
         return unzipMutations(mutations);
     }
@@ -136,7 +138,8 @@ public class BatchStatement implements CQLStatement, MeasurableForPreparedCache
         return ms;
     }
 
-    private void addStatementMutations(ModificationStatement statement,
+    private void addStatementMutations(RefAction refAction,
+                                       ModificationStatement statement,
                                        List<ByteBuffer> variables,
                                        boolean local,
                                        ConsistencyLevel cl,
@@ -157,7 +160,7 @@ public class BatchStatement implements CQLStatement, MeasurableForPreparedCache
         // multiple batch to the same partition (see #6737).
         List<ByteBuffer> keys = statement.buildPartitionKeyNames(variables);
         Composite clusteringPrefix = statement.createClusteringPrefix(variables);
-        UpdateParameters params = statement.makeUpdateParameters(keys, clusteringPrefix, variables, local, cl, now);
+        UpdateParameters params = statement.makeUpdateParameters(refAction, keys, clusteringPrefix, variables, local, cl, now);
 
         for (ByteBuffer key : keys)
         {
@@ -178,31 +181,34 @@ public class BatchStatement implements CQLStatement, MeasurableForPreparedCache
         }
     }
 
-    public ResultMessage execute(QueryState queryState, QueryOptions options) throws RequestExecutionException, RequestValidationException
+    public ResultMessage execute(RefAction refAction, QueryState queryState, QueryOptions options) throws RequestExecutionException, RequestValidationException
     {
         if (options.getConsistency() == null)
             throw new InvalidRequestException("Invalid empty consistency level");
 
-        return execute(new PreparedBatchVariables(options.getValues()), false, options.getConsistency(), options.getSerialConsistency(), queryState.getTimestamp());
+        return execute(refAction, new PreparedBatchVariables(options.getValues()), false, options.getConsistency(), options.getSerialConsistency(), queryState.getTimestamp());
     }
 
-    public ResultMessage executeWithPerStatementVariables(ConsistencyLevel cl, QueryState queryState, List<List<ByteBuffer>> variables) throws RequestExecutionException, RequestValidationException
+    public ResultMessage executeWithPerStatementVariables(RefAction refAction, ConsistencyLevel cl, QueryState queryState, List<List<ByteBuffer>> variables) throws RequestExecutionException, RequestValidationException
     {
         if (cl == null)
             throw new InvalidRequestException("Invalid empty consistency level");
 
-        return execute(new BatchOfPreparedVariables(variables), false, cl, ConsistencyLevel.SERIAL, queryState.getTimestamp());
+        return execute(refAction, new BatchOfPreparedVariables(variables), false, cl, ConsistencyLevel.SERIAL, queryState.getTimestamp());
     }
 
-    public ResultMessage execute(BatchVariables variables, boolean local, ConsistencyLevel cl, ConsistencyLevel serialCl, long now)
+    public ResultMessage execute(RefAction refAction, BatchVariables variables, boolean local, ConsistencyLevel cl, ConsistencyLevel serialCl, long now)
     throws RequestExecutionException, RequestValidationException
     {
         // TODO: we don't support a serial consistency for batches in the protocol so defaulting to SERIAL for now.
         // We'll need to fix that.
         if (hasConditions)
-            return executeWithConditions(variables, cl, serialCl, now);
+            return executeWithConditions(refAction, variables, cl, serialCl, now);
 
-        executeWithoutConditions(getMutations(variables, local, cl, now), cl);
+        try (RefAction referrer = RefAction.refer())
+        {
+            executeWithoutConditions(getMutations(referrer, variables, local, cl, now), cl);
+        }
         return null;
     }
 
@@ -212,7 +218,7 @@ public class BatchStatement implements CQLStatement, MeasurableForPreparedCache
         StorageProxy.mutateWithTriggers(mutations, cl, mutateAtomic);
     }
 
-    private ResultMessage executeWithConditions(BatchVariables variables, ConsistencyLevel cl, ConsistencyLevel serialCf, long now)
+    private ResultMessage executeWithConditions(RefAction refAction, BatchVariables variables, ConsistencyLevel cl, ConsistencyLevel serialCf, long now)
     throws RequestExecutionException, RequestValidationException
     {
         ByteBuffer key = null;
@@ -255,25 +261,28 @@ public class BatchStatement implements CQLStatement, MeasurableForPreparedCache
             }
             else
             {
-                UpdateParameters params = statement.makeUpdateParameters(Collections.singleton(key), clusteringPrefix, statementVariables, false, cl, now);
+                UpdateParameters params = statement.makeUpdateParameters(refAction, Collections.singleton(key), clusteringPrefix, statementVariables, false, cl, now);
                 statement.addUpdateForKey(updates, key, clusteringPrefix, params);
             }
         }
 
-        ColumnFamily result = StorageProxy.cas(ksName, cfName, key, conditions, updates, serialCf, cl);
-        return new ResultMessage.Rows(ModificationStatement.buildCasResultSet(ksName, key, cfName, result, columnsWithConditions, true));
+        ColumnFamily result = StorageProxy.cas(refAction, ksName, cfName, key, conditions, updates, serialCf, cl);
+        return new ResultMessage.Rows(refAction, ModificationStatement.buildCasResultSet(ksName, key, cfName, result, columnsWithConditions, true));
     }
 
     public ResultMessage executeInternal(QueryState queryState) throws RequestValidationException, RequestExecutionException
     {
         assert !hasConditions;
-        for (IMutation mutation : getMutations(PreparedBatchVariables.EMPTY, true, null, queryState.getTimestamp()))
+        try (RefAction refAction = RefAction.refer())
         {
-            // We don't use counters internally.
-            assert mutation instanceof Mutation;
-            ((Mutation) mutation).apply();
+            for (IMutation mutation : getMutations(refAction, PreparedBatchVariables.EMPTY, true, null, queryState.getTimestamp()))
+            {
+                // We don't use counters internally.
+                assert mutation instanceof Mutation;
+                ((Mutation) mutation).apply();
+            }
+            return null;
         }
-        return null;
     }
 
     public interface BatchVariables

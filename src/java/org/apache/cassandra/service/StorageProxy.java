@@ -21,16 +21,34 @@ import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
-import java.util.concurrent.*;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
+import com.google.common.base.Function;
+import com.google.common.base.Functions;
 import com.google.common.base.Predicate;
 import com.google.common.cache.CacheLoader;
-import com.google.common.collect.*;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -41,8 +59,26 @@ import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.AbstractRangeCommand;
+import org.apache.cassandra.db.ArrayBackedSortedColumns;
+import org.apache.cassandra.db.BatchlogManager;
+import org.apache.cassandra.db.ColumnFamily;
+import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.CounterMutation;
+import org.apache.cassandra.db.DeletionInfo;
+import org.apache.cassandra.db.HintedHandOffManager;
+import org.apache.cassandra.db.IMutation;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.Mutation;
+import org.apache.cassandra.db.RangeSliceReply;
+import org.apache.cassandra.db.ReadCommand;
+import org.apache.cassandra.db.ReadResponse;
+import org.apache.cassandra.db.ReadVerbHandler;
+import org.apache.cassandra.db.Row;
+import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.db.Truncation;
+import org.apache.cassandra.db.WriteType;
 import org.apache.cassandra.db.data.RowPosition;
 import org.apache.cassandra.db.index.SecondaryIndex;
 import org.apache.cassandra.db.index.SecondaryIndexSearcher;
@@ -51,7 +87,12 @@ import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.RingPosition;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.exceptions.*;
+import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.exceptions.IsBootstrappingException;
+import org.apache.cassandra.exceptions.OverloadedException;
+import org.apache.cassandra.exceptions.ReadTimeoutException;
+import org.apache.cassandra.exceptions.UnavailableException;
+import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.io.util.DataOutputBuffer;
@@ -62,12 +103,22 @@ import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.metrics.ClientRequestMetrics;
 import org.apache.cassandra.metrics.ReadRepairMetrics;
 import org.apache.cassandra.metrics.StorageMetrics;
-import org.apache.cassandra.net.*;
-import org.apache.cassandra.service.paxos.*;
+import org.apache.cassandra.net.AsyncOneResponse;
+import org.apache.cassandra.net.CompactEndpointSerializationHelper;
+import org.apache.cassandra.net.IAsyncCallback;
+import org.apache.cassandra.net.MessageIn;
+import org.apache.cassandra.net.MessageOut;
+import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.paxos.Commit;
+import org.apache.cassandra.service.paxos.PrepareCallback;
+import org.apache.cassandra.service.paxos.ProposeCallback;
 import org.apache.cassandra.sink.SinkManager;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.triggers.TriggerExecutor;
-import org.apache.cassandra.utils.*;
+import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.UUIDGen;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class StorageProxy implements StorageProxyMBean
 {
@@ -199,7 +250,8 @@ public class StorageProxy implements StorageProxyMBean
      * @return null if the operation succeeds in updating the row, or the current values corresponding to conditions.
      * (since, if the CAS doesn't succeed, it means the current value do not match the conditions).
      */
-    public static ColumnFamily cas(String keyspaceName,
+    public static ColumnFamily cas(RefAction refAction,
+                                   String keyspaceName,
                                    String cfName,
                                    ByteBuffer key,
                                    CASConditions conditions,
@@ -228,7 +280,7 @@ public class StorageProxy implements StorageProxyMBean
             Tracing.trace("Reading existing values for CAS precondition");
             long timestamp = System.currentTimeMillis();
             ReadCommand readCommand = ReadCommand.create(keyspaceName, key, cfName, timestamp, conditions.readFilter());
-            List<Row> rows = read(Arrays.asList(readCommand), consistencyForPaxos == ConsistencyLevel.LOCAL_SERIAL? ConsistencyLevel.LOCAL_QUORUM : ConsistencyLevel.QUORUM);
+            List<Row> rows = read(refAction, Arrays.asList(readCommand), consistencyForPaxos == ConsistencyLevel.LOCAL_SERIAL? ConsistencyLevel.LOCAL_QUORUM : ConsistencyLevel.QUORUM);
             ColumnFamily current = rows.get(0).cf;
             if (!conditions.appliesTo(current))
             {
@@ -453,7 +505,7 @@ public class StorageProxy implements StorageProxyMBean
         final String localDataCenter = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddress());
 
         long startTime = System.nanoTime();
-        List<AbstractWriteResponseHandler> responseHandlers = new ArrayList<AbstractWriteResponseHandler>(mutations.size());
+        List<AbstractWriteResponseHandler> responseHandlers = new ArrayList<>(mutations.size());
 
         try
         {
@@ -471,10 +523,7 @@ public class StorageProxy implements StorageProxyMBean
             }
 
             // wait for writes.  throws TimeoutException if necessary
-            for (AbstractWriteResponseHandler responseHandler : responseHandlers)
-            {
-                responseHandler.get();
-            }
+            waitForResponses(responseHandlers, Functions.<AbstractWriteResponseHandler>identity());
         }
         catch (WriteTimeoutException ex)
         {
@@ -483,6 +532,7 @@ public class StorageProxy implements StorageProxyMBean
                 // hint all the mutations (except counters, which can't be safely retried).  This means
                 // we'll re-hint any successful ones; doesn't seem worth it to track individual success
                 // just for this unusual case.
+                List<Future<?>> appliedHints = new ArrayList<>();
                 for (IMutation mutation : mutations)
                 {
                     if (mutation instanceof CounterMutation)
@@ -492,9 +542,12 @@ public class StorageProxy implements StorageProxyMBean
                     List<InetAddress> naturalEndpoints = StorageService.instance.getNaturalEndpoints(mutation.getKeyspaceName(), tk);
                     Collection<InetAddress> pendingEndpoints = StorageService.instance.getTokenMetadata().pendingEndpointsFor(tk, mutation.getKeyspaceName());
                     for (InetAddress target : Iterables.concat(naturalEndpoints, pendingEndpoints))
-                        submitHint((Mutation) mutation, target, null);
+                        appliedHints.add(submitHint((Mutation) mutation, target, null));
                 }
                 Tracing.trace("Wrote hint to satisfy CL.ANY after no replicas acknowledged the write");
+                // we're only waiting on persisting the hints to disk. We do this to ensure we are not referencing
+                // any of the provided mutations once the method exits
+                FBUtilities.waitOnFutures(appliedHints);
             }
             else
             {
@@ -664,8 +717,43 @@ public class StorageProxy implements StorageProxyMBean
             sendToHintedEndpoints(wrapper.mutation, endpoints, wrapper.handler, localDataCenter);
         }
 
-        for (WriteResponseHandlerWrapper wrapper : wrappers)
-            wrapper.handler.get();
+        waitForResponses(wrappers, new Function<WriteResponseHandlerWrapper, AbstractWriteResponseHandler>()
+        {
+            public AbstractWriteResponseHandler apply(WriteResponseHandlerWrapper wrapper)
+            {
+                return wrapper.handler;
+            }
+        });
+    }
+
+    private static <V> void waitForResponses(List<V> handlers, Function<V, ? extends AbstractWriteResponseHandler> f) throws WriteTimeoutException
+    {
+        int i = 0;
+        try
+        {
+            while (i < handlers.size())
+            {
+                f.apply(handlers.get(i++)).get();
+            }
+        }
+        catch (Throwable failure)
+        {
+            // wait for all WRHW, even if one errors, to make sure a mutation isn't still sat on the wire
+            // we want this method to be synchronous wrt the sending of mutations to all end points, not just until one
+            // fails. TODO: we currently wait for all responses, whereas in failure scenario we only need to wait for all sends
+            while (i < handlers.size())
+            {
+                try
+                {
+                    f.apply(handlers.get(i++)).get();
+                }
+                catch (Throwable t)
+                {
+                    failure.addSuppressed(t);
+                }
+            }
+            throw failure;
+        }
     }
 
     /**
@@ -1101,7 +1189,7 @@ public class StorageProxy implements StorageProxyMBean
      * Performs the actual reading of a row out of the StorageService, fetching
      * a specific set of column names from a given column family.
      */
-    public static List<Row> read(List<ReadCommand> commands, ConsistencyLevel consistency_level)
+    public static List<Row> read(RefAction refAction, List<ReadCommand> commands, ConsistencyLevel consistency_level)
     throws UnavailableException, IsBootstrappingException, ReadTimeoutException, InvalidRequestException
     {
         if (StorageService.instance.isBootstrapMode() && !systemKeyspaceQuery(commands))
@@ -1137,11 +1225,11 @@ public class StorageProxy implements StorageProxyMBean
                     throw new ReadTimeoutException(consistency_level, 0, consistency_level.blockFor(Keyspace.open(command.ksName)), false);
                 }
 
-                rows = fetchRows(commands, ConsistencyLevel.QUORUM);
+                rows = fetchRows(refAction, commands, ConsistencyLevel.QUORUM);
             }
             else
             {
-                rows = fetchRows(commands, consistency_level);
+                rows = fetchRows(refAction, commands, consistency_level);
             }
         }
         catch (UnavailableException e)
@@ -1178,7 +1266,7 @@ public class StorageProxy implements StorageProxyMBean
      * 4. If the digests (if any) match the data return the data
      * 5. else carry out read repair by getting data from all the nodes.
      */
-    private static List<Row> fetchRows(List<ReadCommand> initialCommands, ConsistencyLevel consistencyLevel)
+    private static List<Row> fetchRows(RefAction refAction, List<ReadCommand> initialCommands, ConsistencyLevel consistencyLevel)
     throws UnavailableException, ReadTimeoutException
     {
         List<Row> rows = new ArrayList<>(initialCommands.size());
@@ -1200,7 +1288,7 @@ public class StorageProxy implements StorageProxyMBean
                 assert !command.isDigestQuery();
 
                 AbstractReadExecutor exec = AbstractReadExecutor.getReadExecutor(command, consistencyLevel);
-                exec.executeAsync();
+                exec.executeAsync(refAction);
                 readExecutors[i] = exec;
             }
 
@@ -1337,10 +1425,12 @@ public class StorageProxy implements StorageProxyMBean
         private final ReadCommand command;
         private final ReadCallback<ReadResponse, Row> handler;
         private final long start = System.nanoTime();
+        private final RefAction refAction;
 
-        LocalReadRunnable(ReadCommand command, ReadCallback<ReadResponse, Row> handler)
+        LocalReadRunnable(RefAction refAction, ReadCommand command, ReadCallback<ReadResponse, Row> handler)
         {
             super(MessagingService.Verb.READ);
+            this.refAction = refAction;
             this.command = command;
             this.handler = handler;
         }
@@ -1348,8 +1438,8 @@ public class StorageProxy implements StorageProxyMBean
         protected void runMayThrow()
         {
             Keyspace keyspace = Keyspace.open(command.ksName);
-            Row r = command.getRow(keyspace);
-            ReadResponse result = ReadVerbHandler.getResponse(command, r);
+            Row r = command.getRow(refAction, keyspace);
+            ReadResponse result = ReadVerbHandler.getResponse(refAction, command, r);
             MessagingService.instance().addLatency(FBUtilities.getBroadcastAddress(), TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
             handler.response(result);
         }
@@ -1360,17 +1450,19 @@ public class StorageProxy implements StorageProxyMBean
         private final AbstractRangeCommand command;
         private final ReadCallback<RangeSliceReply, Iterable<Row>> handler;
         private final long start = System.nanoTime();
+        private final RefAction refAction;
 
-        LocalRangeSliceRunnable(AbstractRangeCommand command, ReadCallback<RangeSliceReply, Iterable<Row>> handler)
+        LocalRangeSliceRunnable(RefAction refAction, AbstractRangeCommand command, ReadCallback<RangeSliceReply, Iterable<Row>> handler)
         {
             super(MessagingService.Verb.READ);
+            this.refAction = refAction;
             this.command = command;
             this.handler = handler;
         }
 
         protected void runMayThrow()
         {
-            RangeSliceReply result = new RangeSliceReply(command.executeLocally());
+            RangeSliceReply result = new RangeSliceReply(refAction, command.executeLocally(refAction));
             MessagingService.instance().addLatency(FBUtilities.getBroadcastAddress(), TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
             handler.response(result);
         }
@@ -1440,7 +1532,7 @@ public class StorageProxy implements StorageProxyMBean
         return (resultRowsPerRange / DatabaseDescriptor.getNumTokens()) / keyspace.getReplicationStrategy().getReplicationFactor();
     }
 
-    public static List<Row> getRangeSlice(AbstractRangeCommand command, ConsistencyLevel consistency_level)
+    public static List<Row> getRangeSlice(RefAction refAction, AbstractRangeCommand command, ConsistencyLevel consistency_level)
     throws UnavailableException, ReadTimeoutException
     {
         Tracing.trace("Determining replicas to query");
@@ -1543,7 +1635,7 @@ public class StorageProxy implements StorageProxyMBean
                         && filteredEndpoints.get(0).equals(FBUtilities.getBroadcastAddress())
                         && OPTIMIZE_LOCAL_REQUESTS)
                     {
-                        StageManager.getStage(Stage.READ).execute(new LocalRangeSliceRunnable(nodeCmd, handler));
+                        StageManager.getStage(Stage.READ).execute(new LocalRangeSliceRunnable(refAction, nodeCmd, handler));
                     }
                     else
                     {

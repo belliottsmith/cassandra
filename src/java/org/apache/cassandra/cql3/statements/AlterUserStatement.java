@@ -28,6 +28,7 @@ import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.exceptions.UnauthorizedException;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.transport.messages.ResultMessage;
+import org.apache.cassandra.utils.memory.RefAction;
 
 public class AlterUserStatement extends AuthenticationStatement
 {
@@ -81,7 +82,7 @@ public class AlterUserStatement extends AuthenticationStatement
         }
     }
 
-    public ResultMessage execute(ClientState state) throws RequestValidationException, RequestExecutionException
+    public ResultMessage execute(RefAction refAction, ClientState state) throws RequestValidationException, RequestExecutionException
     {
         if (!opts.isEmpty())
             DatabaseDescriptor.getAuthenticator().alter(username, opts.getOptions());
