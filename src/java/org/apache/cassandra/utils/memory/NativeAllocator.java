@@ -17,210 +17,174 @@
  */
 package org.apache.cassandra.utils.memory;
 
-import java.lang.reflect.Field;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import org.apache.cassandra.utils.concurrent.NonBlockingQueue;
+import org.apache.cassandra.utils.concurrent.NonBlockingQueueView;
 import org.apache.cassandra.utils.concurrent.OpOrder;
-import sun.misc.Unsafe;
+import org.apache.cassandra.utils.concurrent.WaitQueue;
 
-/**
- * The SlabAllocator is a bump-the-pointer allocator that allocates
- * large (2MB by default) regions and then doles them out to threads that request
- * slices into the array.
- * <p/>
- * The purpose of this class is to combat heap fragmentation in long lived
- * objects: by ensuring that all allocations with similar lifetimes
- * only to large regions of contiguous memory, we ensure that large blocks
- * get freed up at the same time.
- * <p/>
- * Otherwise, variable length byte arrays allocated end up
- * interleaved throughout the heap, and the old generation gets progressively
- * more fragmented until a stop-the-world compacting collection occurs.
- */
-public class NativeAllocator extends PoolAllocator
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Multimap;
+
+public class NativeAllocator extends PoolAllocator<NativePool.Group, NativePool>
 {
-    private static final Logger logger = LoggerFactory.getLogger(NativeAllocator.class);
 
-    private final static int REGION_SIZE = 1024 * 1024;
-    private final static int MAX_CLONED_SIZE = 128 * 1024; // bigger than this don't go in the region
+    /**
+     * The Regions we are currently allocating from - we don't immediately move all allocations to a new Region if
+     * an allocation fails, instead we only advance if there is a small fraction of the total room left, or we
+     * have failed a number of times to allocate to the Region. This should help prevent wasted space.
+     */
+    final NonBlockingQueue<NativeRegion> allocatingFrom = new NonBlockingQueue<>();
 
-    // globally stash any Regions we allocate but are beaten to using, and use these up before allocating any more
-    private static final ConcurrentLinkedQueue<Region> RACE_ALLOCATED = new ConcurrentLinkedQueue<>();
-
-    private final AtomicReference<Region> currentRegion = new AtomicReference<Region>();
-    private final AtomicInteger regionCount = new AtomicInteger(0);
-    private final ConcurrentLinkedQueue<Region> regions = new ConcurrentLinkedQueue<>();
-    private AtomicLong unslabbed = new AtomicLong(0);
+    /**
+     * All the regions we own. It is a view on allocatingFrom that is never advanced, but on which
+     * removes are performed to clean up. See {@link NonBlockingQueue} for details.
+     */
+    final NonBlockingQueueView<NativeRegion> allocated = allocatingFrom.view();
 
     protected NativeAllocator(NativePool.Group group)
     {
         super(group);
     }
 
-    public void allocate(NativeAllocation allocation, int size, OpOrder.Group opGroup)
+    public void allocate(NativeAllocation allocation, int size, OpOrder.Group writeOp)
     {
         assert size >= 0;
         size += 4;
-        offHeap().allocate(size, opGroup);
-        // satisfy large allocations directly from JVM since they don't cause fragmentation
-        // as badly, and fill up our regions quickly
-        if (size > MAX_CLONED_SIZE)
+        while (true)
         {
-            unslabbed.addAndGet(size);
-            Region region = new Region(unsafe.allocateMemory(size), size);
-            regions.add(region);
-            if (!region.allocate(allocation, size))
-                throw new AssertionError();
-            return;
+            if (tryAllocate(size, allocation, false))
+                return;
+
+            WaitQueue.Signal signal = writeOp.safeIsBlockingSignal(offHeap().hasRoomSignal());
+
+            boolean allocated = tryAllocate(size, allocation, false);
+            if (allocated || writeOp.isBlocking())
+            {
+                signal.cancel();
+                if (!allocated)
+                    tryAllocate(size, allocation, true);
+                return;
+            }
+            else
+            {
+                signal.awaitUninterruptibly();
+            }
+        }
+    }
+
+    private boolean tryAllocate(int size, NativeAllocation allocation, boolean isBlocking)
+    {
+        NativePool pool = group.pool;
+
+        if (size >= pool.regionSize)
+        {
+            NativeRegion region = pool.tryAllocateRegion(size);
+            if (region == null)
+                return false;
+            fulfillFromNewRegion(size, allocation, region);
+            return true;
         }
 
         while (true)
         {
-            Region region = getRegion();
+            // attempt to allocate from any regions we consider to have space left in them
+            NativeRegion last = allocatingFrom.tail();
+            for (NativeRegion region : allocatingFrom)
+            {
+                last = region;
 
-            // Try to allocate from this region
-            if (region.allocate(allocation, size))
-                return;
+                if (region.allocate(size, allocation))
+                    return true;
 
-            // not enough space!
-            currentRegion.compareAndSet(region, null);
+                // if we failed to allocate, maybe remove ourselves from the
+                // collection of regions we try to allocate from in future
+                if (!region.mayContinueAllocating())
+                    if (allocatingFrom.advanceIfHead(region))
+                        region.finishAllocating();
+            }
+
+            // if we fail, allocate a new region either from the pool, or directly
+            NativeRegion newRegion = pool.tryAllocateRegion(pool.regionSize);
+            if (newRegion == null)
+            {
+                if (!isBlocking)
+                    return false;
+                // if we're blocking, force allocate a new region that is at least as big as we want, and no
+                // smaller than the overAllocatedRegionSize, which is a smaller size used for when the pool is full but
+                // we need to allocate anyway
+                newRegion = new NativeRegion(Math.max(size, pool.overAllocatedRegionSize));
+                if (newRegion.size() == size)
+                {
+                    fulfillFromNewRegion(size, allocation, newRegion);
+                    return true;
+                }
+            }
+
+            // try to append to our list - if the list has been appended to already, put it back in the pool
+            // and try allocating from the Region somebody beat us to adding, otherwise set ourselves as its owner
+            offHeap().acquired(pool.regionSize);
+            if (!allocatingFrom.appendIfTail(last, newRegion))
+            {
+                offHeap().release(pool.regionSize);
+                pool.recycle(newRegion, false);
+            }
         }
+    }
+
+    private void fulfillFromNewRegion(int size, NativeAllocation allocation, NativeRegion region)
+    {
+        if (!region.allocate(size, allocation))
+            throw new AssertionError();
+        offHeap().acquired(size);
+        adopt(region);
+    }
+
+    void adopt(NativeRegion region)
+    {
+        allocatingFrom.append(region);
+    }
+
+    public void setDiscarding()
+    {
+        group.live.remove(this);
+        onHeap().markAllReclaiming();
+        offHeap().markAllReclaiming();
+
+        // if we aren't already GCing, and GC is enabled, we force a GC of this allocator before
+        // we discard it, in case we can quickly reclaim some of its space
+        transition(LifeCycle.DISCARDING);
     }
 
     public void setDiscarded()
     {
-        for (Region region : regions)
-            unsafe.freeMemory(region.peer);
-        super.setDiscarded();
-    }
+        transition(LifeCycle.DISCARDED);
+        OpOrder.Barrier readBarrier = group.reads.newBarrier();
+        readBarrier.issue();
 
-    /**
-     * Get the current region, or, if there is no current region, allocate a new one
-     */
-    private Region getRegion()
-    {
-        while (true)
+        // place all regions that aren't already being discarded (say, by GC) into a map that will be used
+        // to mark them referenced by any read ops started before our barrier
+        final Multimap<NativeRegion.MarkKey, NativeDelayedRecycle> markLookup = ArrayListMultimap.create(2 * (int) (offHeap().owns() / group.pool.regionSize), 1);
+        for (NativeRegion region : allocated)
         {
-            // Try to get the region
-            Region region = currentRegion.get();
-            if (region != null)
-                return region;
-
-            // No current region, so we want to allocate one. We race
-            // against other allocators to CAS in a Region, and if we fail we stash the region for re-use
-            region = RACE_ALLOCATED.poll();
-            if (region == null)
-                region = new Region(unsafe.allocateMemory(REGION_SIZE), REGION_SIZE);
-            if (currentRegion.compareAndSet(null, region))
+            if (region.transition(NativeRegion.State.LIVE, NativeRegion.State.DISCARDING))
             {
-                regions.add(region);
-                regionCount.incrementAndGet();
-                logger.trace("{} regions now allocated in {}", regionCount, this);
-                return region;
-            }
-
-            // someone else won race - that's fine, we'll try to grab theirs
-            // in the next iteration of the loop.
-            RACE_ALLOCATED.add(region);
-        }
-    }
-
-    /**
-     * A region of memory out of which allocations are sliced.
-     *
-     * This serves two purposes:
-     *  - to provide a step between initialization and allocation, so that racing to CAS a
-     *    new region in is harmless
-     *  - encapsulates the allocation offset
-     */
-    private static class Region
-    {
-        /**
-         * Actual underlying data
-         */
-        private final long peer;
-
-        private final long capacity;
-
-        /**
-         * Offset for the next allocation, or the sentinel value -1
-         * which implies that the region is still uninitialized.
-         */
-        private AtomicInteger nextFreeOffset = new AtomicInteger(0);
-
-        /**
-         * Total number of allocations satisfied from this buffer
-         */
-        private AtomicInteger allocCount = new AtomicInteger();
-
-        /**
-         * Create an uninitialized region. Note that memory is not allocated yet, so
-         * this is cheap.
-         *
-         * @param peer peer
-         */
-        private Region(long peer, long capacity)
-        {
-            this.peer = peer;
-            this.capacity = capacity;
-        }
-
-        /**
-         * Try to allocate <code>size</code> bytes from the region.
-         *
-         * @return the successful allocation, or null to indicate not-enough-space
-         */
-        boolean allocate(NativeAllocation allocation, int size)
-        {
-            while (true)
-            {
-                int oldOffset = nextFreeOffset.get();
-
-                if (oldOffset + size > capacity) // capacity == remaining
-                    return false;
-
-                // Try to atomically claim this region
-                if (nextFreeOffset.compareAndSet(oldOffset, oldOffset + size))
-                {
-                    // we got the alloc
-                    allocCount.incrementAndGet();
-                    allocation.setPeer(peer + oldOffset);
-                    allocation.setRealSize(size);
-                    return true;
-                }
-                // we raced and lost alloc, try again
+                markLookup.put(region.markKey, new NativeDelayedRecycle(group.pool, region));
+                if (!offHeap().transferAcquired(region.size()))
+                    throw new AssertionError();
+                offHeap().transferReclaiming(region.size());
             }
         }
 
-        @Override
-        public String toString()
+        if (!markLookup.isEmpty())
         {
-            return "Region@" + System.identityHashCode(this) +
-                   " allocs=" + allocCount.get() + "waste=" +
-                   (capacity - nextFreeOffset.get());
-        }
-    }
+            readBarrier.await();
+            // must wait until after the read barrier to ensure all referrers are populated
+            group.mark(readBarrier, markLookup);
 
-
-    static final Unsafe unsafe;
-
-    static
-    {
-        try
-        {
-            Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
-            field.setAccessible(true);
-            unsafe = (sun.misc.Unsafe) field.get(null);
+            for (NativeDelayedRecycle marked : markLookup.values())
+                marked.unmark();
         }
-        catch (Exception e)
-        {
-            throw new AssertionError(e);
-        }
+
+        onHeap().releaseAll();
     }
 }

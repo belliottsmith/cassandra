@@ -46,11 +46,6 @@ public class BufferDataAllocator implements DataAllocator
         {
             return wrapped.needToCopyOnHeap();
         }
-
-        public OpOrder.Barrier getGCBarrier()
-        {
-            return null;
-        }
     }
 
     public static final class BufferDataGroup implements DataGroup

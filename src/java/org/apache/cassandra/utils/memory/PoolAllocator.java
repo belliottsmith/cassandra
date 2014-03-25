@@ -18,6 +18,7 @@
 package org.apache.cassandra.utils.memory;
 
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
@@ -30,6 +31,16 @@ public abstract class PoolAllocator<G extends Pool.AllocatorGroup<P>, P extends 
     private final SubAllocator offHeap;
     volatile LifeCycle state = LifeCycle.LIVE;
 
+    static final AtomicReferenceFieldUpdater<PoolAllocator, LifeCycle> stateUpdater = AtomicReferenceFieldUpdater.newUpdater(PoolAllocator.class, LifeCycle.class, "state");
+
+    /**
+     *  LIVE         - The allocator is in use
+     *  DISCARDING   - The allocator will be discarded shortly. It is expected that during this phase
+     *                 allocations gradually cease. In practice this is enforced by redirecting all new writes
+     *                 to a new replacement memtable/allocator; so once earlier writes have finished we can discard.
+     *  DISCARDED    - The allocator is no longer ostensibly in use. No more allocations may be performed against it,
+     *                 and the resources it holds will *eventually* be returned for use by the pool.
+     */
     static enum LifeCycle
     {
         LIVE, DISCARDING, DISCARDED;
@@ -65,13 +76,21 @@ public abstract class PoolAllocator<G extends Pool.AllocatorGroup<P>, P extends 
         return offHeap;
     }
 
+    protected void transition(LifeCycle newState)
+    {
+        LifeCycle cur = state;
+        if (stateUpdater.compareAndSet(this, cur, state.transition(newState)))
+            return;
+        throw new AssertionError();
+    }
+
     /**
      * Mark this allocator reclaiming; this will permit any outstanding allocations to temporarily
      * overshoot the maximum memory limit so that flushing can begin immediately
      */
     public void setDiscarding()
     {
-        state = state.transition(LifeCycle.DISCARDING);
+        transition(LifeCycle.DISCARDING);
         // mark the memory owned by this allocator as reclaiming
         onHeap.markAllReclaiming();
         offHeap.markAllReclaiming();
@@ -83,7 +102,7 @@ public abstract class PoolAllocator<G extends Pool.AllocatorGroup<P>, P extends 
      */
     public void setDiscarded()
     {
-        state = state.transition(LifeCycle.DISCARDED);
+        transition(LifeCycle.DISCARDED);
         // release any memory owned by this allocator; automatically signals waiters
         onHeap.releaseAll();
         offHeap.releaseAll();
@@ -170,6 +189,39 @@ public abstract class PoolAllocator<G extends Pool.AllocatorGroup<P>, P extends 
             ownsUpdater.addAndGet(this, -size);
         }
 
+        // if this.owns > size, subtract size from this.owns (atomically), otherwise return false.
+        // is used by recycle to take ownership of a portion what we own without returning it to the pool
+        boolean transferAcquired(int size)
+        {
+            while (true)
+            {
+                long cur = owns;
+                long next = cur - size;
+                if (next < 0)
+                    return false;
+                if (ownsUpdater.compareAndSet(this, cur, next))
+                    return true;
+            }
+        }
+
+        // subtract at most size from this.reclaiming (atomically), and adjust the parent's reclaiming by
+        // the difference between what we wanted to subtract and we actually subtracted.
+        // this is used to atomically correct the reclaiming amount after it was speculatively set before an absolute
+        // figure could be established, and to take ownership of the reclamation away from this allocator for delayed recycling
+        void transferReclaiming(int size)
+        {
+            while (true)
+            {
+                long cur = reclaiming;
+                long next = Math.max(0, cur - size);
+                if (cur == 0 || reclaimingUpdater.compareAndSet(this, cur, next))
+                {
+                    parent.adjustReclaiming(size - (cur - next));
+                    return;
+                }
+            }
+        }
+
         // mark everything we currently own as reclaiming, both here and in our parent
         void markAllReclaiming()
         {
@@ -192,14 +244,20 @@ public abstract class PoolAllocator<G extends Pool.AllocatorGroup<P>, P extends 
 
         public float ownershipRatio()
         {
-            float r = owns / (float) parent.limit;
-            if (Float.isNaN(r))
-                return 0;
+            long limit = parent.limit;
+            if (limit == 0L)
+                return 0f;
+            float r = owns / (float) limit;
+            assert !Float.isNaN(r);
             return r;
+        }
+
+        public WaitQueue.Signal hasRoomSignal()
+        {
+            return parent.hasRoom().register();
         }
 
         private static final AtomicLongFieldUpdater<SubAllocator> ownsUpdater = AtomicLongFieldUpdater.newUpdater(SubAllocator.class, "owns");
         private static final AtomicLongFieldUpdater<SubAllocator> reclaimingUpdater = AtomicLongFieldUpdater.newUpdater(SubAllocator.class, "reclaiming");
     }
-
 }

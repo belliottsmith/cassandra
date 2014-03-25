@@ -186,7 +186,7 @@ public class CompoundSparseCellName extends CompoundComposite implements CellNam
         public long unsharedHeapSizeExcludingData()
         {
             return EMPTY_SIZE
-                   + columnName.unsharedHeapSize()
+                   + columnName.unsharedHeapSizeExcludingData()
                    + ObjectSizes.sizeOnHeapExcludingData(elements)
                    + ObjectSizes.sizeOnHeapExcludingData(collectionElement);
         }

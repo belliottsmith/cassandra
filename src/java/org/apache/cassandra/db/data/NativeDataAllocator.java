@@ -34,7 +34,9 @@ public class NativeDataAllocator extends NativeAllocator implements DataAllocato
         }
         public NativeDataAllocator newAllocator()
         {
-            return new NativeDataAllocator(this);
+            NativeDataAllocator allocator = new NativeDataAllocator(this);
+            live.put(allocator, Boolean.TRUE);
+            return allocator;
         }
 
         public void complete(RefAction refAction, OpOrder.Group readOp, Object referent)

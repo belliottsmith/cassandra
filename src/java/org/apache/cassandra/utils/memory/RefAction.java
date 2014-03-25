@@ -88,7 +88,7 @@ public abstract class RefAction implements AutoCloseable
 
     public static RefAction refer()
     {
-        return null;
+        return new Referrer();
     }
 
     /**

@@ -191,6 +191,11 @@ public abstract class Pool
                 cleaner.trigger();
         }
 
+        public boolean isExceeded()
+        {
+            return allocated > limit;
+        }
+
         public long allocated()
         {
             return allocated;

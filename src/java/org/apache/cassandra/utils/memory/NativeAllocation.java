@@ -5,6 +5,8 @@ import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 public class NativeAllocation extends AbstractMemory
 {
 
+    // parent is either an OffHeapRegion, or it's MarkKey; the latter if it has been freed
+    volatile Object parent;
     // NOTE: if and when we move peer references off-heap, they need to be aligned to ensure atomicity even on x86
     private volatile long peer;
 
@@ -32,13 +34,6 @@ public class NativeAllocation extends AbstractMemory
             unsafe.putInt(peer, size);
         else
             putIntByByte(peer, size);
-    }
-
-    void migrate(long to)
-    {
-        assert peer != 0 && to != 0;
-        internalSetBytes(peer, to, getRealSize());
-        peerUpdater.lazySet(this, to);
     }
 
     void setPeer(long peer)
