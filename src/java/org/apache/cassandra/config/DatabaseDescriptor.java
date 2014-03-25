@@ -67,6 +67,7 @@ import org.apache.cassandra.scheduler.NoScheduler;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.memory.AbstractMemory;
 import org.apache.cassandra.utils.memory.HeapPool;
 import org.apache.cassandra.utils.memory.SlabPool;
 
@@ -1497,6 +1498,11 @@ public class DatabaseDescriptor
                 }
                 return new BufferDataPool(new SlabPool(heapLimit, offHeapLimit, conf.memtable_cleanup_threshold, new ColumnFamilyStore.FlushLargestColumnFamily()));
             case offheap_objects:
+                if (!AbstractMemory.isSupported())
+                {
+                    logger.error("memtable_allocation_type 'offheap_objects' is not supported on this platform, please adjust your config. This feature is only guaranteed to work on an Oracle JVM. Refusing to start.");
+                    System.exit(1);
+                }
                 return new NativeDataAllocator.NativeDataPool(heapLimit, offHeapLimit, conf.memtable_cleanup_threshold, new ColumnFamilyStore.FlushLargestColumnFamily());
             default:
                 throw new AssertionError();

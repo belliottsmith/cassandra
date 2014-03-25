@@ -319,6 +319,11 @@ public abstract class AbstractMemory
         assert offset >= 0 && offset + size <= internalSize() : String.format("Illegal range: [%d..%d), size: %s", offset, offset + size, internalSize());
     }
 
+    public static boolean isSupported()
+    {
+        return directByteBufferLimitOffset >= 0;
+    }
+
     static final Unsafe unsafe;
     private static final Class<?> directByteBufferClass;
     private static final long directByteBufferAddressOffset;
@@ -332,23 +337,29 @@ public abstract class AbstractMemory
         String arch = System.getProperty("os.arch");
         unaligned = arch.equals("i386") || arch.equals("x86")
                     || arch.equals("amd64") || arch.equals("x86_64");
+
+        Unsafe _unsafe = null;
+        Class<?> _directByteBufferClass = null;
+        long _directByteBufferAddressOffset = -1, _directByteBufferCapacityOffset = -1, _directByteBufferLimitOffset = -1;
         try
         {
             Field field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
             field.setAccessible(true);
-            unsafe = (sun.misc.Unsafe) field.get(null);
-            Class<?> clazz = ByteBuffer.allocateDirect(0).getClass();
-            directByteBufferAddressOffset = unsafe.objectFieldOffset(Buffer.class.getDeclaredField("address"));
-            directByteBufferCapacityOffset = unsafe.objectFieldOffset(Buffer.class.getDeclaredField("capacity"));
-            directByteBufferLimitOffset = unsafe.objectFieldOffset(Buffer.class.getDeclaredField("limit"));
-            directByteBufferClass = clazz;
+            _unsafe = (sun.misc.Unsafe) field.get(null);
+            _directByteBufferClass = ByteBuffer.allocateDirect(0).getClass();
+            _directByteBufferAddressOffset = _unsafe.objectFieldOffset(Buffer.class.getDeclaredField("address"));
+            _directByteBufferCapacityOffset = _unsafe.objectFieldOffset(Buffer.class.getDeclaredField("capacity"));
+            _directByteBufferLimitOffset = _unsafe.objectFieldOffset(Buffer.class.getDeclaredField("limit"));
         }
         catch (Exception e)
         {
-            throw new AssertionError(e);
         }
+        unsafe = _unsafe;
+        directByteBufferClass = _directByteBufferClass;
+        directByteBufferAddressOffset = _directByteBufferAddressOffset;
+        directByteBufferCapacityOffset = _directByteBufferCapacityOffset;
+        directByteBufferLimitOffset = _directByteBufferLimitOffset;
     }
 
     private static final long BYTE_ARRAY_BASE_OFFSET = unsafe.arrayBaseOffset(byte[].class);
-
 }
