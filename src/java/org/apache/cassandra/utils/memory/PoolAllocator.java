@@ -132,7 +132,7 @@ public abstract class PoolAllocator
                     acquired(size);
                     return;
                 }
-                WaitQueue.Signal signal = opGroup.isBlockingSignal(parent.hasRoom().register());
+                WaitQueue.Signal signal = opGroup.safeIsBlockingSignal(parent.hasRoom().register());
                 boolean allocated = parent.tryAllocate(size);
                 if (allocated || opGroup.isBlocking())
                 {

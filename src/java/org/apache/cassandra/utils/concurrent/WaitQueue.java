@@ -18,15 +18,16 @@
  */
 package org.apache.cassandra.utils.concurrent;
 
-import com.yammer.metrics.core.TimerContext;
-import org.slf4j.*;
-
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.locks.LockSupport;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.yammer.metrics.core.TimerContext;
 
 /**
  * <p>A relatively easy to use utility for general purpose thread signalling.</p>
@@ -48,10 +49,12 @@ import java.util.concurrent.locks.LockSupport;
  * checking and registering (in which case the thread that made this change would have been unable to signal it),
  * it checks the condition again, sleeping only if it hasn't changed/still is not met.</p>
  * <p>This thread synchronisation scheme has some advantages over Condition objects and Object.wait/notify in that no monitor
- * acquisition is necessary and, in fact, besides the actual waiting on a signal, all operations are non-blocking.
- * As a result consumers can never block producers, nor each other, or vice versa, from making progress.
- * Threads that are signalled are also put into a RUNNABLE state almost simultaneously, so they can all immediately make
- * progress without having to serially acquire the monitor/lock, reducing scheduler delay incurred.</p>
+ * acquisition is necessary and, in fact, besides the actual waiting on a signal, all operations are non-blocking
+ * (in Java-land. At the present time the native implementation of unpark() requires a monitor acquisition on the
+ * thread being awoken which may cause signal() to block). As a result consumers generally never block producers, nor
+ * each other, or vice versa, from making progress. Threads that are signalled are also put into a RUNNABLE state almost
+ * simultaneously, so they can all immediately make progress without having to serially acquire a shared monitor/lock,
+ * reducing scheduler delay incurred.</p>
  *
  * <p>A few notes on utilisation:</p>
  * <p>1. A thread will only exit await() when it has been signalled, but this does not guarantee the condition has not
@@ -79,10 +82,8 @@ public final class WaitQueue
     private static final int SIGNALLED = 1;
     private static final int NOT_SET = 0;
 
-    private static final AtomicIntegerFieldUpdater signalledUpdater = AtomicIntegerFieldUpdater.newUpdater(RegisteredSignal.class, "state");
-
     // the waiting signals
-    private final ConcurrentLinkedDeque<RegisteredSignal> queue = new ConcurrentLinkedDeque<>();
+    private final NonBlockingQueue<RegisteredSignal> queue = new NonBlockingQueue<>();
 
     /**
      * The calling thread MUST be the thread that uses the signal
@@ -90,8 +91,8 @@ public final class WaitQueue
      */
     public Signal register()
     {
-        RegisteredSignal signal = new RegisteredSignal();
-        queue.add(signal);
+        RegisteredSignal signal = new RegisteredSignal(this);
+        queue.append(signal);
         return signal;
     }
 
@@ -104,8 +105,8 @@ public final class WaitQueue
     public Signal register(TimerContext context)
     {
         assert context != null;
-        RegisteredSignal signal = new TimedSignal(context);
-        queue.add(signal);
+        RegisteredSignal signal = new TimedSignal(context, this);
+        queue.append(signal);
         return signal;
     }
 
@@ -118,7 +119,7 @@ public final class WaitQueue
             return false;
         while (true)
         {
-            RegisteredSignal s = queue.poll();
+            RegisteredSignal s = queue.advance();
             if (s == null || s.signal())
                 return s != null;
         }
@@ -129,8 +130,7 @@ public final class WaitQueue
      */
     public void signalAll()
     {
-        RegisteredSignal last = queue.peekLast();
-        if (last == null)
+        if (!hasWaiters())
             return;
         List<Thread> woke = null;
         if (logger.isTraceEnabled())
@@ -138,23 +138,12 @@ public final class WaitQueue
         long start = System.nanoTime();
         // we wake up only a snapshot of the queue, to avoid a race where the condition is not met and the woken thread
         // immediately waits on the queue again
-        Iterator<RegisteredSignal> iter = queue.iterator();
-        while (iter.hasNext())
+        for (RegisteredSignal s : queue.snap())
         {
-            RegisteredSignal signal = iter.next();
-            if (logger.isTraceEnabled())
-            {
-                Thread thread = signal.thread;
-                if (signal.signal())
-                    woke.add(thread);
-            }
-            else
-                signal.signal();
-
-            iter.remove();
-
-            if (signal == last)
-                break;
+            if (s.signal() && woke != null)
+                woke.add(s.thread);
+            // move the queue forwards
+            queue.advanceIfHead(s);
         }
         long end = System.nanoTime();
         if (woke != null)
@@ -163,8 +152,23 @@ public final class WaitQueue
 
     private void cleanUpCancelled()
     {
-        // attempt to remove the cancelled from the beginning only, but if we fail to remove any proceed to cover
-        // the whole list
+        // attempt to remove the cancelled from the beginning only;
+        boolean cleaned = false;
+        while (true)
+        {
+            RegisteredSignal s = queue.peek();
+            if (s == null || !s.isCancelled())
+                break;
+            cleaned = true;
+            queue.advanceIfHead(s);
+        }
+        // if we succeed in doing so, assume we've removed all cancelled items; since we're only doing this to avoid
+        // the queue growing unboundedly, this is safe, as otherwise we must cancel again after cleaning the front
+        if (cleaned)
+            return;
+        // otherwise, attempt 'unsafe' (maybe unsuccessful) removal from the rest of the queue; since we will perform
+        // this repeatedly we should tend towards a small/empty set of cancelled items remaining on the queue, even
+        // if some interleaved deletes are lost
         Iterator<RegisteredSignal> iter = queue.iterator();
         while (iter.hasNext())
         {
@@ -234,7 +238,6 @@ public final class WaitQueue
 
         /**
          * atomically: cancels the Signal if !isSet(), or returns true if isSignalled()
-         *
          * @return true if isSignalled()
          */
         public boolean checkAndClear();
@@ -243,7 +246,7 @@ public final class WaitQueue
          * Should only be called by the owning thread. Indicates the signal can be retired,
          * and if signalled propagates the signal to another waiting thread
          */
-        public abstract void cancel();
+        public void cancel();
 
         /**
          * Wait, without throwing InterruptedException, until signalled. On exit isSignalled() must be true.
@@ -323,10 +326,18 @@ public final class WaitQueue
     /**
      * A signal registered with this WaitQueue
      */
-    private class RegisteredSignal extends AbstractSignal
+    private static class RegisteredSignal extends AbstractSignal
     {
+        private static final AtomicIntegerFieldUpdater<RegisteredSignal> signalledUpdater = AtomicIntegerFieldUpdater.newUpdater(RegisteredSignal.class, "state");
+
+        private final WaitQueue queue;
         private volatile Thread thread = Thread.currentThread();
         volatile int state;
+
+        private RegisteredSignal(WaitQueue queue)
+        {
+            this.queue = queue;
+        }
 
         public boolean isSignalled()
         {
@@ -359,7 +370,7 @@ public final class WaitQueue
             if (!isSet() && signalledUpdater.compareAndSet(this, NOT_SET, CANCELLED))
             {
                 thread = null;
-                cleanUpCancelled();
+                queue.cleanUpCancelled();
                 return false;
             }
             // must now be signalled assuming correct API usage
@@ -379,10 +390,10 @@ public final class WaitQueue
                 // must already be signalled - switch to cancelled and
                 state = CANCELLED;
                 // propagate the signal
-                WaitQueue.this.signal();
+                queue.signal();
             }
             thread = null;
-            cleanUpCancelled();
+            queue.cleanUpCancelled();
         }
     }
 
@@ -391,12 +402,13 @@ public final class WaitQueue
      * finished waiting. i.e. if the timer is started when the signal is registered it tracks the
      * time in between registering and invalidating the signal.
      */
-    private final class TimedSignal extends RegisteredSignal
+    private static final class TimedSignal extends RegisteredSignal
     {
         private final TimerContext context;
 
-        private TimedSignal(TimerContext context)
+        private TimedSignal(TimerContext context, WaitQueue queue)
         {
+            super(queue);
             this.context = context;
         }
 
