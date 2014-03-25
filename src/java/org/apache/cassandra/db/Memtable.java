@@ -87,7 +87,7 @@ public class Memtable
     public Memtable(ColumnFamilyStore cfs)
     {
         this.cfs = cfs;
-        this.allocator = dataPool.newAllocator();
+        this.allocator = cfs.dataGroup.newAllocator();
         this.initialComparator = cfs.metadata.comparator;
         this.cfs.scheduleFlush();
     }

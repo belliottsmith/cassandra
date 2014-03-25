@@ -58,9 +58,9 @@ public class NativeAllocator extends PoolAllocator
     private final ConcurrentLinkedQueue<Region> regions = new ConcurrentLinkedQueue<>();
     private AtomicLong unslabbed = new AtomicLong(0);
 
-    protected NativeAllocator(SubAllocator onHeap, SubAllocator offHeap)
+    protected NativeAllocator(NativePool.Group group)
     {
-        super(onHeap, offHeap);
+        super(group);
     }
 
     public void allocate(NativeAllocation allocation, int size, OpOrder.Group opGroup)

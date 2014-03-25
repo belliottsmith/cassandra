@@ -24,9 +24,14 @@ import org.apache.cassandra.utils.memory.PoolAllocator;
 public interface DataAllocator
 {
 
-    public static interface DataPool
+    public static interface DataGroup
     {
         DataAllocator newAllocator();
+    }
+
+    public static interface DataPool
+    {
+        DataGroup newGroup(String name, OpOrder reads, OpOrder writeOps);
         boolean needToCopyOnHeap();
     }
 

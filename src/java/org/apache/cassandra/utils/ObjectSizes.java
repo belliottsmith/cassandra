@@ -117,7 +117,7 @@ public class ObjectSizes
      */
     public static long sizeOnHeapOf(ByteBuffer buffer)
     {
-        if (buffer.isDirect())
+        if (!buffer.hasArray())
             return BUFFER_EMPTY_SIZE;
         // if we're only referencing a sub-portion of the ByteBuffer, don't count the array overhead (assume it's slab
         // allocated, so amortized over all the allocations the overhead is negligible and better to undercount than over)

@@ -24,6 +24,19 @@ import org.apache.cassandra.utils.memory.NativePool;
 
 public class NativeDataAllocator extends NativeAllocator implements DataAllocator
 {
+
+    public static final class NativeDataGroup extends NativePool.Group implements DataGroup
+    {
+        NativeDataGroup(String name, NativePool parent, OpOrder reads, OpOrder writes)
+        {
+            super(name, parent, reads, writes);
+        }
+        public NativeDataAllocator newAllocator()
+        {
+            return new NativeDataAllocator(this);
+        }
+    }
+
     public static final class NativeDataPool extends NativePool implements DataPool
     {
         public NativeDataPool(long maxOnHeapMemory, long maxOffHeapMemory, float cleanupThreshold, Runnable cleaner)
@@ -31,9 +44,9 @@ public class NativeDataAllocator extends NativeAllocator implements DataAllocato
             super(maxOnHeapMemory, maxOffHeapMemory, cleanupThreshold, cleaner);
         }
 
-        public NativeDataAllocator newAllocator()
+        public NativeDataGroup newGroup(String name, OpOrder readOps, OpOrder writeOps)
         {
-            return new NativeDataAllocator(onHeap.newAllocator(), offHeap.newAllocator());
+            return new NativeDataGroup(name, this, readOps, writeOps);
         }
 
         public boolean needToCopyOnHeap()
@@ -70,9 +83,9 @@ public class NativeDataAllocator extends NativeAllocator implements DataAllocato
         }
     }
 
-    NativeDataAllocator(SubAllocator onHeap, SubAllocator offHeap)
+    NativeDataAllocator(NativePool.Group group)
     {
-        super(onHeap, offHeap);
+        super(group);
     }
 
     public Cell clone(Cell cell, CFMetaData metadata, OpOrder.Group writeOp)

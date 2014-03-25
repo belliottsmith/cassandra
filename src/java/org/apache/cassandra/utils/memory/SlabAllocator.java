@@ -44,7 +44,7 @@ import sun.nio.ch.DirectBuffer;
  * interleaved throughout the heap, and the old generation gets progressively
  * more fragmented until a stop-the-world compacting collection occurs.
  */
-public class SlabAllocator extends ByteBufferPool.Allocator
+public class SlabAllocator extends ByteBufferPool.Allocator<SlabPool.Group, SlabPool>
 {
     private static final Logger logger = LoggerFactory.getLogger(SlabAllocator.class);
 
@@ -62,10 +62,10 @@ public class SlabAllocator extends ByteBufferPool.Allocator
     private AtomicLong unslabbedSize = new AtomicLong(0);
     private final boolean allocateOnHeapOnly;
 
-    SlabAllocator(SubAllocator onHeap, SubAllocator offHeap, boolean allocateOnHeapOnly)
+    SlabAllocator(SlabPool.Group group)
     {
-        super(onHeap, offHeap);
-        this.allocateOnHeapOnly = allocateOnHeapOnly;
+        super(group);
+        this.allocateOnHeapOnly = group.pool.allocateOnHeap;
     }
 
     public ByteBuffer allocate(int size)

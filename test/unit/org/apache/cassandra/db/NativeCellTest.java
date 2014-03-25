@@ -59,7 +59,7 @@ public class NativeCellTest
 {
 
     private static final NativeDataAllocator nativeAllocator = new NativeDataAllocator.NativeDataPool(Integer.MAX_VALUE, Integer.MAX_VALUE, 1f, null)
-                                                               .newAllocator();
+                                                               .newGroup("test", new OpOrder(), new OpOrder()).newAllocator();
     private static final OpOrder.Group group = new OpOrder().start();
 
     static class Name

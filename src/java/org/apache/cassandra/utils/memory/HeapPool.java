@@ -29,21 +29,34 @@ public class HeapPool extends ByteBufferPool
         super(maxOnHeapMemory, 0, cleanupThreshold, cleaner);
     }
 
+    public Group newAllocatorGroup(String name, OpOrder reads, OpOrder writes)
+    {
+        return new Group(name, this, reads, writes);
+    }
+
     public boolean needToCopyOnHeap()
     {
         return false;
     }
 
-    public Allocator newAllocator()
+    public static final class Group extends ByteBufferPool.Group<HeapPool>
     {
-        return new Allocator(this);
+        public Group(String name, HeapPool pool, OpOrder reads, OpOrder writes)
+        {
+            super(name, pool, reads, writes);
+        }
+
+        public Allocator newAllocator()
+        {
+            return new Allocator(this);
+        }
     }
 
-    public final class Allocator extends ByteBufferPool.Allocator
+    public static final class Allocator extends ByteBufferPool.Allocator<Group, HeapPool>
     {
-        Allocator(HeapPool pool)
+        Allocator(Group group)
         {
-            super(pool.onHeap.newAllocator(), pool.offHeap.newAllocator());
+            super(group);
         }
 
         public ByteBuffer allocate(int size)

@@ -20,6 +20,7 @@ package org.apache.cassandra.utils.memory;
 
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
+import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 
@@ -39,14 +40,36 @@ public abstract class Pool
 
     Pool(long maxOnHeapMemory, long maxOffHeapMemory, float cleanThreshold, Runnable cleaner)
     {
-        this.onHeap = getSubPool(maxOnHeapMemory, cleanThreshold);
-        this.offHeap = getSubPool(maxOffHeapMemory, cleanThreshold);
+        this.onHeap = getSubPool(true, maxOnHeapMemory, cleanThreshold);
+        this.offHeap = getSubPool(false, maxOffHeapMemory, cleanThreshold);
         this.cleaner = getCleaner(cleaner);
         if (this.cleaner != null)
             this.cleaner.start();
     }
 
-    SubPool getSubPool(long limit, float cleanThreshold)
+    public abstract AllocatorGroup newAllocatorGroup(String name, OpOrder reads, OpOrder writes);
+
+    public static abstract class AllocatorGroup<P extends Pool>
+    {
+
+        public final String name;
+        public final P pool;
+        public final OpOrder reads;
+        public final OpOrder writes;
+
+        public AllocatorGroup(String name, P pool, OpOrder reads, OpOrder writes)
+        {
+            this.name = name;
+            this.pool = pool;
+            this.reads = reads;
+            this.writes = writes;
+        }
+
+        public abstract PoolAllocator newAllocator();
+
+    }
+
+    SubPool getSubPool(boolean onHeap, long limit, float cleanThreshold)
     {
         return new SubPool(limit, cleanThreshold);
     }
@@ -55,9 +78,6 @@ public abstract class Pool
     {
         return cleaner == null ? null : new PoolCleanerThread<>(this, cleaner);
     }
-
-    public abstract boolean needToCopyOnHeap();
-    public abstract PoolAllocator newAllocator();
 
     /**
      * Note the difference between acquire() and allocate(); allocate() makes more resources available to all owners,

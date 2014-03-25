@@ -22,9 +22,10 @@ import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
-public abstract class PoolAllocator
+public abstract class PoolAllocator<G extends Pool.AllocatorGroup<P>, P extends Pool>
 {
 
+    public final G group;
     private final SubAllocator onHeap;
     private final SubAllocator offHeap;
     volatile LifeCycle state = LifeCycle.LIVE;
@@ -47,10 +48,11 @@ public abstract class PoolAllocator
         }
     }
 
-    PoolAllocator(SubAllocator onHeap, SubAllocator offHeap)
+    PoolAllocator(G group)
     {
-        this.onHeap = onHeap;
-        this.offHeap = offHeap;
+        this.group = group;
+        this.onHeap = group.pool.onHeap.newAllocator();
+        this.offHeap = group.pool.offHeap.newAllocator();
     }
 
     public SubAllocator onHeap()

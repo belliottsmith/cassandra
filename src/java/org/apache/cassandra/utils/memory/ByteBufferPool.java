@@ -29,14 +29,25 @@ public abstract class ByteBufferPool extends Pool
         super(maxOnHeapMemory, maxOffHeapMemory, cleanThreshold, cleaner);
     }
 
+    public abstract Group newAllocatorGroup(String name, OpOrder reads, OpOrder writes);
     public abstract boolean needToCopyOnHeap();
-    public abstract Allocator newAllocator();
 
-    public static abstract class Allocator extends PoolAllocator
+    public static abstract class Group<P extends ByteBufferPool> extends AllocatorGroup<P>
     {
-        Allocator(SubAllocator onHeap, SubAllocator offHeap)
+        public Group(String name, P pool, OpOrder reads, OpOrder writes)
         {
-            super(onHeap, offHeap);
+            super(name, pool, reads, writes);
+        }
+
+        public abstract Allocator<? extends Group<P>, P> newAllocator();
+    }
+
+    public static abstract class Allocator<G extends AllocatorGroup<P>, P extends Pool> extends PoolAllocator<G, P>
+    {
+
+        Allocator(G group)
+        {
+            super(group);
         }
 
         public abstract ByteBuffer allocate(int size, OpOrder.Group writeOp);
