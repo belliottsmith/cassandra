@@ -18,6 +18,7 @@
  */
 package org.apache.cassandra.utils.memory;
 
+import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 /**
@@ -67,7 +68,24 @@ class PoolCleanerThread<P extends Pool> extends Thread
                     signal.cancel();
             }
 
-            cleaner.run();
+            clean();
         }
     }
+
+    void clean()
+    {
+        cleaner.run();
+    }
+
+    public OpOrder.Barrier getGCBarrier()
+    {
+        return null;
+    }
+
+    // try to do some aggressive cleaning
+    void forceClean()
+    {
+
+    }
+
 }

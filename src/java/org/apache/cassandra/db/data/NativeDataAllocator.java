@@ -19,6 +19,7 @@ package org.apache.cassandra.db.data;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.utils.concurrent.OpOrder;
+import org.apache.cassandra.utils.memory.NativeAllocation;
 import org.apache.cassandra.utils.memory.NativeAllocator;
 import org.apache.cassandra.utils.memory.NativePool;
 import org.apache.cassandra.utils.memory.RefAction;
@@ -61,6 +62,12 @@ public class NativeDataAllocator extends NativeAllocator implements DataAllocato
         {
             return true;
         }
+
+        public NativeDataPool setGcEnabled(boolean enabled)
+        {
+            super.setGcEnabled(enabled);
+            return this;
+        }
     }
 
     public static class NativeDataReclaimer implements DataReclaimer
@@ -69,16 +76,19 @@ public class NativeDataAllocator extends NativeAllocator implements DataAllocato
 
         public DataReclaimer reclaim(Cell cell)
         {
+            ((NativeAllocation) cell).free();
             return this;
         }
 
         public DataReclaimer reclaimImmediately(Cell cell)
         {
+            ((NativeAllocation) cell).free();
             return this;
         }
 
         public DataReclaimer reclaimImmediately(DecoratedKey key)
         {
+            ((NativeAllocation) key).free();
             return this;
         }
 

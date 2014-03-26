@@ -357,11 +357,14 @@ public class Memtable
 
                     if (!cf.isEmpty())
                         writer.append((DecoratedKey)entry.getKey(), cf);
+
+                    op.sync();
                 }
 
                 if (writer.getFilePointer() > 0)
                 {
                     writer.isolateReferences();
+                    op.close();
 
                     // temp sstables should contain non-repaired data.
                     ssTable = writer.closeAndOpenReader();

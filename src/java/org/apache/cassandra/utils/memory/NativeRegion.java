@@ -61,32 +61,46 @@ final class NativeRegion
     final int size;
 
     final MarkKey markKey;
+    volatile NativeAllocation children;
 
     private volatile State state = State.LIVE;
 
+    /** Offset for the next allocation */
     private volatile int allocOffset;
+
+    /**
+     * Total size of allocations satisfied from this buffer.
+     */
+    // TODO: not necessary if we always wait for writers to finish before enumerating children to copy
+    private volatile int allocSize;
 
     // TODO: can encode in top bits of allocSize to save space
     /** Total number of allocations we have tried but failed to satisfy with this buffer */
     private volatile int skipCount;
 
+    // TODO: we can stop maintaining freeSize, and lazily refresh it whenever we come to GC; just maintain a boolean flag
+    // indicating if it needs updating. then we could change free to a volatile store only (and maybe not even volatile)
+    /** Total size of space we have previously allocated and since freed */
+    private volatile int freeSize;
 
-    NativeRegion(int size)
+
+    NativeRegion(int size, boolean isGcEnabled)
     {
-        this(memoryAllocator.allocate(size), size);
+        this(memoryAllocator.allocate(size), size, isGcEnabled);
     }
 
     private NativeRegion(NativeRegion recycle)
     {
         // we never recycle regions that are limited to only one child, as these are always oversized regions
-        this(recycle.peer, recycle.size);
+        this(recycle.peer, recycle.size, recycle.freeSize >= 0);
     }
 
-    private NativeRegion(long peer, int size)
+    private NativeRegion(long peer, int size, boolean isGcEnabled)
     {
         this.peer = peer;
         this.size = size;
         this.markKey = new MarkKey();
+        this.freeSize = isGcEnabled ? 0 : -1;
     }
 
     /**
@@ -111,10 +125,45 @@ final class NativeRegion
             {
                 allocation.setPeer(peer + oldOffset);
                 allocation.setRealSize(size);
+                if (freeSize < 0)
+                {
+                    allocation.parent = markKey;
+                    return true;
+                }
                 allocation.parent = this;
+                while (true)
+                {
+                    NativeAllocation next = children;
+                    allocation.next = next;
+                    if (childrenUpdater.compareAndSet(this, next, allocation))
+                        break;
+                }
+                allocSizeUpdater.addAndGet(this, size);
                 return true;
             }
         }
+    }
+
+    int reallocate(int size)
+    {
+        int oldOffset = allocOffset;
+        if (oldOffset + size > this.size)
+        {
+            // count the failure so we can retire this region if we fail too many times
+            skipCount++;
+            return -1;
+        }
+
+        int newOffset = oldOffset + size;
+        allocOffsetUpdater.lazySet(this, newOffset);
+        allocSizeUpdater.lazySet(this, newOffset);
+        return oldOffset;
+    }
+
+    void unorderedAdopt(NativeAllocation allocation)
+    {
+        allocation.next = children;
+        childrenUpdater.lazySet(this, allocation);
     }
 
     /** @return false if we no longer consider the region capable of allocating space */
@@ -126,7 +175,21 @@ final class NativeRegion
     /** move our allocOffset and allocSize to the end, and mark any unused space as free */
     void finishAllocating()
     {
-        allocOffsetUpdater.getAndSet(this, size);
+        if (allocOffset == size)
+            return;
+        int delta = size - allocOffsetUpdater.getAndSet(this, size);
+        if (delta != 0)
+        {
+            if (freeSize >= 0)
+                freeSizeUpdater.addAndGet(this, delta);
+            allocSizeUpdater.addAndGet(this, delta);
+        }
+    }
+
+    /** @return true if the buffer is still allocating space */
+    boolean isAllocating()
+    {
+        return allocSize != size;
     }
 
     boolean isLive()
@@ -144,10 +207,36 @@ final class NativeRegion
         return size;
     }
 
+    public float freeRatio()
+    {
+        if (freeSize == size())
+            return 1f;
+        return freeSize / (float) size();
+    }
+
+    public boolean isAllFree()
+    {
+        return freeSize == size();
+    }
+
+    /**
+     * Account for the removal of the provided buffer, without checking if the buffer is associated with us.
+     * This is used by GC for dealing with races against another free() of the buffer it was copying here.
+     */
+    void free(int size)
+    {
+        freeSizeUpdater.addAndGet(this, size);
+    }
+
     /** CAS the state, returning success */
     boolean transition(State exp, State upd)
     {
         return state == exp && stateUpdater.compareAndSet(this, exp, upd);
+    }
+
+    StateSnapper snapper()
+    {
+        return new StateSnapper(this);
     }
 
     void releaseNativeMemory()
@@ -163,11 +252,58 @@ final class NativeRegion
     {
         assert state == State.DISCARDED;
         state = State.RECYCLED;
+        // PARANOID GC: if the mark key is the same as ours, the buffer should no longer be referenced,
+        // so set its address to 0
+        if (NativePool.PARANOID_RECYCLE)
+        {
+            for (NativeAllocation child : NativeAllocation.iterate(children))
+                if (child.parent == markKey)
+                    child.setPeer(0);
+            children = null;
+        }
         return new NativeRegion(this);
     }
 
     private static final AtomicIntegerFieldUpdater<NativeRegion> allocOffsetUpdater = AtomicIntegerFieldUpdater.newUpdater(NativeRegion.class, "allocOffset");
+    private static final AtomicIntegerFieldUpdater<NativeRegion> allocSizeUpdater = AtomicIntegerFieldUpdater.newUpdater(NativeRegion.class, "allocSize");
     private static final AtomicIntegerFieldUpdater<NativeRegion> skipCountUpdater = AtomicIntegerFieldUpdater.newUpdater(NativeRegion.class, "skipCount");
+    private static final AtomicIntegerFieldUpdater<NativeRegion> freeSizeUpdater = AtomicIntegerFieldUpdater.newUpdater(NativeRegion.class, "freeSize");
     private static final AtomicReferenceFieldUpdater<NativeRegion, State> stateUpdater = AtomicReferenceFieldUpdater.newUpdater(NativeRegion.class, State.class, "state");
+    private static final AtomicReferenceFieldUpdater<NativeRegion, NativeAllocation> childrenUpdater = AtomicReferenceFieldUpdater.newUpdater(NativeRegion.class, NativeAllocation.class, "children");
+
+    /**
+     * Wraps an OffHeapRegion, snapping the state of the new local allocation region, so that if we fail to allocate
+     * complete room to collect a candidate region, we can reset the new region before placing at the end of the allocator
+     * queue we are collecting
+     */
+    static final class StateSnapper
+    {
+        final NativeRegion region;
+        int allocOffset;
+        int allocSize;
+        int skipCount;
+        int freeSize;
+
+        private StateSnapper(NativeRegion region)
+        {
+            this.region = region;
+        }
+
+        void snap()
+        {
+            allocOffset = region.allocOffset;
+            allocSize = region.allocSize;
+            freeSize = region.freeSize;
+            skipCount = region.skipCount;
+        }
+
+        void reset()
+        {
+            region.allocOffset = allocOffset;
+            region.allocSize = allocSize;
+            region.freeSize = freeSize;
+            region.skipCount = skipCount;
+        }
+    }
 
 }

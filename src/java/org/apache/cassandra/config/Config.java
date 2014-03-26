@@ -292,7 +292,8 @@ public class Config
         unslabbed_heap_buffers,
         heap_buffers,
         offheap_buffers,
-        offheap_objects
+        offheap_objects,
+        offheap_objects_gc
     }
 
     public static enum DiskFailurePolicy

@@ -35,6 +35,7 @@ public interface DataAllocator
     {
         DataGroup newGroup(String name, OpOrder reads, OpOrder writeOps);
         boolean needToCopyOnHeap();
+        OpOrder.Barrier getGCBarrier();
     }
 
     public static interface DataReclaimer

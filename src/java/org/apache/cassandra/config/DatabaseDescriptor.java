@@ -1497,13 +1497,15 @@ public class DatabaseDescriptor
                     System.exit(-1);
                 }
                 return new BufferDataPool(new SlabPool(heapLimit, offHeapLimit, conf.memtable_cleanup_threshold, new ColumnFamilyStore.FlushLargestColumnFamily()));
+            case offheap_objects_gc:
             case offheap_objects:
                 if (!AbstractMemory.isSupported())
                 {
                     logger.error("memtable_allocation_type 'offheap_objects' is not supported on this platform, please adjust your config. This feature is only guaranteed to work on an Oracle JVM. Refusing to start.");
                     System.exit(1);
                 }
-                return new NativeDataAllocator.NativeDataPool(heapLimit, offHeapLimit, conf.memtable_cleanup_threshold, new ColumnFamilyStore.FlushLargestColumnFamily());
+                return new NativeDataAllocator.NativeDataPool(heapLimit, offHeapLimit, conf.memtable_cleanup_threshold, new ColumnFamilyStore.FlushLargestColumnFamily())
+                       .setGcEnabled(conf.memtable_allocation_type == Config.MemtableAllocationType.offheap_objects_gc);
             default:
                 throw new AssertionError();
         }

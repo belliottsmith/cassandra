@@ -1042,6 +1042,26 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         public void run()
         {
+
+            // we issue a gc barrier in order to avoid marking the writes as blocking until we're sure no more
+            // space can be made available for them, to minimise the amount of memory overspend we incur
+            OpOrder.Barrier gcBarrier = Memtable.dataPool.getGCBarrier();
+            if (gcBarrier != null)
+            {
+                gcBarrier.issue();
+                while (!writeBarrier.allPriorOpsAreFinished() && !gcBarrier.allPriorOpsAreFinished())
+                {
+                    WaitQueue.Signal signal = WaitQueue.any(writeBarrier.register(), gcBarrier.register());
+                    if (writeBarrier.allPriorOpsAreFinished() || gcBarrier.allPriorOpsAreFinished())
+                    {
+                        signal.cancel();
+                        break;
+                    }
+                    else
+                        signal.awaitUninterruptibly();
+                }
+            }
+
             // mark writes older than the barrier as blocking progress, permitting them to exceed our memory limit
             // if they are stuck waiting on it, then wait for them all to complete
             writeBarrier.markBlocking();

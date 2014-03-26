@@ -43,7 +43,7 @@ import com.google.common.collect.Multimap;
  * 3) During this time any operation protected by the read/write OpOrder may optionally 'ref' {@link Referrer} an object,
  *    or objects, that each reference (in the normal java sense) some allocations; once the read operation finishes these
  *    will have been registered with one or more GC roots {@link Referrers} - one per allocator group referenced.
- * 4) When an allocator discard occurs, any extant {@link Referrer} are walked that were created during
+ * 4) When a GC (or allocator discard) occurs, any extant {@link Referrer} are walked that were created during
  *    operations started prior to the collect phase, and any regions that are reachable by any of these 'refs' are
  *    switched to a refcount phase. When each ref completes it decrements the count of any such regions it reached.
  *    Once this count hits 0, the region is finally eligible for reuse.
@@ -52,9 +52,11 @@ public class NativePool extends Pool
 {
 
     private static final Logger logger = LoggerFactory.getLogger(NativePool.class);
+    static final boolean PARANOID_RECYCLE = !Objects.equals("off", System.getProperty("cassandra.paranoidgc"));
 
     public final int regionSize;
     final int overAllocatedRegionSize; // size of region to allocate if we're full but need temporary room
+    private volatile boolean isGcEnabled = false;
 
     /** A queue of regions we have previously used but are now spare */
     private final NonBlockingQueue<NativeRegion> recycled = new NonBlockingQueue<>();
@@ -83,6 +85,16 @@ public class NativePool extends Pool
     {
         return onHeap ? super.getSubPool(true, limit, cleanThreshold)
                       : new OffHeapSubPool(limit, cleanThreshold);
+    }
+
+    NativeCleaner getCleaner(Runnable cleaner)
+    {
+        return new NativeCleaner(this, cleaner);
+    }
+
+    public OpOrder.Barrier getGCBarrier()
+    {
+        return cleaner.getGCBarrier();
     }
 
     public static class Group extends AllocatorGroup<NativePool>
@@ -140,7 +152,7 @@ public class NativePool extends Pool
             {
                 if (logger.isDebugEnabled())
                     logger.debug("Allocating new region with size {}, total allocated {}", size, offHeap.allocated());
-                return new NativeRegion(size);
+                return new NativeRegion(size, isGcEnabled);
             }
             else if (!recycled.isEmpty() && size > regionSize)
             {
@@ -171,6 +183,21 @@ public class NativePool extends Pool
     {
         offHeap.adjustAllocated(-region.size());
         region.releaseNativeMemory();
+    }
+
+    /**
+     * enable/disable GC for this pool
+     * @param enabled true if GC should be enabled
+     */
+    public NativePool setGcEnabled(boolean enabled)
+    {
+        this.isGcEnabled = enabled;
+        return this;
+    }
+
+    public boolean isGcEnabled()
+    {
+        return this.isGcEnabled;
     }
 
     /**
