@@ -169,7 +169,7 @@ public class StressAction implements Runnable
                                      operations.desc(),
                                      threadCount,
                                      durationUnits != null ? duration + " " + durationUnits.toString().toLowerCase()
-                                        : opCount > 0      ? "for " + opCount + " iteration"
+                                        : opCount > 0      ? "for " + opCount + " operations"
                                                            : "until stderr of mean < " + settings.command.targetUncertainty));
         final WorkManager workManager;
         if (opCount < 0)
