@@ -29,4 +29,9 @@ public class MarshalException extends RuntimeException
     {
         super(message, cause);
     }
+
+    public int hashCode()
+    {
+        return (int) (token >>> 32);
+    }
 }

@@ -19,14 +19,24 @@ package org.apache.cassandra.db;
 
 import java.nio.ByteBuffer;
 
+import org.apache.cassandra.dht.LongToken;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.MemoryUtil;
 import org.apache.cassandra.utils.memory.NativeAllocator;
 
 public class NativeDecoratedKey extends DecoratedKey
 {
+    private static final long HEAP_SIZE = ObjectSizes.measure(new NativeDecoratedKey());
+
     final long peer;
+
+    private NativeDecoratedKey()
+    {
+        super(new LongToken(0L));
+        peer = 0;
+    }
 
     public NativeDecoratedKey(Token token, NativeAllocator allocator, OpOrder.Group writeOp, ByteBuffer key)
     {
@@ -41,5 +51,10 @@ public class NativeDecoratedKey extends DecoratedKey
     public ByteBuffer getKey()
     {
         return MemoryUtil.getByteBuffer(peer + 4, MemoryUtil.getInt(peer));
+    }
+
+    public long unsharedHeapSize()
+    {
+        return HEAP_SIZE;
     }
 }

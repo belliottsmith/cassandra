@@ -184,6 +184,11 @@ public class Murmur3Partitioner implements IPartitioner
         return false;
     }
 
+    public boolean sortsByHashCode()
+    {
+        return true;
+    }
+
     public Map<Token, Float> describeOwnership(List<Token> sortedTokens)
     {
         Map<Token, Float> ownerships = new HashMap<Token, Float>();

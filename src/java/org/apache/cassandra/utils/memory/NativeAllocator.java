@@ -84,6 +84,7 @@ public class NativeAllocator extends MemtableAllocator
         return new NativeExpiringCell(this, writeOp, cell);
     }
 
+    // we don't account for the on-heap overhead of the object here
     public DecoratedKey clone(DecoratedKey key, OpOrder.Group writeOp)
     {
         return new NativeDecoratedKey(key.getToken(), this, writeOp, key.getKey());

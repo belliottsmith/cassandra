@@ -18,6 +18,7 @@
 package org.apache.cassandra.db;
 
 import java.io.File;
+import java.nio.ByteBuffer;
 import java.util.AbstractMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -34,6 +35,8 @@ import org.apache.cassandra.io.sstable.format.SSTableWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.concurrent.InsertOnlyOrderedMap;
+import org.apache.cassandra.concurrent.NonBlockingHashOrderedMap;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.commitlog.ReplayPosition;
@@ -44,6 +47,8 @@ import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.util.DiskAwareRunnable;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.*;
+import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.*;
 
@@ -52,7 +57,7 @@ public class Memtable
     private static final Logger logger = LoggerFactory.getLogger(Memtable.class);
 
     static final MemtablePool MEMORY_POOL = DatabaseDescriptor.getMemtableAllocatorPool();
-    private static final int ROW_OVERHEAD_HEAP_SIZE = estimateRowOverhead(Integer.parseInt(System.getProperty("cassandra.memtable_row_overhead_computation_step", "100000")));
+    private static final int CSLM_ROW_OVERHEAD_HEAP_SIZE = estimateCslmRowOverhead(Integer.parseInt(System.getProperty("cassandra.memtable_row_overhead_computation_step", "100000")));
 
     private final MemtableAllocator allocator;
     private final AtomicLong liveDataSize = new AtomicLong(0);
@@ -75,7 +80,7 @@ public class Memtable
     // We index the memtable by RowPosition only for the purpose of being able
     // to select key range using Token.KeyBound. However put() ensures that we
     // actually only store DecoratedKey.
-    private final ConcurrentNavigableMap<RowPosition, AtomicBTreeColumns> rows = new ConcurrentSkipListMap<>();
+    private final InsertOnlyOrderedMap<RowPosition, AtomicBTreeColumns> rows;
     public final ColumnFamilyStore cfs;
     private final long creationTime = System.currentTimeMillis();
     private final long creationNano = System.nanoTime();
@@ -84,6 +89,7 @@ public class Memtable
     // is only used when a user update the CF comparator, to know if the
     // memtable was created with the new or old comparator.
     public final CellNameType initialComparator;
+    private final int rowOverhead;
 
     public Memtable(ColumnFamilyStore cfs)
     {
@@ -91,6 +97,16 @@ public class Memtable
         this.allocator = MEMORY_POOL.newAllocator();
         this.initialComparator = cfs.metadata.comparator;
         this.cfs.scheduleFlush();
+        if (!cfs.partitioner.sortsByHashCode())
+        {
+            rows = new InsertOnlyOrderedMap.Adapter<>(new ConcurrentSkipListMap<RowPosition, AtomicBTreeColumns>());
+            rowOverhead = CSLM_ROW_OVERHEAD_HEAP_SIZE;
+        }
+        else
+        {
+            rows = new NonBlockingHashOrderedMap<>();
+            rowOverhead = NonBlockingHashOrderedMap.ITEM_HEAP_OVERHEAD;
+        }
     }
 
     public MemtableAllocator getAllocator()
@@ -158,7 +174,7 @@ public class Memtable
 
     public boolean isClean()
     {
-        return rows.isEmpty();
+        return rows.size() == 0;
     }
 
     public boolean isCleanAfter(ReplayPosition position)
@@ -196,8 +212,8 @@ public class Memtable
                 previous = empty;
                 // allocate the row overhead after the fact; this saves over allocating and having to free after, but
                 // means we can overshoot our declared limit.
-                int overhead = (int) (key.getToken().getHeapSize() + ROW_OVERHEAD_HEAP_SIZE);
-                allocator.onHeap().allocate(overhead, opGroup);
+                int overhead = (int) (key.getToken().getHeapSize() + rowOverhead);
+                allocator.onHeap().allocate(overhead + cloneKey.unsharedHeapSize(), opGroup);
             }
             else
             {
@@ -216,7 +232,7 @@ public class Memtable
     {
         StringBuilder builder = new StringBuilder();
         builder.append("{");
-        for (Map.Entry<RowPosition, AtomicBTreeColumns> entry : rows.entrySet())
+        for (Map.Entry<RowPosition, AtomicBTreeColumns> entry : rows.range(null, null))
         {
             builder.append(entry.getKey()).append(": ").append(entry.getValue()).append(", ");
         }
@@ -244,8 +260,8 @@ public class Memtable
         return new Iterator<Map.Entry<DecoratedKey, ColumnFamily>>()
         {
             private Iterator<? extends Map.Entry<? extends RowPosition, AtomicBTreeColumns>> iter = stopAt.isMinimum()
-                    ? rows.tailMap(startWith).entrySet().iterator()
-                    : rows.subMap(startWith, true, stopAt, true).entrySet().iterator();
+                    ? rows.range(startWith, null).iterator()
+                    : rows.range(startWith, stopAt).iterator();
 
             private Map.Entry<? extends RowPosition, ? extends ColumnFamily> currentEntry;
 
@@ -301,8 +317,9 @@ public class Memtable
             this.context = context;
 
             long keySize = 0;
-            for (RowPosition key : rows.keySet())
+            for (Map.Entry<RowPosition, ?> e : rows.range(null, null))
             {
+                RowPosition key = e.getKey();
                 //  make sure we don't write non-sensical keys
                 assert key instanceof DecoratedKey;
                 keySize += ((DecoratedKey)key).getKey().remaining();
@@ -346,7 +363,7 @@ public class Memtable
                 int heavilyContendedRowCount = 0;
                 // (we can't clear out the map as-we-go to free up memory,
                 //  since the memtable is being used for queries in the "pending flush" category)
-                for (Map.Entry<RowPosition, AtomicBTreeColumns> entry : rows.entrySet())
+                for (Map.Entry<RowPosition, AtomicBTreeColumns> entry : rows.range(null, null))
                 {
                     AtomicBTreeColumns cf = entry.getValue();
 
@@ -405,22 +422,19 @@ public class Memtable
         }
     }
 
-    private static int estimateRowOverhead(final int count)
+    private static int estimateCslmRowOverhead(final int count)
     {
         // calculate row overhead
-        final OpOrder.Group group = new OpOrder().start();
         int rowOverhead;
-        MemtableAllocator allocator = MEMORY_POOL.newAllocator();
-        ConcurrentNavigableMap<RowPosition, Object> rows = new ConcurrentSkipListMap<>();
+        ConcurrentSkipListMap<RowPosition, Object> rows = new ConcurrentSkipListMap<>();
+        final Murmur3Partitioner partitioner = new Murmur3Partitioner();
         final Object val = new Object();
         for (int i = 0 ; i < count ; i++)
-            rows.put(allocator.clone(new BufferDecoratedKey(new LongToken((long) i), ByteBufferUtil.EMPTY_BYTE_BUFFER), group), val);
+            rows.putIfAbsent(new BufferDecoratedKey(partitioner.getRandomToken(), ByteBuffer.allocate(0)), val);
         double avgSize = ObjectSizes.measureDeep(rows) / (double) count;
         rowOverhead = (int) ((avgSize - Math.floor(avgSize)) < 0.05 ? Math.floor(avgSize) : Math.ceil(avgSize));
-        rowOverhead -= ObjectSizes.measureDeep(new LongToken((long) 0));
+        rowOverhead -= ObjectSizes.measureDeep(new BufferDecoratedKey(new LongToken((long) 0), ByteBuffer.allocate(0)));
         rowOverhead += AtomicBTreeColumns.EMPTY_SIZE;
-        allocator.setDiscarding();
-        allocator.setDiscarded();
         return rowOverhead;
     }
 }

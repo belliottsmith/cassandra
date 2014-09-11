@@ -68,6 +68,8 @@ public interface IPartitioner
      */
     public boolean preservesOrder();
 
+    public boolean sortsByHashCode();
+
     /**
      * Calculate the deltas between tokens in the ring in order to compare
      *  relative sizes.

@@ -20,6 +20,7 @@ package org.apache.cassandra.db;
 import java.nio.ByteBuffer;
 import java.util.Comparator;
 
+import org.apache.cassandra.cache.IMeasurableMemory;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.dht.Token.KeyBound;
@@ -36,7 +37,7 @@ import org.apache.cassandra.utils.IFilter.FilterKey;
  * if this matters, you can subclass RP to use a stronger hash, or use a non-lossy tokenization scheme (as in the
  * OrderPreservingPartitioner classes).
  */
-public abstract class DecoratedKey implements RowPosition, FilterKey
+public abstract class DecoratedKey implements RowPosition, FilterKey, IMeasurableMemory
 {
     public static final Comparator<DecoratedKey> comparator = new Comparator<DecoratedKey>()
     {
@@ -57,7 +58,7 @@ public abstract class DecoratedKey implements RowPosition, FilterKey
     @Override
     public int hashCode()
     {
-        return getKey().hashCode(); // hash of key is enough
+        return token.hashCode();
     }
 
     @Override
