@@ -51,9 +51,9 @@ public class PlotComparison
     {
         p50(6, "p50", DataType.Latency, 7, 0.3f),
         p95(7, "p95", DataType.Latency, 7, 0.4f),
-        p99(8, "p99", DataType.Latency, 7, 0.5f),
-        p999(9, "p999", DataType.Latency, 10, 0.6f),
-        pMax(10, "pMax", DataType.Latency, 8, 0.8f),
+        p99(8, "p99", DataType.Latency, 6, 0.5f),
+        p999(9, "p999", DataType.Latency, 10, 0.5f),
+        pMax(10, "pMax", DataType.Latency, 8, 0.5f),
         ops(2, "op/s", DataType.Throughput, 7, 0.5f),
         pks(3, "pk/s", DataType.Throughput, 7, 0.5f),
         rows(4, "row/s", DataType.Throughput, 7, 0.5f),
@@ -186,19 +186,25 @@ public class PlotComparison
 
             // second row: latency
             plot.startPlot(0f, 0.325f, 0.3f, 0.333f, "Normalised And Scaled By Median", "Latency");
-            realtimePlot(plot, DataField.allOf(DataType.Latency), Form.NORMALISED_AND_SCALED, GraphType.POINTS);
+//            realtimePlot(plot, DataField.allOf(DataType.Latency), Form.NORMALISED_AND_SCALED, GraphType.POINTS);
+            realtimePlot(plot,
+                         RealTimePlotSpec.cross(false, GraphType.POINTS, EnumSet.of(Form.NORMALISED_AND_SCALED), EnumSet.of(DataField.p50, DataField.p95, DataField.p999, DataField.pMax), 0),
+                         RealTimePlotSpec.cross(true, GraphType.POINTS, EnumSet.of(Form.NORMALISED_AND_SCALED), EnumSet.of(DataField.p99), 2));
             plot.startPlot(.3f, 0.325f, 0.5f, 0.333f, "Raw", "");
-            realtimePlot(plot, RealTimePlotSpec.cross(false, GraphType.LINE, EnumSet.of(Form.RAW), EnumSet.of(DataField.p50, DataField.p95, DataField.p99)), RealTimePlotSpec.cross(true, GraphType.POINTS, EnumSet.of(Form.RAW), EnumSet.of(DataField.p999, DataField.pMax)));
+            realtimePlot(plot,
+                         RealTimePlotSpec.cross(false, GraphType.LINE, EnumSet.of(Form.RAW), EnumSet.of(DataField.p50, DataField.p95), 0),
+                         RealTimePlotSpec.cross(true, GraphType.POINTS, EnumSet.of(Form.RAW), EnumSet.of(DataField.p99), 1),
+                         RealTimePlotSpec.cross(true, GraphType.POINTS, EnumSet.of(Form.RAW), EnumSet.of(DataField.p999, DataField.pMax), 0));
             plot.startPlot(0.8f, 0.325f, 0.2f, 0.32f, "", "");
             boxPlot(plot, DataField.allOf(DataType.Latency), Form.RAW);
 
 //            // third row: gc
             plot.startPlot(0f, 0f, 0.25f, 0.33f, "Cumulative", "GC (ms)");
-            realtimePlot(plot, RealTimePlotSpec.cross(true, GraphType.LINE, EnumSet.of(Form.CUMULATIVE, Form.CUMULATIVE_BY_WORK), EnumSet.of(DataField.gcsumms)));
+            realtimePlot(plot, RealTimePlotSpec.cross(true, GraphType.LINE, EnumSet.of(Form.CUMULATIVE, Form.CUMULATIVE_BY_WORK), EnumSet.of(DataField.gcsumms), 0));
             plot.startPlot(0.25f, 0f, 0.25f, 0.33f, "Cumulative", "GC (Mb)");
-            realtimePlot(plot, RealTimePlotSpec.cross(true, GraphType.LINE, EnumSet.of(Form.CUMULATIVE, Form.CUMULATIVE_BY_WORK), EnumSet.of(DataField.gcmb)));
+            realtimePlot(plot, RealTimePlotSpec.cross(true, GraphType.LINE, EnumSet.of(Form.CUMULATIVE, Form.CUMULATIVE_BY_WORK), EnumSet.of(DataField.gcmb), 0));
             plot.startPlot(.5f, 0f, 0.3f, 0.33f, "Raw", "GC (ms)");
-            realtimePlot(plot, DataField.allOf(DataType.GcTime), Form.RAW, GraphType.LINE);
+            realtimePlot(plot, DataField.allOf(DataType.GcTime), Form.RAW, GraphType.POINTS);
             plot.startPlot(.8f, 0f, 0.2f, 0.33f, "", "");
             boxPlot(plot, DataField.allOf(DataType.GcTime), Form.RAW);
             plot.plotWriter.write("unset multiplot");
@@ -292,7 +298,7 @@ public class PlotComparison
     }
     static void realtimePlot(Multiplot plot, EnumSet<DataField> fields, Form form, GraphType graphType, boolean printLabels) throws IOException, InterruptedException
     {
-        realtimePlot(plot, Collections.singletonList(new RealTimePlotSpec(printLabels, graphType, form, DataType.typeOf(fields), fields)));
+        realtimePlot(plot, Collections.singletonList(new RealTimePlotSpec(printLabels, graphType, form, DataType.typeOf(fields), fields, 0)));
     }
     static class RealTimePlotSpec
     {
@@ -301,15 +307,17 @@ public class PlotComparison
         final Form form;
         final DataType type;
         final EnumSet<DataField> fields;
-        RealTimePlotSpec(boolean printLabels, GraphType graphType, Form form, DataType type, EnumSet<DataField> fields)
+        final int linestyle;
+        RealTimePlotSpec(boolean printLabels, GraphType graphType, Form form, DataType type, EnumSet<DataField> fields, int linestyle)
         {
             this.printLabels = printLabels;
             this.graphType = graphType;
             this.form = form;
             this.type = type;
             this.fields = fields;
+            this.linestyle = linestyle;
         }
-        static List<RealTimePlotSpec> cross(boolean printLabels, GraphType graphType, EnumSet<Form> forms, EnumSet<DataField> fields)
+        static List<RealTimePlotSpec> cross(boolean printLabels, GraphType graphType, EnumSet<Form> forms, EnumSet<DataField> fields, int linestyle)
         {
             EnumMap<DataType, EnumSet<DataField>> types = new EnumMap<>(DataType.class);
             for (DataField field : fields)
@@ -322,7 +330,7 @@ public class PlotComparison
             List<RealTimePlotSpec> r = new ArrayList<>();
             for (Form form : forms)
                 for (DataType type : types.keySet())
-                    r.add(new RealTimePlotSpec(printLabels, graphType, form, type, types.get(type)));
+                    r.add(new RealTimePlotSpec(printLabels, graphType, form, type, types.get(type), linestyle));
             return r;
         }
     }
@@ -357,7 +365,6 @@ public class PlotComparison
         int run = 1;
         for (String key : plot.comparison.runIds())
         {
-            int linestyle = 0;
             for (RealTimePlotSpec spec : specs)
             {
                 // skip reprinting normalised realtime series
@@ -376,7 +383,7 @@ public class PlotComparison
                         style = "lw 2";
                     plot.writeLine(REALTIME_RUN_TEMPLATE,
                                    "@datfile", filePrefixes.get(spec) + run,
-                                   "@colour", COLOURS[run - 1][linestyle],
+                                   "@colour", COLOURS[run - 1][spec.linestyle],
                                    "@axes", "axes x1y" + axisLookup.get(plot.scaleId(spec.type, spec.form)),
                                    "@style", style,
                                    "@column", column++,
@@ -385,7 +392,6 @@ public class PlotComparison
                                    "@run", run
                     );
                 }
-                linestyle++;
             }
             run++;
         }
@@ -460,16 +466,16 @@ public class PlotComparison
         plot.setScale("y", 2, type, form);
 
         plot.plotWriter.write("plot ");
-        int i = 0;
+        int run = 1;
         for (String key : plot.comparison.runIds())
         {
             plot.writeLine(BOXPLOT_RUN_TEMPLATE,
                            "@title", "",
-                           "@datfile", filePrefix + (i + 1),
-                           "@i2", i * 2 + 2,
-                           "@i1", i * 2 + 1,
-                           "@i", i + 1);
-            i++;
+                           "@datfile", filePrefix + run,
+                           "@colour1", COLOURS[run - 1][0],
+                           "@colour2", COLOURS[run - 1][1],
+                           "@i", run);
+            run++;
         }
         plot.plotWriter.write(";");
     }
@@ -869,7 +875,7 @@ public class PlotComparison
     private static class Series
     {
         final double[] values;
-        final double min, d1, q1, med, q3, d9, max;
+        final double min, d1, q1, med, mean, q3, d9, max;
         private Series(double[] values)
         {
             this.values = values;
@@ -882,10 +888,14 @@ public class PlotComparison
             q3 = v2[(int) Math.floor(v2.length * (0.75d))];
             d9 = v2[(int) Math.floor(v2.length * (0.9d))];
             max = v2[v2.length - 1];
+            double sum = 0;
+            for (double v : values)
+                sum += v;
+            mean = sum / values.length;
         }
         String boxPlotRow(double x, String xlabel)
         {
-            return String.format("%.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %s", x, min, d1, q1, med, q3, d9, max, xlabel);
+            return String.format("%.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %s", x, min, d1, q1, mean, q3, d9, max, xlabel);
         }
         public Series sum()
         {
@@ -911,9 +921,9 @@ public class PlotComparison
 
     private static String[][] COLOURS = new String[][]
     {
-        new String[] { "#FFA000", "#B07000", "#804000", "402000" },
-        new String[] { "#00A0FF", "#0070B0", "#004080", "002040" },
-        new String[] { "#FFA0FF", "#B070B0", "#804080", "402040" }
+        new String[] { "#FFA000", "#C09000", "#907000", "402000" },
+        new String[] { "#00A0FF", "#0090C0", "#007090", "002040" },
+        new String[] { "#FFA0FF", "#C090C0", "#904090", "402040" }
     };
 
     private static final String REALTIME_RUN_TEMPLATE =
@@ -936,8 +946,8 @@ public class PlotComparison
         "set linetype 6 lc rgb \"#A060A0\" lw 1\n";
 
     private static final String BOXPLOT_RUN_TEMPLATE =
-        "'@datfile' using 1:3:2:8:7:xticlabels(9) axes x1y2 lt @i1 title \"@title\" with candlesticks whiskerbars 0.25 fs transparent solid 0.5 border lt @i2, \\\n" +
-        "'@datfile' using 1:4:3:7:6:xticlabels(9) axes x1y2 lt @i2 title \"\" with candlesticks, \\\n" +
-        "'@datfile' using 1:5:5:5:5:xticlabels(9) axes x1y2 with candlesticks lt -1 notitle,\\\n";
+        "'@datfile' using 1:3:2:8:7:xticlabels(9) axes x1y2 lc rgb \"@colour1\" lw 1 title \"@title\" with candlesticks whiskerbars 0.25 fs transparent solid 0.5 border lc rgb \"@colour2\", \\\n" +
+        "'@datfile' using 1:4:3:7:6:xticlabels(9) axes x1y2 lc rgb \"@colour2\" lw 1 title \"\" with candlesticks fs transparent solid 0.2 border lc rgb \"@colour2\", \\\n" +
+        "'@datfile' using 1:5:5:5:5:xticlabels(9) axes x1y2 with candlesticks lt -1 lw 3 notitle,\\\n";
 
 }
