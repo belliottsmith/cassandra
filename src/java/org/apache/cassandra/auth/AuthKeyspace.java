@@ -20,6 +20,7 @@ package org.apache.cassandra.auth;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.cassandra.cql3.statements.schema.CreateTableStatement;
+import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.SchemaConstants;
@@ -103,6 +104,7 @@ public final class AuthKeyspace
                                    .id(TableId.forSystemTable(SchemaConstants.AUTH_KEYSPACE_NAME, name))
                                    .comment(description)
                                    .gcGraceSeconds((int) TimeUnit.DAYS.toSeconds(90))
+                                   .compaction(CompactionParams.DEFAULT_SYSTEM)
                                    .build();
     }
 

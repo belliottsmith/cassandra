@@ -74,8 +74,17 @@ public final class CompactionParams
         ImmutableMap.of(Option.MIN_THRESHOLD.toString(), Integer.toString(DEFAULT_MIN_THRESHOLD),
                         Option.MAX_THRESHOLD.toString(), Integer.toString(DEFAULT_MAX_THRESHOLD));
 
-    public static final CompactionParams DEFAULT =
-        new CompactionParams(SizeTieredCompactionStrategy.class, DEFAULT_THRESHOLDS, DEFAULT_ENABLED, DEFAULT_PROVIDE_OVERLAPPING_TOMBSTONES);
+    public static final Map<String, String> DEFAULT_GLOBALS =
+        new ImmutableMap.Builder<String, String>().putAll(DEFAULT_THRESHOLDS)
+                                                  .put(Option.ENABLED.toString(), Boolean.toString(DEFAULT_ENABLED))
+                                                  .build();
+
+    private static final boolean sizeTieredDefault = Boolean.parseBoolean(System.getProperty("cie-cassandra.sizeTieredDefault", "false"));
+    public static final CompactionParams DEFAULT_SYSTEM =
+        CompactionParams.create(SizeTieredCompactionStrategy.class, DEFAULT_GLOBALS);
+
+    public static final CompactionParams DEFAULT = sizeTieredDefault ? DEFAULT_SYSTEM :
+        CompactionParams.create(LeveledCompactionStrategy.class, DEFAULT_GLOBALS);
 
     private final Class<? extends AbstractCompactionStrategy> klass;
     private final ImmutableMap<String, String> options;
@@ -272,7 +281,7 @@ public final class CompactionParams
     }
 
     /*
-     * LCS doesn't, STCS and DTCS do
+     * all built-in strategies support this
      */
     @SuppressWarnings("unchecked")
     public static boolean supportsThresholdParams(Class<? extends AbstractCompactionStrategy> klass)
