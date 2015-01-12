@@ -149,7 +149,8 @@ public final class SystemDistributedKeyspace
     {
         return CreateTableStatement.parse(format(cql, table), SchemaConstants.DISTRIBUTED_KEYSPACE_NAME)
                                    .id(TableId.forSystemTable(SchemaConstants.DISTRIBUTED_KEYSPACE_NAME, table))
-                                   .comment(description);
+                                   .comment(description)
+                                   .compaction(CompactionParams.DEFAULT_SYSTEM);
     }
 
     public static KeyspaceMetadata metadata()
