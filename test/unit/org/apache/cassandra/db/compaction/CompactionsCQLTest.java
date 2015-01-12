@@ -678,6 +678,13 @@ public class CompactionsCQLTest extends CQLTester
         getCurrentColumnFamilyStore().truncateBlocking();
     }
 
+    @Test
+    public void testDefaultLCSOptions()
+    {
+        createTable("CREATE TABLE %s (id int primary key, b text)");
+        assertEquals(getCurrentColumnFamilyStore().metadata().params.compaction, CompactionParams.DEFAULT);
+    }
+
     private void assertSuspectAndReset(Collection<SSTableReader> sstables)
     {
         assertFalse(sstables.isEmpty());
