@@ -52,6 +52,7 @@ import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.schema.CompactionParams;
 
@@ -673,6 +674,13 @@ public class CompactionsCQLTest extends CQLTester
         getCurrentColumnFamilyStore().forceMajorCompaction();
         assertTombstones(getCurrentColumnFamilyStore().getLiveSSTables().iterator().next(), false);
         getCurrentColumnFamilyStore().truncateBlocking();
+    }
+
+    @Test
+    public void testDefaultLCSOptions()
+    {
+        createTable("CREATE TABLE %s (id int primary key, b text)");
+        assertEquals(getCurrentColumnFamilyStore().metadata().params.compaction, CompactionParams.DEFAULT);
     }
 
     private void assertSuspectAndReset(Collection<SSTableReader> sstables)
