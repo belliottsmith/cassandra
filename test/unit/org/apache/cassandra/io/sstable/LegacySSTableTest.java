@@ -46,8 +46,10 @@ import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.compaction.LeveledGenerations;
 import org.apache.cassandra.db.compaction.AbstractCompactionTask;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.db.compaction.LeveledManifest;
 import org.apache.cassandra.db.repair.PendingAntiCompaction;
 import org.apache.cassandra.db.streaming.CassandraOutgoingFile;
 import org.apache.cassandra.db.SinglePartitionSliceCommandTest;
@@ -268,9 +270,11 @@ public class LegacySSTableTest
             {
                 for (SSTableReader sstable : cfs.getLiveSSTables())
                 {
-                    sstable.descriptor.getMetadataSerializer().mutateLevel(sstable.descriptor, 1234);
+                    sstable.descriptor.getMetadataSerializer().mutateLevel(sstable.descriptor, LeveledGenerations.MAX_LEVEL_COUNT - 1);
                     sstable.reloadSSTableMetadata();
-                    assertEquals(1234, sstable.getSSTableLevel());
+                    // CIE change as otherwise this can run with LeveledCompactionStrategy and can
+                    // trigger an ArrayIndexOutOfBoundException for level 1234.
+                    assertEquals(LeveledGenerations.MAX_LEVEL_COUNT - 1, sstable.getSSTableLevel());
                 }
             }
         }
