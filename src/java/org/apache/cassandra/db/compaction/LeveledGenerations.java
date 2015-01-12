@@ -30,6 +30,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
@@ -47,14 +48,15 @@ import org.apache.cassandra.utils.FBUtilities;
  *
  * Not thread safe, all access should be synchronized in LeveledManifest
  */
-class LeveledGenerations
+@VisibleForTesting
+public class LeveledGenerations
 {
     private static final Logger logger = LoggerFactory.getLogger(LeveledGenerations.class);
     private final boolean strictLCSChecksTest = Boolean.getBoolean(Config.PROPERTY_PREFIX + "test.strict_lcs_checks");
     // allocate enough generations for a PB of data, with a 1-MB sstable size.  (Note that if maxSSTableSize is
     // updated, we will still have sstables of the older, potentially smaller size.  So don't make this
     // dependent on maxSSTableSize.)
-    static final int MAX_LEVEL_COUNT = (int) Math.log10(1000 * 1000 * 1000);
+    public static final int MAX_LEVEL_COUNT = (int) Math.log10(1000 * 1000 * 1000);
 
     /**
      * This map is used to track the original NORMAL instances of sstables
