@@ -247,6 +247,7 @@ public final class SchemaKeyspace
                                    .gcGraceSeconds((int) TimeUnit.DAYS.toSeconds(7))
                                    .memtableFlushPeriod((int) TimeUnit.HOURS.toMillis(1))
                                    .comment(description)
+                                   .compaction(CompactionParams.DEFAULT_SYSTEM)
                                    .build();
     }
 
