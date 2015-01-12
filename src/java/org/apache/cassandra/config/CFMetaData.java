@@ -38,6 +38,7 @@ import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.statements.CFStatement;
@@ -50,7 +51,9 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.repair.SystemDistributedKeyspace;
 import org.apache.cassandra.schema.*;
+import org.apache.cassandra.tracing.TraceKeyspace;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
@@ -399,6 +402,9 @@ public final class CFMetaData
     // Compiles a system metadata
     public static CFMetaData compile(String cql, String keyspace)
     {
+        CompactionParams params = (SystemKeyspace.NAME.equals(keyspace)  || TraceKeyspace.NAME.equals(keyspace)) || AuthKeyspace.NAME.equals(keyspace)
+                                  || SystemDistributedKeyspace.NAME.equals(keyspace) ?
+                                  CompactionParams.DEFAULT_SYSTEM : CompactionParams.DEFAULT;
         CFStatement parsed = (CFStatement)QueryProcessor.parseStatement(cql);
         parsed.prepareKeyspace(keyspace);
         CreateTableStatement statement = (CreateTableStatement) ((CreateTableStatement.RawStatement) parsed).prepare(Types.none()).statement;
@@ -410,6 +416,7 @@ public final class CFMetaData
                         .readRepairChance(0.0)
                         .dcLocalReadRepairChance(0.0)
                         .gcGraceSeconds(0)
+                        .compaction(params)
                         .memtableFlushPeriod((int) TimeUnit.HOURS.toMillis(1));
     }
 
