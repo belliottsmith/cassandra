@@ -126,6 +126,11 @@ public class RandomPartitioner implements IPartitioner
         return false;
     }
 
+    public boolean sortsByHashCode()
+    {
+        return true;
+    }
+
     public static class BigIntegerToken extends ComparableObjectToken<BigInteger>
     {
         static final long serialVersionUID = -5833589141319293006L;
@@ -151,6 +156,15 @@ public class RandomPartitioner implements IPartitioner
         public long getHeapSize()
         {
             return HEAP_SIZE;
+        }
+
+        // returns the top 32-bits, so that a.hashCode() < b.hashCode() => a.compareTo(b) < 0
+        // to maintain contract implied by RandomPartitioner.sortsByHashCode()
+        @Override
+        public int hashCode()
+        {
+            assert token.bitCount() <= 128;
+            return (int) token.shiftRight(96).longValue();
         }
     }
 

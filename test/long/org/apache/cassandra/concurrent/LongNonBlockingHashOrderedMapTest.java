@@ -69,15 +69,15 @@ public class LongNonBlockingHashOrderedMapTest
 
     void doTest(float overlap, int collisions) throws InterruptedException
     {
-        int maxThreads = 2 * Math.max(4, Runtime.getRuntime().availableProcessors());
-        for (int shift = 0 ; shift < 2 ; shift++)
+        int threads = Math.max(4, Runtime.getRuntime().availableProcessors() / 2);
+        for (int shift = 0 ; shift <= 2 ; shift++)
         {
-            int threads = maxThreads << shift;
             doTest(overlap, collisions, threads, 32768, 2);
             doTest(overlap, collisions, threads, 4096, 2);
             doTest(overlap, collisions, threads, 512, 2);
             doTest(overlap, collisions, threads, 64, 2);
             doTest(overlap, collisions, threads, 4, 2);
+            threads *= 2;
         }
     }
 
@@ -156,6 +156,7 @@ public class LongNonBlockingHashOrderedMapTest
                         keys.inserted(key);
                         if ((++c & 16) == 0)
                         {
+                            // periodically check the data we contain to ensure it is correct
                             boolean found = false;
                             for (Map.Entry<Key, Integer> e : map.range(key, key))
                             {
@@ -210,18 +211,16 @@ public class LongNonBlockingHashOrderedMapTest
                     continue;
                 while (!keys.done() && !failure.get() && ready.majorityRunning())
                 {
-                    int lengthBits = random.nextInt(31);
-                    int length = random.nextInt() & ((1 << lengthBits) - 1);
+                    // decide on the scale of the size of range to query
+                    int lengthBits = random.nextInt(30);
+                    // translate this into an actual size of range
+                    long length = ((long) random.nextInt(1 << lengthBits)) << 32;
+                    // pick a start for the range, and an end that is length from start
                     long start = (long) random.nextInt() << 32;
-                    long end = start + ((long) length << 32);
+                    long end = start + length;
                     if (end < start)
                         end = Long.MAX_VALUE;
-                    if (start > end)
-                    {
-                        long t = start;
-                        start = end;
-                        end = t;
-                    }
+
                     KeyRangeValidator validator = new KeyRangeValidator(start, end, keys);
                     for (Map.Entry<Key, Integer> e : map.range(new Key(start), new Key(end)))
                     {
@@ -265,6 +264,8 @@ public class LongNonBlockingHashOrderedMapTest
         }
     }
 
+    // manages the keys over which each writer operates; each round we advance the key space by a portion
+    // and each writer operates over a space that overlaps other writers by some amount
     private static final class Keys
     {
         final int writers;
@@ -291,6 +292,7 @@ public class LongNonBlockingHashOrderedMapTest
             this.overlap = overlap;
         }
 
+        // called once by each writer to construct its state generator, i.e. called same number as "writers" value
         WriterKeyset nextWriter()
         {
             int start = nextStart;
@@ -355,11 +357,13 @@ public class LongNonBlockingHashOrderedMapTest
             return ((int) key) & Integer.MAX_VALUE;
         }
 
+        // the value must be present
         private boolean inRequiredRange(int index)
         {
             return index % roundCount <= minRound;
         }
 
+        // the value may be present, or may not be present
         private boolean inOptionalRange(int index)
         {
             int round = index % roundCount;

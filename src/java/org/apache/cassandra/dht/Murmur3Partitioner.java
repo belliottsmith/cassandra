@@ -38,7 +38,7 @@ import org.apache.cassandra.utils.ObjectSizes;
 import com.google.common.primitives.Longs;
 
 /**
- * This class generates a BigIntegerToken using a Murmur3 hash.
+ * This class generates a LongToken using a Murmur3 hash.
  */
 public class Murmur3Partitioner implements IPartitioner
 {
@@ -115,7 +115,7 @@ public class Murmur3Partitioner implements IPartitioner
 
         public int hashCode()
         {
-            return Longs.hashCode(token);
+            return (int) (token >>> 32);
         }
 
         public int compareTo(Token o)

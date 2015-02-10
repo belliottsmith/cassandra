@@ -199,6 +199,11 @@ public class KeyCollisionTest
             return false;
         }
 
+        public boolean sortsByHashCode()
+        {
+            return false;
+        }
+
         public BigIntegerToken getToken(ByteBuffer key)
         {
             if (key.remaining() == 0)

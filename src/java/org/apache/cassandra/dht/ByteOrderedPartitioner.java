@@ -245,6 +245,11 @@ public class ByteOrderedPartitioner implements IPartitioner
         return true;
     }
 
+    public boolean sortsByHashCode()
+    {
+        return false;
+    }
+
     public Map<Token, Float> describeOwnership(List<Token> sortedTokens)
     {
         // allTokens will contain the count and be returned, sorted_ranges is shorthand for token<->token math.
