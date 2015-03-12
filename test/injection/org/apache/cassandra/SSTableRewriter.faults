@@ -1,0 +1,29 @@
+DO: System.out.println(cfname); throw new java.lang.AssertionError();
+  CLASS: org.apache.cassandra.io.sstable.SSTableWriter
+    METHOD: finish(org.apache.cassandra.io.sstable.SSTableWriter$FinishType, long, long)
+      BIND: writer:SSTableWriter=$this; metadata:CFMetaData=writer.metadata; cfname:String=metadata.cfName; matches:boolean=cfname.equals("Standard1");
+        IF: matches
+          LOCATION: AT INVOKE complete(String, boolean) 1
+          LOCATION: AT INVOKE complete(String, boolean) 2
+
+EXIT
+DO: throw new java.lang.AssertionError()
+  CLASS: org.apache.cassandra.db.lifecycle.Transaction
+    METHOD: checkpoint
+      LOCATION: AT INVOKE apply
+    METHOD: update(SSTableReader, boolean)
+      LOCATION: AFTER WRITE $added
+    METHOD: obsolete(SSTableReader)
+      LOCATION: AT ENTRY
+    METHOD: obsoleteOriginals()
+      LOCATION: AT ENTRY
+    METHOD: commit
+      LOCATION: AT ENTRY
+
+  CLASS: org.apache.cassandra.io.sstable.SSTableReader
+    METHOD: setReplaced
+      LOCATION: AT ENTRY
+
+  CLASS: org.apache.cassandra.io.sstable.SSTableRewriter
+    METHOD: switchWriter
+      LOCATION: AT EXIT

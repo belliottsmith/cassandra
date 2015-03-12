@@ -46,7 +46,7 @@ import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.*;
 
-public class Memtable
+public class Memtable implements Comparable<Memtable>
 {
     private static final Logger logger = LoggerFactory.getLogger(Memtable.class);
 
@@ -63,6 +63,11 @@ public class Memtable
     private volatile AtomicReference<ReplayPosition> lastReplayPosition;
     // the "first" ReplayPosition owned by this Memtable; this is inaccurate, and only used as a convenience to prevent CLSM flushing wantonly
     private final ReplayPosition minReplayPosition = CommitLog.instance.getContext();
+
+    public int compareTo(Memtable that)
+    {
+        return this.minReplayPosition.compareTo(that.minReplayPosition);
+    }
 
     public static final class LastReplayPosition extends ReplayPosition
     {

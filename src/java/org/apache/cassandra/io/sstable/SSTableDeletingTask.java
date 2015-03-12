@@ -29,8 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.ScheduledExecutors;
-import org.apache.cassandra.db.DataTracker;
-import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.db.lifecycle.Tracker;
 import org.apache.cassandra.utils.FBUtilities;
 
 public class SSTableDeletingTask implements Runnable
@@ -46,7 +45,7 @@ public class SSTableDeletingTask implements Runnable
     private final SSTableReader referent;
     private final Descriptor desc;
     private final Set<Component> components;
-    private DataTracker tracker;
+    private Tracker tracker;
 
     /**
      * realDescriptor is the actual descriptor for the sstable, the descriptor inside
@@ -70,13 +69,13 @@ public class SSTableDeletingTask implements Runnable
         }
     }
 
-    public void setTracker(DataTracker tracker)
+    public void setTracker(Tracker tracker)
     {
         // the tracker is used only to notify listeners of deletion of the sstable;
         // since deletion of a non-final file is not really deletion of the sstable,
         // we don't want to notify the listeners in this event
-        if (desc.type == Descriptor.Type.FINAL)
-            this.tracker = tracker;
+        assert desc.type == Descriptor.Type.FINAL;
+        this.tracker = tracker;
     }
 
     public void schedule()
