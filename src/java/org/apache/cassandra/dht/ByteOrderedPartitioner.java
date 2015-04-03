@@ -116,6 +116,11 @@ public class ByteOrderedPartitioner implements IPartitioner
         {
             return token;
         }
+
+        public long comparableHashCode()
+        {
+            throw new UnsupportedOperationException();
+        }
     }
 
     public BytesToken getToken(ByteBuffer key)

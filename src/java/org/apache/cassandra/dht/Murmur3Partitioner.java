@@ -115,7 +115,7 @@ public class Murmur3Partitioner implements IPartitioner
 
         public int hashCode()
         {
-            return (int) (token >>> 32);
+            return Long.hashCode(token);
         }
 
         public int compareTo(Token o)
@@ -137,6 +137,11 @@ public class Murmur3Partitioner implements IPartitioner
 
         @Override
         public Object getTokenValue()
+        {
+            return token;
+        }
+
+        public long comparableHashCode()
         {
             return token;
         }

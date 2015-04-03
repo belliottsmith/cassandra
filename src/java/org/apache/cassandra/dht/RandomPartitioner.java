@@ -158,13 +158,17 @@ public class RandomPartitioner implements IPartitioner
             return HEAP_SIZE;
         }
 
-        // returns the top 32-bits, so that a.hashCode() < b.hashCode() => a.compareTo(b) < 0
-        // to maintain contract implied by RandomPartitioner.sortsByHashCode()
         @Override
         public int hashCode()
         {
+            return token.hashCode();
+        }
+
+        @Override
+        public long comparableHashCode()
+        {
             assert token.bitCount() <= 128;
-            return (int) token.shiftRight(96).longValue();
+            return (int) token.shiftRight(64).longValue();
         }
     }
 

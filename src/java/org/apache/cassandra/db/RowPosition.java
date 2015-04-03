@@ -26,8 +26,9 @@ import org.apache.cassandra.io.ISerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.HashComparable;
 
-public interface RowPosition extends RingPosition<RowPosition>
+public interface RowPosition extends RingPosition<RowPosition>, HashComparable<RowPosition>
 {
     public static enum Kind
     {

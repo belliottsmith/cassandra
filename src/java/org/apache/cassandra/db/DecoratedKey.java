@@ -138,4 +138,9 @@ public abstract class DecoratedKey implements RowPosition, FilterKey, IMeasurabl
         ByteBuffer key = getKey();
         MurmurHash.hash3_x64_128(key, key.position(), key.remaining(), 0, dest);
     }
+
+    public long comparableHashCode()
+    {
+        return token.comparableHashCode();
+    }
 }

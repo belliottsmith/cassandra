@@ -18,6 +18,7 @@
 package org.apache.cassandra.concurrent;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -26,6 +27,9 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.utils.HashComparable;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.concurrent.AtomicReferenceArrayUpdater;
 
@@ -136,7 +140,7 @@ import org.apache.cassandra.utils.concurrent.AtomicReferenceArrayUpdater;
  * One remaining complexity papered over in this description is that, to support signed value comparison we partition
  * the index into two parallel indexes, with all even indexes covering positive hashes, and all odd covering negative ones.
  */
-public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> implements InsertOnlyOrderedMap<K, V>
+public class NonBlockingHashOrderedMap<K extends HashComparable<? super K>, V> implements InsertOnlyOrderedMap<K, V>
 {
     public static final int ITEM_HEAP_OVERHEAD = (int) (ObjectSizes.measure(new Node(0, null, null)) + ObjectSizes.sizeOfReferenceArray(2) -  + ObjectSizes.sizeOfReferenceArray(0));
 
@@ -149,7 +153,7 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
     private volatile int size;
 
     // the predecessor to the whole list - we don't really need to track it independently, but do so for neatness
-    private final Node<K, V> head = new Node<>(Integer.MIN_VALUE, null, null);
+    private final Node<K, V> head = new Node<>(Long.MIN_VALUE, null, null);
 
     /**
      * our index into the linked list; each entry defines the entry-point to a specific slice of the hash range,
@@ -177,12 +181,12 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
 
     private static final class Node<K extends Comparable<? super K>, V> implements Map.Entry<K, V>
     {
-        final int hash;
+        final long hash;
         final K key;
         final V value;
         volatile Node<K, V> next;
 
-        private Node(int hash, K key, V value)
+        private Node(long hash, K key, V value)
         {
             this.hash = hash;
             this.key = key;
@@ -204,9 +208,9 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
             throw new UnsupportedOperationException();
         }
 
-        int compareTo(int hash, K key)
+        int compareTo(long hash, K key)
         {
-            int r = Integer.compare(this.hash, hash);
+            int r = Long.compare(this.hash, hash);
             if (r != 0)
                 return r;
             if (this.key == null)
@@ -219,7 +223,7 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
     {
         if (value == null)
             throw new IllegalArgumentException();
-        int hash = key.hashCode();
+        long hash = key.comparableHashCode();
         // may not be direct predecessor, but will be _a_ predecessor
         Node<K, V> pred = predecessor(hash);
         Node<K, V> newNode = new Node<>(hash, key, value);
@@ -254,7 +258,7 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
 
     public V get(K key)
     {
-        int hash = key.hashCode();
+        long hash = key.comparableHashCode();
         // may not be direct predecessor, but will be _a_ predecessor
         Node<K, V> node = predecessor(hash).next;
         while (node != null)
@@ -268,15 +272,15 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
     }
 
     // find the node directly preceding the provided hash; always non-null return
-    private Node<K, V> predecessor(int hash)
+    private Node<K, V> predecessor(long hash)
     {
-        Node<K, V>[][] index = this.index;
-        int i = i(hash, index);
-        Node<K, V> node = predecessorInIndex(i, index);
+        Node<K, V>[][] indexTable = this.index;
+        int index = index(hash, indexTable);
+        Node<K, V> node = predecessorInIndex(index, indexTable);
         if (node == null)
-            node = fillFromParents(i, index);
+            node = fillFromParents(index, indexTable);
         else
-            node = scrollToBucket(i, node, node, index);
+            node = scrollToBucket(index, node, node, indexTable);
 
         // walk forward until the next node's hash is >= the provided hash
         for (Node<K, V> next = node.next ; next != null && next.hash < hash ; next = next.next)
@@ -305,7 +309,7 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
     {
         // if there's no index entry, remove the most significant bits from the index position
         // to find the nearest prior index entry
-        Node<K, V> node = null;
+        Node<K, V> node;
         int j = i;
         do
         {
@@ -327,7 +331,7 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
     private static <K extends Comparable<? super K>, V> Node<K, V> scrollToBucket(int i, Node<K, V> node, Node<K, V> exp, Node<K, V>[][] index)
     {
         Node<K, V> result = node;
-        int bucketStart = firstHashOfIndex(i);
+        long bucketStart = firstHashOfIndex(i);
         for (Node<K, V> next = node.next ; next != null && next.hash < bucketStart ; next = next.next)
             result = next;
         if (result != exp)
@@ -340,7 +344,7 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
     }
 
     // return the "i" value for lookup within an index with provided indexMask for the provided hash
-    private static int i(int hash, Node<?, ?>[][] index)
+    private static int index(long hash, Node<?, ?>[][] index)
     {
         return indexHash(hash) & indexMask(index);
     }
@@ -357,16 +361,17 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
 
     // convert a hash into the key we use for index lookups, by reversing its bits
     // since the index is sign partitioned, we ignore the sign bit from the reverse and shift it to the bottom result bit
-    private static int indexHash(int hash)
+    private static int indexHash(long hash)
     {
-        return (Integer.reverse(hash) << 1) | ((hash >>> 31) ^ 1);
+        int topbits = (int) (hash >>> 32);
+        return (Integer.reverse(topbits) << 1) | ((topbits >>> 31) ^ 1);
     }
 
     // convert an index position into a lower-bound for the hashes it should index into
     // since the index is sign partitioned, we the least significant bit defines the sign of the hash we're indexing into
-    private static int firstHashOfIndex(int position)
+    private static long firstHashOfIndex(int position)
     {
-        return (Integer.reverse(position) << 1) | ((position ^ 1) << 31);
+        return (long) ((Integer.reverse(position) << 1) | ((position ^ 1) << 31)) << 32;
     }
 
     private static int indexPage(int i)
@@ -382,7 +387,7 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
     // find the first node that is equal to or greater than key
     private Node<K, V> onOrAfter(K key)
     {
-        int hash = key.hashCode();
+        long hash = key.comparableHashCode();
         Node<K, V> node = predecessor(hash);
         while (node != null && node.compareTo(hash, key) < 0)
             node = node.next;
@@ -440,7 +445,7 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
     // bounds are always inclusive
     public Iterable<Map.Entry<K, V>> range(final K lb, final K ub)
     {
-        final int ubHash = ub == null ? Integer.MAX_VALUE : ub.hashCode();
+        final long ubHash = ub == null ? Long.MAX_VALUE : ub.comparableHashCode();
         return new Iterable<Map.Entry<K, V>>()
         {
             public Iterator<Map.Entry<K, V>> iterator()
@@ -477,6 +482,33 @@ public class NonBlockingHashOrderedMap<K extends Comparable<? super K>, V> imple
             if (prev.compareTo(n.hash, n.key) >= 0 || predecessor(n.hash).next.hash != n.hash)
                 return false;
         return true;
+    }
+
+    public static boolean acceptableDistribution(Collection<Range<Token>> ranges)
+    {
+        long[] counts = new long[128];
+        updateDistributionCounts(counts, ranges);
+    }
+
+    private static void updateDistributionCounts(long[] counts, Collection<Range<Token>> ranges)
+    {
+        for (Range<Token> range : ranges)
+            updateDistributionCounts(counts, range);
+    }
+
+    private static void updateDistributionCounts(long[] counts, Range<Token> range)
+    {
+        if (range.isWrapAround())
+        {
+            updateDistributionCounts(counts, range.unwrap());
+        }
+        else
+        {
+            for (int i = 0 ; i < 64 ; i++)
+            {
+                
+            }
+        }
     }
 
     private static final AtomicIntegerFieldUpdater<NonBlockingHashOrderedMap> sizeUpdater = AtomicIntegerFieldUpdater.newUpdater(NonBlockingHashOrderedMap.class, "size");

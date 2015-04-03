@@ -38,6 +38,7 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Test;
 
 import junit.framework.Assert;
+import org.apache.cassandra.utils.HashComparable;
 
 public class LongNonBlockingHashOrderedMapTest
 {
@@ -237,16 +238,18 @@ public class LongNonBlockingHashOrderedMapTest
     }
 
     // a key
-    private static final class Key implements Comparable<Key>
+    private static final class Key implements HashComparable<Key>
     {
         final long key;
         private Key(long key)
         {
             this.key = key;
         }
-        public int hashCode()
+
+        // we only use top 32 bits so we can introduce collisions
+        public long comparableHashCode()
         {
-            return (int) (key >>> 32);
+            return key & (-1L << 32);
         }
 
         public int compareTo(Key that)
