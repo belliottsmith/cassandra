@@ -35,6 +35,7 @@ import org.apache.cassandra.FaultInjectionTestRunner.Debug;
 import org.apache.cassandra.FaultInjectionTestRunner.Faults;
 import org.apache.cassandra.FaultInjectionTestRunner.Param;
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.compaction.*;
@@ -42,6 +43,7 @@ import org.apache.cassandra.db.lifecycle.Transaction;
 import org.apache.cassandra.io.sstable.SSTableRewriter;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.utils.CloseableIterator;
 
 import static java.lang.Boolean.parseBoolean;
@@ -53,7 +55,7 @@ import static org.junit.Assert.assertTrue;
 
 @RunWith(FaultInjectionTestRunner.class)
 @Faults(scripts = "org/apache/cassandra/SSTableRewriter.faults")
-public class SSTableRewriterFaultInjectionTest extends SchemaLoader
+public class SSTableRewriterFaultInjectionTest
 {
 
     private static final String KEYSPACE = "Keyspace1";
@@ -66,6 +68,13 @@ public class SSTableRewriterFaultInjectionTest extends SchemaLoader
     private Keyspace keyspace;
     private ColumnFamilyStore cfs;
     private int inCount = -1;
+
+    @BeforeClass
+    public static void defineSchema()
+    {
+        SchemaLoader.prepareServer();
+        SchemaLoader.createKeyspace(KEYSPACE, SimpleStrategy.class, KSMetaData.optsWithRF(1), SchemaLoader.standardCFMD(KEYSPACE, CF));
+    }
 
     @Test
     public void testSafeAbort(
@@ -121,7 +130,6 @@ public class SSTableRewriterFaultInjectionTest extends SchemaLoader
             for (int i = 0 ; i < emptyWriterCount ; i++)
                 rewriter.switchWriter(getWriter(cfs, directory));
             rewriter.finish();
-            txn.commit();
         }
         catch (Throwable t)
         {

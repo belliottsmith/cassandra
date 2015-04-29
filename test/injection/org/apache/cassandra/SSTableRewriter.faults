@@ -1,10 +1,9 @@
-DO: System.out.println(cfname); throw new java.lang.AssertionError();
-  CLASS: org.apache.cassandra.io.sstable.SSTableWriter
-    METHOD: finish(org.apache.cassandra.io.sstable.SSTableWriter$FinishType, long, long)
-      BIND: writer:SSTableWriter=$this; metadata:CFMetaData=writer.metadata; cfname:String=metadata.cfName; matches:boolean=cfname.equals("Standard1");
+DO: throw new java.lang.AssertionError()
+  CLASS: org.apache.cassandra.io.sstable.format.big.BigTableWriter
+    METHOD: openFinal
+      BIND: writer:BigTableWriter=$this; metadata:CFMetaData=writer.metadata; cfname:String=metadata.cfName; matches:boolean=cfname.equals("Standard1");
         IF: matches
-          LOCATION: AT INVOKE complete(String, boolean) 1
-          LOCATION: AT INVOKE complete(String, boolean) 2
+          LOCATION: AT ENTRY
 
 EXIT
 DO: throw new java.lang.AssertionError()
@@ -17,13 +16,26 @@ DO: throw new java.lang.AssertionError()
       LOCATION: AT ENTRY
     METHOD: obsoleteOriginals()
       LOCATION: AT ENTRY
-    METHOD: commit
+    METHOD: doPrepare
       LOCATION: AT ENTRY
 
-  CLASS: org.apache.cassandra.io.sstable.SSTableReader
+  CLASS: org.apache.cassandra.io.sstable.format.SSTableReader
     METHOD: setReplaced
       LOCATION: AT ENTRY
 
   CLASS: org.apache.cassandra.io.sstable.SSTableRewriter
     METHOD: switchWriter
       LOCATION: AT EXIT
+
+DO: throw new java.lang.AssertionError();
+  CLASS: org.apache.cassandra.io.sstable.format.big.BigTableWriter
+    METHOD: openFinal(Descriptor,SSTableReader.OpenReason)
+      LOCATION: AT ENTRY
+
+EXIT
+                LOCATION: AT INVOKE complete(String, boolean) 1
+                LOCATION: AT INVOKE complete(String, boolean) 2
+
+            BIND: writer:BigTableWriter=$this; metadata:CFMetaData=writer.metadata; cfname:String=metadata.cfName; matches:boolean=cfname.equals("Standard1");
+              IF: matches
+
