@@ -27,10 +27,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.utils.concurrent.Ref;
-import org.apache.cassandra.utils.concurrent.RefCounted;
 import org.apache.cassandra.utils.concurrent.Transactional;
-import org.apache.mina.util.IdentityHashSet;
 
 import static com.google.common.base.Functions.compose;
 import static com.google.common.base.Predicates.*;
@@ -97,7 +94,7 @@ public class Transaction extends Transactional.AbstractTransactional
     // same version of a reader. potentially a dangerous property if there are reference counting bugs
     // as they won't be caught until the transaction's lifespan is over.
     // TODO: introduce an inner UniqueIdentifier for SSTableReader instances that can be used safely instead
-    private final Set<SSTableReader> identities = new IdentityHashSet<>();
+    private final Set<SSTableReader> identities = Collections.newSetFromMap(new IdentityHashMap<>());
 
     // changes that have been made visible
     private final State logged = new State();
