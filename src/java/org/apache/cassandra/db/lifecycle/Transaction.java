@@ -94,7 +94,7 @@ public class Transaction extends Transactional.AbstractTransactional
     // same version of a reader. potentially a dangerous property if there are reference counting bugs
     // as they won't be caught until the transaction's lifespan is over.
     // TODO: introduce an inner UniqueIdentifier for SSTableReader instances that can be used safely instead
-    private final Set<SSTableReader> identities = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final Set<SSTableReader> identities = Collections.newSetFromMap(new IdentityHashMap<SSTableReader, Boolean>());
 
     // changes that have been made visible
     private final State logged = new State();
