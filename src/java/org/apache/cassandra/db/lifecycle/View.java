@@ -232,7 +232,7 @@ public class View
             {
                 List<Memtable> flushingMemtables = copyOf(filter(view.flushingMemtables, not(equalTo(memtable))));
                 if (flushed == null)
-                    return new View(view.liveMemtables, view.flushingMemtables, view.sstablesMap,
+                    return new View(view.liveMemtables, flushingMemtables, view.sstablesMap,
                                     view.compacting, view.intervalTree);
 
                 Map<SSTableReader, SSTableReader> sstableMap = replace(view.sstablesMap, emptySet(), singleton(flushed));
