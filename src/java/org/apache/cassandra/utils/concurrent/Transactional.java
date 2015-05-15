@@ -80,9 +80,18 @@ public interface Transactional extends AutoCloseable
         protected abstract Throwable doCommit(Throwable accumulate);
         protected abstract Throwable doAbort(Throwable accumulate);
 
-        // this only needs to perform cleanup of state unique to this instance; any internal
+        // these only needs to perform cleanup of state unique to this instance; any internal
         // Transactional objects will perform cleanup in the commit() or abort() calls
-        protected abstract Throwable doCleanup(Throwable accumulate);
+
+        /**
+         * perform an exception-safe pre-abort cleanup; this will still be run *after* commit
+         */
+        protected Throwable doPreCleanup(Throwable accumulate){ return accumulate; }
+
+        /**
+         * perform an exception-safe post-abort cleanup
+         */
+        protected Throwable doPostCleanup(Throwable accumulate){ return accumulate; }
 
         /**
          * Do any preparatory work prior to commit. This method should throw any exceptions that can be encountered
@@ -100,7 +109,8 @@ public interface Transactional extends AutoCloseable
             if (state != State.READY_TO_COMMIT)
                 throw new IllegalStateException("Cannot commit unless READY_TO_COMMIT; state is " + state);
             accumulate = doCommit(accumulate);
-            accumulate = doCleanup(accumulate);
+            accumulate = doPreCleanup(accumulate);
+            accumulate = doPostCleanup(accumulate);
             state = State.COMMITTED;
             return accumulate;
         }
@@ -126,8 +136,9 @@ public interface Transactional extends AutoCloseable
             }
             state = State.ABORTED;
             // we cleanup first so that, e.g., file handles can be released prior to deletion
-            accumulate = doCleanup(accumulate);
+            accumulate = doPreCleanup(accumulate);
             accumulate = doAbort(accumulate);
+            accumulate = doPostCleanup(accumulate);
             return accumulate;
         }
 

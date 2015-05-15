@@ -187,7 +187,8 @@ public class Transaction extends Transactional.AbstractTransactional
         return accumulate;
     }
 
-    protected Throwable doCleanup(Throwable accumulate)
+    @Override
+    protected Throwable doPostCleanup(Throwable accumulate)
     {
         return unmarkCompacting(marked, accumulate);
     }

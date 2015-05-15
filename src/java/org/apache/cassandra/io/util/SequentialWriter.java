@@ -80,7 +80,7 @@ public class SequentialWriter extends OutputStream implements WritableByteChanne
         // TODO: revisit this decision
 
         @Override
-        protected Throwable doCleanup(Throwable accumulate)
+        protected Throwable doPreCleanup(Throwable accumulate)
         {
             if (directoryFD >= 0)
             {

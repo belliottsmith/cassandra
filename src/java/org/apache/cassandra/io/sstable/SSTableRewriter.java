@@ -198,12 +198,6 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
         return accumulate;
     }
 
-    protected Throwable doCleanup(Throwable accumulate)
-    {
-        // we have no state of our own to cleanup; Transactional objects cleanup their own state in abort or commit
-        return accumulate;
-    }
-
     /**
      * Replace the readers we are rewriting with cloneWithNewStart, reclaiming any page cache that is no longer
      * needed, and transferring any key cache entries over to the new reader, expiring them from the old. if reset

@@ -68,12 +68,6 @@ public abstract class CompactionAwareWriter extends Transactional.AbstractTransa
     }
 
     @Override
-    protected Throwable doCleanup(Throwable accumulate)
-    {
-        return accumulate;
-    }
-
-    @Override
     protected Throwable doCommit(Throwable accumulate)
     {
         return sstableWriter.commit(accumulate);
