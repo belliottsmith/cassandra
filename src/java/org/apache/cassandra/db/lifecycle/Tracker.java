@@ -47,8 +47,6 @@ import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 import static com.google.common.base.Predicates.and;
-import static com.google.common.base.Predicates.in;
-import static com.google.common.base.Predicates.not;
 import static com.google.common.collect.ImmutableSet.copyOf;
 import static com.google.common.collect.Iterables.filter;
 import static java.util.Collections.singleton;
@@ -231,7 +229,7 @@ public class Tracker
         {
             public View apply(View view)
             {
-                Set<SSTableReader> toremove = copyOf(filter(view.sstables, and(remove, not_in(view.compacting))));
+                Set<SSTableReader> toremove = copyOf(filter(view.sstables, and(remove, notIn(view.compacting))));
                 return updateLiveSet(toremove, emptySet()).apply(view);
             }
         });
@@ -416,14 +414,6 @@ public class Tracker
         return allColumns > 0 ? allDroppable / allColumns : 0;
     }
 
-    public static SSTableIntervalTree buildIntervalTree(Iterable<SSTableReader> sstables)
-    {
-        List<Interval<RowPosition, SSTableReader>> intervals = new ArrayList<>(Iterables.size(sstables));
-        for (SSTableReader sstable : sstables)
-            intervals.add(Interval.<RowPosition, SSTableReader>create(sstable.first, sstable.last, sstable));
-        return new SSTableIntervalTree(intervals);
-    }
-
 
 
     // NOTIFICATION
@@ -443,11 +433,6 @@ public class Tracker
             }
         }
         return accumulate;
-    }
-
-    public void notifySSTablesChanged(Collection<SSTableReader> removed, Collection<SSTableReader> added, OperationType compactionType)
-    {
-        maybeFail(notifySSTablesChanged(removed, added, compactionType, null));
     }
 
     private Throwable notifyAdded(SSTableReader added, Throwable accumulate)

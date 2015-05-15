@@ -150,6 +150,9 @@ public class Transaction extends Transactional.AbstractTransactional
         // first make our changes visible
         accumulate = checkpoint(accumulate);
 
+        if (logger.isDebugEnabled())
+            logger.debug("Committing update:{}, obsolete:{}", staged.update, staged.obsolete)
+
         // this is now the point of no return; we cannot safely rollback, so we ignore exceptions until we're done
         // we restore state by obsoleting our obsolete files, releasing our references to them, and updating our size
         // and notification status for the obsolete and new files
@@ -167,12 +170,18 @@ public class Transaction extends Transactional.AbstractTransactional
      */
     public Throwable doAbort(Throwable accumulate)
     {
+        if (logger.isDebugEnabled())
+            logger.debug("Aborting transaction over {}, with ({},{}) logged and ({},{}) staged", originals, logged.update, logged.obsolete, staged.update, staged.obsolete);
+
         if (logged.isEmpty() && staged.isEmpty())
             return accumulate;
 
         // mark obsolete all readers that are not versions of those present in the original set
-        accumulate = markObsolete(filter_out(concatuniq(staged.update, logged.update),
-                                             originals), accumulate);
+        Iterable<SSTableReader> obsolete = filterOut(concatUniq(staged.update, logged.update), originals);
+        if (logger.isDebugEnabled())
+            logger.debug("Obsoleting {}", Iterables.toString(obsolete));
+        accumulate = markObsolete(obsolete, accumulate);
+
         // replace all updated readers with a version restored to its original state
         accumulate = tracker.apply(updateLiveSet(logged.update, restoreUpdatedOriginals()), accumulate);
         // setReplaced immediately preceding versions that have not been obsoleted
@@ -209,6 +218,9 @@ public class Transaction extends Transactional.AbstractTransactional
     }
     private Throwable checkpoint(Throwable accumulate)
     {
+        if (logger.isDebugEnabled())
+            logger.debug("Checkpointing update:{}, obsolete:{}", staged.update, staged.obsolete);
+
         if (staged.isEmpty())
             return accumulate;
 
@@ -216,7 +228,7 @@ public class Transaction extends Transactional.AbstractTransactional
         Set<SSTableReader> fresh = copyOf(fresh());
 
         // check the current versions of the readers we're replacing haven't somehow been replaced by someone else
-        checkNotReplaced(filter_in(toUpdate, staged.update));
+        checkNotReplaced(filterIn(toUpdate, staged.update));
 
         // ensure any new readers are in the compacting set, since we aren't done with them yet
         // and don't want anyone else messing with them
@@ -230,8 +242,8 @@ public class Transaction extends Transactional.AbstractTransactional
 
         // setup our tracker, and mark our prior versions replaced, also releasing our references to them
         // we do not replace/release obsoleted readers, since we may need to restore them on rollback
-        accumulate = setReplaced(filter_out(toUpdate, staged.obsolete), accumulate);
-        accumulate = release(selfRefs(filter_out(toUpdate, staged.obsolete)), accumulate);
+        accumulate = setReplaced(filterOut(toUpdate, staged.obsolete), accumulate);
+        accumulate = release(selfRefs(filterOut(toUpdate, staged.obsolete)), accumulate);
 
         staged.clear();
         return accumulate;
@@ -268,6 +280,7 @@ public class Transaction extends Transactional.AbstractTransactional
      */
     public void obsolete(SSTableReader reader)
     {
+        logger.debug("Staging for obsolescence {}", reader);
         // check this is: a reader guarded by the transaction, an instance we have already worked with
         // and that we haven't already obsoleted it, nor do we have other changes staged for it
         assert identities.contains(reader);
@@ -283,11 +296,12 @@ public class Transaction extends Transactional.AbstractTransactional
      */
     public void obsoleteOriginals()
     {
+        logger.debug("Staging for obsolescence {}", originals);
         // if we're obsoleting, we should have no staged updates for the original files
-        assert Iterables.isEmpty(filter_in(staged.update, originals));
+        assert Iterables.isEmpty(filterIn(staged.update, originals)) : staged.update;
 
         // stage obsoletes for any currently visible versions of any original readers
-        Iterables.addAll(staged.obsolete, filter_in(current(), originals));
+        Iterables.addAll(staged.obsolete, filterIn(current(), originals));
     }
 
     /**
@@ -295,7 +309,7 @@ public class Transaction extends Transactional.AbstractTransactional
      */
     private Set<SSTableReader> toUpdate()
     {
-        return copyOf(filter_in(current(), staged.obsolete, staged.update));
+        return copyOf(filterIn(current(), staged.obsolete, staged.update));
     }
 
     /**
@@ -303,8 +317,8 @@ public class Transaction extends Transactional.AbstractTransactional
      */
     private Iterable<SSTableReader> fresh()
     {
-        return filter_out(staged.update,
-                          originals, logged.update);
+        return filterOut(staged.update,
+                         originals, logged.update);
     }
 
     /**
@@ -314,7 +328,7 @@ public class Transaction extends Transactional.AbstractTransactional
     {
         // i.e., those that are updates that have been logged (made visible),
         // and any original readers that have neither been obsoleted nor updated
-        return concat(logged.update, filter_out(originals, logged.update, logged.obsolete));
+        return concat(logged.update, filterOut(originals, logged.update, logged.obsolete));
     }
 
     /**
@@ -322,7 +336,7 @@ public class Transaction extends Transactional.AbstractTransactional
      */
     private List<SSTableReader> restoreUpdatedOriginals()
     {
-        Iterable<SSTableReader> torestore = filter_in(originals, logged.update, logged.obsolete);
+        Iterable<SSTableReader> torestore = filterIn(originals, logged.update, logged.obsolete);
         return ImmutableList.copyOf(transform(torestore,
                                               new Function<SSTableReader, SSTableReader>()
                                               {
@@ -372,6 +386,7 @@ public class Transaction extends Transactional.AbstractTransactional
      */
     public void cancel(SSTableReader cancel)
     {
+        logger.debug("Cancelling {} from transaction", cancel);
         assert originals.contains(cancel);
         assert !staged.contains(cancel);
         assert !logged.contains(cancel);
@@ -395,6 +410,7 @@ public class Transaction extends Transactional.AbstractTransactional
      */
     public Transaction split(Collection<SSTableReader> readers)
     {
+        logger.debug("Splitting {} into new transaction", readers);
         checkUnused();
         assert all(readers, in(identities));
         originals.removeAll(readers);

@@ -149,7 +149,7 @@ class Helpers
      * @return an Iterable of the union if the sets, with duplicates being represented by their first encountered instance
      * (as defined by the order of set provision)
      */
-    static <T> Iterable<T> concatuniq(Set<T> ... sets)
+    static <T> Iterable<T> concatUniq(Set<T>... sets)
     {
         List<Predicate<T>> notIn = new ArrayList<>(sets.length);
         for (Set<T> set : sets)
@@ -163,29 +163,29 @@ class Helpers
     /**
      * @return a Predicate yielding true for an item present in NONE of the provided sets
      */
-    static <T> Predicate<T> not_in(Set<T> ... sets)
+    static <T> Predicate<T> notIn(Set<T>... sets)
     {
-        return not(or_in(sets));
+        return not(orIn(sets));
     }
 
     /**
      * @return a Predicate yielding true for an item present in ANY of the provided sets
      */
-    static <T> Predicate<T> or_in(Set<T> ... sets)
+    static <T> Predicate<T> orIn(Set<T>... sets)
     {
-        Predicate<T>[] or_in = new Predicate[sets.length];
-        for (int i = 0 ; i < or_in.length ; i++)
-            or_in[i] = in(sets[i]);
-        return or(or_in);
+        Predicate<T>[] orIn = new Predicate[sets.length];
+        for (int i = 0 ; i < orIn.length ; i++)
+            orIn[i] = in(sets[i]);
+        return or(orIn);
     }
 
     /**
      * filter out (i.e. remove) matching elements
      * @return filter, filtered to only those elements that *are not* present in *any* of the provided sets (are present in none)
      */
-    static <T> Iterable<T> filter_out(Iterable<T> filter, Set<T> ... in_none)
+    static <T> Iterable<T> filterOut(Iterable<T> filter, Set<T>... inNone)
     {
-        return filter(filter, not_in(in_none));
+        return filter(filter, notIn(inNone));
     }
 
     /**
@@ -193,9 +193,9 @@ class Helpers
      *
      * @return filter, filtered to only those elements that *are* present in *any* of the provided sets
      */
-    static <T> Iterable<T> filter_in(Iterable<T> filter, Set<T> ... in_any)
+    static <T> Iterable<T> filterIn(Iterable<T> filter, Set<T>... inAny)
     {
-        return filter(filter, or_in(in_any));
+        return filter(filter, orIn(inAny));
     }
 
     static Set<SSTableReader> emptySet()
