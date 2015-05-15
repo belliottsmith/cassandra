@@ -48,9 +48,11 @@ public class Transaction extends Transactional.AbstractTransactional
 {
     private static final Logger logger = LoggerFactory.getLogger(Transaction.class);
 
-    // a class that represents accumulated modifications to the Tracker;
-    // has two instances, one containing modifications that are "staged" (i.e. invisible)
-    // and one containing those "logged" that have been made visible through a call to checkpoint()
+    /**
+     * a class that represents accumulated modifications to the Tracker.
+     * has two instances, one containing modifications that are "staged" (i.e. invisible)
+     * and one containing those "logged" that have been made visible through a call to checkpoint()
+     */
     private static class State
     {
         // readers that are either brand new, update a previous new reader, or update one of the original readers
@@ -101,13 +103,17 @@ public class Transaction extends Transactional.AbstractTransactional
     // changes that are pending
     private final State staged = new State();
 
-    // construct a Transaction for use in an offline operation
+    /**
+     * construct a Transaction for use in an offline operation
+     */
     public static Transaction offline(OperationType operationType, SSTableReader reader)
     {
         return offline(operationType, singleton(reader));
     }
 
-    // construct a Transaction for use in an offline operation
+    /**
+     * construct a Transaction for use in an offline operation
+     */
     public static Transaction offline(OperationType operationType, Iterable<SSTableReader> readers)
     {
         // if offline, for simplicity we just use a dummy tracker
@@ -136,7 +142,9 @@ public class Transaction extends Transactional.AbstractTransactional
         checkpoint();
     }
 
-    // point of no return: commit all changes, but leave all readers marked as compacting
+    /**
+     * point of no return: commit all changes, but leave all readers marked as compacting
+     */
     public Throwable doCommit(Throwable accumulate)
     {
         // first make our changes visible
@@ -154,7 +162,9 @@ public class Transaction extends Transactional.AbstractTransactional
         return accumulate;
     }
 
-    // undo all of the changes made by this transaction, resetting the state to its original form
+    /**
+     * undo all of the changes made by this transaction, resetting the state to its original form
+     */
     public Throwable doAbort(Throwable accumulate)
     {
         if (logged.isEmpty() && staged.isEmpty())
@@ -187,9 +197,11 @@ public class Transaction extends Transactional.AbstractTransactional
         super.permitRedundantTransitions();
     }
 
-    // call when a consistent batch of changes is ready to be made atomically visible
-    // these will be exposed in the Tracker atomically, or an exception will be thrown; in this case
-    // the transaction should be rolled back
+    /**
+     * call when a consistent batch of changes is ready to be made atomically visible
+     * these will be exposed in the Tracker atomically, or an exception will be thrown; in this case
+     * the transaction should be rolled back
+     */
     public void checkpoint()
     {
         maybeFail(checkpoint(null));
@@ -224,8 +236,10 @@ public class Transaction extends Transactional.AbstractTransactional
         return accumulate;
     }
 
-    // update a reader: if !original, this is a reader that is being introduced by this transaction;
-    // otherwise it must be in the originals() set, i.e. a reader guarded by this transaction
+    /**
+     * update a reader: if !original, this is a reader that is being introduced by this transaction;
+     * otherwise it must be in the originals() set, i.e. a reader guarded by this transaction
+     */
     public void update(SSTableReader reader, boolean original)
     {
         // we add to staged first, so that if our assertions accumulate we can roll it back
@@ -238,15 +252,19 @@ public class Transaction extends Transactional.AbstractTransactional
         reader.setupKeyCache();
     }
 
-    // add all of the provided updated readers to the transaction
+    /**
+     * add all of the provided updated readers to the transaction
+     */
     public void update(Iterable<SSTableReader> readers, boolean originals)
     {
         for (SSTableReader reader : readers)
             update(reader, originals);
     }
 
-    // mark this reader as for obsoletion. this does not actually obsolete the reader until commit() is called,
-    // but on checkpoint() the reader will be removed from the live set
+    /**
+     * mark this reader as for obsoletion. this does not actually obsolete the reader until commit() is called,
+     * but on checkpoint() the reader will be removed from the live set
+     */
     public void obsolete(SSTableReader reader)
     {
         // check this is: a reader guarded by the transaction, an instance we have already worked with
@@ -259,7 +277,9 @@ public class Transaction extends Transactional.AbstractTransactional
         staged.obsolete.add(reader);
     }
 
-    // obsolete every file in the original transaction
+    /**
+     * obsolete every file in the original transaction
+     */
     public void obsoleteOriginals()
     {
         // if we're obsoleting, we should have no staged updates for the original files
@@ -269,20 +289,26 @@ public class Transaction extends Transactional.AbstractTransactional
         Iterables.addAll(staged.obsolete, filter_in(current(), originals));
     }
 
-    // return the readers we're replacing in checkpoint(), i.e. the currently visible version of those in staged
+    /**
+     * return the readers we're replacing in checkpoint(), i.e. the currently visible version of those in staged
+     */
     private Set<SSTableReader> toUpdate()
     {
         return copyOf(filter_in(current(), staged.obsolete, staged.update));
     }
 
-    // new readers that haven't appeared previously (either in the original set or the logged updates)
+    /**
+     * new readers that haven't appeared previously (either in the original set or the logged updates)
+     */
     private Iterable<SSTableReader> fresh()
     {
         return filter_out(staged.update,
                           originals, logged.update);
     }
 
-    // returns the currently visible readers managed by this transaction
+    /**
+     * returns the currently visible readers managed by this transaction
+     */
     public Iterable<SSTableReader> current()
     {
         // i.e., those that are updates that have been logged (made visible),
@@ -290,7 +316,9 @@ public class Transaction extends Transactional.AbstractTransactional
         return concat(logged.update, filter_out(originals, logged.update, logged.obsolete));
     }
 
-    // transform the provided original readers to
+    /**
+     * update the current replacement of any original reader back to its original start
+     */
     private List<SSTableReader> restoreUpdatedOriginals()
     {
         Iterable<SSTableReader> torestore = filter_in(originals, logged.update, logged.obsolete);
@@ -304,21 +332,27 @@ public class Transaction extends Transactional.AbstractTransactional
                                               }));
     }
 
-    // the set of readers guarded by this transaction _in their original instance/state_
-    // call current(SSTableReader) on any reader in this set to get the latest instance
+    /**
+     * the set of readers guarded by this transaction _in their original instance/state_
+     * call current(SSTableReader) on any reader in this set to get the latest instance
+     */
     public Set<SSTableReader> originals()
     {
         return Collections.unmodifiableSet(originals);
     }
 
-    // indicates if the reader has been marked for obsoletion
+    /**
+     * indicates if the reader has been marked for obsoletion
+     */
     public boolean isObsolete(SSTableReader reader)
     {
         return logged.obsolete.contains(reader) || staged.obsolete.contains(reader);
     }
 
-    // return the current version of the provided reader, whether or not it is visible or staged;
-    // i.e. returns the first version present by testing staged, logged and originals in order.
+    /**
+     * return the current version of the provided reader, whether or not it is visible or staged;
+     * i.e. returns the first version present by testing staged, logged and originals in order.
+     */
     public SSTableReader current(SSTableReader reader)
     {
         Set<SSTableReader> container;
@@ -332,7 +366,9 @@ public class Transaction extends Transactional.AbstractTransactional
         return Iterables.getFirst(filter(container, equalTo(reader)), null);
     }
 
-    // remove the reader from the set we're modifying
+    /**
+     * remove the reader from the set we're modifying
+     */
     public void cancel(SSTableReader cancel)
     {
         assert originals.contains(cancel);
@@ -343,15 +379,19 @@ public class Transaction extends Transactional.AbstractTransactional
         maybeFail(unmarkCompacting(singleton(cancel), null));
     }
 
-    // remove the readers from the set we're modifying
+    /**
+     * remove the readers from the set we're modifying
+     */
     public void cancel(Iterable<SSTableReader> cancels)
     {
         for (SSTableReader cancel : cancels)
             cancel(cancel);
     }
 
-    // remove the provided readers from this Transaction, and return a new Transaction to manage them
-    // only permitted to be called if the current Transaction has never been used
+    /**
+     * remove the provided readers from this Transaction, and return a new Transaction to manage them
+     * only permitted to be called if the current Transaction has never been used
+     */
     public Transaction split(Collection<SSTableReader> readers)
     {
         checkUnused();
@@ -362,7 +402,9 @@ public class Transaction extends Transactional.AbstractTransactional
         return new Transaction(tracker, operationType, readers);
     }
 
-    // check this transaction has never been used
+    /**
+     * check this transaction has never been used
+     */
     private void checkUnused()
     {
         assert logged.isEmpty();

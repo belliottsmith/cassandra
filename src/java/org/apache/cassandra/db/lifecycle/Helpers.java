@@ -32,18 +32,21 @@ import static org.apache.cassandra.utils.Throwables.merge;
 
 class Helpers
 {
-    // return a new set with the contents of the provided one modified
+    /**
+     * update the contents of a set with the provided sets, ensuring that the items to remove are
+     * really present, and that the items to add are not (unless we're also removing them)
+     * @return a new set with the contents of the provided one modified
+     */
     static Set<SSTableReader> replace(Set<SSTableReader> original, Set<SSTableReader> remove, Iterable<SSTableReader> add)
     {
-        ImmutableSet.Builder<SSTableReader> builder = ImmutableSet.<SSTableReader>builder();
-        Set<SSTableReader> result = builder.addAll(filter(original, not(in(remove)))).addAll(add).build();
-        assert result.size() == original.size() - remove.size() + Iterables.size(add) :
-        String.format("Expecting new size of %d, got %d while replacing %s by %s in %s",
-                      original.size() - remove.size() + Iterables.size(add), result.size(), remove, add, original);
-        return result;
+        return ImmutableSet.copyOf(replace(identityMap(original), remove, add).keySet());
     }
 
-    // return a new identity map with the contents of the provided one modified
+    /**
+     * update the contents of an "identity map" with the provided sets, ensuring that the items to remove are
+     * really present, and that the items to add are not (unless we're also removing them)
+     * @return a new identity map with the contents of the provided one modified
+     */
     static Map<SSTableReader, SSTableReader> replace(Map<SSTableReader, SSTableReader> original, Set<SSTableReader> remove, Iterable<SSTableReader> add)
     {
         // ensure the ones being removed are the exact same ones present
@@ -51,7 +54,7 @@ class Helpers
             assert original.get(reader) == reader;
 
         // ensure we don't already contain any we're adding, that we aren't also removing
-        assert !any(add, and(not(in(remove)), in(original.keySet())));
+        assert !any(add, and(not(in(remove)), in(original.keySet()))) : String.format("original:%s remove:%s add:%s", original.keySet(), remove, add);
 
         Map<SSTableReader, SSTableReader> result =
             identityMap(concat(add, filter(original.keySet(), not(in(remove)))));
@@ -62,6 +65,10 @@ class Helpers
         return result;
     }
 
+    /**
+     * A convenience method for encapsulating this action over multiple SSTableReader with exception-safety
+     * @return accumulate if not null (with any thrown exception attached), or any thrown exception otherwise
+     */
     static Throwable setupDeleteNotification(Iterable<SSTableReader> readers, Tracker tracker, Throwable accumulate)
     {
         try
@@ -77,6 +84,10 @@ class Helpers
         return accumulate;
     }
 
+    /**
+     * A convenience method for encapsulating this action over multiple SSTableReader with exception-safety
+     * @return accumulate if not null (with any thrown exception attached), or any thrown exception otherwise
+     */
     static Throwable setReplaced(Iterable<SSTableReader> readers, Throwable accumulate)
     {
         for (SSTableReader reader : readers)
@@ -93,12 +104,19 @@ class Helpers
         return accumulate;
     }
 
+    /**
+     * assert that none of these readers have been replaced
+     */
     static void checkNotReplaced(Iterable<SSTableReader> readers)
     {
         for (SSTableReader reader : readers)
             assert !reader.isReplaced();
     }
 
+    /**
+     * A convenience method for encapsulating this action over multiple SSTableReader with exception-safety
+     * @return accumulate if not null (with any thrown exception attached), or any thrown exception otherwise
+     */
     static Throwable markObsolete(Iterable<SSTableReader> readers, Throwable accumulate)
     {
         for (SSTableReader reader : readers)
@@ -116,6 +134,9 @@ class Helpers
         return accumulate;
     }
 
+    /**
+     * @return the identity function, as a Map, with domain of the provided values
+     */
     static <T> Map<T, T> identityMap(Iterable<T> values)
     {
         ImmutableMap.Builder<T, T> builder = ImmutableMap.<T, T>builder();
@@ -124,6 +145,10 @@ class Helpers
         return builder.build();
     }
 
+    /**
+     * @return an Iterable of the union if the sets, with duplicates being represented by their first encountered instance
+     * (as defined by the order of set provision)
+     */
     static <T> Iterable<T> concatuniq(Set<T> ... sets)
     {
         List<Predicate<T>> notIn = new ArrayList<>(sets.length);
@@ -135,11 +160,17 @@ class Helpers
         return concat(results);
     }
 
+    /**
+     * @return a Predicate yielding true for an item present in NONE of the provided sets
+     */
     static <T> Predicate<T> not_in(Set<T> ... sets)
     {
         return not(or_in(sets));
     }
 
+    /**
+     * @return a Predicate yielding true for an item present in ANY of the provided sets
+     */
     static <T> Predicate<T> or_in(Set<T> ... sets)
     {
         Predicate<T>[] or_in = new Predicate[sets.length];
@@ -148,12 +179,20 @@ class Helpers
         return or(or_in);
     }
 
+    /**
+     * filter out (i.e. remove) matching elements
+     * @return filter, filtered to only those elements that *are not* present in *any* of the provided sets (are present in none)
+     */
     static <T> Iterable<T> filter_out(Iterable<T> filter, Set<T> ... in_none)
     {
         return filter(filter, not_in(in_none));
     }
 
-    //
+    /**
+     * filter in (i.e. retain)
+     *
+     * @return filter, filtered to only those elements that *are* present in *any* of the provided sets
+     */
     static <T> Iterable<T> filter_in(Iterable<T> filter, Set<T> ... in_any)
     {
         return filter(filter, or_in(in_any));
