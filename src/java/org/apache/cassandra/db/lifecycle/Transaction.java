@@ -46,7 +46,7 @@ import static org.apache.cassandra.utils.concurrent.Refs.selfRefs;
 
 public class Transaction extends Transactional.AbstractTransactional
 {
-    private static final Logger logger = LoggerFactory.getLogger(Tracker.class);
+    private static final Logger logger = LoggerFactory.getLogger(Transaction.class);
 
     // a class that represents accumulated modifications to the Tracker;
     // has two instances, one containing modifications that are "staged" (i.e. invisible)
@@ -129,6 +129,10 @@ public class Transaction extends Transactional.AbstractTransactional
 
     public void doPrepare()
     {
+        // note for future: in anticompaction two different operations use the same Transaction, and both prepareToCommit()
+        // separately: the second prepareToCommit is ignored as a "redundant" transition. since it is only a checkpoint
+        // (and these happen anyway) this is fine but if more logic gets inserted here than is performed in a checkpoint,
+        // it may break this use case, and care is needed
         checkpoint();
     }
 

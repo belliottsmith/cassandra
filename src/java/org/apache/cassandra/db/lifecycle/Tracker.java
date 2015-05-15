@@ -109,7 +109,7 @@ public class Tracker
         {
             apply(function);
         }
-        catch (Exception t)
+        catch (Throwable t)
         {
             accumulate = merge(accumulate, t);
         }

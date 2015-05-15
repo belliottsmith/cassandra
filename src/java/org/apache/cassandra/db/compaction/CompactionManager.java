@@ -1170,7 +1170,6 @@ public class CompactionManager implements CompactionManagerMBean
         logger.info("Anticompacting {}", anticompactionGroup);
         Set<SSTableReader> sstableAsSet = anticompactionGroup.originals();
 
-        anticompactionGroup.permitRedundantTransitions();
         File destination = cfs.directories.getWriteableLocationAsFile(cfs.getExpectedCompactedFileSize(sstableAsSet, OperationType.ANTICOMPACTION));
         long repairedKeyCount = 0;
         long unrepairedKeyCount = 0;
@@ -1211,9 +1210,12 @@ public class CompactionManager implements CompactionManagerMBean
             {
                 metrics.finishCompaction(ci);
             }
-            // we have the same readers being rewritten by both writers, so we ask the first one NOT to close them
-            // so that the second one can do so safely, without leaving us with references < 0 or any other ugliness
+
             List<SSTableReader> anticompactedSSTables = new ArrayList<>();
+            // since both writers are operating over the same Transaction, we cannot use the convenience Transactional.finish() method,
+            // as on the second finish() we would prepareToCommit() on a Transaction that has already been committed, which is forbidden by the API
+            // (since it indicates misuse). We call permitRedundantTransitions so that calls that transition to a state already occupied are permitted.
+            anticompactionGroup.permitRedundantTransitions();
             repairedSSTableWriter.setRepairedAt(repairedAt).prepareToCommit();
             unRepairedSSTableWriter.prepareToCommit();
             anticompactedSSTables.addAll(repairedSSTableWriter.finished());
