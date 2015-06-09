@@ -56,7 +56,7 @@ final class ConnectionLimitHandler extends ChannelInboundHandlerAdapter
         if (count > limit)
         {
             // The decrement will be done in channelClosed(...)
-            logger.warn("Exceeded maximum native connection limit of {} by using {} connections", limit, count);
+            logger.error("Exceeded maximum native connection limit of {} by using {} connections", limit, count);
             ctx.close();
         }
         else
@@ -80,7 +80,7 @@ final class ConnectionLimitHandler extends ChannelInboundHandlerAdapter
                 if (perIpCount.incrementAndGet() > perIpLimit)
                 {
                     // The decrement will be done in channelClosed(...)
-                    logger.warn("Exceeded maximum native connection limit per ip of {} by using {} connections", perIpLimit, perIpCount);
+                    logger.error("Exceeded maximum native connection limit per ip of {} by using {} connections", perIpLimit, perIpCount);
                     ctx.close();
                     return;
                 }
