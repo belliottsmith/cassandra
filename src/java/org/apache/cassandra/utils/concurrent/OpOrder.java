@@ -134,6 +134,47 @@ public class OpOrder
     }
 
     /**
+     * A class for managing an operation that is willing to span multiple barriers.
+     *
+     * Whenever a safe point is reached, calling the jump() method will ensure no currently extant barriers
+     * are held up by this operation
+     */
+    public static final class BarrierJumpingOp
+    {
+        final OpOrder order;
+        Group current;
+
+        public BarrierJumpingOp(OpOrder order)
+        {
+            this.order = order;
+        }
+
+        public void stop()
+        {
+            if (current != null)
+            {
+                current.close();
+                current = null;
+            }
+        }
+
+        public void start()
+        {
+            assert current == null;
+            current = order.start();
+        }
+
+        public void jump()
+        {
+            if (current != order.current)
+            {
+                stop();
+                start();
+            }
+        }
+    }
+
+    /**
      * Represents a group of identically ordered operations, i.e. all operations started in the interval between
      * two barrier issuances. For each register() call this is returned, close() must be called exactly once.
      * It should be treated like taking a lock().
