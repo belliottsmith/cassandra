@@ -20,36 +20,16 @@ package org.apache.cassandra.db.partitions;
 import java.util.*;
 import java.security.MessageDigest;
 
+import org.apache.cassandra.db.EmptyIterators;
+import org.apache.cassandra.db.Transformer;
 import org.apache.cassandra.utils.AbstractIterator;
 
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.rows.*;
-import org.apache.cassandra.io.util.FileUtils;
 
 public abstract class PartitionIterators
 {
     private PartitionIterators() {}
-
-    public static final PartitionIterator EMPTY = new PartitionIterator()
-    {
-        public boolean hasNext()
-        {
-            return false;
-        }
-
-        public RowIterator next()
-        {
-            throw new NoSuchElementException();
-        }
-
-        public void remove()
-        {
-        }
-
-        public void close()
-        {
-        }
-    };
 
     @SuppressWarnings("resource") // The created resources are returned right away
     public static RowIterator getOnlyElement(final PartitionIterator iter, SinglePartitionReadCommand<?> command)
@@ -58,30 +38,24 @@ public abstract class PartitionIterators
         // want a RowIterator out of this method, so we return an empty one.
         RowIterator toReturn = iter.hasNext()
                              ? iter.next()
-                             : RowIterators.emptyIterator(command.metadata(),
-                                                          command.partitionKey(),
-                                                          command.clusteringIndexFilter().isReversed());
+                             : EmptyIterators.row(command.metadata(),
+                                                  command.partitionKey(),
+                                                  command.clusteringIndexFilter().isReversed());
 
         // Note that in general, we should wrap the result so that it's close method actually
         // close the whole PartitionIterator.
-        return new WrappingRowIterator(toReturn)
+        class Close extends Transformer.Transformation
         {
-            public void close()
+            public void onPartitionClose()
             {
-                try
-                {
-                    super.close();
-                }
-                finally
-                {
-                    // asserting this only now because it bothers UnfilteredPartitionIterators.Serializer (which might be used
-                    // under the provided DataIter) if hasNext() is called before the previously returned iterator hasn't been fully consumed.
-                    assert !iter.hasNext();
-
-                    iter.close();
-                }
+                // asserting this only now because it bothers UnfilteredPartitionIterators.Serializer (which might be used
+                // under the provided DataIter) if hasNext() is called before the previously returned iterator hasn't been fully consumed.
+                boolean hadNext = iter.hasNext();
+                iter.close();
+                assert !hadNext;
             }
-        };
+        }
+        return Transformer.apply(toReturn, new Close());
     }
 
     @SuppressWarnings("resource") // The created resources are returned right away
@@ -90,39 +64,17 @@ public abstract class PartitionIterators
         if (iterators.size() == 1)
             return iterators.get(0);
 
-        return new PartitionIterator()
+        class Extend implements Transformer.MorePartitions<PartitionIterator>
         {
-            private int idx = 0;
-
-            public boolean hasNext()
+            int i = 1;
+            public PartitionIterator moreContents()
             {
-                while (idx < iterators.size())
-                {
-                    if (iterators.get(idx).hasNext())
-                        return true;
-
-                    ++idx;
-                }
-                return false;
+                if (i >= iterators.size())
+                    return null;
+                return iterators.get(i++);
             }
-
-            public RowIterator next()
-            {
-                if (!hasNext())
-                    throw new NoSuchElementException();
-                return iterators.get(idx).next();
-            }
-
-            public void remove()
-            {
-                throw new UnsupportedOperationException();
-            }
-
-            public void close()
-            {
-                FileUtils.closeQuietly(iterators);
-            }
-        };
+        }
+        return Transformer.extend(iterators.get(0), new Extend());
     }
 
     public static void digest(PartitionIterator iterator, MessageDigest digest)
@@ -162,13 +114,14 @@ public abstract class PartitionIterators
     @SuppressWarnings("resource") // The created resources are returned right away
     public static PartitionIterator loggingIterator(PartitionIterator iterator, final String id)
     {
-        return new WrappingPartitionIterator(iterator)
+        class Logger extends Transformer.Transformation<RowIterator>
         {
-            public RowIterator next()
+            public RowIterator applyToPartition(RowIterator partition)
             {
-                return RowIterators.loggingIterator(super.next(), id);
+                return RowIterators.loggingIterator(partition, id);
             }
-        };
+        }
+        return Transformer.apply(iterator, new Logger());
     }
 
     private static class SingletonPartitionIterator extends AbstractIterator<RowIterator> implements PartitionIterator

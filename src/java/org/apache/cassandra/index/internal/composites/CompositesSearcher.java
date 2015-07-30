@@ -203,18 +203,13 @@ public class CompositesSearcher extends CassandraIndexSearcher
             });
         }
 
-        return new AlteringUnfilteredRowIterator(dataIter)
+        ClusteringComparator comparator = dataIter.metadata().comparator;
+        class Transform extends Transformer.Transformation
         {
             private int entriesIdx;
 
-            public void close()
-            {
-                deleteAllEntries(staleEntries, writeOp, nowInSec);
-                super.close();
-            }
-
             @Override
-            protected Row computeNext(Row row)
+            public Row applyToRow(Row row)
             {
                 IndexEntry entry = findEntry(row.clustering());
                 if (!index.isStale(row, indexValue, nowInSec))
@@ -234,7 +229,7 @@ public class CompositesSearcher extends CassandraIndexSearcher
                     // next entry, the one at 'entriesIdx'. However, we can have stale entries, entries
                     // that have no corresponding row in the base table typically because of a range
                     // tombstone or partition level deletion. Delete such stale entries.
-                    int cmp = metadata().comparator.compare(entry.indexedEntryClustering, clustering);
+                    int cmp = comparator.compare(entry.indexedEntryClustering, clustering);
                     assert cmp <= 0; // this would means entries are not in clustering order, which shouldn't happen
                     if (cmp == 0)
                         return entry;
@@ -244,6 +239,14 @@ public class CompositesSearcher extends CassandraIndexSearcher
                 // entries correspond to the rows we've queried, so we shouldn't have a row that has no corresponding entry.
                 throw new AssertionError();
             }
-        };
+
+            @Override
+            public void onClose()
+            {
+                deleteAllEntries(staleEntries, writeOp, nowInSec);
+            }
+        }
+
+        return Transformer.apply(dataIter, new Transform());
     }
 }
