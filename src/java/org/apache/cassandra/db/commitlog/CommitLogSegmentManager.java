@@ -31,7 +31,6 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.util.concurrent.*;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,7 +55,7 @@ public class CommitLogSegmentManager
     static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentManager.class);
 
     /**
-     * Segment that is ready to be used. The management thread fill this and blocks until consumed.
+     * Segment that is ready to be used. The management thread fills this and blocks until consumed.
      */
     private final SynchronousQueue<CommitLogSegment> availableSegment = new SynchronousQueue<>();
 
