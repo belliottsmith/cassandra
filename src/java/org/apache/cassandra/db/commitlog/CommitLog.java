@@ -87,7 +87,7 @@ public class CommitLog implements CommitLogMBean
         {
             throw new RuntimeException(e);
         }
-        return log.start();
+        return log;
     }
 
     @VisibleForTesting
@@ -112,7 +112,7 @@ public class CommitLog implements CommitLogMBean
         metrics.attach(executor, allocator);
     }
 
-    CommitLog start()
+    public CommitLog start()
     {
         executor.start();
         allocator.start();
@@ -126,25 +126,9 @@ public class CommitLog implements CommitLogMBean
      */
     public int recover() throws IOException
     {
-        // If createReserveSegments is already flipped, the CLSM is running and recovery has already taken place.
-        if (allocator.createReserveSegments)
-            return 0;
+        assert !allocator.started();
 
-        // Allocator could be in the process of initial startup with 0 active and available segments. We need to wait for
-        // the allocation manager to finish allocation and add it to available segments so we don't get an invalid response
-        // on allocator.manages(...) below by grabbing a file off the filesystem before it's added to the CLQ.
-        allocator.allocatingFrom();
-
-        FilenameFilter unmanagedFilesFilter = new FilenameFilter()
-        {
-            public boolean accept(File dir, String name)
-            {
-                // we used to try to avoid instantiating commitlog (thus creating an empty segment ready for writes)
-                // until after recover was finished.  this turns out to be fragile; it is less error-prone to go
-                // ahead and allow writes before recover(), and just skip active segments when we do.
-                return CommitLogDescriptor.isValid(name) && !allocator.manages(name);
-            }
-        };
+        FilenameFilter unmanagedFilesFilter = (dir, name) -> CommitLogDescriptor.isValid(name);
 
         // submit all existing files in the commit log dir for archiving prior to recovery - CASSANDRA-6904
         for (File file : new File(DatabaseDescriptor.getCommitLogLocation()).listFiles(unmanagedFilesFilter))
@@ -173,7 +157,6 @@ public class CommitLog implements CommitLogMBean
                 allocator.recycleSegment(f);
         }
 
-        allocator.enableReserveSegmentCreation();
         return replayed;
     }
 
@@ -424,6 +407,9 @@ public class CommitLog implements CommitLogMBean
      */
     public void stopUnsafe(boolean deleteSegments)
     {
+        if (!allocator.started())
+            return;
+
         executor.shutdown();
         try
         {
@@ -441,23 +427,10 @@ public class CommitLog implements CommitLogMBean
      */
     public int restartUnsafe() throws IOException
     {
-        allocator.start();
+        int recovered = recover();
         executor.restartUnsafe();
-        try
-        {
-            return recover();
-        }
-        catch (FSWriteError e)
-        {
-            // Workaround for a class of races that keeps showing up on Windows tests.
-            // stop/start/reset path on Windows with segment deletion is very touchy/brittle
-            // and the timing keeps getting screwed up. Rather than chasing our tail further
-            // or rewriting the CLSM, just report that we didn't recover anything back up
-            // the chain. This will silence most intermittent test failures on Windows
-            // and appropriately fail tests that expected segments to be recovered that
-            // were not.
-            return 0;
-        }
+        allocator.start();
+        return recovered;
     }
 
     /**

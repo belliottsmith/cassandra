@@ -266,10 +266,11 @@ public class CassandraDaemon
             logger.warn("Unable to start GCInspector (currently only supported on the Sun JVM)");
         }
 
-        // replay the log if necessary
+        // replay and start the commit log
         try
         {
             CommitLog.instance.recover();
+            CommitLog.instance.start();
         }
         catch (IOException e)
         {

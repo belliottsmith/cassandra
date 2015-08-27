@@ -223,7 +223,6 @@ public class CommitLogStressTest
                           commitLog.executor.getClass().getSimpleName(),
                           randomSize ? " random size" : "",
                           discardedRun ? " with discarded run" : "");
-        commitLog.allocator.enableReserveSegmentCreation();
 
         final List<CommitlogExecutor> threads = new ArrayList<>();
         ScheduledExecutorService scheduled = startThreads(commitLog, threads);
@@ -302,8 +301,6 @@ public class CommitLogStressTest
         // (which shouldn't write anything) to make sure the first we triggered completes.
         // FIXME: The executor should give us a chance to await completion of the sync we requested.
         commitLog.executor.requestExtraSync().awaitUninterruptibly();
-        // Wait for any pending deletes or segment allocations to complete.
-        commitLog.allocator.awaitManagementTasksCompletion();
 
         long combinedSize = 0;
         for (File f : new File(commitLog.location).listFiles())
