@@ -22,18 +22,32 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListenableFutureTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.statements.SelectStatement;
-import org.apache.cassandra.exceptions.*;
+import org.apache.cassandra.exceptions.AuthenticationException;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.exceptions.RequestExecutionException;
+import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.messages.ResultMessage;
@@ -68,6 +82,98 @@ public class PasswordAuthenticator implements IAuthenticator
     public static final String LEGACY_CREDENTIALS_TABLE = "credentials";
     private SelectStatement legacyAuthenticateStatement;
 
+    private final LoadingCache<String, String> cache = initCache(DatabaseDescriptor.getAuthenticatorValidity(),
+                                                                 DatabaseDescriptor.getAuthenticatorUpdateInterval(),
+                                                                 DatabaseDescriptor.getAuthenticatorCacheMaxEntries());
+
+    private final ThreadPoolExecutor cacheRefreshExecutor = new DebuggableThreadPoolExecutor("AuthenticatorCacheRefresh",
+            Thread.NORM_PRIORITY);
+
+    private LoadingCache<String, String> initCache(int validityPeriod,
+                                                   int updateInterval,
+                                                   int maxEntries)
+    {
+        if (validityPeriod <= 0)
+        {
+            logger.info("Authenticator cache is disabled");
+            return null;
+        }
+
+
+        return CacheBuilder.newBuilder()
+                .refreshAfterWrite(updateInterval, TimeUnit.MILLISECONDS)
+                .expireAfterWrite(validityPeriod, TimeUnit.MILLISECONDS)
+                .maximumSize(maxEntries)
+                .build(new CacheLoader<String, String>()
+                {
+                    public String load(String username) throws Exception
+                    {
+                        try
+                        {
+                            return getPasswordHash(username);
+                        }
+                        catch (AuthenticationException e)
+                        {
+                            logger.error("Error reading for authenticator in load", e);
+                            throw e;
+                        }
+                    }
+
+                    public ListenableFuture<String> reload(final String username,
+                                                                    final String oldValue)
+                    {
+                        ListenableFutureTask<String> task = ListenableFutureTask.create(new Callable<String>()
+                        {
+                            public String call() throws Exception
+                            {
+                                try
+                                {
+                                    return getPasswordHash(username);
+                                }
+                                catch (Exception e)
+                                {
+                                    logger.debug("Error performing async refresh of authenticator", e);
+                                    throw e;
+                                }
+                            }
+                        });
+                        cacheRefreshExecutor.execute(task);
+                        return task;
+                    }
+                });
+    }
+
+    private String getPasswordHash(String username) throws AuthenticationException
+    {
+        try
+        {
+            // If the legacy users table exists try to verify credentials there. This is to handle the case
+            // where the cluster is being upgraded and so is running with mixed versions of the authn tables
+            SelectStatement authStmt = Schema.instance.getCFMetaData(AuthKeyspace.NAME, LEGACY_CREDENTIALS_TABLE) == null
+                                                    ? authenticateStatement
+                                                    : legacyAuthenticateStatement;
+
+            ResultMessage.Rows rows = authStmt.execute(QueryState.forInternalCalls(),
+                    QueryOptions.forInternalCalls(consistencyForRole(username),
+                                                  Lists.newArrayList(ByteBufferUtil.bytes(username))));
+            UntypedResultSet result = UntypedResultSet.create(rows.result);
+
+            if (result.isEmpty() || !result.one().has(SALTED_HASH))
+                throw new AuthenticationException("Username and/or password are incorrect");
+            else
+                return result.one().getString(SALTED_HASH);
+        }
+        catch (RequestValidationException e)
+        {
+            throw new AssertionError(e); // not supposed to happen
+        }
+        catch (RequestExecutionException e)
+        {
+            logger.trace("Error performing internal authentication", e);
+            throw new AuthenticationException(String.format("%s - caused by user: %s", e.toString(), username));
+        }
+    }
+
     // No anonymous access.
     public boolean requireAuthentication()
     {
@@ -76,20 +182,34 @@ public class PasswordAuthenticator implements IAuthenticator
 
     private AuthenticatedUser authenticate(String username, String password) throws AuthenticationException
     {
-        try
+        String storedPasswordHash;
+        if(cache == null)
         {
-            // If the legacy users table exists try to verify credentials there. This is to handle the case
-            // where the cluster is being upgraded and so is running with mixed versions of the authn tables
-            SelectStatement authenticationStatement = Schema.instance.getCFMetaData(AuthKeyspace.NAME, LEGACY_CREDENTIALS_TABLE) == null
-                                                    ? authenticateStatement
-                                                    : legacyAuthenticateStatement;
-            return doAuthenticate(username, password, authenticationStatement);
+            storedPasswordHash = getPasswordHash(username);
         }
-        catch (RequestExecutionException e)
+        else
         {
-            logger.trace("Error performing internal authentication", e);
-            throw new AuthenticationException(String.format("%s - caused by user: %s", e.toString(), username));
+            try
+            {
+                storedPasswordHash = cache.get(username);
+            }
+            catch (ExecutionException e)
+            {
+                if(e.getCause() != null && e.getCause() instanceof AuthenticationException)
+                {
+                    throw (AuthenticationException)e.getCause();
+                }
+                else
+                {
+                    throw new RuntimeException(e);
+                }
+            }
         }
+
+        if (storedPasswordHash == null  || !BCrypt.checkpw(password, storedPasswordHash))
+            throw new AuthenticationException("Username and/or password are incorrect");
+
+        return new AuthenticatedUser(username);
     }
 
     public Set<DataResource> protectedResources()
@@ -136,20 +256,6 @@ public class PasswordAuthenticator implements IAuthenticator
     public SaslNegotiator newSaslNegotiator(InetAddress clientAddress)
     {
         return new PlainTextSaslAuthenticator();
-    }
-
-    private AuthenticatedUser doAuthenticate(String username, String password, SelectStatement authenticationStatement)
-    throws RequestExecutionException, AuthenticationException
-    {
-        ResultMessage.Rows rows = authenticationStatement.execute(QueryState.forInternalCalls(),
-                                                                  QueryOptions.forInternalCalls(consistencyForRole(username),
-                                                                                                Lists.newArrayList(ByteBufferUtil.bytes(username))));
-        UntypedResultSet result = UntypedResultSet.create(rows.result);
-
-        if ((result.isEmpty() || !result.one().has(SALTED_HASH)) || !BCrypt.checkpw(password, result.one().getString(SALTED_HASH)))
-            throw new AuthenticationException(String.format("Username and/or password are incorrect - caused by user: %s", username));
-
-        return new AuthenticatedUser(username);
     }
 
     private SelectStatement prepare(String query)

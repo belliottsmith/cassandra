@@ -810,6 +810,23 @@ public class DatabaseDescriptor
         conf.permissions_update_interval_in_ms = updateInterval;
     }
 
+    public static int getAuthenticatorValidity()
+    {
+        return conf.authenticator_validity_in_ms;
+    }
+
+    public static int getAuthenticatorCacheMaxEntries()
+    {
+        return conf.authenticator_cache_max_entries;
+    }
+
+    public static int getAuthenticatorUpdateInterval()
+    {
+        return conf.authenticator_update_interval_in_ms == -1
+                ? conf.authenticator_validity_in_ms
+                : conf.authenticator_update_interval_in_ms;
+    }
+
     public static int getThriftFramedTransportSize()
     {
         return conf.thrift_framed_transport_size_in_mb * 1024 * 1024;
