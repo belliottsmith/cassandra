@@ -26,10 +26,9 @@ import java.util.Arrays;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.stress.generate.FasterRandom;
 
-public class Bytes extends Generator<ByteBuffer>
+public class Bytes extends ByteString<ByteBuffer>
 {
     private final byte[] bytes;
-    private final FasterRandom rand = new FasterRandom();
 
     public Bytes(String name, GeneratorConfig config)
     {
@@ -40,14 +39,13 @@ public class Bytes extends Generator<ByteBuffer>
     @Override
     public ByteBuffer generate()
     {
-        long seed = identityDistribution.next();
-        sizeDistribution.setSeed(seed);
-        rand.setSeed(~seed);
+        long id = identityDistribution.next();
+        setId(id);
         int size = (int) sizeDistribution.next();
         for (int i = 0; i < size; )
-            for (long v = rand.nextLong(),
-                 n = Math.min(size - i, Long.SIZE/Byte.SIZE);
-                 n-- > 0; v >>= Byte.SIZE)
+            for (long v = nextBytes(),
+                 n = Math.min(size - i, byteCount);
+                 n-- > 0; v >>= 8)
                 bytes[i++] = (byte)v;
         return ByteBuffer.wrap(Arrays.copyOf(bytes, size));
     }

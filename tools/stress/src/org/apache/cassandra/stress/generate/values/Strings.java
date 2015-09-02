@@ -21,12 +21,10 @@
 package org.apache.cassandra.stress.generate.values;
 
 import org.apache.cassandra.db.marshal.UTF8Type;
-import org.apache.cassandra.stress.generate.FasterRandom;
 
-public class Strings extends Generator<String>
+public class Strings extends ByteString<String>
 {
     private final char[] chars;
-    private final FasterRandom rnd = new FasterRandom();
 
     public Strings(String name, GeneratorConfig config)
     {
@@ -37,14 +35,13 @@ public class Strings extends Generator<String>
     @Override
     public String generate()
     {
-        long seed = identityDistribution.next();
-        sizeDistribution.setSeed(seed);
-        rnd.setSeed(~seed);
+        long id = identityDistribution.next();
+        setId(id);
         int size = (int) sizeDistribution.next();
         for (int i = 0; i < size; )
-            for (long v = rnd.nextLong(),
-                 n = Math.min(size - i, Long.SIZE/Byte.SIZE);
-                 n-- > 0; v >>= Byte.SIZE)
+            for (long v = dataDistribution.next(),
+                 n = Math.min(size - i, byteCount);
+                 n-- > 0; v >>= 8)
                 chars[i++] = (char) (((v & 127) + 32) & 127);
         return new String(chars, 0, size);
     }

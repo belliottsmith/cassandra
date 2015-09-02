@@ -74,11 +74,11 @@ public class SettingsCommandPreDefined extends SettingsCommand
         List<String> names = settings.columns.namestrs;
         List<Generator> partitionKey = Collections.<Generator>singletonList(new HexBytes("key",
                                        new GeneratorConfig("randomstrkey", null,
-                                                           OptionDistribution.get("fixed(" + keySize + ")"), null)));
+                                                           OptionDistribution.get("fixed(" + keySize + ")"), null, null)));
 
         List<Generator> columns = new ArrayList<>();
         for (int i = 0 ; i < settings.columns.maxColumnsPerKey ; i++)
-            columns.add(new Bytes(names.get(i), new GeneratorConfig("randomstr" + names.get(i), null, settings.columns.sizeDistribution, null)));
+            columns.add(new Bytes(names.get(i), new GeneratorConfig("randomstr" + names.get(i), null, settings.columns.sizeDistribution, null, null)));
         return new PartitionGenerator(partitionKey, Collections.<Generator>emptyList(), columns, PartitionGenerator.Order.ARBITRARY);
     }
 

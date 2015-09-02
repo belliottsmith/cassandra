@@ -145,13 +145,14 @@ public class StressProfile implements Serializable
                 DistributionFactory population = !spec.containsKey("population") ? null : OptionDistribution.get((String) spec.remove("population"));
                 DistributionFactory size = !spec.containsKey("size") ? null : OptionDistribution.get((String) spec.remove("size"));
                 DistributionFactory clustering = !spec.containsKey("cluster") ? null : OptionDistribution.get((String) spec.remove("cluster"));
+                DistributionFactory data = !spec.containsKey("data") ? null : OptionDistribution.get((String) spec.remove("data"));
 
                 if (!spec.isEmpty())
                     throw new IllegalArgumentException("Unrecognised option(s) in column spec: " + spec);
                 if (name == null)
                     throw new IllegalArgumentException("Missing name argument in column spec");
 
-                GeneratorConfig config = new GeneratorConfig(seedStr + name, clustering, size, population);
+                GeneratorConfig config = new GeneratorConfig(seedStr + name, clustering, size, population, data);
                 columnConfigs.put(name, config);
             }
         }
@@ -246,7 +247,7 @@ public class StressProfile implements Serializable
                     if (columnConfigs.containsKey(col.getName()))
                         continue;
 
-                    columnConfigs.put(col.getName(), new GeneratorConfig(seedStr + col.getName(), null, null, null));
+                    columnConfigs.put(col.getName(), new GeneratorConfig(seedStr + col.getName(), null, null, null, null));
                 }
 
                 tableMetaData = metadata;

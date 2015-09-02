@@ -35,6 +35,7 @@ public abstract class Generator<T>
     final long salt;
     final Distribution identityDistribution;
     final Distribution sizeDistribution;
+    final Distribution dataDistribution;
     public final Distribution clusteringDistribution;
 
     public Generator(AbstractType<T> type, GeneratorConfig config, String name, Class<T> clazz)
@@ -46,6 +47,7 @@ public abstract class Generator<T>
         this.identityDistribution = config.getIdentityDistribution(defaultIdentityDistribution());
         this.sizeDistribution = config.getSizeDistribution(defaultSizeDistribution());
         this.clusteringDistribution = config.getClusteringDistribution(defaultClusteringDistribution());
+        this.dataDistribution = config.getDataDistribution();
     }
 
     public void setSeed(long seed)

@@ -31,16 +31,18 @@ import org.apache.cassandra.utils.MurmurHash;
 public class GeneratorConfig implements Serializable
 {
     public final long salt;
-
     private final DistributionFactory clusteringDistributions;
     private final DistributionFactory sizeDistributions;
     private final DistributionFactory identityDistributions;
+    private final DistributionFactory dataDistributions;
 
-    public GeneratorConfig(String seedStr, DistributionFactory clusteringDistributions, DistributionFactory sizeDistributions, DistributionFactory identityDistributions)
+    public GeneratorConfig(String seedStr, DistributionFactory clusteringDistributions, DistributionFactory sizeDistributions,
+                           DistributionFactory identityDistributions, DistributionFactory dataDistributions)
     {
         this.clusteringDistributions = clusteringDistributions;
         this.sizeDistributions = sizeDistributions;
         this.identityDistributions = identityDistributions;
+        this.dataDistributions = dataDistributions;
         ByteBuffer buf = ByteBufferUtil.bytes(seedStr);
         long[] hash = new long[2];
         MurmurHash.hash3_x64_128(buf, buf.position(), buf.remaining(), 0, hash);
@@ -62,4 +64,8 @@ public class GeneratorConfig implements Serializable
         return (sizeDistributions == null ? deflt : sizeDistributions).get();
     }
 
+    Distribution getDataDistribution()
+    {
+        return dataDistributions == null ? null : dataDistributions.get();
+    }
 }
