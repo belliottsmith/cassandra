@@ -127,6 +127,11 @@ public abstract class CommitLogSegment
         return idBase + nextId.getAndIncrement();
     }
 
+    static ReplayPosition generateStartingReplayPosition()
+    {
+        return new ReplayPosition(idBase + nextId.get(), 0);
+    }
+
     /**
      * Constructs a new segment file.
      *

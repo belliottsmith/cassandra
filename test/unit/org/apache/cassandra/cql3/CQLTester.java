@@ -169,12 +169,10 @@ public abstract class CQLTester
 
     public static void cleanupAndLeaveDirs() throws IOException
     {
-        // We need to stop and unmap all CLS instances prior to cleanup() or we'll get failures on Windows.
-        CommitLog.instance.stopUnsafe(true);
+        assert !CommitLog.instance.isStarted();
         mkdirs();
         cleanup();
         mkdirs();
-        CommitLog.instance.restartUnsafe();
     }
 
     public static void cleanup()

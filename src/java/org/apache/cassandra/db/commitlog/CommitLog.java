@@ -114,8 +114,9 @@ public class CommitLog implements CommitLogMBean
 
     public CommitLog start()
     {
-        executor.start();
+        assert !isStarted();
         allocator.start();
+        executor.start();
         return this;
     }
 
@@ -126,7 +127,7 @@ public class CommitLog implements CommitLogMBean
      */
     public int recover() throws IOException
     {
-        assert !allocator.started();
+        assert !isStarted();
 
         FilenameFilter unmanagedFilesFilter = (dir, name) -> CommitLogDescriptor.isValid(name);
 
@@ -189,7 +190,10 @@ public class CommitLog implements CommitLogMBean
      */
     public ReplayPosition getContext()
     {
-        return allocator.allocatingFrom().getContext();
+        if (isStarted())
+            return allocator.allocatingFrom().getContext();
+        else
+            return CommitLogSegment.generateStartingReplayPosition();
     }
 
     /**
@@ -407,7 +411,7 @@ public class CommitLog implements CommitLogMBean
      */
     public void stopUnsafe(boolean deleteSegments)
     {
-        if (!allocator.started())
+        if (!allocator.isStarted())
             return;
 
         executor.shutdown();
@@ -428,8 +432,8 @@ public class CommitLog implements CommitLogMBean
     public int restartUnsafe() throws IOException
     {
         int recovered = recover();
-        executor.restartUnsafe();
         allocator.start();
+        executor.restartUnsafe();
         return recovered;
     }
 
@@ -463,5 +467,10 @@ public class CommitLog implements CommitLogMBean
             default:
                 throw new AssertionError(DatabaseDescriptor.getCommitFailurePolicy());
         }
+    }
+
+    public boolean isStarted()
+    {
+        return allocator.isStarted();
     }
 }

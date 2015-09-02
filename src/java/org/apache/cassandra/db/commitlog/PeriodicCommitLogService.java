@@ -31,12 +31,12 @@ class PeriodicCommitLogService extends AbstractCommitLogService
 
     protected void maybeWaitForSync(CommitLogSegment.Allocation alloc)
     {
-        if (waitForSyncToCatchUp(Long.MAX_VALUE))
+        long started = System.currentTimeMillis();
+        if (waitForSyncToCatchUp(started))
         {
             // wait until periodic sync() catches up with its schedule
-            long started = System.currentTimeMillis();
             pending.incrementAndGet();
-            while (waitForSyncToCatchUp(started))
+            do
             {
                 WaitQueue.Signal signal = syncComplete.register(commitLog.metrics.waitingOnCommit.time());
                 if (waitForSyncToCatchUp(started))
@@ -44,6 +44,7 @@ class PeriodicCommitLogService extends AbstractCommitLogService
                 else
                     signal.cancel();
             }
+            while (waitForSyncToCatchUp(started));
             pending.decrementAndGet();
         }
     }

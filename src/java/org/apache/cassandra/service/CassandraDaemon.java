@@ -221,7 +221,7 @@ public class CassandraDaemon
         StorageService.instance.populateTokenMetadata();
 
         // load schema from disk
-        Schema.instance.loadFromDisk();
+        Schema.instance.loadFromDisk(false);
 
         // clean up debris in the rest of the keyspaces
         for (String keyspaceName : Schema.instance.getKeyspaces())
