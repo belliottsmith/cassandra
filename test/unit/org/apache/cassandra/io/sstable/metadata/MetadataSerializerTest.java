@@ -54,8 +54,7 @@ public class MetadataSerializerTest
 
         MetadataCollector collector = new MetadataCollector(new SimpleDenseCellNameType(BytesType.instance))
                                                       .estimatedRowSize(rowSizes)
-                                                      .estimatedColumnCount(columnCounts)
-                                                      .replayPosition(rp);
+                                                      .estimatedColumnCount(columnCounts);
         collector.updateMinTimestamp(minTimestamp);
         collector.updateMaxTimestamp(maxTimestamp);
 
@@ -72,7 +71,7 @@ public class MetadataSerializerTest
         File statsFile = File.createTempFile(Component.STATS.name, null);
         try (DataOutputStreamAndChannel out = new DataOutputStreamAndChannel(new FileOutputStream(statsFile)))
         {
-            serializer.serialize(originalMetadata, out);
+            serializer.serialize(originalMetadata, Descriptor.Version.CURRENT, out);
         }
 
         Descriptor desc = new Descriptor(Descriptor.Version.CURRENT, statsFile.getParentFile(), "", "", 0, Descriptor.Type.FINAL);

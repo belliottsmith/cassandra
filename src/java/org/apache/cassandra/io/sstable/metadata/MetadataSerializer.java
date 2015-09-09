@@ -48,7 +48,7 @@ public class MetadataSerializer implements IMetadataSerializer
 {
     private static final Logger logger = LoggerFactory.getLogger(MetadataSerializer.class);
 
-    public void serialize(Map<MetadataType, MetadataComponent> components, DataOutputPlus out) throws IOException
+    public void serialize(Map<MetadataType, MetadataComponent> components, Descriptor.Version version, DataOutputPlus out) throws IOException
     {
         // sort components by type
         List<MetadataComponent> sortedComponents = Lists.newArrayList(components.values());
@@ -65,12 +65,12 @@ public class MetadataSerializer implements IMetadataSerializer
             out.writeInt(type.ordinal());
             // serialize position
             out.writeInt(lastPosition);
-            lastPosition += type.serializer.serializedSize(component);
+            lastPosition += type.serializer.serializedSize(component, version);
         }
         // serialize components
         for (MetadataComponent component : sortedComponents)
         {
-            component.getType().serializer.serialize(component, out);
+            component.getType().serializer.serialize(component, version, out);
         }
     }
 
@@ -150,7 +150,7 @@ public class MetadataSerializer implements IMetadataSerializer
 
         try (DataOutputStreamAndChannel out = new DataOutputStreamAndChannel(new FileOutputStream(tmpDescriptor.filenameFor(Component.STATS))))
         {
-            serialize(currentComponents, out);
+            serialize(currentComponents, descriptor.version, out);
             out.flush();
         }
         // we cant move a file on top of another file in windows:

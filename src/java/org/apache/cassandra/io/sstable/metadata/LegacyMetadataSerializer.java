@@ -42,7 +42,7 @@ public class LegacyMetadataSerializer extends MetadataSerializer
      * Legacy serialization is only used for SSTable level reset.
      */
     @Override
-    public void serialize(Map<MetadataType, MetadataComponent> components, DataOutputPlus out) throws IOException
+    public void serialize(Map<MetadataType, MetadataComponent> components, Descriptor.Version version, DataOutputPlus out) throws IOException
     {
         ValidationMetadata validation = (ValidationMetadata) components.get(MetadataType.VALIDATION);
         StatsMetadata stats = (StatsMetadata) components.get(MetadataType.STATS);
@@ -52,7 +52,9 @@ public class LegacyMetadataSerializer extends MetadataSerializer
 
         EstimatedHistogram.serializer.serialize(stats.estimatedRowSize, out);
         EstimatedHistogram.serializer.serialize(stats.estimatedColumnCount, out);
-        ReplayPosition.serializer.serialize(stats.replayPosition, out);
+        if (version.hasCommitLogLowerBound)
+            ReplayPosition.serializer.serialize(stats.commitLogLowerBound, out);
+        ReplayPosition.serializer.serialize(stats.commitLogUpperBound, out);
         out.writeLong(stats.minTimestamp);
         out.writeLong(stats.maxTimestamp);
         out.writeInt(stats.maxLocalDeletionTime);
@@ -91,7 +93,10 @@ public class LegacyMetadataSerializer extends MetadataSerializer
             {
                 EstimatedHistogram rowSizes = EstimatedHistogram.serializer.deserialize(in);
                 EstimatedHistogram columnCounts = EstimatedHistogram.serializer.deserialize(in);
-                ReplayPosition replayPosition = ReplayPosition.serializer.deserialize(in);
+                ReplayPosition commitLogLowerBound = ReplayPosition.NONE, commitLogUpperBound;
+                if (descriptor.version.hasCommitLogLowerBound)
+                    commitLogLowerBound = ReplayPosition.serializer.deserialize(in);
+                commitLogUpperBound = ReplayPosition.serializer.deserialize(in);
                 long minTimestamp = in.readLong();
                 long maxTimestamp = in.readLong();
                 int maxLocalDeletionTime = in.readInt();
@@ -124,7 +129,8 @@ public class LegacyMetadataSerializer extends MetadataSerializer
                     components.put(MetadataType.STATS,
                                    new StatsMetadata(rowSizes,
                                                      columnCounts,
-                                                     replayPosition,
+                                                     commitLogLowerBound,
+                                                     commitLogUpperBound,
                                                      minTimestamp,
                                                      maxTimestamp,
                                                      maxLocalDeletionTime,

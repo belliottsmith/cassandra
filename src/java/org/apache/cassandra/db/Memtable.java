@@ -21,20 +21,18 @@ import java.io.File;
 import java.util.AbstractMap;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Throwables;
+
+import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.utils.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.commitlog.ReplayPosition;
 import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.db.index.SecondaryIndexManager;
@@ -42,7 +40,6 @@ import org.apache.cassandra.dht.LongToken;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableWriter;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
-import org.apache.cassandra.io.util.DiskAwareRunnable;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.*;
@@ -61,9 +58,10 @@ public class Memtable
     // the write barrier for directing writes to this memtable during a switch
     private volatile OpOrder.Barrier writeBarrier;
     // the last ReplayPosition owned by this Memtable; all ReplayPositions lower are owned by this or an earlier Memtable
-    private volatile AtomicReference<ReplayPosition> lastReplayPosition;
+    private volatile AtomicReference<ReplayPosition> commitLogUpperBound;
     // the "first" ReplayPosition owned by this Memtable; this is inaccurate, and only used as a convenience to prevent CLSM flushing wantonly
-    private final ReplayPosition minReplayPosition = CommitLog.instance.getContext();
+    private AtomicReference<ReplayPosition> commitLogLowerBound;
+    private final ReplayPosition approximateCommitLogLowerBound = CommitLog.instance.getContext();
 
     public static final class LastReplayPosition extends ReplayPosition
     {
@@ -85,9 +83,11 @@ public class Memtable
     // memtable was created with the new or old comparator.
     public final CellNameType initialComparator;
 
-    public Memtable(ColumnFamilyStore cfs)
+    // only to be used by init(), to setup the very first memtable for the cfs
+    public Memtable(AtomicReference<ReplayPosition> commitLogLowerBound, ColumnFamilyStore cfs)
     {
         this.cfs = cfs;
+        this.commitLogLowerBound = commitLogLowerBound;
         this.allocator = MEMORY_POOL.newAllocator();
         this.initialComparator = cfs.metadata.comparator;
         this.cfs.scheduleFlush();
@@ -111,7 +111,7 @@ public class Memtable
     void setDiscarding(OpOrder.Barrier writeBarrier, AtomicReference<ReplayPosition> lastReplayPosition)
     {
         assert this.writeBarrier == null;
-        this.lastReplayPosition = lastReplayPosition;
+        this.commitLogUpperBound = lastReplayPosition;
         this.writeBarrier = writeBarrier;
         allocator.setDiscarding();
     }
@@ -141,14 +141,19 @@ public class Memtable
             // its current value and ours; if it HAS been finalised, we simply accept its judgement
             // this permits us to coordinate a safe boundary, as the boundary choice is made
             // atomically wrt our max() maintenance, so an operation cannot sneak into the past
-            ReplayPosition currentLast = lastReplayPosition.get();
+            ReplayPosition currentLast = commitLogUpperBound.get();
             if (currentLast instanceof LastReplayPosition)
                 return currentLast.compareTo(replayPosition) >= 0;
             if (currentLast != null && currentLast.compareTo(replayPosition) >= 0)
                 return true;
-            if (lastReplayPosition.compareAndSet(currentLast, replayPosition))
+            if (commitLogUpperBound.compareAndSet(currentLast, replayPosition))
                 return true;
         }
+    }
+
+    public ReplayPosition getCommitLogLowerBound()
+    {
+        return commitLogLowerBound.get();
     }
 
     public boolean isLive()
@@ -163,7 +168,7 @@ public class Memtable
 
     public boolean isCleanAfter(ReplayPosition position)
     {
-        return isClean() || (position != null && minReplayPosition.compareTo(position) >= 0);
+        return approximateCommitLogLowerBound.compareTo(position) >= 0;
     }
 
     /**
@@ -231,11 +236,6 @@ public class Memtable
         return rows.size();
     }
 
-    public FlushRunnable flushRunnable()
-    {
-        return new FlushRunnable(lastReplayPosition.get());
-    }
-
     public String toString()
     {
         return String.format("Memtable-%s@%s(%s serialized bytes, %s ops, %.0f%%/%.0f%% of on/off-heap limit)",
@@ -299,125 +299,110 @@ public class Memtable
         return creationTime;
     }
 
-    class FlushRunnable extends DiskAwareRunnable
+    public SSTableReader flush()
     {
-        private final ReplayPosition context;
-        private final long estimatedSize;
+        long estimatedSize = estimatedSize();
+        Directories.DataDirectory dataDirectory = cfs.directories.getWriteableLocation(estimatedSize);
+        if (dataDirectory == null)
+            throw new RuntimeException("Insufficient disk space to write " + estimatedSize + " bytes");
+        File sstableDirectory = cfs.directories.getLocationForDisk(dataDirectory);
+        assert sstableDirectory != null : "Flush task is not bound to any disk";
+        return writeSortedContents(sstableDirectory);
+    }
 
-        FlushRunnable(ReplayPosition context)
+    private long estimatedSize()
+    {
+        long keySize = 0;
+        for (RowPosition key : rows.keySet())
         {
-            this.context = context;
+            //  make sure we don't write non-sensical keys
+            assert key instanceof DecoratedKey;
+            keySize += ((DecoratedKey)key).getKey().remaining();
+        }
+        return (long) ((keySize // index entries
+                        + keySize // keys in data file
+                        + liveDataSize.get()) // data
+                       * 1.2); // bloom filter and row index overhead
+    }
 
-            long keySize = 0;
-            for (RowPosition key : rows.keySet())
+    private SSTableReader writeSortedContents(File sstableDirectory)
+    {
+        logger.info("Writing {}", Memtable.this.toString());
+
+        SSTableReader ssTable;
+        // errors when creating the writer that may leave empty temp files.
+        SSTableWriter writer = createFlushWriter(cfs.getTempSSTablePath(sstableDirectory));
+        try
+        {
+            boolean trackContention = logger.isDebugEnabled();
+            int heavilyContendedRowCount = 0;
+            // (we can't clear out the map as-we-go to free up memory,
+            //  since the memtable is being used for queries in the "pending flush" category)
+            for (Map.Entry<RowPosition, AtomicBTreeColumns> entry : rows.entrySet())
             {
-                //  make sure we don't write non-sensical keys
-                assert key instanceof DecoratedKey;
-                keySize += ((DecoratedKey)key).getKey().remaining();
+                AtomicBTreeColumns cf = entry.getValue();
+
+                if (cf.isMarkedForDelete() && cf.hasColumns())
+                {
+                    // When every node is up, there's no reason to write batchlog data out to sstables
+                    // (which in turn incurs cost like compaction) since the BL write + delete cancel each other out,
+                    // and BL data is strictly local, so we don't need to preserve tombstones for repair.
+                    // If we have a data row + row level tombstone, then writing it is effectively an expensive no-op so we skip it.
+                    // See CASSANDRA-4667.
+                    if (cfs.name.equals(SystemKeyspace.BATCHLOG_CF) && cfs.keyspace.getName().equals(Keyspace.SYSTEM_KS))
+                        continue;
+                }
+
+                if (trackContention && cf.usePessimisticLocking())
+                    heavilyContendedRowCount++;
+
+                if (!cf.isEmpty())
+                    writer.append((DecoratedKey)entry.getKey(), cf);
             }
-            estimatedSize = (long) ((keySize // index entries
-                                    + keySize // keys in data file
-                                    + liveDataSize.get()) // data
-                                    * 1.2); // bloom filter and row index overhead
-        }
 
-        public long getExpectedWriteSize()
-        {
-            return estimatedSize;
-        }
-
-        protected void runMayThrow() throws Exception
-        {
-            long writeSize = getExpectedWriteSize();
-            Directories.DataDirectory dataDirectory = getWriteDirectory(writeSize);
-            File sstableDirectory = cfs.directories.getLocationForDisk(dataDirectory);
-            assert sstableDirectory != null : "Flush task is not bound to any disk";
-            SSTableReader sstable = writeSortedContents(context, sstableDirectory);
-            cfs.replaceFlushed(Memtable.this, sstable);
-        }
-
-        protected Directories getDirectories()
-        {
-            return cfs.directories;
-        }
-
-        private SSTableReader writeSortedContents(ReplayPosition context, File sstableDirectory)
-        throws ExecutionException, InterruptedException
-        {
-            logger.info("Writing {}", Memtable.this.toString());
-
-            SSTableReader ssTable;
-            // errors when creating the writer that may leave empty temp files.
-            SSTableWriter writer = createFlushWriter(cfs.getTempSSTablePath(sstableDirectory));
-            try
+            if (writer.getFilePointer() > 0)
             {
-                boolean trackContention = logger.isDebugEnabled();
-                int heavilyContendedRowCount = 0;
-                // (we can't clear out the map as-we-go to free up memory,
-                //  since the memtable is being used for queries in the "pending flush" category)
-                for (Map.Entry<RowPosition, AtomicBTreeColumns> entry : rows.entrySet())
-                {
-                    AtomicBTreeColumns cf = entry.getValue();
-
-                    if (cf.isMarkedForDelete() && cf.hasColumns())
-                    {
-                        // When every node is up, there's no reason to write batchlog data out to sstables
-                        // (which in turn incurs cost like compaction) since the BL write + delete cancel each other out,
-                        // and BL data is strictly local, so we don't need to preserve tombstones for repair.
-                        // If we have a data row + row level tombstone, then writing it is effectively an expensive no-op so we skip it.
-                        // See CASSANDRA-4667.
-                        if (cfs.name.equals(SystemKeyspace.BATCHLOG_CF) && cfs.keyspace.getName().equals(Keyspace.SYSTEM_KS))
-                            continue;
-                    }
-
-                    if (trackContention && cf.usePessimisticLocking())
-                        heavilyContendedRowCount++;
-
-                    if (!cf.isEmpty())
-                        writer.append((DecoratedKey)entry.getKey(), cf);
-                }
-
-                if (writer.getFilePointer() > 0)
-                {
-                    logger.info(String.format("Completed flushing %s (%s) for commitlog position %s",
-                                              writer.getFilename(),
-                                              FBUtilities.prettyPrintMemory(writer.getOnDiskFilePointer()),
-                                              context));
-
-                    writer.isolateReferences();
-                    // temp sstables should contain non-repaired data.
-                    ssTable = writer.closeAndOpenReader();
-                }
-                else
-                {
-                    logger.info("Completed flushing {}; nothing needed to be retained.  Commitlog position was {}",
-                                writer.getFilename(), context);
-                    writer.abort();
-                    ssTable = null;
-                }
-
-                if (heavilyContendedRowCount > 0)
-                    logger.debug(String.format("High update contention in %d/%d partitions of %s ", heavilyContendedRowCount, rows.size(), Memtable.this.toString()));
-
-                return ssTable;
+                writer.isolateReferences();
+                // temp sstables should contain non-repaired data.
+                ssTable = writer.closeAndOpenReader();
+                logger.info("Completed flushing {} ({}).  Commitlog position was {}",
+                            ssTable.getFilename(),
+                            FBUtilities.prettyPrintMemory(ssTable.onDiskLength()),
+                            commitLogUpperBound.get());
             }
-            catch (Throwable e)
+            else
             {
+                logger.info("Completed flushing {}; nothing needed to be retained.  Commitlog position was {}",
+                            writer.getFilename(), commitLogLowerBound.get());
                 writer.abort();
-                throw Throwables.propagate(e);
+                ssTable = null;
+                logger.info("Completed flushing; nothing needed to be retained.  Commitlog position was {}",
+                            commitLogUpperBound.get());
             }
-        }
 
-        public SSTableWriter createFlushWriter(String filename) throws ExecutionException, InterruptedException
-        {
-            MetadataCollector sstableMetadataCollector = new MetadataCollector(cfs.metadata.comparator).replayPosition(context);
-            return new SSTableWriter(filename,
-                                     rows.size(),
-                                     ActiveRepairService.UNREPAIRED_SSTABLE,
-                                     cfs.metadata,
-                                     cfs.partitioner,
-                                     sstableMetadataCollector);
+            if (heavilyContendedRowCount > 0)
+                logger.debug(String.format("High update contention in %d/%d partitions of %s ", heavilyContendedRowCount, rows.size(), Memtable.this.toString()));
+
+            return ssTable;
         }
+        catch (Throwable e)
+        {
+            writer.abort();
+            throw Throwables.propagate(e);
+        }
+    }
+
+    public SSTableWriter createFlushWriter(String filename)
+    {
+        MetadataCollector sstableMetadataCollector = new MetadataCollector(cfs.metadata.comparator)
+                                                     .commitLogLowerBound(commitLogLowerBound.get())
+                                                     .commitLogUpperBound(commitLogUpperBound.get());
+        return new SSTableWriter(filename,
+                                 rows.size(),
+                                 ActiveRepairService.UNREPAIRED_SSTABLE,
+                                 cfs.metadata,
+                                 cfs.partitioner,
+                                 sstableMetadataCollector);
     }
 
     private static int estimateRowOverhead(final int count)

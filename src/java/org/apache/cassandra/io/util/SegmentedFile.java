@@ -233,6 +233,14 @@ public abstract class SegmentedFile extends SharedCloseableImpl
             }
             catch (IOException e)
             {
+                try
+                {
+                    segment.close();
+                }
+                catch (Throwable t)
+                {
+                    e.addSuppressed(t);
+                }
                 throw new FSReadError(e, path);
             }
             return segment;

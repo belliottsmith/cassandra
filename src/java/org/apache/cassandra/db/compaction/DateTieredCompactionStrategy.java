@@ -32,7 +32,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.utils.Pair;
 
-public class DateTieredCompactionStrategy extends AbstractCompactionStrategy
+public class DateTieredCompactionStrategy extends AbstractUniformCompactionStrategy
 {
     private static final Logger logger = LoggerFactory.getLogger(DateTieredCompactionStrategy.class);
 
@@ -78,10 +78,9 @@ public class DateTieredCompactionStrategy extends AbstractCompactionStrategy
      */
     private List<SSTableReader> getNextBackgroundSSTables(final int gcBefore)
     {
-        if (cfs.getSSTables().isEmpty())
+        Set<SSTableReader> uncompacting = getUncompacting();
+        if (uncompacting.isEmpty())
             return Collections.emptyList();
-
-        Set<SSTableReader> uncompacting = Sets.intersection(sstables, cfs.getUncompactingSSTables());
 
         Set<SSTableReader> expired = Collections.emptySet();
         // we only check for expired sstables every 10 minutes (by default) due to it being an expensive operation
@@ -150,7 +149,7 @@ public class DateTieredCompactionStrategy extends AbstractCompactionStrategy
      */
     private long getNow()
     {
-        return Collections.max(cfs.getSSTables(), new Comparator<SSTableReader>()
+        return Collections.max(sstables, new Comparator<SSTableReader>()
         {
             public int compare(SSTableReader o1, SSTableReader o2)
             {
@@ -371,7 +370,7 @@ public class DateTieredCompactionStrategy extends AbstractCompactionStrategy
     @Override
     public synchronized Collection<AbstractCompactionTask> getMaximalTask(int gcBefore)
     {
-        Iterable<SSTableReader> sstables = cfs.markAllCompacting();
+        Collection<SSTableReader> sstables = markAllCompacting();
         if (sstables == null)
             return null;
 
@@ -383,7 +382,7 @@ public class DateTieredCompactionStrategy extends AbstractCompactionStrategy
     {
         assert !sstables.isEmpty(); // checked for by CM.submitUserDefined
 
-        if (!cfs.getDataTracker().markCompacting(sstables))
+        if (!markCompacting(sstables))
         {
             logger.debug("Unable to mark {} for compaction; probably a background compaction got to it first.  You can disable background compactions temporarily if this is a problem", sstables);
             return null;

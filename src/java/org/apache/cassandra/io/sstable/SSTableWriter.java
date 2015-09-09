@@ -528,7 +528,7 @@ public class SSTableWriter extends SSTable
         SequentialWriter out = SequentialWriter.open(new File(desc.filenameFor(Component.STATS)));
         try
         {
-            desc.getMetadataSerializer().serialize(components, out.stream);
+            desc.getMetadataSerializer().serialize(components, desc.version, out.stream);
         }
         catch (IOException e)
         {

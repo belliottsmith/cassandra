@@ -20,12 +20,11 @@ package org.apache.cassandra.db.compaction;
 import java.util.Set;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.compaction.CompactionManager.CompactionExecutorStatsCollector;
 import org.apache.cassandra.io.sstable.SSTableReader;
-import org.apache.cassandra.io.util.DiskAwareRunnable;
+import org.apache.cassandra.utils.WrappedRunnable;
 
-public abstract class AbstractCompactionTask extends DiskAwareRunnable
+public abstract class AbstractCompactionTask extends WrappedRunnable
 {
     protected final ColumnFamilyStore cfs;
     protected Set<SSTableReader> sstables;
@@ -65,11 +64,6 @@ public abstract class AbstractCompactionTask extends DiskAwareRunnable
     }
 
     protected abstract int executeInternal(CompactionExecutorStatsCollector collector);
-
-    protected Directories getDirectories()
-    {
-        return cfs.directories;
-    }
 
     public AbstractCompactionTask setUserDefined(boolean isUserDefined)
     {

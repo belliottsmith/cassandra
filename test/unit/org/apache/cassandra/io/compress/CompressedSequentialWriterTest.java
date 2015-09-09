@@ -74,7 +74,7 @@ public class CompressedSequentialWriterTest
         {
             final String filename = f.getAbsolutePath();
 
-            MetadataCollector sstableMetadataCollector = new MetadataCollector(new SimpleDenseCellNameType(BytesType.instance)).replayPosition(null);
+            MetadataCollector sstableMetadataCollector = new MetadataCollector(new SimpleDenseCellNameType(BytesType.instance));
             CompressedSequentialWriter writer = new CompressedSequentialWriter(f, filename + ".metadata", new CompressionParameters(compressor), sstableMetadataCollector);
 
             byte[] dataPre = new byte[bytesToTest];

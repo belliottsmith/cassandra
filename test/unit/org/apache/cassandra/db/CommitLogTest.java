@@ -23,9 +23,11 @@ import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.CRC32;
 import java.util.zip.Checksum;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -480,5 +482,33 @@ public class CommitLogTest extends SchemaLoader
         DatabaseDescriptor.setAutoSnapshot(prevAutoSnapshot);
         row = command.getRow(notDurableKs);
         Assert.assertEquals(null, row.cf);
+    }
+
+    @Test
+    public void testOutOfOrderFlushRecovery() throws ExecutionException, InterruptedException, IOException
+    {
+        for (File file : new File(DatabaseDescriptor.getCommitLogLocation()).listFiles())
+            file.delete();
+        CommitLog.instance.resetUnsafe();
+
+        ColumnFamilyStore cfs = Keyspace.open("Keyspace1").getColumnFamilyStore("Standard1");
+
+        for (int i = 0 ; i < 5 ; i++)
+        {
+            final Mutation rm1 = new Mutation("Keyspace1", bytes("k"));
+            rm1.add("Standard1", Util.cellname("c" + i), ByteBuffer.allocate(100), 0);
+            rm1.apply();
+            if (i == 2)
+                cfs.simulateFailedFlush();
+            else
+                cfs.forceBlockingFlush();
+        }
+        cfs.forceMajorCompaction();
+
+        CommitLog.instance.sync(true);
+        CommitLog.instance.resetUnsafe();
+        System.setProperty("cassandra.replayList", "Keyspace1.Standard1");
+        Assert.assertEquals(1, CommitLog.instance.recover());
+        cfs.resumeFlushing();
     }
 }

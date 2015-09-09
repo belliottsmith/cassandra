@@ -741,8 +741,6 @@ public class CompactionManager implements CompactionManagerMBean
         logger.info("Cleaning up {}", sstable);
 
         File compactionFileLocation = cfs.directories.getWriteableLocationAsFile(cfs.getExpectedCompactedFileSize(sstableSet, OperationType.CLEANUP));
-        if (compactionFileLocation == null)
-            throw new IOException("disk full");
 
         ISSTableScanner scanner = cleanupStrategy.getScanner(sstable, getRateLimiter());
         CleanupInfo ci = new CleanupInfo(sstable, scanner);

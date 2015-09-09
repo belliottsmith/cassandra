@@ -187,7 +187,7 @@ public class CompactionTask extends AbstractCompactionTask
                         return;
                     }
 
-                    writer.switchWriter(createCompactionWriter(cfs.directories.getLocationForDisk(getWriteDirectory(expectedSSTableSize)), keysPerSSTable, minRepairedAt));
+                    writer.switchWriter(createCompactionWriter(cfs.directories.getLocationForDisk(cfs.directories.getWriteableLocation(expectedSSTableSize)), keysPerSSTable, minRepairedAt));
                     while (iter.hasNext())
                     {
                         if (ci.isStopRequested())
@@ -199,7 +199,7 @@ public class CompactionTask extends AbstractCompactionTask
                             totalKeysWritten++;
                             if (newSSTableSegmentThresholdReached(writer.currentWriter()))
                             {
-                                writer.switchWriter(createCompactionWriter(cfs.directories.getLocationForDisk(getWriteDirectory(expectedSSTableSize)), keysPerSSTable, minRepairedAt));
+                                writer.switchWriter(createCompactionWriter(cfs.directories.getLocationForDisk(cfs.directories.getWriteableLocation(expectedSSTableSize)), keysPerSSTable, minRepairedAt));
                             }
                         }
 
@@ -290,7 +290,7 @@ public class CompactionTask extends AbstractCompactionTask
 
     protected void checkAvailableDiskSpace(long estimatedSSTables)
     {
-        while (!getDirectories().hasAvailableDiskSpace(estimatedSSTables, getExpectedWriteSize()))
+        while (!cfs.directories.hasAvailableDiskSpace(estimatedSSTables, getExpectedWriteSize()))
         {
             if (!reduceScopeForLimitedSpace())
                 throw new RuntimeException(String.format("Not enough space for compaction, estimated sstables = %d, expected write size = %d", estimatedSSTables, getExpectedWriteSize()));

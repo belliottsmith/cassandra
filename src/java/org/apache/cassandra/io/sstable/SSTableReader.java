@@ -1997,11 +1997,6 @@ public class SSTableReader extends SSTable implements SelfRefCounted<SSTableRead
         return sstableMetadata.compressionRatio;
     }
 
-    public ReplayPosition getReplayPosition()
-    {
-        return sstableMetadata.replayPosition;
-    }
-
     public long getMinTimestamp()
     {
         return sstableMetadata.minTimestamp;

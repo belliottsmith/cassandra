@@ -27,7 +27,6 @@ import com.google.common.base.Predicate;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Ordering;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,14 +52,14 @@ public class CommitLogReplayer
     private final List<Future<?>> futures;
     private final Map<UUID, AtomicInteger> invalidMutations;
     private final AtomicInteger replayedCount;
-    private final Map<UUID, ReplayPosition> cfPositions;
+    private final Map<UUID, ReplayPosition.ReplayFilter> cfPersisted = new HashMap<>();
     private final ReplayPosition globalPosition;
     private final PureJavaCrc32 checksum;
     private byte[] buffer;
 
     private final ReplayFilter replayFilter;
 
-    public CommitLogReplayer()
+    public CommitLogReplayer() throws IOException
     {
         this.keyspacesRecovered = new NonBlockingHashSet<Keyspace>();
         this.futures = new ArrayList<Future<?>>();
@@ -73,15 +72,8 @@ public class CommitLogReplayer
         replayFilter = ReplayFilter.create();
 
         // compute per-CF and global replay positions
-        cfPositions = new HashMap<UUID, ReplayPosition>();
-        Ordering<ReplayPosition> replayPositionOrdering = Ordering.from(ReplayPosition.comparator);
         for (ColumnFamilyStore cfs : ColumnFamilyStore.all())
         {
-            // it's important to call RP.gRP per-cf, before aggregating all the positions w/ the Ordering.min call
-            // below: gRP will return NONE if there are no flushed sstables, which is important to have in the
-            // list (otherwise we'll just start replay from the first flush position that we do have, which is not correct).
-            ReplayPosition rp = ReplayPosition.getReplayPosition(cfs.getSSTables());
-
             // but, if we've truncted the cf in question, then we need to need to start replay after the truncation
             ReplayPosition truncatedAt = SystemKeyspace.getTruncatedPosition(cfs.metadata.cfId);
             if (truncatedAt != null)
@@ -99,18 +91,17 @@ public class CommitLogReplayer
                                     cfs.metadata.ksName,
                                     cfs.metadata.cfName);
                         SystemKeyspace.removeTruncationRecord(cfs.metadata.cfId);
+                        truncatedAt = null;
                     }
-                }
-                else
-                {
-                    rp = replayPositionOrdering.max(Arrays.asList(rp, truncatedAt));
                 }
             }
 
-            cfPositions.put(cfs.metadata.cfId, rp);
+            ReplayPosition.ReplayFilter filter = new ReplayPosition.ReplayFilter(cfs.getSSTables(), truncatedAt);
+            if (!filter.isEmpty())
+                cfPersisted.put(cfs.metadata.cfId, filter);
         }
-        globalPosition = replayPositionOrdering.min(cfPositions.values());
-        logger.debug("Global replay position is {} from columnfamilies {}", globalPosition, FBUtilities.toString(cfPositions));
+        globalPosition = ReplayPosition.firstNotCovered(cfPersisted.values());
+        logger.debug("Global replay position is {} from columnfamilies {}", globalPosition, FBUtilities.toString(cfPersisted));
     }
 
     public void recover(File[] clogs) throws IOException
@@ -260,6 +251,18 @@ public class CommitLogReplayer
         {
             return toReplay.containsEntry(metadata.ksName, metadata.cfName);
         }
+    }
+
+    /**
+     * consult the known-persisted ranges for our sstables;
+     * if the position is covered by one of them it does not need to be replayed
+     *
+     * @return true iff replay is necessary
+     */
+    private boolean shouldReplay(UUID cfId, ReplayPosition position)
+    {
+        ReplayPosition.ReplayFilter filter = cfPersisted.get(cfId);
+        return filter == null || filter.shouldReplay(position);
     }
 
     public void recover(File file) throws IOException
@@ -414,7 +417,7 @@ public class CommitLogReplayer
                     if (logger.isDebugEnabled())
                         logger.debug("replaying mutation for {}.{}: {}", mutation.getKeyspaceName(), ByteBufferUtil.bytesToHex(mutation.key()), "{" + StringUtils.join(mutation.getColumnFamilies().iterator(), ", ") + "}");
 
-                    final long entryLocation = reader.getFilePointer();
+                    final int entryLocation = (int) reader.getFilePointer();
                     Runnable runnable = new WrappedRunnable()
                     {
                         public void runMayThrow() throws IOException
@@ -437,11 +440,9 @@ public class CommitLogReplayer
                                 if (Schema.instance.getCF(columnFamily.id()) == null)
                                     continue; // dropped
 
-                                ReplayPosition rp = cfPositions.get(columnFamily.id());
-
                                 // replay if current segment is newer than last flushed one or,
                                 // if it is the last known segment, if we are after the replay position
-                                if (segmentId > rp.segment || (segmentId == rp.segment && entryLocation > rp.position))
+                                if (shouldReplay(columnFamily.id(), new ReplayPosition(segmentId, entryLocation)))
                                 {
                                     if (newMutation == null)
                                         newMutation = new Mutation(mutation.getKeyspaceName(), mutation.key());

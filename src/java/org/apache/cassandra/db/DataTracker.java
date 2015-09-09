@@ -30,15 +30,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.commitlog.CommitLog;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.dht.AbstractBounds;
-import org.apache.cassandra.io.sstable.IndexSummary;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.io.util.SegmentedFile;
 import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.notifications.*;
-import org.apache.cassandra.utils.IFilter;
 import org.apache.cassandra.utils.Interval;
 import org.apache.cassandra.utils.IntervalTree;
 import org.apache.cassandra.utils.concurrent.OpOrder;
@@ -112,9 +111,9 @@ public class DataTracker
      *
      * @return the previously active memtable
      */
-    public Memtable switchMemtable(boolean truncating)
+    public Memtable switchMemtable(boolean truncating, Memtable newMemtable)
     {
-        Memtable newMemtable = new Memtable(cfstore);
+        // atomically change the current memtable
         Memtable toFlushMemtable;
         View currentView, newView;
         do
@@ -173,9 +172,19 @@ public class DataTracker
         while (!view.compareAndSet(currentView, newView));
 
         if (sstable != null)
-        {
             addNewSSTablesSize(Arrays.asList(sstable));
+    }
+
+    /**
+     * permit compaction of the provided sstable; this translates to notifying compaction
+     * strategies of its existence, and potentially submitting a background task
+     */
+    public void permitCompactionOfFlushed(SSTableReader sstable)
+    {
+        if (sstable != null && cfstore.isValid())
+        {
             notifyAdded(sstable);
+            CompactionManager.instance.submitBackground(cfstore);
         }
     }
 
@@ -373,7 +382,7 @@ public class DataTracker
     void init()
     {
         view.set(new View(
-                         ImmutableList.of(new Memtable(cfstore)),
+                         ImmutableList.of(new Memtable(new AtomicReference<>(CommitLog.instance.getContext()), cfstore)),
                          ImmutableList.<Memtable>of(),
                          Collections.<SSTableReader, SSTableReader>emptyMap(),
                          Collections.<SSTableReader>emptySet(),
@@ -689,7 +698,7 @@ public class DataTracker
             // since we can have multiple flushes queued, we may occasionally race and start a flush out of order,
             // so must locate it in the list to remove, rather than just removing from the beginning
             int i = live.indexOf(toFlushMemtable);
-            assert i < live.size() - 1;
+            assert i >= 0 && i < live.size() - 1;
             List<Memtable> newLive = ImmutableList.<Memtable>builder()
                                                   .addAll(live.subList(0, i))
                                                   .addAll(live.subList(i + 1, live.size()))
@@ -772,22 +781,6 @@ public class DataTracker
         {
             Set<SSTableReader> compactingNew = ImmutableSet.copyOf(Sets.difference(compacting, ImmutableSet.copyOf(tounmark)));
             return new View(liveMemtables, flushingMemtables, sstablesMap, compactingNew, shadowed, intervalTree);
-        }
-
-        private Set<SSTableReader> newSSTables(Collection<SSTableReader> oldSSTables, Iterable<SSTableReader> replacements)
-        {
-            ImmutableSet<SSTableReader> oldSet = ImmutableSet.copyOf(oldSSTables);
-            int newSSTablesSize = sstables.size() - oldSSTables.size() + Iterables.size(replacements);
-            assert newSSTablesSize >= Iterables.size(replacements) : String.format("Incoherent new size %d replacing %s by %s in %s", newSSTablesSize, oldSSTables, replacements, this);
-            Set<SSTableReader> newSSTables = new HashSet<>(newSSTablesSize);
-
-            for (SSTableReader sstable : sstables)
-                if (!oldSet.contains(sstable))
-                    newSSTables.add(sstable);
-
-            Iterables.addAll(newSSTables, replacements);
-            assert newSSTables.size() == newSSTablesSize : String.format("Expecting new size of %d, got %d while replacing %s by %s in %s", newSSTablesSize, newSSTables.size(), oldSSTables, replacements, this);
-            return ImmutableSet.copyOf(newSSTables);
         }
 
         @Override

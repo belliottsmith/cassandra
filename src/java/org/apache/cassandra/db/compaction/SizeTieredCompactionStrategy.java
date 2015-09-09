@@ -23,20 +23,16 @@ import java.util.Map.Entry;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import com.google.common.primitives.Longs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.cql3.statements.CFPropDefs;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.io.sstable.ColumnNameHelper;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.utils.Pair;
 
-public class SizeTieredCompactionStrategy extends AbstractCompactionStrategy
+public class SizeTieredCompactionStrategy extends AbstractUniformCompactionStrategy
 {
     private static final Logger logger = LoggerFactory.getLogger(SizeTieredCompactionStrategy.class);
 
@@ -79,8 +75,7 @@ public class SizeTieredCompactionStrategy extends AbstractCompactionStrategy
         int minThreshold = cfs.getMinimumCompactionThreshold();
         int maxThreshold = cfs.getMaximumCompactionThreshold();
 
-        Iterable<SSTableReader> candidates = filterSuspectSSTables(Sets.intersection(cfs.getUncompactingSSTables(), sstables));
-
+        Iterable<SSTableReader> candidates = filterSuspectSSTables(getUncompacting());
         List<List<SSTableReader>> buckets = getBuckets(createSSTableAndLengthPairs(candidates), options.bucketHigh, options.bucketLow, options.minSSTableSize);
         logger.debug("Compaction buckets are {}", buckets);
         updateEstimatedCompactionsByTasks(buckets);
@@ -181,26 +176,24 @@ public class SizeTieredCompactionStrategy extends AbstractCompactionStrategy
             if (hottestBucket.isEmpty())
                 return null;
 
-            if (cfs.getDataTracker().markCompacting(hottestBucket))
+            if (markCompacting(hottestBucket))
                 return new CompactionTask(cfs, hottestBucket, gcBefore, false);
         }
     }
 
     public Collection<AbstractCompactionTask> getMaximalTask(final int gcBefore)
     {
-        Iterable<SSTableReader> filteredSSTables = filterSuspectSSTables(sstables);
-        if (Iterables.isEmpty(filteredSSTables))
+        List<SSTableReader> filteredSSTables = ImmutableList.copyOf(filterSuspectSSTables(sstables));
+        if (filteredSSTables.isEmpty() || !cfs.getDataTracker().markCompacting(filteredSSTables))
             return null;
-        if (!cfs.getDataTracker().markCompacting(ImmutableList.copyOf(filteredSSTables)))
-            return null;
-        return Arrays.<AbstractCompactionTask>asList(new CompactionTask(cfs, filteredSSTables, gcBefore, false));
+        return ImmutableList.<AbstractCompactionTask>of(new CompactionTask(cfs, filteredSSTables, gcBefore, false));
     }
 
     public AbstractCompactionTask getUserDefinedTask(Collection<SSTableReader> sstables, final int gcBefore)
     {
         assert !sstables.isEmpty(); // checked for by CM.submitUserDefined
 
-        if (!cfs.getDataTracker().markCompacting(sstables))
+        if (!markCompacting(sstables))
         {
             logger.debug("Unable to mark {} for compaction; probably a background compaction got to it first.  You can disable background compactions temporarily if this is a problem", sstables);
             return null;
