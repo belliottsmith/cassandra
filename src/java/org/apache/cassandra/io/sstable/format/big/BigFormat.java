@@ -143,6 +143,7 @@ public class BigFormat implements SSTableFormat
         private final boolean hasRepairedAt;
         private final boolean tracksLegacyCounterShards;
         private final boolean newFileName;
+        private final boolean hasCommitLogLowerBound;
 
         public BigVersion(String version)
         {
@@ -155,6 +156,7 @@ public class BigFormat implements SSTableFormat
             hasRepairedAt = version.compareTo("ka") >= 0;
             tracksLegacyCounterShards = version.compareTo("ka") >= 0;
             newFileName = version.compareTo("la") >= 0;
+            hasCommitLogLowerBound = version.compareTo("lb") >= 0;
         }
 
         @Override
@@ -197,6 +199,11 @@ public class BigFormat implements SSTableFormat
         public boolean hasNewFileName()
         {
             return newFileName;
+        }
+
+        public boolean hasCommitLogLowerBound()
+        {
+            return hasCommitLogLowerBound;
         }
 
         @Override

@@ -43,7 +43,8 @@ public class StatsMetadata extends MetadataComponent
 
     public final EstimatedHistogram estimatedRowSize;
     public final EstimatedHistogram estimatedColumnCount;
-    public final ReplayPosition replayPosition;
+    public final ReplayPosition commitLogLowerBound;
+    public final ReplayPosition commitLogUpperBound;
     public final long minTimestamp;
     public final long maxTimestamp;
     public final int maxLocalDeletionTime;
@@ -57,7 +58,8 @@ public class StatsMetadata extends MetadataComponent
 
     public StatsMetadata(EstimatedHistogram estimatedRowSize,
                          EstimatedHistogram estimatedColumnCount,
-                         ReplayPosition replayPosition,
+                         ReplayPosition commitLogLowerBound,
+                         ReplayPosition commitLogUpperBound,
                          long minTimestamp,
                          long maxTimestamp,
                          int maxLocalDeletionTime,
@@ -71,7 +73,8 @@ public class StatsMetadata extends MetadataComponent
     {
         this.estimatedRowSize = estimatedRowSize;
         this.estimatedColumnCount = estimatedColumnCount;
-        this.replayPosition = replayPosition;
+        this.commitLogLowerBound = commitLogLowerBound;
+        this.commitLogUpperBound = commitLogUpperBound;
         this.minTimestamp = minTimestamp;
         this.maxTimestamp = maxTimestamp;
         this.maxLocalDeletionTime = maxLocalDeletionTime;
@@ -117,7 +120,8 @@ public class StatsMetadata extends MetadataComponent
     {
         return new StatsMetadata(estimatedRowSize,
                                  estimatedColumnCount,
-                                 replayPosition,
+                                 commitLogLowerBound,
+                                 commitLogUpperBound,
                                  minTimestamp,
                                  maxTimestamp,
                                  maxLocalDeletionTime,
@@ -134,7 +138,8 @@ public class StatsMetadata extends MetadataComponent
     {
         return new StatsMetadata(estimatedRowSize,
                                  estimatedColumnCount,
-                                 replayPosition,
+                                 commitLogLowerBound,
+                                 commitLogUpperBound,
                                  minTimestamp,
                                  maxTimestamp,
                                  maxLocalDeletionTime,
@@ -157,7 +162,8 @@ public class StatsMetadata extends MetadataComponent
         return new EqualsBuilder()
                        .append(estimatedRowSize, that.estimatedRowSize)
                        .append(estimatedColumnCount, that.estimatedColumnCount)
-                       .append(replayPosition, that.replayPosition)
+                       .append(commitLogLowerBound, that.commitLogLowerBound)
+                       .append(commitLogUpperBound, that.commitLogUpperBound)
                        .append(minTimestamp, that.minTimestamp)
                        .append(maxTimestamp, that.maxTimestamp)
                        .append(maxLocalDeletionTime, that.maxLocalDeletionTime)
@@ -177,7 +183,8 @@ public class StatsMetadata extends MetadataComponent
         return new HashCodeBuilder()
                        .append(estimatedRowSize)
                        .append(estimatedColumnCount)
-                       .append(replayPosition)
+                       .append(commitLogLowerBound)
+                       .append(commitLogUpperBound)
                        .append(minTimestamp)
                        .append(maxTimestamp)
                        .append(maxLocalDeletionTime)
@@ -193,12 +200,14 @@ public class StatsMetadata extends MetadataComponent
 
     public static class StatsMetadataSerializer implements IMetadataComponentSerializer<StatsMetadata>
     {
-        public int serializedSize(StatsMetadata component) throws IOException
+        public int serializedSize(StatsMetadata component, Version version) throws IOException
         {
             int size = 0;
             size += EstimatedHistogram.serializer.serializedSize(component.estimatedRowSize, TypeSizes.NATIVE);
             size += EstimatedHistogram.serializer.serializedSize(component.estimatedColumnCount, TypeSizes.NATIVE);
-            size += ReplayPosition.serializer.serializedSize(component.replayPosition, TypeSizes.NATIVE);
+            if (version.hasCommitLogLowerBound())
+                size += ReplayPosition.serializer.serializedSize(component.commitLogLowerBound, TypeSizes.NATIVE);
+            size += ReplayPosition.serializer.serializedSize(component.commitLogUpperBound, TypeSizes.NATIVE);
             size += 8 + 8 + 4 + 8 + 8; // mix/max timestamp(long), maxLocalDeletionTime(int), compressionRatio(double), repairedAt (long)
             size += StreamingHistogram.serializer.serializedSize(component.estimatedTombstoneDropTime, TypeSizes.NATIVE);
             size += TypeSizes.NATIVE.sizeof(component.sstableLevel);
@@ -214,11 +223,13 @@ public class StatsMetadata extends MetadataComponent
             return size;
         }
 
-        public void serialize(StatsMetadata component, DataOutputPlus out) throws IOException
+        public void serialize(StatsMetadata component, Version version, DataOutputPlus out) throws IOException
         {
             EstimatedHistogram.serializer.serialize(component.estimatedRowSize, out);
             EstimatedHistogram.serializer.serialize(component.estimatedColumnCount, out);
-            ReplayPosition.serializer.serialize(component.replayPosition, out);
+            if (version.hasCommitLogLowerBound())
+                ReplayPosition.serializer.serialize(component.commitLogLowerBound, out);
+            ReplayPosition.serializer.serialize(component.commitLogUpperBound, out);
             out.writeLong(component.minTimestamp);
             out.writeLong(component.maxTimestamp);
             out.writeInt(component.maxLocalDeletionTime);
@@ -239,7 +250,10 @@ public class StatsMetadata extends MetadataComponent
         {
             EstimatedHistogram rowSizes = EstimatedHistogram.serializer.deserialize(in);
             EstimatedHistogram columnCounts = EstimatedHistogram.serializer.deserialize(in);
-            ReplayPosition replayPosition = ReplayPosition.serializer.deserialize(in);
+            ReplayPosition commitLogLowerBound = ReplayPosition.NONE, commitLogUpperBound;
+            if (version.hasCommitLogLowerBound())
+                commitLogLowerBound = ReplayPosition.serializer.deserialize(in);
+            commitLogUpperBound = ReplayPosition.serializer.deserialize(in);
             long minTimestamp = in.readLong();
             long maxTimestamp = in.readLong();
             int maxLocalDeletionTime = in.readInt();
@@ -266,7 +280,8 @@ public class StatsMetadata extends MetadataComponent
 
             return new StatsMetadata(rowSizes,
                                      columnCounts,
-                                     replayPosition,
+                                     commitLogLowerBound,
+                                     commitLogUpperBound,
                                      minTimestamp,
                                      maxTimestamp,
                                      maxLocalDeletionTime,
