@@ -62,12 +62,12 @@ public class MemoryMappedSegment extends CommitLogSegment
             try (RandomAccessFile raf = new RandomAccessFile(logFile, "rw"))
             {
                 raf.setLength(DatabaseDescriptor.getCommitLogSegmentSize());
+                commitLog.allocator.addSize(DatabaseDescriptor.getCommitLogSegmentSize());
             }
             catch (IOException e)
             {
                 throw new FSWriteError(e, logFile);
             }
-            commitLog.allocator.addSize(DatabaseDescriptor.getCommitLogSegmentSize());
 
             return channel.map(FileChannel.MapMode.READ_WRITE, 0, DatabaseDescriptor.getCommitLogSegmentSize());
         }

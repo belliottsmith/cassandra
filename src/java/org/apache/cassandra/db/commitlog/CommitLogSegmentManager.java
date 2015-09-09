@@ -172,7 +172,6 @@ public class CommitLogSegmentManager
     // simple wrapper to ensure non-null value for allocatingFrom; only necessary on first call
     CommitLogSegment allocatingFrom()
     {
-        assert isStarted();
         CommitLogSegment r = allocatingFrom;
         if (r == null)
         {

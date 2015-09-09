@@ -87,7 +87,7 @@ public class CommitLog implements CommitLogMBean
         {
             throw new RuntimeException(e);
         }
-        return log;
+        return log.start();
     }
 
     @VisibleForTesting
@@ -112,9 +112,8 @@ public class CommitLog implements CommitLogMBean
         metrics.attach(executor, allocator);
     }
 
-    public CommitLog start()
+    CommitLog start()
     {
-        assert !isStarted();
         allocator.start();
         executor.start();
         return this;
@@ -127,9 +126,12 @@ public class CommitLog implements CommitLogMBean
      */
     public int recover() throws IOException
     {
-        assert !isStarted();
+        // Allocator could be in the process of initial startup with 0 active and available segments. We need to wait for
+        // the allocation manager to finish allocation and add it to available segments so we don't get an invalid response
+        // on allocator.manages(...) below by grabbing a file off the filesystem before it's added to the CLQ.
+        allocator.allocatingFrom();
 
-        FilenameFilter unmanagedFilesFilter = (dir, name) -> CommitLogDescriptor.isValid(name);
+        FilenameFilter unmanagedFilesFilter = (dir, name) -> CommitLogDescriptor.isValid(name) && CommitLogSegment.shouldReplay(name);
 
         // submit all existing files in the commit log dir for archiving prior to recovery - CASSANDRA-6904
         for (File file : new File(DatabaseDescriptor.getCommitLogLocation()).listFiles(unmanagedFilesFilter))
@@ -190,10 +192,7 @@ public class CommitLog implements CommitLogMBean
      */
     public ReplayPosition getContext()
     {
-        if (isStarted())
-            return allocator.allocatingFrom().getContext();
-        else
-            return CommitLogSegment.generateStartingReplayPosition();
+        return allocator.allocatingFrom().getContext();
     }
 
     /**
@@ -411,9 +410,6 @@ public class CommitLog implements CommitLogMBean
      */
     public void stopUnsafe(boolean deleteSegments)
     {
-        if (!allocator.isStarted())
-            return;
-
         executor.shutdown();
         try
         {
@@ -431,10 +427,23 @@ public class CommitLog implements CommitLogMBean
      */
     public int restartUnsafe() throws IOException
     {
-        int recovered = recover();
         allocator.start();
         executor.restartUnsafe();
-        return recovered;
+//        try
+//        {
+            return recover();
+//        }
+//        catch (FSWriteError e)
+//        {
+//            // Workaround for a class of races that keeps showing up on Windows tests.
+//            // stop/start/reset path on Windows with segment deletion is very touchy/brittle
+//            // and the timing keeps getting screwed up. Rather than chasing our tail further
+//            // or rewriting the CLSM, just report that we didn't recover anything back up
+//            // the chain. This will silence most intermittent test failures on Windows
+//            // and appropriately fail tests that expected segments to be recovered that
+//            // were not.
+//            return 0;
+//        }
     }
 
     /**
@@ -467,10 +476,5 @@ public class CommitLog implements CommitLogMBean
             default:
                 throw new AssertionError(DatabaseDescriptor.getCommitFailurePolicy());
         }
-    }
-
-    public boolean isStarted()
-    {
-        return allocator.isStarted();
     }
 }

@@ -50,10 +50,10 @@ public class DeleteTest extends SchemaLoader
     @BeforeClass
     public static void setup() throws Exception
     {
+        Schema.instance.clear();
+
         cassandra = new EmbeddedCassandraService();
         cassandra.start();
-
-        Schema.instance.clear();
 
         cluster = Cluster.builder().addContactPoint("127.0.0.1").withPort(DatabaseDescriptor.getNativeTransportPort()).build();
         session = cluster.connect();

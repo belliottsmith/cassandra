@@ -221,7 +221,7 @@ public class CassandraDaemon
         StorageService.instance.populateTokenMetadata();
 
         // load schema from disk
-        Schema.instance.loadFromDisk(false);
+        Schema.instance.loadFromDisk();
 
         // clean up debris in the rest of the keyspaces
         for (String keyspaceName : Schema.instance.getKeyspaces())
@@ -266,11 +266,10 @@ public class CassandraDaemon
             logger.warn("Unable to start GCInspector (currently only supported on the Sun JVM)");
         }
 
-        // replay and start the commit log
+        // replay the log if necessary
         try
         {
             CommitLog.instance.recover();
-            CommitLog.instance.start();
         }
         catch (IOException e)
         {

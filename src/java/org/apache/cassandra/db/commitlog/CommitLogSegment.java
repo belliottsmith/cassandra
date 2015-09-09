@@ -127,11 +127,6 @@ public abstract class CommitLogSegment
         return idBase + nextId.getAndIncrement();
     }
 
-    static ReplayPosition generateStartingReplayPosition()
-    {
-        return new ReplayPosition(idBase + nextId.get(), 0);
-    }
-
     /**
      * Constructs a new segment file.
      *
@@ -153,7 +148,7 @@ public abstract class CommitLogSegment
         {
             throw new FSWriteError(e, logFile);
         }
-        
+
         buffer = createBuffer(commitLog);
         // write the header
         CommitLogDescriptor.writeHeader(buffer, descriptor);
@@ -600,5 +595,10 @@ public abstract class CommitLogSegment
             return new ReplayPosition(segment.id, buffer.limit());
         }
 
+    }
+
+    public static boolean shouldReplay(String name)
+    {
+        return CommitLogDescriptor.fromFileName(name).id < idBase;
     }
 }
