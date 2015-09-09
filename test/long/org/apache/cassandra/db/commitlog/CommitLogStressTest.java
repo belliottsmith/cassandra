@@ -296,11 +296,7 @@ public class CommitLogStressTest
     private void verifySizes(CommitLog commitLog)
     {
         // Complete anything that's still left to write.
-        commitLog.executor.requestExtraSync().awaitUninterruptibly();
-        // One await() does not suffice as we may be signalled when an ongoing sync finished. Request another
-        // (which shouldn't write anything) to make sure the first we triggered completes.
-        // FIXME: The executor should give us a chance to await completion of the sync we requested.
-        commitLog.executor.requestExtraSync().awaitUninterruptibly();
+        commitLog.executor.syncBlocking();
 
         long combinedSize = 0;
         for (File f : new File(commitLog.location).listFiles())

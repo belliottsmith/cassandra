@@ -64,6 +64,7 @@ public abstract class CommitLogSegment
     private static final Logger logger = LoggerFactory.getLogger(CommitLogSegment.class);
 
     private final static long idBase;
+    private static long replayLimitId;
     private final static AtomicInteger nextId = new AtomicInteger(1);
     static
     {
@@ -73,7 +74,7 @@ public abstract class CommitLogSegment
             if (CommitLogDescriptor.isValid(file.getName()))
                 maxId = Math.max(CommitLogDescriptor.fromFileName(file.getName()).id, maxId);
         }
-        idBase = Math.max(System.currentTimeMillis(), maxId + 1);
+        replayLimitId = idBase = Math.max(System.currentTimeMillis(), maxId + 1);
     }
 
     // The commit log entry overhead in bytes (int: length + int: head checksum + int: tail checksum)
@@ -306,7 +307,8 @@ public abstract class CommitLogSegment
     }
 
     /**
-     * Completely discards a segment file by deleting it. (Potentially blocking operation)
+     * Discards a segment file when the log no longer requires it. The file may be left on disk if the archive script
+     * requires it. (Potentially blocking operation)
      */
     void discard(boolean deleteFile)
     {
@@ -537,6 +539,16 @@ public abstract class CommitLogSegment
         return "CommitLogSegment(" + getPath() + ')';
     }
 
+    static boolean shouldReplay(String name)
+    {
+        return CommitLogDescriptor.fromFileName(name).id < replayLimitId;
+    }
+
+    static void resetReplayLimit()
+    {
+        replayLimitId = getNextId();
+    }
+
     public static class CommitLogSegmentFileComparator implements Comparator<File>
     {
         public int compare(File f, File f2)
@@ -595,10 +607,5 @@ public abstract class CommitLogSegment
             return new ReplayPosition(segment.id, buffer.limit());
         }
 
-    }
-
-    public static boolean shouldReplay(String name)
-    {
-        return CommitLogDescriptor.fromFileName(name).id < idBase;
     }
 }

@@ -420,6 +420,7 @@ public class CommitLog implements CommitLogMBean
             throw new RuntimeException(e);
         }
         allocator.stopUnsafe(deleteSegments);
+        CommitLogSegment.resetReplayLimit();
     }
 
     /**
@@ -427,23 +428,7 @@ public class CommitLog implements CommitLogMBean
      */
     public int restartUnsafe() throws IOException
     {
-        allocator.start();
-        executor.restartUnsafe();
-//        try
-//        {
-            return recover();
-//        }
-//        catch (FSWriteError e)
-//        {
-//            // Workaround for a class of races that keeps showing up on Windows tests.
-//            // stop/start/reset path on Windows with segment deletion is very touchy/brittle
-//            // and the timing keeps getting screwed up. Rather than chasing our tail further
-//            // or rewriting the CLSM, just report that we didn't recover anything back up
-//            // the chain. This will silence most intermittent test failures on Windows
-//            // and appropriately fail tests that expected segments to be recovered that
-//            // were not.
-//            return 0;
-//        }
+        return start().recover();
     }
 
     /**

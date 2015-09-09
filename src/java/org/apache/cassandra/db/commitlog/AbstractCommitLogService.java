@@ -17,21 +17,22 @@
  */
 package org.apache.cassandra.db.commitlog;
 
-import org.apache.cassandra.utils.NoSpamLogger;
-import org.apache.cassandra.utils.concurrent.WaitQueue;
-import org.slf4j.*;
-
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static org.apache.cassandra.db.commitlog.CommitLogSegment.Allocation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.codahale.metrics.Timer.Context;
+
+import org.apache.cassandra.db.commitlog.CommitLogSegment.Allocation;
+import org.apache.cassandra.utils.NoSpamLogger;
+import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 public abstract class AbstractCommitLogService
 {
 
     private Thread thread;
-    private volatile boolean shutdown = false;
+    private volatile boolean shutdown;
 
     // all Allocations written before this time will be synced
     protected volatile long lastSyncedAt = System.currentTimeMillis();
@@ -42,7 +43,7 @@ public abstract class AbstractCommitLogService
 
     // signal that writers can wait on to be notified of a completed sync
     protected final WaitQueue syncComplete = new WaitQueue();
-    protected final Semaphore haveWork = new Semaphore(1);
+    protected final WaitQueue workPending = new WaitQueue();
 
     final CommitLog commitLog;
     private final String name;
@@ -79,14 +80,17 @@ public abstract class AbstractCommitLogService
                 int lagCount = 0;
                 int syncCount = 0;
 
-                boolean run = true;
-                while (run)
+                boolean run;
+                while (true)
                 {
+                    // always run once after shutdown signalled
+                    run = !shutdown;
+
+                    // allow clients to request another sync while this one is being performed
+                    WaitQueue.Signal workPendingSignal = workPending.register();
+
                     try
                     {
-                        // always run once after shutdown signalled
-                        run = !shutdown;
-
                         // sync and signal
                         long syncStarted = System.currentTimeMillis();
                         commitLog.sync(shutdown);
@@ -125,14 +129,15 @@ public abstract class AbstractCommitLogService
                                firstLagAt = 0;
                         }
 
-                        // if we have lagged this round, we probably have work to do already so we don't sleep
-                        if (sleep < 0 || !run)
-                            continue;
+                        if (!run)
+                        {
+                            workPendingSignal.cancel();
+                            break;
+                        }
 
                         try
                         {
-                            haveWork.tryAcquire(sleep, TimeUnit.MILLISECONDS);
-                            haveWork.drainPermits();
+                            workPendingSignal.awaitUntil(System.nanoTime() + TimeUnit.NANOSECONDS.convert(sleep, TimeUnit.MILLISECONDS));
                         }
                         catch (InterruptedException e)
                         {
@@ -147,7 +152,7 @@ public abstract class AbstractCommitLogService
                         // sleep for full poll-interval after an error, so we don't spam the log file
                         try
                         {
-                            haveWork.tryAcquire(pollIntervalMillis, TimeUnit.MILLISECONDS);
+                            workPendingSignal.awaitUntil(System.nanoTime() + TimeUnit.NANOSECONDS.convert(pollIntervalMillis, TimeUnit.MILLISECONDS));
                         }
                         catch (InterruptedException e)
                         {
@@ -158,6 +163,7 @@ public abstract class AbstractCommitLogService
             }
         };
 
+        shutdown = false;
         thread = new Thread(runnable, name);
         thread.start();
     }
@@ -174,42 +180,43 @@ public abstract class AbstractCommitLogService
     protected abstract void maybeWaitForSync(Allocation alloc);
 
     /**
-     * Sync immediately, but don't block for the sync to cmplete
+     * Request an additional sync cycle without blocking.
      */
-    public WaitQueue.Signal requestExtraSync()
+    public void requestExtraSync()
     {
-        WaitQueue.Signal signal = syncComplete.register();
-        haveWork.release(1);
-        return signal;
+        workPending.signal();
+    }
+
+    /**
+     * Request sync and wait until the current state is synced.
+     *
+     * Note: If a sync is in progress at the time of this request, the call will return after both it and a cycle
+     * initiated immediately afterwards complete.
+     */
+    public void syncBlocking()
+    {
+        long requestTime = System.currentTimeMillis();
+        requestExtraSync();
+        awaitSyncAt(requestTime, null);
+    }
+
+    void awaitSyncAt(long syncTime, Context context)
+    {
+        do
+        {
+            WaitQueue.Signal signal = context != null ? syncComplete.register(context) : syncComplete.register();
+            if (lastSyncedAt < syncTime)
+                signal.awaitUninterruptibly();
+            else
+                signal.cancel();
+        }
+        while (lastSyncedAt < syncTime);
     }
 
     public void shutdown()
     {
         shutdown = true;
-        haveWork.release(1);
-    }
-
-    /**
-     * FOR TESTING ONLY
-     */
-    public void restartUnsafe()
-    {
-        while (haveWork.availablePermits() < 1)
-            haveWork.release();
-
-        while (haveWork.availablePermits() > 1)
-        {
-            try
-            {
-                haveWork.acquire();
-            }
-            catch (InterruptedException e)
-            {
-                throw new RuntimeException(e);
-            }
-        }
-        shutdown = false;
-        start();
+        workPending.signalAll();
     }
 
     public void awaitTermination() throws InterruptedException
