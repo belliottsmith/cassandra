@@ -27,8 +27,11 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 
 import com.google.common.util.concurrent.*;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,6 +44,7 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.WrappedRunnable;
+import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 import static org.apache.cassandra.db.commitlog.CommitLogSegment.Allocation;
 
@@ -55,7 +59,8 @@ public class CommitLogSegmentManager
     /**
      * Segment that is ready to be used. The management thread fills this and blocks until consumed.
      */
-    private final SynchronousQueue<CommitLogSegment> availableSegment = new SynchronousQueue<>();
+    private final AtomicReference<CommitLogSegment> availableSegment = new AtomicReference<>();
+    private final WaitQueue segmentPrepared = new WaitQueue();
 
     /** Active segments, containing unflushed data. The tail of this queue is the one we allocate writes to */
     private final ConcurrentLinkedQueue<CommitLogSegment> activeSegments = new ConcurrentLinkedQueue<>();
@@ -73,7 +78,7 @@ public class CommitLogSegmentManager
 
     private Thread managerThread;
     private final CommitLog commitLog;
-    private volatile boolean shutdown = false;
+    private volatile boolean shutdown;
 
     CommitLogSegmentManager(final CommitLog commitLog)
     {
@@ -87,20 +92,27 @@ public class CommitLogSegmentManager
         {
             public void runMayThrow() throws Exception
             {
-                while (true)
+                while (!shutdown)
                 {
                     try
                     {
-                        CommitLogSegment nextSegment = null;
-                        do
+                        assert availableSegment.get() == null;
+                        logger.debug("No segments in reserve; creating a fresh one");
+                        availableSegment.lazySet(CommitLogSegment.createSegment(commitLog));
+                        if (shutdown)
                         {
-                            if (shutdown)
-                                return;
-
-                            logger.debug("No segments in reserve; creating a fresh one");
-                            nextSegment = CommitLogSegment.createSegment(commitLog);
+                            CommitLogSegment next = availableSegment.getAndSet(null);
+                            if (next != null)
+                                next.discard(true);
+                            return;
                         }
-                        while (availableSegment.offer(nextSegment));
+
+                        segmentPrepared.signalAll();
+                        Thread.yield();
+
+                        if (availableSegment.get() == null)
+                            // Writing threads need another segment now.
+                            continue;
 
                         // Writing threads are not waiting for new segments, we can spend time on other tasks.
                         // flush old Cfs if we're full
@@ -121,8 +133,9 @@ public class CommitLogSegmentManager
                             flushDataFrom(segmentsToRecycle, false);
                         }
 
-                        // Make the next segment available and wait for it to be consumed
-                        availableSegment.put(nextSegment);
+                        do
+                            LockSupport.park();
+                        while (availableSegment.get() != null);
                     }
                     catch (Throwable t)
                     {
@@ -131,11 +144,18 @@ public class CommitLogSegmentManager
                             return;
                         // sleep some arbitrary period to avoid spamming CL
                         Uninterruptibles.sleepUninterruptibly(1, TimeUnit.SECONDS);
+
+                        // If we offered a segment, wait for it to be taken before reentering the loop.
+                        // There could be a new segment in next not offered, but only on failure to discard it while
+                        // shutting down-- nothing more can or needs to be done in that case.
+                        while (availableSegment.get() != null);
+                            LockSupport.park();
                     }
                 }
             }
         };
 
+        shutdown = false;
         managerThread = new Thread(runnable, "COMMIT-LOG-ALLOCATOR");
         managerThread.start();
     }
@@ -178,19 +198,38 @@ public class CommitLogSegmentManager
      */
     private void advanceAllocatingFrom(CommitLogSegment old)
     {
-        synchronized (this)
-        {
-            // do this in a critical section so we can atomically remove from availableSegments and add to allocatingFrom/activeSegments
-            // see https://issues.apache.org/jira/browse/CASSANDRA-6557?focusedCommentId=13874432&page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#comment-13874432
-            if (allocatingFrom != old)
-                return;
+        while (true) {
+            synchronized (this)
+            {
+                // do this in a critical section so we can atomically remove from availableSegments and add to allocatingFrom/activeSegments
+                // see https://issues.apache.org/jira/browse/CASSANDRA-6557?focusedCommentId=13874432&page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#comment-13874432
+                if (allocatingFrom != old)
+                    return;
 
-            // If a segment is ready, take it now, otherwise wait for the management thread to construct it.
-            CommitLogSegment next = Uninterruptibles.takeUninterruptibly(availableSegment);
+                // If a segment is ready, take it now, otherwise wait for the management thread to construct it.
+                CommitLogSegment next = availableSegment.getAndSet(null);
+                if (next != null)
+                {
+                    // Success! Change allocatingFrom and activeSegments (which must be kept in order) before leaving
+                    // the critical section.
+                    allocatingFrom = next;
+                    activeSegments.add(next);
+                    break;
+                }
+            }
 
-            allocatingFrom = next;
-            activeSegments.add(next);
+            do
+            {
+                WaitQueue.Signal prepared = segmentPrepared.register(commitLog.metrics.waitingOnSegmentAllocation.time());
+                if (availableSegment.get() == null)
+                    prepared.awaitUninterruptibly();
+                else
+                    prepared.cancel();
+            }
+            while (availableSegment.get() == null);
         }
+
+        LockSupport.unpark(managerThread);
 
         if (old != null)
         {
@@ -388,11 +427,15 @@ public class CommitLogSegmentManager
     /**
      * Initiates the shutdown process for the management thread.
      */
-    public synchronized void shutdown()
+    public void shutdown()
     {
         shutdown = true;
+
         // Release the management thread and delete prepared segment.
-        Uninterruptibles.takeUninterruptibly(availableSegment).discard(true);
+        CommitLogSegment next = availableSegment.getAndSet(null);
+        if (next != null)
+            next.discard(true);
+        LockSupport.unpark(managerThread);
     }
 
     /**

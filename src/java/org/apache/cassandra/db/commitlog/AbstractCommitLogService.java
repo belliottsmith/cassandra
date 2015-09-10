@@ -43,11 +43,11 @@ public abstract class AbstractCommitLogService
 
     // signal that writers can wait on to be notified of a completed sync
     protected final WaitQueue syncComplete = new WaitQueue();
-    protected final WaitQueue workPending = new WaitQueue();
+    protected final WaitQueue syncRequested = new WaitQueue();
 
     final CommitLog commitLog;
     private final String name;
-    private final long pollIntervalMillis;
+    private final long pollIntervalNanos;
 
     private static final Logger logger = LoggerFactory.getLogger(AbstractCommitLogService.class);
 
@@ -61,14 +61,15 @@ public abstract class AbstractCommitLogService
     {
         this.commitLog = commitLog;
         this.name = name;
-        this.pollIntervalMillis = pollIntervalMillis;
+        this.pollIntervalNanos = TimeUnit.NANOSECONDS.convert(pollIntervalMillis, TimeUnit.MILLISECONDS);
     }
 
     // Separated into individual method to ensure relevant objects are constructed before this is started.
     void start()
     {
-        if (pollIntervalMillis < 1)
-            throw new IllegalArgumentException(String.format("Commit log flush interval must be positive: %dms", pollIntervalMillis));
+        if (pollIntervalNanos < 1)
+            throw new IllegalArgumentException(String.format("Commit log flush interval must be positive: %fms",
+                                                             pollIntervalNanos * 1e-6));
 
         Runnable runnable = new Runnable()
         {
@@ -87,21 +88,21 @@ public abstract class AbstractCommitLogService
                     run = !shutdown;
 
                     // allow clients to request another sync while this one is being performed
-                    WaitQueue.Signal workPendingSignal = workPending.register();
+                    WaitQueue.Signal syncRequestedSignal = syncRequested.register();
 
                     try
                     {
                         // sync and signal
-                        long syncStarted = System.currentTimeMillis();
+                        long syncStarted = System.nanoTime();
                         commitLog.sync(shutdown);
                         lastSyncedAt = syncStarted;
                         syncComplete.signalAll();
 
 
                         // sleep any time we have left before the next one is due
-                        long now = System.currentTimeMillis();
-                        long sleep = syncStarted + pollIntervalMillis - now;
-                        if (sleep < 0)
+                        long now = System.nanoTime();
+                        long wakeUpAt = syncStarted + pollIntervalNanos;
+                        if (wakeUpAt < now)
                         {
                             // if we have lagged noticeably, update our lag counter
                             if (firstLagAt == 0)
@@ -109,7 +110,7 @@ public abstract class AbstractCommitLogService
                                 firstLagAt = now;
                                 totalSyncDuration = syncExceededIntervalBy = syncCount = lagCount = 0;
                             }
-                            syncExceededIntervalBy -= sleep;
+                            syncExceededIntervalBy += now - wakeUpAt;
                             lagCount++;
                         }
                         syncCount++;
@@ -118,26 +119,29 @@ public abstract class AbstractCommitLogService
                         if (firstLagAt > 0)
                         {
                             //Only reset the lag tracking if it actually logged this time
-                            boolean logged = NoSpamLogger.log(
-                                    logger,
-                                    NoSpamLogger.Level.WARN,
-                                    5,
-                                    TimeUnit.MINUTES,
-                                    "Out of {} commit log syncs over the past {}s with average duration of {}ms, {} have exceeded the configured commit interval by an average of {}ms",
-                                                      syncCount, (now - firstLagAt) / 1000, String.format("%.2f", (double) totalSyncDuration / syncCount), lagCount, String.format("%.2f", (double) syncExceededIntervalBy / lagCount));
+                            boolean logged = NoSpamLogger.log(logger,
+                                                              NoSpamLogger.Level.WARN,
+                                                              5,
+                                                              TimeUnit.MINUTES,
+                                                              "Out of {} commit log syncs over the past {}s with average duration of {}ms, {} have exceeded the configured commit interval by an average of {}ms",
+                                                              syncCount,
+                                                              String.format("%.2f", (now - firstLagAt) * 1e-9),
+                                                              String.format("%.2f", totalSyncDuration * 1e-6 / syncCount),
+                                                              lagCount,
+                                                              String.format("%.2f", syncExceededIntervalBy * 1e-6 / lagCount));
                            if (logged)
                                firstLagAt = 0;
                         }
 
                         if (!run)
                         {
-                            workPendingSignal.cancel();
+                            syncRequestedSignal.cancel();
                             break;
                         }
 
                         try
                         {
-                            workPendingSignal.awaitUntil(System.nanoTime() + TimeUnit.NANOSECONDS.convert(sleep, TimeUnit.MILLISECONDS));
+                            syncRequestedSignal.awaitUntil(wakeUpAt);
                         }
                         catch (InterruptedException e)
                         {
@@ -152,7 +156,7 @@ public abstract class AbstractCommitLogService
                         // sleep for full poll-interval after an error, so we don't spam the log file
                         try
                         {
-                            workPendingSignal.awaitUntil(System.nanoTime() + TimeUnit.NANOSECONDS.convert(pollIntervalMillis, TimeUnit.MILLISECONDS));
+                            syncRequestedSignal.awaitUntil(System.nanoTime() + pollIntervalNanos);
                         }
                         catch (InterruptedException e)
                         {
@@ -184,7 +188,7 @@ public abstract class AbstractCommitLogService
      */
     public void requestExtraSync()
     {
-        workPending.signal();
+        syncRequested.signal();
     }
 
     /**
@@ -216,7 +220,7 @@ public abstract class AbstractCommitLogService
     public void shutdown()
     {
         shutdown = true;
-        workPending.signalAll();
+        syncRequested.signalAll();
     }
 
     public void awaitTermination() throws InterruptedException
