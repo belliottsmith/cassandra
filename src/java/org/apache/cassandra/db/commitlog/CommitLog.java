@@ -157,7 +157,7 @@ public class CommitLog implements CommitLogMBean
             logger.info("Log replay complete, {} replayed mutations", replayed);
 
             for (File f : files)
-                allocator.recycleSegment(f);
+                allocator.discardSegment(f);
         }
 
         return replayed;
@@ -302,7 +302,7 @@ public class CommitLog implements CommitLogMBean
             if (segment.isUnused())
             {
                 logger.debug("Commit log segment {} is unused", segment);
-                allocator.recycleSegment(segment);
+                allocator.discardSegment(segment);
             }
             else
             {

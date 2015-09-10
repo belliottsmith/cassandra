@@ -21,11 +21,9 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -96,7 +94,6 @@ public class CommitLogSegmentManager
                         do
                         {
                             logger.debug("No segments in reserve; creating a fresh one");
-                            // TODO : some error handling in case we fail to create a new segment
                             nextSegment = CommitLogSegment.createSegment(commitLog);
                         }
                         while (availableSegment.offer(nextSegment));
@@ -113,7 +110,7 @@ public class CommitLogSegmentManager
                                 if (segment == allocatingFrom)
                                     break;
                                 segmentsToRecycle.add(segment);
-                                spaceToReclaim += DatabaseDescriptor.getCommitLogSegmentSize();
+                                spaceToReclaim += segment.onDiskSize();
                                 if (spaceToReclaim + unused >= 0)
                                     break;
                             }
@@ -194,7 +191,6 @@ public class CommitLogSegmentManager
                 return;
 
             // If a segment is ready, take it now, otherwise wait for the management thread to construct it.
-            // During initial startup this will effectively block all writes until replay is complete and the log is started.
             CommitLogSegment next = Uninterruptibles.takeUninterruptibly(availableSegment);
 
             allocatingFrom = next;
@@ -231,14 +227,7 @@ public class CommitLogSegmentManager
         last.waitForModifications();
 
         // make sure the writes have materialized inside of the memtables by waiting for all outstanding writes
-        // on the relevant keyspaces to complete
-        Set<Keyspace> keyspaces = new HashSet<>();
-        for (UUID cfId : last.getDirtyCFIDs())
-        {
-            ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreInstance(cfId);
-            if (cfs != null)
-                keyspaces.add(cfs.keyspace);
-        }
+        // to complete
         Keyspace.writeOrder.awaitNewBarrier();
 
         // flush and wait for all CFs that are dirty in segments up-to and including 'last'
@@ -256,7 +245,7 @@ public class CommitLogSegmentManager
             // necessarily dirty, and we only call dCS after a flush).
             for (CommitLogSegment segment : activeSegments)
                 if (segment.isUnused())
-                    recycleSegment(segment);
+                    discardSegment(segment);
 
             CommitLogSegment first;
             if ((first = activeSegments.peek()) != null && first.id <= last.id)
@@ -270,11 +259,11 @@ public class CommitLogSegmentManager
     }
 
     /**
-     * Indicates that a segment is no longer in use and that it should be recycled.
+     * Indicates that a segment is no longer in use and that it should be discarded.
      *
      * @param segment segment that is no longer in use
      */
-    void recycleSegment(final CommitLogSegment segment)
+    void discardSegment(final CommitLogSegment segment)
     {
         boolean archiveSuccess = commitLog.archiver.maybeWaitForArchiving(segment.getName());
         activeSegments.remove(segment);
@@ -284,12 +273,11 @@ public class CommitLogSegmentManager
     }
 
     /**
-     * Differs from the above because it can work on any file instead of just existing
-     * commit log segments managed by this manager.
+     * Discard a segment that was written in a previous commit log cycle and has now been replayed.
      *
      * @param file segment file that is no longer in use.
      */
-    void recycleSegment(final File file)
+    void discardSegment(final File file)
     {
         // (don't decrease managed size, since this was never a "live" segment)
         logger.debug("(Unopened) segment {} is no longer needed and will be deleted now", file);
@@ -422,11 +410,6 @@ public class CommitLogSegmentManager
             segment.close();
 
         CompressedSegment.shutdown();
-    }
-
-    boolean isStarted()
-    {
-        return managerThread != null;
     }
 
     /**
