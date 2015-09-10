@@ -73,6 +73,7 @@ public class CommitLogSegmentManager
 
     private Thread managerThread;
     private final CommitLog commitLog;
+    private volatile boolean shutdown = false;
 
     CommitLogSegmentManager(final CommitLog commitLog)
     {
@@ -90,9 +91,12 @@ public class CommitLogSegmentManager
                 {
                     try
                     {
-                        CommitLogSegment nextSegment;
+                        CommitLogSegment nextSegment = null;
                         do
                         {
+                            if (shutdown)
+                                return;
+
                             logger.debug("No segments in reserve; creating a fresh one");
                             nextSegment = CommitLogSegment.createSegment(commitLog);
                         }
@@ -118,16 +122,7 @@ public class CommitLogSegmentManager
                         }
 
                         // Make the next segment available and wait for it to be consumed
-                        try
-                        {
-                            availableSegment.put(nextSegment);
-                        }
-                        catch (InterruptedException e)
-                        {
-                            // Shutdown requested.
-                            nextSegment.discard(true);
-                            return;
-                        }
+                        availableSegment.put(nextSegment);
                     }
                     catch (Throwable t)
                     {
@@ -393,9 +388,11 @@ public class CommitLogSegmentManager
     /**
      * Initiates the shutdown process for the management thread.
      */
-    public void shutdown()
+    public synchronized void shutdown()
     {
-        managerThread.interrupt();
+        shutdown = true;
+        // Release the management thread and delete prepared segment.
+        Uninterruptibles.takeUninterruptibly(availableSegment).discard(true);
     }
 
     /**
