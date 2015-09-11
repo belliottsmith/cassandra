@@ -57,9 +57,9 @@ public class Memtable
 
     // the write barrier for directing writes to this memtable during a switch
     private volatile OpOrder.Barrier writeBarrier;
-    // the last ReplayPosition owned by this Memtable; all ReplayPositions lower are owned by this or an earlier Memtable
+    // the precise upper bound of ReplayPosition owned by this memtable
     private volatile AtomicReference<ReplayPosition> commitLogUpperBound;
-    // the "first" ReplayPosition owned by this Memtable; this is inaccurate, and only used as a convenience to prevent CLSM flushing wantonly
+    // the precise lower bound of ReplayPosition owned by this memtable; equal to its predecessor's commitLogUpperBound
     private AtomicReference<ReplayPosition> commitLogLowerBound;
     private final ReplayPosition approximateCommitLogLowerBound = CommitLog.instance.getContext();
 

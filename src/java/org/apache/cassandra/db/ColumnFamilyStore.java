@@ -1058,13 +1058,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 throw new IllegalStateException();
             }
 
-            // must check commitLogUpperBound != null because Flush may find that all memtables are clean
-            // and so not set a commitLogUpperBound
-            if (commitLogUpperBound != null)
-            {
-                CommitLog.instance.discardCompletedSegments(metadata.cfId, commitLogUpperBound);
-            }
-
+            CommitLog.instance.discardCompletedSegments(metadata.cfId, commitLogUpperBound);
             for (int i = 0 ; i < memtables.size() ; i++)
             {
                 Memtable memtable = memtables.get(i);
