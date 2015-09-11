@@ -19,9 +19,11 @@ package org.apache.cassandra.db.commitlog;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import com.codahale.metrics.Timer.Context;
 
 import org.apache.cassandra.db.commitlog.CommitLogSegment.Allocation;
@@ -43,7 +45,6 @@ public abstract class AbstractCommitLogService
 
     // signal that writers can wait on to be notified of a completed sync
     protected final WaitQueue syncComplete = new WaitQueue();
-    protected final WaitQueue syncRequested = new WaitQueue();
 
     final CommitLog commitLog;
     private final String name;
@@ -86,9 +87,6 @@ public abstract class AbstractCommitLogService
                 {
                     // always run once after shutdown signalled
                     run = !shutdown;
-
-                    // allow clients to request another sync while this one is being performed
-                    WaitQueue.Signal syncRequestedSignal = syncRequested.register();
 
                     try
                     {
@@ -134,19 +132,10 @@ public abstract class AbstractCommitLogService
                         }
 
                         if (!run)
-                        {
-                            syncRequestedSignal.cancel();
-                            break;
-                        }
+                            return;
 
-                        try
-                        {
-                            syncRequestedSignal.awaitUntil(wakeUpAt);
-                        }
-                        catch (InterruptedException e)
-                        {
-                            throw new AssertionError();
-                        }
+                        if (wakeUpAt > now)
+                            LockSupport.parkNanos(wakeUpAt - now);
                     }
                     catch (Throwable t)
                     {
@@ -154,14 +143,7 @@ public abstract class AbstractCommitLogService
                             break;
 
                         // sleep for full poll-interval after an error, so we don't spam the log file
-                        try
-                        {
-                            syncRequestedSignal.awaitUntil(System.nanoTime() + pollIntervalNanos);
-                        }
-                        catch (InterruptedException e)
-                        {
-                            throw new AssertionError();
-                        }
+                        LockSupport.parkNanos(pollIntervalNanos);
                     }
                 }
             }
@@ -188,7 +170,7 @@ public abstract class AbstractCommitLogService
      */
     public void requestExtraSync()
     {
-        syncRequested.signal();
+        LockSupport.unpark(thread);
     }
 
     /**
@@ -199,7 +181,7 @@ public abstract class AbstractCommitLogService
      */
     public void syncBlocking()
     {
-        long requestTime = System.currentTimeMillis();
+        long requestTime = System.nanoTime();
         requestExtraSync();
         awaitSyncAt(requestTime, null);
     }
@@ -220,7 +202,7 @@ public abstract class AbstractCommitLogService
     public void shutdown()
     {
         shutdown = true;
-        syncRequested.signalAll();
+        requestExtraSync();
     }
 
     public void awaitTermination() throws InterruptedException

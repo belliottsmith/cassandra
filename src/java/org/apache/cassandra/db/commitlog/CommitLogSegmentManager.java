@@ -27,7 +27,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
 import com.google.common.util.concurrent.*;
@@ -58,14 +57,24 @@ public class CommitLogSegmentManager
 
     /**
      * Segment that is ready to be used. The management thread fills this and blocks until consumed.
+     *
+     * A single management thread produces this, and consumers are already synchronizing to make sure other work is
+     * performed atomically with consuming this. Volatile to make sure writes by the management thread become
+     * visible (ordered/lazySet would suffice). Consumers (advanceAllocatingFrom and discardAvailableSegment) must
+     * synchronize on 'this'.
      */
-    private final AtomicReference<CommitLogSegment> availableSegment = new AtomicReference<>();
+    private volatile CommitLogSegment availableSegment = null;
+
     private final WaitQueue segmentPrepared = new WaitQueue();
 
     /** Active segments, containing unflushed data. The tail of this queue is the one we allocate writes to */
     private final ConcurrentLinkedQueue<CommitLogSegment> activeSegments = new ConcurrentLinkedQueue<>();
 
-    /** The segment we are currently allocating commit log records to */
+    /**
+     * The segment we are currently allocating commit log records to.
+     *
+     * Written by advanceAllocatingFrom which synchronizes on 'this'. Volatile to ensure reads get current value.
+     */
     private volatile CommitLogSegment allocatingFrom = null;
 
     /**
@@ -96,21 +105,21 @@ public class CommitLogSegmentManager
                 {
                     try
                     {
-                        assert availableSegment.get() == null;
+                        assert availableSegment == null;
                         logger.debug("No segments in reserve; creating a fresh one");
-                        availableSegment.lazySet(CommitLogSegment.createSegment(commitLog));
+                        availableSegment = CommitLogSegment.createSegment(commitLog);
                         if (shutdown)
                         {
-                            CommitLogSegment next = availableSegment.getAndSet(null);
-                            if (next != null)
-                                next.discard(true);
+                            // If shutdown() started and finished during segment creation, we are now left with a
+                            // segment that no one will consume. Discard it.
+                            discardAvailableSegment();
                             return;
                         }
 
                         segmentPrepared.signalAll();
                         Thread.yield();
 
-                        if (availableSegment.get() == null)
+                        if (availableSegment == null)
                             // Writing threads need another segment now.
                             continue;
 
@@ -135,7 +144,7 @@ public class CommitLogSegmentManager
 
                         do
                             LockSupport.park();
-                        while (availableSegment.get() != null);
+                        while (availableSegment != null);
                     }
                     catch (Throwable t)
                     {
@@ -148,7 +157,7 @@ public class CommitLogSegmentManager
                         // If we offered a segment, wait for it to be taken before reentering the loop.
                         // There could be a new segment in next not offered, but only on failure to discard it while
                         // shutting down-- nothing more can or needs to be done in that case.
-                        while (availableSegment.get() != null);
+                        while (availableSegment != null);
                             LockSupport.park();
                     }
                 }
@@ -207,13 +216,12 @@ public class CommitLogSegmentManager
                     return;
 
                 // If a segment is ready, take it now, otherwise wait for the management thread to construct it.
-                CommitLogSegment next = availableSegment.getAndSet(null);
-                if (next != null)
+                if (availableSegment != null)
                 {
                     // Success! Change allocatingFrom and activeSegments (which must be kept in order) before leaving
                     // the critical section.
-                    allocatingFrom = next;
-                    activeSegments.add(next);
+                    activeSegments.add(allocatingFrom = availableSegment);
+                    availableSegment = null;
                     break;
                 }
             }
@@ -221,12 +229,12 @@ public class CommitLogSegmentManager
             do
             {
                 WaitQueue.Signal prepared = segmentPrepared.register(commitLog.metrics.waitingOnSegmentAllocation.time());
-                if (availableSegment.get() == null)
+                if (availableSegment == null)
                     prepared.awaitUninterruptibly();
                 else
                     prepared.cancel();
             }
-            while (availableSegment.get() == null);
+            while (availableSegment == null);
         }
 
         LockSupport.unpark(managerThread);
@@ -432,10 +440,20 @@ public class CommitLogSegmentManager
         shutdown = true;
 
         // Release the management thread and delete prepared segment.
-        CommitLogSegment next = availableSegment.getAndSet(null);
+        // Do not block as another thread may claim the segment (this can happen during unit test initialization).
+        discardAvailableSegment();
+        LockSupport.unpark(managerThread);
+    }
+
+    private void discardAvailableSegment()
+    {
+        CommitLogSegment next = null;
+        synchronized (this) {
+            next = availableSegment;
+            availableSegment = null;
+        }
         if (next != null)
             next.discard(true);
-        LockSupport.unpark(managerThread);
     }
 
     /**
