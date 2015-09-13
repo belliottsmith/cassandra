@@ -127,7 +127,6 @@ public class IndexSummaryRedistribution extends CompactionInfo.Holder
         List<ResampleEntry> forceResample = new ArrayList<>();
         List<ResampleEntry> forceUpsample = new ArrayList<>();
         List<SSTableReader> newSSTables = new ArrayList<>(sstables.size());
-        List<SSTableReader> finished = new ArrayList<>();
 
         // Going from the coldest to the hottest sstables, try to give each sstable an amount of space proportional
         // to the number of total reads/sec it handles.
@@ -239,25 +238,17 @@ public class IndexSummaryRedistribution extends CompactionInfo.Holder
                              sstable, sstable.getIndexSummarySamplingLevel(), Downsampling.BASE_SAMPLING_LEVEL,
                              entry.newSamplingLevel, Downsampling.BASE_SAMPLING_LEVEL);
                 ColumnFamilyStore cfs = Keyspace.open(sstable.getKeyspaceName()).getColumnFamilyStore(sstable.getColumnFamilyName());
-                SSTableReader replacement = sstable.cloneWithNewSummarySamplingLevel(cfs, entry.newSamplingLevel);
-                finished.add(replacement);
                 DataTracker tracker = cfs.getDataTracker();
-
+                SSTableReader replacement = sstable.cloneWithNewSummarySamplingLevel(cfs, entry.newSamplingLevel);
+                newSSTables.add(replacement);
                 replacedByTracker.put(tracker, sstable);
                 replacementsByTracker.put(tracker, replacement);
             }
-            for (DataTracker tracker : replacedByTracker.keySet())
-            {
-                tracker.replaceWithNewInstances(replacedByTracker.get(tracker), replacementsByTracker.get(tracker));
-                newSSTables.addAll(replacementsByTracker.get(tracker));
-            }
         }
-        catch (CompactionInterruptedException cie)
+        finally
         {
             for (DataTracker tracker : replacedByTracker.keySet())
                 tracker.replaceWithNewInstances(replacedByTracker.get(tracker), replacementsByTracker.get(tracker));
-            
-            throw cie;
         }
 
         return newSSTables;
