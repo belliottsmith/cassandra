@@ -128,11 +128,6 @@ public abstract class CommitLogSegment
         return idBase + nextId.getAndIncrement();
     }
 
-    /**
-     * Constructs a new segment file.
-     *
-     * @param filePath  if not null, recycles the existing file by renaming it and truncating it to CommitLog.SEGMENT_SIZE.
-     */
     CommitLogSegment(CommitLog commitLog)
     {
         this.commitLog = commitLog;
@@ -142,8 +137,8 @@ public abstract class CommitLogSegment
 
         try
         {
-            channel = FileChannel.open(logFile.toPath(), StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE);
-            fd = CLibrary.getfd(channel);
+            channel = channel(logFile);
+            fd = fd(channel);
         }
         catch (IOException e)
         {
@@ -151,11 +146,26 @@ public abstract class CommitLogSegment
         }
 
         buffer = createBuffer(commitLog);
-        // write the header
-        CommitLogDescriptor.writeHeader(buffer, descriptor);
+        writeHeader(buffer, descriptor);
+
         endOfBuffer = buffer.capacity();
         lastSyncedOffset = buffer.position();
         allocatePosition.set(lastSyncedOffset + SYNC_MARKER_SIZE);
+    }
+
+    void writeHeader(ByteBuffer buffer, CommitLogDescriptor descriptor)
+    {
+        CommitLogDescriptor.writeHeader(buffer, descriptor);
+    }
+
+    FileChannel channel(File logFile) throws IOException
+    {
+        return FileChannel.open(logFile.toPath(), StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE);
+    }
+
+    int fd(FileChannel channel)
+    {
+        return CLibrary.getfd(channel);
     }
 
     abstract ByteBuffer createBuffer(CommitLog commitLog);
@@ -315,7 +325,6 @@ public abstract class CommitLogSegment
         close();
         if (deleteFile)
             FileUtils.deleteWithConfirm(logFile);
-        commitLog.allocator.addSize(-onDiskSize());
     }
 
     /**

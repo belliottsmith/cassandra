@@ -92,7 +92,7 @@ public abstract class AbstractCommitLogService
                     {
                         // sync and signal
                         long syncStarted = System.nanoTime();
-                        commitLog.sync(shutdown);
+                        commitLog.sync();
                         lastSyncedAt = syncStarted;
                         syncComplete.signalAll();
 
@@ -123,10 +123,10 @@ public abstract class AbstractCommitLogService
                                                               TimeUnit.MINUTES,
                                                               "Out of {} commit log syncs over the past {}s with average duration of {}ms, {} have exceeded the configured commit interval by an average of {}ms",
                                                               syncCount,
-                                                              String.format("%.2f", (now - firstLagAt) * 1e-9),
-                                                              String.format("%.2f", totalSyncDuration * 1e-6 / syncCount),
+                                                              String.format("%.2f", (now - firstLagAt) * 1e-9d),
+                                                              String.format("%.2f", totalSyncDuration * 1e-6d / syncCount),
                                                               lagCount,
-                                                              String.format("%.2f", syncExceededIntervalBy * 1e-6 / lagCount));
+                                                              String.format("%.2f", syncExceededIntervalBy * 1e-6d / lagCount));
                            if (logged)
                                firstLagAt = 0;
                         }
@@ -149,9 +149,14 @@ public abstract class AbstractCommitLogService
             }
         };
 
-        shutdown = false;
         thread = new Thread(runnable, name);
         thread.start();
+    }
+
+    void restart()
+    {
+        shutdown = false;
+        start();
     }
 
     /**

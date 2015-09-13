@@ -119,6 +119,13 @@ public class CommitLog implements CommitLogMBean
         return this;
     }
 
+    CommitLog restart()
+    {
+        allocator.restart();
+        executor.restart();
+        return this;
+    }
+
     /**
      * Perform recovery on commit logs located in the directory specified by the config file.
      *
@@ -126,11 +133,6 @@ public class CommitLog implements CommitLogMBean
      */
     public int recover() throws IOException
     {
-        // Allocator could be in the process of initial startup with 0 active and available segments. We need to wait for
-        // the allocation manager to finish allocation and add it to available segments so we don't get an invalid response
-        // on allocator.manages(...) below by grabbing a file off the filesystem before it's added to the CLQ.
-        allocator.allocatingFrom();
-
         FilenameFilter unmanagedFilesFilter = (dir, name) -> CommitLogDescriptor.isValid(name) && CommitLogSegment.shouldReplay(name);
 
         // submit all existing files in the commit log dir for archiving prior to recovery - CASSANDRA-6904
@@ -214,15 +216,10 @@ public class CommitLog implements CommitLogMBean
     /**
      * Forces a disk flush on the commit log files that need it.  Blocking.
      */
-    public void sync(boolean syncAllSegments)
+    public void sync()
     {
-        CommitLogSegment current = allocator.allocatingFrom();
-        for (CommitLogSegment segment : allocator.getActiveSegments())
-        {
-            if (!syncAllSegments && segment.id > current.id)
-                return;
+        for (CommitLogSegment segment : allocator.getActiveSegments(true))
             segment.sync();
-        }
     }
 
     /**
@@ -389,10 +386,10 @@ public class CommitLog implements CommitLogMBean
      */
     public void shutdownBlocking() throws InterruptedException
     {
-        executor.shutdown();
-        executor.awaitTermination();
         allocator.shutdown();
         allocator.awaitTermination();
+        executor.shutdown();
+        executor.awaitTermination();
     }
 
     /**
@@ -428,7 +425,7 @@ public class CommitLog implements CommitLogMBean
      */
     public int restartUnsafe() throws IOException
     {
-        return start().recover();
+        return restart().recover();
     }
 
     /**
