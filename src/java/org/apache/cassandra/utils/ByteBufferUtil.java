@@ -387,7 +387,7 @@ public class ByteBufferUtil
      * @return null
      * @throws IOException if an I/O error occurs.
      */
-    public static void skipShortLength(DataInput in) throws IOException
+    public static void skipShortLength(DataInputPlus in) throws IOException
     {
         int skip = readShortLength(in);
         FileUtils.skipBytesFully(in, skip);

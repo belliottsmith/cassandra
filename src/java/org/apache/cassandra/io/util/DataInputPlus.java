@@ -29,7 +29,6 @@ import org.apache.cassandra.utils.vint.VIntCoding;
  */
 public interface DataInputPlus extends DataInput
 {
-
     default long readVInt() throws IOException
     {
         return VIntCoding.readVInt(this);
