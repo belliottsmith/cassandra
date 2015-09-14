@@ -181,17 +181,23 @@ public class NIODataInputStream extends InputStream implements DataInput, Closea
     @Override
     public int skipBytes(int n) throws IOException
     {
-        int skipped = 0;
-
-        while (skipped < n)
+        if (n < 0)
+            return 0;
+        int requested = n;
+        int position = buf.position(), limit = buf.limit(), remaining;
+        while ((remaining = limit - position) < n)
         {
-            int skippedThisTime = (int)skip(n - skipped);
-            if (skippedThisTime <= 0) break;
-            skipped += skippedThisTime;
+            n -= remaining;
+            buf.position(limit);
+            if (readNext() == -1)
+                return requested - n;
+            position = buf.position();
+            limit = buf.limit();
         }
-
-        return skipped;
+        buf.position(position + n);
+        return requested;
     }
+
 
     @Override
     public boolean readBoolean() throws IOException
