@@ -166,9 +166,9 @@ public class Memtable
         return rows.isEmpty();
     }
 
-    public boolean isCleanAfter(ReplayPosition position)
+    public boolean mayContainDataSince(ReplayPosition position)
     {
-        return approximateCommitLogLowerBound.compareTo(position) >= 0;
+        return approximateCommitLogLowerBound.compareTo(position) < 0;
     }
 
     /**

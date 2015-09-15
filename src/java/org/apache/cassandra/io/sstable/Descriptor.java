@@ -53,7 +53,7 @@ public class Descriptor
         //             index summaries can be downsampled and the sampling level is persisted
         //             switch uncompressed checksums to adler32
         //             tracks presense of legacy (local and remote) counter shards
-        // kb (2.0.17): persist start/end commit log contexts for sstables,
+        // kb (2.1.10): persist start/end commit log contexts for sstables,
         //              to permit safe commit log record invalidation
 
         public static final Version CURRENT = new Version(current_version);

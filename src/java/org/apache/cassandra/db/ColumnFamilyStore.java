@@ -969,7 +969,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public ListenableFuture<ReplayPosition> forceFlush(ReplayPosition flushIfDirtyBefore)
     {
         Memtable current = data.getView().getCurrentMemtable();
-        if (current.isCleanAfter(flushIfDirtyBefore))
+        if (current.mayContainDataSince(flushIfDirtyBefore))
             return switchMemtableIfCurrent(current);
         return waitForFlushes();
     }
