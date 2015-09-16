@@ -35,7 +35,7 @@ public class RetryMessage extends StreamMessage
     {
         public RetryMessage deserialize(ReadableByteChannel in, int version, StreamSession session) throws IOException
         {
-            DataInputPlus input = new DataInputStreamPlus(Channels.newInputStream(in));
+            DataInputPlus input = new DataInputStreamPlus(Channels.newInputStream(in), 1);
             return new RetryMessage(UUIDSerializer.serializer.deserialize(input, MessagingService.current_version), input.readInt());
         }
 

@@ -21,6 +21,7 @@ import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 
 import org.apache.cassandra.utils.vint.VIntCoding;
 
@@ -50,11 +51,38 @@ public interface DataInputPlus extends DataInput
     /**
      * Wrapper around an InputStream that provides no buffering but can decode varints
      */
-    public class DataInputStreamPlus extends DataInputStream implements DataInputPlus
+    public class DataInputStreamPlus extends RebufferingInputStream
     {
-        public DataInputStreamPlus(InputStream is)
+        final InputStream in;
+        public DataInputStreamPlus(InputStream in, int bufferSize)
         {
-            super(is);
+            super(ByteBuffer.allocate(bufferSize));
+            buffer.limit(0);
+            this.in = in;
+        }
+
+        protected void reBuffer() throws IOException
+        {
+            buffer.clear();
+            int count = Math.min(in.available(), buffer.capacity());
+            if (count == 0)
+            {
+                int v = in.read();
+                if (v >= 0)
+                    buffer.put((byte) v);
+                buffer.flip();
+            }
+            else
+            {
+                int read = in.read(buffer.array(), 0, count);
+                assert read == count;
+                buffer.limit(read);
+            }
+        }
+
+        public int available() throws IOException
+        {
+            return buffer.remaining() + in.available();
         }
     }
 }

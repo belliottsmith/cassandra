@@ -66,8 +66,7 @@ public class BytesReadTrackerTest
             out.close();
         }
 
-        DataInputStream in = new DataInputStream(new ByteArrayInputStream(testData));
-        BytesReadTracker tracker = new BytesReadTracker(in);
+        BytesReadTracker tracker = new BytesReadTracker(new ByteArrayInputStream(testData), testData.length);
 
         try
         {
@@ -112,11 +111,8 @@ public class BytesReadTrackerTest
         }
         finally
         {
-            in.close();
+            tracker.close();
         }
-
-        tracker.reset(0);
-        assertEquals(0, tracker.getBytesRead());
     }
 
     @Test
@@ -139,8 +135,7 @@ public class BytesReadTrackerTest
             out.close();
         }
 
-        DataInputStream in = new DataInputStream(new ByteArrayInputStream(testData));
-        BytesReadTracker tracker = new BytesReadTracker(in);
+        BytesReadTracker tracker = new BytesReadTracker(new ByteArrayInputStream(testData), testData.length);
 
         try
         {
@@ -157,7 +152,7 @@ public class BytesReadTrackerTest
         }
         finally
         {
-            in.close();
+            tracker.close();
         }
     }
 
@@ -167,8 +162,7 @@ public class BytesReadTrackerTest
         String testStr = "1234567890";
         byte[] testData = testStr.getBytes();
 
-        DataInputStream in = new DataInputStream(new ByteArrayInputStream(testData));
-        BytesReadTracker tracker = new BytesReadTracker(in);
+        BytesReadTracker tracker = new BytesReadTracker(new ByteArrayInputStream(testData), testData.length);
 
         try
         {
@@ -192,15 +186,14 @@ public class BytesReadTrackerTest
         }
         finally
         {
-            in.close();
+            tracker.close();
         }
     }
 
     @Test(expected = UnsupportedOperationException.class)
     public void testReadLine() throws Exception
     {
-        DataInputStream in = new DataInputStream(new ByteArrayInputStream("1".getBytes()));
-        BytesReadTracker tracker = new BytesReadTracker(in);
+        BytesReadTracker tracker = new BytesReadTracker(new ByteArrayInputStream("1".getBytes()), 1);
 
         try
         {
@@ -209,7 +202,7 @@ public class BytesReadTrackerTest
         }
         finally
         {
-            in.close();
+            tracker.close();
         }
     }
 }

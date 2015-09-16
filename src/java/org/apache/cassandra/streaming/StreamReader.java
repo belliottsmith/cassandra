@@ -100,7 +100,7 @@ public class StreamReader
         SSTableMultiWriter writer = createWriter(cfs, totalSize, repairedAt, format);
 
         DataInputStream dis = new DataInputStream(new LZFInputStream(Channels.newInputStream(channel)));
-        BytesReadTracker in = new BytesReadTracker(dis);
+        BytesReadTracker in = new BytesReadTracker((InputStream) dis, totalSize);
         StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, header.toHeader(cfs.metadata));
         try
         {

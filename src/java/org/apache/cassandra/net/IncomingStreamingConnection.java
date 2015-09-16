@@ -58,7 +58,7 @@ public class IncomingStreamingConnection extends Thread implements Closeable
             if (version != StreamMessage.CURRENT_VERSION)
                 throw new IOException(String.format("Received stream using protocol version %d (my version %d). Terminating connection", version, MessagingService.current_version));
 
-            DataInputPlus input = new DataInputStreamPlus(socket.getInputStream());
+            DataInputPlus input = new DataInputStreamPlus(socket.getInputStream(), 8 << 10);
             StreamInitMessage init = StreamInitMessage.serializer.deserialize(input, version);
 
             // The initiator makes two connections, one for incoming and one for outgoing.

@@ -36,7 +36,7 @@ public class PrepareMessage extends StreamMessage
     {
         public PrepareMessage deserialize(ReadableByteChannel in, int version, StreamSession session) throws IOException
         {
-            DataInputPlus input = new DataInputStreamPlus(Channels.newInputStream(in));
+            DataInputPlus input = new DataInputStreamPlus(Channels.newInputStream(in), 1);
             PrepareMessage message = new PrepareMessage();
             // requests
             int numRequests = input.readInt();

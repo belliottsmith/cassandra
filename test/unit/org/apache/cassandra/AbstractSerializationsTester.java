@@ -72,7 +72,7 @@ public class AbstractSerializationsTester
     {
         File f = new File("test/data/serialization/" + version + '/' + name);
         assert f.exists() : f.getPath();
-        return new DataInputPlus.DataInputStreamPlus(new FileInputStream(f));
+        return new DataInputPlus.DataInputStreamPlus(new FileInputStream(f), 8 << 10);
     }
 
     @SuppressWarnings("resource")

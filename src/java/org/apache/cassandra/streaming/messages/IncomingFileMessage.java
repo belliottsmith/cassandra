@@ -40,7 +40,7 @@ public class IncomingFileMessage extends StreamMessage
         @SuppressWarnings("resource")
         public IncomingFileMessage deserialize(ReadableByteChannel in, int version, StreamSession session) throws IOException
         {
-            DataInputPlus input = new DataInputStreamPlus(Channels.newInputStream(in));
+            DataInputPlus input = new DataInputStreamPlus(Channels.newInputStream(in), 1);
             FileMessageHeader header = FileMessageHeader.serializer.deserialize(input, version);
             StreamReader reader = header.compressionInfo == null ? new StreamReader(header, session)
                     : new CompressedStreamReader(header, session);

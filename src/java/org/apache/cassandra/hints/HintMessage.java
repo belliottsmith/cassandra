@@ -19,6 +19,7 @@
 package org.apache.cassandra.hints;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -117,7 +118,9 @@ public final class HintMessage
             UUID hostId = UUIDSerializer.serializer.deserialize(in, version);
 
             long hintSize = in.readUnsignedVInt();
-            BytesReadTracker countingIn = new BytesReadTracker(in);
+            BytesReadTracker countingIn = in instanceof InputStream
+                                          ? new BytesReadTracker((InputStream) in, hintSize)
+                                          : new BytesReadTracker(in, hintSize);
             try
             {
                 return new HintMessage(hostId, Hint.serializer.deserialize(countingIn, version));

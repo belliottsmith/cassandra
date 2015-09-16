@@ -34,6 +34,7 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.io.compress.CompressionMetadata;
+import org.apache.cassandra.io.util.LengthAvailableInputStream;
 import org.apache.cassandra.streaming.ProgressInfo;
 import org.apache.cassandra.streaming.StreamReader;
 import org.apache.cassandra.streaming.StreamSession;
@@ -78,7 +79,7 @@ public class CompressedStreamReader extends StreamReader
         SSTableMultiWriter writer = createWriter(cfs, totalSize, repairedAt, format);
 
         CompressedInputStream cis = new CompressedInputStream(Channels.newInputStream(channel), compressionInfo, inputVersion.compressedChecksumType());
-        BytesReadTracker in = new BytesReadTracker(new DataInputStream(cis));
+        BytesReadTracker in = new BytesReadTracker(new LengthAvailableInputStream(cis, totalSize));
         StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, header.toHeader(cfs.metadata));
         try
         {
@@ -88,8 +89,7 @@ public class CompressedStreamReader extends StreamReader
                 int sectionLength = (int) (section.right - section.left);
 
                 // skip to beginning of section inside chunk
-                cis.position(section.left);
-                in.reset(0);
+                in.skipBytes((int) (section.left - cis.position()));
 
                 while (in.getBytesRead() < sectionLength)
                 {

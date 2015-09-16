@@ -281,4 +281,9 @@ public abstract class RebufferingInputStream extends InputStream implements Data
     {
         return false;
     }
+
+    public int available() throws IOException
+    {
+        return buffer.remaining();
+    }
 }
