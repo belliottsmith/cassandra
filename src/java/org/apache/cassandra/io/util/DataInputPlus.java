@@ -31,22 +31,8 @@ import org.apache.cassandra.utils.vint.VIntCoding;
 public interface DataInputPlus extends DataInput
 {
 
-    default long readVInt() throws IOException
-    {
-        return VIntCoding.readVInt(this);
-    }
-
-    /**
-     * Think hard before opting for an unsigned encoding. Is this going to bite someone because some day
-     * they might need to pass in a sentinel value using negative numbers? Is the risk worth it
-     * to save a few bytes?
-     *
-     * Signed, not a fan of unsigned values in protocols and formats
-     */
-    default long readUnsignedVInt() throws IOException
-    {
-        return VIntCoding.readUnsignedVInt(this);
-    }
+    long readVInt() throws IOException;
+    long readUnsignedVInt() throws IOException;
 
     /**
      * Wrapper around an InputStream that provides no buffering but can decode varints

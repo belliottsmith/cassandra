@@ -110,7 +110,7 @@ public abstract class RebufferingInputStream extends InputStream implements Data
     }
 
     @Override
-    public int skipBytes(int n) throws IOException
+    public final int skipBytes(int n) throws IOException
     {
         int skipped = 0;
 
@@ -125,13 +125,13 @@ public abstract class RebufferingInputStream extends InputStream implements Data
     }
 
     @Override
-    public boolean readBoolean() throws IOException
+    public final boolean readBoolean() throws IOException
     {
         return readByte() != 0;
     }
 
     @Override
-    public byte readByte() throws IOException
+    public final byte readByte() throws IOException
     {
         if (!buffer.hasRemaining())
         {
@@ -144,13 +144,13 @@ public abstract class RebufferingInputStream extends InputStream implements Data
     }
 
     @Override
-    public int readUnsignedByte() throws IOException
+    public final int readUnsignedByte() throws IOException
     {
         return readByte() & 0xff;
     }
 
     @Override
-    public short readShort() throws IOException
+    public final short readShort() throws IOException
     {
         if (buffer.remaining() >= 2)
             return buffer.getShort();
@@ -159,13 +159,13 @@ public abstract class RebufferingInputStream extends InputStream implements Data
     }
 
     @Override
-    public int readUnsignedShort() throws IOException
+    public final int readUnsignedShort() throws IOException
     {
         return readShort() & 0xFFFF;
     }
 
     @Override
-    public char readChar() throws IOException
+    public final char readChar() throws IOException
     {
         if (buffer.remaining() >= 2)
             return buffer.getChar();
@@ -174,7 +174,7 @@ public abstract class RebufferingInputStream extends InputStream implements Data
     }
 
     @Override
-    public int readInt() throws IOException
+    public final int readInt() throws IOException
     {
         if (buffer.remaining() >= 4)
             return buffer.getInt();
@@ -183,7 +183,7 @@ public abstract class RebufferingInputStream extends InputStream implements Data
     }
 
     @Override
-    public long readLong() throws IOException
+    public final long readLong() throws IOException
     {
         if (buffer.remaining() >= 8)
             return buffer.getLong();
@@ -191,12 +191,12 @@ public abstract class RebufferingInputStream extends InputStream implements Data
             return readPrimitiveSlowly(8);
     }
 
-    public long readVInt() throws IOException
+    public final long readVInt() throws IOException
     {
         return VIntCoding.decodeZigZag64(readUnsignedVInt());
     }
 
-    public long readUnsignedVInt() throws IOException
+    public final long readUnsignedVInt() throws IOException
     {
         //If 9 bytes aren't available use the slow path in VIntCoding
         if (buffer.remaining() < 9)
@@ -228,7 +228,7 @@ public abstract class RebufferingInputStream extends InputStream implements Data
     }
 
     @Override
-    public float readFloat() throws IOException
+    public final float readFloat() throws IOException
     {
         if (buffer.remaining() >= 4)
             return buffer.getFloat();
@@ -237,7 +237,7 @@ public abstract class RebufferingInputStream extends InputStream implements Data
     }
 
     @Override
-    public double readDouble() throws IOException
+    public final double readDouble() throws IOException
     {
         if (buffer.remaining() >= 8)
             return buffer.getDouble();
@@ -246,19 +246,19 @@ public abstract class RebufferingInputStream extends InputStream implements Data
     }
 
     @Override
-    public String readLine() throws IOException
+    public final String readLine() throws IOException
     {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public String readUTF() throws IOException
+    public final String readUTF() throws IOException
     {
         return DataInputStream.readUTF(this);
     }
 
     @Override
-    public int read() throws IOException
+    public final int read() throws IOException
     {
         try
         {
