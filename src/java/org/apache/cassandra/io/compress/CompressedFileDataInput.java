@@ -33,7 +33,7 @@ import org.apache.cassandra.utils.memory.BufferPool;
  * CRAR extends RAR to transparently uncompress blocks from the file into RAR.buffer.  Most of the RAR
  * "read bytes from the buffer, rebuffering when necessary" machinery works unchanged after that.
  */
-public class CompressedRandomAccessReader extends RandomAccessReader
+public class CompressedFileDataInput extends FileDataInput
 {
     private final CompressionMetadata metadata;
 
@@ -46,7 +46,7 @@ public class CompressedRandomAccessReader extends RandomAccessReader
     // raw checksum bytes
     private ByteBuffer checksumBytes;
 
-    protected CompressedRandomAccessReader(Builder builder)
+    protected CompressedFileDataInput(Builder builder)
     {
         super(builder);
         this.metadata = builder.metadata;
@@ -233,7 +233,7 @@ public class CompressedRandomAccessReader extends RandomAccessReader
         return String.format("%s - chunk length %d, data length %d.", getPath(), metadata.chunkLength(), metadata.dataLength);
     }
 
-    public final static class Builder extends RandomAccessReader.Builder
+    public final static class Builder extends FileDataInput.Builder
     {
         private final CompressionMetadata metadata;
 
@@ -270,9 +270,9 @@ public class CompressedRandomAccessReader extends RandomAccessReader
         }
 
         @Override
-        public RandomAccessReader build()
+        public FileDataInput build()
         {
-            return new CompressedRandomAccessReader(this);
+            return new CompressedFileDataInput(this);
         }
     }
 }

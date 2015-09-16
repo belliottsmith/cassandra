@@ -47,15 +47,9 @@ import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.io.util.FileSegmentInputStream;
-import org.apache.cassandra.io.util.RebufferingInputStream;
+import org.apache.cassandra.io.util.*;
 import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.io.compress.ICompressor;
-import org.apache.cassandra.io.util.ChannelProxy;
-import org.apache.cassandra.io.util.DataInputBuffer;
-import org.apache.cassandra.io.util.FileDataInput;
-import org.apache.cassandra.io.util.NIODataInputStream;
-import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.WrappedRunnable;
@@ -179,7 +173,7 @@ public class CommitLogReplayer
         return replayedCount.get();
     }
 
-    private int readSyncMarker(CommitLogDescriptor descriptor, int offset, RandomAccessReader reader, boolean tolerateTruncation) throws IOException
+    private int readSyncMarker(CommitLogDescriptor descriptor, int offset, FileDataInput reader, boolean tolerateTruncation) throws IOException
     {
         if (offset > reader.length() - CommitLogSegment.SYNC_MARKER_SIZE)
         {
@@ -292,7 +286,7 @@ public class CommitLogReplayer
     {
         CommitLogDescriptor desc = CommitLogDescriptor.fromFileName(file.getName());
         try(ChannelProxy channel = new ChannelProxy(file);
-            RandomAccessReader reader = RandomAccessReader.open(channel))
+            FileDataInput reader = FileDataInput.open(channel))
         {
             if (desc.version < CommitLogDescriptor.VERSION_21)
             {
@@ -364,7 +358,7 @@ public class CommitLogReplayer
                     // Skip over flushed section.
                     continue;
 
-                FileDataInput sectionReader = reader;
+                SeekableDataInput sectionReader = reader;
                 String errorContext = desc.fileName();
                 // In the uncompressed case the last non-fully-flushed section can be anywhere in the file.
                 boolean tolerateErrorsInSection = tolerateTruncation;
@@ -389,7 +383,7 @@ public class CommitLogReplayer
                         if (uncompressedLength > uncompressedBuffer.length)
                             uncompressedBuffer = new byte[(int) (1.2 * uncompressedLength)];
                         compressedLength = compressor.uncompress(buffer, 0, compressedLength, uncompressedBuffer, 0);
-                        sectionReader = new FileSegmentInputStream(ByteBuffer.wrap(uncompressedBuffer), reader.getPath(), replayPos);
+                        sectionReader = new OffsetDataInput(ByteBuffer.wrap(uncompressedBuffer), replayPos);
                         errorContext = "compressed section at " + start + " in " + errorContext;
                     }
                     catch (IOException | ArrayIndexOutOfBoundsException e)
@@ -429,7 +423,7 @@ public class CommitLogReplayer
      *
      * @return Whether replay should continue with the next section.
      */
-    private boolean replaySyncSection(FileDataInput reader, int end, CommitLogDescriptor desc, String errorContext, boolean tolerateErrors) throws IOException
+    private boolean replaySyncSection(SeekableDataInput reader, int end, CommitLogDescriptor desc, String errorContext, boolean tolerateErrors) throws IOException
     {
          /* read the logs populate Mutation and apply */
         while (reader.getFilePointer() < end && !reader.isEOF())
@@ -519,7 +513,7 @@ public class CommitLogReplayer
     {
 
         final Mutation mutation;
-        try (RebufferingInputStream bufIn = new DataInputBuffer(inputBuffer, 0, size))
+        try (DataInputPlus bufIn = new DataInputBuffer(inputBuffer, 0, size))
         {
             mutation = Mutation.serializer.deserialize(bufIn,
                                                        desc.getMessagingVersion(),

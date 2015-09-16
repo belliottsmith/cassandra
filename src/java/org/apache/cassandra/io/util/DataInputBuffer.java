@@ -23,7 +23,7 @@ import java.nio.ByteBuffer;
 /**
  * Input stream around a single ByteBuffer.
  */
-public class DataInputBuffer extends RebufferingInputStream
+public class DataInputBuffer extends SeekableDataInput
 {
     private static ByteBuffer slice(byte[] buffer, int offset, int length)
     {
@@ -66,5 +66,22 @@ public class DataInputBuffer extends RebufferingInputStream
     public int available() throws IOException
     {
         return buffer.remaining();
+    }
+
+    public boolean isEOF() throws IOException
+    {
+        return !buffer.hasRemaining();
+    }
+
+    public void seek(long pos) throws IOException
+    {
+        // note: assumes no buffer is passed in at a position != 0
+        if (pos < 0 || pos >= buffer.limit())
+            throw new IndexOutOfBoundsException();
+    }
+
+    public long getFilePointer()
+    {
+        return buffer.position();
     }
 }

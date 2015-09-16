@@ -50,17 +50,17 @@ public class MmappedSegmentedFile extends SegmentedFile
         return new MmappedSegmentedFile(this);
     }
 
-    public RandomAccessReader createReader()
+    public FileDataInput createReader()
     {
-        return new RandomAccessReader.Builder(channel)
+        return new FileDataInput.Builder(channel)
                .overrideLength(length)
                .regions(regions)
                .build();
     }
 
-    public RandomAccessReader createReader(RateLimiter limiter)
+    public FileDataInput createReader(RateLimiter limiter)
     {
-        return new RandomAccessReader.Builder(channel)
+        return new FileDataInput.Builder(channel)
                .overrideLength(length)
                .bufferSize(bufferSize)
                .regions(regions)

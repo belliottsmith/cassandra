@@ -27,7 +27,7 @@ import com.google.common.primitives.Ints;
 
 import org.apache.cassandra.utils.memory.MemoryUtil;
 
-public class MemoryInputStream extends RebufferingInputStream implements DataInput
+public class MemoryInputStream extends DataInputPlus implements DataInput
 {
     private final Memory mem;
     private final int bufferSize;

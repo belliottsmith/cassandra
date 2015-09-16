@@ -31,9 +31,8 @@ import static org.junit.Assert.*;
 import org.junit.Assert;
 import org.junit.Test;
 
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.memory.BufferPool;
 
 public class CompressorTest
 {
@@ -195,7 +194,7 @@ public class CompressorTest
     {
         try
         {
-            int n = RandomAccessReader.DEFAULT_BUFFER_SIZE;
+            int n = FileDataInput.DEFAULT_BUFFER_SIZE;
             byte[] srcData = new byte[n];
             new Random().nextBytes(srcData);
 

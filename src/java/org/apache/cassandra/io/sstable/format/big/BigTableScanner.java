@@ -40,7 +40,7 @@ import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.SSTableIdentityIterator;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 
@@ -51,8 +51,8 @@ import static org.apache.cassandra.dht.AbstractBounds.minRight;
 public class BigTableScanner implements ISSTableScanner
 {
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
-    protected final RandomAccessReader dfile;
-    protected final RandomAccessReader ifile;
+    protected final FileDataInput dfile;
+    protected final FileDataInput ifile;
     public final SSTableReader sstable;
 
     private final Iterator<AbstractBounds<PartitionPosition>> rangeIterator;

@@ -35,11 +35,11 @@ import net.jpountz.lz4.LZ4Factory;
 import net.jpountz.xxhash.XXHashFactory;
 
 import org.apache.cassandra.config.Config;
+import org.apache.cassandra.io.util.DataInputStreamPlus;
 import org.xerial.snappy.SnappyInputStream;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.UnknownColumnFamilyException;
 import org.apache.cassandra.io.util.DataInputPlus;
-import org.apache.cassandra.io.util.DataInputPlus.DataInputStreamPlus;
 import org.apache.cassandra.io.util.NIODataInputStream;
 
 public class IncomingTcpConnection extends Thread implements Closeable
@@ -138,7 +138,7 @@ public class IncomingTcpConnection extends Thread implements Closeable
         // to connect with, the other node will disconnect
         out.writeInt(MessagingService.current_version);
         out.flush();
-        DataInputPlus in = new DataInputStreamPlus(socket.getInputStream());
+        DataInputPlus in = new DataInputStreamPlus(socket.getInputStream(), 8 << 10);
         int maxVersion = in.readInt();
         // outbound side will reconnect if necessary to upgrade version
         assert version <= MessagingService.current_version;
@@ -152,7 +152,7 @@ public class IncomingTcpConnection extends Thread implements Closeable
             logger.debug("Upgrading incoming connection to be compressed");
             if (version < MessagingService.VERSION_21)
             {
-                in = new DataInputStreamPlus(new SnappyInputStream(socket.getInputStream()));
+                in = new DataInputStreamPlus(new SnappyInputStream(socket.getInputStream()), 8 << 10);
             }
             else
             {
@@ -160,7 +160,7 @@ public class IncomingTcpConnection extends Thread implements Closeable
                 Checksum checksum = XXHashFactory.fastestInstance().newStreamingHash32(OutboundTcpConnection.LZ4_HASH_SEED).asChecksum();
                 in = new DataInputStreamPlus(new LZ4BlockInputStream(socket.getInputStream(),
                                                                  decompressor,
-                                                                 checksum));
+                                                                 checksum), 8 << 10);
             }
         }
         else

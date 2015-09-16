@@ -27,7 +27,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.RowIndexEntry;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.io.util.DataInputPlus;
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CloseableIterator;
 
@@ -36,7 +36,7 @@ public class KeyIterator extends AbstractIterator<DecoratedKey> implements Close
     private final static class In
     {
         private final File path;
-        private RandomAccessReader in;
+        private FileDataInput in;
 
         public In(File path)
         {
@@ -46,7 +46,7 @@ public class KeyIterator extends AbstractIterator<DecoratedKey> implements Close
         private void maybeInit()
         {
             if (in == null)
-                in = RandomAccessReader.open(path);
+                in = FileDataInput.open(path);
         }
 
         public DataInputPlus get()

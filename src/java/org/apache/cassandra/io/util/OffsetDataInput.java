@@ -24,21 +24,14 @@ import java.nio.ByteBuffer;
  * This is the same as DataInputBuffer, i.e. a stream for a fixed byte buffer,
  * except that we also implement FileDataInput by using an offset and a file path.
  */
-public class FileSegmentInputStream extends DataInputBuffer implements FileDataInput
+public class OffsetDataInput extends DataInputBuffer
 {
-    private final String filePath;
     private final long offset;
 
-    public FileSegmentInputStream(ByteBuffer buffer, String filePath, long offset)
+    public OffsetDataInput(ByteBuffer buffer, long offset)
     {
         super(buffer, false);
-        this.filePath = filePath;
         this.offset = offset;
-    }
-
-    public String getPath()
-    {
-        return filePath;
     }
 
     private long size()
@@ -46,47 +39,11 @@ public class FileSegmentInputStream extends DataInputBuffer implements FileDataI
         return offset + buffer.capacity();
     }
 
-    public boolean isEOF()
-    {
-        return !buffer.hasRemaining();
-    }
-
-    public long bytesRemaining()
-    {
-        return buffer.remaining();
-    }
-
     public void seek(long pos)
     {
-        if (pos < 0 || pos > size())
-            throw new IllegalArgumentException(String.format("Unable to seek to position %d in %s (%d bytes) in partial mode",
-                                                             pos,
-                                                             getPath(),
-                                                             size()));
-
-
+        if (pos < offset || pos > offset + size())
+            throw new IndexOutOfBoundsException();
         buffer.position((int) (pos - offset));
-    }
-
-    @Override
-    public boolean markSupported()
-    {
-        return false;
-    }
-
-    public FileMark mark()
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    public void reset(FileMark mark)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    public long bytesPastMark(FileMark mark)
-    {
-        return 0;
     }
 
     public long getFilePointer()

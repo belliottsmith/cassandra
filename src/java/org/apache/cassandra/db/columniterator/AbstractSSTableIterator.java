@@ -117,16 +117,7 @@ abstract class AbstractSSTableIterator implements SliceableUnfilteredRowIterator
                 sstable.markSuspect();
                 String filePath = file.getPath();
                 if (shouldCloseFile)
-                {
-                    try
-                    {
-                        file.close();
-                    }
-                    catch (IOException suppressed)
-                    {
-                        e.addSuppressed(suppressed);
-                    }
-                }
+                    file.close();
                 throw new CorruptSSTableException(e, filePath);
             }
         }

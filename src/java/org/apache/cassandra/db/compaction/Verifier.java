@@ -29,10 +29,9 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataIntegrityMetadata;
 import org.apache.cassandra.io.util.DataIntegrityMetadata.FileDigestValidator;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.OutputHandler;
 import org.apache.cassandra.utils.UUIDGen;
 
@@ -51,8 +50,8 @@ public class Verifier implements Closeable
     private final CompactionController controller;
 
 
-    private final RandomAccessReader dataFile;
-    private final RandomAccessReader indexFile;
+    private final FileDataInput dataFile;
+    private final FileDataInput indexFile;
     private final VerifyInfo verifyInfo;
     private final RowIndexEntry.IndexSerializer rowIndexEntrySerializer;
 
@@ -79,7 +78,7 @@ public class Verifier implements Closeable
         this.dataFile = isOffline
                         ? sstable.openDataReader()
                         : sstable.openDataReader(CompactionManager.instance.getRateLimiter());
-        this.indexFile = RandomAccessReader.open(new File(sstable.descriptor.filenameFor(Component.PRIMARY_INDEX)));
+        this.indexFile = FileDataInput.open(new File(sstable.descriptor.filenameFor(Component.PRIMARY_INDEX)));
         this.verifyInfo = new VerifyInfo(dataFile, sstable);
     }
 
@@ -245,11 +244,11 @@ public class Verifier implements Closeable
 
     private static class VerifyInfo extends CompactionInfo.Holder
     {
-        private final RandomAccessReader dataFile;
+        private final FileDataInput dataFile;
         private final SSTableReader sstable;
         private final UUID verificationCompactionId;
 
-        public VerifyInfo(RandomAccessReader dataFile, SSTableReader sstable)
+        public VerifyInfo(FileDataInput dataFile, SSTableReader sstable)
         {
             this.dataFile = dataFile;
             this.sstable = sstable;

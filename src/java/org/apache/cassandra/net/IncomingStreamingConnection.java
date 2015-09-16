@@ -25,7 +25,7 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.cassandra.io.util.DataInputPlus;
-import org.apache.cassandra.io.util.DataInputPlus.DataInputStreamPlus;
+import org.apache.cassandra.io.util.DataInputStreamPlus;
 import org.apache.cassandra.streaming.StreamResultFuture;
 import org.apache.cassandra.streaming.messages.StreamInitMessage;
 import org.apache.cassandra.streaming.messages.StreamMessage;
@@ -58,7 +58,7 @@ public class IncomingStreamingConnection extends Thread implements Closeable
             if (version != StreamMessage.CURRENT_VERSION)
                 throw new IOException(String.format("Received stream using protocol version %d (my version %d). Terminating connection", version, MessagingService.current_version));
 
-            DataInputPlus input = new DataInputStreamPlus(socket.getInputStream());
+            DataInputPlus input = new DataInputStreamPlus(socket.getInputStream(), 8 << 10);
             StreamInitMessage init = StreamInitMessage.serializer.deserialize(input, version);
 
             // The initiator makes two connections, one for incoming and one for outgoing.

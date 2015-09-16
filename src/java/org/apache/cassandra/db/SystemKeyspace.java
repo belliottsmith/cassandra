@@ -676,7 +676,7 @@ public final class SystemKeyspace
     {
         try
         {
-            RebufferingInputStream in = new DataInputBuffer(bytes, true);
+            DataInputPlus in = new DataInputBuffer(bytes, true);
             return Pair.create(ReplayPosition.serializer.deserialize(in), in.available() > 0 ? in.readLong() : Long.MIN_VALUE);
         }
         catch (IOException e)

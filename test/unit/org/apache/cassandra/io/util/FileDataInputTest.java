@@ -26,9 +26,9 @@ import static org.junit.Assert.*;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-public class RandomAccessReaderTest
+public class FileDataInputTest
 {
-    private static final Logger logger = LoggerFactory.getLogger(RandomAccessReaderTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(FileDataInputTest.class);
 
     private static final class Parameters
     {
@@ -119,11 +119,11 @@ public class RandomAccessReaderTest
 
         try(ChannelProxy channel = new ChannelProxy("abc", new FakeFileChannel(SIZE)))
         {
-            RandomAccessReader.Builder builder = new RandomAccessReader.Builder(channel)
+            FileDataInput.Builder builder = new FileDataInput.Builder(channel)
                                                  .bufferType(params.bufferType)
                                                  .bufferSize(params.bufferSize);
 
-            try(RandomAccessReader reader = builder.build())
+            try(FileDataInput reader = builder.build())
             {
                 assertEquals(channel.size(), reader.length());
                 assertEquals(channel.size(), reader.bytesRemaining());
@@ -270,13 +270,13 @@ public class RandomAccessReaderTest
         final File f = writeFile(params);
         try(ChannelProxy channel = new ChannelProxy(f))
         {
-            RandomAccessReader.Builder builder = new RandomAccessReader.Builder(channel)
+            FileDataInput.Builder builder = new FileDataInput.Builder(channel)
                                                  .bufferType(params.bufferType)
                                                  .bufferSize(params.bufferSize);
             if (params.mmappedRegions)
                 builder.regions(MmappedRegions.map(channel, f.length()));
 
-            try(RandomAccessReader reader = builder.build())
+            try(FileDataInput reader = builder.build())
             {
                 assertEquals(f.getAbsolutePath(), reader.getPath());
                 assertEquals(f.length(), reader.length());
@@ -316,7 +316,7 @@ public class RandomAccessReaderTest
         assert f.exists();
 
         try(ChannelProxy channel = new ChannelProxy(f);
-            RandomAccessReader reader = new RandomAccessReader.Builder(channel).build())
+            FileDataInput reader = new FileDataInput.Builder(channel).build())
         {
             assertEquals(f.getAbsolutePath(), reader.getPath());
             assertEquals(expected.length(), reader.length());
@@ -346,7 +346,7 @@ public class RandomAccessReaderTest
         assert f.exists();
 
         try(ChannelProxy channel = new ChannelProxy(f);
-        RandomAccessReader reader = new RandomAccessReader.Builder(channel).build())
+        FileDataInput reader = new FileDataInput.Builder(channel).build())
         {
             assertEquals(expected.length() * numIterations, reader.length());
 
@@ -428,7 +428,7 @@ public class RandomAccessReaderTest
         {
             final Runnable worker = () ->
             {
-                try(RandomAccessReader reader = new RandomAccessReader.Builder(channel).build())
+                try(FileDataInput reader = new FileDataInput.Builder(channel).build())
                 {
                     assertEquals(expected.length, reader.length());
 

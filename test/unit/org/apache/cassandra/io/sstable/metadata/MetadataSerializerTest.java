@@ -37,7 +37,7 @@ import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.big.BigFormat;
 import org.apache.cassandra.io.util.BufferedDataOutputStreamPlus;
 import org.apache.cassandra.io.util.DataOutputStreamPlus;
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 
 import static org.junit.Assert.assertEquals;
 
@@ -66,7 +66,7 @@ public class MetadataSerializerTest
         }
 
         Descriptor desc = new Descriptor( statsFile.getParentFile(), "", "", 0);
-        try (RandomAccessReader in = RandomAccessReader.open(statsFile))
+        try (FileDataInput in = FileDataInput.open(statsFile))
         {
             Map<MetadataType, MetadataComponent> deserialized = serializer.deserialize(desc, in, EnumSet.allOf(MetadataType.class));
 

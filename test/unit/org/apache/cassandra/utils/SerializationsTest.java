@@ -28,7 +28,7 @@ import org.apache.cassandra.AbstractSerializationsTester;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.marshal.Int32Type;
-import org.apache.cassandra.io.util.DataInputPlus.DataInputStreamPlus;
+import org.apache.cassandra.io.util.DataInputStreamPlus;
 import org.apache.cassandra.io.util.DataOutputStreamPlus;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -74,7 +74,7 @@ public class SerializationsTest extends AbstractSerializationsTester
             testBloomFilterWrite1000(true, true);
         }
 
-        try (DataInputStream in = getInput("3.0", "utils.BloomFilter1000.bin");
+        try (DataInputStreamPlus in = getInput("3.0", "utils.BloomFilter1000.bin");
              IFilter filter = FilterFactory.deserialize(in, true, false))
         {
             boolean present;
@@ -90,7 +90,7 @@ public class SerializationsTest extends AbstractSerializationsTester
             }
         }
 
-        try (DataInputStream in = getInput("2.1", "utils.BloomFilter1000.bin");
+        try (DataInputStreamPlus in = getInput("2.1", "utils.BloomFilter1000.bin");
              IFilter filter = FilterFactory.deserialize(in, true, true))
         {
             boolean present;
@@ -109,7 +109,7 @@ public class SerializationsTest extends AbstractSerializationsTester
         // eh - reading version version 'ka' (2.1) with 3.0 BloomFilter
         int falsePositive = 0;
         int falseNegative = 0;
-        try (DataInputStream in = getInput("2.1", "utils.BloomFilter1000.bin");
+        try (DataInputStreamPlus in = getInput("2.1", "utils.BloomFilter1000.bin");
              IFilter filter = FilterFactory.deserialize(in, true, false))
         {
             boolean present;
@@ -171,7 +171,7 @@ public class SerializationsTest extends AbstractSerializationsTester
         if (EXECUTE_WRITES)
             testBloomFilterWrite(true, true);
 
-        try (DataInputStream in = getInput("3.0", "utils.BloomFilter.bin");
+        try (DataInputStreamPlus in = getInput("3.0", "utils.BloomFilter.bin");
              IFilter filter = FilterFactory.deserialize(in, true, true))
         {
             Assert.assertNotNull(filter);
@@ -184,7 +184,7 @@ public class SerializationsTest extends AbstractSerializationsTester
         if (EXECUTE_WRITES)
             testBloomFilterWrite(true, false);
 
-        try (DataInputStream in = getInput("2.1", "utils.BloomFilter.bin");
+        try (DataInputStreamPlus in = getInput("2.1", "utils.BloomFilter.bin");
              IFilter filter = FilterFactory.deserialize(in, true, false))
         {
             Assert.assertNotNull(filter);

@@ -27,12 +27,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
-import org.apache.cassandra.io.util.ChecksummedRandomAccessReader;
-import org.apache.cassandra.io.util.ChecksummedSequentialWriter;
-import org.apache.cassandra.io.util.RandomAccessReader;
-import org.apache.cassandra.io.util.SequentialWriter;
 
-public class ChecksummedRandomAccessReaderTest
+public class ChecksummedFileDataInputTest
 {
     @Test
     public void readFully() throws IOException
@@ -49,7 +45,7 @@ public class ChecksummedRandomAccessReaderTest
 
         assert data.exists();
 
-        RandomAccessReader reader = new ChecksummedRandomAccessReader.Builder(data, crc).build();
+        FileDataInput reader = new ChecksummedFileDataInput.Builder(data, crc).build();
         byte[] b = new byte[expected.length];
         reader.readFully(b);
 
@@ -75,7 +71,7 @@ public class ChecksummedRandomAccessReaderTest
 
         assert data.exists();
 
-        RandomAccessReader reader = new ChecksummedRandomAccessReader.Builder(data, crc).build();
+        FileDataInput reader = new ChecksummedFileDataInput.Builder(data, crc).build();
 
         final int seekPosition = 66000;
         reader.seek(seekPosition);
@@ -92,7 +88,7 @@ public class ChecksummedRandomAccessReaderTest
         reader.close();
     }
 
-    @Test(expected = ChecksummedRandomAccessReader.CorruptFileException.class)
+    @Test(expected = ChecksummedFileDataInput.CorruptFileException.class)
     public void corruptionDetection() throws IOException
     {
         final File data = File.createTempFile("corruptionDetection", "data");
@@ -114,7 +110,7 @@ public class ChecksummedRandomAccessReaderTest
             dataFile.write((byte) 5);
         }
 
-        RandomAccessReader reader = new ChecksummedRandomAccessReader.Builder(data, crc).build();
+        FileDataInput reader = new ChecksummedFileDataInput.Builder(data, crc).build();
         byte[] b = new byte[expected.length];
         reader.readFully(b);
 

@@ -24,7 +24,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.io.compress.CompressedRandomAccessReader;
+import org.apache.cassandra.io.compress.CompressedFileDataInput;
 import org.apache.cassandra.io.compress.CompressedSequentialWriter;
 import org.apache.cassandra.io.compress.CompressionMetadata;
 import org.apache.cassandra.utils.JVMStabilityInspector;
@@ -140,14 +140,14 @@ public class CompressedSegmentedFile extends SegmentedFile implements ICompresse
         super.dropPageCache(metadata.chunkFor(before).offset);
     }
 
-    public RandomAccessReader createReader()
+    public FileDataInput createReader()
     {
-        return new CompressedRandomAccessReader.Builder(this).build();
+        return new CompressedFileDataInput.Builder(this).build();
     }
 
-    public RandomAccessReader createReader(RateLimiter limiter)
+    public FileDataInput createReader(RateLimiter limiter)
     {
-        return new CompressedRandomAccessReader.Builder(this).limiter(limiter).build();
+        return new CompressedFileDataInput.Builder(this).limiter(limiter).build();
     }
 
     public CompressionMetadata getMetadata()

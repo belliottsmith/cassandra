@@ -46,18 +46,18 @@ public class DataIntegrityMetadata
     public static class ChecksumValidator implements Closeable
     {
         private final Checksum checksum;
-        private final RandomAccessReader reader;
+        private final FileDataInput reader;
         public final int chunkSize;
         private final String dataFilename;
 
         public ChecksumValidator(Descriptor descriptor) throws IOException
         {
             this(descriptor.version.uncompressedChecksumType().newInstance(),
-                 RandomAccessReader.open(new File(descriptor.filenameFor(Component.CRC))),
+                 FileDataInput.open(new File(descriptor.filenameFor(Component.CRC))),
                  descriptor.filenameFor(Component.DATA));
         }
 
-        public ChecksumValidator(Checksum checksum, RandomAccessReader reader, String dataFilename) throws IOException
+        public ChecksumValidator(Checksum checksum, FileDataInput reader, String dataFilename) throws IOException
         {
             this.checksum = checksum;
             this.reader = reader;
@@ -101,8 +101,8 @@ public class DataIntegrityMetadata
     public static class FileDigestValidator implements Closeable
     {
         private final Checksum checksum;
-        private final RandomAccessReader digestReader;
-        private final RandomAccessReader dataReader;
+        private final FileDataInput digestReader;
+        private final FileDataInput dataReader;
         private final Descriptor descriptor;
         private long storedDigestValue;
 
@@ -110,8 +110,8 @@ public class DataIntegrityMetadata
         {
             this.descriptor = descriptor;
             checksum = descriptor.version.uncompressedChecksumType().newInstance();
-            digestReader = RandomAccessReader.open(new File(descriptor.filenameFor(Component.digestFor(descriptor.version.uncompressedChecksumType()))));
-            dataReader = RandomAccessReader.open(new File(descriptor.filenameFor(Component.DATA)));
+            digestReader = FileDataInput.open(new File(descriptor.filenameFor(Component.digestFor(descriptor.version.uncompressedChecksumType()))));
+            dataReader = FileDataInput.open(new File(descriptor.filenameFor(Component.DATA)));
             try
             {
                 storedDigestValue = Long.parseLong(digestReader.readLine());

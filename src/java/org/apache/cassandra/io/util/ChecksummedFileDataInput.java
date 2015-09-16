@@ -25,7 +25,7 @@ import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Throwables;
 
-public class ChecksummedRandomAccessReader extends RandomAccessReader
+public class ChecksummedFileDataInput extends FileDataInput
 {
     @SuppressWarnings("serial")
     public static class CorruptFileException extends RuntimeException
@@ -41,7 +41,7 @@ public class ChecksummedRandomAccessReader extends RandomAccessReader
 
     private final DataIntegrityMetadata.ChecksumValidator validator;
 
-    private ChecksummedRandomAccessReader(Builder builder)
+    private ChecksummedFileDataInput(Builder builder)
     {
         super(builder);
         this.validator = builder.validator;
@@ -102,7 +102,7 @@ public class ChecksummedRandomAccessReader extends RandomAccessReader
                            channel::close);
     }
 
-    public static final class Builder extends RandomAccessReader.Builder
+    public static final class Builder extends FileDataInput.Builder
     {
         private final DataIntegrityMetadata.ChecksumValidator validator;
 
@@ -111,7 +111,7 @@ public class ChecksummedRandomAccessReader extends RandomAccessReader
         {
             super(new ChannelProxy(file));
             this.validator = new DataIntegrityMetadata.ChecksumValidator(new CRC32(),
-                                                                         RandomAccessReader.open(crcFile),
+                                                                         FileDataInput.open(crcFile),
                                                                          file.getPath());
 
             super.bufferSize(validator.chunkSize)
@@ -119,9 +119,9 @@ public class ChecksummedRandomAccessReader extends RandomAccessReader
         }
 
         @Override
-        public RandomAccessReader build()
+        public FileDataInput build()
         {
-            return new ChecksummedRandomAccessReader(this);
+            return new ChecksummedFileDataInput(this);
         }
     }
 }

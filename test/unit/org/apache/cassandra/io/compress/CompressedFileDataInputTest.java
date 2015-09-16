@@ -32,7 +32,7 @@ import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.util.ChannelProxy;
 import org.apache.cassandra.io.util.FileMark;
 import org.apache.cassandra.io.util.MmappedRegions;
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.SequentialWriter;
 import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.utils.ChecksumType;
@@ -43,7 +43,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-public class CompressedRandomAccessReaderTest
+public class CompressedFileDataInputTest
 {
     @Test
     public void testResetAndTruncate() throws IOException
@@ -96,7 +96,7 @@ public class CompressedRandomAccessReaderTest
                 writer.finish();
             }
 
-            try(RandomAccessReader reader = new CompressedRandomAccessReader.Builder(channel,
+            try(FileDataInput reader = new CompressedFileDataInput.Builder(channel,
                                                                                      new CompressionMetadata(filename + ".metadata", f.length(), ChecksumType.CRC32))
                                             .build())
             {
@@ -142,9 +142,9 @@ public class CompressedRandomAccessReaderTest
             assert f.exists();
 
             CompressionMetadata compressionMetadata = compressed ? new CompressionMetadata(filename + ".metadata", f.length(), ChecksumType.CRC32) : null;
-            RandomAccessReader.Builder builder = compressed
-                                                 ? new CompressedRandomAccessReader.Builder(channel, compressionMetadata)
-                                                 : new RandomAccessReader.Builder(channel);
+            FileDataInput.Builder builder = compressed
+                                                 ? new CompressedFileDataInput.Builder(channel, compressionMetadata)
+                                                 : new FileDataInput.Builder(channel);
 
             if (usemmap)
             {
@@ -154,7 +154,7 @@ public class CompressedRandomAccessReaderTest
                     builder.regions(MmappedRegions.map(channel, f.length()));
             }
 
-            try(RandomAccessReader reader = builder.build())
+            try(FileDataInput reader = builder.build())
             {
                 String expected = "The quick brown fox jumps over the lazy dog";
                 assertEquals(expected.length(), reader.length());
@@ -203,7 +203,7 @@ public class CompressedRandomAccessReaderTest
             CompressionMetadata meta = new CompressionMetadata(metadata.getPath(), file.length(), ChecksumType.CRC32);
             CompressionMetadata.Chunk chunk = meta.chunkFor(0);
 
-            try(RandomAccessReader reader = new CompressedRandomAccessReader.Builder(channel, meta).build())
+            try(FileDataInput reader = new CompressedFileDataInput.Builder(channel, meta).build())
             {// read and verify compressed data
                 assertEquals(CONTENT, reader.readLine());
 
@@ -228,7 +228,7 @@ public class CompressedRandomAccessReaderTest
                         checksumModifier.write(random.nextInt());
                         SyncUtil.sync(checksumModifier); // making sure that change was synced with disk
 
-                        try (final RandomAccessReader r = new CompressedRandomAccessReader.Builder(channel, meta).build())
+                        try (final FileDataInput r = new CompressedFileDataInput.Builder(channel, meta).build())
                         {
                             Throwable exception = null;
                             try
@@ -248,7 +248,7 @@ public class CompressedRandomAccessReaderTest
                     // lets write original checksum and check if we can read data
                     updateChecksum(checksumModifier, chunk.length, checksum);
 
-                    try (RandomAccessReader cr = new CompressedRandomAccessReader.Builder(channel, meta).build())
+                    try (FileDataInput cr = new CompressedFileDataInput.Builder(channel, meta).build())
                     {
                         // read and verify compressed data
                         assertEquals(CONTENT, cr.readLine());

@@ -25,7 +25,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 
 public class SSTableIdentityIterator extends AbstractIterator<Unfiltered> implements Comparable<SSTableIdentityIterator>, UnfilteredRowIterator
 {
@@ -43,7 +43,7 @@ public class SSTableIdentityIterator extends AbstractIterator<Unfiltered> implem
      * @param file Reading using this file.
      * @param key Key of this row.
      */
-    public SSTableIdentityIterator(SSTableReader sstable, RandomAccessReader file, DecoratedKey key)
+    public SSTableIdentityIterator(SSTableReader sstable, FileDataInput file, DecoratedKey key)
     {
         this.sstable = sstable;
         this.filename = file.getPath();

@@ -44,8 +44,7 @@ import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.util.*;
-import org.apache.cassandra.io.util.ChecksummedRandomAccessReader.CorruptFileException;
-import org.apache.cassandra.io.util.DataInputPlus.DataInputStreamPlus;
+import org.apache.cassandra.io.util.ChecksummedFileDataInput.CorruptFileException;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.Pair;
@@ -84,7 +83,7 @@ public class AutoSavingCache<K extends CacheKey, V> extends InstrumentingCache<K
     {
         public InputStream getInputStream(File dataPath, File crcPath) throws IOException
         {
-            return new ChecksummedRandomAccessReader.Builder(dataPath, crcPath).build();
+            return new ChecksummedFileDataInput.Builder(dataPath, crcPath).build();
         }
 
         public OutputStream getOutputStream(File dataPath, File crcPath)
@@ -187,7 +186,7 @@ public class AutoSavingCache<K extends CacheKey, V> extends InstrumentingCache<K
             try
             {
                 logger.info(String.format("reading saved cache %s", dataPath));
-                in = new DataInputStreamPlus(new LengthAvailableInputStream(new BufferedInputStream(streamFactory.getInputStream(dataPath, crcPath)), dataPath.length()));
+                in = new DataInputStreamPlus(new LimitInputStream(new BufferedInputStream(streamFactory.getInputStream(dataPath, crcPath)), dataPath.length()), 8 << 10);
 
                 //Check the schema has not changed since CFs are looked up by name which is ambiguous
                 UUID schemaVersion = new UUID(in.readLong(), in.readLong());

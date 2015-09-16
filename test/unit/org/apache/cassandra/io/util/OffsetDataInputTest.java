@@ -33,7 +33,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-public class FileSegmentInputStreamTest
+public class OffsetDataInputTest
 {
     private ByteBuffer allocateBuffer(int size)
     {
@@ -59,8 +59,7 @@ public class FileSegmentInputStreamTest
         final ByteBuffer buffer = allocateBuffer(size);
         final String path = buffer.toString();
 
-        FileSegmentInputStream reader = new FileSegmentInputStream(buffer.duplicate(), path, offset);
-        assertEquals(path, reader.getPath());
+        OffsetDataInput reader = new OffsetDataInput(buffer.duplicate(), offset);
 
         for (int i = offset; i < (size + offset); i += checkInterval)
         {
@@ -71,13 +70,11 @@ public class FileSegmentInputStreamTest
             buffer.position(i - offset);
 
             int remaining = buffer.remaining();
-            assertEquals(remaining, reader.bytesRemaining());
             byte[] expected = new byte[buffer.remaining()];
             buffer.get(expected);
             assertTrue(Arrays.equals(expected, ByteBufferUtil.read(reader, remaining).array()));
 
             assertTrue(reader.isEOF());
-            assertEquals(0, reader.bytesRemaining());
             assertEquals(buffer.capacity() + offset, reader.getFilePointer());
         }
 
@@ -85,47 +82,31 @@ public class FileSegmentInputStreamTest
         reader.close();
     }
 
-    @Test(expected = UnsupportedOperationException.class)
-    public void testMarkNotSupported() throws Exception
-    {
-        FileSegmentInputStream reader = new FileSegmentInputStream(allocateBuffer(1024), "", 0);
-        assertFalse(reader.markSupported());
-        assertEquals(0, reader.bytesPastMark(null));
-        reader.mark();
-    }
-
-    @Test(expected = UnsupportedOperationException.class)
-    public void testResetNotSupported() throws Exception
-    {
-        FileSegmentInputStream reader = new FileSegmentInputStream(allocateBuffer(1024), "", 0);
-        reader.reset(null);
-    }
-
     @Test(expected = IllegalArgumentException.class)
     public void testSeekNegative() throws Exception
     {
-        FileSegmentInputStream reader = new FileSegmentInputStream(allocateBuffer(1024), "", 0);
+        OffsetDataInput reader = new OffsetDataInput(allocateBuffer(1024), 0);
         reader.seek(-1);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testSeekBeforeOffset() throws Exception
     {
-        FileSegmentInputStream reader = new FileSegmentInputStream(allocateBuffer(1024), "", 1024);
+        OffsetDataInput reader = new OffsetDataInput(allocateBuffer(1024), 1024);
         reader.seek(1023);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testSeekPastLength() throws Exception
     {
-        FileSegmentInputStream reader = new FileSegmentInputStream(allocateBuffer(1024), "", 1024);
+        OffsetDataInput reader = new OffsetDataInput(allocateBuffer(1024), 1024);
         reader.seek(2049);
     }
 
     @Test(expected = EOFException.class)
     public void testReadBytesTooMany() throws Exception
     {
-        FileSegmentInputStream reader = new FileSegmentInputStream(allocateBuffer(1024), "", 1024);
+        OffsetDataInput reader = new OffsetDataInput(allocateBuffer(1024), 1024);
         ByteBufferUtil.read(reader, 2049);
     }
 }

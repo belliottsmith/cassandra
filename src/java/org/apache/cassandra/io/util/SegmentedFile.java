@@ -110,17 +110,17 @@ public abstract class SegmentedFile extends SharedCloseableImpl
 
     public abstract SegmentedFile sharedCopy();
 
-    public RandomAccessReader createReader()
+    public FileDataInput createReader()
     {
-        return new RandomAccessReader.Builder(channel)
+        return new FileDataInput.Builder(channel)
                .overrideLength(length)
                .bufferSize(bufferSize)
                .build();
     }
 
-    public RandomAccessReader createReader(RateLimiter limiter)
+    public FileDataInput createReader(RateLimiter limiter)
     {
-        return new RandomAccessReader.Builder(channel)
+        return new FileDataInput.Builder(channel)
                .overrideLength(length)
                .bufferSize(bufferSize)
                .limiter(limiter)
@@ -129,7 +129,7 @@ public abstract class SegmentedFile extends SharedCloseableImpl
 
     public FileDataInput createReader(long position)
     {
-        RandomAccessReader reader = createReader();
+        FileDataInput reader = createReader();
         reader.seek(position);
         return reader;
     }

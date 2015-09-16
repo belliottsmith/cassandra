@@ -795,7 +795,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
              return;
 
         // we read the positions in a BRAF so we don't have to worry about an entry spanning a mmap boundary.
-        try (RandomAccessReader primaryIndex = RandomAccessReader.open(new File(descriptor.filenameFor(Component.PRIMARY_INDEX))))
+        try (FileDataInput primaryIndex = FileDataInput.open(new File(descriptor.filenameFor(Component.PRIMARY_INDEX))))
         {
             long indexSize = primaryIndex.length();
             long histogramCount = sstableMetadata.estimatedPartitionSize.count();
@@ -1188,7 +1188,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     private IndexSummary buildSummaryAtLevel(int newSamplingLevel) throws IOException
     {
         // we read the positions in a BRAF so we don't have to worry about an entry spanning a mmap boundary.
-        RandomAccessReader primaryIndex = RandomAccessReader.open(new File(descriptor.filenameFor(Component.PRIMARY_INDEX)));
+        FileDataInput primaryIndex = FileDataInput.open(new File(descriptor.filenameFor(Component.PRIMARY_INDEX)));
         try
         {
             long indexSize = primaryIndex.length();
@@ -1923,18 +1923,18 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         return sstableMetadata;
     }
 
-    public RandomAccessReader openDataReader(RateLimiter limiter)
+    public FileDataInput openDataReader(RateLimiter limiter)
     {
         assert limiter != null;
         return dfile.createReader(limiter);
     }
 
-    public RandomAccessReader openDataReader()
+    public FileDataInput openDataReader()
     {
         return dfile.createReader();
     }
 
-    public RandomAccessReader openIndexReader()
+    public FileDataInput openIndexReader()
     {
         if (ifile != null)
             return ifile.createReader();

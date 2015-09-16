@@ -17,19 +17,17 @@
  */
 package org.apache.cassandra.io.util;
 
-import java.io.FilterInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 
 /**
  * a FilterInputStream that returns the remaining bytes to read from available()
  * regardless of whether the device is ready to provide them.
  */
-public class LengthAvailableInputStream extends FilterInputStream
+public class LimitInputStream extends FilterInputStream
 {
     private long remainingBytes;
 
-    public LengthAvailableInputStream(InputStream in, long totalLength)
+    public LimitInputStream(InputStream in, long totalLength)
     {
         super(in);
         remainingBytes = totalLength;
@@ -38,6 +36,8 @@ public class LengthAvailableInputStream extends FilterInputStream
     @Override
     public int read() throws IOException
     {
+        if (remainingBytes == 0)
+            return -1;
         int b = in.read();
         --remainingBytes;
         return b;
@@ -46,14 +46,14 @@ public class LengthAvailableInputStream extends FilterInputStream
     @Override
     public int read(byte[] b) throws IOException
     {
-        int length = in.read(b);
-        remainingBytes -= length;
-        return length;
+        return read(b, 0, b.length);
     }
 
     @Override
     public int read(byte[] b, int off, int len) throws IOException
     {
+        if (len > remainingBytes)
+            len = (int) remainingBytes;
         int length = in.read(b, off, len);
         remainingBytes -= length;
         return length;
@@ -62,6 +62,8 @@ public class LengthAvailableInputStream extends FilterInputStream
     @Override
     public long skip(long n) throws IOException
     {
+        if (n > remainingBytes)
+            n = remainingBytes;
         long length = in.skip(n);
         remainingBytes -= length;
         return length;
@@ -94,5 +96,10 @@ public class LengthAvailableInputStream extends FilterInputStream
     public boolean markSupported()
     {
         return false;
+    }
+
+    public long remainingBytes()
+    {
+        return remainingBytes;
     }
 }

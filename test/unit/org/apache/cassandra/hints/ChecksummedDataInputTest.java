@@ -27,7 +27,7 @@ import java.util.zip.CRC32;
 import org.junit.Test;
 
 import org.apache.cassandra.io.util.DataOutputBuffer;
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.SequentialWriter;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
@@ -43,7 +43,7 @@ public class ChecksummedDataInputTest
     {
         // Make sure this array is bigger than the reader buffer size
         // so we test updating the crc across buffer boundaries
-        byte[] b = new byte[RandomAccessReader.DEFAULT_BUFFER_SIZE * 2];
+        byte[] b = new byte[FileDataInput.DEFAULT_BUFFER_SIZE * 2];
         for (int i = 0; i < b.length; i++)
             b[i] = (byte)i;
 

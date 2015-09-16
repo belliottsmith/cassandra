@@ -29,7 +29,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 import org.apache.cassandra.io.compress.BufferType;
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 
 import static org.junit.Assert.*;
 
@@ -51,7 +51,7 @@ public class BufferPoolTest
     @Test
     public void testGetPut() throws InterruptedException
     {
-        final int size = RandomAccessReader.DEFAULT_BUFFER_SIZE;
+        final int size = FileDataInput.DEFAULT_BUFFER_SIZE;
 
         ByteBuffer buffer = BufferPool.get(size);
         assertNotNull(buffer);
@@ -157,12 +157,12 @@ public class BufferPoolTest
     @Test
     public void testRecycle()
     {
-        requestUpToSize(RandomAccessReader.DEFAULT_BUFFER_SIZE, 3 * BufferPool.CHUNK_SIZE);
+        requestUpToSize(FileDataInput.DEFAULT_BUFFER_SIZE, 3 * BufferPool.CHUNK_SIZE);
     }
 
     private void requestDoubleMaxMemory()
     {
-        requestUpToSize(RandomAccessReader.DEFAULT_BUFFER_SIZE, (int)(2 * BufferPool.MEMORY_USAGE_THRESHOLD));
+        requestUpToSize(FileDataInput.DEFAULT_BUFFER_SIZE, (int)(2 * BufferPool.MEMORY_USAGE_THRESHOLD));
     }
 
     private void requestUpToSize(int bufferSize, int totalSize)
@@ -201,7 +201,7 @@ public class BufferPoolTest
     @Test
     public void testFillUpChunks()
     {
-        final int size = RandomAccessReader.DEFAULT_BUFFER_SIZE;
+        final int size = FileDataInput.DEFAULT_BUFFER_SIZE;
         final int numBuffers = BufferPool.CHUNK_SIZE / size;
 
         List<ByteBuffer> buffers1 = new ArrayList<>(numBuffers);
@@ -604,13 +604,13 @@ public class BufferPoolTest
     @Test
     public void testMT_SameSizeImmediateReturn() throws InterruptedException
     {
-        checkMultipleThreads(40, 1, true, RandomAccessReader.DEFAULT_BUFFER_SIZE);
+        checkMultipleThreads(40, 1, true, FileDataInput.DEFAULT_BUFFER_SIZE);
     }
 
     @Test
     public void testMT_SameSizePostponedReturn() throws InterruptedException
     {
-        checkMultipleThreads(40, 1, false, RandomAccessReader.DEFAULT_BUFFER_SIZE);
+        checkMultipleThreads(40, 1, false, FileDataInput.DEFAULT_BUFFER_SIZE);
     }
 
     @Test

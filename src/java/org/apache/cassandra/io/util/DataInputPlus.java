@@ -18,54 +18,281 @@
 package org.apache.cassandra.io.util;
 
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
+import net.nicoulaj.compilecommand.annotations.DontInline;
+import org.apache.cassandra.utils.FastByteOperations;
 import org.apache.cassandra.utils.vint.VIntCoding;
 
+import com.google.common.base.Preconditions;
+
 /**
- * Extension to DataInput that provides support for reading varints
+ * Rough equivalent of BufferedInputStream and DataInputStream wrapping a ByteBuffer that can be refilled
+ * via rebuffer. Implementations provide this buffer from various channels (socket, file, memory, etc).
+ *
+ * RebufferingInputStream is not thread safe.
  */
-public interface DataInputPlus extends DataInput
+public abstract class DataInputPlus extends InputStream implements DataInput, Closeable
 {
-    default long readVInt() throws IOException
+    protected ByteBuffer buffer;
+
+    protected DataInputPlus(ByteBuffer buffer)
     {
-        return VIntCoding.readVInt(this);
+        Preconditions.checkArgument(buffer == null || buffer.order() == ByteOrder.BIG_ENDIAN, "Buffer must have BIG ENDIAN byte ordering");
+        this.buffer = buffer;
     }
 
     /**
-     * Think hard before opting for an unsigned encoding. Is this going to bite someone because some day
-     * they might need to pass in a sentinel value using negative numbers? Is the risk worth it
-     * to save a few bytes?
-     *
-     * Signed, not a fan of unsigned values in protocols and formats
+     * Implementations must implement this method to refill the buffer.
+     * They can expect the buffer to be empty when this method is invoked.
+     * @throws IOException
      */
-    default long readUnsignedVInt() throws IOException
+    protected abstract void reBuffer() throws IOException;
+
+    @Override
+    public void readFully(byte[] b) throws IOException
     {
-        return VIntCoding.readUnsignedVInt(this);
+        readFully(b, 0, b.length);
     }
 
-    /**
-     * Always skips the requested number of bytes, unless EOF is reached
-     *
-     * @param n number of bytes to skip
-     * @return number of bytes skipped
-     */
-    public int skipBytes(int n) throws IOException;
+    @Override
+    public void readFully(byte[] b, int off, int len) throws IOException
+    {
+        int read = read(b, off, len);
+        if (read < len)
+            throw new EOFException();
+    }
 
-    public default void skipBytesFully(int n) throws IOException
+    @Override
+    public int read(byte[] b, int off, int len) throws IOException {
+
+        // avoid int overflow
+        if (off < 0 || off > b.length || len < 0 || len > b.length - off)
+            throw new IndexOutOfBoundsException();
+
+        if (len == 0)
+            return 0;
+
+        int copied = 0;
+        while (copied < len)
+        {
+            int position = buffer.position();
+            int remaining = buffer.limit() - position;
+            if (remaining == 0)
+            {
+                reBuffer();
+                position = buffer.position();
+                remaining = buffer.limit() - position;
+                if (remaining == 0)
+                    return copied == 0 ? -1 : copied;
+            }
+            int toCopy = Math.min(len - copied, remaining);
+            FastByteOperations.copy(buffer, position, b, off + copied, toCopy);
+            buffer.position(position + toCopy);
+            copied += toCopy;
+        }
+
+        return copied;
+    }
+
+    @DontInline
+    protected final long readPrimitiveSlowly(int bytes) throws IOException
+    {
+        long result = 0;
+        for (int i = 0; i < bytes; i++)
+            result = (result << 8) | (readByte() & 0xFFL);
+        return result;
+    }
+
+    @Override
+    public final int skipBytes(int n) throws IOException
+    {
+        if (n < 0)
+            return 0;
+        int requested = n;
+        int position = buffer.position(), limit = buffer.limit(), remaining;
+        while ((remaining = limit - position) < n)
+        {
+            n -= remaining;
+            buffer.position(limit);
+            reBuffer();
+            position = buffer.position();
+            limit = buffer.limit();
+            if (position == limit)
+                return requested - n;
+        }
+        buffer.position(position + n);
+        return requested;
+    }
+
+    public final void skipBytesFully(int n) throws IOException
     {
         int skipped = skipBytes(n);
         if (skipped != n)
-            throw new EOFException("EOF after " + skipped + " bytes out of " + n);
+            throw new EOFException("Only " + skipped + " bytes were remaining, but requested to fully skip " + n);
     }
 
-    /**
-     * Wrapper around an InputStream that provides no buffering but can decode varints
-     */
-    public class DataInputStreamPlus extends DataInputStream implements DataInputPlus
+    @Override
+    public final boolean readBoolean() throws IOException
     {
-        public DataInputStreamPlus(InputStream is)
+        return readByte() != 0;
+    }
+
+    @Override
+    public final byte readByte() throws IOException
+    {
+        if (!buffer.hasRemaining())
         {
-            super(is);
+            reBuffer();
+            if (!buffer.hasRemaining())
+                throw new EOFException();
         }
+
+        return buffer.get();
+    }
+
+    @Override
+    public final int readUnsignedByte() throws IOException
+    {
+        return readByte() & 0xff;
+    }
+
+    @Override
+    public final short readShort() throws IOException
+    {
+        if (buffer.remaining() >= 2)
+            return buffer.getShort();
+        else
+            return (short) readPrimitiveSlowly(2);
+    }
+
+    @Override
+    public final int readUnsignedShort() throws IOException
+    {
+        return readShort() & 0xFFFF;
+    }
+
+    @Override
+    public final char readChar() throws IOException
+    {
+        if (buffer.remaining() >= 2)
+            return buffer.getChar();
+        else
+            return (char) readPrimitiveSlowly(2);
+    }
+
+    @Override
+    public final int readInt() throws IOException
+    {
+        if (buffer.remaining() >= 4)
+            return buffer.getInt();
+        else
+            return (int) readPrimitiveSlowly(4);
+    }
+
+    @Override
+    public final long readLong() throws IOException
+    {
+        if (buffer.remaining() >= 8)
+            return buffer.getLong();
+        else
+            return readPrimitiveSlowly(8);
+    }
+
+    public final long readVInt() throws IOException
+    {
+        return VIntCoding.decodeZigZag64(readUnsignedVInt());
+    }
+
+    public final long readUnsignedVInt() throws IOException
+    {
+        //If 9 bytes aren't available use the slow path in VIntCoding
+        if (buffer.remaining() < 9)
+            return VIntCoding.readUnsignedVInt(this);
+
+        byte firstByte = buffer.get();
+
+        //Bail out early if this is one byte, necessary or it fails later
+        if (firstByte >= 0)
+            return firstByte;
+
+        int extraBytes = VIntCoding.numberOfExtraBytesToRead(firstByte);
+
+        int position = buffer.position();
+        int extraBits = extraBytes * 8;
+
+        long retval = buffer.getLong(position);
+        if (buffer.order() == ByteOrder.LITTLE_ENDIAN)
+            retval = Long.reverseBytes(retval);
+        buffer.position(position + extraBytes);
+
+        // truncate the bytes we read in excess of those we needed
+        retval >>>= 64 - extraBits;
+        // remove the non-value bits from the first byte
+        firstByte &= VIntCoding.firstByteValueMask(extraBytes);
+        // shift the first byte up to its correct position
+        retval |= (long) firstByte << extraBits;
+        return retval;
+    }
+
+    @Override
+    public final float readFloat() throws IOException
+    {
+        if (buffer.remaining() >= 4)
+            return buffer.getFloat();
+        else
+            return Float.intBitsToFloat((int)readPrimitiveSlowly(4));
+    }
+
+    @Override
+    public final double readDouble() throws IOException
+    {
+        if (buffer.remaining() >= 8)
+            return buffer.getDouble();
+        else
+            return Double.longBitsToDouble(readPrimitiveSlowly(8));
+    }
+
+    @Override
+    public String readLine() throws IOException
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public String readUTF() throws IOException
+    {
+        return DataInputStream.readUTF(this);
+    }
+
+    @Override
+    public final int read() throws IOException
+    {
+        try
+        {
+            return readUnsignedByte();
+        }
+        catch (EOFException ex)
+        {
+            return -1;
+        }
+    }
+
+    @Override
+    public void reset() throws IOException
+    {
+        throw new IOException("mark/reset not supported");
+    }
+
+    @Override
+    public boolean markSupported()
+    {
+        return false;
+    }
+
+    public int available() throws IOException
+    {
+        return buffer.remaining();
     }
 }

@@ -32,7 +32,7 @@ import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.JVMStabilityInspector;
@@ -52,8 +52,8 @@ public class Scrubber implements Closeable
     private final boolean checkData;
     private final long expectedBloomFilterSize;
 
-    private final RandomAccessReader dataFile;
-    private final RandomAccessReader indexFile;
+    private final FileDataInput dataFile;
+    private final FileDataInput indexFile;
     private final ScrubInfo scrubInfo;
     private final RowIndexEntry.IndexSerializer rowIndexEntrySerializer;
 
@@ -132,7 +132,7 @@ public class Scrubber implements Closeable
                         : sstable.openDataReader(CompactionManager.instance.getRateLimiter());
 
         this.indexFile = hasIndexFile
-                ? RandomAccessReader.open(new File(sstable.descriptor.filenameFor(Component.PRIMARY_INDEX)))
+                ? FileDataInput.open(new File(sstable.descriptor.filenameFor(Component.PRIMARY_INDEX)))
                 : null;
 
         this.scrubInfo = new ScrubInfo(dataFile, sstable);
@@ -426,11 +426,11 @@ public class Scrubber implements Closeable
 
     private static class ScrubInfo extends CompactionInfo.Holder
     {
-        private final RandomAccessReader dataFile;
+        private final FileDataInput dataFile;
         private final SSTableReader sstable;
         private final UUID scrubCompactionId;
 
-        public ScrubInfo(RandomAccessReader dataFile, SSTableReader sstable)
+        public ScrubInfo(FileDataInput dataFile, SSTableReader sstable)
         {
             this.dataFile = dataFile;
             this.sstable = sstable;

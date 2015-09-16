@@ -29,8 +29,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataIntegrityMetadata;
 import org.apache.cassandra.io.util.DataIntegrityMetadata.ChecksumValidator;
 import org.apache.cassandra.io.util.DataOutputStreamPlus;
-import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.streaming.StreamManager.StreamRateLimiter;
 import org.apache.cassandra.utils.Pair;
 
@@ -72,7 +71,7 @@ public class StreamWriter
         long totalSize = totalSize();
 
 
-        try(RandomAccessReader file = sstable.openDataReader();
+        try(FileDataInput file = sstable.openDataReader();
             ChecksumValidator validator = new File(sstable.descriptor.filenameFor(Component.CRC)).exists()
                                           ? DataIntegrityMetadata.checksumValidator(sstable.descriptor)
                                           : null;)
@@ -133,7 +132,7 @@ public class StreamWriter
      *
      * @throws java.io.IOException on any I/O error
      */
-    protected long write(RandomAccessReader reader, ChecksumValidator validator, int start, long length, long bytesTransferred) throws IOException
+    protected long write(FileDataInput reader, ChecksumValidator validator, int start, long length, long bytesTransferred) throws IOException
     {
         int toTransfer = (int) Math.min(transferBuffer.length, length - bytesTransferred);
         int minReadable = (int) Math.min(transferBuffer.length, reader.length() - reader.getFilePointer());

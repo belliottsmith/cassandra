@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.io.util;
 
-import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
@@ -37,7 +36,7 @@ import com.google.common.base.Preconditions;
  *
  * NIODataInputStream is not thread safe.
  */
-public class NIODataInputStream extends RebufferingInputStream
+public class NIODataInputStream extends DataInputPlus
 {
     protected final ReadableByteChannel channel;
 

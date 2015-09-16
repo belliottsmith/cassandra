@@ -24,10 +24,10 @@ import java.util.zip.CRC32;
 
 import org.apache.cassandra.io.util.ChannelProxy;
 import org.apache.cassandra.io.util.FileMark;
-import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.io.util.FileDataInput;
 
 /**
- * A {@link RandomAccessReader} wrapper that calctulates the CRC in place.
+ * A {@link org.apache.cassandra.io.util.FileDataInput} wrapper that calctulates the CRC in place.
  *
  * Useful for {@link org.apache.cassandra.hints.HintsReader}, for example, where we must verify the CRC, yet don't want
  * to allocate an extra byte array just that purpose. The CRC can be embedded in the input stream and checked via checkCrc().
@@ -37,7 +37,7 @@ import org.apache.cassandra.io.util.RandomAccessReader;
  * corrupted sequence by reading a huge corrupted length of bytes via
  * via {@link org.apache.cassandra.utils.ByteBufferUtil#readWithLength(java.io.DataInput)}.
  */
-public final class ChecksummedDataInput extends RandomAccessReader.RandomAccessReaderWithOwnChannel
+public final class ChecksummedDataInput extends FileDataInput.FileDataInputWithOwnChannel
 {
     private final CRC32 crc;
     private int crcPosition;
@@ -149,7 +149,7 @@ public final class ChecksummedDataInput extends RandomAccessReader.RandomAccessR
         crc.update(unprocessed);
     }
 
-    public final static class Builder extends RandomAccessReader.Builder
+    public final static class Builder extends FileDataInput.Builder
     {
         public Builder(ChannelProxy channel)
         {
