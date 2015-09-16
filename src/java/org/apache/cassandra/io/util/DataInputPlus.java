@@ -47,6 +47,14 @@ public interface DataInputPlus extends DataInput
     }
 
     /**
+     * Always skips the requested number of bytes, unless EOF is reached
+     *
+     * @param n number of bytes to skip
+     * @return number of bytes skipped
+     */
+    public int skipBytes(int n) throws IOException;
+
+    /**
      * Wrapper around an InputStream that provides no buffering but can decode varints
      */
     public class DataInputStreamPlus extends DataInputStream implements DataInputPlus
