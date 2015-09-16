@@ -17,10 +17,7 @@
  */
 package org.apache.cassandra.io.util;
 
-import java.io.DataInput;
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 
 import org.apache.cassandra.utils.vint.VIntCoding;
 
@@ -53,6 +50,13 @@ public interface DataInputPlus extends DataInput
      * @return number of bytes skipped
      */
     public int skipBytes(int n) throws IOException;
+
+    public default void skipBytesFully(int n) throws IOException
+    {
+        int skipped = skipBytes(n);
+        if (skipped != n)
+            throw new EOFException("EOF after " + skipped + " bytes out of " + n);
+    }
 
     /**
      * Wrapper around an InputStream that provides no buffering but can decode varints
