@@ -64,11 +64,7 @@ public class ReplayPosition implements Comparable<ReplayPosition>
 
         private static void add(NavigableMap<ReplayPosition, ReplayPosition> ranges, ReplayPosition start, ReplayPosition end)
         {
-            // extend ourselves to cover any ranges we overlap. it's worth noting:
-            //  * it should only be possible to extend once in each direction
-            //  * in general, any overlaps should be exact, i.e. we should end at the position they begin,
-            //    however we do not assume this here
-
+            // extend ourselves to cover any ranges we overlap
             // record directly preceding our end may extend past us, so take the max of our end and its
             Map.Entry<ReplayPosition, ReplayPosition> extend = ranges.floorEntry(end);
             if (extend != null && extend.getValue().compareTo(end) > 0)
