@@ -93,10 +93,10 @@ public class LegacyMetadataSerializer extends MetadataSerializer
             {
                 EstimatedHistogram rowSizes = EstimatedHistogram.serializer.deserialize(in);
                 EstimatedHistogram columnCounts = EstimatedHistogram.serializer.deserialize(in);
-                ReplayPosition commitLogLowerBound = ReplayPosition.NONE, commitLogUpperBound;
+                ReplayPosition commitLogLowerBound = ReplayPosition.NONE;
                 if (descriptor.version.hasCommitLogLowerBound)
                     commitLogLowerBound = ReplayPosition.serializer.deserialize(in);
-                commitLogUpperBound = ReplayPosition.serializer.deserialize(in);
+                ReplayPosition commitLogUpperBound = ReplayPosition.serializer.deserialize(in);
                 long minTimestamp = in.readLong();
                 long maxTimestamp = in.readLong();
                 int maxLocalDeletionTime = in.readInt();

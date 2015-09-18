@@ -61,6 +61,8 @@ public class Memtable
     private volatile AtomicReference<ReplayPosition> commitLogUpperBound;
     // the precise lower bound of ReplayPosition owned by this memtable; equal to its predecessor's commitLogUpperBound
     private AtomicReference<ReplayPosition> commitLogLowerBound;
+    // the approximate lower bound by this memtable; must be <= commitLogLowerBound once our predecesoor
+    // has been finalised, and this is enforced in the ColumnFamilyStore.setCommitLogUpperBound
     private final ReplayPosition approximateCommitLogLowerBound = CommitLog.instance.getContext();
 
     public static final class LastReplayPosition extends ReplayPosition
@@ -376,8 +378,6 @@ public class Memtable
                             writer.getFilename(), commitLogLowerBound.get());
                 writer.abort();
                 ssTable = null;
-                logger.info("Completed flushing; nothing needed to be retained.  Commitlog position was {}",
-                            commitLogUpperBound.get());
             }
 
             if (heavilyContendedRowCount > 0)

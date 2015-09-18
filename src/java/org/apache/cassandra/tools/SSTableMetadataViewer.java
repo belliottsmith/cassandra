@@ -68,8 +68,8 @@ public class SSTableMetadataViewer
                     out.printf("Estimated droppable tombstones: %s%n", stats.getEstimatedDroppableTombstoneRatio((int) (System.currentTimeMillis() / 1000)));
                     out.printf("SSTable Level: %d%n", stats.sstableLevel);
                     out.printf("Repaired at: %d%n", stats.repairedAt);
-                    out.println(stats.commitLogLowerBound);
-                    out.println(stats.commitLogUpperBound);
+                    out.printf("Minimum replay position: %s\n", stats.commitLogLowerBound);
+                    out.printf("Maximum replay position: %s\n", stats.commitLogUpperBound);
                     out.println("Estimated tombstone drop times:%n");
                     for (Map.Entry<Double, Long> entry : stats.estimatedTombstoneDropTime.getAsMap().entrySet())
                     {
