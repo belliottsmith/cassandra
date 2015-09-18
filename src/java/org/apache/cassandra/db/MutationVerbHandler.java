@@ -23,7 +23,7 @@ import java.net.InetAddress;
 
 import org.apache.cassandra.batchlog.LegacyBatchlogMigrator;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
-import org.apache.cassandra.io.util.FastByteArrayInputStream;
+import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.tracing.Tracing;
 
@@ -68,7 +68,7 @@ public class MutationVerbHandler implements IVerbHandler<Mutation>
      */
     private static void forwardToLocalNodes(Mutation mutation, MessagingService.Verb verb, byte[] forwardBytes, InetAddress from) throws IOException
     {
-        try (DataInputStream in = new DataInputStream(new FastByteArrayInputStream(forwardBytes)))
+        try (DataInputBuffer in = new DataInputBuffer(forwardBytes))
         {
             int size = in.readInt();
 
