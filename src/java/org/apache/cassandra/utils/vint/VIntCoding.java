@@ -50,6 +50,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+import net.nicoulaj.compilecommand.annotations.DontInline;
 import net.nicoulaj.compilecommand.annotations.Inline;
 
 /**
@@ -101,6 +102,13 @@ public class VIntCoding
         // this is aided by the fact that we only work with negative numbers, so when upcast to an int all
         // of the new upper bits are also set, so by inverting we set all of them to zero
         return Integer.numberOfLeadingZeros(~firstByte) - 24;
+    }
+
+    public static int numberOfBytesTotal(int firstByte)
+    {
+        // we count number of set upper bits; so if we simply invert all of the bits, we're golden
+        // since we accept positive numbers here, we have to ensure all the top bits are set
+        return Integer.numberOfLeadingZeros(~(firstByte | 0xFFFFFF00)) - 23;
     }
 
     protected static final ThreadLocal<byte[]> encodingBuffer = new ThreadLocal<byte[]>()

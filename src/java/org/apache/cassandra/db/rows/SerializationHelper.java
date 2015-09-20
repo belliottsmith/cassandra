@@ -53,7 +53,6 @@ public class SerializationHelper
     private final Map<ByteBuffer, CFMetaData.DroppedColumn> droppedColumns;
     private CFMetaData.DroppedColumn currentDroppedComplex;
 
-
     public SerializationHelper(CFMetaData metadata, int version, Flag flag, ColumnFilter columnsToFetch)
     {
         this.flag = flag;

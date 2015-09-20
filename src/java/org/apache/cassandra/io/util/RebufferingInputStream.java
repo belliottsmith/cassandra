@@ -233,6 +233,37 @@ public abstract class RebufferingInputStream extends InputStream implements Data
         return retval;
     }
 
+    public void skipVInts(int count) throws IOException
+    {
+        // TODO: analyse bytecode and check that saving limit does not prevent bounds check elision
+        int position = buffer.position();
+        int limit = buffer.limit();
+        while (true)
+        {
+            while ((count > 0) & (position < limit))
+            {
+                position += VIntCoding.numberOfBytesTotal(buffer.get(position));
+                count--;
+            }
+
+            if ((count == 0) & (position <= limit))
+            {
+                buffer.position(position);
+                return;
+            }
+
+            // position >= limit
+            int overflow = position - limit;
+            buffer.position(limit);
+            reBuffer();
+            position = buffer.position();
+            limit = buffer.limit();
+            if (position == limit)
+                throw new EOFException();
+            position += overflow;
+        }
+    }
+
     @Override
     public float readFloat() throws IOException
     {
