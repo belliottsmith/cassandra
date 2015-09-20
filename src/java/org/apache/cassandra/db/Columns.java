@@ -25,6 +25,7 @@ import java.security.MessageDigest;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Ordering;
 
 import net.nicoulaj.compilecommand.annotations.DontInline;
 import org.apache.cassandra.config.CFMetaData;
@@ -32,6 +33,7 @@ import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.marshal.UTF8Type;
+import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -490,31 +492,30 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
 
         public Columns deserializeSubset(Columns superset, DataInputPlus in) throws IOException
         {
+            Iterable<ColumnDefinition> result = deserializeSubset(superset, in, null);
+            if (result == superset)
+                return superset;
+            return new Columns(((BTree.Builder<ColumnDefinition>) result).build());
+        }
+
+        public Iterable<ColumnDefinition> deserializeSubset(Columns superset, DataInputPlus in, SerializationHelper helper) throws IOException
+        {
             long encoded = in.readUnsignedVInt();
             if (encoded == 0L)
-            {
                 return superset;
-            }
-            else if (superset.size() >= 64)
+
+            BTree.Builder<ColumnDefinition> builder = helper == null ? BTree.builder(Ordering.natural(), superset.size())
+                                                                     : helper.columnBuilder(superset.size());
+            if (superset.size() >= 64)
+                return deserializeLargeSubset(in, superset, (int) encoded, builder);
+
+            for (ColumnDefinition column : superset)
             {
-                return deserializeLargeSubset(in, superset, (int) encoded);
+                if ((encoded & 1) == 0)
+                    builder.add(column);
+                encoded >>>= 1;
             }
-            else
-            {
-                BTree.Builder<ColumnDefinition> builder = BTree.builder(Comparator.naturalOrder());
-                int firstComplexIdx = 0;
-                for (ColumnDefinition column : superset)
-                {
-                    if ((encoded & 1) == 0)
-                    {
-                        builder.add(column);
-                        if (column.isSimple())
-                            ++firstComplexIdx;
-                    }
-                    encoded >>>= 1;
-                }
-                return new Columns(builder.build(), firstComplexIdx);
-            }
+            return builder;
         }
 
         // encodes a 1 bit for every *missing* column, on the assumption presence is more common,
@@ -577,12 +578,11 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
         }
 
         @DontInline
-        private Columns deserializeLargeSubset(DataInputPlus in, Columns superset, int delta) throws IOException
+        private Iterable<ColumnDefinition> deserializeLargeSubset(DataInputPlus in, Columns superset, int delta, BTree.Builder<ColumnDefinition> builder) throws IOException
         {
             int supersetCount = superset.size();
             int columnCount = supersetCount - delta;
 
-            BTree.Builder<ColumnDefinition> builder = BTree.builder(Comparator.naturalOrder());
             if (columnCount < supersetCount / 2)
             {
                 for (int i = 0 ; i < columnCount ; i++)
@@ -612,7 +612,7 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
                     skipped++;
                 }
             }
-            return new Columns(builder.build());
+            return builder;
         }
 
         @DontInline

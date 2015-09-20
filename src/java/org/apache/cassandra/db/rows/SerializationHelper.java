@@ -20,11 +20,14 @@ package org.apache.cassandra.db.rows;
 import java.nio.ByteBuffer;
 import java.util.*;
 
+import com.google.common.collect.Ordering;
+
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.utils.btree.BTree;
 
 public class SerializationHelper
 {
@@ -52,7 +55,7 @@ public class SerializationHelper
 
     private final Map<ByteBuffer, CFMetaData.DroppedColumn> droppedColumns;
     private CFMetaData.DroppedColumn currentDroppedComplex;
-
+    private BTree.Builder<ColumnDefinition> columnBuilder;
 
     public SerializationHelper(CFMetaData metadata, int version, Flag flag, ColumnFilter columnsToFetch)
     {
@@ -124,5 +127,14 @@ public class SerializationHelper
         return flag == Flag.FROM_REMOTE || (flag == Flag.LOCAL && CounterContext.instance().shouldClearLocal(value))
              ? CounterContext.instance().clearAllLocal(value)
              : value;
+    }
+
+    public BTree.Builder<ColumnDefinition> columnBuilder(int capacity)
+    {
+        if (columnBuilder == null)
+            columnBuilder = BTree.<ColumnDefinition>builder(Ordering.natural(), capacity).auto(false);
+        else
+            columnBuilder.reuse().ensureCapacity(capacity);
+        return columnBuilder;
     }
 }
