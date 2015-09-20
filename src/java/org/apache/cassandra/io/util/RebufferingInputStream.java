@@ -52,6 +52,7 @@ public abstract class RebufferingInputStream extends InputStream implements Data
      * They can expect the buffer to be empty when this method is invoked.
      * @throws IOException
      */
+    @DontInline
     protected abstract void reBuffer() throws IOException;
 
     @Override
@@ -204,9 +205,12 @@ public abstract class RebufferingInputStream extends InputStream implements Data
 
     public long readUnsignedVInt() throws IOException
     {
-        //If 9 bytes aren't available use the slow path in VIntCoding
-        if (buffer.remaining() < 9)
-            return VIntCoding.readUnsignedVInt(this);
+        if (!buffer.hasRemaining())
+        {
+            reBuffer();
+            if (!buffer.hasRemaining())
+                throw new EOFException();
+        }
 
         byte firstByte = buffer.get();
 
@@ -215,17 +219,25 @@ public abstract class RebufferingInputStream extends InputStream implements Data
             return firstByte;
 
         int extraBytes = VIntCoding.numberOfExtraBytesToRead(firstByte);
-
-        int position = buffer.position();
         int extraBits = extraBytes * 8;
 
-        long retval = buffer.getLong(position);
-        if (buffer.order() == ByteOrder.LITTLE_ENDIAN)
-            retval = Long.reverseBytes(retval);
-        buffer.position(position + extraBytes);
+        int position = buffer.position();
+        int limit = buffer.limit();
+        long retval;
+        if (limit - position >= 8)
+        {
+            retval = buffer.getLong(position);
+            if (buffer.order() == ByteOrder.LITTLE_ENDIAN)
+                retval = Long.reverseBytes(retval);
+            buffer.position(position + extraBytes);
+            // truncate the bytes we read in excess of those we needed
+            retval >>>= 64 - extraBits;
+        }
+        else
+        {
+            retval = readPrimitiveSlowly(extraBytes);
+        }
 
-        // truncate the bytes we read in excess of those we needed
-        retval >>>= 64 - extraBits;
         // remove the non-value bits from the first byte
         firstByte &= VIntCoding.firstByteValueMask(extraBytes);
         // shift the first byte up to its correct position

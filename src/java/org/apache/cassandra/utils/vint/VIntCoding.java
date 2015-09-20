@@ -103,6 +103,13 @@ public class VIntCoding
         return Integer.numberOfLeadingZeros(~firstByte) - 24;
     }
 
+    public static int numberOfBytesTotal(int firstByte)
+    {
+        // we count number of set upper bits; so if we simply invert all of the bits, we're golden
+        // since we accept positive numbers here, we have to ensure all the top bits are set
+        return Integer.numberOfLeadingZeros(~(firstByte | 0xFFFFFF00)) - 23;
+    }
+
     protected static final ThreadLocal<byte[]> encodingBuffer = new ThreadLocal<byte[]>()
     {
         @Override
