@@ -751,10 +751,10 @@ public class BTree
 
     public static <V> Builder<V> builder(Comparator<? super V> comparator, int initialCapacity)
     {
-        return new Builder<>(comparator);
+        return new Builder<>(comparator, initialCapacity);
     }
 
-    public static class Builder<V>
+    public static class Builder<V> implements Iterable<V>
     {
 
         // a user-defined bulk resolution, to be applied manually via resolve()
@@ -799,16 +799,26 @@ public class BTree
             return this;
         }
 
-        public void reuse()
+        public Builder<V> reuse()
         {
-            reuse(comparator);
-        }
-
-        public void reuse(Comparator<? super V> comparator)
-        {
-            this.comparator = comparator;
             count = 0;
             detected = true;
+            return this;
+        }
+
+        public Builder<V> reuse(Comparator<? super V> comparator)
+        {
+            this.comparator = comparator;
+            reuse();
+            return this;
+        }
+
+        public Builder<V> ensureCapacity(int size)
+        {
+            assert count == 0;
+            if (values.length < size)
+                values = new Object[size];
+            return this;
         }
 
         public Builder<V> auto(boolean auto)
@@ -1033,11 +1043,28 @@ public class BTree
             return this;
         }
 
-        public Object[] build()
+        public Iterator<V> iterator()
         {
             if (auto)
                 autoEnforce();
-            return BTree.build(Arrays.asList(values).subList(0, count), UpdateFunction.noOp());
+            return new Iterator<V>()
+            {
+                int i = 0;
+                public boolean hasNext()
+                {
+                    return i < count;
+                }
+
+                public V next()
+                {
+                    return (V) values[i++];
+                }
+            };
+        }
+
+        public Object[] build()
+        {
+            return BTree.build(this, UpdateFunction.noOp());
         }
     }
 

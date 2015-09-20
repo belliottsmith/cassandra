@@ -202,7 +202,7 @@ public abstract class UnfilteredDeserializer
             }
             else
             {
-                UnfilteredSerializer.serializer.skipRowBody(in, header, nextFlags, nextExtendedFlags);
+                UnfilteredSerializer.serializer.skipRowBody(in, header, helper, nextFlags, nextExtendedFlags);
             }
         }
 

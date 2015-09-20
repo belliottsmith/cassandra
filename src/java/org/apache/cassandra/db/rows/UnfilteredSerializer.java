@@ -365,7 +365,7 @@ public class UnfilteredSerializer
             builder.addPrimaryKeyLivenessInfo(rowLiveness);
             builder.addRowDeletion(hasDeletion ? new Row.Deletion(header.readDeletionTime(in), deletionIsShadowable) : Row.Deletion.LIVE);
 
-            Columns columns = hasAllColumns ? headerColumns : Columns.serializer.deserializeSubset(headerColumns, in);
+            Iterable<ColumnDefinition> columns = hasAllColumns ? headerColumns : Columns.serializer.deserializeSubset(headerColumns, in, helper);
             for (ColumnDefinition column : columns)
             {
                 if (column.isSimple())
@@ -430,7 +430,7 @@ public class UnfilteredSerializer
         }
     }
 
-    public void skipRowBody(DataInputPlus in, SerializationHeader header, int flags, int extendedFlags) throws IOException
+    public void skipRowBody(DataInputPlus in, SerializationHeader header, SerializationHelper helper, int flags, int extendedFlags) throws IOException
     {
         boolean isStatic = isStatic(extendedFlags);
         boolean hasComplexDeletion = (flags & HAS_COMPLEX_DELETION) != 0;
@@ -443,7 +443,7 @@ public class UnfilteredSerializer
         vints += Integer.bitCount(flags & (HAS_TTL | HAS_DELETION)) << 1;
         in.skipVInts(vints);
 
-        Columns columns = hasAllColumns ? headerColumns : Columns.serializer.deserializeSubset(headerColumns, in);
+        Iterable<ColumnDefinition> columns = hasAllColumns ? headerColumns : Columns.serializer.deserializeSubset(headerColumns, in, helper);
         for (ColumnDefinition column : columns)
         {
             if (column.isSimple())
@@ -459,7 +459,7 @@ public class UnfilteredSerializer
         assert !isEndOfPartition(flags) && kind(flags) == Unfiltered.Kind.ROW && isExtended(flags) : "Flags is " + flags;
         int extendedFlags = in.readUnsignedByte();
         assert isStatic(extendedFlags);
-        skipRowBody(in, header, flags, extendedFlags);
+        skipRowBody(in, header, helper, flags, extendedFlags);
     }
 
     public void skipMarkerBody(DataInputPlus in, SerializationHeader header, boolean isBoundary) throws IOException
