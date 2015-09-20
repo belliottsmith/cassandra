@@ -43,6 +43,13 @@ public interface DataInputPlus extends DataInput
         return VIntCoding.readUnsignedVInt(this);
     }
 
+    default void skipVInts(int count) throws IOException
+    {
+        // vints and unsigned vints are the same from the perspective of skipping
+        while (count-- > 0)
+            readUnsignedVInt();
+    }
+
     /**
      * Always skips the requested number of bytes, unless EOF is reached
      *

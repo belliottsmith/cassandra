@@ -433,24 +433,15 @@ public class UnfilteredSerializer
     public void skipRowBody(DataInputPlus in, SerializationHeader header, int flags, int extendedFlags) throws IOException
     {
         boolean isStatic = isStatic(extendedFlags);
-        boolean hasTimestamp = (flags & HAS_TIMESTAMP) != 0;
-        boolean hasTTL = (flags & HAS_TTL) != 0;
-        boolean hasDeletion = (flags & HAS_DELETION) != 0;
         boolean hasComplexDeletion = (flags & HAS_COMPLEX_DELETION) != 0;
         boolean hasAllColumns = (flags & HAS_ALL_COLUMNS) != 0;
         Columns headerColumns = header.columns(isStatic);
 
-        // Note that we don't want want to use FileUtils.skipBytesFully for anything that may not have
-        // the size we think due to VINT encoding
-        if (hasTimestamp)
-            header.skipTimestamp(in);
-        if (hasTTL)
-        {
-            header.skipLocalDeletionTime(in);
-            header.skipTTL(in);
-        }
-        if (hasDeletion)
-            header.skipDeletionTime(in);
+        // a timestamp is a single vint
+        int vints = Integer.bitCount(flags & HAS_TIMESTAMP);
+        // ttl and deletion time are each two vints
+        vints += Integer.bitCount(flags & (HAS_TTL | HAS_DELETION)) << 1;
+        in.skipVInts(vints);
 
         Columns columns = hasAllColumns ? headerColumns : Columns.serializer.deserializeSubset(headerColumns, in);
         for (ColumnDefinition column : columns)
