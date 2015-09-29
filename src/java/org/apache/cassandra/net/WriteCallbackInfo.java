@@ -60,19 +60,12 @@ public class WriteCallbackInfo extends CallbackInfo
                                         : (Mutation) object;
     }
 
-    private static Object saveMutation(MessageOut sentMessage)
-    {
-        return sentMessage.verb == MessagingService.Verb.PAXOS_COMMIT
-               ? sentMessage
-               : (Mutation) sentMessage.payload;
-    }
-
     private static Object shouldHint(boolean allowHints, MessageOut sentMessage, ConsistencyLevel consistencyLevel)
     {
         return allowHints
                && sentMessage.verb != MessagingService.Verb.COUNTER_MUTATION
                && consistencyLevel != ConsistencyLevel.ANY
-               ? saveMutation(sentMessage) : null;
+               ? sentMessage.payload : null;
     }
 
 }
