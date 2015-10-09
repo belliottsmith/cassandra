@@ -34,13 +34,13 @@ public class MappedFileDataInputTest
     {
         MappedFileDataInput bbdi = new MappedFileDataInput((MappedByteBuffer) ByteBuffer.allocateDirect(100), "", 15, 1);
         Assert.assertEquals(99, bbdi.bytesRemaining());
-        Assert.assertEquals(16, bbdi.getPosition());
+//        Assert.assertEquals(16, bbdi.getPosition());
         Assert.assertEquals(16, bbdi.getFilePointer());
 //        Assert.assertTrue(bbdi.markSupported());
         FileMark mark = bbdi.mark();
         bbdi.seek(115);
         Assert.assertEquals(115, bbdi.getFilePointer());
-        Assert.assertEquals(115, bbdi.getPosition());
+//        Assert.assertEquals(115, bbdi.getPosition());
         Assert.assertEquals(99, bbdi.bytesPastMark(mark));
         Assert.assertTrue(bbdi.isEOF());
         bbdi.seek(15);
