@@ -20,20 +20,20 @@ package org.apache.cassandra.io.util;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 
 import org.junit.Test;
 
 import junit.framework.Assert;
 
-public class ByteBufferDataInputTest
+public class MappedFileDataInputTest
 {
 
     @Test
     public void testPositionAndSeek() throws IOException
     {
-        ByteBufferDataInput bbdi = new ByteBufferDataInput(ByteBuffer.allocate(100), "", 15, 1);
+        MappedFileDataInput bbdi = new MappedFileDataInput((MappedByteBuffer) ByteBuffer.allocateDirect(100), "", 15, 1);
         Assert.assertEquals(99, bbdi.bytesRemaining());
-        Assert.assertEquals(115, bbdi.getPositionLimit());
         Assert.assertEquals(16, bbdi.getPosition());
         Assert.assertEquals(16, bbdi.getFilePointer());
 //        Assert.assertTrue(bbdi.markSupported());
