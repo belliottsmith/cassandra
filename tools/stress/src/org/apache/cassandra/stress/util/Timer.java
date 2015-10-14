@@ -65,6 +65,7 @@ public final class Timer
     }
 
     public void start(){
+        maybeReport();
         // decide if we're logging this event
         sampleStartNanos = System.nanoTime();
     }
