@@ -20,6 +20,7 @@ package org.apache.cassandra.stress.util;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.SSLContext;
 
 import com.datastax.driver.core.*;
@@ -47,7 +48,8 @@ public class JavaDriverClient
 
     private final EncryptionOptions.ClientEncryptionOptions encryptionOptions;
     private Cluster cluster;
-    private Session session;
+    private final Session[] sessions;
+    private final AtomicInteger nextSession = new AtomicInteger();
     private final WhiteListPolicy whitelist;
 
     private static final ConcurrentMap<String, PreparedStatement> stmts = new ConcurrentHashMap<>();
@@ -69,6 +71,7 @@ public class JavaDriverClient
             whitelist = new WhiteListPolicy(new DCAwareRoundRobinPolicy(), settings.node.resolveAll(settings.port.nativePort));
         else
             whitelist = null;
+        this.sessions = new Session[settings.mode.sessions];
     }
 
     public PreparedStatement prepare(String query)
@@ -81,7 +84,8 @@ public class JavaDriverClient
             stmt = stmts.get(query);
             if (stmt != null)
                 return stmt;
-            stmt = getSession().prepare(query);
+            for (Session session : sessions)
+                stmt = session.prepare(query);
             stmts.put(query, stmt);
         }
         return stmt;
@@ -131,7 +135,8 @@ public class JavaDriverClient
                     host.getDatacenter(), host.getAddress(), host.getRack());
         }
 
-        session = cluster.connect();
+        for (int i = 0 ; i < sessions.length ; i++)
+            sessions[i] = cluster.connect();
     }
 
     public Cluster getCluster()
@@ -141,7 +146,7 @@ public class JavaDriverClient
 
     public Session getSession()
     {
-        return session;
+        return sessions[(nextSession.incrementAndGet() & Integer.MAX_VALUE) % sessions.length];
     }
 
     public ResultSet execute(String query, org.apache.cassandra.db.ConsistencyLevel consistency)

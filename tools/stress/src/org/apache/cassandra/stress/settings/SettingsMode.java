@@ -37,6 +37,7 @@ public class SettingsMode implements Serializable
     public final ConnectionStyle style;
     public final CqlVersion cqlVersion;
 
+    public final int sessions;
     public final String username;
     public final String password;
     public final String authProviderClassname;
@@ -56,6 +57,7 @@ public class SettingsMode implements Serializable
             username = opts.user.value();
             password = opts.password.value();
             authProviderClassname = opts.authProvider.value();
+            sessions = Integer.parseInt(opts.sessions.value());
             if (authProviderClassname != null)
             {
                 try
@@ -94,6 +96,7 @@ public class SettingsMode implements Serializable
             password = null;
             authProvider = null;
             authProviderClassname = null;
+            sessions = 0;
         }
         else if (options instanceof ThriftOptions)
         {
@@ -106,6 +109,7 @@ public class SettingsMode implements Serializable
             password = opts.password.value();
             authProviderClassname = null;
             authProvider = null;
+            sessions = 0;
         }
         else
             throw new IllegalStateException();
@@ -145,12 +149,13 @@ public class SettingsMode implements Serializable
         final OptionSimple user = new OptionSimple("user=", ".+", null, "username", false);
         final OptionSimple password = new OptionSimple("password=", ".+", null, "password", false);
         final OptionSimple authProvider = new OptionSimple("auth-provider=", ".*", null, "Fully qualified implementation of com.datastax.driver.core.AuthProvider", false);
+        final OptionSimple sessions = new OptionSimple("sessions=", "[0-9]+", "1", "Number of CQL sessions to have open", false);
 
         abstract OptionSimple mode();
         @Override
         public List<? extends Option> options()
         {
-            return Arrays.asList(mode(), useUnPrepared, api, useCompression, port, user, password, authProvider);
+            return Arrays.asList(mode(), sessions, useUnPrepared, api, useCompression, port, user, password, authProvider);
         }
     }
 
