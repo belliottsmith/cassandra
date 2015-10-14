@@ -149,6 +149,12 @@ public class JavaDriverClient
         return sessions[(nextSession.incrementAndGet() & Integer.MAX_VALUE) % sessions.length];
     }
 
+    public void use(String keyspace)
+    {
+        for (Session session : sessions)
+            session.execute("use " + keyspace);
+    }
+
     public ResultSet execute(String query, org.apache.cassandra.db.ConsistencyLevel consistency)
     {
         Session session = getSession();

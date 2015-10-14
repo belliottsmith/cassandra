@@ -172,7 +172,7 @@ public class StressProfile implements Serializable
             }
         }
 
-        client.execute("use " + keyspaceName, org.apache.cassandra.db.ConsistencyLevel.ONE);
+        client.use(keyspaceName);
 
         if (tableCql != null)
         {
