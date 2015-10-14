@@ -151,14 +151,14 @@ public class JavaDriverClient
 
     public ResultSet execute(String query, org.apache.cassandra.db.ConsistencyLevel consistency)
     {
-        SimpleStatement stmt = getSession().newSimpleStatement(query);
+        Session session = getSession();
+        SimpleStatement stmt = session.newSimpleStatement(query);
         stmt.setConsistencyLevel(from(consistency));
-        return getSession().execute(stmt);
+        return session.execute(stmt);
     }
 
     public ResultSet executePrepared(PreparedStatement stmt, List<Object> queryParams, org.apache.cassandra.db.ConsistencyLevel consistency)
     {
-
         stmt.setConsistencyLevel(from(consistency));
         BoundStatement bstmt = stmt.bind((Object[]) queryParams.toArray(new Object[queryParams.size()]));
         return getSession().execute(bstmt);
