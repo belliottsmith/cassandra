@@ -59,7 +59,7 @@ public class CqlReader extends CqlOperation<ByteBuffer[][]>
             }
         }
 
-        query.append(" FROM ").append(wrapInQuotes(settings.schema.keyspace + "." + type.table));
+        query.append(" FROM ").append(wrapInQuotes(settings.schema.keyspace)).append(".").append(wrapInQuotes(type.table));
         query.append(" WHERE KEY=?");
         return query.toString();
     }
