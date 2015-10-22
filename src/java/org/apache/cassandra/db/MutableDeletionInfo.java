@@ -22,6 +22,7 @@ import java.util.Iterator;
 import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.utils.ObjectSizes;
@@ -114,7 +115,7 @@ public class MutableDeletionInfo implements DeletionInfo
     public void add(RangeTombstone tombstone, ClusteringComparator comparator)
     {
         if (ranges == null)
-            ranges = new RangeTombstoneList(comparator, 1);
+            ranges = new RangeTombstoneList(comparator, DatabaseDescriptor.getInitialRangeTombstoneAllocationSize());
 
         ranges.add(tombstone);
     }

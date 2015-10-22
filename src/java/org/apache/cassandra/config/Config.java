@@ -324,6 +324,9 @@ public class Config
      */
     public UserFunctionTimeoutPolicy user_function_timeout_policy = UserFunctionTimeoutPolicy.die;
 
+    public volatile int initial_range_tombstone_allocation_size = 64;
+    public volatile double range_tombstone_resize_factor = 2.0;
+
     public static boolean getOutboundBindAny()
     {
         return outboundBindAny;
