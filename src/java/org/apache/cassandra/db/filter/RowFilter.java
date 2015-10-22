@@ -22,7 +22,6 @@ import java.nio.ByteBuffer;
 import java.util.*;
 
 import com.google.common.base.Objects;
-import org.apache.commons.lang3.builder.ToStringBuilder;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
@@ -31,6 +30,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -222,13 +222,13 @@ public abstract class RowFilter implements Iterable<RowFilter.Expression>
             if (expressions.isEmpty())
                 return iter;
 
-            class IsSatisfiedFilter extends Transformer.Transformation<UnfilteredRowIterator>
+            class IsSatisfiedFilter extends Transformation<UnfilteredRowIterator>
             {
                 DecoratedKey pk;
                 public UnfilteredRowIterator applyToPartition(UnfilteredRowIterator partition)
                 {
                     pk = partition.partitionKey();
-                    return Transformer.apply(partition, this);
+                    return Transformation.apply(partition, this);
                 }
 
                 public Row applyToRow(Row row)
@@ -244,7 +244,7 @@ public abstract class RowFilter implements Iterable<RowFilter.Expression>
                 }
             }
 
-            return Transformer.apply(iter, new IsSatisfiedFilter());
+            return Transformation.apply(iter, new IsSatisfiedFilter());
         }
 
         protected RowFilter withNewExpressions(List<Expression> expressions)
@@ -265,7 +265,7 @@ public abstract class RowFilter implements Iterable<RowFilter.Expression>
             if (expressions.isEmpty())
                 return iter;
 
-            class IsSatisfiedThriftFilter extends Transformer.Transformation<UnfilteredRowIterator>
+            class IsSatisfiedThriftFilter extends Transformation<UnfilteredRowIterator>
             {
                 @Override
                 public UnfilteredRowIterator applyToPartition(UnfilteredRowIterator iter)
@@ -289,7 +289,7 @@ public abstract class RowFilter implements Iterable<RowFilter.Expression>
                     return result.unfilteredIterator();
                 }
             }
-            return Transformer.apply(iter, new IsSatisfiedThriftFilter());
+            return Transformation.apply(iter, new IsSatisfiedThriftFilter());
         }
 
         protected RowFilter withNewExpressions(List<Expression> expressions)

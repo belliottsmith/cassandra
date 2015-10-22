@@ -20,12 +20,14 @@ package org.apache.cassandra.db.rows;
 import java.util.*;
 import java.security.MessageDigest;
 
-import org.apache.commons.collections.iterators.EmptyIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.transform.FilteredRows;
+import org.apache.cassandra.db.transform.MoreRows;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.serializers.MarshalException;
@@ -63,7 +65,7 @@ public abstract class UnfilteredRowIterators
      */
     public static RowIterator filter(UnfilteredRowIterator iter, int nowInSec)
     {
-        return Transformer.filter(iter, nowInSec);
+        return FilteredRows.filter(iter, nowInSec);
     }
 
     /**
@@ -140,7 +142,7 @@ public abstract class UnfilteredRowIterators
             && iter1.columns().equals(iter2.columns())
             && iter1.staticRow().equals(iter2.staticRow());
 
-        class Extend implements Transformer.MoreRows<UnfilteredRowIterator>
+        class Extend implements MoreRows<UnfilteredRowIterator>
         {
             boolean returned = false;
             public UnfilteredRowIterator moreContents()
@@ -152,12 +154,12 @@ public abstract class UnfilteredRowIterators
             }
         }
 
-        return Transformer.extend(iter1, new Extend());
+        return MoreRows.extend(iter1, new Extend());
     }
 
     public static UnfilteredRowIterator cloningIterator(UnfilteredRowIterator iterator, final AbstractAllocator allocator)
     {
-        class Cloner extends Transformer.Transformation
+        class Cloner extends Transformation
         {
             private final Row.Builder builder = allocator.cloningBTreeRowBuilder();
 
@@ -178,7 +180,7 @@ public abstract class UnfilteredRowIterators
                 return marker.copy(allocator);
             }
         }
-        return Transformer.apply(iterator, new Cloner());
+        return Transformation.apply(iterator, new Cloner());
     }
 
     /**
@@ -196,7 +198,7 @@ public abstract class UnfilteredRowIterators
      */
     public static UnfilteredRowIterator withValidation(UnfilteredRowIterator iterator, final String filename)
     {
-        class Validator extends Transformer.Transformation
+        class Validator extends Transformation
         {
             @Override
             public Row applyToStatic(Row row)
@@ -231,7 +233,7 @@ public abstract class UnfilteredRowIterators
                 }
             }
         }
-        return Transformer.apply(iterator, new Validator());
+        return Transformation.apply(iterator, new Validator());
     }
 
     /**
@@ -251,7 +253,7 @@ public abstract class UnfilteredRowIterators
                     iterator.isReverseOrder(),
                     iterator.partitionLevelDeletion().markedForDeleteAt());
 
-        class Logger extends Transformer.Transformation
+        class Logger extends Transformation
         {
             @Override
             public Row applyToStatic(Row row)
@@ -275,7 +277,7 @@ public abstract class UnfilteredRowIterators
                 return marker;
             }
         }
-        return Transformer.apply(iterator, new Logger());
+        return Transformation.apply(iterator, new Logger());
     }
 
     /**

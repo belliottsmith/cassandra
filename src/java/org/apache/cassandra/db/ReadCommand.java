@@ -30,6 +30,7 @@ import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.io.IVersionedSerializer;
@@ -383,7 +384,7 @@ public abstract class ReadCommand implements ReadQuery
      */
     private UnfilteredPartitionIterator withMetricsRecording(UnfilteredPartitionIterator iter, final TableMetrics metric, final long startTimeNanos)
     {
-        class MetricRecording extends Transformer.Transformation<UnfilteredRowIterator>
+        class MetricRecording extends Transformation<UnfilteredRowIterator>
         {
             private final int failureThreshold = DatabaseDescriptor.getTombstoneFailureThreshold();
             private final int warningThreshold = DatabaseDescriptor.getTombstoneWarnThreshold();
@@ -399,7 +400,7 @@ public abstract class ReadCommand implements ReadQuery
             public UnfilteredRowIterator applyToPartition(UnfilteredRowIterator iter)
             {
                 currentKey = iter.partitionKey();
-                return Transformer.apply(iter, this);
+                return Transformation.apply(iter, this);
             }
 
             @Override
@@ -460,7 +461,7 @@ public abstract class ReadCommand implements ReadQuery
             }
         };
 
-        return Transformer.apply(iter, new MetricRecording());
+        return Transformation.apply(iter, new MetricRecording());
     }
 
     /**
@@ -475,11 +476,12 @@ public abstract class ReadCommand implements ReadQuery
     // are to some extend an artefact of compaction lagging behind and hence counting them is somewhat unintuitive).
     protected UnfilteredPartitionIterator withoutPurgeableTombstones(UnfilteredPartitionIterator iterator, ColumnFamilyStore cfs)
     {
+        final boolean isForThrift = iterator.isForThrift();
         class WithoutPurgeableTombstones extends PurgeFunction
         {
             public WithoutPurgeableTombstones()
             {
-                super(iterator.isForThrift(), cfs.gcBefore(nowInSec()), oldestUnrepairedTombstone(), cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones());
+                super(isForThrift, cfs.gcBefore(nowInSec()), oldestUnrepairedTombstone(), cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones());
             }
 
             protected long getMaxPurgeableTimestamp()
@@ -487,7 +489,7 @@ public abstract class ReadCommand implements ReadQuery
                 return Long.MAX_VALUE;
             }
         }
-        return Transformer.apply(iterator, new WithoutPurgeableTombstones());
+        return Transformation.apply(iterator, new WithoutPurgeableTombstones());
     }
 
     /**

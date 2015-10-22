@@ -21,7 +21,8 @@ import java.util.*;
 import java.security.MessageDigest;
 
 import org.apache.cassandra.db.EmptyIterators;
-import org.apache.cassandra.db.Transformer;
+import org.apache.cassandra.db.transform.MorePartitions;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.utils.AbstractIterator;
 
 import org.apache.cassandra.db.SinglePartitionReadCommand;
@@ -44,7 +45,7 @@ public abstract class PartitionIterators
 
         // Note that in general, we should wrap the result so that it's close method actually
         // close the whole PartitionIterator.
-        class Close extends Transformer.Transformation
+        class Close extends Transformation
         {
             public void onPartitionClose()
             {
@@ -55,7 +56,7 @@ public abstract class PartitionIterators
                 assert !hadNext;
             }
         }
-        return Transformer.apply(toReturn, new Close());
+        return Transformation.apply(toReturn, new Close());
     }
 
     @SuppressWarnings("resource") // The created resources are returned right away
@@ -64,7 +65,7 @@ public abstract class PartitionIterators
         if (iterators.size() == 1)
             return iterators.get(0);
 
-        class Extend implements Transformer.MorePartitions<PartitionIterator>
+        class Extend implements MorePartitions<PartitionIterator>
         {
             int i = 1;
             public PartitionIterator moreContents()
@@ -74,7 +75,7 @@ public abstract class PartitionIterators
                 return iterators.get(i++);
             }
         }
-        return Transformer.extend(iterators.get(0), new Extend());
+        return MorePartitions.extend(iterators.get(0), new Extend());
     }
 
     public static void digest(PartitionIterator iterator, MessageDigest digest)
@@ -114,14 +115,14 @@ public abstract class PartitionIterators
     @SuppressWarnings("resource") // The created resources are returned right away
     public static PartitionIterator loggingIterator(PartitionIterator iterator, final String id)
     {
-        class Logger extends Transformer.Transformation<RowIterator>
+        class Logger extends Transformation<RowIterator>
         {
             public RowIterator applyToPartition(RowIterator partition)
             {
                 return RowIterators.loggingIterator(partition, id);
             }
         }
-        return Transformer.apply(iterator, new Logger());
+        return Transformation.apply(iterator, new Logger());
     }
 
     private static class SingletonPartitionIterator extends AbstractIterator<RowIterator> implements PartitionIterator

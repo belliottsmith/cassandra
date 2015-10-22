@@ -31,6 +31,8 @@ import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.db.transform.MoreRows;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.tracing.Tracing;
@@ -84,7 +86,7 @@ public class DataResolver extends ResponseResolver
         if (!command.limits().isUnlimited())
         {
             for (int i = 0; i < results.size(); i++)
-                results.set(i, Transformer.apply(results.get(i), new ShortReadProtection(sources[i], resultCounter)));
+                results.set(i, Transformation.apply(results.get(i), new ShortReadProtection(sources[i], resultCounter)));
         }
 
         return UnfilteredPartitionIterators.mergeAndFilter(results, command.nowInSec(), listener);
@@ -282,7 +284,7 @@ public class DataResolver extends ResponseResolver
         }
     }
 
-    private class ShortReadProtection extends Transformer.Transformation<UnfilteredRowIterator>
+    private class ShortReadProtection extends Transformation<UnfilteredRowIterator>
     {
         private final InetAddress source;
         private final DataLimits.Counter counter;
@@ -298,15 +300,15 @@ public class DataResolver extends ResponseResolver
         @Override
         public UnfilteredRowIterator applyToPartition(UnfilteredRowIterator partition)
         {
-            partition = Transformer.apply(partition, counter);
+            partition = Transformation.apply(partition, counter);
             // must apply and extend with same protection instance
             ShortReadRowProtection protection = new ShortReadRowProtection(partition.metadata(), partition.partitionKey());
-            partition = Transformer.extend(partition, protection);
-            partition = Transformer.apply(partition, protection); // apply after, so it is retained when we extend (in case we need to reextend)
+            partition = MoreRows.extend(partition, protection);
+            partition = Transformation.apply(partition, protection); // apply after, so it is retained when we extend (in case we need to reextend)
             return partition;
         }
 
-        private class ShortReadRowProtection extends Transformer.Transformation implements Transformer.MoreRows<UnfilteredRowIterator>
+        private class ShortReadRowProtection extends Transformation implements MoreRows<UnfilteredRowIterator>
         {
             final CFMetaData metadata;
             final DecoratedKey partitionKey;
@@ -376,7 +378,7 @@ public class DataResolver extends ResponseResolver
                 DataResolver resolver = new DataResolver(keyspace, retryCommand, ConsistencyLevel.ONE, 1);
                 ReadCallback handler = new ReadCallback(resolver, ConsistencyLevel.ONE, retryCommand, Collections.singletonList(source));
                 if (StorageProxy.canDoLocalRequest(source))
-                    StageManager.getStage(Stage.READ).maybeExecuteImmediately(new StorageProxy.LocalReadRunnable(retryCommand, handler));
+                      StageManager.getStage(Stage.READ).maybeExecuteImmediately(new StorageProxy.LocalReadRunnable(retryCommand, handler));
                 else
                     MessagingService.instance().sendRRWithFailure(retryCommand.createMessage(MessagingService.current_version), source, handler);
 

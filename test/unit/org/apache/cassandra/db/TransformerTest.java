@@ -21,16 +21,17 @@ package org.apache.cassandra.db;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.log4j.helpers.Transform;
 import org.junit.Test;
 
-import com.sun.rowset.internal.BaseRow;
 import junit.framework.Assert;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.db.transform.FilteredRows;
+import org.apache.cassandra.db.transform.MoreRows;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -149,14 +150,14 @@ public class TransformerTest
 
     // Transformations that check mock data ranges
 
-    private static Transformer.Transformation expect(int from, int to, List<Check> checks)
+    private static Transformation expect(int from, int to, List<Check> checks)
     {
         Expect expect = new Expect(from, to);
         checks.add(expect);
         return expect;
     }
 
-    abstract static class Check extends Transformer.Transformation
+    abstract static class Check extends Transformation
     {
         public abstract void check();
     }
@@ -204,12 +205,12 @@ public class TransformerTest
         switch (filter)
         {
             case INIT:
-                return Transformer.apply(EmptyIterators.row(metadata, partitionKey, false), expect(0, 0, checks));
+                return Transformation.apply(EmptyIterators.row(metadata, partitionKey, false), expect(0, 0, checks));
             case APPLY_INNER:
-                return Transformer.apply(Transformer.filter(Transformer.apply(EmptyIterators.unfilteredRow(metadata, partitionKey, false), expect(0, 0, checks)), Integer.MAX_VALUE), expect(0, 0, checks));
+                return Transformation.apply(FilteredRows.filter(Transformation.apply(EmptyIterators.unfilteredRow(metadata, partitionKey, false), expect(0, 0, checks)), Integer.MAX_VALUE), expect(0, 0, checks));
             case APPLY_OUTER:
             case NONE:
-                return Transformer.apply(EmptyIterators.unfilteredRow(metadata, partitionKey, false), expect(0, 0, checks));
+                return Transformation.apply(EmptyIterators.unfilteredRow(metadata, partitionKey, false), expect(0, 0, checks));
             default:
                 throw new IllegalStateException();
         }
@@ -220,12 +221,12 @@ public class TransformerTest
         switch (filter)
         {
             case INIT:
-                return Transformer.apply(filtered(i), expect(i, i + 1, checks));
+                return Transformation.apply(filtered(i), expect(i, i + 1, checks));
             case APPLY_INNER:
-                return Transformer.filter(Transformer.apply(unfiltered(i), expect(i, i + 1, checks)), Integer.MAX_VALUE);
+                return FilteredRows.filter(Transformation.apply(unfiltered(i), expect(i, i + 1, checks)), Integer.MAX_VALUE);
             case APPLY_OUTER:
             case NONE:
-                return Transformer.apply(unfiltered(i), expect(i, i + 1, checks));
+                return Transformation.apply(unfiltered(i), expect(i, i + 1, checks));
             default:
                 throw new IllegalStateException();
         }
@@ -233,7 +234,7 @@ public class TransformerTest
 
     private static BaseRowIterator<?> extendingIterator(int count, Filter filter, List<Check> checks)
     {
-        class RefillNested extends Expect implements Transformer.MoreRows<BaseRowIterator<?>>
+        class RefillNested extends Expect implements MoreRows<BaseRowIterator<?>>
         {
             boolean returnedEmpty, returnedSingleton, returnedNested;
             RefillNested(int from)
@@ -278,9 +279,9 @@ public class TransformerTest
             BaseRowIterator<?> applyTo(BaseRowIterator<?> iter)
             {
                 if (iter instanceof UnfilteredRowIterator)
-                    return Transformer.apply(Transformer.extend((UnfilteredRowIterator) iter, this), this);
+                    return Transformation.apply(MoreRows.extend((UnfilteredRowIterator) iter, this), this);
                 else
-                    return Transformer.apply(Transformer.extend((RowIterator) iter, this), this);
+                    return Transformation.apply(MoreRows.extend((RowIterator) iter, this), this);
             }
         }
 
@@ -291,7 +292,7 @@ public class TransformerTest
         switch (filter)
         {
             case APPLY_OUTER:
-                return Transformer.filter((UnfilteredRowIterator) refill.applyTo(iter), Integer.MAX_VALUE);
+                return FilteredRows.filter((UnfilteredRowIterator) refill.applyTo(iter), Integer.MAX_VALUE);
             case APPLY_INNER:
             case INIT:
             case NONE:

@@ -31,6 +31,7 @@ import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.index.internal.CassandraIndex;
 import org.apache.cassandra.index.internal.CassandraIndexSearcher;
 import org.apache.cassandra.index.internal.IndexEntry;
@@ -204,7 +205,7 @@ public class CompositesSearcher extends CassandraIndexSearcher
         }
 
         ClusteringComparator comparator = dataIter.metadata().comparator;
-        class Transform extends Transformer.Transformation
+        class Transform extends Transformation
         {
             private int entriesIdx;
 
@@ -247,6 +248,6 @@ public class CompositesSearcher extends CassandraIndexSearcher
             }
         }
 
-        return Transformer.apply(dataIter, new Transform());
+        return Transformation.apply(dataIter, new Transform());
     }
 }

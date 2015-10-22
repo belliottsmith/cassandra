@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.utils.AbstractIterator;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
@@ -59,7 +60,7 @@ import org.apache.cassandra.db.partitions.*;
  *                 "c5": { value : 4 }
  *                 "c7": { value : 1 }
  */
-public class ThriftResultsMerger extends Transformer.Transformation<UnfilteredRowIterator>
+public class ThriftResultsMerger extends Transformation<UnfilteredRowIterator>
 {
     private final int nowInSec;
 
@@ -73,7 +74,7 @@ public class ThriftResultsMerger extends Transformer.Transformation<UnfilteredRo
         if (!metadata.isStaticCompactTable() && !metadata.isSuper())
             return iterator;
 
-        return Transformer.apply(iterator, new ThriftResultsMerger(nowInSec));
+        return Transformation.apply(iterator, new ThriftResultsMerger(nowInSec));
     }
 
     public static UnfilteredRowIterator maybeWrap(UnfilteredRowIterator iterator, int nowInSec)
@@ -82,7 +83,7 @@ public class ThriftResultsMerger extends Transformer.Transformation<UnfilteredRo
             return iterator;
 
         return iterator.metadata().isSuper()
-             ? Transformer.apply(iterator, new SuperColumnsPartitionMerger(iterator, nowInSec))
+             ? Transformation.apply(iterator, new SuperColumnsPartitionMerger(iterator, nowInSec))
              : new PartitionMerger(iterator, nowInSec);
     }
 
@@ -90,7 +91,7 @@ public class ThriftResultsMerger extends Transformer.Transformation<UnfilteredRo
     public UnfilteredRowIterator applyToPartition(UnfilteredRowIterator iter)
     {
         return iter.metadata().isSuper()
-             ? Transformer.apply(iter, new SuperColumnsPartitionMerger(iter, nowInSec))
+             ? Transformation.apply(iter, new SuperColumnsPartitionMerger(iter, nowInSec))
              : new PartitionMerger(iter, nowInSec);
     }
 
@@ -204,7 +205,7 @@ public class ThriftResultsMerger extends Transformer.Transformation<UnfilteredRo
         }
     }
 
-    private static class SuperColumnsPartitionMerger extends Transformer.Transformation
+    private static class SuperColumnsPartitionMerger extends Transformation
     {
         private final int nowInSec;
         private final Row.Builder builder;

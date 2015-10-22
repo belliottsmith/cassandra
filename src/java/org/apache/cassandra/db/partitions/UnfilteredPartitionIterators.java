@@ -26,6 +26,8 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.db.transform.FilteredPartitions;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.MessagingService;
@@ -61,7 +63,7 @@ public abstract class UnfilteredPartitionIterators
 
         // Note that in general, we should wrap the result so that it's close method actually
         // close the whole UnfilteredPartitionIterator.
-        class Close extends Transformer.Transformation
+        class Close extends Transformation
         {
             public void onPartitionClose()
             {
@@ -72,7 +74,7 @@ public abstract class UnfilteredPartitionIterators
                 assert !hadNext;
             }
         }
-        return Transformer.apply(toReturn, new Close());
+        return Transformation.apply(toReturn, new Close());
     }
 
     public static PartitionIterator mergeAndFilter(List<UnfilteredPartitionIterator> iterators, int nowInSec, MergeListener listener)
@@ -83,7 +85,7 @@ public abstract class UnfilteredPartitionIterators
 
     public static PartitionIterator filter(final UnfilteredPartitionIterator iterator, final int nowInSec)
     {
-        return Transformer.filter(iterator, nowInSec);
+        return FilteredPartitions.filter(iterator, nowInSec);
     }
 
     public static UnfilteredPartitionIterator merge(final List<? extends UnfilteredPartitionIterator> iterators, final int nowInSec, final MergeListener listener)
@@ -267,14 +269,14 @@ public abstract class UnfilteredPartitionIterators
      */
     public static UnfilteredPartitionIterator loggingIterator(UnfilteredPartitionIterator iterator, final String id, final boolean fullDetails)
     {
-        class Logging extends Transformer.Transformation<UnfilteredRowIterator>
+        class Logging extends Transformation<UnfilteredRowIterator>
         {
             public UnfilteredRowIterator applyToPartition(UnfilteredRowIterator partition)
             {
                 return UnfilteredRowIterators.loggingIterator(partition, id, fullDetails);
             }
         }
-        return Transformer.apply(iterator, new Logging());
+        return Transformation.apply(iterator, new Logging());
     }
 
     /**

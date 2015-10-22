@@ -19,8 +19,9 @@ package org.apache.cassandra.db.partitions;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.db.transform.Transformation;
 
-public abstract class PurgeFunction extends Transformer.Transformation<UnfilteredRowIterator>
+public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator>
 {
     private final boolean isForThrift;
     private final DeletionPurger purger;
@@ -59,7 +60,7 @@ public abstract class PurgeFunction extends Transformer.Transformation<Unfiltere
         onNewPartition(partition.partitionKey());
 
         isReverseOrder = partition.isReverseOrder();
-        UnfilteredRowIterator purged = Transformer.apply(partition, this);
+        UnfilteredRowIterator purged = Transformation.apply(partition, this);
         if (!isForThrift && purged.isEmpty())
         {
             onEmptyPartitionPostPurge(purged.partitionKey());

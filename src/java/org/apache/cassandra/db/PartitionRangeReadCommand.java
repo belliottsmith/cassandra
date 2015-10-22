@@ -31,7 +31,7 @@ import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.BaseRowIterator;
-import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.index.Index;
@@ -227,7 +227,7 @@ public class PartitionRangeReadCommand extends ReadCommand
 
     private UnfilteredPartitionIterator checkCacheFilter(UnfilteredPartitionIterator iter, final ColumnFamilyStore cfs)
     {
-        class CacheFilter extends Transformer.Transformation
+        class CacheFilter extends Transformation
         {
             @Override
             public BaseRowIterator applyToPartition(BaseRowIterator iter)
@@ -251,7 +251,7 @@ public class PartitionRangeReadCommand extends ReadCommand
                 return iter;
             }
         }
-        return Transformer.apply(iter, new CacheFilter());
+        return Transformation.apply(iter, new CacheFilter());
     }
 
     public MessageOut<ReadCommand> createMessage(int version)

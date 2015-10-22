@@ -23,7 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.utils.FBUtilities;
 
 /**
@@ -64,7 +64,7 @@ public abstract class RowIterators
                     metadata.getKeyValidator().getString(iterator.partitionKey().getKey()),
                     iterator.isReverseOrder());
 
-        class Log extends Transformer.Transformation
+        class Log extends Transformation
         {
             @Override
             public Row applyToStatic(Row row)
@@ -81,6 +81,6 @@ public abstract class RowIterators
                 return row;
             }
         }
-        return Transformer.apply(iterator, new Log());
+        return Transformation.apply(iterator, new Log());
     }
 }

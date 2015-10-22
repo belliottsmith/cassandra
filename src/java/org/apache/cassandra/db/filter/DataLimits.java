@@ -23,6 +23,10 @@ import java.nio.ByteBuffer;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.partitions.*;
+import org.apache.cassandra.db.transform.BasePartitions;
+import org.apache.cassandra.db.transform.BaseRows;
+import org.apache.cassandra.db.transform.StoppingTransformation;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -144,7 +148,7 @@ public abstract class DataLimits
      */
     public abstract float estimateTotalResults(ColumnFamilyStore cfs);
 
-    public static abstract class Counter extends Transformer.StoppingTransformation<BaseRowIterator<?>>
+    public static abstract class Counter extends StoppingTransformation<BaseRowIterator<?>>
     {
         // false means we do not propagate our stop signals onto the iterator, we only count
         private boolean enforceLimits = true;
@@ -157,12 +161,12 @@ public abstract class DataLimits
 
         public PartitionIterator applyTo(PartitionIterator partitions)
         {
-            return Transformer.apply(partitions, this);
+            return Transformation.apply(partitions, this);
         }
 
         public UnfilteredPartitionIterator applyTo(UnfilteredPartitionIterator partitions)
         {
-            return Transformer.apply(partitions, this);
+            return Transformation.apply(partitions, this);
         }
 
         public UnfilteredRowIterator applyTo(UnfilteredRowIterator partition)
@@ -191,15 +195,15 @@ public abstract class DataLimits
         @Override
         protected BaseRowIterator<?> applyToPartition(BaseRowIterator<?> partition)
         {
-            return partition instanceof UnfilteredRowIterator ? Transformer.apply((UnfilteredRowIterator) partition, this)
-                                                              : Transformer.apply((RowIterator) partition, this);
+            return partition instanceof UnfilteredRowIterator ? Transformation.apply((UnfilteredRowIterator) partition, this)
+                                                              : Transformation.apply((RowIterator) partition, this);
         }
 
         // called before we process a given partition
         protected abstract void applyToPartition(DecoratedKey partitionKey, Row staticRow);
 
         @Override
-        protected void attachTo(Transformer.BasePartitions partitions)
+        protected void attachTo(BasePartitions partitions)
         {
             if (enforceLimits)
                 super.attachTo(partitions);
@@ -208,7 +212,7 @@ public abstract class DataLimits
         }
 
         @Override
-        protected void attachTo(Transformer.BaseRows rows)
+        protected void attachTo(BaseRows rows)
         {
             if (enforceLimits)
                 super.attachTo(rows);

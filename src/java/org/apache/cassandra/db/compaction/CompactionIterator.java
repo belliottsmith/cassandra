@@ -29,6 +29,7 @@ import org.apache.cassandra.db.partitions.PurgeFunction;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.index.transactions.CompactionTransaction;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.metrics.CompactionMetrics;
@@ -101,7 +102,8 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
         UnfilteredPartitionIterator merged = scanners.isEmpty()
                                              ? EmptyIterators.unfilteredPartition(controller.cfs.metadata, false)
                                              : UnfilteredPartitionIterators.merge(scanners, nowInSec, listener());
-        this.compacted = Transformer.apply(merged, new Purger(merged.isForThrift(), controller));
+        boolean isForThrift = merged.isForThrift(); // to stop capture of iterator in Purger, which is confusing for debug
+        this.compacted = Transformation.apply(merged, new Purger(isForThrift, controller));
     }
 
     public boolean isForThrift()

@@ -22,6 +22,7 @@ import java.util.Map;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
@@ -143,7 +144,7 @@ public class BigTableWriter extends SSTableWriter
 
         long startPosition = beforeAppend(key);
 
-        try (UnfilteredRowIterator collecting = Transformer.apply(iterator, new StatsCollector(metadataCollector)))
+        try (UnfilteredRowIterator collecting = Transformation.apply(iterator, new StatsCollector(metadataCollector)))
         {
             ColumnIndex index = ColumnIndex.writeAndBuildIndex(collecting, dataFile, header, descriptor.version);
 
@@ -171,7 +172,7 @@ public class BigTableWriter extends SSTableWriter
         }
     }
 
-    private static class StatsCollector extends Transformer.Transformation
+    private static class StatsCollector extends Transformation
     {
         private final MetadataCollector collector;
         private int cellCount;

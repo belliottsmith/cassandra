@@ -21,6 +21,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.filter.DataLimits;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.service.ClientState;
@@ -63,7 +64,7 @@ abstract class AbstractQueryPager implements QueryPager
 
         pageSize = Math.min(pageSize, remaining);
         Pager pager = new Pager(limits.forPaging(pageSize), command.nowInSec());
-        return Transformer.apply(nextPageReadCommand(pageSize).execute(consistency, clientState), pager);
+        return Transformation.apply(nextPageReadCommand(pageSize).execute(consistency, clientState), pager);
     }
 
     public PartitionIterator fetchPageInternal(int pageSize, ReadOrderGroup orderGroup) throws RequestValidationException, RequestExecutionException
@@ -73,10 +74,10 @@ abstract class AbstractQueryPager implements QueryPager
 
         pageSize = Math.min(pageSize, remaining);
         Pager pager = new Pager(limits.forPaging(pageSize), command.nowInSec());
-        return Transformer.apply(nextPageReadCommand(pageSize).executeInternal(orderGroup), pager);
+        return Transformation.apply(nextPageReadCommand(pageSize).executeInternal(orderGroup), pager);
     }
 
-    private class Pager extends Transformer.Transformation<RowIterator>
+    private class Pager extends Transformation<RowIterator>
     {
         private final DataLimits pageLimits;
         private final DataLimits.Counter counter;
@@ -112,7 +113,7 @@ abstract class AbstractQueryPager implements QueryPager
                 }
             }
 
-            return Transformer.apply(counter.applyTo(partition), this);
+            return Transformation.apply(counter.applyTo(partition), this);
         }
 
         @Override
