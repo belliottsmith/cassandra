@@ -122,6 +122,7 @@ public abstract class AbstractNativeCell extends AbstractCell implements CellNam
 
         MemoryUtil.setInt(peer, size);
         construct(copyOf);
+        nametype();
     }
 
     protected int sizeOf(Cell cell)
