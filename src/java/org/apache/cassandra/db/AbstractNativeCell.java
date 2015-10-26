@@ -201,7 +201,10 @@ public abstract class AbstractNativeCell extends AbstractCell implements CellNam
 
     NameType nametype()
     {
-        return NameType.TYPES[(((int) this.getByte(CELL_NAME_EXTRA_OFFSET)) >> CELL_NAME_TYPE_SHIFT) & CELL_NAME_TYPE_MASK];
+        int type = (((int) this.getByte(CELL_NAME_EXTRA_OFFSET)) >> CELL_NAME_TYPE_SHIFT) & CELL_NAME_TYPE_MASK;
+        if (type >= NameType.TYPES.length)
+            throw new IllegalStateException("Illegal value at " + CELL_NAME_EXTRA_OFFSET + ": " + this.getByte(CELL_NAME_EXTRA_OFFSET) + "; full contents: " + ByteBufferUtil.bytesToHex(this.getByteBuffer(0, 4 + (int) internalSize())));
+        return NameType.TYPES[type];
     }
 
     public long minTimestamp()
