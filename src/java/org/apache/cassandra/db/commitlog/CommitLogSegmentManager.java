@@ -66,14 +66,14 @@ public class CommitLogSegmentManager
         }
     }
 
-    // head <= flushing <= allocatingFrom <= tail
+    // head <= reclaiming <= allocatingFrom <= tail
 
     private Node head; // dummy head of the queue; [head.next..allocatingFrom) == active(false)
     private Node tail; // last segment in queue; either allocatingFrom, or our spare.
     private volatile Node allocatingFrom; // segment serving current allocations
 
-    private Node flushing; // most recent segment we have forced to flush to reclaim space, i.e. [head.next..flushing] are flushing
-    private long flushingSize;
+    private Node reclaiming; // most recent segment we have forced to flush to reclaim space, i.e. [head.next..reclaiming] are reclaiming
+    private long reclaimingSize;
 
     private static AtomicReferenceFieldUpdater<CommitLogSegmentManager, Node> allocatingFromUpdater = AtomicReferenceFieldUpdater.newUpdater(CommitLogSegmentManager.class, Node.class, "allocatingFrom");
 
@@ -145,9 +145,11 @@ public class CommitLogSegmentManager
         };
 
         head = new Node(new DummySegment(commitLog));
-        tail = allocatingFrom = flushing = head;
+        tail = allocatingFrom = reclaiming = head;
         managerThread = new Thread(runnable, "COMMIT-LOG-ALLOCATOR");
         managerThread.start();
+
+        // for simplicity, ensure the first segment is allocated before continuing
         advanceAllocatingFrom(head);
     }
 
@@ -166,11 +168,11 @@ public class CommitLogSegmentManager
 
     private synchronized boolean remove(CommitLogSegment remove)
     {
-        // we start wuth prev==cur==head, so that maintenance of flushing is simple
+        // we start wuth prev==cur==head, so that maintenance of reclaiming is simple
         Node prev = head, cur = prev;
         Node live = this.allocatingFrom;
 
-        // if we're in the set of flushing segments
+        // if we're in the set of reclaiming segments
         boolean isFlushing = true;
         while (cur != live)
         {
@@ -179,15 +181,15 @@ public class CommitLogSegmentManager
                 activeSize.addAndGet(-remove.onDiskSize());
                 if (isFlushing)
                 {
-                    flushingSize -= remove.onDiskSize();
-                    if (cur == flushing)
-                        flushing = prev;
+                    reclaimingSize -= remove.onDiskSize();
+                    if (cur == reclaiming)
+                        reclaiming = prev;
                 }
                 prev.next = cur.next;
                 return true;
             }
 
-            isFlushing &= cur != flushing;
+            isFlushing &= cur != reclaiming;
             prev = cur;
             cur = cur.next;
         }
@@ -197,14 +199,14 @@ public class CommitLogSegmentManager
     private synchronized void maybeFlushToReclaim()
     {
         long unused = unusedCapacity();
-        if (unused + flushingSize < 0)
+        if (unused + reclaimingSize < 0)
         {
             List<CommitLogSegment> segmentsToRecycle = new ArrayList<>();
-            Node cur = flushing.next;
-            while (unused + flushingSize < 0 && cur != allocatingFrom)
+            Node cur = reclaiming.next;
+            while (unused + reclaimingSize < 0 && cur != allocatingFrom)
             {
-                flushingSize += cur.segment.onDiskSize();
-                flushing = cur;
+                reclaimingSize += cur.segment.onDiskSize();
+                reclaiming = cur;
                 segmentsToRecycle.add(cur.segment);
             }
             flushDataFrom(segmentsToRecycle, false);
@@ -232,7 +234,6 @@ public class CommitLogSegmentManager
         return alloc;
     }
 
-    // simple wrapper to ensure non-null value for allocatingFrom; only necessary on first call
     CommitLogSegment allocatingFrom()
     {
         return allocatingFrom.segment;
@@ -466,8 +467,8 @@ public class CommitLogSegmentManager
             segment.discard(deleteSegments);
         }
 
-        head = tail = allocatingFrom = flushing = null;
-        flushingSize = 0L;
+        head = tail = allocatingFrom = reclaiming = null;
+        reclaimingSize = 0L;
         activeSize.set(0L);
 
         logger.debug("CLSM done with closing and clearing existing commit log segments.");
