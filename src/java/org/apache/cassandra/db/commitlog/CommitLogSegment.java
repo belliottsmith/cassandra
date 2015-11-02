@@ -325,6 +325,7 @@ public abstract class CommitLogSegment
         close();
         if (deleteFile)
             FileUtils.deleteWithConfirm(logFile);
+        commitLog.allocator.addSize(-onDiskSize());
     }
 
     /**

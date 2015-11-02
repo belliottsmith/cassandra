@@ -20,11 +20,8 @@ package org.apache.cassandra.db.commitlog;
 import java.io.File;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.concurrent.locks.LockSupport;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.*;
 
@@ -41,7 +38,6 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.WrappedRunnable;
-import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 import static org.apache.cassandra.db.commitlog.CommitLogSegment.Allocation;
 
@@ -49,53 +45,21 @@ import static org.apache.cassandra.db.commitlog.CommitLogSegment.Allocation;
  * Performs eager-creation of commit log segments in a background thread. All the
  * public methods are thread safe.
  */
-public class CommitLogSegmentManager
+public class CommitLogSegmentManager extends CommitLogSegmentCollection
 {
     static final Logger logger = LoggerFactory.getLogger(CommitLogSegmentManager.class);
 
-    /**
-     * Node in linked-list maintaining collection of active/allocating/ready segments, in that order
-     */
-    static class Node
-    {
-        final CommitLogSegment segment;
-        volatile Node next;
-        public Node(CommitLogSegment segment)
-        {
-            this.segment = segment;
-        }
-    }
-
-    // head <= reclaiming <= allocatingFrom <= tail
-
-    private Node head; // dummy head of the queue; [head.next..allocatingFrom) == active(false)
-    private Node tail; // last segment in queue; either allocatingFrom, or our spare.
-    private volatile Node allocatingFrom; // segment serving current allocations
-
-    private Node reclaiming; // most recent segment we have forced to flush to reclaim space, i.e. [head.next..reclaiming] are reclaiming
-    private long reclaimingSize;
-
-    private static AtomicReferenceFieldUpdater<CommitLogSegmentManager, Node> allocatingFromUpdater = AtomicReferenceFieldUpdater.newUpdater(CommitLogSegmentManager.class, Node.class, "allocatingFrom");
-
-    final WaitQueue segmentPrepared = new WaitQueue();
-
-    /**
-     * Tracks commitlog size, in multiples of the segment size.  We need to do this asynchronously as compressed
-     * segments do not know their final size in advance, so it is incremented with each sync.
-     */
-    private final AtomicLong activeSize = new AtomicLong();
-
-    private Thread managerThread;
-    private final CommitLog commitLog;
+    Thread managerThread;
     private volatile boolean shutdown;
 
     CommitLogSegmentManager(final CommitLog commitLog)
     {
-        this.commitLog = commitLog;
+        super(commitLog);
     }
 
     void start()
     {
+        super.init();
         // The run loop for the manager thread
         Runnable runnable = new WrappedRunnable()
         {
@@ -115,7 +79,7 @@ public class CommitLogSegmentManager
                         Thread.yield();
 
                         // Writing threads need another segment now.
-                        if (allocatingFrom == tail)
+                        if (!hasHeadRoom())
                             continue;
 
                         // Writing threads are not waiting for new segments, we can spend time on other tasks.
@@ -124,7 +88,7 @@ public class CommitLogSegmentManager
 
                         do
                             LockSupport.park();
-                        while (allocatingFrom != tail);
+                        while (hasHeadRoom());
                     }
                     catch (Throwable t)
                     {
@@ -137,20 +101,18 @@ public class CommitLogSegmentManager
                         // If we offered a segment, wait for it to be taken before reentering the loop.
                         // There could be a new segment in next not offered, but only on failure to discard it while
                         // shutting down-- nothing more can or needs to be done in that case.
-                        while (allocatingFrom != tail)
+                        while (hasHeadRoom())
                             LockSupport.park();
                     }
                 }
             }
         };
 
-        head = new Node(new DummySegment(commitLog));
-        tail = allocatingFrom = reclaiming = head;
         managerThread = new Thread(runnable, "COMMIT-LOG-ALLOCATOR");
         managerThread.start();
 
         // for simplicity, ensure the first segment is allocated before continuing
-        advanceAllocatingFrom(head);
+        ensureFirstSegment();
     }
 
     void restart()
@@ -159,55 +121,24 @@ public class CommitLogSegmentManager
         start();
     }
 
-    private synchronized void add(CommitLogSegment segment)
+    void requestHeadRoom()
     {
-        Node newNode = new Node(segment);
-        tail = tail.next = newNode;
-        segmentPrepared.signalAll();
+        LockSupport.unpark(managerThread);
     }
 
-    private synchronized boolean remove(CommitLogSegment remove)
-    {
-        // we start wuth prev==cur==head, so that maintenance of reclaiming is simple
-        Node prev = head, cur = prev;
-        Node live = this.allocatingFrom;
-
-        // if we're in the set of reclaiming segments
-        boolean isFlushing = true;
-        while (cur != live)
-        {
-            if (cur.segment == remove)
-            {
-                activeSize.addAndGet(-remove.onDiskSize());
-                if (isFlushing)
-                {
-                    reclaimingSize -= remove.onDiskSize();
-                    if (cur == reclaiming)
-                        reclaiming = prev;
-                }
-                prev.next = cur.next;
-                return true;
-            }
-
-            isFlushing &= cur != reclaiming;
-            prev = cur;
-            cur = cur.next;
-        }
-        return false;
-    }
-
-    private synchronized void maybeFlushToReclaim()
+    private void maybeFlushToReclaim()
     {
         long unused = unusedCapacity();
-        if (unused + reclaimingSize < 0)
+        if (unused < 0)
         {
+            long flushingSize = 0;
             List<CommitLogSegment> segmentsToRecycle = new ArrayList<>();
-            Node cur = reclaiming.next;
-            while (unused + reclaimingSize < 0 && cur != allocatingFrom)
+            for (CommitLogSegment segment : list(false))
             {
-                reclaimingSize += cur.segment.onDiskSize();
-                reclaiming = cur;
-                segmentsToRecycle.add(cur.segment);
+                flushingSize += segment.onDiskSize();
+                segmentsToRecycle.add(segment);
+                if (flushingSize + unused >= 0)
+                    break;
             }
             flushDataFrom(segmentsToRecycle, false);
         }
@@ -221,88 +152,35 @@ public class CommitLogSegmentManager
      */
     public Allocation allocate(Mutation mutation, int size)
     {
-        Node cur = allocatingFrom;
+        CommitLogSegment cur = allocatingFrom();
 
         Allocation alloc;
-        while ( null == (alloc = cur.segment.allocate(mutation, size)) )
+        while ( null == (alloc = cur.allocate(mutation, size)) )
         {
             // failed to allocate, so move to a new segment with enough room
             advanceAllocatingFrom(cur);
-            cur = allocatingFrom;
+            cur = allocatingFrom();
         }
 
         return alloc;
-    }
-
-    CommitLogSegment allocatingFrom()
-    {
-        return allocatingFrom.segment;
-    }
-
-    private boolean advanceAllocatingFrom(CommitLogSegment segment)
-    {
-        Node cur = allocatingFrom;
-        return cur.segment == segment && advanceAllocatingFrom(cur);
     }
 
     /**
      * Advances the allocatingFrom pointer to the next free segment, if it is currently the segment provided
      */
     @DontInline
-    private boolean advanceAllocatingFrom(Node old)
+    boolean advanceAllocatingFrom(Node old)
     {
-        Node cur = allocatingFrom;
-        if (cur != old)
+        if (!super.advanceAllocatingFrom(old))
             return false;
 
-        Node next = ensureNext(cur);
+        // Now we can run the user defined command just after switching to the new commit log.
+        // (Do this here instead of in the recycle call so we can get a head start on the archive.)
+        commitLog.archiver.maybeArchive(old.segment);
 
-        // atomically swap us to the next; if we fail, somebody else beat us to it
-        if (!allocatingFromUpdater.compareAndSet(this, cur, next))
-            return false;
-
-        // wake-up the manager thread if there are no spare segments
-        if (next.next == null)
-            LockSupport.unpark(managerThread);
-
-        if (old != head)
-        {
-            // Now we can run the user defined command just after switching to the new commit log.
-            // (Do this here instead of in the recycle call so we can get a head start on the archive.)
-            commitLog.archiver.maybeArchive(old.segment);
-
-            // ensure we don't continue to use the old file; not strictly necessary, but cleaner to enforce it
-            old.segment.discardUnusedTail();
-        }
-
-        // request that the CL be synced out-of-band, as we've finished a segment
-        commitLog.requestExtraSync();
+        // ensure we don't continue to use the old file; not strictly necessary, but cleaner to enforce it
+        old.segment.discardUnusedTail();
         return true;
-    }
-
-    /**
-     * returns the node following cur; if it is not set, wakes the manager thread and waits
-     */
-    private Node ensureNext(Node cur)
-    {
-        Node next = cur.next;
-        while (next == null)
-        {
-            // wait for allocation
-            WaitQueue.Signal signal = segmentPrepared.register();
-            LockSupport.unpark(managerThread);
-            next = cur.next;
-            if (next == null)
-            {
-                signal.awaitUninterruptibly();
-                next = cur.next;
-            }
-            else
-            {
-                signal.cancel();
-            }
-        }
-        return next;
     }
 
     /**
@@ -395,7 +273,7 @@ public class CommitLogSegmentManager
         return activeSize.get();
     }
 
-    private long unusedCapacity()
+    long unusedCapacity()
     {
         long total = DatabaseDescriptor.getTotalCommitlogSpaceInMB() * 1024 * 1024;
         long currentSize = activeSize.get();
@@ -461,14 +339,13 @@ public class CommitLogSegmentManager
             throw new RuntimeException(e);
         }
 
-        for (CommitLogSegment segment : getActiveSegments())
+        for (CommitLogSegment segment : list(true))
         {
             remove(segment);
             segment.discard(deleteSegments);
         }
 
-        head = tail = allocatingFrom = reclaiming = null;
-        reclaimingSize = 0L;
+        super.unset();
         activeSize.set(0L);
 
         logger.debug("CLSM done with closing and clearing existing commit log segments.");
@@ -481,10 +358,9 @@ public class CommitLogSegmentManager
     {
         shutdown = true;
         // we must ensure the manager wakes up, by consuming the unused segment
-        Node allocatingFrom;
-        while ((allocatingFrom = this.allocatingFrom) != tail)
-            advanceAllocatingFrom(allocatingFrom);
-        LockSupport.unpark(managerThread);
+        consumeHeadRoom();
+        // then ask it to wakeup
+        requestHeadRoom();
     }
 
     /**
@@ -495,7 +371,7 @@ public class CommitLogSegmentManager
         managerThread.join();
         managerThread = null;
 
-        for (CommitLogSegment segment : getActiveSegments())
+        for (CommitLogSegment segment : list(true))
             segment.close();
 
         CompressedSegment.shutdown();
@@ -507,17 +383,7 @@ public class CommitLogSegmentManager
      */
     synchronized List<CommitLogSegment> getActiveSegments(boolean includeAllocatingFrom)
     {
-        ImmutableList.Builder<CommitLogSegment> builder = ImmutableList.builder();
-        Node cur = head.next;
-        Node live = this.allocatingFrom;
-        while (cur != live)
-        {
-            builder.add(cur.segment);
-            cur = cur.next;
-        }
-        if (includeAllocatingFrom)
-            builder.add(live.segment);
-        return builder.build();
+        return list(includeAllocatingFrom);
     }
 
     /**
