@@ -956,7 +956,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // we don't loop through the remaining memtables since here we only care about commit log dirtiness
         // and this does not vary between a table and its table-backed indexes
         Memtable current = data.getView().getCurrentMemtable();
-        if (current.mayContainDataSince(flushIfDirtyBefore))
+        if (current.mayContainDataBefore(flushIfDirtyBefore))
             return switchMemtableIfCurrent(current);
         return waitForFlushes();
     }

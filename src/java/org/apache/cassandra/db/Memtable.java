@@ -65,7 +65,7 @@ public class Memtable implements Comparable<Memtable>
     private volatile AtomicReference<ReplayPosition> commitLogUpperBound;
     // the precise lower bound of ReplayPosition owned by this memtable; equal to its predecessor's commitLogUpperBound
     private AtomicReference<ReplayPosition> commitLogLowerBound;
-    // the approximate lower bound by this memtable; must be <= commitLogLowerBound once our predecesoor
+    // the approximate lower bound by this memtable; must be <= commitLogLowerBound once our predecessor
     // has been finalised, and this is enforced in the ColumnFamilyStore.setCommitLogUpperBound
     private final ReplayPosition approximateCommitLogLowerBound = CommitLog.instance.getContext();
 
@@ -186,7 +186,7 @@ public class Memtable implements Comparable<Memtable>
         return rows.isEmpty();
     }
 
-    public boolean mayContainDataSince(ReplayPosition position)
+    public boolean mayContainDataBefore(ReplayPosition position)
     {
         return approximateCommitLogLowerBound.compareTo(position) < 0;
     }
