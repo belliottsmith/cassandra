@@ -25,8 +25,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.NativeClustering;
 import org.apache.cassandra.db.NativeDecoratedKey;
+import org.apache.cassandra.db.rows.BTreeRow;
+import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.NativeCell;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
@@ -53,10 +58,35 @@ public class NativeAllocator extends MemtableAllocator
         super(pool.onHeap.newAllocator(), pool.offHeap.newAllocator());
     }
 
+    private static class CloningBTreeRowBuilder extends BTreeRow.Builder
+    {
+        final OpOrder.Group writeOp;
+        final NativeAllocator allocator;
+        private CloningBTreeRowBuilder(OpOrder.Group writeOp, NativeAllocator allocator)
+        {
+            super(true);
+            this.writeOp = writeOp;
+            this.allocator = allocator;
+        }
+
+        @Override
+        public void newRow(Clustering clustering)
+        {
+            if (clustering != Clustering.STATIC_CLUSTERING)
+                clustering = new NativeClustering(allocator, writeOp, clustering);
+            super.newRow(clustering);
+        }
+
+        @Override
+        public void addCell(Cell cell)
+        {
+            super.addCell(new NativeCell(allocator, writeOp, cell.column(), cell.timestamp(), cell.ttl(), cell.localDeletionTime(), cell.value(), cell.path()));
+        }
+    }
+
     public Row.Builder rowBuilder(OpOrder.Group opGroup)
     {
-        // TODO
-        throw new UnsupportedOperationException();
+        return new CloningBTreeRowBuilder(opGroup, this);
     }
 
     public DecoratedKey clone(DecoratedKey key, OpOrder.Group writeOp)

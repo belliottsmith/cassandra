@@ -500,7 +500,7 @@ public interface ClusteringPrefix extends IMeasurableMemory, Clusterable
         {
             assert nextIsRow;
             deserializeAll();
-            Clustering clustering = new Clustering(nextValues);
+            Clustering clustering = new BufferClustering(nextValues);
             nextValues = null;
             return clustering;
         }

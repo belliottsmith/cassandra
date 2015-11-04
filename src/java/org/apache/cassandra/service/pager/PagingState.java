@@ -23,6 +23,7 @@ import java.util.*;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.Clustering;
+import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.LegacyLayout;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.marshal.AbstractType;

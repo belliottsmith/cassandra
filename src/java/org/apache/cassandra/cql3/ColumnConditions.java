@@ -28,6 +28,7 @@ import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.cql3.functions.Function;
 import org.apache.cassandra.cql3.statements.CQL3CasRequest;
 import org.apache.cassandra.db.Clustering;
+import org.apache.cassandra.db.Clustering;
 
 import static java.util.stream.StreamSupport.stream;
 

@@ -105,6 +105,11 @@ public abstract class MemoryUtil
         unsafe.putByte(address, b);
     }
 
+    public static void setByte(long address, int count, byte b)
+    {
+        unsafe.setMemory(address, count, b);
+    }
+
     public static void setShort(long address, short s)
     {
         unsafe.putShort(address, s);
