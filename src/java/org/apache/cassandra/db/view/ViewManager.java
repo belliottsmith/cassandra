@@ -84,11 +84,11 @@ public class ViewManager
                 viewCfs.dumpMemtable();
         }
 
-        public void truncateBlocking(long truncatedAt)
+        public void truncateBlocking(ReplayPosition replayAfter, long truncatedAt)
         {
             for (ColumnFamilyStore viewCfs : allViewsCfs())
             {
-                ReplayPosition replayAfter = viewCfs.discardSSTables(truncatedAt);
+                viewCfs.discardSSTables(truncatedAt);
                 SystemKeyspace.saveTruncationRecord(viewCfs, truncatedAt, replayAfter);
             }
         }

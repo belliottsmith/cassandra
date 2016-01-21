@@ -49,9 +49,12 @@ public class MetadataSerializerTest
 
         CFMetaData cfm = SchemaLoader.standardCFMD("ks1", "cf1");
 
-        ReplayPosition rp = new ReplayPosition(11L, 12);
+        ReplayPosition club = new ReplayPosition(11L, 12);
+        ReplayPosition cllb = new ReplayPosition(9L, 12);
 
-        MetadataCollector collector = new MetadataCollector(cfm.comparator).replayPosition(rp);
+        MetadataCollector collector = new MetadataCollector(cfm.comparator)
+                                      .commitLogUpperBound(club)
+                                      .commitLogLowerBound(cllb);
 
         String partitioner = RandomPartitioner.class.getCanonicalName();
         double bfFpChance = 0.1;
