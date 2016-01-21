@@ -125,7 +125,7 @@ public class BigFormat implements SSTableFormat
     // we always incremented the major version.
     static class BigVersion extends Version
     {
-        public static final String current_version = "la";
+        public static final String current_version = "lb";
         public static final String earliest_supported_version = "jb";
 
         // jb (2.0.1): switch from crc32 to adler32 for compression checksums
@@ -135,6 +135,7 @@ public class BigFormat implements SSTableFormat
         //             switch uncompressed checksums to adler32
         //             tracks presense of legacy (local and remote) counter shards
         // la (2.2.0): new file name format
+        // lb (2.2.5): commit log lower bound introduced (CASSANDRA-9669)
 
         private final boolean isLatestVersion;
         private final boolean hasSamplingLevel;

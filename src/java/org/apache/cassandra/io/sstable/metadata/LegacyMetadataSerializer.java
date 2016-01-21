@@ -53,8 +53,6 @@ public class LegacyMetadataSerializer extends MetadataSerializer
 
         EstimatedHistogram.serializer.serialize(stats.estimatedRowSize, out);
         EstimatedHistogram.serializer.serialize(stats.estimatedColumnCount, out);
-        if (version.hasCommitLogLowerBound())
-            ReplayPosition.serializer.serialize(stats.commitLogLowerBound, out);
         ReplayPosition.serializer.serialize(stats.commitLogUpperBound, out);
         out.writeLong(stats.minTimestamp);
         out.writeLong(stats.maxTimestamp);
@@ -73,6 +71,8 @@ public class LegacyMetadataSerializer extends MetadataSerializer
         out.writeInt(stats.maxColumnNames.size());
         for (ByteBuffer columnName : stats.maxColumnNames)
             ByteBufferUtil.writeWithShortLength(columnName, out);
+        if (version.hasCommitLogLowerBound())
+            ReplayPosition.serializer.serialize(stats.commitLogLowerBound, out);
     }
 
     /**
@@ -95,8 +95,6 @@ public class LegacyMetadataSerializer extends MetadataSerializer
                 EstimatedHistogram rowSizes = EstimatedHistogram.serializer.deserialize(in);
                 EstimatedHistogram columnCounts = EstimatedHistogram.serializer.deserialize(in);
                 ReplayPosition commitLogLowerBound = ReplayPosition.NONE;
-                if (descriptor.version.hasCommitLogLowerBound())
-                    commitLogLowerBound = ReplayPosition.serializer.deserialize(in);
                 ReplayPosition commitLogUpperBound = ReplayPosition.serializer.deserialize(in);
                 long minTimestamp = in.readLong();
                 long maxTimestamp = in.readLong();
@@ -122,6 +120,9 @@ public class LegacyMetadataSerializer extends MetadataSerializer
                 List<ByteBuffer> maxColumnNames = new ArrayList<>(colCount);
                 for (int i = 0; i < colCount; i++)
                     maxColumnNames.add(ByteBufferUtil.readWithShortLength(in));
+
+                if (descriptor.version.hasCommitLogLowerBound())
+                    commitLogLowerBound = ReplayPosition.serializer.deserialize(in);
 
                 if (types.contains(MetadataType.VALIDATION))
                     components.put(MetadataType.VALIDATION,

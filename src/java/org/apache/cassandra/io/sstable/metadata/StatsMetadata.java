@@ -205,8 +205,6 @@ public class StatsMetadata extends MetadataComponent
             int size = 0;
             size += EstimatedHistogram.serializer.serializedSize(component.estimatedRowSize, TypeSizes.NATIVE);
             size += EstimatedHistogram.serializer.serializedSize(component.estimatedColumnCount, TypeSizes.NATIVE);
-            if (version.hasCommitLogLowerBound())
-                size += ReplayPosition.serializer.serializedSize(component.commitLogLowerBound, TypeSizes.NATIVE);
             size += ReplayPosition.serializer.serializedSize(component.commitLogUpperBound, TypeSizes.NATIVE);
             size += 8 + 8 + 4 + 8 + 8; // mix/max timestamp(long), maxLocalDeletionTime(int), compressionRatio(double), repairedAt (long)
             size += StreamingHistogram.serializer.serializedSize(component.estimatedTombstoneDropTime, TypeSizes.NATIVE);
@@ -220,6 +218,8 @@ public class StatsMetadata extends MetadataComponent
             for (ByteBuffer columnName : component.maxColumnNames)
                 size += 2 + columnName.remaining(); // with short length
             size += TypeSizes.NATIVE.sizeof(component.hasLegacyCounterShards);
+            if (version.hasCommitLogLowerBound())
+                size += ReplayPosition.serializer.serializedSize(component.commitLogLowerBound, TypeSizes.NATIVE);
             return size;
         }
 
@@ -227,8 +227,6 @@ public class StatsMetadata extends MetadataComponent
         {
             EstimatedHistogram.serializer.serialize(component.estimatedRowSize, out);
             EstimatedHistogram.serializer.serialize(component.estimatedColumnCount, out);
-            if (version.hasCommitLogLowerBound())
-                ReplayPosition.serializer.serialize(component.commitLogLowerBound, out);
             ReplayPosition.serializer.serialize(component.commitLogUpperBound, out);
             out.writeLong(component.minTimestamp);
             out.writeLong(component.maxTimestamp);
@@ -244,6 +242,8 @@ public class StatsMetadata extends MetadataComponent
             for (ByteBuffer columnName : component.maxColumnNames)
                 ByteBufferUtil.writeWithShortLength(columnName, out);
             out.writeBoolean(component.hasLegacyCounterShards);
+            if (version.hasCommitLogLowerBound())
+                ReplayPosition.serializer.serialize(component.commitLogLowerBound, out);
         }
 
         public StatsMetadata deserialize(Version version, DataInput in) throws IOException
@@ -251,8 +251,6 @@ public class StatsMetadata extends MetadataComponent
             EstimatedHistogram rowSizes = EstimatedHistogram.serializer.deserialize(in);
             EstimatedHistogram columnCounts = EstimatedHistogram.serializer.deserialize(in);
             ReplayPosition commitLogLowerBound = ReplayPosition.NONE, commitLogUpperBound;
-            if (version.hasCommitLogLowerBound())
-                commitLogLowerBound = ReplayPosition.serializer.deserialize(in);
             commitLogUpperBound = ReplayPosition.serializer.deserialize(in);
             long minTimestamp = in.readLong();
             long maxTimestamp = in.readLong();
@@ -277,6 +275,9 @@ public class StatsMetadata extends MetadataComponent
             boolean hasLegacyCounterShards = true;
             if (version.tracksLegacyCounterShards())
                 hasLegacyCounterShards = in.readBoolean();
+
+            if (version.hasCommitLogLowerBound())
+                commitLogLowerBound = ReplayPosition.serializer.deserialize(in);
 
             return new StatsMetadata(rowSizes,
                                      columnCounts,
