@@ -1030,8 +1030,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 memtable.cfs.data.markFlushing(memtable);
                 if (memtable.isClean() || truncate)
                 {
-                    memtable.cfs.data.replaceFlushed(memtable, null);
-                    memtable.cfs.compactionStrategyManager.replaceFlushed(memtable, null);
+                    memtable.cfs.data.replaceFlushed(memtable, Collections.emptyList());
+                    memtable.cfs.compactionStrategyManager.replaceFlushed(memtable, Collections.emptyList());
                     reclaim(memtable);
                     iter.remove();
                 }

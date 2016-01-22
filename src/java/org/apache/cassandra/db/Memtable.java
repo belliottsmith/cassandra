@@ -387,7 +387,7 @@ public class Memtable implements Comparable<Memtable>
                 logger.debug("Completed flushing {}; nothing needed to be retained.  Commitlog position was {}",
                              writer.getFilename(), commitLogUpperBound);
                 writer.abort();
-                ssTables = null;
+                ssTables = Collections.emptyList();
             }
 
             if (heavilyContendedRowCount > 0)
