@@ -25,7 +25,7 @@ if NOT DEFINED JAVA_HOME goto :err
 
 REM ***** JAVA options *****
 set JAVA_OPTS=^
- -Dlogback.configurationFile=logback-tools.xml
+ -Dlog4j.configurationFile=log4j2-tools.xml
 
 set TOOLS_PARAMS=
 FOR %%A IN (%*) DO call :appendToolsParams %%A

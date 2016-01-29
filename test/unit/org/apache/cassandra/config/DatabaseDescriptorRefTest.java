@@ -39,6 +39,7 @@ import java.util.Set;
 import org.junit.Test;
 
 import org.apache.cassandra.utils.Pair;
+import org.apache.logging.log4j.core.LoggerContext;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
@@ -149,12 +150,6 @@ public class DatabaseDescriptorRefTest
     "org.apache.cassandra.utils.CloseableIterator",
     "org.apache.cassandra.utils.Pair",
     "org.apache.cassandra.OffsetAwareConfigurationLoader",
-    "org.apache.cassandra.ConsoleAppender",
-    "org.apache.cassandra.ConsoleAppender$1",
-    "org.apache.cassandra.LogbackStatusListener",
-    "org.apache.cassandra.LogbackStatusListener$ToLoggerOutputStream",
-    "org.apache.cassandra.LogbackStatusListener$WrappedPrintStream",
-    "org.apache.cassandra.TeeingAppender",
     // generated classes
     "org.apache.cassandra.config.ConfigBeanInfo",
     "org.apache.cassandra.config.ConfigCustomizer",
@@ -177,6 +172,9 @@ public class DatabaseDescriptorRefTest
         PrintStream out = System.out;
         PrintStream err = System.err;
 
+        // Difference from open sourcece - initialize logging before taking threadCount
+        // so there is no need to adjust later before checking the threads.getThreadCount below.
+        LoggerContext.getContext();
         ThreadMXBean threads = ManagementFactory.getThreadMXBean();
         int threadCount = threads.getThreadCount();
 
@@ -270,13 +268,6 @@ public class DatabaseDescriptorRefTest
         {
             Method method = cDatabaseDescriptor.getDeclaredMethod(methodName);
             method.invoke(null);
-
-            if ("clientInitialization".equals(methodName) &&
-                threadCount + 2 == threads.getThreadCount())
-            {
-                // ignore the "AsyncAppender-Worker-ASYNC" and "logback-1" threads
-                threadCount = threadCount + 2;
-            }
 
             if (threadCount != threads.getThreadCount())
             {
