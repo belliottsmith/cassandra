@@ -76,10 +76,14 @@ import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.utils.concurrent.FutureCombiner;
 import org.apache.cassandra.utils.concurrent.ImmediateFuture;
+
 import org.apache.commons.lang3.StringUtils;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.utils.concurrent.AsyncPromise;
+import org.apache.cassandra.utils.concurrent.Promise;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.Appender;
@@ -113,6 +117,19 @@ import org.apache.cassandra.dht.Token.TokenFactory;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.gms.*;
 import org.apache.cassandra.hints.HintsService;
+import org.apache.cassandra.dht.RangeStreamer;
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.exceptions.UnavailableException;
+import org.apache.cassandra.gms.ApplicationState;
+import org.apache.cassandra.gms.EndpointState;
+import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.gms.IEndpointStateChangeSubscriber;
+import org.apache.cassandra.gms.IFailureDetector;
+import org.apache.cassandra.gms.TokenSerializer;
+import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.io.sstable.SSTableLoader;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.VersionAndType;
@@ -123,8 +140,8 @@ import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.repair.*;
 import org.apache.cassandra.repair.messages.RepairOption;
+import org.apache.cassandra.repair.messages.UpdateRepairedRanges;
 import org.apache.cassandra.schema.CIEInternalKeyspace;
-import org.apache.cassandra.schema.CIEInternalLocalKeyspace;
 import org.apache.cassandra.schema.CompactionParams.TombstoneOption;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.ReplicationParams;
@@ -1383,6 +1400,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             StreamResultFuture resultFuture = streamer.fetchAsync();
             // wait for result
             resultFuture.get();
+            streamer.fetchRepairedRanges(4);
         }
         catch (InterruptedException e)
         {
@@ -4853,7 +4871,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             rangesToStream.put(keyspaceName, rangesMM);
         }
 
-        return () -> streamRanges(rangesToStream);
+        return () -> {
+            if (DatabaseDescriptor.enableShadowChristmasPatch())
+            {
+                sendRepairRangesForDecom(rangesToStream);
+            }
+            return streamRanges(rangesToStream);
+        };
     }
 
     private void unbootstrap(Runnable onFinish) throws ExecutionException, InterruptedException
@@ -4982,6 +5006,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (relocator.streamsNeeded())
         {
             setMode(Mode.MOVING, "fetching new ranges and streaming old ranges", true);
+
+            if (DatabaseDescriptor.enableShadowChristmasPatch())
+            {
+                relocator.sendRepairRanges();
+                relocator.fetchRepairedRanges();
+            }
             try
             {
                 relocator.stream().get();
@@ -5005,6 +5035,96 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (logger.isDebugEnabled())
             logger.debug("Successfully moved to new token {}", getLocalTokens().iterator().next());
     }
+
+
+    public void sendRepairRangesForDecom(Map<String, EndpointsByReplica> rangesToStreamByTable)
+    {
+        for(Map.Entry<String, EndpointsByReplica> entry : rangesToStreamByTable.entrySet())
+        {
+            //Convert the map to inetAddress to Collection of ranges
+            Multimap<InetAddressAndPort, Range<Token>> map =  HashMultimap.create();
+            for (Entry<Replica, EndpointsForRange> r : entry.getValue().entrySet())
+            {
+                map.put(r.getKey().endpoint(), r.getValue().range());
+            }
+
+            for(Map.Entry<InetAddressAndPort, Collection<Range<Token>>> addressRangeEntry :  map.asMap().entrySet())
+            {
+                sendRepairRangesForKeyspace(entry.getKey(), addressRangeEntry.getValue(), addressRangeEntry.getKey());
+            }
+
+        }
+    }
+
+    void sendRepairRangesForKeyspace(String keyspace, Collection<Range<Token>> ranges, InetAddressAndPort address)
+    {
+        Map<String, Map<Range<Token>, Integer>> retMap = new HashMap<String, Map<Range<Token>, Integer>>();
+        logger.info("Sending repair ranges {} to {} for keyspace {} ", ranges, address, keyspace);
+        for (Map.Entry<String, Map<Range<Token>, Integer>> perCf : SystemKeyspace.getLastSuccessfulRepairsForKeyspace(keyspace).entrySet())
+        {
+            String cf = perCf.getKey();
+            //Check if the CF exists then only send the ranges.
+            if(!Keyspace.open(keyspace).columnFamilyExists(cf))
+            {
+                logger.info("Skipping non existent cf = " + cf);
+                continue;
+            }
+
+            Map<Range<Token>, Integer> repairMap = new HashMap<Range<Token>, Integer>();
+            for (Map.Entry<Range<Token>, Integer> entry : perCf.getValue().entrySet())
+            {
+                Range<Token> locallyRepairedRange = entry.getKey();
+                for (Range<Token> requestRange : ranges)
+                {
+                    for (Range<Token> intersection : locallyRepairedRange.intersectionWith(requestRange))
+                    {
+                        Integer succeedAt = repairMap.get(intersection);
+                        if (succeedAt == null || succeedAt < entry.getValue())
+                            repairMap.put(intersection, entry.getValue());
+                    }
+                }
+            }
+
+            retMap.put(cf, repairMap);
+        }
+
+        final UpdateRepairedRanges request = new UpdateRepairedRanges(keyspace, retMap);
+        //We currently wait indefinitely during bootstrap.
+        for (int i = 0; i < 4; i++)
+        {
+            Promise<Boolean> result = new AsyncPromise<>();
+            MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_UPDATE_REPAIRED_RANGES_REQ, request), address, new RequestCallback<NoPayload>()
+            {
+                public void onResponse(Message<NoPayload> msg)
+                {
+                    result.trySuccess(true);
+                }
+
+                public boolean invokeOnFailure()
+                {
+                    return true;
+                }
+
+                public void onFailure(InetAddressAndPort from, RequestFailureReason failureReason)
+                {
+                    result.trySuccess(false);
+                }
+            });
+            try
+            {
+                if (result.get(1, MINUTES))
+                    return;
+                else
+                    logger.error("Could not update repaired ranges for {} for keyspace {}. Will retry", address, keyspace);
+            }
+            catch (TimeoutException | InterruptedException | ExecutionException ex)
+            {
+                logger.warn("Could not update repaired ranges for {} for keyspace {}. Will retry", address, keyspace);
+            }
+        }
+        logger.error("Could not update repaired ranges for {} for keyspace {}. Giving up.", address, keyspace);
+    }
+
 
     public String getRemovalStatus()
     {
@@ -6288,6 +6408,21 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public boolean getNativeTransportRateLimitingEnabled()
     {
         return DatabaseDescriptor.getNativeTransportRateLimitingEnabled();
+    }
+
+    public void stopFetchingRepairRanges()
+    {
+        BootStrapper.stopFetchingRepairRanges = true;
+    }
+
+    public boolean isChistmasPatchEnabled()
+    {
+        return DatabaseDescriptor.enableChristmasPatch();
+    }
+
+    public boolean isShadowChistmasPatchEnabled()
+    {
+        return DatabaseDescriptor.enableShadowChristmasPatch();
     }
 
     public boolean isKeyspaceQuotaEnabled()

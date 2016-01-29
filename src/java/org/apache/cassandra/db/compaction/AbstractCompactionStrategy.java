@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -42,6 +43,7 @@ import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.schema.CompactionParams;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.TimeUUID;
 
 import static org.apache.cassandra.io.sstable.Component.DATA;
@@ -72,6 +74,9 @@ public abstract class AbstractCompactionStrategy
     protected static final String LOG_ALL_OPTION = "log_all";
     protected static final String COMPACTION_ENABLED = "enabled";
     public static final String ONLY_PURGE_REPAIRED_TOMBSTONES = "only_purge_repaired_tombstones";
+
+    // Maximum number of successful repair pairs to check when computing getFullyRepairedTimeFor, if exceeded return oldest possible repair time
+    private static final int REPAIRED_RANGE_ITERATION_LIMIT = 2000;
 
     protected Map<String, String> options;
 
@@ -386,6 +391,12 @@ public abstract class AbstractCompactionStrategy
      */
     protected boolean worthDroppingTombstones(SSTableReader sstable, int gcBefore)
     {
+        return worthDroppingTombstones(sstable, gcBefore, cfs.getRepairTimeSnapshot());
+    }
+
+    @VisibleForTesting
+    public boolean worthDroppingTombstones(SSTableReader sstable, int gcBefore, SuccessfulRepairTimeHolder repairTimeHolder)
+    {
         if (disableTombstoneCompactions || CompactionController.NEVER_PURGE_TOMBSTONES || cfs.getNeverPurgeTombstones())
             return false;
         // since we use estimations to calculate, there is a chance that compaction will not drop tombstones actually.
@@ -394,6 +405,8 @@ public abstract class AbstractCompactionStrategy
         if (currentTimeMillis() < sstable.getCreationTimeFor(DATA) + tombstoneCompactionInterval * 1000)
            return false;
 
+        // early check to avoid calculating the fully repaired time for every sstable - if it doesn't have tombstoneThreshold
+        // droppable tombstones before gcBefore we can return here
         double droppableRatio = sstable.getEstimatedDroppableTombstoneRatio(gcBefore);
         if (droppableRatio <= tombstoneThreshold)
             return false;
@@ -402,13 +415,21 @@ public abstract class AbstractCompactionStrategy
         if (uncheckedTombstoneCompaction)
             return true;
 
+        if (StorageService.instance.isChistmasPatchEnabled())
+        {
+            int lastFullyRepairedTime = repairTimeHolder.getFullyRepairedTimeFor(sstable, gcBefore, true, REPAIRED_RANGE_ITERATION_LIMIT);
+            droppableRatio = Math.min(droppableRatio, sstable.getEstimatedDroppableTombstoneRatio(lastFullyRepairedTime));
+            if (droppableRatio <= tombstoneThreshold)
+                return false;
+        }
         Collection<SSTableReader> overlaps = cfs.getOverlappingLiveSSTables(Collections.singleton(sstable));
+
         if (overlaps.isEmpty())
         {
             // there is no overlap, tombstones are safely droppable
             return true;
         }
-        else if (CompactionController.getFullyExpiredSSTables(cfs, Collections.singleton(sstable), overlaps, gcBefore).size() > 0)
+        else if (CompactionController.getFullyExpiredSSTables(cfs, Collections.singleton(sstable), overlaps, gcBefore, repairTimeHolder).size() > 0)
         {
             return true;
         }
@@ -422,16 +443,16 @@ public abstract class AbstractCompactionStrategy
             }
             // first, calculate estimated keys that do not overlap
             long keys = sstable.estimatedKeys();
+            if (keys <= 0)
+                return false;
             Set<Range<Token>> ranges = new HashSet<Range<Token>>(overlaps.size());
             for (SSTableReader overlap : overlaps)
                 ranges.add(new Range<>(overlap.first.getToken(), overlap.last.getToken()));
             long remainingKeys = keys - sstable.estimatedKeysForRanges(ranges);
-            // next, calculate what percentage of columns we have within those keys
-            long columns = sstable.getEstimatedCellPerPartitionCount().mean() * remainingKeys;
-            double remainingColumnsRatio = ((double) columns) / (sstable.getEstimatedCellPerPartitionCount().count() * sstable.getEstimatedCellPerPartitionCount().mean());
-
-            // return if we still expect to have droppable tombstones in rest of columns
-            return remainingColumnsRatio * droppableRatio > tombstoneThreshold;
+            // we have `remainingKeys` partitions that don't overlap with anything
+            // that means `remainingKeys / keys` is the ratio we could possibly drop during compaction
+            double remainingKeysRatio = ((double) remainingKeys) / keys;
+            return remainingKeysRatio * droppableRatio > tombstoneThreshold;
         }
     }
 

@@ -19,6 +19,7 @@ package org.apache.cassandra.repair;
 
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -39,10 +40,15 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.net.Message;
+import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.net.RequestCallback;
+import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.repair.asymmetric.DifferenceHolder;
 import org.apache.cassandra.repair.asymmetric.HostDifferences;
 import org.apache.cassandra.repair.asymmetric.PreferedNodeFilter;
 import org.apache.cassandra.repair.asymmetric.ReduceHelper;
+import org.apache.cassandra.repair.messages.RepairSuccess;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.schema.SystemDistributedKeyspace;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -54,6 +60,7 @@ import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTrees;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.concurrent.CountDownLatch;
 import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.utils.concurrent.FutureCombiner;
 import org.apache.cassandra.utils.concurrent.ImmediateFuture;
@@ -61,6 +68,7 @@ import org.apache.cassandra.utils.concurrent.ImmediateFuture;
 import static org.apache.cassandra.config.DatabaseDescriptor.paxosRepairEnabled;
 import static org.apache.cassandra.service.paxos.Paxos.useV2;
 import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
+import static org.apache.cassandra.utils.concurrent.CountDownLatch.newCountDownLatch;
 
 /**
  * RepairJob runs repair on given ColumnFamily.
@@ -74,6 +82,8 @@ public class RepairJob extends AsyncFuture<RepairResult> implements Runnable
     private final RepairSession session;
     private final RepairParallelism parallelismDegree;
     private final ExecutorPlus taskExecutor;
+    private CountDownLatch successResponses = null;
+    private volatile long repairJobStartTime;
 
     @VisibleForTesting
     final List<ValidationTask> validationTasks = new CopyOnWriteArrayList<>();
@@ -122,6 +132,7 @@ public class RepairJob extends AsyncFuture<RepairResult> implements Runnable
         cfs.metric.repairsStarted.inc();
         List<InetAddressAndPort> allEndpoints = new ArrayList<>(session.state.commonRange.endpoints);
         allEndpoints.add(FBUtilities.getBroadcastAddressAndPort());
+        this.repairJobStartTime = currentTimeMillis();
 
         Future<List<TreeResponse>> treeResponses;
         Future<Void> paxosRepair;
@@ -219,6 +230,7 @@ public class RepairJob extends AsyncFuture<RepairResult> implements Runnable
                 {
                     logger.info("{} {}.{} is fully synced", session.previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
                     SystemDistributedKeyspace.successfulRepairJob(session.getId(), desc.keyspace, desc.columnFamily);
+                    sendRepairSuccess(allEndpoints);
                 }
                 cfs.metric.repairsCompleted.inc();
                 trySuccess(new RepairResult(desc, stats));
@@ -585,5 +597,59 @@ public class RepairJob extends AsyncFuture<RepairResult> implements Runnable
         ValidationTask task = new ValidationTask(desc, endpoint, nowInSec, session.previewKind);
         validationTasks.add(task);
         return task;
+    }
+
+    public boolean sendRepairSuccess(Collection<InetAddressAndPort> endpoints)
+    {
+        if (!DatabaseDescriptor.enableShadowChristmasPatch())
+        {
+            return true;
+        }
+
+        if (!session.allReplicas)
+        {
+            logger.info("Not sending repair success since all replicas were not repaired");
+            return true;
+        }
+
+        if (session.isIncremental)
+        {
+            logger.info("Not sending repair success since we are running an incremental repair");
+            return true;
+        }
+
+        if (session.previewKind != PreviewKind.NONE)
+        {
+            logger.info("Not sending repair success since we are running preview repair");
+            return true;
+        }
+
+        try
+        {
+            Set<InetAddressAndPort> allEndpoints = new HashSet<>(endpoints);
+            allEndpoints.add(FBUtilities.getBroadcastAddressAndPort());  // guarantee coordinator is included
+            successResponses = newCountDownLatch(allEndpoints.size());
+            RequestCallback<RepairSuccess> callback = (Message<RepairSuccess> msg) -> {
+                        logger.info("Response received for RepairSuccess from {}.", msg.header.from);
+                        RepairJob.this.successResponses.decrement();
+            };
+
+            RepairSuccess success = new RepairSuccess(desc.keyspace, desc.columnFamily, desc.ranges, repairJobStartTime);
+            for (InetAddressAndPort endpoint : allEndpoints)
+                MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_REPAIR_SUCCESS_REQ, success), endpoint, callback);
+
+            if (!successResponses.await(1, TimeUnit.HOURS))
+            {
+                logger.error("{} endpoints have not responded to RepairSuccess.", successResponses.count());
+                return false;
+            }
+            successResponses = null;
+            return true;
+        }
+        catch (Exception e)
+        {
+            logger.error("Error while sending RepairSuccess", e);
+            return false;
+        }
     }
 }

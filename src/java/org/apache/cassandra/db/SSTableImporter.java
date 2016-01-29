@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.io.util.File;
 import org.slf4j.Logger;
@@ -42,6 +43,8 @@ import org.apache.cassandra.io.sstable.format.SSTableWriter;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.Refs;
+
+import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
 
 public class SSTableImporter
 {
@@ -191,6 +194,14 @@ public class SSTableImporter
 
         try (Refs<SSTableReader> refs = Refs.ref(newSSTables))
         {
+            int nowSeconds = (int) (currentTimeMillis() / 1000);
+
+            int oldestSuggestedDeletion = cfs.gcBefore(nowSeconds);
+            if (Iterables.any(newSSTables, sst -> sst.getMinLocalDeletionTime() < oldestSuggestedDeletion))
+            {
+                logger.warn("Importing sstables with a minimum deletion time lower than gc grace seconds. This can result in overstreaming on the next repair");
+            }
+            cfs.clearLastRepairTimesFor(newSSTables, nowSeconds);
             cfs.getTracker().addSSTables(newSSTables);
             for (SSTableReader reader : newSSTables)
             {

@@ -736,4 +736,24 @@ public class RangeTest
         assertEquals(ranges, Range.subtract(ranges, asList(r(6, 7), r(20, 25))));
         assertEquals(Sets.newHashSet(r(1, 4), r(11, 15)), Range.subtract(ranges, asList(r(4, 7), r(8, 11))));
     }
+
+    @Test
+    public void testIntersectsBounds()
+    {
+        Range<Token> r = r(0, 100);
+        assertTrue(r.intersects(bounds(5, 10)));
+        assertTrue(r.intersects(bounds(100, 110)));
+        assertTrue(r.intersects(bounds(-100, 200)));
+        assertTrue(r.intersects(bounds(10, 15)));
+        assertTrue(r.intersects(bounds(20,20)));
+
+        assertFalse(r.intersects(bounds(-5, 0)));
+        assertFalse(r.intersects(bounds(-5, -1)));
+        assertFalse(r.intersects(bounds(110, 114)));
+    }
+
+    private static Bounds<Token> bounds(long left, long right)
+    {
+        return new Bounds<>(t(left), t(right));
+    }
 }

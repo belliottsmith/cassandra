@@ -30,7 +30,9 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.compaction.CompactionInfo;
 import org.apache.cassandra.db.compaction.CompactionInterruptedException;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -90,7 +92,7 @@ public class ValidationManager
     private static ValidationPartitionIterator getValidationIterator(TableRepairManager repairManager, Validator validator) throws IOException, NoSuchRepairSessionException
     {
         RepairJobDesc desc = validator.desc;
-        return repairManager.getValidationIterator(desc.ranges, desc.parentSessionId, desc.sessionId, validator.isIncremental, validator.nowInSec);
+        return repairManager.getValidationIterator(desc.ranges, desc.parentSessionId, desc.sessionId, validator.isIncremental, validator.nowInSec, validator.getPreviewKind());
     }
 
     /**
@@ -118,21 +120,30 @@ public class ValidationManager
         try (ValidationPartitionIterator vi = getValidationIterator(cfs.getRepairManager(), validator))
         {
             state.phase.start(vi.estimatedPartitions(), vi.getEstimatedBytes());
-            MerkleTrees trees = createMerkleTrees(vi, validator.desc.ranges, cfs);
-            // validate the CF as we iterate over it
-            validator.prepare(cfs, trees);
-            while (vi.hasNext())
+            CompactionManager.SessionData sessionData = new CompactionManager.SessionData(validator.desc.parentSessionId, validator.desc.ranges, validator.getPreviewKind(), (CompactionInfo.Holder) vi.getCompactionInfoHolder());
+            try
             {
-                try (UnfilteredRowIterator partition = vi.next())
+                CompactionManager.instance.markValidationActive(cfs.metadata().id, sessionData);
+                MerkleTrees trees = createMerkleTrees(vi, validator.desc.ranges, cfs);
+                // validate the CF as we iterate over it
+                validator.prepare(cfs, trees);
+                while (vi.hasNext())
                 {
-                    validator.add(partition);
-                    state.partitionsProcessed++;
-                    state.bytesRead = vi.getBytesRead();
-                    if (state.partitionsProcessed % 1024 == 0) // update every so often
-                        state.updated();
+                    try (UnfilteredRowIterator partition = vi.next())
+                    {
+                        validator.add(partition);
+                        state.partitionsProcessed++;
+                        state.bytesRead = vi.getBytesRead();
+                        if (state.partitionsProcessed % 1024 == 0) // update every so often
+                            state.updated();
+                    }
                 }
+                validator.complete();
             }
-            validator.complete();
+            finally
+            {
+                CompactionManager.instance.markValidationComplete(cfs.metadata().id, sessionData);
+            }
         }
         finally
         {

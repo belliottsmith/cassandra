@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -60,11 +61,22 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.RateLimiter;
+import org.apache.cassandra.service.paxos.Ballot;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.TimeUUID;
+import org.apache.cassandra.utils.concurrent.AsyncPromise;
+import org.apache.cassandra.utils.concurrent.CountDownLatch;
+import org.apache.cassandra.io.util.File;
+import org.apache.cassandra.io.util.FileOutputStreamPlus;
+import org.apache.cassandra.utils.concurrent.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,8 +111,11 @@ import org.apache.cassandra.db.streaming.CassandraStreamManager;
 import org.apache.cassandra.db.view.TableViews;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
-import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.db.xmas.BoundsAndOldestTombstone;
+import org.apache.cassandra.db.xmas.InvalidatedRepairedRange;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.StartupException;
@@ -118,8 +133,6 @@ import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.Version;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
-import org.apache.cassandra.io.util.File;
-import org.apache.cassandra.io.util.FileOutputStreamPlus;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.metrics.Sampler;
 import org.apache.cassandra.metrics.Sampler.Sample;
@@ -142,7 +155,6 @@ import org.apache.cassandra.schema.TableParams;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.service.paxos.Ballot;
 import org.apache.cassandra.service.paxos.PaxosRepairHistory;
 import org.apache.cassandra.service.paxos.TablePaxosRepairHistory;
 import org.apache.cassandra.service.snapshot.SnapshotManifest;
@@ -232,6 +244,21 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
     }
 
+    public static final Comparator<Pair<Range<Token>, Integer>> lastRepairTimeComparator = new Comparator<Pair<Range<Token>, Integer>>()
+    {
+        public int compare(Pair<Range<Token>, Integer> pair1, Pair<Range<Token>, Integer> pair2)
+        {
+            if (pair1.right.equals(pair2.right))
+            {
+                return pair1.left.compareTo(pair2.left);
+            }
+            else
+            {
+                return pair2.right.compareTo(pair1.right);
+            }
+        }
+    };
+
     public final Keyspace keyspace;
     public final String name;
     public final TableMetadataRef metadata;
@@ -308,6 +335,12 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     private final PaxosRepairHistoryLoader paxosRepairHistory = new PaxosRepairHistoryLoader();
+
+    /**
+     * A list to store ranges and the time they were last repaired. The list is
+     * reverse-sorted based on the timestamp (see {@link ColumnFamilyStore#lastRepairTimeComparator}).
+     */
+    private final AtomicReference<SuccessfulRepairTimeHolder> lastSuccessfulRepair = new AtomicReference<>(SuccessfulRepairTimeHolder.EMPTY);
 
     public static void shutdownPostFlushExecutor() throws InterruptedException
     {
@@ -1835,6 +1868,216 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return paxosRepairHistory.get().getBallotForToken(key.getToken());
     }
 
+    private boolean skipRFCheckForXmasPatch = false;
+    @VisibleForTesting
+    public void skipRFCheckForXmasPatch()
+    {
+        this.skipRFCheckForXmasPatch = true;
+    }
+
+    public boolean useRepairHistory()
+    {
+        return skipRFCheckForXmasPatch || keyspace.getReplicationStrategy().getReplicationFactor().allReplicas > 1;
+    }
+
+
+    public void loadLastSuccessfulRepair()
+    {
+        if (!useRepairHistory() || !DatabaseDescriptor.enableShadowChristmasPatch())
+            return;
+        setLastSuccessfulRepairs(SystemKeyspace.getLastSuccessfulRepair(keyspace.getName(), name),
+                                 SystemKeyspace.getInvalidatedSuccessfulRepairRanges(keyspace.getName(), name));
+    }
+
+    /**
+     * for testing ONLY
+     */
+    @VisibleForTesting
+    public void clearRepairedRangeUnsafes()
+    {
+        clearLastSucessfulRepairUnsafe();
+        SystemKeyspace.clearRepairedRanges(keyspace.getName(), getTableName());
+    }
+
+    @VisibleForTesting
+    void setLastSuccessfulRepairs(Map<Range<Token>, Integer> storedSuccessfulRepairs, List<InvalidatedRepairedRange> storedInvalidatedRepairs)
+    {
+        synchronized (lastSuccessfulRepair)
+        {
+            SuccessfulRepairTimeHolder current = lastSuccessfulRepair.get();
+            if (!current.successfulRepairs.isEmpty())
+                throw new IllegalStateException("Last Successful repair should be empty. " + lastSuccessfulRepair);
+
+            List<Pair<Range<Token>, Integer>> nextBuilder = new ArrayList<>(storedSuccessfulRepairs.size());
+
+            for (Map.Entry<Range<Token>, Integer> entry : storedSuccessfulRepairs.entrySet())
+                nextBuilder.add(Pair.create(entry.getKey(), entry.getValue()));
+            Collections.sort(nextBuilder, lastRepairTimeComparator);
+
+            List<InvalidatedRepairedRange> newInvalidatedRepairs = new ArrayList<>(storedInvalidatedRepairs);
+            newInvalidatedRepairs.sort((a, b) -> Ints.compare(a.minLDTSeconds, b.minLDTSeconds));
+
+            lastSuccessfulRepair.set(new SuccessfulRepairTimeHolder(ImmutableList.copyOf(nextBuilder), ImmutableList.copyOf(newInvalidatedRepairs)));
+        }
+    }
+
+    /**
+     * for testing ONLY
+     */
+    @VisibleForTesting
+    public void clearLastSucessfulRepairUnsafe()
+    {
+        synchronized (lastSuccessfulRepair)
+        {
+            lastSuccessfulRepair.set(SuccessfulRepairTimeHolder.EMPTY);
+        }
+    }
+
+    public void updateLastSuccessfulRepair(Range<Token> range, long succeedAt)
+    {
+        if (!useRepairHistory())
+            return;
+
+        if (!DatabaseDescriptor.enableShadowChristmasPatch())
+            return;
+        int gcableTime = (int) (succeedAt / 1000);
+        synchronized (lastSuccessfulRepair)
+        {
+            SuccessfulRepairTimeHolder current = lastSuccessfulRepair.get();
+            SuccessfulRepairTimeHolder next = updateLastSuccessfulRepair(range, gcableTime, current);
+            if (null == next)
+                return;
+            lastSuccessfulRepair.set(next);
+            SystemKeyspace.updateLastSuccessfulRepair(metadata.keyspace, name, range, succeedAt);
+        }
+        logger.debug("lastSuccessfulRepair:" + lastSuccessfulRepair);
+    }
+
+    /**
+     * remove duplicate range, or put the <range, gcableTime> pair in the right place
+     *
+     * @return Updated list with new value, else null if the time is in the past.
+     */
+    @VisibleForTesting
+    public static SuccessfulRepairTimeHolder updateLastSuccessfulRepair(Range<Token> range, int gcableTime, SuccessfulRepairTimeHolder currentRepairs)
+    {
+        List<Pair<Range<Token>, Integer>> previousTimes = currentRepairs.successfulRepairs;
+        Map<Range<Token>, Integer> rangeTimes = new HashMap<>(previousTimes.size() + 1);
+        for (Pair<Range<Token>, Integer> p: previousTimes)
+        {
+            if (!rangeTimes.containsKey(p.left) || rangeTimes.get(p.left) < p.right)
+            {
+                rangeTimes.put(p.left, p.right);
+            }
+        }
+
+        final Integer currentGcableTime = rangeTimes.get(range);
+        if (!rangeTimes.containsKey(range) || currentGcableTime < gcableTime)
+        {
+            rangeTimes.put(range, gcableTime);
+            logger.debug("Updated last repair time for range {} from {} to {}", range, currentGcableTime, gcableTime);
+        }
+        else if (currentGcableTime == gcableTime)
+        {
+            logger.debug("Kept same last repair time for range {} from {} to {}", range, currentGcableTime, gcableTime);
+            return null;
+        }
+        else
+        {
+            logger.error("Updated last repair time is in the past for range {}. Last successful repair {}, ignoring update at {}",
+                         range, currentGcableTime, gcableTime);
+            return null;
+        }
+
+        List<Pair<Range<Token>, Integer>> nextTimes = new ArrayList<>(rangeTimes.size());
+        for (Map.Entry<Range<Token>, Integer> entry: rangeTimes.entrySet())
+        {
+            nextTimes.add(Pair.create(entry.getKey(), entry.getValue()));
+        }
+
+        nextTimes.sort(lastRepairTimeComparator);
+        return new SuccessfulRepairTimeHolder(ImmutableList.copyOf(nextTimes), currentRepairs.invalidatedRepairs);
+    }
+
+
+    /**
+     * Basic idea is that we can't use the sstable boundaries straight up - we would have to subtract the
+     * repaired ranges from all the invalidated ones after each successful repair, otherwise the table would
+     * keep growing since we import sstables with arbitrary boundaries.
+     *
+     * So, instead we check which old successful repaired ranges the imported sstables intersect and insert
+     * matching ranges in the invalidation table which we can then remove once we get a successful repair.
+     * This assumes we don't change repair boundaries (-st, -et) every repair.
+     *
+     * If the invalidation table already contains an "active" invalidation (one where no repair has been run after
+     * the invalidation/import was made) we make sure that the entry has the smallest ldt between the existing
+     * one and the new one.
+     */
+    void clearLastRepairTimesFor(Collection<SSTableReader> sstables, int nowSeconds)
+    {
+        if (!useRepairHistory() || !DatabaseDescriptor.enableShadowChristmasPatch())
+            return;
+
+        BoundsAndOldestTombstone bounds = new BoundsAndOldestTombstone(sstables);
+        synchronized (lastSuccessfulRepair)
+        {
+            SuccessfulRepairTimeHolder current = lastSuccessfulRepair.get();
+
+            Map<Range<Token>, InvalidatedRepairedRange> currentInvalidated = new HashMap<>();
+            for (InvalidatedRepairedRange irr : current.invalidatedRepairs)
+            {
+                currentInvalidated.put(irr.range, irr);
+            }
+
+            for (Pair<Range<Token>, Integer> repair : current.successfulRepairs)
+            {
+                Range<Token> repairedRange = repair.left;
+                int repairTime = repair.right;
+                // find the smallest local deletion time among the intersecting sstables:
+                int minLDT = bounds.getOldestIntersectingTombstoneLDT(repairedRange, repairTime);
+
+                if (minLDT != Integer.MAX_VALUE)
+                {
+                    logger.info("Invalidating successfully repaired range {}", repairedRange);
+                    InvalidatedRepairedRange newIRR = new InvalidatedRepairedRange(nowSeconds, minLDT, repairedRange);
+                    if (currentInvalidated.containsKey(repairedRange))
+                    {
+                        InvalidatedRepairedRange mergedIRR = newIRR.merge(repairTime, currentInvalidated.get(repairedRange));
+                        // this can be null if a repair is started and finished between us starting import and getting  here (ie, the
+                        // repairTime > nowInSeconds) keeping the already inactive newIRR is safe though
+                        if (mergedIRR != null)
+                            newIRR = mergedIRR;
+                    }
+                    currentInvalidated.put(repairedRange, newIRR);
+                    SystemKeyspace.invalidateSuccessfulRepair(keyspace.getName(), getTableName(), newIRR);
+                }
+            }
+            List<InvalidatedRepairedRange> newInvalidatedRepairedRanges = new ArrayList<>(currentInvalidated.values());
+            newInvalidatedRepairedRanges.sort((a, b) -> Ints.compare(a.minLDTSeconds, b.minLDTSeconds));
+            lastSuccessfulRepair.set(new SuccessfulRepairTimeHolder(current.successfulRepairs, ImmutableList.copyOf(newInvalidatedRepairedRanges)));
+        }
+    }
+
+    public SuccessfulRepairTimeHolder getRepairTimeSnapshot()
+    {
+        return lastSuccessfulRepair.get();
+    }
+
+    public Map<Range<Token>, Integer> getRepairHistoryForRanges(Collection<Range<Token>> ranges)
+    {
+        Map<Range<Token>, Integer> history = new HashMap<>();
+
+        for (Pair<Range<Token>, Integer> lastRepairSuccess : lastSuccessfulRepair.get().successfulRepairs)
+        {
+            if (lastRepairSuccess.left.intersects(ranges))
+            {
+                history.put(lastRepairSuccess.left, lastRepairSuccess.right);
+            }
+        }
+
+        return history;
+    }
+
     public int gcBefore(int nowInSec)
     {
         return nowInSec - metadata().params.gcGraceSeconds;
@@ -2826,6 +3069,40 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return compactionStrategyManager.getLevelFanoutSize();
     }
 
+    private volatile long gcBeforeSeconds;
+    private volatile long lastCalculatedTime = 0;
+    private static long REFRESH_TIME_MILLIS = 300L * 1000L;
+
+    /*
+        This method returns Long.MAX_VALUE if repaired ranges are not there.
+     */
+    private long getLastMinRepairSuccessTime()
+    {
+        final Map<Range<Token>, Integer> repairMap = SystemKeyspace.getLastSuccessfulRepair(keyspace.getName(), name);
+        long lowestRepairTime = Long.MAX_VALUE;
+        for (final int repairTime : repairMap.values())
+        {
+            if (repairTime < lowestRepairTime)
+                lowestRepairTime = repairTime;
+        }
+        return lowestRepairTime;
+    }
+
+    // this is only used for metrics, basically how old the oldest repair is, not merging in invalidations since we
+    // only want to know how old the oldest repair is
+    public long getGCBeforeSeconds()
+    {
+        if ((currentTimeMillis() - lastCalculatedTime) > REFRESH_TIME_MILLIS)
+        {
+            gcBeforeSeconds = ((currentTimeMillis() / 1000) - getLastMinRepairSuccessTime());
+            lastCalculatedTime = currentTimeMillis();
+            if(gcBeforeSeconds < 0)
+                gcBeforeSeconds = 0;
+        }
+
+        return gcBeforeSeconds;
+    }
+
     public static class ViewFragment
     {
         public final List<SSTableReader> sstables;
@@ -3009,6 +3286,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     void onTableDropped()
     {
         indexManager.markAllIndexesRemoved();
+
+        // clear out old repair history
+        clearRepairedRangeUnsafes();
 
         CompactionManager.instance.interruptCompactionForCFs(concatWithIndexes(), (sstable) -> true, true);
 

@@ -97,9 +97,13 @@ public class MockSchema
 
     public static SSTableReader sstable(int generation, long first, long last, ColumnFamilyStore cfs)
     {
-        return sstable(generation, 0, false, first, last, cfs);
+        return sstable(generation, 0, false, first, last, 0, cfs, Integer.MAX_VALUE);
     }
 
+    public static SSTableReader sstable(int generation, long first, long last, int minLocalDeletionTime, ColumnFamilyStore cfs)
+    {
+        return sstable(generation, 0, false, first, last, 0, cfs, minLocalDeletionTime);
+    }
     public static SSTableReader sstable(int generation, boolean keepRef, ColumnFamilyStore cfs)
     {
         return sstable(generation, 0, keepRef, cfs);
@@ -111,7 +115,7 @@ public class MockSchema
     }
     public static SSTableReader sstable(int generation, int size, boolean keepRef, ColumnFamilyStore cfs)
     {
-        return sstable(generation, size, keepRef, generation, generation, cfs);
+        return sstable(generation, size, keepRef, generation, generation, 0, cfs, Integer.MAX_VALUE);
     }
 
     public static SSTableReader sstableWithLevel(int generation, long firstToken, long lastToken, int level, ColumnFamilyStore cfs)
@@ -130,6 +134,11 @@ public class MockSchema
     }
 
     public static SSTableReader sstable(int generation, int size, boolean keepRef, long firstToken, long lastToken, int level, ColumnFamilyStore cfs)
+    {
+        return sstable(generation, size, keepRef, firstToken, lastToken, level, cfs, Integer.MAX_VALUE);
+    }
+
+    public static SSTableReader sstable(int generation, int size, boolean keepRef, long firstToken, long lastToken, int level, ColumnFamilyStore cfs, int minLocalDeletionTime)
     {
         Descriptor descriptor = new Descriptor(cfs.getDirectories().getDirectoryForNewSSTables(),
                                                cfs.keyspace.getName(),
@@ -158,7 +167,9 @@ public class MockSchema
                 }
             }
             SerializationHeader header = SerializationHeader.make(cfs.metadata(), Collections.emptyList());
-            StatsMetadata metadata = (StatsMetadata) new MetadataCollector(cfs.metadata().comparator)
+            MetadataCollector collector = new MetadataCollector(cfs.metadata().comparator);
+            collector.update(new DeletionTime(System.currentTimeMillis() * 1000, minLocalDeletionTime));
+            StatsMetadata metadata = (StatsMetadata) collector
                                                      .sstableLevel(level)
                                                      .finalizeMetadata(cfs.metadata().partitioner.getClass().getCanonicalName(), 0.01f, UNREPAIRED_SSTABLE, null, false, header)
                                                      .get(MetadataType.STATS);
