@@ -158,6 +158,8 @@ public class DatabaseDescriptor
     private static volatile boolean aggressiveGC = Boolean.getBoolean("cassandra.aggressivegcls.enabled");
     private static volatile long scheduledCompactionCycleTimeSeconds;
 
+    private static long repairHistorySyncTimeoutSeconds;
+
     public static void daemonInitialization() throws ConfigurationException
     {
         daemonInitialization(DatabaseDescriptor::loadConfig);
@@ -815,6 +817,8 @@ public class DatabaseDescriptor
         }
 
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
+
+        repairHistorySyncTimeoutSeconds = parseScheduledCycleTimeSeconds(conf.repair_history_sync_timeout);
 
         scheduledCompactionCycleTimeSeconds = parseScheduledCycleTimeSeconds(conf.scheduled_compaction_cycle_time);
     }
@@ -3233,6 +3237,32 @@ public class DatabaseDescriptor
         return conf.auth_write_consistency_level;
     }
 
+    public static void setChristmasPatchEnabled(boolean enabled)
+    {
+        conf.enable_christmas_patch = enabled;
+    }
+
+    public static boolean enableChristmasPatch()
+    {
+        return conf.enable_christmas_patch;
+    }
+
+    public static boolean enableShadowChristmasPatch()
+    {
+        //If christmas patch is enabled, shadow is also enabled.
+        return conf.enable_christmas_patch || conf.enable_shadow_christmas_patch;
+    }
+
+    public static void setChristmasPatchEnabled()
+    {
+        conf.enable_christmas_patch = true;
+    }
+
+    public static void setChristmasPatchDisabled()
+    {
+        conf.enable_christmas_patch = false;
+    }
+
     public static boolean getCompactBiggestSTCSBucketInL0()
     {
         return conf.compact_biggest_stcs_bucket_l0;
@@ -3463,6 +3493,9 @@ public class DatabaseDescriptor
             case 's':
                 timeUnit = TimeUnit.SECONDS;
                 break;
+            case 'm':
+                timeUnit = TimeUnit.MINUTES;
+                break;
             case 'h':
                 timeUnit = TimeUnit.HOURS;
                 break;
@@ -3473,6 +3506,11 @@ public class DatabaseDescriptor
                 throw new ConfigurationException("Could only supported time units are: s, h, d, got: "+unitCharacter);
         }
         return timeUnit.toSeconds(value);
+    }
+
+    public static long getRepairHistorySyncTimeoutSeconds()
+    {
+        return repairHistorySyncTimeoutSeconds;
     }
 
     public static boolean enableSecondaryIndex()

@@ -91,6 +91,19 @@ import org.apache.cassandra.dht.Token.TokenFactory;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.gms.*;
 import org.apache.cassandra.hints.HintsService;
+import org.apache.cassandra.dht.RangeStreamer;
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.exceptions.UnavailableException;
+import org.apache.cassandra.gms.ApplicationState;
+import org.apache.cassandra.gms.EndpointState;
+import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.gms.IEndpointStateChangeSubscriber;
+import org.apache.cassandra.gms.IFailureDetector;
+import org.apache.cassandra.gms.TokenSerializer;
+import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.io.sstable.SSTableLoader;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.*;
@@ -98,8 +111,8 @@ import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.repair.*;
 import org.apache.cassandra.repair.messages.RepairOption;
+import org.apache.cassandra.repair.messages.UpdateRepairedRanges;
 import org.apache.cassandra.schema.CIEInternalKeyspace;
-import org.apache.cassandra.schema.CIEInternalLocalKeyspace;
 import org.apache.cassandra.schema.CompactionParams.TombstoneOption;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.MigrationManager;
@@ -1163,7 +1176,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         evolveSystemKeyspace(            TraceKeyspace.metadata(),             TraceKeyspace.GENERATION).ifPresent(changes::add);
         evolveSystemKeyspace(SystemDistributedKeyspace.metadata(), SystemDistributedKeyspace.GENERATION).ifPresent(changes::add);
 
-        evolveSystemKeyspace(      CIEInternalKeyspace.metadata(),       CIEInternalKeyspace.GENERATION).ifPresent(changes::add);
+        evolveSystemKeyspace(CIEInternalKeyspace.metadata(), CIEInternalKeyspace.GENERATION).ifPresent(changes::add);
 
         if (!changes.isEmpty())
             MigrationManager.announce(changes);
@@ -1289,6 +1302,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             StreamResultFuture resultFuture = streamer.fetchAsync();
             // wait for result
             resultFuture.get();
+            streamer.fetchRepairedRanges(4);
         }
         catch (InterruptedException e)
         {
@@ -4337,6 +4351,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             rangesToStream.put(keyspaceName, rangesMM);
         }
 
+        if (DatabaseDescriptor.enableShadowChristmasPatch())
+        {
+            sendRepairRangesForDecom(rangesToStream);
+        }
+
         setMode(Mode.LEAVING, "replaying batch log and streaming data to other nodes", true);
 
         // Start with BatchLog replay, which may create hints but no writes since this is no longer a valid endpoint.
@@ -4457,6 +4476,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (relocator.streamsNeeded())
         {
             setMode(Mode.MOVING, "fetching new ranges and streaming old ranges", true);
+
+            if (DatabaseDescriptor.enableShadowChristmasPatch())
+            {
+                relocator.sendRepairRanges();
+                relocator.fetchRepairedRanges();
+            }
             try
             {
                 relocator.stream().get();
@@ -4477,6 +4502,96 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             logger.debug("Successfully moved to new token {}", getLocalTokens().iterator().next());
     }
 
+
+    public void sendRepairRangesForDecom(Map<String, EndpointsByReplica> rangesToStreamByTable)
+    {
+        for(Map.Entry<String, EndpointsByReplica> entry : rangesToStreamByTable.entrySet())
+        {
+            //Convert the map to inetAddress to Collection of ranges
+            Multimap<InetAddressAndPort, Range<Token>> map =  HashMultimap.create();
+            for (Entry<Replica, EndpointsForRange> r : entry.getValue().entrySet())
+            {
+                map.put(r.getKey().endpoint(), r.getValue().range());
+            }
+
+            for(Map.Entry<InetAddressAndPort, Collection<Range<Token>>> addressRangeEntry :  map.asMap().entrySet())
+            {
+                sendRepairRangesForKeyspace(entry.getKey(), addressRangeEntry.getValue(), addressRangeEntry.getKey());
+            }
+
+        }
+    }
+
+    void sendRepairRangesForKeyspace(String keyspace, Collection<Range<Token>> ranges, InetAddressAndPort address)
+    {
+        Map<String, Map<Range<Token>, Integer>> retMap = new HashMap<String, Map<Range<Token>, Integer>>();
+        logger.info("Sending repair ranges {} to {} for keyspace {} ", ranges, address, keyspace);
+        for (Map.Entry<String, Map<Range<Token>, Integer>> perCf : SystemKeyspace.getLastSuccessfulRepairsForKeyspace(keyspace).entrySet())
+        {
+            String cf = perCf.getKey();
+            //Check if the CF exists then only send the ranges.
+            if(!Keyspace.open(keyspace).columnFamilyExists(cf))
+            {
+                logger.info("Skipping non existent cf = " + cf);
+                continue;
+            }
+
+            Map<Range<Token>, Integer> repairMap = new HashMap<Range<Token>, Integer>();
+            for (Map.Entry<Range<Token>, Integer> entry : perCf.getValue().entrySet())
+            {
+                Range<Token> locallyRepairedRange = entry.getKey();
+                for (Range<Token> requestRange : ranges)
+                {
+                    for (Range<Token> intersection : locallyRepairedRange.intersectionWith(requestRange))
+                    {
+                        Integer succeedAt = repairMap.get(intersection);
+                        if (succeedAt == null || succeedAt < entry.getValue())
+                            repairMap.put(intersection, entry.getValue());
+                    }
+                }
+            }
+
+            retMap.put(cf, repairMap);
+        }
+
+        final UpdateRepairedRanges request = new UpdateRepairedRanges(keyspace, retMap);
+        //We currently wait indefinitely during bootstrap.
+        for (int i = 0; i < 4; i++)
+        {
+            CompletableFuture<Boolean> result = new CompletableFuture<>();
+            MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_UPDATE_REPAIRED_RANGES_REQ, request), address, new RequestCallback<NoPayload>()
+            {
+                public void onResponse(Message<NoPayload> msg)
+                {
+                    result.complete(true);
+                }
+
+                public boolean invokeOnFailure()
+                {
+                    return true;
+                }
+
+                public void onFailure(InetAddressAndPort from, RequestFailureReason failureReason)
+                {
+                    result.complete(false);
+                }
+            });
+            try
+            {
+                if (result.get(1, MINUTES))
+                    return;
+                else
+                    logger.error("Could not update repaired ranges for {} for keyspace {}. Will retry", address, keyspace);
+            }
+            catch (TimeoutException | InterruptedException | ExecutionException ex)
+            {
+                logger.warn("Could not update repaired ranges for {} for keyspace {}. Will retry", address, keyspace);
+            }
+        }
+        logger.error("Could not update repaired ranges for {} for keyspace {}. Giving up.", address, keyspace);
+    }
+
+
     public String getRemovalStatus()
     {
         return getRemovalStatus(false);
@@ -4485,7 +4600,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public String getRemovalStatusWithPort()
     {
         return getRemovalStatus(true);
-    }
+        }
 
     /**
      * Get the status of a token removal.
@@ -5683,6 +5798,20 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         Server.EndpointPayloadTracker.setEndpointLimit(newLimit);
     }
 
+    public void stopFetchingRepairRanges()
+    {
+        BootStrapper.stopFetchingRepairRanges = true;
+    }
+
+    public boolean isChistmasPatchEnabled()
+    {
+        return DatabaseDescriptor.enableChristmasPatch();
+    }
+
+    public boolean isShadowChistmasPatchEnabled()
+    {
+        return DatabaseDescriptor.enableShadowChristmasPatch();
+    }
 
     public boolean isKeyspaceQuotaEnabled()
     {
