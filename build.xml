@@ -121,6 +121,7 @@
     <property name="allocation-instrumenter.version" value="3.1.0"/>
     <property name="bytebuddy.version" value="1.10.10"/>
     <property name="jflex.version" value="1.8.2"/>
+    <property name="log4j.version" value="2.13.0"/>
 
     <!-- https://mvnrepository.com/artifact/net.openhft/chronicle-bom/1.16.23 -->
     <property name="chronicle-queue.version" value="5.20.123" />
@@ -515,8 +516,9 @@
           <dependency groupId="org.slf4j" artifactId="slf4j-api" version="1.7.25"/>
           <dependency groupId="org.slf4j" artifactId="log4j-over-slf4j" version="1.7.25"/>
           <dependency groupId="org.slf4j" artifactId="jcl-over-slf4j" version="1.7.25" />
-          <dependency groupId="ch.qos.logback" artifactId="logback-core" version="1.2.3"/>
-          <dependency groupId="ch.qos.logback" artifactId="logback-classic" version="1.2.3"/>
+          <dependency groupId="org.apache.logging.log4j" artifactId="log4j-slf4j-impl" version="${log4j.version}"/>
+          <dependency groupId="org.apache.logging.log4j" artifactId="log4j-core" version="${log4j.version}"/>
+          <dependency groupId="org.apache.logging.log4j" artifactId="log4j-api" version="${log4j.version}"/>
           <dependency groupId="com.fasterxml.jackson.core" artifactId="jackson-core" version="2.9.10"/>
           <dependency groupId="com.fasterxml.jackson.core" artifactId="jackson-databind" version="2.9.10.8"/>
           <dependency groupId="com.fasterxml.jackson.core" artifactId="jackson-annotations" version="2.9.10"/>
@@ -534,6 +536,7 @@
           <dependency groupId="org.reflections" artifactId="reflections" version="0.9.12" scope="test"/>
           <dependency groupId="org.apache.hadoop" artifactId="hadoop-core" version="1.0.3" scope="provided">
             <exclusion groupId="org.mortbay.jetty" artifactId="servlet-api"/>
+            <exclusion groupId="org.mortbay.jetty" artifactId="servlet-api-2.5"/>
             <exclusion groupId="commons-logging" artifactId="commons-logging"/>
             <exclusion groupId="org.eclipse.jdt" artifactId="core"/>
             <exclusion groupId="ant" artifactId="ant"/>
@@ -565,7 +568,6 @@
           <dependency groupId="${base.groupid}" artifactId="cassandra-all" version="${version}" />
           <dependency groupId="io.dropwizard.metrics" artifactId="metrics-core" version="3.1.5" />
           <dependency groupId="io.dropwizard.metrics" artifactId="metrics-jvm" version="3.1.5" />
-          <dependency groupId="io.dropwizard.metrics" artifactId="metrics-logback" version="3.1.5" />
           <dependency groupId="com.addthis.metrics" artifactId="reporter-config3" version="3.0.3">
             <exclusion groupId="org.hibernate" artifactId="hibernate-validator" />
            </dependency>
@@ -765,12 +767,12 @@
         <dependency groupId="io.airlift" artifactId="airline"/>
         <dependency groupId="io.dropwizard.metrics" artifactId="metrics-core"/>
         <dependency groupId="io.dropwizard.metrics" artifactId="metrics-jvm"/>
-        <dependency groupId="io.dropwizard.metrics" artifactId="metrics-logback"/>
         <dependency groupId="com.addthis.metrics" artifactId="reporter-config3"/>
         <dependency groupId="com.clearspring.analytics" artifactId="stream"/>
 
-        <dependency groupId="ch.qos.logback" artifactId="logback-core"/>
-        <dependency groupId="ch.qos.logback" artifactId="logback-classic"/>
+        <dependency groupId="org.apache.logging.log4j" artifactId="log4j-slf4j-impl"/>
+        <dependency groupId="org.apache.logging.log4j" artifactId="log4j-core"/>
+        <dependency groupId="org.apache.logging.log4j" artifactId="log4j-api"/>
 
         <!-- don't need hadoop classes to run, but if you use the hadoop stuff -->
         <dependency groupId="org.apache.hadoop" artifactId="hadoop-core" optional="true"/>
@@ -1537,7 +1539,7 @@
     <testmacro inputdir="${test.burn.src}" timeout="${test.burn.timeout}">
       <test unless:blank="${test.methods}" name="${test.name}" methods="${test.methods}"/>
       <test if:blank="${test.methods}" name="${test.name}"/>
-      <jvmarg value="-Dlogback.configurationFile=test/conf/logback-burntest.xml"/>
+      <jvmarg value="-Dlog4j.configurationFile=test/conf/log4j2-burntest.xml"/>
     </testmacro>
   </target>
 
@@ -1821,8 +1823,8 @@
           <zipgroupfileset dir="${build.lib}" includes="*.jar" excludes="META-INF/*.SF"/>
           <fileset dir="${build.classes.main}"/>
           <fileset dir="${test.classes}"/>
-          <fileset dir="${test.conf}" excludes="logback*.xml"/>
-          <fileset dir="${basedir}/conf" includes="logback*.xml"/>
+          <fileset dir="${test.conf}" excludes="log4j*.xml"/>
+          <fileset dir="${basedir}/conf" includes="log4j*.xml"/>
           <zipgroupfileset dir="${build.dir.lib}/jars">
               <include name="junit*.jar"/>
           </zipgroupfileset>
@@ -1841,7 +1843,7 @@
 
   <target name="test-jvm-dtest" depends="build-test" description="Execute in-jvm dtests">
     <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true" filter="**/test/*Test.java">
-      <jvmarg value="-Dlogback.configurationFile=test/conf/logback-dtest.xml"/>
+      <jvmarg value="-Dlog4j.configurationFile=test/conf/log4j2-dtest.xml"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
@@ -1850,7 +1852,7 @@
 
   <target name="test-jvm-upgrade-dtest" depends="build-test" description="Execute in-jvm dtests">
     <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true" filter="**/upgrade/*Test.java">
-      <jvmarg value="-Dlogback.configurationFile=test/conf/logback-dtest.xml"/>
+      <jvmarg value="-log4j.configurationFile=test/conf/log4j2-dtest.xml"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
@@ -1864,7 +1866,7 @@
     <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true">
       <test unless:blank="${test.methods}" name="${test.name}" methods="${test.methods}" outfile="build/test/output/TEST-${test.name}-${test.methods}"/>
       <test if:blank="${test.methods}" name="${test.name}" outfile="build/test/output/TEST-${test.name}"/>
-      <jvmarg value="-Dlogback.configurationFile=test/conf/logback-dtest.xml"/>
+      <jvmarg value="-Dlog4j.configurationFile=test/conf/log4j2-dtest.xml"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
