@@ -577,6 +577,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     throw new IllegalStateException(String.format("%s != %s", FBUtilities.getBroadcastAddressAndPort(), broadcastAddress()));
 
                 ActiveRepairService.instance.start();
+                CassandraDaemon.getInstanceForTesting().loadLastSuccessfulRepairTimes();
             }
             catch (Throwable t)
             {
