@@ -20,28 +20,39 @@ package org.apache.cassandra.distributed.impl;
 
 import java.util.Objects;
 
-import ch.qos.logback.core.PropertyDefinerBase;
+import org.apache.cassandra.concurrent.NamedThreadFactory;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.config.plugins.Plugin;
+import org.apache.logging.log4j.core.lookup.StrLookup;
 
 /**
- * Used by logback to find/define property value, see logback-dtest.xml
+ * Used by log4j to find/define property value, see log4j2-dtest.xml
  */
-public class ClusterIDDefiner extends PropertyDefinerBase
+@Plugin(name="cluster", category = StrLookup.CATEGORY)
+public class ClusterIDDefiner implements StrLookup
 {
-    private static volatile String ID = "<main>";
+    private static final String CLUSTER_ID_OBJECT = "cluster_id";
 
-    public static void setId(String id)
+    public static void setId(String id, LoggerContext loggerContext)
     {
-        ID = Objects.requireNonNull(id);
+        loggerContext.putObject(CLUSTER_ID_OBJECT, id);
     }
 
     public static String getId()
     {
-        return ID;
+        final LoggerContext loggerContext = LoggerContext.getContext(Thread.currentThread().getContextClassLoader(), false, null);
+        final Object id = loggerContext.getObject(CLUSTER_ID_OBJECT);
+        return Objects.toString(id, "<main>");
     }
 
-    @Override
-    public String getPropertyValue()
+    public String lookup(String s)
     {
-        return ID;
+        return getId();
+    }
+
+    public String lookup(LogEvent logEvent, String s)
+    {
+        return getId();
     }
 }
