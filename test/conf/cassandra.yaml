@@ -63,6 +63,7 @@ row_index_read_size_warn_threshold: 4096KiB
 row_index_read_size_fail_threshold: 8192KiB
 disable_schema_drop_check: true
 secondary_indexes_enabled: true
+enable_christmas_patch: false
 
 memtable:
     configurations:

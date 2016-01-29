@@ -268,7 +268,7 @@ public class LocalRepairTablesTest extends CQLTester
 
     private static RepairRunnable.NeighborsAndRanges neighbors()
     {
-        return new RepairRunnable.NeighborsAndRanges(false, ADDRESSES, ImmutableList.of(COMMON_RANGE));
+        return new RepairRunnable.NeighborsAndRanges(false, Collections.singletonMap(ADDRESSES, true), ADDRESSES, ImmutableList.of(COMMON_RANGE));
     }
 
     private static Range<Token> range(long a, long b)

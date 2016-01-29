@@ -762,6 +762,10 @@ public class Config
 
     public volatile boolean alter_table_enabled = true;
 
+    public Boolean enable_christmas_patch = true;
+
+    public Boolean enable_shadow_christmas_patch = false;
+
     public volatile boolean compact_biggest_stcs_bucket_l0 = false;
 
     public Boolean disable_incremental_repair = Boolean.parseBoolean(System.getProperty("cassandra.disable_incremental_repair", "false"));
@@ -781,6 +785,8 @@ public class Config
     public volatile boolean skip_single_sstable_scheduled_compactions = true;
     public volatile long max_scheduled_compaction_sstable_size_bytes = 10240 * 1024L * 1024L;
     public volatile int max_scheduled_compaction_sstable_count = 40;
+
+    public String repair_history_sync_timeout = "10m";
 
     public volatile boolean disable_schema_drop_check = false;
 

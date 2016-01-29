@@ -20,6 +20,7 @@ package org.apache.cassandra.repair;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -44,9 +45,9 @@ public class PreviewRepairTask extends AbstractRepairTask
     private final String[] cfnames;
     private volatile String successMessage = name() + " completed successfully";
 
-    protected PreviewRepairTask(RepairOption options, String keyspace, RepairNotifier notifier, TimeUUID parentSession, List<CommonRange> commonRanges, String[] cfnames)
+    protected PreviewRepairTask(RepairOption options, String keyspace, RepairNotifier notifier, TimeUUID parentSession, Map<Set<InetAddressAndPort>, Boolean> allReplicaMap, List<CommonRange> commonRanges, String[] cfnames)
     {
-        super(options, keyspace, notifier);
+        super(options, keyspace, notifier, allReplicaMap);
         this.parentSession = parentSession;
         this.commonRanges = commonRanges;
         this.cfnames = cfnames;

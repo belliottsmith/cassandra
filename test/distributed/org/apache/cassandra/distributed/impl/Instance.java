@@ -738,6 +738,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 ActiveRepairService.instance.start();
                 StreamManager.instance.start();
                 CassandraDaemon.getInstanceForTesting().completeSetup();
+                CassandraDaemon.getInstanceForTesting().loadLastSuccessfulRepairTimes();
             }
             catch (Throwable t)
             {
