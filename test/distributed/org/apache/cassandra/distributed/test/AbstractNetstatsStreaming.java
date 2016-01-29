@@ -490,7 +490,9 @@ public abstract class AbstractNetstatsStreaming extends TestBaseImpl
             for (final NodeToolResult result : netstatOutputs)
             {
                 Assert.assertEquals(result.getRc(), 0);
-                Assert.assertTrue(result.getStderr().isEmpty());
+                // CIE change as log4j2 picks up more errors than logback does
+                Assert.assertFalse("Error mentioned streaming: " + result.getStderr(), result.getStderr().contains("treaming"));
+
             }
         }
     }

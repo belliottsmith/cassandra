@@ -1295,7 +1295,7 @@
     <testmacro inputdir="${test.burn.src}" timeout="${test.burn.timeout}">
       <test unless:blank="${test.methods}" name="${test.name}" methods="${test.methods}"/>
       <test if:blank="${test.methods}" name="${test.name}"/>
-      <jvmarg value="-Dlogback.configurationFile=test/conf/logback-burntest.xml"/>
+      <jvmarg value="-Dlog4j.configurationFile=test/conf/log4j2-burntest.xml"/>
     </testmacro>
   </target>
 
@@ -1584,8 +1584,8 @@
           <zipgroupfileset dir="${build.lib}" includes="*.jar" excludes="META-INF/*.SF"/>
           <fileset dir="${build.classes.main}"/>
           <fileset dir="${test.classes}"/>
-          <fileset dir="${test.conf}" excludes="logback*.xml"/>
-          <fileset dir="${basedir}/conf" includes="logback*.xml"/>
+          <fileset dir="${test.conf}" excludes="log4j*.xml"/>
+          <fileset dir="${basedir}/conf" includes="log4j*.xml"/>
           <zipgroupfileset dir="${build.dir.lib}/jars">
               <include name="junit*.jar"/>
           </zipgroupfileset>
@@ -1605,7 +1605,7 @@
 
   <target name="test-jvm-dtest" depends="build-test" description="Execute in-jvm dtests">
     <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true" filter="**/test/${test.name}.java">
-      <jvmarg value="-Dlogback.configurationFile=test/conf/logback-dtest.xml"/>
+      <jvmarg value="-Dlog4j.configurationFile=test/conf/log4j2-dtest.xml"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
@@ -1614,7 +1614,7 @@
 
   <target name="test-simulator-dtest" depends="build-test" description="Execute simulator dtests">
     <testmacro inputdir="${test.simulator-test.src}" timeout="${test.simulation.timeout}" forkmode="perTest" showoutput="true" filter="**/test/${test.name}.java">
-      <jvmarg value="-Dlogback.configurationFile=test/conf/logback-simulator.xml"/>
+      <jvmarg value="-Dlog4j.configurationFile=test/conf/log4j2-simulator.xml"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
@@ -1635,7 +1635,7 @@
 
   <target name="test-jvm-upgrade-dtest" depends="build-test" description="Execute in-jvm dtests">
     <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true" filter="**/upgrade/*Test.java">
-      <jvmarg value="-Dlogback.configurationFile=test/conf/logback-dtest.xml"/>
+      <jvmarg value="-Dlog4j.configurationFile=test/conf/log4j2-dtest.xml"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
@@ -1650,7 +1650,7 @@
     <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true">
       <test unless:blank="${test.methods}" name="${test.name}" methods="${test.methods}" outfile="build/test/output/TEST-${test.name}-${test.methods}"/>
       <test if:blank="${test.methods}" name="${test.name}" outfile="build/test/output/TEST-${test.name}"/>
-      <jvmarg value="-Dlogback.configurationFile=test/conf/logback-dtest.xml"/>
+      <jvmarg value="-Dlog4j.configurationFile=test/conf/log4j2-dtest.xml"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
