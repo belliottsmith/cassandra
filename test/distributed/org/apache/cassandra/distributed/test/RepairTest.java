@@ -100,7 +100,7 @@ public class RepairTest extends TestBaseImpl
                 if (event.getType() == ProgressEventType.COMPLETE)
                     await.signalAll();
             })).right.get();
-            await.await(1L, MINUTES);
+            assert(await.await(1L, MINUTES));
         }));
     }
 

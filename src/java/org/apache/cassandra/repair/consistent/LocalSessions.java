@@ -1024,4 +1024,10 @@ public class LocalSessions
     {
         void onIRStateChange(LocalSession session);
     }
+
+    public ConsistentSession.State getSessionState(UUID sessionID)
+    {
+        LocalSession session = getSession(sessionID);
+        return session != null ? session.getState() : null;
+    }
 }

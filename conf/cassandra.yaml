@@ -1453,6 +1453,10 @@ enable_transient_replication: false
 # auth_read_consistency_level: LOCAL_QUORUM
 # auth_write_consistency_level: EACH_QUORUM
 
+# Enable the Christmas Patch.
+# Enabling this will require rolling repairs or no tombstones will be reclaimed.
+# enable_christmas_patch: true
+
 # Enable to run scheduled compactions - this generates a lot of compaction on the node, so enable with care:
 # enable_scheduled_compactions: false
 # minimum number of sub ranges we should compact:

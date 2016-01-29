@@ -369,6 +369,7 @@ public class CassandraDaemon
             ScheduledExecutors.optionalTasks.scheduleWithFixedDelay(SizeEstimatesRecorder.instance, 30, sizeRecorderInterval, TimeUnit.SECONDS);
 
         ActiveRepairService.instance.start();
+        loadLastSuccessfulRepairTimes();
 
         // Prepared statements
         QueryProcessor.preloadPreparedStatement();
@@ -551,6 +552,26 @@ public class CassandraDaemon
                             FileUtils.deleteDirectoryIfEmpty(keyspaceDirectory);
                         }
                     }
+                }
+            }
+        }
+    }
+
+
+    /* CIE Xmas patch: Load last successful repair times for all keyspaces/tables
+     * When bootstrapping the last successful repair time will be requested once
+     * by a listener on the bootstrapper future.
+     */
+    @VisibleForTesting
+    public void loadLastSuccessfulRepairTimes()
+    {
+        for (Keyspace keyspace : Keyspace.all())
+        {
+            for (ColumnFamilyStore cfs : keyspace.getColumnFamilyStores())
+            {
+                for (final ColumnFamilyStore store : cfs.concatWithIndexes())
+                {
+                    store.loadLastSuccessfulRepair();
                 }
             }
         }
