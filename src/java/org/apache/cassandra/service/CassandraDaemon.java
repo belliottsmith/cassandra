@@ -398,6 +398,7 @@ public class CassandraDaemon
             {
                 for (final ColumnFamilyStore store : cfs.concatWithIndexes())
                 {
+                    store.loadLastSuccessfulRepair(); // CIE Xmas Patch
                     store.reload(); //reload CFs in case there was a change of disk boundaries
                     if (store.getCompactionStrategyManager().shouldBeEnabled())
                     {

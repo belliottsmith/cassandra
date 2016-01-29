@@ -703,9 +703,11 @@ public abstract class ReadCommand extends AbstractReadQuery
         {
             public WithoutPurgeableTombstones()
             {
-                super(nowInSec(), cfs.gcBefore(nowInSec()), oldestUnrepairedTombstone(),
+                // todo: maybe we should return all tombstones always, this might be too slow
+                super(cfs, nowInSec(), cfs.gcBefore(nowInSec()), oldestUnrepairedTombstone(),
                       cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones(),
-                      iterator.metadata().enforceStrictLiveness());
+                      iterator.metadata().enforceStrictLiveness(),
+                      cfs.getRepairTimeSnapshot());
             }
 
             protected LongPredicate getPurgeEvaluator()

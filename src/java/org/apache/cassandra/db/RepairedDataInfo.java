@@ -286,11 +286,12 @@ class RepairedDataInfo
                            int nowInSec,
                            int oldestUnrepairedTombstone)
         {
-            super(nowInSec,
+            super(cfs, nowInSec,
                   cfs.gcBefore(nowInSec),
                   oldestUnrepairedTombstone,
                   cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones(),
-                  cfs.metadata.get().enforceStrictLiveness());
+                  cfs.metadata.get().enforceStrictLiveness(),
+                  cfs.getRepairTimeSnapshot());
         }
 
         protected LongPredicate getPurgeEvaluator()
