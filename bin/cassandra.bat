@@ -65,7 +65,7 @@ set JAVA_OPTS=-ea^
  -XX:MaxTenuringThreshold=1^
  -XX:CMSInitiatingOccupancyFraction=75^
  -XX:+UseCMSInitiatingOccupancyOnly^
- -Dlogback.configurationFile=logback.xml^
+ -Dlog4j.configurationFile=log4j2.xml^
  -Djava.library.path="%CASSANDRA_HOME%\lib\sigar-bin"^
  -Dcassandra.jmx.local.port=7199
 REM **** JMX REMOTE ACCESS SETTINGS SEE: https://wiki.apache.org/cassandra/JmxSecurity ***

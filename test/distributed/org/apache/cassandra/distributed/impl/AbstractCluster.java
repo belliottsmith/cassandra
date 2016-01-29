@@ -31,6 +31,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -92,8 +93,12 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 {
     public static Versions.Version CURRENT_VERSION = new Versions.Version(FBUtilities.getReleaseVersionString(), Versions.getClassPath());;
 
+    private static final Predicate<String> CIE_SHARED_PACKAGES = name -> name.startsWith("org.w3c.dom");
+    private static final Predicate<String> COMBINED_SHARED_PACKAGES = InstanceClassLoader .getDefaultLoadSharedFilter().or(CIE_SHARED_PACKAGES);
+
+
     // WARNING: we have this logger not (necessarily) for logging, but
-    // to ensure we have instantiated the main classloader's LoggerFactory (and any LogbackStatusListener)
+    // to ensure we have instantiated the main classloader's LoggerFactory (and any Log4j2StatusListener)
     // before we instantiate any for a new instance
     private static final Logger logger = LoggerFactory.getLogger(AbstractCluster.class);
     private static final AtomicInteger generation = new AtomicInteger();
@@ -144,7 +149,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
         private IInvokableInstance newInstance(int generation)
         {
-            ClassLoader classLoader = new InstanceClassLoader(generation, config.num(), version.classpath, sharedClassLoader);
+            ClassLoader classLoader = new InstanceClassLoader(generation, config.num(), version.classpath, sharedClassLoader, COMBINED_SHARED_PACKAGES);
             return Instance.transferAdhoc((SerializableBiFunction<IInstanceConfig, ClassLoader, Instance>)Instance::new, classLoader)
                                         .apply(config.forVersion(version.major), classLoader);
         }
