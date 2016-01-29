@@ -283,9 +283,11 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
 
         private Purger(AbstractCompactionController controller, int nowInSec)
         {
-            super(nowInSec, controller.gcBefore, controller.compactingRepaired() ? Integer.MAX_VALUE : Integer.MIN_VALUE,
+            // note that controller.gcBefore is only used as a default if we are not running christmas patch
+            super(controller.cfs, nowInSec, controller.gcBefore, controller.compactingRepaired() ? Integer.MAX_VALUE : Integer.MIN_VALUE,
                   controller.cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones(),
-                  controller.cfs.metadata.get().enforceStrictLiveness());
+                  controller.cfs.metadata.get().enforceStrictLiveness(),
+                  controller.getRepairTimeSnapshot());
             this.controller = controller;
         }
 
@@ -299,6 +301,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
         @Override
         protected void onNewPartition(DecoratedKey key)
         {
+            super.onNewPartition(key);
             currentKey = key;
             purgeEvaluator = null;
         }

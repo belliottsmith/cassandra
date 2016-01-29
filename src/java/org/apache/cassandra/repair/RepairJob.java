@@ -18,6 +18,7 @@
 package org.apache.cassandra.repair;
 
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.function.Predicate;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -26,16 +27,22 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.*;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.net.Message;
+import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.net.RequestCallback;
+import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.repair.asymmetric.DifferenceHolder;
 import org.apache.cassandra.repair.asymmetric.HostDifferences;
 import org.apache.cassandra.repair.asymmetric.PreferedNodeFilter;
 import org.apache.cassandra.repair.asymmetric.ReduceHelper;
+import org.apache.cassandra.repair.messages.RepairSuccess;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.PreviewKind;
@@ -57,6 +64,8 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
     private final RepairJobDesc desc;
     private final RepairParallelism parallelismDegree;
     private final ListeningExecutorService taskExecutor;
+    private CountDownLatch successResponses = null;
+    private volatile long repairJobStartTime;
 
     /**
      * Create repair job to run on specific columnfamily
@@ -98,6 +107,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         cfs.metric.repairsStarted.inc();
         List<InetAddressAndPort> allEndpoints = new ArrayList<>(session.commonRange.endpoints);
         allEndpoints.add(FBUtilities.getBroadcastAddressAndPort());
+        this.repairJobStartTime = System.currentTimeMillis();
 
         ListenableFuture<List<TreeResponse>> validations;
         // Create a snapshot at all nodes unless we're using pure parallel repairs
@@ -154,6 +164,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
                 {
                     logger.info("{} {}.{} is fully synced", session.previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
                     SystemDistributedKeyspace.successfulRepairJob(session.getId(), desc.keyspace, desc.columnFamily);
+                    sendRepairSuccess(allEndpoints);
                 }
                 cfs.metric.repairsCompleted.inc();
                 set(new RepairResult(desc, stats));
@@ -476,5 +487,59 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             taskExecutor.execute(firstTask);
         }
         return Futures.allAsList(tasks);
+    }
+
+    public boolean sendRepairSuccess(Collection<InetAddressAndPort> endpoints)
+    {
+        if (!DatabaseDescriptor.enableShadowChristmasPatch())
+        {
+            return true;
+        }
+
+        if (!session.allReplicas)
+        {
+            logger.info("Not sending repair success since all replicas were not repaired");
+            return true;
+        }
+
+        if (session.isIncremental)
+        {
+            logger.info("Not sending repair success since we are running an incremental repair");
+            return true;
+        }
+
+        if (session.previewKind != PreviewKind.NONE)
+        {
+            logger.info("Not sending repair success since we are running preview repair");
+            return true;
+        }
+
+        try
+        {
+            Set<InetAddressAndPort> allEndpoints = new HashSet<>(endpoints);
+            allEndpoints.add(FBUtilities.getBroadcastAddressAndPort());  // guarantee coordinator is included
+            successResponses = new CountDownLatch(allEndpoints.size());
+                RequestCallback<RepairSuccess> callback = (Message<RepairSuccess> msg) -> {
+                        logger.info("Response received for RepairSuccess from {}.", msg.header.from);
+                        RepairJob.this.successResponses.countDown();
+            };
+
+            RepairSuccess success = new RepairSuccess(desc.keyspace, desc.columnFamily, desc.ranges, repairJobStartTime);
+            for (InetAddressAndPort endpoint : allEndpoints)
+                MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_REPAIR_SUCCESS_REQ, success), endpoint, callback);
+
+            if (!successResponses.await(1, TimeUnit.HOURS))
+            {
+                logger.error("{} endpoints have not responded to RepairSuccess.", successResponses.getCount());
+                return false;
+            }
+            successResponses = null;
+            return true;
+        }
+        catch (Exception e)
+        {
+            logger.error("Error while sending RepairSuccess", e);
+            return false;
+        }
     }
 }
