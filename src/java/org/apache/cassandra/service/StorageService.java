@@ -58,6 +58,12 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.Appender;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.config.Configuration;
+import org.apache.logging.log4j.core.config.LoggerConfig;
 import org.apache.cassandra.audit.AuditLogManager;
 import org.apache.cassandra.audit.AuditLogOptions;
 import org.apache.cassandra.auth.AuthKeyspace;
@@ -4057,7 +4063,32 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public void setLoggingLevel(String classQualifier, String rawLevel) throws Exception
     {
-        LoggingSupportFactory.getLoggingSupport().setLoggingLevel(classQualifier, rawLevel);
+        final Class<?> logClass = this.getClass().getClassLoader().loadClass(classQualifier);
+
+        try (LoggerContext ctx = (LoggerContext) LogManager.getContext(false))
+        {
+            Configuration config = ctx.getConfiguration();
+            LoggerConfig rootLoggerConfig = config.getLoggerConfig(LogManager.ROOT_LOGGER_NAME);
+            Map<String, Appender> rootAppenderRefs = rootLoggerConfig.getAppenders();
+
+            Level desiredLevel = Level.toLevel(rawLevel);
+            if (config.getLoggers().containsKey(logClass.getName()))
+            {
+                LoggerConfig classSpecificConfig = config.getLoggerConfig(logClass.getName());
+                classSpecificConfig.setLevel(desiredLevel);
+            }
+            else
+            {
+                LoggerConfig classSpecificConfig = new LoggerConfig(logClass.getName(), desiredLevel, false);
+                for (Map.Entry<String, Appender> entry : rootAppenderRefs.entrySet())
+                {
+                    classSpecificConfig.addAppender(entry.getValue(), null, null);
+                }
+                config.addLogger(logClass.getName(), classSpecificConfig);
+            }
+            ctx.updateLoggers();
+            logger.info("set log level to {} for classes under '{}' (if the level doesn't look like '{}' then the logger couldn't parse '{}')", desiredLevel, classQualifier, rawLevel, rawLevel);
+        }
     }
 
     /**
@@ -4066,7 +4097,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     @Override
     public Map<String,String> getLoggingLevels()
     {
-        return LoggingSupportFactory.getLoggingSupport().getLoggingLevels();
+        Map<String, String> logLevelMaps = Maps.newLinkedHashMap();
+        try (LoggerContext ctx = (LoggerContext) LogManager.getContext(false))
+        {
+            Configuration config = ctx.getConfiguration();
+            for (Map.Entry<String, LoggerConfig> loggerEntry : config.getLoggers().entrySet())
+            {
+                logLevelMaps.put(loggerEntry.getKey(), loggerEntry.getValue().getLevel().toString());
+            }
+            return logLevelMaps;
+        }
     }
 
     /**

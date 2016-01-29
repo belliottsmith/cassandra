@@ -20,12 +20,15 @@ package org.apache.cassandra.distributed.impl;
 
 import java.util.Objects;
 
-import ch.qos.logback.core.PropertyDefinerBase;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.config.plugins.Plugin;
+import org.apache.logging.log4j.core.lookup.StrLookup;
 
 /**
- * Used by logback to find/define property value, see logback-dtest.xml
+ * Used by log4j to find/define property value, see log4j2-dtest.xml
  */
-public class ClusterIDDefiner extends PropertyDefinerBase
+@Plugin(name="instance", category = StrLookup.CATEGORY)
+public class ClusterIDDefiner implements StrLookup
 {
     private static volatile String ID = "<main>";
 
@@ -39,8 +42,17 @@ public class ClusterIDDefiner extends PropertyDefinerBase
         return ID;
     }
 
-    @Override
-    public String getPropertyValue()
+    public String lookup(String s)
+    {
+        return lookup();
+    }
+
+    public String lookup(LogEvent logEvent, String s)
+    {
+        return lookup();
+    }
+
+    private String lookup()
     {
         return ID;
     }
