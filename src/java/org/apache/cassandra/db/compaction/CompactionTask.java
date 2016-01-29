@@ -73,9 +73,14 @@ public class CompactionTask extends AbstractCompactionTask
 
     protected int executeInternal(ActiveCompactionsTracker activeCompactions)
     {
-        this.activeCompactions = activeCompactions == null ? ActiveCompactionsTracker.NOOP : activeCompactions;
+        setActiveCompactions(activeCompactions);
         run();
         return transaction.originals().size();
+    }
+
+    protected void setActiveCompactions(ActiveCompactionsTracker activeCompactions)
+    {
+        this.activeCompactions = activeCompactions == null ? ActiveCompactionsTracker.NOOP : activeCompactions;
     }
 
     public boolean reduceScopeForLimitedSpace(Set<SSTableReader> nonExpiredSSTables, long expectedSize)

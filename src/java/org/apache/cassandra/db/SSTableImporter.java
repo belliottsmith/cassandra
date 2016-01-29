@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Iterables;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -174,6 +175,14 @@ public class SSTableImporter
 
         try (Refs<SSTableReader> refs = Refs.ref(newSSTables))
         {
+            int nowSeconds = (int) (System.currentTimeMillis() / 1000);
+
+            int oldestSuggestedDeletion = cfs.gcBefore(nowSeconds);
+            if (Iterables.any(newSSTables, sst -> sst.getMinLocalDeletionTime() < oldestSuggestedDeletion))
+            {
+                logger.warn("Importing sstables with a minimum deletion time lower than gc grace seconds. This can result in overstreaming on the next repair");
+            }
+            cfs.clearLastRepairTimesFor(newSSTables, nowSeconds);
             cfs.getTracker().addSSTables(newSSTables);
             for (SSTableReader reader : newSSTables)
             {
