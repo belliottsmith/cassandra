@@ -57,6 +57,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.metadata.MetadataComponent;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.service.StorageProxy.LocalReadRunnable;
@@ -275,11 +276,14 @@ public class RepairDigestTrackingTest extends TestBaseImpl
 
             if (ccAfterPartitionRead != ccAfterRangeRead)
                 if (ccAfterPartitionRead != ccBefore)
-                    fail("Both range and partition reads reported data inconsistencies but none were expected");
+                    fail(String.format("Both range(%d) and partition(%d) reads reported data inconsistencies but none were expected",
+                                       ccAfterRangeRead - ccAfterPartitionRead, ccAfterPartitionRead - ccBefore));
                 else
-                    fail("Reported inconsistency during range read but none were expected");
+                    fail(String.format("Reported inconsistency(%d) during range read but none were expected",
+                                       ccAfterRangeRead - ccAfterPartitionRead));
             else if (ccAfterPartitionRead != ccBefore)
-                fail("Reported inconsistency during partition read but none were expected");
+                fail(String.format("Reported inconsistency during partition read(%d) but none were expected",
+                                   ccAfterPartitionRead - ccBefore));
         }
     }
 
@@ -588,9 +592,14 @@ public class RepairDigestTrackingTest extends TestBaseImpl
         {
             // snapshots are taken asynchronously, this is crude but it gives it a chance to happen
             int attempts = 100;
-            ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
-
-            while (cfs.listSnapshots().isEmpty())
+            ColumnFamilyStore                       cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+            ColumnFamilyStore             repairHistory = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_CF);
+            ColumnFamilyStore repairHistoryInvalidation = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_INVALIDATION_CF);
+            while (cfs.listSnapshots().isEmpty()
+                   || repairHistory.listSnapshots().isEmpty()
+                   || repairHistoryInvalidation.listSnapshots().isEmpty())
             {
                 Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
                 if (attempts-- < 0)
@@ -603,8 +612,20 @@ public class RepairDigestTrackingTest extends TestBaseImpl
     {
         return () ->
         {
-            ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+            ColumnFamilyStore                       cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+            ColumnFamilyStore             repairHistory = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_CF);
+            ColumnFamilyStore repairHistoryInvalidation = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_INVALIDATION_CF);
             Assert.assertFalse(cfs.snapshotExists(snapshotName));
+            Assert.assertFalse(repairHistory.listSnapshots()
+                                            .keySet()
+                                            .stream()
+                                            .anyMatch(s -> s.startsWith(snapshotName)));
+            Assert.assertFalse(repairHistoryInvalidation.listSnapshots()
+                                                        .keySet()
+                                                        .stream()
+                                                        .anyMatch(s -> s.startsWith(snapshotName)));
         };
     }
 
