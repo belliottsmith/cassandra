@@ -30,8 +30,8 @@ import org.apache.commons.cli.ParseException;
 
 import org.slf4j.LoggerFactory;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.tokenallocator.OfflineTokenAllocator;
@@ -63,7 +63,7 @@ public class GenerateTokens
         try
         {
             // disable the summary statistics logging, since this is a command-line tool with dedicated output
-            ((Logger) LoggerFactory.getLogger(TokenAllocation.class)).setLevel(Level.ERROR);
+            LoggerContext.getContext(false).getLogger(LoggerFactory.getLogger(TokenAllocation.class).getName()).setLevel(Level.ERROR);
 
             Util.initDatabaseDescriptor();
             options = getOptions();
