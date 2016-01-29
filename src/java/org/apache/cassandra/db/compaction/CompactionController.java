@@ -27,8 +27,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.Config;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.Partition;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.FileDataInput;
@@ -56,6 +58,7 @@ public class CompactionController extends AbstractCompactionController
     private Refs<SSTableReader> overlappingSSTables;
     private OverlapIterator<PartitionPosition, SSTableReader> overlapIterator;
     private final Iterable<SSTableReader> compacting;
+    private final SuccessfulRepairTimeHolder repairTimeSnapshot;
     private final RateLimiter limiter;
     private final long minTimestamp;
     final Map<SSTableReader, FileDataInput> openDataFiles = new HashMap<>();
@@ -77,12 +80,18 @@ public class CompactionController extends AbstractCompactionController
         this.compacting = compacting;
         this.limiter = limiter;
         compactingRepaired = compacting != null && compacting.stream().allMatch(SSTableReader::isRepaired);
+        repairTimeSnapshot = cfs.getRepairTimeSnapshot();
         this.minTimestamp = compacting != null && !compacting.isEmpty()       // check needed for test
                           ? compacting.stream().mapToLong(SSTableReader::getMinTimestamp).min().getAsLong()
                           : 0;
         refreshOverlaps();
         if (NEVER_PURGE_TOMBSTONES)
             logger.warn("You are running with -Dcassandra.never_purge_tombstones=true, this is dangerous!");
+    }
+
+    public SuccessfulRepairTimeHolder getRepairTimeSnapshot()
+    {
+        return repairTimeSnapshot;
     }
 
     public void maybeRefreshOverlaps()
@@ -133,7 +142,7 @@ public class CompactionController extends AbstractCompactionController
 
     public Set<SSTableReader> getFullyExpiredSSTables()
     {
-        return getFullyExpiredSSTables(cfs, compacting, overlappingSSTables, gcBefore, ignoreOverlaps());
+        return getFullyExpiredSSTables(cfs, compacting, overlappingSSTables, gcBefore, ignoreOverlaps(), repairTimeSnapshot);
     }
 
     /**
@@ -157,7 +166,8 @@ public class CompactionController extends AbstractCompactionController
                                                              Iterable<SSTableReader> compacting,
                                                              Iterable<SSTableReader> overlapping,
                                                              int gcBefore,
-                                                             boolean ignoreOverlaps)
+                                                             boolean ignoreOverlaps,
+                                                             SuccessfulRepairTimeHolder repairTimeHolder)
     {
         logger.trace("Checking droppable sstables in {}", cfStore);
 
@@ -172,7 +182,9 @@ public class CompactionController extends AbstractCompactionController
             Set<SSTableReader> fullyExpired = new HashSet<>();
             for (SSTableReader candidate : compacting)
             {
-                if (candidate.getSSTableMetadata().maxLocalDeletionTime < gcBefore)
+                int lastRepairTime = lastRepairTime(gcBefore, repairTimeHolder, candidate);
+
+                if (candidate.getSSTableMetadata().maxLocalDeletionTime < Math.min(lastRepairTime, gcBefore))
                 {
                     fullyExpired.add(candidate);
                     logger.trace("Dropping overlap ignored expired SSTable {} (maxLocalDeletionTime={}, gcBefore={})",
@@ -193,9 +205,12 @@ public class CompactionController extends AbstractCompactionController
                 minTimestamp = Math.min(minTimestamp, sstable.getMinTimestamp());
         }
 
+        // Check last successful repair for adjusted gcBefore for SSTable
         for (SSTableReader candidate : compacting)
         {
-            if (candidate.getSSTableMetadata().maxLocalDeletionTime < gcBefore)
+            int lastRepairTime = lastRepairTime(gcBefore, repairTimeHolder, candidate);
+
+            if (candidate.getSSTableMetadata().maxLocalDeletionTime < Math.min(lastRepairTime, gcBefore))
                 candidates.add(candidate);
             else
                 minTimestamp = Math.min(minTimestamp, candidate.getMinTimestamp());
@@ -219,19 +234,39 @@ public class CompactionController extends AbstractCompactionController
             }
             else
             {
-               logger.trace("Dropping expired SSTable {} (maxLocalDeletionTime={}, gcBefore={})",
+               logger.info("Dropping expired SSTable {} (maxLocalDeletionTime={}, gcBefore={})",
                         candidate, candidate.getSSTableMetadata().maxLocalDeletionTime, gcBefore);
             }
         }
         return new HashSet<>(candidates);
     }
 
+    private static int lastRepairTime(int gcBefore, SuccessfulRepairTimeHolder repairTimeHolder, SSTableReader candidate)
+    {
+        int lastRepairTime = Integer.MIN_VALUE;
+
+        //If Christmas patch is not enabled, we set lastRepairTime=gcgrace to disable it.
+        if (!DatabaseDescriptor.enableChristmasPatch())
+        {
+            lastRepairTime = gcBefore;
+        }
+        else
+        {
+            int repairTime = repairTimeHolder.getFullyRepairedTimeFor(candidate, gcBefore);
+            if (repairTime > Integer.MIN_VALUE)
+                lastRepairTime = repairTime;
+        }
+
+        return lastRepairTime;
+    }
+
     public static Set<SSTableReader> getFullyExpiredSSTables(ColumnFamilyStore cfStore,
                                                              Iterable<SSTableReader> compacting,
                                                              Iterable<SSTableReader> overlapping,
-                                                             int gcBefore)
+                                                             int gcBefore,
+                                                             SuccessfulRepairTimeHolder repairTimeHolder)
     {
-        return getFullyExpiredSSTables(cfStore, compacting, overlapping, gcBefore, false);
+        return getFullyExpiredSSTables(cfStore, compacting, overlapping, gcBefore, false, repairTimeHolder);
     }
 
     /**

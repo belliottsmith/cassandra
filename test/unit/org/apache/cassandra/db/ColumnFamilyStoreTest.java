@@ -23,6 +23,8 @@ import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -31,6 +33,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.google.common.collect.Iterators;
+import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -40,12 +43,21 @@ import com.googlecode.concurrenttrees.common.Iterables;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.UpdateBuilder;
 import org.apache.cassandra.Util;
+
+import com.google.common.collect.ImmutableList;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.partitions.FilteredPartition;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -60,6 +72,8 @@ import org.apache.cassandra.service.snapshot.SnapshotManifest;
 import org.apache.cassandra.service.snapshot.TableSnapshot;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Hex;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.WrappedRunnable;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -70,6 +84,7 @@ import static org.junit.Assert.assertTrue;
 
 public class ColumnFamilyStoreTest
 {
+    static IPartitioner oldPartitioner = null;
     public static final String KEYSPACE1 = "ColumnFamilyStoreTest1";
     public static final String KEYSPACE2 = "ColumnFamilyStoreTest2";
     public static final String CF_STANDARD1 = "Standard1";
@@ -80,6 +95,7 @@ public class ColumnFamilyStoreTest
     public static void defineSchema() throws ConfigurationException
     {
         SchemaLoader.prepareServer();
+        oldPartitioner = DatabaseDescriptor.setPartitionerUnsafe(Murmur3Partitioner.instance);
         SchemaLoader.createKeyspace(KEYSPACE1,
                                     KeyspaceParams.simple(1),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
@@ -88,6 +104,12 @@ public class ColumnFamilyStoreTest
         SchemaLoader.createKeyspace(KEYSPACE2,
                                     KeyspaceParams.simple(1),
                                     SchemaLoader.standardCFMD(KEYSPACE2, CF_STANDARD1));
+    }
+
+    @AfterClass
+    public static void resetPartitioner()
+    {
+        DatabaseDescriptor.setPartitionerUnsafe(oldPartitioner);
     }
 
     @Before
@@ -611,6 +633,143 @@ public class ColumnFamilyStoreTest
         List<File> ssTableFiles = new Directories(cfs.metadata()).sstableLister(Directories.OnTxnErr.THROW).listFiles();
         assertNotNull(ssTableFiles);
         assertEquals(0, ssTableFiles.size());
-        cfs.clearUnsafe();
+        cfs.clearUnsafe(); // this tests messes up the sstables in the cfs, which causes the next tests to fail
+    }
+
+    @Test
+    public void setLastSuccessfulRepairs()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
+        cfs.clearLastSucessfulRepairUnsafe();
+
+        Map<Range<Token>, Integer> storedSuccessfulRepairs = new HashMap<>();
+        storedSuccessfulRepairs.put(new Range<Token>(new Murmur3Partitioner.LongToken(10), new Murmur3Partitioner.LongToken(20)), 42);
+        cfs.setLastSuccessfulRepairs(storedSuccessfulRepairs, Collections.emptyList());
+        ImmutableList<Pair<Range<Token>, Integer>> lastSuccessfulRepairs = cfs.getRepairTimeSnapshot().successfulRepairs;
+        Assert.assertEquals(storedSuccessfulRepairs.size(), lastSuccessfulRepairs.size());
+
+        for (Pair<Range<Token>, Integer> entry : lastSuccessfulRepairs)
+        {
+            Assert.assertTrue(storedSuccessfulRepairs.containsKey(entry.left));
+            Assert.assertEquals(storedSuccessfulRepairs.get(entry.left), entry.right);
+        }
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void setLastSuccessfulRepairs_AlreadyLoaded()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
+        cfs.clearLastSucessfulRepairUnsafe();
+
+        Map<Range<Token>, Integer> storedSuccessfulRepairs = new HashMap<>();
+        storedSuccessfulRepairs.put(new Range<Token>(new Murmur3Partitioner.LongToken(10), new Murmur3Partitioner.LongToken(20)), 42);
+        cfs.setLastSuccessfulRepairs(storedSuccessfulRepairs, Collections.emptyList());
+        cfs.setLastSuccessfulRepairs(storedSuccessfulRepairs, Collections.emptyList());
+    }
+
+    @Test
+    public void testOverlappingRepairs()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
+        cfs.clearLastSucessfulRepairUnsafe();
+        DatabaseDescriptor.setChristmasPatchEnabled();
+        SystemKeyspace.clearRepairedRanges(KEYSPACE1, CF_STANDARD1);
+        cfs.skipRFCheckForXmasPatch();
+
+
+        SystemKeyspace.updateLastSuccessfulRepair(KEYSPACE1, CF_STANDARD1,
+                                                  new Range<>(new Murmur3Partitioner.LongToken(0),
+                                                              new Murmur3Partitioner.LongToken(100)),
+                                                  5000);
+
+        SystemKeyspace.updateLastSuccessfulRepair(KEYSPACE1, CF_STANDARD1,
+                                                  new Range<>(new Murmur3Partitioner.LongToken(50),
+                                                                   new Murmur3Partitioner.LongToken(150)),
+                                                  10000);
+
+        cfs.loadLastSuccessfulRepair();
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(0)));
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(20)));
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(50)));
+        assertEquals(10000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(51)));
+        assertEquals(10000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(150)));
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(151)));
+
+        assertEquals(Integer.MIN_VALUE,  cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(200)));
+    }
+
+    @Test
+    public void testOverlappingSubsetRepairs()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
+        cfs.clearLastSucessfulRepairUnsafe();
+        DatabaseDescriptor.setChristmasPatchEnabled();
+        SystemKeyspace.clearRepairedRanges(KEYSPACE1, CF_STANDARD1);
+        cfs.skipRFCheckForXmasPatch();
+
+        SystemKeyspace.updateLastSuccessfulRepair(KEYSPACE1, CF_STANDARD1,
+                                                  new Range<>(new Murmur3Partitioner.LongToken(0),
+                                                              new Murmur3Partitioner.LongToken(100)),
+                                                  5000);
+
+        SystemKeyspace.updateLastSuccessfulRepair(KEYSPACE1, CF_STANDARD1,
+                                                  new Range<>(new Murmur3Partitioner.LongToken(25),
+                                                              new Murmur3Partitioner.LongToken(75)),
+                                                  10000);
+
+        cfs.loadLastSuccessfulRepair();
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(0)));
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(20)));
+        assertEquals(10000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(50)));
+        assertEquals(10000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(51)));
+        assertEquals(10000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(75)));
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(76)));
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(100)));
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(101)));
+    }
+
+    /**
+     * If different clustering columns deserialize to the same range, we should only overwrite the previous
+     * one if it's value is higher
+     * @throws Exception
+     */
+    @Test
+    public void testSerializationDifferences() throws Exception
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
+        cfs.clearLastSucessfulRepairUnsafe();
+        DatabaseDescriptor.setChristmasPatchEnabled();
+        SystemKeyspace.clearRepairedRanges(KEYSPACE1, CF_STANDARD1);
+        cfs.skipRFCheckForXmasPatch();
+
+        SystemKeyspace.updateLastSuccessfulRepair(KEYSPACE1, CF_STANDARD1,
+                                                  new Range<>(new Murmur3Partitioner.LongToken(0),
+                                                              new Murmur3Partitioner.LongToken(100)),
+                                                  5000);
+
+        String query = String.format("SELECT * FROM %s.%s WHERE keyspace_name='%s' AND columnfamily_name='%s'",
+                                     SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.REPAIR_HISTORY_CF, KEYSPACE1, CF_STANDARD1);
+        UntypedResultSet rows = QueryProcessor.executeInternal(query);
+        Assert.assertEquals(1, rows.size());
+        UntypedResultSet.Row row = rows.iterator().next();
+
+        byte[] rangeBytes = ByteBufferUtil.getArray(row.getBlob("range"));
+        byte[] paddedRange = new byte[rangeBytes.length + 36];
+        for (int i=0; i<paddedRange.length; i++)
+        {
+            paddedRange[i] = i < rangeBytes.length ? rangeBytes[i] : 0;
+        }
+        String insert = String.format("INSERT INTO %s.%s (keyspace_name, columnfamily_name, range, succeed_at) VALUES ('%s', '%s', 0x%s, %s)",
+                                      SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.REPAIR_HISTORY_CF,
+                                      KEYSPACE1, CF_STANDARD1, Hex.bytesToHex(paddedRange), 4000L);
+        QueryProcessor.executeInternal(insert);
+
+        cfs.loadLastSuccessfulRepair();
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(20)));
     }
 }

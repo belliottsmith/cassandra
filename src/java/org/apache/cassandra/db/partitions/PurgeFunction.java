@@ -22,22 +22,27 @@ import java.util.function.LongPredicate;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.transform.Transformation;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 
 public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator>
 {
+    private final ColumnFamilyStore cfs;
     private final DeletionPurger purger;
     private final int nowInSec;
+    private DecoratedKey currentKey = null;
 
     private final boolean enforceStrictLiveness;
     private boolean isReverseOrder;
 
-    public PurgeFunction(int nowInSec, int gcBefore, int oldestUnrepairedTombstone, boolean onlyPurgeRepairedTombstones,
-                         boolean enforceStrictLiveness)
+    public PurgeFunction(ColumnFamilyStore cfs, int nowInSec, int gcBefore, int oldestUnrepairedTombstone, boolean onlyPurgeRepairedTombstones,
+                         boolean enforceStrictLiveness,
+                         SuccessfulRepairTimeHolder repairTimeHolder)
     {
         this.nowInSec = nowInSec;
+        this.cfs = cfs;
         this.purger = (timestamp, localDeletionTime) ->
                       !(onlyPurgeRepairedTombstones && localDeletionTime >= oldestUnrepairedTombstone)
-                      && localDeletionTime < gcBefore
+                      && localDeletionTime < repairTimeHolder.gcBeforeForKey(this.cfs, currentKey, gcBefore)
                       && getPurgeEvaluator().test(timestamp);
         this.enforceStrictLiveness = enforceStrictLiveness;
     }
@@ -47,6 +52,7 @@ public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator
     // Called at the beginning of each new partition
     protected void onNewPartition(DecoratedKey partitionKey)
     {
+        this.currentKey = partitionKey;
     }
 
     // Called for each partition that had only purged infos and are empty post-purge.

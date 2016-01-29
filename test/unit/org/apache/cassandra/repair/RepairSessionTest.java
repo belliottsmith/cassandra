@@ -66,7 +66,7 @@ public class RepairSessionTest
         RepairSession session = new RepairSession(parentSessionId,
                                                   new CommonRange(endpoints, Collections.emptySet(), Arrays.asList(repairRange)),
                                                   "Keyspace1", RepairParallelism.SEQUENTIAL,
-                                                  false, false,
+                                                  true, false, false,
                                                   PreviewKind.NONE, false, false, false, "Standard1");
 
         // perform convict

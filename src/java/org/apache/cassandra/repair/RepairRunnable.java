@@ -22,11 +22,15 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -37,9 +41,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
-import org.apache.cassandra.utils.TimeUUID;
-import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.commons.lang3.time.DurationFormatUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,7 +77,11 @@ import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Throwables;
+import org.apache.cassandra.utils.TimeUUID;
 import org.apache.cassandra.utils.WrappedRunnable;
+import org.apache.cassandra.utils.concurrent.Future;
+import org.apache.cassandra.utils.concurrent.FutureCombiner;
+import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 import org.apache.cassandra.utils.progress.ProgressEvent;
 import org.apache.cassandra.utils.progress.ProgressEventNotifier;
 import org.apache.cassandra.utils.progress.ProgressEventType;
@@ -88,7 +93,6 @@ import static org.apache.cassandra.repair.state.AbstractState.INIT;
 import static org.apache.cassandra.service.QueryState.forInternalCalls;
 import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
-import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
 
 public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNotifier
 {
@@ -259,6 +263,71 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
         }
     }
 
+    protected static Map<InetAddressAndPort, Set<Range<Token>>> collectEndpointRanges(List<CommonRange> commonRanges)
+    {
+        Map<InetAddressAndPort, Set<Range<Token>>> endpointRanges = new HashMap<>();
+        for (CommonRange commonRange: commonRanges)
+        {
+            for (InetAddressAndPort endpoint: commonRange.endpoints)
+            {
+                if (!endpointRanges.containsKey(endpoint))
+                {
+                    endpointRanges.put(endpoint, new HashSet<>());
+                }
+                endpointRanges.get(endpoint).addAll(commonRange.ranges);
+            }
+        }
+        return new HashMap<>(endpointRanges);
+    }
+
+    protected void syncRepairHistory(Iterable<ColumnFamilyStore> tables, List<CommonRange> commonRanges)
+    {
+        Map<InetAddressAndPort, Set<Range<Token>>> endpointRanges = collectEndpointRanges(commonRanges);
+
+        // commonRanges only contains endpoint -> ranges for nodes that aren't this node (the coordinator).
+        // Here, we gather all ranges and add endpoint -> range for this node since we want to include the
+        // local repair history in the sync (since we probably have the most up to date data locally)
+        Set<Range<Token>> allRanges = new HashSet<>();
+        for (Set<Range<Token>> ranges: endpointRanges.values())
+        {
+            allRanges.addAll(ranges);
+        }
+        endpointRanges.put(FBUtilities.getBroadcastAddressAndPort(), allRanges);
+
+        List<Future<Object>> futures = new ArrayList<>();
+
+        logger.info("Syncing repair history for [{}] on {}", tablesToString(tables), endpointRanges);
+        for (ColumnFamilyStore cfs : tables)
+        {
+            RepairHistorySyncTask syncTask = new RepairHistorySyncTask(cfs, ImmutableMap.copyOf(endpointRanges));
+            syncTask.execute();
+            futures.add(syncTask);
+        }
+
+        try
+        {
+            FutureCombiner.successfulOf(futures).get(DatabaseDescriptor.getRepairHistorySyncTimeoutSeconds(), TimeUnit.SECONDS);
+        }
+        catch (InterruptedException e)
+        {
+            throw new UncheckedInterruptedException(e);
+        }
+        catch (ExecutionException | TimeoutException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String tablesToString(Iterable<ColumnFamilyStore> tables)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (ColumnFamilyStore table : tables)
+        {
+            sb.append(String.format("%s.%s, ", table.keyspace.getName(), table.name));
+        }
+        return sb.toString();
+    }
+
     private void runMayThrow() throws Exception
     {
         state.phase.setup();
@@ -278,6 +347,11 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
         maybeStoreParentRepairStart(cfnames);
 
         prepare(columnFamilies, neighborsAndRanges.participants, neighborsAndRanges.shouldExcludeDeadParticipants);
+
+        if (state.options.isGlobal() && !state.options.isForcedRepair())
+        {
+            syncRepairHistory(columnFamilies, neighborsAndRanges.commonRanges);
+        }
 
         repair(cfnames, neighborsAndRanges);
     }
@@ -330,11 +404,31 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
         //calculation multiple times
         Iterable<Range<Token>> keyspaceLocalRanges = storageService.getLocalReplicas(state.keyspace).ranges();
 
+        final Map<Set<InetAddressAndPort>, Boolean> allReplicaMap = new HashMap<>();
         for (Range<Token> range : state.options.getRanges())
         {
-            EndpointsForRange neighbors = ActiveRepairService.getNeighbors(state.keyspace, keyspaceLocalRanges, range,
-                                                                           state.options.getDataCenters(),
-                                                                           state.options.getHosts());
+            EndpointsForRange unfilteredNeighbors = ActiveRepairService.getAllNeighbors(state.keyspace, keyspaceLocalRanges, range);
+
+            if (unfilteredNeighbors.isEmpty())
+            {
+                if (state.options.ignoreUnreplicatedKeyspaces())
+                {
+                    logger.info("{} Found no neighbors for range {} for {} - ignoring since repairing with --ignore-unreplicated-keyspaces",
+                                state.id, range, state.keyspace);
+                    continue;
+                }
+                else
+                {
+                    throw new RuntimeException(String.format("Nothing to repair for %s in %s - aborting", range, state.keyspace));
+                }
+            }
+
+            EndpointsForRange neighbors = ActiveRepairService.filterNeighbors(unfilteredNeighbors, range,
+                                                                              state.options.getDataCenters(),
+                                                                              state.options.getHosts());
+            // Duplicate the check in CIE - splitting getNeighbors into getAllNeighbors/filterNeighbors means that
+            // if the replicaSet does not contain the rangeSet it doesn't skip the filtering. Lowest risk change
+            // is to repeat the check on the unfiltered and filtered neighbors.
             if (neighbors.isEmpty())
             {
                 if (state.options.ignoreUnreplicatedKeyspaces())
@@ -347,6 +441,12 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
                     throw RepairException.warn(String.format("Nothing to repair for %s in %s - aborting", range, state.keyspace));
                 }
             }
+            boolean allReplicas = Iterables.elementsEqual(unfilteredNeighbors, neighbors);
+            if (!allReplicas && allReplicaMap.containsKey(neighbors.endpoints()))
+                allReplicaMap.put(neighbors.endpoints(), false);
+            else if (!allReplicaMap.containsKey(neighbors.endpoints()))
+                allReplicaMap.put(neighbors.endpoints(), allReplicas);
+
             addRangeToNeighbors(commonRanges, range, neighbors);
             allNeighbors.addAll(neighbors.endpoints());
         }
@@ -366,7 +466,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
             shouldExcludeDeadParticipants = !allNeighbors.equals(actualNeighbors);
             allNeighbors = actualNeighbors;
         }
-        return new NeighborsAndRanges(shouldExcludeDeadParticipants, allNeighbors, commonRanges);
+        return new NeighborsAndRanges(shouldExcludeDeadParticipants, allReplicaMap, allNeighbors, commonRanges);
     }
 
     private void maybeStoreParentRepairStart(String[] cfnames)
@@ -408,15 +508,32 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
         RepairTask task;
         if (state.options.isPreview())
         {
-            task = new PreviewRepairTask(state.options, state.keyspace, this, state.id, neighborsAndRanges.filterCommonRanges(state.keyspace, cfnames), cfnames);
+            task = new PreviewRepairTask(state.options,
+                                         state.keyspace,
+                                         this,
+                                         state.id,
+                                         neighborsAndRanges.allReplicaMap,
+                                         neighborsAndRanges.filterCommonRanges(state.keyspace, cfnames),
+                                         cfnames);
         }
         else if (state.options.isIncremental())
         {
-            task = new IncrementalRepairTask(state.options, state.keyspace, this, state.id, neighborsAndRanges, cfnames);
+            task = new IncrementalRepairTask(state.options,
+                                             state.keyspace,
+                                             this,
+                                             state.id,
+                                             neighborsAndRanges,
+                                             cfnames);
         }
         else
         {
-            task = new NormalRepairTask(state.options, state.keyspace, this, state.id, neighborsAndRanges.filterCommonRanges(state.keyspace, cfnames), cfnames);
+            task = new NormalRepairTask(state.options,
+                                        state.keyspace,
+                                        this,
+                                        state.id,
+                                        neighborsAndRanges.allReplicaMap,
+                                        neighborsAndRanges.filterCommonRanges(state.keyspace, cfnames),
+                                        cfnames);
         }
 
         ExecutorPlus executor = createExecutor();
@@ -572,12 +689,14 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
     public static final class NeighborsAndRanges
     {
         final boolean shouldExcludeDeadParticipants;
+        final Map<Set<InetAddressAndPort>, Boolean> allReplicaMap;
         public final Set<InetAddressAndPort> participants;
         public final List<CommonRange> commonRanges;
 
-        public NeighborsAndRanges(boolean shouldExcludeDeadParticipants, Set<InetAddressAndPort> participants, List<CommonRange> commonRanges)
+        public NeighborsAndRanges(boolean shouldExcludeDeadParticipants, Map<Set<InetAddressAndPort>, Boolean> allReplicaMap, Set<InetAddressAndPort> participants, List<CommonRange> commonRanges)
         {
             this.shouldExcludeDeadParticipants = shouldExcludeDeadParticipants;
+            this.allReplicaMap = allReplicaMap;
             this.participants = participants;
             this.commonRanges = commonRanges;
         }

@@ -36,6 +36,7 @@ import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.KeyspaceParams;
@@ -165,19 +166,19 @@ public class CompactionControllerTest extends SchemaLoader
 
         // the first sstable should be expired because the overlapping sstable is newer and the gc period is later
         int gcBefore = (int) (System.currentTimeMillis() / 1000) + 5;
-        Set<SSTableReader> expired = CompactionController.getFullyExpiredSSTables(cfs, compacting, overlapping, gcBefore);
+        Set<SSTableReader> expired = CompactionController.getFullyExpiredSSTables(cfs, compacting, overlapping, gcBefore, SuccessfulRepairTimeHolder.EMPTY);
         assertNotNull(expired);
         assertEquals(1, expired.size());
         assertEquals(compacting.iterator().next(), expired.iterator().next());
 
         // however if we add an older mutation to the memtable then the sstable should not be expired
         applyMutation(cfs.metadata(), key, timestamp3);
-        expired = CompactionController.getFullyExpiredSSTables(cfs, compacting, overlapping, gcBefore);
+        expired = CompactionController.getFullyExpiredSSTables(cfs, compacting, overlapping, gcBefore, SuccessfulRepairTimeHolder.EMPTY);
         assertNotNull(expired);
         assertEquals(0, expired.size());
 
         // Now if we explicitly ask to ignore overlaped sstables, we should get back our expired sstable
-        expired = CompactionController.getFullyExpiredSSTables(cfs, compacting, overlapping, gcBefore, true);
+        expired = CompactionController.getFullyExpiredSSTables(cfs, compacting, overlapping, gcBefore, true, SuccessfulRepairTimeHolder.EMPTY);
         assertNotNull(expired);
         assertEquals(1, expired.size());
     }

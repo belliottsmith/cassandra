@@ -48,6 +48,8 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.cache.AutoSavingCache;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.repair.NoSuchRepairSessionException;
+import org.apache.cassandra.repair.consistent.ConsistentSession;
+import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.schema.Schema;
@@ -61,6 +63,7 @@ import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.lifecycle.WrappedLifecycleTransaction;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.view.ViewBuilderTask;
+import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -138,6 +141,58 @@ public class CompactionManager implements CompactionManagerMBean
     private final AtomicInteger globalCompactionPauseCount = new AtomicInteger(0);
 
     private final RateLimiter compactionRateLimiter = RateLimiter.create(Double.MAX_VALUE);
+
+    @VisibleForTesting
+    public static class SessionData
+    {
+        private final TimeUUID sessionID;
+        private final Collection<Range<Token>> ranges;
+        private final PreviewKind previewKind;
+        private final CompactionInfo.Holder holder;
+
+        public SessionData(TimeUUID sessionID, Collection<Range<Token>> ranges, PreviewKind previewKind, Holder holder)
+        {
+            this.sessionID = sessionID;
+            this.ranges = ranges;
+            this.previewKind = previewKind;
+            this.holder = holder;
+        }
+
+        public void stop()
+        {
+            holder.stop();
+        }
+
+        public boolean isStopRequested()
+        {
+            return holder.isStopRequested();
+        }
+
+        public PreviewKind getPreviewKind()
+        {
+            return previewKind;
+        }
+
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            SessionData that = (SessionData) o;
+
+            if (!sessionID.equals(that.sessionID)) return false;
+            return ranges.equals(that.ranges);
+        }
+
+        public int hashCode()
+        {
+            int result = sessionID.hashCode();
+            result = 31 * result + ranges.hashCode();
+            return result;
+        }
+    }
+    // guarded by synchronized
+    private final Multimap<TableId, SessionData> activeValidationCompactions = HashMultimap.create();
 
     public CompactionMetrics getMetrics()
     {
@@ -624,7 +679,7 @@ public class CompactionManager implements CompactionManagerMBean
             @Override
             public void execute(LifecycleTransaction txn) throws IOException
             {
-                logger.debug("Garbage collecting {}", txn.originals());
+                logger.info("Garbage collecting {}", txn.originals());
                 CompactionTask task = new CompactionTask(cfStore, txn, getDefaultGcBefore(cfStore, FBUtilities.nowInSeconds()))
                 {
                     @Override
@@ -1127,6 +1182,32 @@ public class CompactionManager implements CompactionManagerMBean
                 return sstable;
         }
         return null;
+    }
+
+    @VisibleForTesting
+    public synchronized void markValidationActive(TableId tableId, SessionData sessionData)
+    {
+        activeValidationCompactions.put(tableId, sessionData);
+    }
+
+    @VisibleForTesting
+    public synchronized void markValidationComplete(TableId tableId, SessionData sessionData)
+    {
+        activeValidationCompactions.remove(tableId, sessionData);
+    }
+
+    public synchronized void stopConflictingPreviewValidations(TableMetadata cfm, Collection<Range<Token>> ranges, String reason)
+    {
+        for (SessionData sessionData: activeValidationCompactions.get(cfm.id))
+        {
+            if (sessionData.previewKind == PreviewKind.REPAIRED && Iterables.any(sessionData.ranges, r -> r.intersects(ranges)))
+            {
+                logger.warn("Stopping validation compaction for parent repair session {} on {}.{}: {}",
+                            sessionData.sessionID, cfm.keyspace, cfm.name, reason);
+                sessionData.stop();
+            }
+        }
+
     }
 
     public Future<?> submitValidation(Callable<Object> validation)
