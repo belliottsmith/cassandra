@@ -17,6 +17,8 @@
  */
 package org.apache.cassandra.repair;
 
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -24,10 +26,13 @@ import java.util.UUID;
 import com.google.common.collect.ImmutableSet;
 
 import org.apache.cassandra.concurrent.ExecutorPlus;
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.repair.consistent.CoordinatorSession;
 import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.service.ActiveRepairService;
+import org.apache.cassandra.utils.DiagnosticSnapshotService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.Future;
 
@@ -44,7 +49,7 @@ public class IncrementalRepairTask extends AbstractRepairTask
                                     RepairRunnable.NeighborsAndRanges neighborsAndRanges,
                                     String[] cfnames)
     {
-        super(options, keyspace, notifier);
+        super(options, keyspace, notifier, neighborsAndRanges.allReplicaMap);
         this.parentSession = parentSession;
         this.neighborsAndRanges = neighborsAndRanges;
         this.cfnames = cfnames;

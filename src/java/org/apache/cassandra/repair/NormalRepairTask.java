@@ -18,9 +18,12 @@
 package org.apache.cassandra.repair;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.apache.cassandra.concurrent.ExecutorPlus;
+import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.utils.concurrent.Future;
 
@@ -34,10 +37,11 @@ public class NormalRepairTask extends AbstractRepairTask
                                String keyspace,
                                RepairNotifier notifier,
                                UUID parentSession,
+                               Map<Set<InetAddressAndPort>, Boolean> allReplicaMap,
                                List<CommonRange> commonRanges,
                                String[] cfnames)
     {
-        super(options, keyspace, notifier);
+        super(options, keyspace, notifier, allReplicaMap);
         this.parentSession = parentSession;
         this.commonRanges = commonRanges;
         this.cfnames = cfnames;

@@ -22,11 +22,15 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -76,6 +80,8 @@ import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.UUIDGen;
 import org.apache.cassandra.utils.WrappedRunnable;
 import org.apache.cassandra.utils.concurrent.Future;
+import org.apache.cassandra.utils.concurrent.FutureCombiner;
+import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 import org.apache.cassandra.utils.progress.ProgressEvent;
 import org.apache.cassandra.utils.progress.ProgressEventNotifier;
 import org.apache.cassandra.utils.progress.ProgressEventType;
@@ -265,6 +271,71 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
         }
     }
 
+    protected static Map<InetAddressAndPort, Set<Range<Token>>> collectEndpointRanges(List<CommonRange> commonRanges)
+    {
+        Map<InetAddressAndPort, Set<Range<Token>>> endpointRanges = new HashMap<>();
+        for (CommonRange commonRange: commonRanges)
+        {
+            for (InetAddressAndPort endpoint: commonRange.endpoints)
+            {
+                if (!endpointRanges.containsKey(endpoint))
+                {
+                    endpointRanges.put(endpoint, new HashSet<>());
+                }
+                endpointRanges.get(endpoint).addAll(commonRange.ranges);
+            }
+        }
+        return new HashMap<>(endpointRanges);
+    }
+
+    protected void syncRepairHistory(Iterable<ColumnFamilyStore> tables, List<CommonRange> commonRanges)
+    {
+        Map<InetAddressAndPort, Set<Range<Token>>> endpointRanges = collectEndpointRanges(commonRanges);
+
+        // commonRanges only contains endpoint -> ranges for nodes that aren't this node (the coordinator).
+        // Here, we gather all ranges and add endpoint -> range for this node since we want to include the
+        // local repair history in the sync (since we probably have the most up to date data locally)
+        Set<Range<Token>> allRanges = new HashSet<>();
+        for (Set<Range<Token>> ranges: endpointRanges.values())
+        {
+            allRanges.addAll(ranges);
+        }
+        endpointRanges.put(FBUtilities.getBroadcastAddressAndPort(), allRanges);
+
+        List<Future<Object>> futures = new ArrayList<>();
+
+        logger.info("Syncing repair history for [{}] on {}", tablesToString(tables), endpointRanges);
+        for (ColumnFamilyStore cfs : tables)
+        {
+            RepairHistorySyncTask syncTask = new RepairHistorySyncTask(cfs, ImmutableMap.copyOf(endpointRanges));
+            syncTask.execute();
+            futures.add(syncTask);
+        }
+
+        try
+        {
+            FutureCombiner.successfulOf(futures).get(DatabaseDescriptor.getRepairHistorySyncTimeoutSeconds(), TimeUnit.SECONDS);
+        }
+        catch (InterruptedException e)
+        {
+            throw new UncheckedInterruptedException(e);
+        }
+        catch (ExecutionException | TimeoutException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String tablesToString(Iterable<ColumnFamilyStore> tables)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (ColumnFamilyStore table : tables)
+        {
+            sb.append(String.format("%s.%s, ", table.keyspace.getName(), table.name));
+        }
+        return sb.toString();
+    }
+
     private void runMayThrow() throws Exception
     {
         ActiveRepairService.instance.recordRepairStatus(cmd, ParentRepairStatus.IN_PROGRESS, ImmutableList.of());
@@ -281,6 +352,11 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
         maybeStoreParentRepairStart(cfnames);
 
         prepare(columnFamilies, neighborsAndRanges.participants, neighborsAndRanges.shouldExcludeDeadParticipants);
+
+        if (options.isGlobal() && !options.isForcedRepair())
+        {
+            syncRepairHistory(columnFamilies, neighborsAndRanges.commonRanges);
+        }
 
         repair(cfnames, neighborsAndRanges);
     }
@@ -334,11 +410,30 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
         //calculation multiple times
         Iterable<Range<Token>> keyspaceLocalRanges = storageService.getLocalReplicas(keyspace).ranges();
 
+        final Map<Set<InetAddressAndPort>, Boolean> allReplicaMap = new HashMap<>();
         for (Range<Token> range : options.getRanges())
         {
-            EndpointsForRange neighbors = ActiveRepairService.getNeighbors(keyspace, keyspaceLocalRanges, range,
+            EndpointsForRange unfilteredNeighbors = ActiveRepairService.getAllNeighbors(keyspace, keyspaceLocalRanges, range);
+
+            if (unfilteredNeighbors.isEmpty())
+            {
+                if (options.ignoreUnreplicatedKeyspaces())
+                {
+                    logger.info("{} Found no neighbors for range {} for {} - ignoring since repairing with --ignore-unreplicated-keyspaces", parentSession, range, keyspace);
+                    continue;
+                }
+                else
+                {
+                    throw new RuntimeException(String.format("Nothing to repair for %s in %s - aborting", range, keyspace));
+                }
+            }
+
+            EndpointsForRange neighbors = ActiveRepairService.filterNeighbors(unfilteredNeighbors, range,
                                                                            options.getDataCenters(),
                                                                            options.getHosts());
+            // Duplicate the check in CIE - splitting getNeighbors into getAllNeighbors/filterNeighbors means that
+            // if the replicaSet does not contain the rangeSet it doesn't skip the filtering. Lowest risk change
+            // is to repeat the check on the unfiltered and filtered neighbors.
             if (neighbors.isEmpty())
             {
                 if (options.ignoreUnreplicatedKeyspaces())
@@ -351,6 +446,12 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
                     throw RepairException.warn(String.format("Nothing to repair for %s in %s - aborting", range, keyspace));
                 }
             }
+            boolean allReplicas = Iterables.elementsEqual(unfilteredNeighbors, neighbors);
+            if (!allReplicas && allReplicaMap.containsKey(neighbors.endpoints()))
+                allReplicaMap.put(neighbors.endpoints(), false);
+            else if (!allReplicaMap.containsKey(neighbors.endpoints()))
+                allReplicaMap.put(neighbors.endpoints(), allReplicas);
+
             addRangeToNeighbors(commonRanges, range, neighbors);
             allNeighbors.addAll(neighbors.endpoints());
         }
@@ -372,7 +473,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
             shouldExcludeDeadParticipants = !allNeighbors.equals(actualNeighbors);
             allNeighbors = actualNeighbors;
         }
-        return new NeighborsAndRanges(shouldExcludeDeadParticipants, allNeighbors, commonRanges);
+        return new NeighborsAndRanges(shouldExcludeDeadParticipants, allReplicaMap, allNeighbors, commonRanges);
     }
 
     private void maybeStoreParentRepairStart(String[] cfnames)
@@ -413,15 +514,32 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
         RepairTask task;
         if (options.isPreview())
         {
-            task = new PreviewRepairTask(options, keyspace, this, parentSession, neighborsAndRanges.filterCommonRanges(keyspace, cfnames), cfnames);
+            task = new PreviewRepairTask(options,
+                                         keyspace,
+                                         this,
+                                         parentSession,
+                                         neighborsAndRanges.allReplicaMap,
+                                         neighborsAndRanges.filterCommonRanges(keyspace, cfnames),
+                                         cfnames);
         }
         else if (options.isIncremental())
         {
-            task = new IncrementalRepairTask(options, keyspace, this, parentSession, neighborsAndRanges, cfnames);
+            task = new IncrementalRepairTask(options,
+                                             keyspace,
+                                             this,
+                                             parentSession,
+                                             neighborsAndRanges,
+                                             cfnames);
         }
         else
         {
-            task = new NormalRepairTask(options, keyspace, this, parentSession, neighborsAndRanges.filterCommonRanges(keyspace, cfnames), cfnames);
+            task = new NormalRepairTask(options,
+                                        keyspace,
+                                        this,
+                                        parentSession,
+                                        neighborsAndRanges.allReplicaMap,
+                                        neighborsAndRanges.filterCommonRanges(keyspace, cfnames),
+                                        cfnames);
         }
 
         ExecutorPlus executor = createExecutor();
@@ -568,12 +686,14 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
     static final class NeighborsAndRanges
     {
         final boolean shouldExcludeDeadParticipants;
+        final Map<Set<InetAddressAndPort>, Boolean> allReplicaMap;
         final Set<InetAddressAndPort> participants;
         final List<CommonRange> commonRanges;
 
-        NeighborsAndRanges(boolean shouldExcludeDeadParticipants, Set<InetAddressAndPort> participants, List<CommonRange> commonRanges)
+        NeighborsAndRanges(boolean shouldExcludeDeadParticipants, Map<Set<InetAddressAndPort>, Boolean> allReplicaMap, Set<InetAddressAndPort> participants, List<CommonRange> commonRanges)
         {
             this.shouldExcludeDeadParticipants = shouldExcludeDeadParticipants;
+            this.allReplicaMap = allReplicaMap;
             this.participants = participants;
             this.commonRanges = commonRanges;
         }

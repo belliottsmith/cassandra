@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
@@ -77,9 +78,14 @@ public class CompactionTask extends AbstractCompactionTask
 
     protected int executeInternal(ActiveCompactionsTracker activeCompactions)
     {
-        this.activeCompactions = activeCompactions == null ? ActiveCompactionsTracker.NOOP : activeCompactions;
+        setActiveCompactions(activeCompactions);
         run();
         return transaction.originals().size();
+    }
+
+    protected void setActiveCompactions(ActiveCompactionsTracker activeCompactions)
+    {
+        this.activeCompactions = activeCompactions == null ? ActiveCompactionsTracker.NOOP : activeCompactions;
     }
 
     public boolean reduceScopeForLimitedSpace(Set<SSTableReader> nonExpiredSSTables, long expectedSize)
@@ -164,6 +170,10 @@ public class CompactionTask extends AbstractCompactionTask
             long estimatedKeys = 0;
             long inputSizeBytes;
             long timeSpentWritingKeys;
+            double droppableTombstoneRatioBefore = 0.0;
+            boolean isTombstoneCompaction = compactionType == OperationType.TOMBSTONE_COMPACTION && transaction.originals().size() == 1;
+            if (isTombstoneCompaction)
+                droppableTombstoneRatioBefore = Iterables.getOnlyElement(transaction.originals()).getEstimatedDroppableTombstoneRatio(gcBefore);
 
             Set<SSTableReader> actuallyCompact = Sets.difference(transaction.originals(), fullyExpiredSSTables);
             Collection<SSTableReader> newSStables;
@@ -262,7 +272,15 @@ public class CompactionTask extends AbstractCompactionTask
                                        totalSourceRows,
                                        totalKeysWritten,
                                        mergeSummary,
-                                       timeSpentWritingKeys));
+                                      timeSpentWritingKeys));
+            if (isTombstoneCompaction)
+            {
+                String ratiosAfter = newSStables.stream()
+                        .map(s -> String.format("%2.3f", s.getEstimatedDroppableTombstoneRatio(gcBefore)))
+                        .collect(Collectors.joining(","));
+                logger.info(String.format("Tombstone compaction (%s), ratio before: %2.3f, after: [%s]", taskId, droppableTombstoneRatioBefore, ratiosAfter));
+            }
+
             if (logger.isTraceEnabled())
             {
                 logger.trace("CF Total Bytes Compacted: {}", FBUtilities.prettyPrintMemory(CompactionTask.addToTotalBytesCompacted(endsize)));

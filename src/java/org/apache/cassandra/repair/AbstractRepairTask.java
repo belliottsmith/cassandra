@@ -20,7 +20,9 @@ package org.apache.cassandra.repair;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import com.google.common.collect.Lists;
@@ -32,6 +34,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.concurrent.Future;
@@ -44,12 +47,15 @@ public abstract class AbstractRepairTask implements RepairTask
     protected final RepairOption options;
     protected final String keyspace;
     protected final RepairNotifier notifier;
+    protected final Map<Set<InetAddressAndPort>, Boolean> allReplicaMap;
 
-    protected AbstractRepairTask(RepairOption options, String keyspace, RepairNotifier notifier)
+
+    protected AbstractRepairTask(RepairOption options, String keyspace, RepairNotifier notifier, Map<Set<InetAddressAndPort>, Boolean> allReplicaMap)
     {
         this.options = Objects.requireNonNull(options);
         this.keyspace = Objects.requireNonNull(keyspace);
         this.notifier = Objects.requireNonNull(notifier);
+        this.allReplicaMap = Objects.requireNonNull(allReplicaMap);
     }
 
     private List<RepairSession> submitRepairSessions(UUID parentSession,
@@ -67,6 +73,7 @@ public abstract class AbstractRepairTask implements RepairTask
                                                                                      commonRange,
                                                                                      keyspace,
                                                                                      options.getParallelism(),
+                                                                                     allReplicaMap.getOrDefault(commonRange.endpoints, false),
                                                                                      isIncremental,
                                                                                      options.isPullRepair(),
                                                                                      options.getPreviewKind(),

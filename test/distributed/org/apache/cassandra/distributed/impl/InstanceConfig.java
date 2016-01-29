@@ -107,6 +107,7 @@ public class InstanceConfig implements IInstanceConfig
                 .set("index_summary_capacity_in_mb", 50l)
                 .set("counter_cache_size_in_mb", 50l)
                 .set("key_cache_size_in_mb", 50l)
+                .set("enable_christmas_patch", false)
                 // legacy parameters
                 .forceSet("commitlog_sync_batch_window_in_ms", 1.0);
         this.featureFlags = EnumSet.noneOf(Feature.class);

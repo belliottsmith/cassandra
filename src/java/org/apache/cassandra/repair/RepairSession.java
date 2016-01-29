@@ -50,8 +50,10 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.repair.consistent.ConsistentSession;
 import org.apache.cassandra.repair.consistent.LocalSession;
 import org.apache.cassandra.repair.consistent.LocalSessions;
+import org.apache.cassandra.repair.messages.RepairSuccess;
 import org.apache.cassandra.schema.SystemDistributedKeyspace;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.streaming.SessionSummary;
 import org.apache.cassandra.tracing.Tracing;
@@ -98,7 +100,8 @@ import org.apache.cassandra.utils.concurrent.Future;
  */
 public class RepairSession extends AsyncFuture<RepairSessionResult> implements IEndpointStateChangeSubscriber,
                                                                                   IFailureDetectionEventListener,
-                                                                                  LocalSessions.Listener
+                                                                                  LocalSessions.Listener,
+                                                                                  ActiveRepairService.RepairSuccessListener
 {
     private static final Logger logger = LoggerFactory.getLogger(RepairSession.class);
 
@@ -113,6 +116,7 @@ public class RepairSession extends AsyncFuture<RepairSessionResult> implements I
     /** Range to repair */
     public final CommonRange commonRange;
     public final boolean isIncremental;
+    public final boolean allReplicas;
     public final PreviewKind previewKind;
 
     private final AtomicBoolean isFailed = new AtomicBoolean(false);
@@ -135,6 +139,7 @@ public class RepairSession extends AsyncFuture<RepairSessionResult> implements I
      * @param commonRange ranges to repair
      * @param keyspace name of keyspace
      * @param parallelismDegree specifies the degree of parallelism when calculating the merkle trees
+     * @param allReplicas CIE xmas patch addition, only send success if all replicas repaired
      * @param pullRepair true if the repair should be one way (from remote host to this host and only applicable between two hosts--see RepairOption)
      * @param cfnames names of columnfamilies
      */
@@ -143,6 +148,7 @@ public class RepairSession extends AsyncFuture<RepairSessionResult> implements I
                          CommonRange commonRange,
                          String keyspace,
                          RepairParallelism parallelismDegree,
+                         boolean allReplicas,
                          boolean isIncremental,
                          boolean pullRepair,
                          PreviewKind previewKind,
@@ -160,6 +166,7 @@ public class RepairSession extends AsyncFuture<RepairSessionResult> implements I
         this.isIncremental = isIncremental;
         this.previewKind = previewKind;
         this.pullRepair = pullRepair;
+        this.allReplicas = allReplicas && !commonRange.hasSkippedReplicas;
         this.optimiseStreams = optimiseStreams;
         this.taskExecutor = createExecutor();
     }
@@ -207,11 +214,11 @@ public class RepairSession extends AsyncFuture<RepairSessionResult> implements I
         if (task == null)
         {
             assert terminated : "The repair session should be terminated if the validation we're completing no longer exists.";
-            
+
             // The trees may be off-heap, and will therefore need to be released.
             if (trees != null)
                 trees.release();
-            
+
             return;
         }
 
@@ -396,17 +403,33 @@ public class RepairSession extends AsyncFuture<RepairSessionResult> implements I
 
     public void onIRStateChange(LocalSession session)
     {
+        if (session.getState() == ConsistentSession.State.FINALIZED)
+            abortPreviewRepairs(session.ranges, session.tableIds, String.format("an intersecting incremental repair (%s) finished during this (%s) preview repair", session.sessionID, getId()));
+    }
+
+    public void onRepairSuccess(RepairSuccess message)
+    {
+        Keyspace ks = Keyspace.open(message.keyspace);
+        if (ks != null)
+        {
+            ColumnFamilyStore cfs = ks.getColumnFamilyStore(message.columnFamily);
+            if (cfs != null)
+                abortPreviewRepairs(message.ranges, Collections.singleton(cfs.metadata.id), String.format("got repair success during this (%s) preview repair, aborting", getId()));
+        }
+    }
+
+    private void abortPreviewRepairs(Collection<Range<Token>> ranges, Set<TableId> tableIds, String message)
+    {
         // we should only be registered as listeners for PreviewKind.REPAIRED, but double check here
         if (previewKind == PreviewKind.REPAIRED &&
-            session.getState() == ConsistentSession.State.FINALIZED &&
-            includesTables(session.tableIds))
+            includesTables(tableIds))
         {
-            for (Range<Token> range : session.ranges)
+            for (Range<Token> range : ranges)
             {
                 if (range.intersects(ranges()))
                 {
-                    logger.warn("{} An intersecting incremental repair with session id = {} finished, preview repair might not be accurate", previewKind.logPrefix(getId()), session.sessionID);
-                    forceShutdown(RepairException.warn("An incremental repair with session id "+session.sessionID+" finished during this preview repair runtime"));
+                    logger.warn(message);
+                    forceShutdown(new Exception(message));
                     return;
                 }
             }

@@ -66,3 +66,4 @@ track_warnings:
         abort_threshold_kb: 8192
 disable_schema_drop_check: true
 enable_secondary_index: true
+enable_christmas_patch: false
