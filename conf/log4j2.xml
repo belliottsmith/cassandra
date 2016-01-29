@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="INFO">
+    <Appenders>
+        <RollingFile name="FILE" fileName="${sys:cassandra.logdir}/system.log"
+	            filePattern="${sys:cassandra.logdir}/system.log.%i.log.gz">
+            <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+	    <PatternLayout pattern="%-5level [%thread] %date{ISO8601} %F:%L - %msg%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="128 MB"/>
+            </Policies>
+	    <DefaultRolloverStrategy max="10"/>
+        </RollingFile>
+        <RollingFile name="DEBUG" fileName="${sys:cassandra.logdir}/debug.log"
+                    filePattern="${sys:cassandra.logdir}/system.log.%i.log.gz">
+            <PatternLayout pattern="%-5level [%thread] %date{ISO8601} %F:%L - %msg%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="128 MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10"/>
+        </RollingFile>
+        <!-- Uncomment below configuration (Audit Logging (FileAuditLogger) rolling file appender and Audit Logging
+additivity) in order to have the log events flow through separate log file instead of system.log.
+Audit Logging (FileAuditLogger) rolling file appender to audit.log -->
+<!--        <RollingFile name="AUDIT"-->
+<!--                     fileName="${sys:cassandra.logdir}/audit/audit.log"-->
+<!--                     filePattern="${cassandra.logdir}/audit/audit.log.%d{yyyy-MM-dd}.%i.log.gz">-->
+<!--            &lt;!&ndash; each file should be at most 50MB, keep 30 days worth of history, but at most 5GB &ndash;&gt;-->
+<!--            <PatternLayout>-->
+<!--                <PatternLayout pattern="%-5level [%thread] %date{ISO8601} %F:%L - %msg%n"/>-->
+<!--            </PatternLayout>-->
+<!--            <Policies>-->
+<!--                <OnStartupTriggeringPolicy />-->
+<!--                <SizeBasedTriggeringPolicy size="50 MB" />-->
+<!--                <TimeBasedTriggeringPolicy />-->
+<!--            </Policies>-->
+<!--            <DefaultRolloverStrategy>-->
+<!--                <Delete basePath="${sys:cassandra.logdir}" maxDepth="2">-->
+<!--                    <IfFileName glob="${cassandra.logdir}/audit/audit.log.*.log.gz" />-->
+<!--                    <IfLastModified age="30d" />-->
+<!--                </Delete>-->
+<!--            </DefaultRolloverStrategy>-->
+<!--        </RollingFile>-->
+	    <Console name="STDOUT" target="SYSTEM_OUT">
+                <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+		<PatternLayout pattern="%-5level %date{HH:mm:ss,SSS} %msg%n"/>
+	    </Console>
+        <Async name="ASYNC" includeLocation="true">
+            <AppenderRef ref="FILE" />
+            <AppenderRef ref="DEBUG"/>
+	    <AppenderRef ref="STDOUT" />
+        </Async>
+    </Appenders>
+    <Loggers>
+	<Logger name="com.thinkaurelius.thrift" level="ERROR">
+            <AppenderRef ref="ASYNC" />
+	</Logger>
+    <!-- Audit Logging additivity to redirect audit logging events to audit/audit.log -->
+<!--    <Logger name="org.apache.cassandra.audit" level="INFO">-->
+<!--      <AppenderRef ref="AUDIT"/>-->
+<!--    </Logger> &ndash;&gt;-->
+
+        <Root level="DEBUG">
+            <AppenderRef ref="ASYNC" />
+        </Root>
+    </Loggers>
+</Configuration>
+
+

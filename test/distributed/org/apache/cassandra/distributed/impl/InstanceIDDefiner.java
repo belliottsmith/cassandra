@@ -18,13 +18,16 @@
 
 package org.apache.cassandra.distributed.impl;
 
-import ch.qos.logback.core.PropertyDefinerBase;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.config.plugins.Plugin;
+import org.apache.logging.log4j.core.lookup.StrLookup;
 
 /**
- * Used by logback to find/define property value, see logback-dtest.xml
+ * Used by log4j to find/define property value, see log4j2-dtest.xml
  */
-public class InstanceIDDefiner extends PropertyDefinerBase
+@Plugin(name="instance", category = StrLookup.CATEGORY)
+public class InstanceIDDefiner implements StrLookup
 {
     // Instantiated per classloader, set by Instance
     private static volatile String INSTANCE_ID = "<main>";
@@ -40,7 +43,18 @@ public class InstanceIDDefiner extends PropertyDefinerBase
         return INSTANCE_ID;
     }
 
-    public String getPropertyValue()
+
+    public String lookup(String s)
+    {
+        return lookup();
+    }
+
+    public String lookup(LogEvent logEvent, String s)
+    {
+        return lookup();
+    }
+
+    private String lookup()
     {
         return INSTANCE_ID;
     }
