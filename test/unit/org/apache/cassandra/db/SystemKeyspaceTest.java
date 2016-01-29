@@ -24,13 +24,16 @@ import java.util.*;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.dht.ByteOrderedPartitioner.BytesToken;
+import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.schema.SchemaKeyspace;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -40,8 +43,15 @@ import org.apache.cassandra.utils.CassandraVersion;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import static org.apache.cassandra.Util.token;
+
 public class SystemKeyspaceTest
 {
+    public static final String KEYSPACE1 = "SystemKeyspaceTest";
+    public static final String CF_STANDARD1 = "Standard1";
+    public static final String CF_INDEX1 = "Indexed1";
+
+
     @BeforeClass
     public static void prepSnapshotTracker()
     {
@@ -50,6 +60,11 @@ public class SystemKeyspaceTest
 
         if (FBUtilities.isWindows)
             WindowsFailedSnapshotTracker.deleteOldSnapshots();
+        SchemaLoader.prepareServer();
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    KeyspaceParams.simple(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
+                                    SchemaLoader.keysIndexCFMD(KEYSPACE1, CF_INDEX1, true));
     }
 
     @Test
@@ -190,5 +205,76 @@ public class SystemKeyspaceTest
     {
         UntypedResultSet rs = QueryProcessor.executeInternal("SELECT release_version FROM system.local WHERE key='local'");
         return rs.isEmpty() || !rs.one().has("release_version") ? null : rs.one().getString("release_version");
+    }
+
+    @Test
+    public void testLastSuccessfulRepair()
+    {
+        String ks = KEYSPACE1;
+        String cf = CF_STANDARD1;
+
+        // save last successful repair
+        Range<Token> range = new Range<Token>(token("a"), token("e"));
+        long ts = System.currentTimeMillis();
+        SystemKeyspace.updateLastSuccessfulRepair(ks, cf, range, ts);
+
+        // make sure we can read them back
+        Map<Range<Token>, Integer> lastSuccessfulRepair = SystemKeyspace.getLastSuccessfulRepair(ks, cf);
+        assertTrue(lastSuccessfulRepair.containsKey(range));
+        // we should get ts in seconds
+        assertEquals((int) (ts / 1000), lastSuccessfulRepair.get(range).intValue());
+
+        // update timestamp
+        ts += 36000;
+        SystemKeyspace.updateLastSuccessfulRepair(ks, cf, range, ts);
+        lastSuccessfulRepair = SystemKeyspace.getLastSuccessfulRepair(ks, cf);
+        assertEquals(1, lastSuccessfulRepair.size());
+        assertTrue(lastSuccessfulRepair.containsKey(range));
+        // we should get ts in seconds
+        assertEquals((int) (ts / 1000), lastSuccessfulRepair.get(range).intValue());
+    }
+
+    @Test
+    public void testLastSuccessfulRepairWith2i()
+    {
+        String ks = KEYSPACE1;
+        String cf = CF_INDEX1;
+
+        // save last successful repair
+        Range<Token> range = new Range<Token>(token("a"), token("e"));
+        long ts = System.currentTimeMillis();
+        SystemKeyspace.updateLastSuccessfulRepair(ks, cf, range, ts);
+
+        // make sure we can read them back
+        Map<Range<Token>, Integer> lastSuccessfulRepair = SystemKeyspace.getLastSuccessfulRepair(ks, cf);
+        assertTrue(lastSuccessfulRepair.containsKey(range));
+        // we should get ts in seconds
+        assertEquals((int) (ts / 1000), lastSuccessfulRepair.get(range).intValue());
+
+        // update timestamp
+        ts += 36000;
+        SystemKeyspace.updateLastSuccessfulRepair(ks, cf, range, ts);
+        lastSuccessfulRepair = SystemKeyspace.getLastSuccessfulRepair(ks, cf);
+        assertEquals(1, lastSuccessfulRepair.size());
+        assertTrue(lastSuccessfulRepair.containsKey(range));
+        // we should get ts in seconds
+        assertEquals((int) (ts / 1000), lastSuccessfulRepair.get(range).intValue());
+    }
+
+    @Test
+    public void testReadingAllLastSuccessfulRepairs()
+    {
+        SchemaLoader.prepareServer();
+
+        for (Keyspace keyspace : Keyspace.all())
+        {
+            for (ColumnFamilyStore cfs : keyspace.getColumnFamilyStores())
+            {
+                for (final ColumnFamilyStore store : cfs.concatWithIndexes())
+                {
+                    SystemKeyspace.getLastSuccessfulRepair(keyspace.getName(), store.name);
+                }
+            }
+        }
     }
 }

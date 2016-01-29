@@ -34,6 +34,8 @@ import com.google.common.util.concurrent.AbstractFuture;
 
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.locator.EndpointsByRange;
 import org.apache.cassandra.locator.EndpointsForRange;
 import org.slf4j.Logger;
@@ -59,6 +61,8 @@ import org.apache.cassandra.gms.IFailureDetectionEventListener;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.TokenMetadata;
+import org.apache.cassandra.net.IVerbHandler;
+import org.apache.cassandra.net.NoPayload;
 import org.apache.cassandra.metrics.RepairMetrics;
 import org.apache.cassandra.net.RequestCallback;
 import org.apache.cassandra.net.Message;
@@ -241,6 +245,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                              CommonRange range,
                                              String keyspace,
                                              RepairParallelism parallelismDegree,
+                                             boolean allReplicas,
                                              boolean isIncremental,
                                              boolean pullRepair,
                                              boolean force,
@@ -256,7 +261,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             return null;
 
         final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace,
-                                                        parallelismDegree, isIncremental, pullRepair, force,
+                                                        parallelismDegree, allReplicas, isIncremental, pullRepair, force,
                                                         previewKind, optimiseStreams, cfnames);
 
         sessions.put(session.getId(), session);
@@ -335,18 +340,16 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
     }
 
     /**
-     * Return all of the neighbors with whom we share the provided range.
+     * Return all of the neighbors with whom we share the provided range without filtering on datacenter/hosts
      *
      * @param keyspaceName keyspace to repair
      * @param keyspaceLocalRanges local-range for given keyspaceName
      * @param toRepair token to repair
-     * @param dataCenters the data centers to involve in the repair
      *
      * @return neighbors with whom we share the provided range
      */
-    public static EndpointsForRange getNeighbors(String keyspaceName, Iterable<Range<Token>> keyspaceLocalRanges,
-                                          Range<Token> toRepair, Collection<String> dataCenters,
-                                          Collection<String> hosts)
+    public static EndpointsForRange getAllNeighbors(String keyspaceName, Iterable<Range<Token>> keyspaceLocalRanges,
+                                          Range<Token> toRepair)
     {
         StorageService ss = StorageService.instance;
         EndpointsByRange replicaSets = ss.getRangeToAddressMap(keyspaceName);
@@ -370,7 +373,15 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             return EndpointsForRange.empty(toRepair);
 
         EndpointsForRange neighbors = replicaSets.get(rangeSuperSet).withoutSelf();
+        return neighbors;
+    }
 
+    public static EndpointsForRange filterNeighbors(EndpointsForRange neighbors,
+                                                   Range<Token> toRepair,
+                                                   Collection<String> dataCenters,
+                                                   Collection<String> hosts)
+    {
+        StorageService ss = StorageService.instance;
         if (dataCenters != null && !dataCenters.isEmpty())
         {
             TokenMetadata.Topology topology = ss.getTokenMetadata().cloneOnlyTokenMap().getTopology();
@@ -411,6 +422,22 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         }
 
         return neighbors;
+    }
+
+    /**
+     * Return all of the neighbors with whom we share the provided range.
+     *
+     * @param keyspaceName keyspace to repair
+     * @param keyspaceLocalRanges local-range for given keyspaceName
+     * @param toRepair token to repair
+     *
+     * @return neighbors with whom we share the provided range
+     */
+    public static EndpointsForRange getNeighbors(String keyspaceName, Iterable<Range<Token>> keyspaceLocalRanges,
+                                                        Range<Token> toRepair, Collection<String> dataCenters,
+                                                        Collection<String> hosts)
+    {
+        return filterNeighbors(getAllNeighbors(keyspaceName, keyspaceLocalRanges, toRepair), toRepair, dataCenters, hosts);
     }
 
     /**
@@ -710,4 +737,21 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         }
     }
 
+    public static class RepairSuccessVerbHandler implements IVerbHandler<RepairSuccess>
+    {
+        public static RepairSuccessVerbHandler instance = new RepairSuccessVerbHandler();
+
+        public void doVerb(Message<RepairSuccess> message)
+        {
+            RepairSuccess success = message.payload;
+            logger.info("Received repair success for {}/{}, {} at {}", new Object[]{success.keyspace, success.columnFamily, success.ranges, success.succeedAt});
+            ColumnFamilyStore cfs = Keyspace.open(success.keyspace).getColumnFamilyStore(success.columnFamily);
+
+            CompactionManager.instance.stopConflictingPreviewValidations(cfs.metadata(), success.ranges, "RepairSuccess received");
+
+            for (Range<Token> range : success.ranges)
+                cfs.updateLastSuccessfulRepair(range, success.succeedAt);
+            MessagingService.instance().send(message.responseWith(NoPayload.noPayload), message.from());
+        }
+    }
 }

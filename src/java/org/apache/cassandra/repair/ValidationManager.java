@@ -30,6 +30,8 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.compaction.CompactionInfo;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -86,7 +88,7 @@ public class ValidationManager
     private static ValidationPartitionIterator getValidationIterator(TableRepairManager repairManager, Validator validator) throws IOException
     {
         RepairJobDesc desc = validator.desc;
-        return repairManager.getValidationIterator(desc.ranges, desc.parentSessionId, desc.sessionId, validator.isIncremental, validator.nowInSec);
+        return repairManager.getValidationIterator(desc.ranges, desc.parentSessionId, desc.sessionId, validator.isIncremental, validator.nowInSec, validator.getPreviewKind());
     }
 
     /**
@@ -111,6 +113,8 @@ public class ValidationManager
         long estimatedTotalBytes = 0;
         try (ValidationPartitionIterator vi = getValidationIterator(cfs.getRepairManager(), validator))
         {
+            CompactionManager.SessionData sessionData = new CompactionManager.SessionData(validator.desc.parentSessionId, validator.desc.ranges, validator.getPreviewKind(), (CompactionInfo.Holder) vi.getCompactionInfoHolder());
+            CompactionManager.instance.markValidationActive(cfs.metadata().id, sessionData);
             MerkleTrees tree = createMerkleTrees(vi, validator.desc.ranges, cfs);
             try
             {
@@ -128,6 +132,7 @@ public class ValidationManager
             }
             finally
             {
+                CompactionManager.instance.markValidationComplete(cfs.metadata().id, sessionData);
                 estimatedTotalBytes = vi.getEstimatedBytes();
                 partitionCount = vi.estimatedPartitions();
             }

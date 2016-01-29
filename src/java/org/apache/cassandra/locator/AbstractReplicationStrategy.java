@@ -289,6 +289,11 @@ public abstract class AbstractReplicationStrategy
         return map.build();
     }
 
+    public EndpointsByRange getRangeAddresses()
+    {
+        return getRangeAddresses(tokenMetadata.cachedOnlyTokenMap());
+    }
+
     public RangesByEndpoint getAddressReplicas()
     {
         return getAddressReplicas(tokenMetadata.cloneOnlyTokenMap());
