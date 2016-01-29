@@ -45,7 +45,7 @@ case "`uname`" in
 esac
 
 class="org.apache.cassandra.transport.Client"
-cassandra_parms="-Dlogback.configurationFile=logback-tools.xml"
+cassandra_parms="-Dlog4j.configurationFile=log4j2-tools.xml"
 "$JAVA" $JVM_OPTS $cassandra_parms  -cp "$CLASSPATH" "$class" $@
 
 exit $?
