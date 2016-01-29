@@ -43,12 +43,12 @@ import java.util.function.Supplier;
 
 import org.slf4j.LoggerFactory;
 
-import ch.qos.logback.classic.LoggerContext;
 import io.netty.util.concurrent.FastThreadLocal;
 import org.apache.cassandra.concurrent.ExecutorFactory;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.Throwables;
+import org.apache.logging.log4j.core.LoggerContext;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 
@@ -132,8 +132,7 @@ public class IsolatedExecutor implements IIsolatedExecutor
             // Shutdown logging last - this is not ideal as the logging subsystem is initialized
             // outsize of this class, however doing it this way provides access to the full
             // logging system while termination is taking place.
-            LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
-            loggerContext.stop();
+            LoggerContext.getContext(Thread.currentThread().getContextClassLoader(), false, null).stop();
 
             FastThreadLocal.destroy();
 
