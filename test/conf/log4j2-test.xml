@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="INFO">
+    <Appenders>
+        <RollingFile name="FILE" fileName="./build/test/logs/${sys:cassandra.testtag}/TEST-${sys:suitename}.log"
+	            filePattern="./build/test/logs/${sys:cassandra.testtag}/TEST-${sys:suitename}.log.%i.gz">
+	    <PatternLayout pattern="%-5level [%thread] %date{ISO8601} %F:%L - %msg%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="20 MB"/>
+            </Policies>
+	    <DefaultRolloverStrategy max="20"/>
+        </RollingFile>
+	<Console name="STDOUT" target="SYSTEM_OUT">
+		<PatternLayout pattern="%-5level %date{HH:mm:ss,SSS} %msg%n"/>
+		<Filters>
+			<ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+		</Filters>
+	</Console>
+        <Async name="ASYNC" includeLocation="true">
+            <AppenderRef ref="FILE" />
+            <AppenderRef ref="STDOUT" />
+        </Async>
+    </Appenders>
+    <Loggers>
+        <Root level="DEBUG">
+            <AppenderRef ref="ASYNC" />
+        </Root>
+    </Loggers>
+</Configuration>
+
