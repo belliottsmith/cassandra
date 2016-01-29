@@ -35,6 +35,7 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.Verb;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.hsqldb.Table;
@@ -186,6 +187,22 @@ public class DiagnosticSnapshotService
                             command.column_family,
                             command.snapshot_name);
                 cfs.snapshot(command.snapshot_name);
+
+                if (command.snapshot_name.startsWith(REPAIRED_DATA_MISMATCH_SNAPSHOT_PREFIX))
+                {
+                    // Also snapshot system.repair_history & system.repair_history_invalidations
+                    // We need a set of the historical data for every user keyspace snapshot we take
+                    String systemSnapshotName = String.format("%s_%s-%s",
+                                                              command.snapshot_name,
+                                                              command.keyspace,
+                                                              command.column_family);
+                    Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                            .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_CF)
+                            .snapshot(systemSnapshotName);
+                    Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                            .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_INVALIDATION_CF)
+                            .snapshot(systemSnapshotName);
+                }
             }
             catch (IllegalArgumentException e)
             {

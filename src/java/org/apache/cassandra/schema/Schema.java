@@ -38,6 +38,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.index.Index;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.locator.LocalStrategy;
 import org.apache.cassandra.schema.KeyspaceMetadata.KeyspaceDiff;
@@ -196,6 +197,49 @@ public final class Schema implements SchemaProvider
     public Keyspace getKeyspaceInstance(String keyspaceName)
     {
         return keyspaceInstances.get(keyspaceName);
+    }
+
+    /**
+     * Retrieve a CFS by name even if that CFS is an index
+     *
+     * An index is identified by looking for '.' in the CF name and separating to find the base table
+     * containing the index
+     * @param keyspace
+     * @param tableName
+     * @return The named CFS or null if the keyspace, base table, or index don't exist
+     */
+    public ColumnFamilyStore getColumnFamilyStoreIncludingIndexes(String keyspace, String tableName) {
+        /*
+         * Split does special case a one character regex, and it looks like it can detect
+         * if you use two characters to escape '.', but it still allocates a useless array.
+         */
+        int indexOfSeparator = tableName.indexOf('.');
+        String lookupTableName;
+        if (indexOfSeparator > -1)
+            lookupTableName = tableName.substring(0, indexOfSeparator);
+        else
+            lookupTableName = tableName;
+
+        TableMetadata tmd = Schema.instance.getTableMetadata(keyspace, lookupTableName);
+        if (tmd == null)
+            return null;
+
+        ColumnFamilyStore baseCFS = getColumnFamilyStoreInstance(tmd.id);
+
+        //Not an index
+        if (indexOfSeparator == -1)
+            return baseCFS;
+
+        if (baseCFS == null)
+            return null;
+
+        Index index = baseCFS.indexManager.getIndexByName(tableName.substring(indexOfSeparator + 1, tableName.length()));
+        if (index == null)
+            return null;
+
+        //Shouldn't ask for a backing table if there is none so just throw?
+        //Or should it return null?
+        return index.getBackingTable().get();
     }
 
     public ColumnFamilyStore getColumnFamilyStoreInstance(TableId id)
@@ -752,6 +796,10 @@ public final class Schema implements SchemaProvider
         assert cfs != null;
         // make sure all the indexes are dropped, or else.
         cfs.indexManager.markAllIndexesRemoved();
+
+        // clear out old repair history
+        cfs.clearRepairedRangeUnsafes();
+
         CompactionManager.instance.interruptCompactionFor(Collections.singleton(metadata), (sstable) -> true, true);
         if (DatabaseDescriptor.isAutoSnapshot())
             cfs.snapshot(Keyspace.getTimestampedSnapshotNameWithPrefix(cfs.name, ColumnFamilyStore.SNAPSHOT_DROP_PREFIX));
