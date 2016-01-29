@@ -50,6 +50,11 @@ public class TestBaseImpl extends DistributedTestBase
     @BeforeClass
     public static void beforeClass() throws Throwable
     {
+        System.setProperty("log4j2.disableJmx", "true"); // setting both ways as changes between versions
+        System.setProperty("log4j2.disable.jmx", "true");
+        System.setProperty("log4j.shutdownHookEnabled", "false");
+        System.setProperty("cassandra.test.logConfigProperty", "log4j.configurationFile");
+        System.setProperty("cassandra.test.logConfigPath", "test/conf/log4j2-dtest.xml");
         ICluster.setup();
     }
 

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="INFO">
+    <Appenders>
+        <RollingFile name="FILE" fileName="${sys:cassandra.logdir}/system.log"
+	            filePattern="${sys:cassandra.logdir}/system.log.%i.log.gz">
+            <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+	    <PatternLayout pattern="%-5level [%thread] %date{ISO8601} %F:%L - %msg%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="128 MB"/>
+            </Policies>
+	    <DefaultRolloverStrategy max="10"/>
+        </RollingFile>
+        <RollingFile name="DEBUG" fileName="${sys:cassandra.logdir}/debug.log"
+                    filePattern="${sys:cassandra.logdir}/system.log.%i.log.gz">
+            <PatternLayout pattern="%-5level [%thread] %date{ISO8601} %F:%L - %msg%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="128 MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10"/>
+        </RollingFile>
+	<Console name="STDOUT" target="SYSTEM_OUT">
+                <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+		<PatternLayout pattern="%-5level %date{HH:mm:ss,SSS} %msg%n"/>
+	</Console>
+        <Async name="ASYNC">
+            <AppenderRef ref="FILE" />
+            <AppenderRef ref="DEBUG"/>
+	    <AppenderRef ref="STDOUT" />
+        </Async>
+    </Appenders>
+    <Loggers>
+	<Logger name="com.thinkaurelius.thrift" level="ERROR">
+            <AppenderRef ref="ASYNC" />
+	</Logger>
+        <Root level="DEBUG">
+            <AppenderRef ref="ASYNC" />
+        </Root>
+    </Loggers>
+</Configuration>
+
+
