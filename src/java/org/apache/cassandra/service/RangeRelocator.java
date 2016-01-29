@@ -21,7 +21,9 @@ package org.apache.cassandra.service;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Future;
 
@@ -33,6 +35,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.dht.BootStrapper;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.RangeStreamer;
 import org.apache.cassandra.dht.Token;
@@ -57,6 +60,8 @@ public class RangeRelocator
     private static final Logger logger = LoggerFactory.getLogger(StorageService.class);
 
     private final StreamPlan streamPlan = new StreamPlan(StreamOperation.RELOCATION);
+    private Map<String,Multimap<InetAddressAndPort, RangeStreamer.FetchReplica>>  rangesToFetchByKeyspace = new HashMap<>();
+    private Map<String, RangesByEndpoint> rangesToStreamByTable = new HashMap<>();
     private final InetAddressAndPort localAddress = FBUtilities.getBroadcastAddressAndPort();
     private final TokenMetadata tokenMetaCloneAllSettled;
     // clone to avoid concurrent modification in calculateNaturalReplicas
@@ -203,6 +208,8 @@ public class RangeRelocator
                 RangesByEndpoint rangesToStream = calculateRangesToStreamWithEndpoints(streamAndFetchOwnRanges.left, strategy, tokenMetaClone, tokenMetaCloneAllSettled);
                 logger.info("Endpoint ranges to stream to " + rangesToStream);
 
+                rangesToStreamByTable.put(keyspace, rangesToStream);
+
                 // stream ranges
                 for (InetAddressAndPort address : rangesToStream.keySet())
                 {
@@ -212,6 +219,7 @@ public class RangeRelocator
                 }
 
                 Multimap<InetAddressAndPort, RangeStreamer.FetchReplica> rangesToFetch = calculateRangesToFetchWithPreferredEndpoints(streamAndFetchOwnRanges.right, strategy, keyspace, tokenMetaClone, tokenMetaCloneAllSettled);
+                rangesToFetchByKeyspace.put(keyspace, rangesToFetch);
 
                 // stream requests
                 rangesToFetch.asMap().forEach((address, sourceAndOurReplicas) -> {
@@ -319,5 +327,26 @@ public class RangeRelocator
     public boolean streamsNeeded()
     {
         return !streamPlan.isEmpty();
+    }
+
+    public void fetchRepairedRanges()
+    {
+        BootStrapper.fetchRepairedRanges(rangesToFetchByKeyspace, 4);
+    }
+
+    public void sendRepairRanges()
+    {
+        sendRepairRangesByTable(rangesToStreamByTable);
+    }
+
+    private void sendRepairRangesByTable(Map<String, RangesByEndpoint> rangesToStreamByTable)
+    {
+        for(Map.Entry<String, RangesByEndpoint> entry : rangesToStreamByTable.entrySet())
+        {
+            for(Map.Entry<InetAddressAndPort, RangesAtEndpoint> addressRangeEntry :  entry.getValue().asMap().entrySet())
+            {
+                StorageService.instance.sendRepairRangesForKeyspace(entry.getKey(), addressRangeEntry.getValue().ranges(), addressRangeEntry.getKey());
+            }
+        }
     }
 }

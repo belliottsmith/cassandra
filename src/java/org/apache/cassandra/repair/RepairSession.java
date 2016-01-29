@@ -103,6 +103,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
     /** Range to repair */
     public final CommonRange commonRange;
     public final boolean isIncremental;
+    public final boolean allReplicas;
     public final PreviewKind previewKind;
 
     private final AtomicBoolean isFailed = new AtomicBoolean(false);
@@ -125,6 +126,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
      * @param commonRange ranges to repair
      * @param keyspace name of keyspace
      * @param parallelismDegree specifies the degree of parallelism when calculating the merkle trees
+     * @param allReplicas CIE xmas patch addition, only send success if all replicas repaired
      * @param pullRepair true if the repair should be one way (from remote host to this host and only applicable between two hosts--see RepairOption)
      * @param force true if the repair should ignore dead endpoints (instead of failing)
      * @param cfnames names of columnfamilies
@@ -134,6 +136,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
                          CommonRange commonRange,
                          String keyspace,
                          RepairParallelism parallelismDegree,
+                         boolean allReplicas,
                          boolean isIncremental,
                          boolean pullRepair,
                          boolean force,
@@ -179,6 +182,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         this.previewKind = previewKind;
         this.pullRepair = pullRepair;
         this.skippedReplicas = forceSkippedReplicas;
+        this.allReplicas = allReplicas && !forceSkippedReplicas;
         this.optimiseStreams = optimiseStreams;
         this.taskExecutor = MoreExecutors.listeningDecorator(createExecutor());
     }

@@ -21,6 +21,7 @@ package org.apache.cassandra.db;
 import java.util.function.LongPredicate;
 
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.schema.CompactionParams;
 
 /**
@@ -58,4 +59,6 @@ public abstract class AbstractCompactionController implements AutoCloseable
     }
 
     public abstract LongPredicate getPurgeEvaluator(DecoratedKey key);
+
+    public abstract SuccessfulRepairTimeHolder getRepairTimeSnapshot();
 }

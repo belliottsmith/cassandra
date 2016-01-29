@@ -35,6 +35,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListenableFuture;
 import org.junit.After;
 import org.junit.Before;
@@ -69,6 +70,7 @@ import org.apache.cassandra.utils.asserts.SyncTaskListAssert;
 import static org.apache.cassandra.utils.asserts.SyncTaskAssert.assertThat;
 import static org.apache.cassandra.utils.asserts.SyncTaskListAssert.assertThat;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
 
 public class RepairJobTest
 {
@@ -100,10 +102,10 @@ public class RepairJobTest
     private static class MeasureableRepairSession extends RepairSession
     {
         public MeasureableRepairSession(UUID parentRepairSession, UUID id, CommonRange commonRange, String keyspace,
-                                        RepairParallelism parallelismDegree, boolean isIncremental, boolean pullRepair,
+                                        RepairParallelism parallelismDegree, boolean allReplicas, boolean isIncremental, boolean pullRepair,
                                         boolean force, PreviewKind previewKind, boolean optimiseStreams, String... cfnames)
         {
-            super(parentRepairSession, id, commonRange, keyspace, parallelismDegree, isIncremental, pullRepair, force, previewKind, optimiseStreams, cfnames);
+            super(parentRepairSession, id, commonRange, keyspace, parallelismDegree, allReplicas, isIncremental, pullRepair, force, previewKind, optimiseStreams, cfnames);
         }
 
         protected DebuggableThreadPoolExecutor createExecutor()
@@ -138,7 +140,7 @@ public class RepairJobTest
 
         this.session = new MeasureableRepairSession(parentRepairSession, UUIDGen.getTimeUUID(),
                                                     new CommonRange(neighbors, Collections.emptySet(), FULL_RANGE),
-                                                    KEYSPACE, RepairParallelism.SEQUENTIAL,
+                                                    KEYSPACE, RepairParallelism.SEQUENTIAL, true,
                                                     false, false, false,
                                                     PreviewKind.NONE, false, CF);
 
@@ -626,10 +628,18 @@ public class RepairJobTest
         assertThat(tasks.get(pair(addr2, addr1)).rangesToSync).containsExactly(RANGE_2);
 
         // addr3 can get range1 from either addr1 or addr2 but not from both
-        assertStreamRangeFromEither(tasks, RANGE_1, addr3, addr2, addr1);
-
-        assertThat(tasks.get(pair(addr3, addr1)).rangesToSync).containsExactly(RANGE_2);
-    }
+        assertStreamRangeFromEither(tasks, RANGE_1,
+                                    addr3, addr2, addr1);
+        // addr3 can only get range2 from addr1. But it might also be streaming range1 from addr1
+        Set<Range<Token>> addr3incoming = new HashSet<>(tasks.get(pair(addr3, addr1)).rangesToSync);
+        if (addr3incoming.size() > 1)
+        {
+            assertEquals(Sets.newHashSet(RANGE_1, RANGE_2), addr3incoming);
+        }
+        else
+        {
+            assertEquals(Sets.newHashSet(RANGE_2), addr3incoming);
+        }    }
 
     @Test
     public void testOptimizedCreateStandardSyncTasksWithTransient()
