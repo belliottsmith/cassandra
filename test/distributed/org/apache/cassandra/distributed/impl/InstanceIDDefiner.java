@@ -18,30 +18,44 @@
 
 package org.apache.cassandra.distributed.impl;
 
-import ch.qos.logback.core.PropertyDefinerBase;
+import java.util.Objects;
+
 import org.apache.cassandra.concurrent.NamedThreadFactory;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.config.plugins.Plugin;
+import org.apache.logging.log4j.core.lookup.StrLookup;
 
 /**
- * Used by logback to find/define property value, see logback-dtest.xml
+ * Used by log4j to find/define property value, see log4j2-dtest.xml
  */
-public class InstanceIDDefiner extends PropertyDefinerBase
+@Plugin(name="instance", category = StrLookup.CATEGORY)
+public class InstanceIDDefiner implements StrLookup
 {
     // Instantiated per classloader, set by Instance
-    private static volatile String INSTANCE_ID = "<main>";
+    private static final String INSTANCE_ID_OBJECT = "instance_id";
 
-    public static void setInstanceId(int id)
+    public static void setInstanceId(int id, LoggerContext loggerContext)
     {
-        INSTANCE_ID = "node" + id;
+        loggerContext.putObject(INSTANCE_ID_OBJECT, "node" + id);
         NamedThreadFactory.setGlobalPrefix("node" + id + "_");
     }
 
     public static String getInstanceId()
     {
-        return INSTANCE_ID;
+        final ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
+        final LoggerContext loggerContext = LoggerContext.getContext(contextClassLoader, false, null);
+        final Object id = loggerContext.getObject(INSTANCE_ID_OBJECT);
+        return Objects.toString(id, "<main>");
     }
 
-    public String getPropertyValue()
+    public String lookup(String s)
     {
-        return INSTANCE_ID;
+        return getInstanceId();
+    }
+
+    public String lookup(LogEvent logEvent, String s)
+    {
+        return getInstanceId();
     }
 }

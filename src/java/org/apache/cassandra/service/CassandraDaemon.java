@@ -115,22 +115,8 @@ public class CassandraDaemon
         return instance;
     }
 
-    static {
-        // Need to register metrics before instrumented appender is created(first access to LoggerFactory).
-        SharedMetricRegistries.getOrCreate("logback-metrics").addListener(new MetricRegistryListener.Base()
-        {
-            @Override
-            public void onMeterAdded(String metricName, Meter meter)
-            {
-                // Given metricName consists of appender name in logback.xml + "." + metric name.
-                // We first separate appender name
-                int separator = metricName.lastIndexOf('.');
-                String appenderName = metricName.substring(0, separator);
-                String metric = metricName.substring(separator + 1); // remove "."
-                ObjectName name = DefaultNameFactory.createMetricName(appenderName, metric, null).getMBeanName();
-                CassandraMetricsRegistry.Metrics.registerMBean(meter, name);
-            }
-        });
+    static
+    {
         logger = LoggerFactory.getLogger(CassandraDaemon.class);
     }
 
