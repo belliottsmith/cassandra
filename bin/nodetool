@@ -105,7 +105,8 @@ fi
 
 "$JAVA" $JAVA_AGENT -ea -cp "$CLASSPATH" $JVM_OPTS -Xmx$MAX_HEAP_SIZE \
         -Dcassandra.storagedir="$cassandra_storagedir" \
-        -Dlogback.configurationFile=logback-tools.xml \
+        -Dlog4j.configurationFile=log4j2-tools.xml \
+        -Dstorage-config="$CASSANDRA_CONF" \
         $JVM_ARGS \
         org.apache.cassandra.tools.NodeTool -p $JMX_PORT $ARGS
 
