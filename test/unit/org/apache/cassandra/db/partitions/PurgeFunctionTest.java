@@ -21,10 +21,14 @@ import java.nio.ByteBuffer;
 import java.util.Iterator;
 import java.util.function.LongPredicate;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
+import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ClusteringPrefix.Kind;
 import org.apache.cassandra.db.*;
@@ -32,7 +36,10 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.transform.Transformation;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
+import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -43,19 +50,50 @@ import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 
 public final class PurgeFunctionTest
 {
+    private static IPartitioner oldPartitioner = null;
     private static final String KEYSPACE = "PurgeFunctionTest";
     private static final String TABLE = "table";
 
-    private TableMetadata metadata;
-    private DecoratedKey key;
+    private static ColumnFamilyStore cfs;
+    private static TableMetadata metadata;
+    private static DecoratedKey key;
+
+    @BeforeClass
+    static public void setUp()
+    {
+        SchemaLoader.prepareServer();
+        oldPartitioner = DatabaseDescriptor.setPartitionerUnsafe(Murmur3Partitioner.instance);
+        SchemaLoader.createKeyspace(KEYSPACE,
+                                    KeyspaceParams.simple(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE, TABLE, 0, UTF8Type.instance, UTF8Type.instance, UTF8Type.instance));
+        cfs = ColumnFamilyStore.getIfExists(KEYSPACE, TABLE);
+        metadata = cfs.metadata.get();
+
+        key = Murmur3Partitioner.instance.decorateKey(bytes("key"));
+    }
+
+    @AfterClass
+    public static void resetPartitioner()
+    {
+        DatabaseDescriptor.setPartitionerUnsafe(oldPartitioner);
+    }
 
     private static UnfilteredPartitionIterator withoutPurgeableTombstones(UnfilteredPartitionIterator iterator, int gcBefore)
     {
+        SuccessfulRepairTimeHolder holder = new SuccessfulRepairTimeHolder(ImmutableList.of(), ImmutableList.of())
+        {
+            @Override
+            public int gcBeforeForKey(ColumnFamilyStore cfs, DecoratedKey key, int fallbackGCBefore)
+            {
+                return gcBefore;
+            }
+        };
+
         class WithoutPurgeableTombstones extends PurgeFunction
         {
             private WithoutPurgeableTombstones()
             {
-                super(FBUtilities.nowInSeconds(), gcBefore, Integer.MAX_VALUE, false, false);
+                super(cfs, FBUtilities.nowInSeconds(), gcBefore, Integer.MAX_VALUE, false, false, holder);
             }
 
             protected LongPredicate getPurgeEvaluator()
@@ -65,20 +103,6 @@ public final class PurgeFunctionTest
         }
 
         return Transformation.apply(iterator, new WithoutPurgeableTombstones());
-    }
-
-    @Before
-    public void setUp()
-    {
-        DatabaseDescriptor.daemonInitialization();
-        DatabaseDescriptor.setPartitionerUnsafe(Murmur3Partitioner.instance);
-
-        metadata =
-            TableMetadata.builder(KEYSPACE, TABLE)
-                         .addPartitionKeyColumn("pk", UTF8Type.instance)
-                         .addClusteringColumn("ck", UTF8Type.instance)
-                         .build();
-        key = Murmur3Partitioner.instance.decorateKey(bytes("key"));
     }
 
     @Test

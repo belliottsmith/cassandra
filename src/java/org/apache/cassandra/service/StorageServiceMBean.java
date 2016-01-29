@@ -841,6 +841,12 @@ public interface StorageServiceMBean extends NotificationEmitter
     /** Sets the boolean representing whether or not alter table is enabled */
     public void setAlterTableEnabled(boolean alterTableEnabled);
 
+    public void stopFetchingRepairRanges();
+
+    public boolean isChistmasPatchEnabled();
+
+    public boolean isShadowChistmasPatchEnabled();
+
     public boolean isKeyspaceQuotaEnabled();
     public void setKeyspaceQuotaEnabled(boolean enabled);
     public long getDefaultKeyspaceQuotaBytes();

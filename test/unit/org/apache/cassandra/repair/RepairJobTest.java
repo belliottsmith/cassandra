@@ -37,6 +37,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListenableFuture;
 import org.junit.After;
 import org.junit.Before;
@@ -73,6 +74,7 @@ import org.apache.cassandra.utils.asserts.SyncTaskListAssert;
 import static org.apache.cassandra.utils.asserts.SyncTaskAssert.assertThat;
 import static org.apache.cassandra.utils.asserts.SyncTaskListAssert.assertThat;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class RepairJobTest
@@ -107,10 +109,10 @@ public class RepairJobTest
         private final List<Callable<?>> syncCompleteCallbacks = new ArrayList<>();
 
         public MeasureableRepairSession(UUID parentRepairSession, UUID id, CommonRange commonRange, String keyspace,
-                                        RepairParallelism parallelismDegree, boolean isIncremental, boolean pullRepair,
+                                        RepairParallelism parallelismDegree, boolean allReplicas, boolean isIncremental, boolean pullRepair,
                                         PreviewKind previewKind, boolean optimiseStreams, String... cfnames)
         {
-            super(parentRepairSession, id, commonRange, keyspace, parallelismDegree, isIncremental, pullRepair, previewKind, optimiseStreams, cfnames);
+            super(parentRepairSession, id, commonRange, keyspace, parallelismDegree, allReplicas, isIncremental, pullRepair, previewKind, optimiseStreams, cfnames);
         }
 
         protected DebuggableThreadPoolExecutor createExecutor()
@@ -169,7 +171,7 @@ public class RepairJobTest
 
         this.session = new MeasureableRepairSession(parentRepairSession, UUIDGen.getTimeUUID(),
                                                     new CommonRange(neighbors, Collections.emptySet(), FULL_RANGE),
-                                                    KEYSPACE, RepairParallelism.SEQUENTIAL, false, false,
+                                                    KEYSPACE, RepairParallelism.SEQUENTIAL, true, false, false,
                                                     PreviewKind.NONE, false, CF);
 
         this.job = new RepairJob(session, CF);
