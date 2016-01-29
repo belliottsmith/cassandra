@@ -91,7 +91,7 @@ public class PreviewRepairTest extends TestBaseImpl
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
             insert(cluster.coordinator(1), 0, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
-            cluster.get(1).callOnInstance(repair(options(false)));
+            cluster.get(1).callOnInstance(repair(options(false, true)));
             insert(cluster.coordinator(1), 100, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
 
@@ -102,7 +102,7 @@ public class PreviewRepairTest extends TestBaseImpl
                 FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(cfs));
                 cfs.disableAutoCompaction();
             }));
-            cluster.get(1).callOnInstance(repair(options(false)));
+            cluster.get(1).callOnInstance(repair(options(false, true)));
             // now re-enable autocompaction on node1, this moves the sstables for the new repair to repaired
             cluster.get(1).runOnInstance(() -> {
                 ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl");
@@ -113,7 +113,7 @@ public class PreviewRepairTest extends TestBaseImpl
             //IR and Preview repair can't run concurrently. In case the test is flaky, please check CASSANDRA-15685
             Thread.sleep(1000);
 
-            RepairResult rs = cluster.get(1).callOnInstance(repair(options(true)));
+            RepairResult rs = cluster.get(1).callOnInstance(repair(options(true, true)));
             assertTrue(rs.success); // preview repair should succeed
             assertFalse(rs.wasInconsistent); // and we should see no mismatches
         }
@@ -143,7 +143,7 @@ public class PreviewRepairTest extends TestBaseImpl
 
             insert(cluster.coordinator(1), 0, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
-            cluster.get(1).callOnInstance(repair(options(false)));
+            cluster.get(1).callOnInstance(repair(options(false, true)));
 
             insert(cluster.coordinator(1), 100, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
@@ -153,10 +153,10 @@ public class PreviewRepairTest extends TestBaseImpl
             // this pauses the validation request sent from node1 to node2 until we have run a full inc repair below
             cluster.filters().outbound().verbs(Verb.VALIDATION_REQ.id).from(1).to(2).messagesMatching(filter).drop();
 
-            Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true))));
+            Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, true))));
             Thread.sleep(1000);
             // this needs to finish before the preview repair is unpaused on node2
-            cluster.get(1).callOnInstance(repair(options(false)));
+            cluster.get(1).callOnInstance(repair(options(false, true)));
             continuePreviewRepair.signalAll();
             RepairResult rs = rsFuture.get();
             assertFalse(rs.success); // preview repair should have failed
@@ -182,7 +182,7 @@ public class PreviewRepairTest extends TestBaseImpl
 
             insert(cluster.coordinator(1), 0, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
-            assertTrue(cluster.get(1).callOnInstance(repair(options(false))).success);
+            assertTrue(cluster.get(1).callOnInstance(repair(options(false, true))).success);
 
             insert(cluster.coordinator(1), 100, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
@@ -201,10 +201,10 @@ public class PreviewRepairTest extends TestBaseImpl
             });
 
             assertEquals(2, localRanges.size());
-            Future<RepairResult> repairStatusFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, localRanges.get(0)))));
+            Future<RepairResult> repairStatusFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, true, localRanges.get(0)))));
             Thread.sleep(1000); // wait for node1 to start validation compaction
             // this needs to finish before the preview repair is unpaused on node2
-            assertTrue(cluster.get(1).callOnInstance(repair(options(false, localRanges.get(1)))).success);
+            assertTrue(cluster.get(1).callOnInstance(repair(options(false, true, localRanges.get(1)))).success);
 
             continuePreviewRepair.signalAll();
             RepairResult rs = repairStatusFuture.get();
@@ -236,7 +236,7 @@ public class PreviewRepairTest extends TestBaseImpl
             cluster.forEach((n) -> n.flush(KEYSPACE));
 
             // make sure everything is marked repaired
-            cluster.get(1).callOnInstance(repair(options(false)));
+            cluster.get(1).callOnInstance(repair(options(false, true)));
             waitMarkedRepaired(cluster);
             // make node2 mismatch
             unmarkRepaired(cluster.get(2), "tbl");
@@ -248,7 +248,7 @@ public class PreviewRepairTest extends TestBaseImpl
                 snapshotMessageCounter.incrementAndGet();
                 return false;
             }).drop();
-            cluster.get(1).callOnInstance(repair(options(true)));
+            cluster.get(1).callOnInstance(repair(options(true, true)));
             verifySnapshots(cluster, "tbl", false);
             // tbl2 should not have a mismatch, so the snapshots should be empty here
             verifySnapshots(cluster, "tbl2", true);
@@ -256,7 +256,7 @@ public class PreviewRepairTest extends TestBaseImpl
 
             // and make sure that we don't try to snapshot again
             snapshotMessageCounter.set(0);
-            cluster.get(3).callOnInstance(repair(options(true)));
+            cluster.get(3).callOnInstance(repair(options(true, true)));
             assertEquals(0, snapshotMessageCounter.get());
         }
     }
@@ -347,7 +347,7 @@ public class PreviewRepairTest extends TestBaseImpl
     /**
      * returns a pair with [repair success, was inconsistent]
      */
-    private static IIsolatedExecutor.SerializableCallable<RepairResult> repair(Map<String, String> options)
+    public static IIsolatedExecutor.SerializableCallable<RepairResult> repair(Map<String, String> options)
     {
         return () -> {
             SimpleCondition await = new SimpleCondition();
@@ -378,19 +378,19 @@ public class PreviewRepairTest extends TestBaseImpl
         };
     }
 
-    private static Map<String, String> options(boolean preview)
+    public static Map<String, String> options(boolean preview, boolean incremental)
     {
         Map<String, String> config = new HashMap<>();
-        config.put(RepairOption.INCREMENTAL_KEY, "true");
+        config.put(RepairOption.INCREMENTAL_KEY, Boolean.toString(incremental));
         config.put(RepairOption.PARALLELISM_KEY, RepairParallelism.PARALLEL.toString());
         if (preview)
             config.put(RepairOption.PREVIEW, PreviewKind.REPAIRED.toString());
         return config;
     }
 
-    private static Map<String, String> options(boolean preview, String range)
+    public static Map<String, String> options(boolean preview, boolean incremental, String range)
     {
-        Map<String, String> options = options(preview);
+        Map<String, String> options = options(preview, incremental);
         options.put(RepairOption.RANGES_KEY, range);
         return options;
     }

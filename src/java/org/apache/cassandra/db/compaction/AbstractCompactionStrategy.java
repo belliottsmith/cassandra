@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -398,14 +399,15 @@ public abstract class AbstractCompactionStrategy
         //sstable range overlap check is disabled. See CASSANDRA-6563.
         if (uncheckedTombstoneCompaction)
             return true;
-
+        SuccessfulRepairTimeHolder repairTimeHolder = cfs.getRepairTimeSnapshot();
         Collection<SSTableReader> overlaps = cfs.getOverlappingLiveSSTables(Collections.singleton(sstable));
+
         if (overlaps.isEmpty())
         {
             // there is no overlap, tombstones are safely droppable
             return true;
         }
-        else if (CompactionController.getFullyExpiredSSTables(cfs, Collections.singleton(sstable), overlaps, gcBefore).size() > 0)
+        else if (CompactionController.getFullyExpiredSSTables(cfs, Collections.singleton(sstable), overlaps, gcBefore, repairTimeHolder).size() > 0)
         {
             return true;
         }

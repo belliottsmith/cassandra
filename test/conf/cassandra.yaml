@@ -52,3 +52,4 @@ enable_sasi_indexes: true
 enable_materialized_views: true
 disable_schema_drop_check: true
 enable_secondary_index: true
+enable_christmas_patch: false

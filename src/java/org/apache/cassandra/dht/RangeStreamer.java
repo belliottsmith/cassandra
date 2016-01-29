@@ -44,6 +44,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.IFailureDetector;
@@ -639,6 +640,12 @@ public class RangeStreamer
     Map<String, Multimap<InetAddressAndPort, FetchReplica>> toFetch()
     {
         return toFetch;
+    }
+
+    public void fetchRepairedRanges(int retriesAllowed)
+    {
+        if (DatabaseDescriptor.enableShadowChristmasPatch())
+            BootStrapper.fetchRepairedRanges(toFetch, retriesAllowed);
     }
 
     public StreamResultFuture fetchAsync()

@@ -22,13 +22,17 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -250,6 +254,67 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
         }
     }
 
+    protected static Map<InetAddressAndPort, Set<Range<Token>>> collectEndpointRanges(List<CommonRange> commonRanges)
+    {
+        Map<InetAddressAndPort, Set<Range<Token>>> endpointRanges = new HashMap<>();
+        for (CommonRange commonRange: commonRanges)
+        {
+            for (InetAddressAndPort endpoint: commonRange.endpoints)
+            {
+                if (!endpointRanges.containsKey(endpoint))
+                {
+                    endpointRanges.put(endpoint, new HashSet<>());
+                }
+                endpointRanges.get(endpoint).addAll(commonRange.ranges);
+            }
+        }
+        return new HashMap<>(endpointRanges);
+    }
+
+    protected void syncRepairHistory(Iterable<ColumnFamilyStore> tables, List<CommonRange> commonRanges)
+    {
+        Map<InetAddressAndPort, Set<Range<Token>>> endpointRanges = collectEndpointRanges(commonRanges);
+
+        // commonRanges only contains endpoint -> ranges for nodes that aren't this node (the coordinator).
+        // Here, we gather all ranges and add endpoint -> range for this node since we want to include the
+        // local repair history in the sync (since we probably have the most up to date data locally)
+        Set<Range<Token>> allRanges = new HashSet<>();
+        for (Set<Range<Token>> ranges: endpointRanges.values())
+        {
+            allRanges.addAll(ranges);
+        }
+        endpointRanges.put(FBUtilities.getBroadcastAddressAndPort(), allRanges);
+
+        List<ListenableFuture<Object>> futures = new ArrayList<>();
+
+        logger.info("Syncing repair history for [{}] on {}", tablesToString(tables), endpointRanges);
+        for (ColumnFamilyStore cfs : tables)
+        {
+            RepairHistorySyncTask syncTask = new RepairHistorySyncTask(cfs, ImmutableMap.copyOf(endpointRanges));
+            syncTask.execute();
+            futures.add(syncTask);
+        }
+
+        try
+        {
+            Futures.successfulAsList(futures).get(DatabaseDescriptor.getRepairHistorySyncTimeoutSeconds(), TimeUnit.SECONDS);
+        }
+        catch (InterruptedException | ExecutionException | TimeoutException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String tablesToString(Iterable<ColumnFamilyStore> tables)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (ColumnFamilyStore table : tables)
+        {
+            sb.append(String.format("%s.%s, ", table.keyspace.getName(), table.name));
+        }
+        return sb.toString();
+    }
+
     private void runMayThrow() throws Exception
     {
         ActiveRepairService.instance.recordRepairStatus(cmd, ParentRepairStatus.IN_PROGRESS, ImmutableList.of());
@@ -266,6 +331,11 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
         maybeStoreParentRepairStart(cfnames);
 
         prepare(columnFamilies, neighborsAndRanges.allNeighbors, neighborsAndRanges.force);
+
+        if (options.isGlobal() && !options.isForcedRepair())
+        {
+            syncRepairHistory(columnFamilies, neighborsAndRanges.commonRanges);
+        }
 
         repair(cfnames, neighborsAndRanges);
     }
@@ -320,11 +390,18 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
         //calculation multiple times
         Iterable<Range<Token>> keyspaceLocalRanges = storageService.getLocalReplicas(keyspace).ranges();
 
+        final Map<Set<InetAddressAndPort>, Boolean> allReplicaMap = new HashMap<>();
         for (Range<Token> range : options.getRanges())
         {
-            EndpointsForRange neighbors = ActiveRepairService.getNeighbors(keyspace, keyspaceLocalRanges, range,
-                                                                           options.getDataCenters(),
-                                                                           options.getHosts());
+            EndpointsForRange unfilteredNeighbors = ActiveRepairService.getAllNeighbors(keyspace, keyspaceLocalRanges, range);
+            EndpointsForRange neighbors = ActiveRepairService.filterNeighbors(unfilteredNeighbors, range,
+                                                                              options.getDataCenters(),
+                                                                              options.getHosts());
+            boolean allReplicas = Iterables.elementsEqual(unfilteredNeighbors, neighbors);
+            if (!allReplicas && allReplicaMap.containsKey(neighbors.endpoints()))
+                allReplicaMap.put(neighbors.endpoints(), false);
+            else if (!allReplicaMap.containsKey(neighbors.endpoints()))
+                allReplicaMap.put(neighbors.endpoints(), allReplicas);
 
             addRangeToNeighbors(commonRanges, range, neighbors);
             allNeighbors.addAll(neighbors.endpoints());
@@ -340,7 +417,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
             force = !allNeighbors.equals(actualNeighbors);
             allNeighbors = actualNeighbors;
         }
-        return new NeighborsAndRanges(force, allNeighbors, commonRanges);
+        return new NeighborsAndRanges(force, allReplicaMap, allNeighbors, commonRanges);
     }
 
     private void maybeStoreParentRepairStart(String[] cfnames)
@@ -380,22 +457,23 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
     {
         if (options.isPreview())
         {
-            previewRepair(parentSession, creationTimeMillis, neighborsAndRanges.commonRanges, cfnames);
+            previewRepair(parentSession, creationTimeMillis, neighborsAndRanges.allReplicaMap, neighborsAndRanges.commonRanges, cfnames);
         }
         else if (options.isIncremental())
         {
             incrementalRepair(parentSession, creationTimeMillis, neighborsAndRanges.force, traceState,
-                              neighborsAndRanges.allNeighbors, neighborsAndRanges.commonRanges, cfnames);
+                              neighborsAndRanges.allNeighbors, neighborsAndRanges.allReplicaMap, neighborsAndRanges.commonRanges, cfnames);
         }
         else
         {
-            normalRepair(parentSession, creationTimeMillis, traceState, neighborsAndRanges.commonRanges, cfnames);
+            normalRepair(parentSession, creationTimeMillis, traceState, neighborsAndRanges.allReplicaMap, neighborsAndRanges.commonRanges, cfnames);
         }
     }
 
     private void normalRepair(UUID parentSession,
                               long startTime,
                               TraceState traceState,
+                              Map<Set<InetAddressAndPort>, Boolean> allReplicaMap,
                               List<CommonRange> commonRanges,
                               String... cfnames)
     {
@@ -404,7 +482,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
         ListeningExecutorService executor = createExecutor();
 
         // Setting the repairedAt time to UNREPAIRED_SSTABLE causes the repairedAt times to be preserved across streamed sstables
-        final ListenableFuture<List<RepairSessionResult>> allSessions = submitRepairSessions(parentSession, false, executor, commonRanges, cfnames);
+        final ListenableFuture<List<RepairSessionResult>> allSessions = submitRepairSessions(parentSession, false, executor, allReplicaMap, commonRanges, cfnames);
 
         // After all repair sessions completes(successful or not),
         // run anticompaction if necessary and send finish notice back to client
@@ -474,6 +552,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
                                    boolean forceRepair,
                                    TraceState traceState,
                                    Set<InetAddressAndPort> allNeighbors,
+                                   Map<Set<InetAddressAndPort>, Boolean> allReplicaMap,
                                    List<CommonRange> commonRanges,
                                    String... cfnames)
     {
@@ -488,7 +567,8 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
         CoordinatorSession coordinatorSession = ActiveRepairService.instance.consistent.coordinated.registerSession(parentSession, allParticipants, forceRepair);
         ListeningExecutorService executor = createExecutor();
         AtomicBoolean hasFailure = new AtomicBoolean(false);
-        ListenableFuture repairResult = coordinatorSession.execute(() -> submitRepairSessions(parentSession, true, executor, allRanges, cfnames),
+
+        ListenableFuture repairResult = coordinatorSession.execute(() -> submitRepairSessions(parentSession, true, executor, allReplicaMap, allRanges, cfnames),
                                                                    hasFailure);
         Collection<Range<Token>> ranges = new HashSet<>();
         for (Collection<Range<Token>> range : Iterables.transform(allRanges, cr -> cr.ranges))
@@ -500,6 +580,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
 
     private void previewRepair(UUID parentSession,
                                long startTime,
+                               Map<Set<InetAddressAndPort>, Boolean> allReplicaMap,
                                List<CommonRange> commonRanges,
                                String... cfnames)
     {
@@ -508,7 +589,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
         // Set up RepairJob executor for this repair command.
         ListeningExecutorService executor = createExecutor();
 
-        final ListenableFuture<List<RepairSessionResult>> allSessions = submitRepairSessions(parentSession, false, executor, commonRanges, cfnames);
+        final ListenableFuture<List<RepairSessionResult>> allSessions = submitRepairSessions(parentSession, false, executor, allReplicaMap, commonRanges, cfnames);
 
         Futures.addCallback(allSessions, new FutureCallback<List<RepairSessionResult>>()
         {
@@ -622,6 +703,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
     private ListenableFuture<List<RepairSessionResult>> submitRepairSessions(UUID parentSession,
                                                                              boolean isIncremental,
                                                                              ListeningExecutorService executor,
+                                                                             Map<Set<InetAddressAndPort>, Boolean> allReplicaMap,
                                                                              List<CommonRange> commonRanges,
                                                                              String... cfnames)
     {
@@ -637,6 +719,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
                                                                                      commonRange,
                                                                                      keyspace,
                                                                                      options.getParallelism(),
+                                                                                     allReplicaMap.getOrDefault(commonRange.endpoints, false),
                                                                                      isIncremental,
                                                                                      options.isPullRepair(),
                                                                                      force,
@@ -841,12 +924,14 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
     private static final class NeighborsAndRanges
     {
         private final boolean force;
+        Map<Set<InetAddressAndPort>, Boolean> allReplicaMap;
         private final Set<InetAddressAndPort> allNeighbors;
         private final List<CommonRange> commonRanges;
 
-        private NeighborsAndRanges(boolean force, Set<InetAddressAndPort> allNeighbors, List<CommonRange> commonRanges)
+        private NeighborsAndRanges(boolean force, Map<Set<InetAddressAndPort>, Boolean> allReplicaMap, Set<InetAddressAndPort> allNeighbors, List<CommonRange> commonRanges)
         {
             this.force = force;
+            this.allReplicaMap = allReplicaMap;
             this.allNeighbors = allNeighbors;
             this.commonRanges = commonRanges;
         }
