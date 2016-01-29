@@ -135,7 +135,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
     public static Versions.Version CURRENT_VERSION = new Versions.Version(FBUtilities.getReleaseVersionString(), Versions.getClassPath());
 
     // WARNING: we have this logger not (necessarily) for logging, but
-    // to ensure we have instantiated the main classloader's LoggerFactory (and any LogbackStatusListener)
+    // to ensure we have instantiated the main classloader's LoggerFactory (and any Log4j2StatusListener)
     // before we instantiate any for a new instance
     private static final Logger logger = LoggerFactory.getLogger(AbstractCluster.class);
 
@@ -1040,6 +1040,8 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
             return shared.contains(s) ||
                    InstanceClassLoader.getDefaultLoadSharedFilter().test(s) ||
+                   s.startsWith("org.w3c.dom") || // CIE addition for log4j
+                   s.startsWith("org.apache.logging.log4j") ||
                    s.startsWith("org.jboss.byteman");
         };
     }
