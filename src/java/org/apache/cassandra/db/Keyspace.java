@@ -192,6 +192,11 @@ public class Keyspace
         return Collections.unmodifiableCollection(columnFamilyStores.values());
     }
 
+    public boolean columnFamilyExists(String cfName)
+    {
+        return Schema.instance.getId(getName(), cfName) != null;
+    }
+
     public ColumnFamilyStore getColumnFamilyStore(String cfName)
     {
         UUID id = Schema.instance.getId(getName(), cfName);

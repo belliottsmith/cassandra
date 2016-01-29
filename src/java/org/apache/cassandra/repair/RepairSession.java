@@ -98,6 +98,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
     public final Set<InetAddress> endpoints;
     public final long repairedAt;
     public final boolean isConsistent;
+    public final boolean allReplicas;
 
     // number of validations left to be performed
     private final AtomicInteger validationRemaining;
@@ -133,6 +134,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
                          Collection<Range<Token>> ranges,
                          String keyspace,
                          RepairParallelism parallelismDegree,
+                         boolean allReplicas,
                          Set<InetAddress> endpoints,
                          long repairedAt,
                          boolean isConsistent,
@@ -179,6 +181,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         this.validationRemaining = new AtomicInteger(cfnames.length);
         this.pullRepair = pullRepair;
         this.skippedReplicas = forceSkippedReplicas;
+        this.allReplicas = allReplicas;
     }
 
     public UUID getId()

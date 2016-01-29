@@ -147,8 +147,24 @@ public final class MessagingService implements MessagingServiceMBean
         UNUSED_3,
         UNUSED_4,
         UNUSED_5,
+        // merge upstream enum values before the apple ones.
+        APPLE_REPAIRED_RANGES(-1000),
+        APPLE_UPDATE_REPAIRED_RANGES(-1001),
+        APPLE_REPAIR_SUCCESS(-1002),
         ;
-
+        private int id;
+        Verb()
+        {
+            this.id = ordinal();
+        }
+        Verb(int id)
+        {
+            this.id = id;
+        }
+        public int getId()
+        {
+            return id;
+        }
         // This is to support a "late" choice of the verb based on the messaging service version.
         // See CASSANDRA-12249 for more details.
         public static Verb convertForMessagingServiceVersion(Verb verb, int version)
@@ -163,6 +179,19 @@ public final class MessagingService implements MessagingServiceMBean
          * Not used anywhere in 2.1. Repurposing to avoid conflicts upgrading
          */
         public static final Verb PARTITION_SIZE = Verb.INDEX_SCAN;
+
+        private static final Map<Integer, Verb> idToVerbMap = new HashMap<>(values().length);
+        static
+        {
+            for (Verb v : values())
+                idToVerbMap.put(v.getId(), v);
+        }
+
+        public static Verb fromId(int id)
+        {
+            return idToVerbMap.get(id);
+        }
+
     }
 
     public static final EnumMap<MessagingService.Verb, Stage> verbStages = new EnumMap<MessagingService.Verb, Stage>(MessagingService.Verb.class)
@@ -190,9 +219,12 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.STREAM_REQUEST, Stage.MISC);
         put(Verb.REPLICATION_FINISHED, Stage.MISC);
         put(Verb.SNAPSHOT, Stage.MISC);
+        put(Verb.APPLE_REPAIRED_RANGES, Stage.MISC); // STREAM_INITIATE_DONE was used in 2.1
+        put(Verb.APPLE_UPDATE_REPAIRED_RANGES, Stage.MISC); // BINARY was used in 2.1
 
         put(Verb.TREE_REQUEST, Stage.ANTI_ENTROPY);
         put(Verb.TREE_RESPONSE, Stage.ANTI_ENTROPY);
+        put(Verb.APPLE_REPAIR_SUCCESS, Stage.MISC); // STREAM_INITIATE was used in 2.1
         put(Verb.STREAMING_REPAIR_REQUEST, Stage.ANTI_ENTROPY);
         put(Verb.STREAMING_REPAIR_RESPONSE, Stage.ANTI_ENTROPY);
         put(Verb.REPAIR_MESSAGE, Stage.ANTI_ENTROPY);
@@ -245,6 +277,9 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.REPLICATION_FINISHED, null);
         put(Verb.COUNTER_MUTATION, CounterMutation.serializer);
         put(Verb.SNAPSHOT, SnapshotCommand.serializer);
+        put(Verb.APPLE_REPAIR_SUCCESS, ActiveRepairService.RepairSuccess.serializer);
+        put(Verb.APPLE_REPAIRED_RANGES, BootStrapper.RepairedRangesRequest.serializer);
+        put(Verb.APPLE_UPDATE_REPAIRED_RANGES, BootStrapper.UpdateRepairedRanges.serializer);
         put(Verb.ECHO, EchoMessage.serializer);
         put(Verb.PAXOS_PREPARE, Commit.serializer);
         put(Verb.PAXOS_PROPOSE, Commit.serializer);
@@ -275,6 +310,8 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.SCHEMA_CHECK, UUIDSerializer.serializer);
         put(Verb.BOOTSTRAP_TOKEN, BootStrapper.StringSerializer.instance);
         put(Verb.REPLICATION_FINISHED, null);
+        put(Verb.APPLE_REPAIRED_RANGES, BootStrapper.UpdateRepairedRanges.serializer);
+        put(Verb.APPLE_UPDATE_REPAIRED_RANGES, StorageService.UpdateRepairedRangesResponse.serializer);
 
         put(Verb.PAXOS_PREPARE, PrepareResponse.serializer);
         put(Verb.PAXOS_PROPOSE, BooleanSerializer.serializer);
@@ -787,6 +824,13 @@ public final class MessagingService implements MessagingServiceMBean
     {
         AsyncOneResponse<T> iar = new AsyncOneResponse<T>();
         sendRR(message, to, iar);
+        return iar;
+    }
+
+    public <T> AsyncOneResponse<T> sendRR(MessageOut message, InetAddress to, long timeout)
+    {
+        AsyncOneResponse<T> iar = new AsyncOneResponse<T>();
+        sendRR(message, to, iar, timeout, false);
         return iar;
     }
 

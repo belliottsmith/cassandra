@@ -969,3 +969,7 @@ windows_timer_interval: 1
 # level for writes without timing out. This is different from the consistency level requested by each
 # each write which may be lower in order to facilitate availability.
 # ideal_consistency_level: EACH_QUORUM
+
+# Enable the Christmas Patch.
+# Enabling this will require rolling repairs or no tombstones will be reclaimed.
+# enable_christmas_patch: true

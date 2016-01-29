@@ -19,8 +19,15 @@ package org.apache.cassandra.repair;
 
 import java.net.InetAddress;
 import java.util.*;
+import java.util.concurrent.*;
 
 import com.google.common.util.concurrent.*;
+
+import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.net.*;
+import org.apache.cassandra.service.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,6 +50,8 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
     private final long repairedAt;
     private final ListeningExecutorService taskExecutor;
     private final boolean isConsistent;
+    private CountDownLatch successResponses = null;
+    private volatile long repairJobStartTime;
 
     /**
      * Create repair job to run on specific columnfamily
@@ -70,6 +79,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
     {
         List<InetAddress> allEndpoints = new ArrayList<>(session.endpoints);
         allEndpoints.add(FBUtilities.getBroadcastAddress());
+        this.repairJobStartTime = System.currentTimeMillis();
 
         ListenableFuture<List<TreeResponse>> validations;
         // Create a snapshot at all nodes unless we're using pure parallel repairs
@@ -154,6 +164,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             {
                 logger.info(String.format("[repair #%s] %s is fully synced", session.getId(), desc.columnFamily));
                 SystemDistributedKeyspace.successfulRepairJob(session.getId(), desc.keyspace, desc.columnFamily);
+                sendRepairSuccess(allEndpoints);
                 set(new RepairResult(desc, stats));
             }
 
@@ -293,5 +304,64 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             taskExecutor.execute(firstTask);
         }
         return Futures.allAsList(tasks);
+    }
+
+    public boolean sendRepairSuccess(Collection<InetAddress> endpoints)
+    {
+        if (!DatabaseDescriptor.enableShadowChristmasPatch())
+        {
+            return true;
+        }
+
+        if(!session.allReplicas)
+        {
+            logger.info("Not sending repair success since all replicas were not repaired");
+            return true;
+        }
+
+        if (session.isConsistent)
+        {
+            logger.info("Not sending repair success since we are running an incremental repair");
+            return true;
+        }
+
+        try
+        {
+            successResponses = new CountDownLatch(endpoints.size());
+            IAsyncCallback callback = new IAsyncCallback()
+            {
+                public boolean isLatencyForSnitch()
+                {
+                    return false;
+                }
+
+                public void response(MessageIn msg)
+                {
+                    logger.info("Response received for RepairSuccess from {}.", msg.from);
+                    RepairJob.this.successResponses.countDown();
+                }
+            };
+
+            ActiveRepairService.RepairSuccess success = new ActiveRepairService.RepairSuccess(desc.keyspace, desc.columnFamily, desc.ranges, repairJobStartTime);
+            // store repair success for coordinator
+            ColumnFamilyStore cfs = Keyspace.open(success.keyspace).getColumnFamilyStore(success.columnFamily);
+            for (Range<Token> range : success.ranges)
+                cfs.updateLastSuccessfulRepair(range, success.succeedAt);
+            for (InetAddress endpoint : endpoints)
+                MessagingService.instance().sendRR(success.createMessage(), endpoint, callback, TimeUnit.HOURS.toMillis(1), false);
+
+            if (!successResponses.await(1, TimeUnit.HOURS))
+            {
+                logger.error("{} endpoints have not responded to RepairSuccess.", successResponses.getCount());
+                return false;
+            }
+            successResponses = null;
+            return true;
+        }
+        catch (Exception e)
+        {
+            logger.error("Error while sending RepairSuccess", e);
+            return false;
+        }
     }
 }
