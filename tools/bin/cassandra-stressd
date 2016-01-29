@@ -43,7 +43,7 @@ case "$1" in
     echo "Starting $DESC: "
     "$JAVA" -server -cp "$CLASSPATH" $JVM_OPTS \
             -Dcassandra.storagedir="$cassandra_storagedir" \
-            -Dlogback.configurationFile=logback-tools.xml \
+            -Dlog4j.configurationFile=log4j2-tools.xml \
             org.apache.cassandra.stress.StressServer $@ 1> ./stressd.out.log 2> ./stressd.err.log &
     echo $! > ./stressd.pid
     echo "done."
