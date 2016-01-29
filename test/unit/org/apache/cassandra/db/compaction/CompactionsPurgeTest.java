@@ -18,15 +18,21 @@
 */
 package org.apache.cassandra.db.compaction;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 
 import com.google.common.collect.Iterables;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.statements.schema.CreateTableStatement;
@@ -34,14 +40,22 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.ImmutableBTreePartition;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.dht.OrderPreservingPartitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.CachingParams;
 import org.apache.cassandra.schema.KeyspaceParams;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import static junit.framework.Assert.assertEquals;
+import static org.apache.cassandra.Util.token;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 
-import static org.junit.Assert.*;
 import static org.apache.cassandra.Util.dk;
 
 public class CompactionsPurgeTest
@@ -54,6 +68,7 @@ public class CompactionsPurgeTest
     private static final String CF_CACHED = "CachedCF";
     private static final String KEYSPACE_CQL = "cql_keyspace";
     private static final String CF_CQL = "table1";
+    private static Range<Token> range = null;
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
@@ -80,17 +95,36 @@ public class CompactionsPurgeTest
                                                                + "v1 text,"
                                                                + "v2 int"
                                                                + ")", KEYSPACE_CQL));
+
+        range = new Range<Token>(token("key"), token("key9"));
+    }
+
+    @Before
+    public void disableXmasPatch()
+    {
+        DatabaseDescriptor.setChristmasPatchDisabled();
     }
 
     @Test
     public void testMajorCompactionPurge()
+    {
+        testMajorCompactionPurgeHelper(false);
+    }
+
+    @Test
+    public void testMajorCompactionPurgeXmas()
+    {
+        testMajorCompactionPurgeHelper(true);
+    }
+
+    public void testMajorCompactionPurgeHelper(boolean xmas)
     {
         CompactionManager.instance.disableAutoCompaction();
 
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
         String cfName = "Standard1";
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfName);
-
+        cfs.truncateBlocking();
         String key = "key1";
 
         // inserts
@@ -119,6 +153,21 @@ public class CompactionsPurgeTest
 
         cfs.forceBlockingFlush();
 
+        if (xmas)
+        {
+            cfs.clearRepairedRangeUnsafes();
+            DatabaseDescriptor.setChristmasPatchEnabled();
+            cfs.skipRFCheckForXmasPatch();
+            // make sure we don't drop tombstones before repair
+            FBUtilities.waitOnFutures(CompactionManager.instance.submitMaximal(cfs, Integer.MAX_VALUE, false));
+            ImmutableBTreePartition partition = Util.getOnlyPartitionUnfiltered(Util.cmd(cfs, key).build());
+            assertEquals(10, partition.rowCount());
+
+
+            // pretend repair after 1 sec
+            SystemKeyspace.updateLastSuccessfulRepair(KEYSPACE1, cfName, range, System.currentTimeMillis() + 1000);
+            cfs.loadLastSuccessfulRepair();
+        }
         // major compact and test that all columns but the resurrected one is completely gone
         FBUtilities.waitOnFutures(CompactionManager.instance.submitMaximal(cfs, Integer.MAX_VALUE, false));
         cfs.invalidateCachedPartition(dk(key));
@@ -259,13 +308,45 @@ public class CompactionsPurgeTest
     }
 
     @Test
-    public void testMinorCompactionPurge()
+    public void testLastRepairTimeComparator() throws Exception
+    {
+        List<Pair<Range<Token>, Integer>> lastSuccessfulRepair = new ArrayList<Pair<Range<Token>, Integer>>();
+        lastSuccessfulRepair.add(Pair.create(new Range<Token>(new OrderPreservingPartitioner.StringToken("1"), new OrderPreservingPartitioner.StringToken("10")), 100));
+        lastSuccessfulRepair.add(Pair.create(new Range<Token>(new OrderPreservingPartitioner.StringToken("1"), new OrderPreservingPartitioner.StringToken("10")), 101));
+        lastSuccessfulRepair.add(Pair.create(new Range<Token>(new OrderPreservingPartitioner.StringToken("1"), new OrderPreservingPartitioner.StringToken("10")), 99));
+        Collections.sort(lastSuccessfulRepair, ColumnFamilyStore.lastRepairTimeComparator);
+        assert lastSuccessfulRepair.get(0).right == 101;
+        assert lastSuccessfulRepair.get(1).right == 100;
+        assert lastSuccessfulRepair.get(2).right == 99;
+
+     }
+
+     @Test
+     public void testMinorCompactionPurge() throws InterruptedException, ExecutionException, IOException
+     {
+         testMinorCompactionPurgeHelper(false, false);
+     }
+
+     @Test
+     public void testMinorCompactionPurgeXmas() throws InterruptedException, ExecutionException, IOException
+     {
+         testMinorCompactionPurgeHelper(true, true);
+     }
+
+    @Test
+    public void testMinorCompactionPurgeXmasNoRepair() throws InterruptedException, ExecutionException, IOException
+    {
+        testMinorCompactionPurgeHelper(true, false);
+    }
+
+    public void testMinorCompactionPurgeHelper(boolean xmas, boolean runRepair) throws IOException, ExecutionException, InterruptedException
     {
         CompactionManager.instance.disableAutoCompaction();
 
         Keyspace keyspace = Keyspace.open(KEYSPACE2);
         String cfName = "Standard1";
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfName);
+        cfs.truncateBlocking();
 
         for (int k = 1; k <= 2; ++k) {
             String key = "key" + k;
@@ -303,6 +384,19 @@ public class CompactionsPurgeTest
                 .build().applyUnsafe();
 
         cfs.forceBlockingFlush();
+        // pretend repair after 1 sec
+        if (xmas)
+        {
+            cfs.clearRepairedRangeUnsafes();
+            DatabaseDescriptor.setChristmasPatchEnabled();
+            cfs.skipRFCheckForXmasPatch();
+            if (runRepair)
+            {
+                SystemKeyspace.updateLastSuccessfulRepair(KEYSPACE2, cfName, range, System.currentTimeMillis() + 1000);
+                cfs.loadLastSuccessfulRepair();
+            }
+        }
+
         try (CompactionTasks tasks = cfs.getCompactionStrategyManager().getUserDefinedTasks(sstablesIncomplete, Integer.MAX_VALUE))
         {
             Iterables.getOnlyElement(tasks).execute(ActiveCompactionsTracker.NOOP);
@@ -315,7 +409,7 @@ public class CompactionsPurgeTest
         // verify that minor compaction still GC when key is present
         // in a non-compacted sstable but the timestamp ensures we won't miss anything
         ImmutableBTreePartition partition = Util.getOnlyPartitionUnfiltered(Util.cmd(cfs, key1).build());
-        assertEquals(1, partition.rowCount());
+        assertEquals(!xmas || (xmas && runRepair) ? 1 : 10, partition.rowCount());
     }
 
     /**
@@ -396,6 +490,9 @@ public class CompactionsPurgeTest
         cfs.forceBlockingFlush();
         assertEquals(String.valueOf(cfs.getLiveSSTables()), 1, cfs.getLiveSSTables().size()); // inserts & deletes were in the same memtable -> only deletes in sstable
 
+        // pretend repair after 1 sec
+        SystemKeyspace.updateLastSuccessfulRepair(KEYSPACE1, cfName, range, System.currentTimeMillis() + 1000);
+
         // compact and test that the row is completely gone
         Util.compactAll(cfs, Integer.MAX_VALUE).get();
         assertTrue(cfs.getLiveSSTables().isEmpty());
@@ -437,6 +534,9 @@ public class CompactionsPurgeTest
         // move the key up in row cache (it should not be empty since we have the partition deletion info)
         assertFalse(Util.getOnlyPartitionUnfiltered(Util.cmd(cfs, key).build()).isEmpty());
 
+        // pretend repair after 1 sec
+        SystemKeyspace.updateLastSuccessfulRepair(keyspaceName, cfName, range, System.currentTimeMillis() + 1000);
+
         // flush and major compact
         cfs.forceBlockingFlush();
         Util.compactAll(cfs, Integer.MAX_VALUE).get();
@@ -448,12 +548,29 @@ public class CompactionsPurgeTest
     @Test
     public void testCompactionPurgeTombstonedRow() throws ExecutionException, InterruptedException
     {
+        testCompactionPurgeTombstonedRowHelper(false, false);
+    }
+
+    @Test
+    public void testCompactionPurgeTombstonedRowXmas() throws ExecutionException, InterruptedException
+    {
+        testCompactionPurgeTombstonedRowHelper(true, true);
+    }
+    @Test
+    public void testCompactionPurgeTombstonedRowXmasNoRepair() throws ExecutionException, InterruptedException
+    {
+        testCompactionPurgeTombstonedRowHelper(true, false);
+    }
+
+    public void testCompactionPurgeTombstonedRowHelper(boolean xmas, boolean runRepair) throws ExecutionException, InterruptedException
+    {
         CompactionManager.instance.disableAutoCompaction();
 
         String keyspaceName = KEYSPACE1;
         String cfName = "Standard1";
         Keyspace keyspace = Keyspace.open(keyspaceName);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfName);
+        cfs.truncateBlocking();
         String key = "key3";
 
         // inserts
@@ -475,6 +592,19 @@ public class CompactionsPurgeTest
 
         // flush and major compact (with tombstone purging)
         cfs.forceBlockingFlush();
+        if (xmas)
+        {
+            cfs.clearRepairedRangeUnsafes();
+            DatabaseDescriptor.setChristmasPatchEnabled();
+            cfs.skipRFCheckForXmasPatch();
+            // pretend repair after 1 sec
+            if (runRepair)
+            {
+                SystemKeyspace.updateLastSuccessfulRepair(keyspaceName, cfName, range, System.currentTimeMillis() + 1000);
+                cfs.loadLastSuccessfulRepair();
+            }
+        }
+
         Util.compactAll(cfs, Integer.MAX_VALUE).get();
         assertFalse(Util.getOnlyPartitionUnfiltered(Util.cmd(cfs, key).build()).isEmpty());
 
@@ -489,7 +619,8 @@ public class CompactionsPurgeTest
 
         // Check that the second insert went in
         partition = Util.getOnlyPartitionUnfiltered(Util.cmd(cfs, key).build());
-        assertEquals(10, partition.rowCount());
+        // if we don't purge the partition tombstone with xmas patch, it still covers the first 5 partitions:
+        assertEquals(!xmas || (xmas && runRepair) ? 10 : 5, partition.rowCount());
     }
 
 
