@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Appenders>
+	<Console name="STDERR" target="SYSTEM_ERR">
+		<PatternLayout pattern="%-5level %date{HH:mm:ss,SSS} %msg%n"/>
+	</Console>
+        <Async name="ASYNC">
+	    <AppenderRef ref="STDERR" />
+        </Async>
+    </Appenders>
+    <Loggers>
+        <Root level="WARN">
+            <AppenderRef ref="ASYNC" />
+        </Root>
+    </Loggers>
+</Configuration>
+
