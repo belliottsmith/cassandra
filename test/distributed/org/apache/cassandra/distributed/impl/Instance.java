@@ -140,6 +140,7 @@ import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.concurrent.Ref;
 import org.apache.cassandra.utils.progress.jmx.JMXBroadcastExecutor;
 import org.apache.cassandra.utils.memory.BufferPools;
+import org.apache.logging.log4j.core.LoggerContext;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
@@ -179,8 +180,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         if (fileSystem != null)
             File.unsafeSetFilesystem(fileSystem);
         Object clusterId = Objects.requireNonNull(config.get(Constants.KEY_DTEST_API_CLUSTER_ID), "cluster_id is not defined");
-        ClusterIDDefiner.setId("cluster-" + clusterId);
-        InstanceIDDefiner.setInstanceId(config.num());
+        LoggerContext loggerContext = LoggerContext.getContext(classLoader, false, null);
+        ClusterIDDefiner.setId("cluster-" + clusterId, loggerContext);
+        InstanceIDDefiner.setInstanceId(config.num(), loggerContext);
+
         // Defer initialisation of Clock.Global until cluster/instance identifiers are set.
         // Otherwise, the instance classloader's logging classes are setup ahead of time and
         // the patterns/file paths are not set correctly. This will be addressed in a subsequent
@@ -213,8 +216,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         // ./build/test/logs/${cassandra.testtag}/${suitename}/${cluster_id}/${instance_id}/system.log
         String tag = System.getProperty("cassandra.testtag", "cassandra.testtag_IS_UNDEFINED");
         String suite = System.getProperty("suitename", "suitename_IS_UNDEFINED");
-        String clusterId = ClusterIDDefiner.getId();
-        String instanceId = InstanceIDDefiner.getInstanceId();
+        Object clusterId = "cluster-" + Objects.requireNonNull(config.get(Constants.KEY_DTEST_API_CLUSTER_ID), "cluster_id is not defined");
+        String instanceId = "node" + config().num(); // InstanceIDDefiner.getInstanceId();
         File f = new File(String.format("build/test/logs/%s/%s/%s/%s/system.log", tag, suite, clusterId, instanceId));
         // when creating a cluster globally in a test class we get the logs without the suite, try finding those logs:
         if (!f.exists())
@@ -541,6 +544,12 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         sync(() -> {
             try
             {
+                // Reconfigure log4j using the clusterid and instanceid set for the instance
+                // classloaders logging context
+                final ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
+                final LoggerContext loggerContext = LoggerContext.getContext(contextClassLoader, false, null);
+                loggerContext.reconfigure();
+
                 if (config.has(GOSSIP))
                 {
                     // TODO: hacky
