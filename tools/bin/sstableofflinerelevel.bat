@@ -28,7 +28,7 @@ REM ***** JAVA options *****
 set JAVA_OPTS=^
  -ea ^
  -Xmx%MAX_HEAP_SIZE% ^
- -Dlogback.configurationFile=logback-tools.xml
+ -Dlog4j.configurationFile=log4j2-tools.xml
 
 "%JAVA_HOME%\bin\java" %JAVA_OPTS% %CASSANDRA_PARAMS% -cp %CLASSPATH% %TOOL_MAIN% %*
 goto finally

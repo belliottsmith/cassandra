@@ -24,7 +24,7 @@ if NOT DEFINED JAVA_HOME goto :err
 
 REM ***** JAVA options *****
 set JAVA_OPTS=^
- -Dlogback.configurationFile=logback-tools.xml
+ -Dlog4j.configurationFile=log4j2-tools.xml
 
 set TOOLS_PARAMS=
 "%JAVA_HOME%\bin\java" %JAVA_OPTS% %CASSANDRA_PARAMS% -cp %CASSANDRA_CLASSPATH% "%CASSANDRA_MAIN%" %*
