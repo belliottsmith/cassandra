@@ -31,8 +31,8 @@ import javax.management.openmbean.TabularData;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.HashMultimap;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
@@ -51,6 +51,7 @@ import org.apache.cassandra.db.compaction.CompactionHistoryTabularData;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.Rows;
+import org.apache.cassandra.db.xmas.InvalidatedRepairedRange;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.util.*;
@@ -110,6 +111,8 @@ public final class SystemKeyspace
     public static final String BUILT_VIEWS = "built_views";
     public static final String PREPARED_STATEMENTS = "prepared_statements";
     public static final String REPAIRS = "repairs";
+    public static final String REPAIR_HISTORY_CF = "repair_history";
+    public static final String REPAIR_HISTORY_INVALIDATION_CF = "repair_history_invalidations";
     public static final String SCHEDULED_COMPACTIONS_V2 = "scheduled_compactions_v2";
 
     /**
@@ -136,7 +139,7 @@ public final class SystemKeyspace
                                                                       PEER_EVENTS_V2, COMPACTION_HISTORY, SSTABLE_ACTIVITY,
                                                                       TABLE_ESTIMATES, AVAILABLE_RANGES_V2, TRANSFERRED_RANGES_V2,
                                                                       VIEW_BUILDS_IN_PROGRESS, SCHEDULED_COMPACTIONS_V2, BUILT_VIEWS, PREPARED_STATEMENTS,
-                                                                      REPAIRS,
+                                                                      REPAIRS, REPAIR_HISTORY_CF, REPAIR_HISTORY_INVALIDATION_CF,
 
                                                                       LEGACY_PEERS, LEGACY_PEER_EVENTS, LEGACY_TRANSFERRED_RANGES,
                                                                       LEGACY_AVAILABLE_RANGES, LEGACY_SIZE_ESTIMATES, LEGACY_SCHEDULED_COMPACTIONS_CF);
@@ -338,6 +341,31 @@ public final class SystemKeyspace
                 + "PRIMARY KEY ((keyspace_name), view_name))")
                 .build();
 
+    private static final TableMetadata RepairHistoryCf =
+        parse(REPAIR_HISTORY_CF,
+                "repair history",
+                "CREATE TABLE %s ("
+                 + "keyspace_name text,"
+                 + "columnfamily_name text,"
+                 + "range blob,"
+                 + "succeed_at timestamp,"
+                 + "PRIMARY KEY ((keyspace_name, columnfamily_name), range)"
+                 + ") WITH COMMENT='Last successful repair'")
+                 .build();
+
+    private static final TableMetadata RepairHistoryInvalidationCf =
+        parse(REPAIR_HISTORY_INVALIDATION_CF,
+            "repair history invalidation",
+            "CREATE TABLE %s ("
+            + "keyspace_name text,"
+            + "columnfamily_name text,"
+            + "range blob,"
+            + "oldest_tombstone_seconds int,"
+            + "invalidated_at_seconds int,"
+            + "PRIMARY KEY ((keyspace_name, columnfamily_name), range)"
+            + ") WITH COMMENT='Imported sstables invalidate repaired ranges'")
+            .build();
+
     private static final TableMetadata PreparedStatements =
         parse(PREPARED_STATEMENTS,
                 "prepared statements",
@@ -474,6 +502,8 @@ public final class SystemKeyspace
                          BuiltViews,
                          PreparedStatements,
                          Repairs,
+                         RepairHistoryCf,
+                         RepairHistoryInvalidationCf,
                          ScheduledCompactionsV2,
                          LegacyScheduledCompactionsCf);
     }
@@ -1211,6 +1241,114 @@ public final class SystemKeyspace
             return result.one().getString("data_center");
 
         return null;
+    }
+
+    /**
+     * Store last successful repair for given keyspace/columnfamily/range at timestamp.
+     *
+     * @param keyspace     Keyspace name
+     * @param columnFamily ColumnFamily name
+     * @param range        Repaired range
+     * @param timestamp    Timestamp at last successful repair
+     */
+    public static void updateLastSuccessfulRepair(String keyspace, String columnFamily, Range<Token> range, long timestamp)
+    {
+        String cql = "INSERT INTO system.%s (keyspace_name, columnfamily_name, range, succeed_at) VALUES (?, ?, ?, ?)";
+        executeInternal(String.format(cql, REPAIR_HISTORY_CF), keyspace, columnFamily, rangeToBytes(range), new Date(timestamp));
+    }
+
+    @VisibleForTesting
+    public static void clearRepairedRanges(String keyspace, String columnFamily)
+    {
+        String cql = "DELETE FROM system.%s WHERE keyspace_name='%s' AND columnfamily_name = '%s'";
+        executeInternal(String.format(cql, REPAIR_HISTORY_CF, keyspace, columnFamily));
+        executeInternal(String.format(cql, REPAIR_HISTORY_INVALIDATION_CF, keyspace, columnFamily));
+    }
+
+    /**
+     * inserts a new repaired range invalidation - the ranges in this table maps agains the ranges in the repair_history table
+     * and are only considered active until a new repair has been run for the range
+     */
+    public static void invalidateSuccessfulRepair(String ksName, String tableName, InvalidatedRepairedRange invalidatedRange)
+    {
+        String cql = "UPDATE system.%s SET oldest_tombstone_seconds = ?, invalidated_at_seconds = ? WHERE keyspace_name= ? AND columnfamily_name = ? AND range = ?";
+        executeInternal(String.format(cql, REPAIR_HISTORY_INVALIDATION_CF), invalidatedRange.minLDTSeconds, invalidatedRange.invalidatedAtSeconds, ksName, tableName, rangeToBytes(invalidatedRange.range));
+    }
+
+    public static List<InvalidatedRepairedRange> getInvalidatedSuccessfulRepairRanges(String keyspace, String columnFamily)
+    {
+        List<InvalidatedRepairedRange> results = new ArrayList<>();
+
+        String req = "SELECT * FROM system.%s WHERE keyspace_name='%s' AND columnfamily_name='%s'";
+        UntypedResultSet resultSet = executeInternal(String.format(req, REPAIR_HISTORY_INVALIDATION_CF, keyspace, columnFamily));
+        ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreIncludingIndexes(keyspace, columnFamily);
+        for (UntypedResultSet.Row row : resultSet)
+        {
+            Range<Token> range = byteBufferToRange(row.getBytes("range"), cfs.getPartitioner());
+            int minLDTSeconds = row.getInt("oldest_tombstone_seconds");
+            int invalidatedAtSeconds = row.getInt("invalidated_at_seconds");
+            results.add(new InvalidatedRepairedRange(invalidatedAtSeconds, minLDTSeconds, range));
+        }
+        return results;
+    }
+
+    /**
+     * Get last successful repair for given keyspace/columnfamily in Range
+     *
+     * @param keyspace  Keyspace name
+     * @param tableName Table/ColumnFamily name
+     * @return Range to succeeded timestamp map
+     */
+    public static Map<Range<Token>, Integer> getLastSuccessfulRepair(String keyspace, String tableName)
+    {
+        Map<Range<Token>, Integer> results = new HashMap<>();
+
+        String req = "SELECT * FROM system.%s WHERE keyspace_name='%s' AND columnfamily_name='%s'";
+        UntypedResultSet resultSet = executeInternal(String.format(req, REPAIR_HISTORY_CF, keyspace, tableName));
+        ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreIncludingIndexes(keyspace, tableName);
+
+        for (UntypedResultSet.Row row : resultSet)
+        {
+            Range<Token> range = byteBufferToRange(row.getBytes("range"), cfs.getPartitioner());
+            // store time stamp in seconds
+            int succeedAt = (int) (DateType.instance.compose(row.getBytes("succeed_at")).getTime() / 1000);
+            if (!results.containsKey(range) || results.get(range) < succeedAt)
+            {
+                results.put(range, succeedAt);
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Get last successful repairs for given keyspace
+     *
+     * @param keyspace Keyspace name
+     * @return map keyed on column family name, value is map of repaired range to success times
+     */
+    public static Map<String, Map<Range<Token>, Integer>> getLastSuccessfulRepairsForKeyspace(String keyspace)
+    {
+        Map<String, Map<Range<Token>, Integer>> results = new HashMap<>();
+
+        String req = "SELECT * FROM system.%s";
+        UntypedResultSet resultSet = executeInternal(String.format(req, REPAIR_HISTORY_CF));
+        for (UntypedResultSet.Row row : resultSet)
+        {
+            if (!row.getString("keyspace_name").equalsIgnoreCase(keyspace))
+                continue;
+            String cf = row.getString("columnfamily_name");
+            Map<Range<Token>, Integer> cfResults = results.get(cf);
+            if (cfResults == null)
+            {
+                cfResults = new HashMap<>();
+                results.put(cf, cfResults);
+            }
+            Range<Token> range = byteBufferToRange(row.getBytes("range"), DatabaseDescriptor.getPartitioner());
+            // store time stamp in seconds
+            int succeedAt = (int) (DateType.instance.compose(row.getBytes("succeed_at")).getTime() / 1000);
+            cfResults.put(range, succeedAt);
+        }
+        return results;
     }
 
     public static PaxosState loadPaxosState(DecoratedKey key, TableMetadata metadata, int nowInSec)

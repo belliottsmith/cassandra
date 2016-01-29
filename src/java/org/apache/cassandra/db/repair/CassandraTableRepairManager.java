@@ -35,6 +35,8 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.repair.TableRepairManager;
 import org.apache.cassandra.repair.ValidationPartitionIterator;
 import org.apache.cassandra.repair.NoSuchRepairSessionException;
+import org.apache.cassandra.repair.Validator;
+import org.apache.cassandra.streaming.PreviewKind;
 
 public class CassandraTableRepairManager implements TableRepairManager
 {
@@ -46,9 +48,9 @@ public class CassandraTableRepairManager implements TableRepairManager
     }
 
     @Override
-    public ValidationPartitionIterator getValidationIterator(Collection<Range<Token>> ranges, UUID parentId, UUID sessionID, boolean isIncremental, int nowInSec) throws IOException, NoSuchRepairSessionException
+    public ValidationPartitionIterator getValidationIterator(Collection<Range<Token>> ranges, UUID parentId, UUID sessionID, boolean isIncremental, int nowInSec, PreviewKind previewKind) throws IOException, NoSuchRepairSessionException
     {
-        return new CassandraValidationIterator(cfs, ranges, parentId, sessionID, isIncremental, nowInSec);
+        return new CassandraValidationIterator(cfs, ranges, parentId, sessionID, isIncremental, nowInSec, previewKind);
     }
 
     @Override

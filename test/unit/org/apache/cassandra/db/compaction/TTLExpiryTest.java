@@ -139,7 +139,8 @@ public class TTLExpiryTest
                 cfs,
                 sstables,
                 Collections.EMPTY_SET,
-                gcBefore);
+                gcBefore,
+                cfs.getRepairTimeSnapshot());
         assertEquals(2, expired.size());
 
         cfs.clearUnsafe();

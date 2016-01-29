@@ -24,6 +24,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.After;
@@ -52,9 +56,11 @@ import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.schema.CompactionParams;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.utils.FBUtilities;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -743,6 +749,110 @@ public class CompactionsCQLTest extends CQLTester
          assertEquals(CompactionParams.TombstoneOption.ROW, getCurrentColumnFamilyStore().getCompactionStrategyManager().getCompactionParams().tombstoneOption());
      }
 
+
+    /**
+     * Christmaspatch test
+     *
+     * Makes sure we purge tombstones which got 'repaired' before the compaction started
+     */
+    @Test
+    public void dropTombstoneEarlyRepairXmas() throws Throwable
+    {
+        delayCompactionStartHelper(true);
+    }
+
+    /**
+     * Christmaspatch test
+     *
+     * Makes sure we don't purge tombstones which got 'repaired' after the compaction started
+     */
+    @Test
+    public void dontDropTombstoneLateRepairXmas() throws Throwable
+    {
+        delayCompactionStartHelper(false);
+    }
+
+    public void delayCompactionStartHelper(boolean earlyRepair) throws Throwable
+    {
+        DatabaseDescriptor.setChristmasPatchEnabled(true);
+        execute("alter keyspace "+keyspace()+" with replication =  {'class': 'NetworkTopologyStrategy', 'datacenter1': '2'}");
+        createTable("CREATE TABLE %s (id int PRIMARY KEY, b text) with gc_grace_seconds=0");
+
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        Range<Token> fullRange = new Range<>(cfs.getPartitioner().getMinimumToken(), cfs.getPartitioner().getMinimumToken());
+
+        cfs.disableAutoCompaction();
+        execute("INSERT INTO %s (id, b) VALUES (1, 'abc')");
+        cfs.forceBlockingFlush();
+        execute("DELETE b FROM %s WHERE id=1");
+        cfs.forceBlockingFlush();
+        Thread.sleep(2000);
+        if (earlyRepair)
+            cfs.updateLastSuccessfulRepair(fullRange, System.currentTimeMillis());
+
+        ExecutorService es = Executors.newFixedThreadPool(1);
+        assertEquals(2, cfs.getLiveSSTables().size());
+        CompactionTask t = (CompactionTask)cfs.getCompactionStrategyManager().getUserDefinedTasks(cfs.getLiveSSTables(), cfs.gcBefore(FBUtilities.nowInSeconds())).iterator().next();
+        MockCompactionTask mock = new MockCompactionTask(t);
+        Future<?> f = es.submit(mock);
+        Thread.sleep(1000); // sleep to give the compaction task time to snapshot the repair history
+        if (!earlyRepair) // repair completion after compaction started - it should not drop any tombstones
+            cfs.updateLastSuccessfulRepair(fullRange, System.currentTimeMillis());
+        mock.latch.countDown();
+        FBUtilities.waitOnFuture(f);
+        assertFalse(execute("SELECT * FROM %s WHERE id = 1").one().has("b"));
+        assertEquals(1, cfs.getLiveSSTables().size());
+        SSTableReader sstable = cfs.getLiveSSTables().iterator().next();
+        boolean foundDeletedCell = false;
+        try(ISSTableScanner scanner = sstable.getScanner())
+        {
+            while (scanner.hasNext())
+            {
+                try (UnfilteredRowIterator iter = scanner.next())
+                {
+                    while (iter.hasNext())
+                    {
+                        Unfiltered unfiltered = iter.next();
+                        assertTrue(unfiltered instanceof Row);
+                        for (Cell c : ((Row)unfiltered).cells())
+                        {
+                            foundDeletedCell = c.isTombstone();
+                        }
+
+                    }
+                }
+            }
+        }
+        assertEquals(!earlyRepair, foundDeletedCell);
+    }
+
+
+    private static class MockCompactionTask extends CompactionTask
+    {
+        private final CompactionTask task;
+        public final CountDownLatch latch = new CountDownLatch(1);
+        public MockCompactionTask(CompactionTask t)
+        {
+            super(t.cfs, t.transaction, t.gcBefore);
+            this.task = t;
+            setActiveCompactions(null);
+        }
+
+        @Override
+        protected CompactionController getCompactionController(Set<SSTableReader> sstables)
+        {
+            CompactionController controller = task.getCompactionController(sstables);
+            try
+            {
+                latch.await();
+            }
+            catch (InterruptedException e)
+            {
+                throw new RuntimeException(e);
+            }
+            return controller;
+        }
+    }
 
     public boolean verifyStrategies(CompactionStrategyManager manager, Class<? extends AbstractCompactionStrategy> expected)
     {
