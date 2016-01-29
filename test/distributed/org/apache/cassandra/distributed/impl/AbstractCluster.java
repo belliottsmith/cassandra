@@ -89,7 +89,7 @@ import org.apache.cassandra.utils.concurrent.SimpleCondition;
 public abstract class AbstractCluster<I extends IInstance> implements ICluster, AutoCloseable
 {
     // WARNING: we have this logger not (necessarily) for logging, but
-    // to ensure we have instantiated the main classloader's LoggerFactory (and any LogbackStatusListener)
+    // to ensure we have instantiated the main classloader's LoggerFactory (and any Log4j2StatusListener)
     // before we instantiate any for a new instance
     private static final Logger logger = LoggerFactory.getLogger(AbstractCluster.class);
     private static final AtomicInteger generation = new AtomicInteger();
@@ -795,16 +795,14 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
     {
         try
         {
-            String testConfPath = "test/conf/logback-dtest.xml";
-            Path logConfPath = Paths.get(root.getPath(), "/logback-dtest.xml");
-
+            String testConfPath = "test/conf/log4j2-dtest.xml";
+            Path logConfPath = Paths.get(root.getPath(), "/log4j2-dtest.xml");
             if (!logConfPath.toFile().exists())
             {
                 Files.copy(new File(testConfPath).toPath(),
                            logConfPath);
             }
-
-            System.setProperty("logback.configurationFile", "file://" + logConfPath);
+            System.setProperty("log4j2.configurationFile", "file://" + logConfPath);
         }
         catch (IOException e)
         {

@@ -57,7 +57,8 @@ public class InstanceClassLoader extends URLClassLoader
             || name.startsWith("javax.")
             || name.startsWith("jdk.")
             || name.startsWith("netscape.")
-            || name.startsWith("org.xml.sax.");
+            || name.startsWith("org.xml.sax.")
+            || name.startsWith("org.w3c.dom");
 
     private static final Predicate<String> shareClass = name -> sharePackage.apply(name) || sharedClassNames.contains(name);
 
