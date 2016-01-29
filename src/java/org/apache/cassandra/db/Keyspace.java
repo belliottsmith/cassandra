@@ -206,6 +206,11 @@ public class Keyspace
         return Collections.unmodifiableCollection(columnFamilyStores.values());
     }
 
+    public boolean columnFamilyExists(String cfName)
+    {
+        return Schema.instance.getTableMetadata(getName(), cfName) != null;
+    }
+
     public ColumnFamilyStore getColumnFamilyStore(String cfName)
     {
         TableMetadata table = Schema.instance.getTableMetadata(getName(), cfName);

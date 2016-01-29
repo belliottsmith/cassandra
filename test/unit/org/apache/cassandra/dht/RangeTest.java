@@ -723,4 +723,24 @@ public class RangeTest
         Range<Token> r1 = r(20, -5);
         assertNotSame(r0.compareTo(r1), r1.compareTo(r0));
     }
+
+    @Test
+    public void testIntersectsBounds()
+    {
+        Range<Token> r = r(0, 100);
+        assertTrue(r.intersects(bounds(5, 10)));
+        assertTrue(r.intersects(bounds(100, 110)));
+        assertTrue(r.intersects(bounds(-100, 200)));
+        assertTrue(r.intersects(bounds(10, 15)));
+        assertTrue(r.intersects(bounds(20,20)));
+
+        assertFalse(r.intersects(bounds(-5, 0)));
+        assertFalse(r.intersects(bounds(-5, -1)));
+        assertFalse(r.intersects(bounds(110, 114)));
+    }
+
+    private static Bounds<Token> bounds(long left, long right)
+    {
+        return new Bounds<>(t(left), t(right));
+    }
 }
