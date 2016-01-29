@@ -91,7 +91,9 @@ final class ScriptBasedUDFunction extends UDFunction
     // following required by UDF
     "org.apache.cassandra.cql3.functions.types",
     "org.apache.cassandra.cql3.functions.types.exceptions",
-    "org.apache.cassandra.cql3.functions.types.utils"
+    "org.apache.cassandra.cql3.functions.types.utils",
+    //CIE Cassandra additions
+    "org.slf4j.ext" // think this is needed to support log4j rather than logback.
     };
 
     // use a JVM standard ExecutorService as DebuggableThreadPoolExecutor references internal

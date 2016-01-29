@@ -25,7 +25,7 @@ set TOOL_MAIN=org.apache.cassandra.tools.SSTableLevelResetter
 
 REM ***** JAVA options *****
 set JAVA_OPTS=^
- -Dlogback.configurationFile=logback-tools.xml
+ -Dlog4j.configurationFile=log4j2-tools.xml
 
 "%JAVA_HOME%\bin\java" %JAVA_OPTS% %CASSANDRA_PARAMS% -cp %CLASSPATH% %TOOL_MAIN% %*
 goto finally
