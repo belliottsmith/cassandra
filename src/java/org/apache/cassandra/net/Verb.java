@@ -58,7 +58,13 @@ import org.apache.cassandra.gms.GossipShutdownVerbHandler;
 import org.apache.cassandra.hints.HintMessage;
 import org.apache.cassandra.hints.HintVerbHandler;
 import org.apache.cassandra.io.IVersionedAsymmetricSerializer;
+import org.apache.cassandra.repair.RepairHistorySyncTask;
 import org.apache.cassandra.repair.RepairMessageVerbHandler;
+import org.apache.cassandra.repair.RepairedRangesVerbHandler;
+import org.apache.cassandra.repair.UpdateRepairedRangesVerbHandler;
+import org.apache.cassandra.repair.messages.RepairSuccess;
+import org.apache.cassandra.repair.messages.RepairedRangesRequest;
+import org.apache.cassandra.repair.messages.UpdateRepairedRanges;
 import org.apache.cassandra.repair.messages.CleanupMessage;
 import org.apache.cassandra.repair.messages.FailSession;
 import org.apache.cassandra.repair.messages.FinalizeCommit;
@@ -77,6 +83,7 @@ import org.apache.cassandra.repair.messages.ValidationRequest;
 import org.apache.cassandra.schema.SchemaPullVerbHandler;
 import org.apache.cassandra.schema.SchemaPushVerbHandler;
 import org.apache.cassandra.schema.SchemaVersionVerbHandler;
+import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.BooleanSerializer;
 import org.apache.cassandra.service.EchoVerbHandler;
 import org.apache.cassandra.service.SnapshotVerbHandler;
@@ -194,6 +201,25 @@ public enum Verb
                             0,   P1, rpcTimeout,      INTERNAL_RESPONSE, () -> null,                                 () -> null                                                     ),
 
 
+    // CIE Xmas patch
+    APPLE_UPDATE_REPAIRED_RANGES_RSP  (CUSTOM,
+                                       1,  P1, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
+    APPLE_UPDATE_REPAIRED_RANGES_REQ  (CUSTOM,
+                                       2,  P1, rpcTimeout,                        MISC,              () -> UpdateRepairedRanges.serializer,         () -> UpdateRepairedRangesVerbHandler.instance,              APPLE_UPDATE_REPAIRED_RANGES_RSP  ),
+    APPLE_REPAIRED_RANGES_RSP         (CUSTOM,
+                                       3,  P1, appleRepairedRangesRequestTimeout, MISC,              () -> UpdateRepairedRanges.serializer,         () -> ResponseVerbHandler.instance                                                             ),
+    APPLE_REPAIRED_RANGES_REQ         (CUSTOM,
+                                       4,  P1, appleRepairedRangesRequestTimeout, MISC,              () -> RepairedRangesRequest.serializer,        () -> RepairedRangesVerbHandler.instance,                    APPLE_REPAIRED_RANGES_RSP         ),
+    APPLE_REPAIR_SUCCESS_RSP          (CUSTOM,
+                                       5,  P1, appleRepairSuccessTimeout,         MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
+    APPLE_REPAIR_SUCCESS_REQ          (CUSTOM,
+                                       6,  P1, appleRepairSuccessTimeout,         MISC,              () -> RepairSuccess.serializer,                () -> ActiveRepairService.RepairSuccessVerbHandler.instance, APPLE_REPAIR_SUCCESS_RSP          ),
+    APPLE_QUERY_REPAIR_HISTORY_RSP    (CUSTOM,
+                                       7,  P1, rpcTimeout,                        MISC,              () -> RepairHistorySyncTask.responseSerializer,() -> ResponseVerbHandler.instance                                                             ),
+    APPLE_QUERY_REPAIR_HISTORY_REQ    (CUSTOM,
+                                       8,  P1, rpcTimeout,                        MISC,              () -> RepairHistorySyncTask.requestSerializer, () -> RepairHistorySyncTask.verbHandler,                     APPLE_QUERY_REPAIR_HISTORY_RSP    ),
+
+
     // SELECT_SIZE patch - original 3.x reused Verb.INDEX_SCAN id, but has been moved out to custom verb for 4.0
     PARTITION_SIZE_RSP                (CUSTOM,
                                        24,  P2, readTimeout,                      REQUEST_RESPONSE,  () -> PartitionSizeResponse.serializer,     () -> ResponseVerbHandler.instance                                                               ),
@@ -269,8 +295,7 @@ public enum Verb
     Verb(Kind kind, int id, Priority priority, ToLongFunction<TimeUnit> expiration, Stage stage, Supplier<? extends IVersionedAsymmetricSerializer<?, ?>> serializer, Supplier<? extends IVerbHandler<?>> handler, Verb responseVerb)
     {
         this.stage = stage;
-        if (id < 0)
-            throw new IllegalArgumentException("Verb id must be non-negative, got " + id + " for verb " + name());
+        /* CIE relaxed restriction on negative ids to support Xmas patch */
 
         if (kind == CUSTOM)
         {
@@ -464,4 +489,7 @@ class VerbTimeouts
     static final ToLongFunction<TimeUnit> pingTimeout     = DatabaseDescriptor::getPingTimeout;
     static final ToLongFunction<TimeUnit> longTimeout     = units -> Math.max(DatabaseDescriptor.getRpcTimeout(units), units.convert(5L, TimeUnit.MINUTES));
     static final ToLongFunction<TimeUnit> noTimeout       = units -> { throw new IllegalStateException(); };
+    // CIE
+    static final ToLongFunction<TimeUnit> appleRepairSuccessTimeout = units -> units.convert(1, TimeUnit.HOURS);
+    static final ToLongFunction<TimeUnit> appleRepairedRangesRequestTimeout = units -> units.convert(1, TimeUnit.MINUTES);
 }

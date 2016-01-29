@@ -37,6 +37,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListenableFuture;
 import org.assertj.core.api.Assertions;
 import org.junit.After;
@@ -113,10 +114,10 @@ public class RepairJobTest
         private final List<Callable<?>> syncCompleteCallbacks = new ArrayList<>();
 
         public MeasureableRepairSession(UUID parentRepairSession, UUID id, CommonRange commonRange, String keyspace,
-                                        RepairParallelism parallelismDegree, boolean isIncremental, boolean pullRepair,
+                                        RepairParallelism parallelismDegree, boolean allReplicas, boolean isIncremental, boolean pullRepair,
                                         PreviewKind previewKind, boolean optimiseStreams, String... cfnames)
         {
-            super(parentRepairSession, id, commonRange, keyspace, parallelismDegree, isIncremental, pullRepair, previewKind, optimiseStreams, cfnames);
+            super(parentRepairSession, id, commonRange, keyspace, parallelismDegree, allReplicas, isIncremental, pullRepair, previewKind, optimiseStreams, cfnames);
         }
 
         protected ExecutorPlus createExecutor()
@@ -177,7 +178,7 @@ public class RepairJobTest
 
         this.session = new MeasureableRepairSession(parentRepairSession, UUIDGen.getTimeUUID(),
                                                     new CommonRange(neighbors, Collections.emptySet(), FULL_RANGE),
-                                                    KEYSPACE, RepairParallelism.SEQUENTIAL, false, false,
+                                                    KEYSPACE, RepairParallelism.SEQUENTIAL, true, false, false,
                                                     PreviewKind.NONE, false, CF);
 
         this.job = new RepairJob(session, CF);
@@ -311,7 +312,7 @@ public class RepairJobTest
 
         interceptRepairMessages(mockTrees, new ArrayList<>());
 
-        try 
+        try
         {
             job.run();
             job.get(TEST_TIMEOUT_S, TimeUnit.SECONDS);

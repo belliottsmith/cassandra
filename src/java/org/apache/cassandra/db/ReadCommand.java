@@ -84,7 +84,6 @@ import static org.apache.cassandra.db.partitions.UnfilteredPartitionIterators.Me
 public abstract class ReadCommand extends AbstractReadQuery
 {
     private static final int TEST_ITERATION_DELAY_MILLIS = Integer.parseInt(System.getProperty("cassandra.test.read_iteration_delay_ms", "0"));
-
     protected static final Logger logger = LoggerFactory.getLogger(ReadCommand.class);
     public static final IVersionedSerializer<ReadCommand> serializer = new Serializer();
 
@@ -759,7 +758,7 @@ public abstract class ReadCommand extends AbstractReadQuery
     // Skip purgeable tombstones. We do this because it's safe to do (post-merge of the memtable and sstable at least), it
     // can save us some bandwith, and avoid making us throw a TombstoneOverwhelmingException for purgeable tombstones (which
     // are to some extend an artefact of compaction lagging behind and hence counting them is somewhat unintuitive).
-    protected UnfilteredPartitionIterator withoutPurgeableTombstones(UnfilteredPartitionIterator iterator, 
+    protected UnfilteredPartitionIterator withoutPurgeableTombstones(UnfilteredPartitionIterator iterator,
                                                                      ColumnFamilyStore cfs,
                                                                      ReadExecutionController controller)
     {
@@ -767,9 +766,10 @@ public abstract class ReadCommand extends AbstractReadQuery
         {
             public WithoutPurgeableTombstones()
             {
-                super(nowInSec(), cfs.gcBefore(nowInSec()), controller.oldestUnrepairedTombstone(),
+                super(cfs, nowInSec(), cfs.gcBefore(nowInSec()), controller.oldestUnrepairedTombstone(),
                       cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones(),
-                      iterator.metadata().enforceStrictLiveness());
+                      iterator.metadata().enforceStrictLiveness(),
+                      cfs.getRepairTimeSnapshot());
             }
 
             protected LongPredicate getPurgeEvaluator()
