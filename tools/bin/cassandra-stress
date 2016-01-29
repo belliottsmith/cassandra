@@ -39,7 +39,7 @@ fi
 
 "$JAVA" -server -ea -cp "$CLASSPATH" $JVM_OPTS \
         -Dcassandra.storagedir="$cassandra_storagedir" \
-        -Dlogback.configurationFile=logback-tools.xml \
+        -Dlog4j.configurationFile=log4j2-tools.xml \
          org.apache.cassandra.stress.Stress $@
 
 # vi:ai sw=4 ts=4 tw=0 et

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="INFO">
+    <Appenders>
+        <RollingFile name="FILE" fileName="./build/test/logs/${sys:cassandra.testtag}/TEST-${sys:suitename}.log"
+	            filePattern="./build/test/logs/${sys:cassandra.testtag}/TEST-${sys:suitename}.log.%i.gz">
+	    <PatternLayout pattern="%-5level [%thread] ${instance:id} %date{ISO8601} %msg%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="20 MB"/>
+            </Policies>
+	    <DefaultRolloverStrategy max="20"/>
+        </RollingFile>
+	<Console name="STDOUT" target="SYSTEM_OUT">
+		<PatternLayout pattern="%-5level [%thread] ${instance:id} %date{HH:mm:ss,SSS} %F:%L - %msg%n"/>
+		<Filters>
+			<ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+		</Filters>
+	</Console>
+        <Async name="ASYNC" includeLocation="true">
+            <AppenderRef ref="FILE" />
+            <AppenderRef ref="STDOUT" />
+        </Async>
+    </Appenders>
+    <Loggers>
+        <Logger name="org.apache.cassandra.locator.TokenMetadata" level="ERROR" additivity="false">
+            <AppenderRef ref="ASYNC"/>
+        </Logger>
+        <Logger name="org.apache.cassandra.net.Message" level="ERROR" additivity="false">
+            <AppenderRef ref="ASYNC"/>
+        </Logger>
+        <Logger name="org.reflections.Reflections" level="ERROR" additivity="false">
+            <AppenderRef ref="ASYNC"/>
+        </Logger>
+        <Logger name="org.apache.hadoop" level="WARN" additivity="false">
+            <AppenderRef ref="ASYNC"/>
+        </Logger>
+        <Logger name="org.apache.cassandra.utils.SigarLibrary" level="ERROR" additivity="false">
+            <AppenderRef ref="ASYNC"/>
+        </Logger>
+        <Logger name="org.apache.cassandra.utils.FBUtilities" level="ERROR" additivity="false">
+            <AppenderRef ref="ASYNC"/>
+        </Logger>
+        <Logger name="org.apache.cassandra.config.DatabaseDescriptor" level="ERROR" additivity="false">
+            <AppenderRef ref="ASYNC"/>
+        </Logger>
+        <Logger name="org.apache.cassandra.service.StartupChecks" level="ERROR" additivity="false">
+            <AppenderRef ref="ASYNC"/>
+        </Logger>
+        <Logger name="org.apache.cassandra.metrics.DecayingEstimatedHistogramReservoir" level="ERROR" additivity="false">
+            <AppenderRef ref="ASYNC"/>
+        </Logger>
+        <Logger name="io.netty.handler.ssl.SslHandler" level="WARN" additivity="false">
+            <AppenderRef ref="ASYNC"/>
+        </Logger>
+        <Root level="DEBUG">
+            <AppenderRef ref="ASYNC" />
+        </Root>
+    </Loggers>
+</Configuration>
+
