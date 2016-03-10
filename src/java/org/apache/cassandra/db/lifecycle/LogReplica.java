@@ -20,6 +20,9 @@ package org.apache.cassandra.db.lifecycle;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +35,7 @@ import org.apache.cassandra.utils.NativeLibrary;
 /**
  * Because a column family may have sstables on different disks and disks can
  * be removed, we duplicate log files into many replicas so as to have a file
- * in each folder where sstables exist.
+ * in each directory where sstables exist.
  *
  * Each replica contains the exact same content but we do allow for final
  * partial records in case we crashed after writing to one replica but
@@ -45,13 +48,14 @@ final class LogReplica implements AutoCloseable
     private static final Logger logger = LoggerFactory.getLogger(LogReplica.class);
 
     private final File file;
-    private int folderDescriptor;
+    private int directoryDescriptor;
+    private final Map<String, String> errors = new HashMap<>();
 
-    static LogReplica create(File folder, String fileName) throws FSReadError
+    static LogReplica create(File directory, String fileName)
     {
-        int folderFD = NativeLibrary.tryOpenDirectory(folder.getPath());
+        int folderFD = NativeLibrary.tryOpenDirectory(directory.getPath());
         if (folderFD == -1)
-            throw new FSReadError(new IOException(String.format("Invalid folder descriptor trying to create log replica %s", folder.getPath())), folder.getPath());
+            throw new FSReadError(new IOException(String.format("Invalid folder descriptor trying to create log replica %s", directory.getPath())), directory.getPath());
 
         return new LogReplica(new File(fileName), folderFD);
     }
@@ -65,15 +69,30 @@ final class LogReplica implements AutoCloseable
         return new LogReplica(file, folderFD);
     }
 
-    LogReplica(File file, int folderDescriptor)
+    LogReplica(File file, int directoryDescriptor)
     {
         this.file = file;
-        this.folderDescriptor = folderDescriptor;
+        this.directoryDescriptor = directoryDescriptor;
     }
 
     File file()
     {
         return file;
+    }
+
+    List<String> readLines()
+    {
+        return FileUtils.readLines(file);
+    }
+
+    String getFileName()
+    {
+        return file.getName();
+    }
+
+    String getDirectory()
+    {
+        return file.getParent();
     }
 
     void append(LogRecord record)
@@ -90,21 +109,21 @@ final class LogReplica implements AutoCloseable
         }
 
         // If the file did not exist before appending the first
-        // line, then sync the folder as well since now it must exist
+        // line, then sync the directory as well since now it must exist
         if (!existed)
-            syncFolder();
+            syncDirectory();
     }
 
-    void syncFolder()
+    void syncDirectory()
     {
         try
         {
-            if (folderDescriptor >= 0)
-                NativeLibrary.trySync(folderDescriptor);
+            if (directoryDescriptor >= 0)
+                NativeLibrary.trySync(directoryDescriptor);
         }
         catch (FSError e)
         {
-            logger.error("Failed to sync directory descriptor {}", folderDescriptor, e);
+            logger.error("Failed to sync directory descriptor {}", directoryDescriptor, e);
             FileUtils.handleFSErrorAndPropagate(e);
         }
     }
@@ -112,7 +131,7 @@ final class LogReplica implements AutoCloseable
     void delete()
     {
         LogTransaction.delete(file);
-        syncFolder();
+        syncDirectory();
     }
 
     boolean exists()
@@ -122,10 +141,10 @@ final class LogReplica implements AutoCloseable
 
     public void close()
     {
-        if (folderDescriptor >= 0)
+        if (directoryDescriptor >= 0)
         {
-            NativeLibrary.tryCloseFD(folderDescriptor);
-            folderDescriptor = -1;
+            NativeLibrary.tryCloseFD(directoryDescriptor);
+            directoryDescriptor = -1;
         }
     }
 
@@ -133,5 +152,32 @@ final class LogReplica implements AutoCloseable
     public String toString()
     {
         return String.format("[%s] ", file);
+    }
+
+    void setError(String line, String error)
+    {
+        errors.put(line, error);
+    }
+
+    void printContentsWithAnyErrors(StringBuilder str)
+    {
+        str.append(file.getPath());
+        str.append(System.lineSeparator());
+        FileUtils.readLines(file).forEach(line -> printLineWithAnyError(str, line));
+    }
+
+    private void printLineWithAnyError(StringBuilder str, String line)
+    {
+        str.append('\t');
+        str.append(line);
+        str.append(System.lineSeparator());
+
+        String error = errors.get(line);
+        if (error != null)
+        {
+            str.append("\t\t***");
+            str.append(error);
+            str.append(System.lineSeparator());
+        }
     }
 }

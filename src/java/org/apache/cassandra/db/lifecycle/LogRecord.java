@@ -127,11 +127,13 @@ final class LogRecord
                                  matcher.group(2) + Component.separator, // see comment on CASSANDRA-13294 below
                                  Long.valueOf(matcher.group(3)),
                                  Integer.valueOf(matcher.group(4)),
-                                 Long.valueOf(matcher.group(5)), line);
+                                 Long.valueOf(matcher.group(5)),
+                                 line);
         }
-        catch (Throwable t)
+        catch (IllegalArgumentException e)
         {
-            return new LogRecord(Type.UNKNOWN, null, 0, 0, 0, line).setError(t);
+            return new LogRecord(Type.UNKNOWN, null, 0, 0, 0, line)
+                   .setError(String.format("Failed to parse line: %s", e.getMessage()));
         }
     }
 
@@ -208,11 +210,6 @@ final class LogRecord
             this.checksum = checksum;
             this.raw = raw;
         }
-    }
-
-    LogRecord setError(Throwable t)
-    {
-        return setError(t.getMessage());
     }
 
     LogRecord setError(String error)
