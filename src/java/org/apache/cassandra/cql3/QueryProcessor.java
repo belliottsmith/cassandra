@@ -72,7 +72,7 @@ public class QueryProcessor implements QueryHandler
         @Override
         public int weightOf(MD5Digest key, ParsedStatement.Prepared value)
         {
-            return Ints.checkedCast(measure(key) + measure(value.statement) + measure(value.boundNames));
+            return Ints.checkedCast(measure(key) + measure(value.rawCQLStatement) + measure(value.statement) + measure(value.boundNames));
         }
     };
 
@@ -81,7 +81,7 @@ public class QueryProcessor implements QueryHandler
         @Override
         public int weightOf(Integer key, ParsedStatement.Prepared value)
         {
-            return Ints.checkedCast(measure(key) + measure(value.statement) + measure(value.boundNames));
+            return Ints.checkedCast(measure(key) + measure(value.rawCQLStatement) + measure(value.statement) + measure(value.boundNames));
         }
     };
 
@@ -393,6 +393,7 @@ public class QueryProcessor implements QueryHandler
             return existing;
 
         ParsedStatement.Prepared prepared = getStatement(queryString, clientState);
+        prepared.rawCQLStatement = queryString;
         int boundTerms = prepared.statement.getBoundTerms();
         if (boundTerms > FBUtilities.MAX_UNSIGNED_SHORT)
             throw new InvalidRequestException(String.format("Too many markers(?). %d markers exceed the allowed maximum of %d", boundTerms, FBUtilities.MAX_UNSIGNED_SHORT));
