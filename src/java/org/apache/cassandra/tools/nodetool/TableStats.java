@@ -166,6 +166,7 @@ public class TableStats extends NodeToolCmd
                 Long compressionMetadataOffHeapSize = null;
 
                 Long offHeapSize = null;
+                Double percentRepaired = null;
 
                 try
                 {
@@ -175,6 +176,7 @@ public class TableStats extends NodeToolCmd
                     compressionMetadataOffHeapSize = (Long) probe.getColumnFamilyMetric(keyspaceName, tableName, "CompressionMetadataOffHeapMemoryUsed");
 
                     offHeapSize = memtableOffHeapSize + bloomFilterOffHeapSize + indexSummaryOffHeapSize + compressionMetadataOffHeapSize;
+                    percentRepaired = (Double) probe.getColumnFamilyMetric(keyspaceName, tableName, "PercentRepaired");
                 }
                 catch (RuntimeException e)
                 {
@@ -196,6 +198,10 @@ public class TableStats extends NodeToolCmd
                     estimatedPartitionCount = 0L;
                 }
                 System.out.println("\t\tNumber of keys (estimate): " + estimatedPartitionCount);
+                if (percentRepaired != null)
+                {
+                    System.out.println("\t\tPercent repaired: " + (Math.round(100 * percentRepaired) / 100.0));
+                }
 
                 System.out.println("\t\tMemtable cell count: " + probe.getColumnFamilyMetric(keyspaceName, tableName, "MemtableColumnsCount"));
                 System.out.println("\t\tMemtable data size: " + format((Long) probe.getColumnFamilyMetric(keyspaceName, tableName, "MemtableLiveDataSize"), humanReadable));
