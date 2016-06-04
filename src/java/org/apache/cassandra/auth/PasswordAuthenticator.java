@@ -88,7 +88,7 @@ public class PasswordAuthenticator implements IAuthenticator
         catch (RequestExecutionException e)
         {
             logger.trace("Error performing internal authentication", e);
-            throw new AuthenticationException(e.toString());
+            throw new AuthenticationException(String.format("%s - caused by user: %s", e.toString(), username));
         }
     }
 
@@ -128,7 +128,7 @@ public class PasswordAuthenticator implements IAuthenticator
 
         String password = credentials.get(PASSWORD_KEY);
         if (password == null)
-            throw new AuthenticationException(String.format("Required key '%s' is missing", PASSWORD_KEY));
+            throw new AuthenticationException(String.format("Required key '%s' is missing - caused by user: %s", PASSWORD_KEY, username));
 
         return authenticate(username, password);
     }
@@ -147,7 +147,7 @@ public class PasswordAuthenticator implements IAuthenticator
         UntypedResultSet result = UntypedResultSet.create(rows.result);
 
         if ((result.isEmpty() || !result.one().has(SALTED_HASH)) || !BCrypt.checkpw(password, result.one().getString(SALTED_HASH)))
-            throw new AuthenticationException("Username and/or password are incorrect");
+            throw new AuthenticationException(String.format("Username and/or password are incorrect - caused by user: %s", username));
 
         return new AuthenticatedUser(username);
     }
@@ -215,10 +215,13 @@ public class PasswordAuthenticator implements IAuthenticator
 
             if (user == null)
                 throw new AuthenticationException("Authentication ID must not be null");
-            if (pass == null)
-                throw new AuthenticationException("Password must not be null");
 
             username = new String(user, StandardCharsets.UTF_8);
+
+            if (pass == null)
+                throw new AuthenticationException(String.format("Password must not be null - caused by user: %s", username));
+
+
             password = new String(pass, StandardCharsets.UTF_8);
         }
     }
