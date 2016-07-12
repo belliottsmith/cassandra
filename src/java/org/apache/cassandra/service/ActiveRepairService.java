@@ -82,6 +82,7 @@ import org.apache.cassandra.repair.consistent.CoordinatorSessions;
 import org.apache.cassandra.repair.consistent.LocalSessions;
 import org.apache.cassandra.repair.messages.*;
 import org.apache.cassandra.utils.CassandraVersion;
+import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
@@ -412,7 +413,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         // end up skipping replicas
         if (options.isIncremental() && options.isGlobal() && ! force)
         {
-            return System.currentTimeMillis();
+            return Clock.instance.currentTimeMillis();
         }
         else
         {
