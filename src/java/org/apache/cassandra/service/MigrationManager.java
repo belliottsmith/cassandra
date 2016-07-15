@@ -339,6 +339,12 @@ public class MigrationManager
         else if (throwOnDuplicate && ksm.getTableOrViewNullable(cfm.cfName) != null)
             throw new AlreadyExistsException(cfm.ksName, cfm.cfName);
 
+        if(SchemaDropLog.schemaDropExists(cfm.ksName, cfm.cfName))
+            throw new ConfigurationException("Could not create table with name " + cfm.ksName + "."
+                                             +  cfm.cfName
+                                             + " as a table with the same name was dropped earlier. This is a known limitation in Cassandra. Please create a table with a different name."
+                                             + " For more information please visit connectme.apple.com/docs/DOC-410261#drop");
+
         logger.info(String.format("Create new table: %s", cfm));
         announce(SchemaKeyspace.makeCreateTableMutation(ksm, cfm, FBUtilities.timestampMicros()), announceLocally);
     }
@@ -446,6 +452,10 @@ public class MigrationManager
             throw new ConfigurationException(String.format("Cannot drop non existing keyspace '%s'.", ksName));
 
         logger.info(String.format("Drop Keyspace '%s'", oldKsm.name));
+        for (CFMetaData cfMetadata : oldKsm.tables)
+        {
+            SchemaDropLog.addSchemaDrop(cfMetadata.ksName, cfMetadata.cfName);
+        }
         announce(SchemaKeyspace.makeDropKeyspaceMutation(oldKsm, FBUtilities.timestampMicros()), announceLocally);
     }
 
@@ -462,6 +472,8 @@ public class MigrationManager
         KeyspaceMetadata ksm = Schema.instance.getKSMetaData(ksName);
 
         logger.info(String.format("Drop table '%s/%s'", oldCfm.ksName, oldCfm.cfName));
+        //Adding to internal table to avoid this cf to be created again.
+        SchemaDropLog.addSchemaDrop(ksName, cfName);
         announce(SchemaKeyspace.makeDropTableMutation(ksm, oldCfm, FBUtilities.timestampMicros()), announceLocally);
     }
 

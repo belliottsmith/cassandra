@@ -1543,6 +1543,11 @@ public class DatabaseDescriptor
         return conf.hinted_handoff_disabled_datacenters;
     }
 
+    public static boolean disableSchemaDropCheck()
+    {
+        return conf.disable_schema_drop_check;
+    }
+
     public static void enableHintsForDC(String dc)
     {
         conf.hinted_handoff_disabled_datacenters.remove(dc);
