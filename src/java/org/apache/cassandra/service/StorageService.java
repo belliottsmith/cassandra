@@ -70,6 +70,7 @@ import org.apache.cassandra.fql.FullQueryLoggerOptions;
 import org.apache.cassandra.fql.FullQueryLoggerOptionsCompositeData;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.locator.ReplicaCollection.Builder.Conflict;
+import org.apache.cassandra.schema.CIEInternalKeyspace;
 import org.apache.cassandra.schema.Keyspaces;
 import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.schema.TableId;
@@ -121,6 +122,8 @@ import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.repair.*;
 import org.apache.cassandra.repair.messages.RepairOption;
+import org.apache.cassandra.schema.CIEInternalKeyspace;
+import org.apache.cassandra.schema.CIEInternalLocalKeyspace;
 import org.apache.cassandra.schema.CompactionParams.TombstoneOption;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.ReplicationParams;
@@ -1254,6 +1257,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         Schema.instance.transform(SchemaTransformations.updateSystemKeyspace(TraceKeyspace.metadata(), TraceKeyspace.GENERATION));
         Schema.instance.transform(SchemaTransformations.updateSystemKeyspace(SystemDistributedKeyspace.metadata(), SystemDistributedKeyspace.GENERATION));
         Schema.instance.transform(SchemaTransformations.updateSystemKeyspace(AuthKeyspace.metadata(), AuthKeyspace.GENERATION));
+        Schema.instance.transform(SchemaTransformations.updateSystemKeyspace(CIEInternalKeyspace.metadata(), CIEInternalKeyspace.GENERATION));
     }
 
     public boolean isJoined()
