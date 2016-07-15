@@ -46,6 +46,18 @@ public class CIEInternalKeyspace
      */
     public static final long GENERATION = 2;
 
+    public static final String SCHEMA_DROP_LOG = "schema_drop_log";
+
+    private static final TableMetadata SchemaDropLog =
+        parse(SCHEMA_DROP_LOG,
+          "Store all dropped tables for apple internal patch",
+            "CREATE TABLE %s ("
+            + "ks_name text,"
+            + "cf_name text,"
+            + "time timestamp,"
+            + "PRIMARY KEY((ks_name), cf_name))")
+        .build();
+
     private static TableMetadata.Builder parse(String tableName, String description, String schema)
     {
         return CreateTableStatement.parse(String.format(schema, tableName), NAME)
@@ -58,6 +70,6 @@ public class CIEInternalKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(Integer.getInteger("cie_internal_rf", 3)), Tables.of());
+        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(Integer.getInteger("cie_internal_rf", 3)), Tables.of(SchemaDropLog));
     }
 }
