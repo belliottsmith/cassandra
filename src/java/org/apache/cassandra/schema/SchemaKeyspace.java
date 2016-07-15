@@ -303,9 +303,6 @@ public final class SchemaKeyspace
     @Simulate(with = GLOBAL_CLOCK)
     static void saveSystemKeyspacesSchema()
     {
-        KeyspaceMetadata system = Schema.instance.getKeyspaceMetadata(SchemaConstants.SYSTEM_KEYSPACE_NAME);
-        KeyspaceMetadata schema = Schema.instance.getKeyspaceMetadata(SchemaConstants.SCHEMA_KEYSPACE_NAME);
-
         long timestamp = FBUtilities.timestampMicros();
 
         // delete old, possibly obsolete entries in schema tables
@@ -317,8 +314,11 @@ public final class SchemaKeyspace
         }
 
         // (+1 to timestamp to make sure we don't get shadowed by the tombstones we just added)
-        makeCreateKeyspaceMutation(system, timestamp + 1).build().apply();
-        makeCreateKeyspaceMutation(schema, timestamp + 1).build().apply();
+        for (String systemKeyspace : SchemaConstants.LOCAL_SYSTEM_KEYSPACE_NAMES)
+        {
+            KeyspaceMetadata localSchema = Schema.instance.getKeyspaceMetadata(systemKeyspace);
+            makeCreateKeyspaceMutation(localSchema, timestamp + 1).build().apply();
+        }
     }
 
     static void truncate()

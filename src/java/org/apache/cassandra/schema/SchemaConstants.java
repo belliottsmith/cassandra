@@ -49,7 +49,7 @@ public final class SchemaConstants
 
     /* system keyspace names (the ones with LocalStrategy replication strategy) */
     public static final Set<String> LOCAL_SYSTEM_KEYSPACE_NAMES =
-        ImmutableSet.of(SYSTEM_KEYSPACE_NAME, SCHEMA_KEYSPACE_NAME);
+        ImmutableSet.of(SYSTEM_KEYSPACE_NAME, SCHEMA_KEYSPACE_NAME, CIEInternalLocalKeyspace.NAME);
 
     /* virtual table system keyspace names */
     public static final Set<String> VIRTUAL_SYSTEM_KEYSPACE_NAMES =
@@ -57,7 +57,8 @@ public final class SchemaConstants
 
     /* replicate system keyspace names (the ones with a "true" replication strategy) */
     public static final Set<String> REPLICATED_SYSTEM_KEYSPACE_NAMES =
-        ImmutableSet.of(TRACE_KEYSPACE_NAME, AUTH_KEYSPACE_NAME, DISTRIBUTED_KEYSPACE_NAME);
+        ImmutableSet.of(TRACE_KEYSPACE_NAME, AUTH_KEYSPACE_NAME, DISTRIBUTED_KEYSPACE_NAME,
+                        CIEInternalKeyspace.NAME);
     /**
      * The longest permissible KS or CF name.
      *
@@ -79,6 +80,15 @@ public final class SchemaConstants
     static
     {
         emptyVersion = UUID.nameUUIDFromBytes(Digest.forSchema().digest());
+    }
+
+    /*
+     * @return whether or not the keyspace is a internal to Cassandra and created at startup
+     */
+    public static boolean isInternalKeyspace(String keyspaceName)
+    {
+        final String lowercaseKeyspaceName = keyspaceName.toLowerCase();
+        return LOCAL_SYSTEM_KEYSPACE_NAMES.contains(lowercaseKeyspaceName) || REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(lowercaseKeyspaceName);
     }
 
     /**
