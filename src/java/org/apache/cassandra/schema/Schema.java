@@ -79,6 +79,7 @@ public final class Schema implements TableMetadataProvider
         {
             load(SchemaKeyspace.metadata());
             load(SystemKeyspace.metadata());
+            load(CIEInternalLocalKeyspace.metadata());
         }
     }
 
