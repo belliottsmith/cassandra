@@ -26,16 +26,22 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableSet;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 
 import org.apache.cassandra.cql3.Duration;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
+import org.apache.cassandra.distributed.impl.AbstractCluster;
 import org.apache.cassandra.distributed.shared.DistributedTestBase;
 
 public class TestBaseImpl extends DistributedTestBase
@@ -153,5 +159,13 @@ public class TestBaseImpl extends DistributedTestBase
             return UUIDType.instance;
 
         throw new IllegalArgumentException("Unsupported value type (value is " + value + ')');
+    }
+
+    public static  <C extends AbstractCluster<?>> void assertHasKeyspace(C cluster, final String expectedKeyspace)
+    {
+        Object[][] result = cluster.coordinator(1).execute("SELECT * FROM system_schema.keyspaces;", ConsistencyLevel.ONE);
+        Set<String> keyspaces = Stream.of(result).map(row -> (String) row[0]).collect(Collectors.toSet());
+        Assert.assertTrue(keyspaces.toString() + " does not contains " + expectedKeyspace,
+                          keyspaces.contains(expectedKeyspace));
     }
 }
