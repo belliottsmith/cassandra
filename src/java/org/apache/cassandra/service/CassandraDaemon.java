@@ -51,6 +51,7 @@ import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
 import org.apache.cassandra.db.virtual.VirtualSchemaKeyspace;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.StartupClusterConnectivityChecker;
+import org.apache.cassandra.schema.SchemaDropLog;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.schema.Schema;
@@ -330,6 +331,8 @@ public class CassandraDaemon
         StorageService.instance.populateTokenMetadata();
 
         SystemKeyspace.finishStartup();
+
+        SchemaDropLog.initialize();
 
         // Clean up system.size_estimates entries left lying around from missed keyspace drops (CASSANDRA-14905)
         StorageService.instance.cleanupSizeEstimates();
