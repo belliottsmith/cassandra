@@ -68,6 +68,7 @@ public class TombstoneCountWarningTest extends TestBaseImpl
     @BeforeClass
     public static void setupClass() throws IOException
     {
+        System.setProperty("cie-cassandra.disable_schema_drop_log", "true");
         Cluster.Builder builder = Cluster.build(3);
         builder.withConfig(c -> c.set("tombstone_warn_threshold", TOMBSTONE_WARN)
                                  .set("tombstone_failure_threshold", TOMBSTONE_FAIL)

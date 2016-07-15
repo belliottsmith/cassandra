@@ -710,6 +710,8 @@ public class Config
 
     public String full_query_log_dir = null; // CIE Cassandra 3.0 backward compatibility, create default FQL options if non-null.
 
+    public volatile boolean disable_schema_drop_check = false;
+
     /**
      * The intial capacity for creating RangeTombstoneList.
      */

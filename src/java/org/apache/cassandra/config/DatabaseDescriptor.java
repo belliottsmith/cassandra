@@ -4127,4 +4127,14 @@ public class DatabaseDescriptor
             conf.repair_state_size = size;
         }
     }
+
+    public static boolean isSchemaDropCheckDisabled()
+    {
+        return conf.disable_schema_drop_check;
+    }
+
+    public static void setIsSchemaDropCheckDisabled(boolean value)
+    {
+        conf.disable_schema_drop_check = value;
+    }
 }
