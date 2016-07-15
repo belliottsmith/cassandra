@@ -20,14 +20,20 @@ package org.apache.cassandra.distributed.test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstance;
+import org.apache.cassandra.distributed.impl.AbstractCluster;
 import org.apache.cassandra.distributed.shared.Builder;
 import org.apache.cassandra.distributed.shared.DistributedTestBase;
 
@@ -53,5 +59,13 @@ public class TestBaseImpl extends DistributedTestBase
         // This is definitely not the smartest solution, but given the complexity of the alternatives and low risk, we can just rely on the
         // fact that this code is going to work accross _all_ versions.
         return (Builder<I, C>) Cluster.build();
+    }
+
+    public static  <C extends AbstractCluster<?>> void assertHasKeyspace(C cluster, final String expectedKeyspace)
+    {
+        Object[][] result = cluster.coordinator(1).execute("SELECT * FROM system_schema.keyspaces;", ConsistencyLevel.ONE);
+        Set<String> keyspaces = Stream.of(result).map(row -> (String) row[0]).collect(Collectors.toSet());
+        Assert.assertTrue(keyspaces.toString() + " does not contains " + expectedKeyspace,
+                          keyspaces.contains(expectedKeyspace));
     }
 }

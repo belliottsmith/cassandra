@@ -3092,4 +3092,14 @@ public class DatabaseDescriptor
         return Math.max(seconds, 0);
     }
 
+    public static boolean isSchemaDropCheckDisabled()
+    {
+        return conf.disable_schema_drop_check;
+    }
+
+    public static void setIsSchemaDropCheckDisabled(boolean value)
+    {
+        conf.disable_schema_drop_check = value;
+    }
+
 }
