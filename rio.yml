@@ -1,0 +1,145 @@
+schemaVersion: '2.0'
+name: cie-cassandra
+category: cie
+users:
+- cie-db-dev
+notificationRecipients:
+- bmuppana@apple.com
+- jasobrown@apple.com
+- cie-db-ci@group.apple.com
+builds:
+- name: base-docker-3.0.6
+  branchName: cie-cassandra-3.0.6
+  build:
+    template: dockerfile:v1:publish
+    buildFilePath: rio/
+  trigger:
+    gitPush: false
+  publish:
+    docker:
+      namespace: pie
+      registry: registry.is.apple.com
+      tag: latest
+  timeout: 30
+- name: ghprb-3.0.6
+  build:
+    template: freestyle:v1:prb
+    steps:
+    - ./rio/test.sh
+  machine:
+    docker:
+      baseImage: registry.is.apple.com/pie/cie_cassandra:latest
+  publish:
+    reports:
+      junit: true
+  timeout: 30
+- name: build-3.0.6
+  build:
+    template: freestyle:v1:build
+    steps:
+    - ./rio/test.sh
+  machine:
+    docker:
+      baseImage: registry.is.apple.com/pie/cie_cassandra:latest
+  publish:
+    reports:
+      junit: true
+  timeout: 30
+  finally:
+    buildChain:
+    - cie-cassandra-snapshot-carnival-3.0.6
+- name: snapshot-carnival-3.0.6
+  build:
+    template: freestyle:v1:carnival
+    steps:
+    - ./rio/carnival.sh 3.0.6
+  machine:
+    docker:
+      baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
+  publish:
+    reports:
+      junit: false
+    carnival:
+      packageName: CIEDb
+      packageSuffix: three-zero-six-snapshot
+      packagePath: CIEDb/Updates/
+    releaseTrain: 1BUILD
+  trigger:
+    gitPush: false
+  finally:
+    tag:
+      expression: cie-cassandra-3.0.6-$RIO_BUILD_NUMBER.$CODE_VERSION
+    radar:
+      annotate: true
+- name: release-3.0.6
+  build:
+    template: freestyle:v1:release
+    steps:
+    - ./rio/release.sh 3.0.6.0
+  machine:
+    docker:
+      baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
+  publish:
+    archives:
+      includePattern: ".dist/publishable/**"
+    reports:
+      junit: false
+  finally:
+    tag:
+      enabled: false
+    buildChain:
+    - cie-cassandra-carnival-3.0.6
+  trigger:
+    gitPush: false
+- name: carnival-3.0.6
+  build:
+    template: freestyle:v1:carnival
+    steps:
+    - ./rio/carnival.sh 3.0.6.0
+  machine:
+    docker:
+      baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
+  publish:
+    reports:
+      junit: false
+    carnival:
+      packageName: CIEDb
+      packageSuffix: three-zero-six-zero
+      packagePath: CIEDb/Updates/
+    releaseTrain: 1BUILD
+  finally:
+    tag:
+      expression: cie-cassandra-3.0.6.0
+    radar:
+      annotate: true
+  trigger:
+    gitPush: false
+- name: dtest-3.0.6
+  build:
+    template: freestyle:v1:build
+    steps:
+    - /home/tests/run_int.sh src false --with-xunit --xunit-file=/code/nosetests.xml --test-select-config=conf/cie-cassandra-3.0-all.cfg
+  machine:
+    docker:
+      baseImage: registry.is.apple.com/pie/cie_cassandra_dtest
+  publish:
+    logs: logs/
+    reports:
+      junit:
+        path: nosetests.xml
+  timeout: 480
+- name: ghprb-dtest-3.0.6
+  build:
+    template: freestyle:v1:prb
+    steps:
+    - /home/tests/run_int.sh src false --with-xunit --xunit-file=/code/nosetests.xml --test-select-config=conf/cie-cassandra-3.0-all.cfg
+  machine:
+    docker:
+      baseImage: registry.is.apple.com/pie/cie_cassandra_dtest
+  publish:
+    logs: logs/
+    reports:
+      junit:
+        path: nosetests.xml
+  timeout: 480
+
