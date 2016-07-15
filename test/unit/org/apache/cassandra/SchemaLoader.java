@@ -37,11 +37,17 @@ import org.apache.cassandra.index.StubIndex;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.schema.*;
 import org.apache.cassandra.service.MigrationManager;
+import org.apache.cassandra.service.SchemaDropLog;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
 public class SchemaLoader
 {
+    static
+    {
+        SchemaDropLog.disableCheckForTest = true;
+    }
+
     @BeforeClass
     public static void loadSchema() throws ConfigurationException
     {

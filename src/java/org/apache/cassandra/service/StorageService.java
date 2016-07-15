@@ -1014,6 +1014,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // if we don't have system_traces keyspace at this point, then create it manually
         maybeAddOrUpdateKeyspace(TraceKeyspace.metadata());
         maybeAddOrUpdateKeyspace(SystemDistributedKeyspace.metadata());
+        maybeAddOrUpdateKeyspace(CIEInternalKeyspace.metadata());
+        maybeAddOrUpdateKeyspace(CIEInternalLocalKeyspace.metadata());
 
         if (!isSurveyMode)
         {
@@ -3747,6 +3749,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
             for (String keyspace : keyspaceNames)
             {
+                if(Keyspace.open(keyspace).getReplicationStrategy() instanceof LocalStrategy)
+                {
+                    logger.info("Skipping Local Strategy keyspace=" + keyspace);
+                    return;
+                }
                 // replication strategy of the current keyspace
                 AbstractReplicationStrategy strategy = Keyspace.open(keyspace).getReplicationStrategy();
                 Multimap<InetAddress, Range<Token>> endpointToRanges = strategy.getAddressRanges();
