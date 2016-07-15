@@ -98,6 +98,7 @@ import org.apache.cassandra.net.NoPayload;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
+import org.apache.cassandra.schema.SchemaDropLog;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.CassandraDaemon;
 import org.apache.cassandra.service.ClientState;
@@ -489,6 +490,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 StorageService.instance.ensureTraceKeyspace();
 
                 SystemKeyspace.finishStartup();
+
+                SchemaDropLog.initialize();
 
                 CassandraDaemon.getInstanceForTesting().setupCompleted();
 
