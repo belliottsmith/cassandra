@@ -39,13 +39,21 @@ public final class SchemaConstants
     public static final String AUTH_KEYSPACE_NAME = "system_auth";
     public static final String DISTRIBUTED_KEYSPACE_NAME = "system_distributed";
 
-    /* system keyspace names (the ones with LocalStrategy replication strategy) */
+    /* system keyspace names (the ones with LocalStrategy replication strategy)
+     * cie_internal_local *SHOULD* also be here, but making it so would affect schema version
+     * calculation in a way that would make it incompatible with 3.0.17.
+     */
     public static final Set<String> LOCAL_SYSTEM_KEYSPACE_NAMES =
         ImmutableSet.of(SYSTEM_KEYSPACE_NAME, SCHEMA_KEYSPACE_NAME);
 
-    /* replicate system keyspace names (the ones with a "true" replication strategy) */
+    /* replicate system keyspace names (the ones with a "true" replication strategy)
+     *
+     * cie_internal_local *SHOULD NOT* be here, but making it so would affect schema version
+     * calculation in a way that would make it incompatible with 3.0.17.
+     */
     public static final Set<String> REPLICATED_SYSTEM_KEYSPACE_NAMES =
-        ImmutableSet.of(TRACE_KEYSPACE_NAME, AUTH_KEYSPACE_NAME, DISTRIBUTED_KEYSPACE_NAME);
+        ImmutableSet.of(TRACE_KEYSPACE_NAME, AUTH_KEYSPACE_NAME, DISTRIBUTED_KEYSPACE_NAME,
+                        CIEInternalLocalKeyspace.NAME, CIEInternalKeyspace.NAME);
     /**
      * longest permissible KS or CF name.  Our main concern is that filename not be more than 255 characters;
      * the filename will contain both the KS and CF names. Since non-schema-name components only take up
@@ -67,6 +75,15 @@ public final class SchemaConstants
     static
     {
         emptyVersion = UUID.nameUUIDFromBytes(Digest.forSchema().digest());
+    }
+
+    /*
+     * @return whether or not the keyspace is a internal to Cassandra and created at startup
+     */
+    public static boolean isInternalKeyspace(String keyspaceName)
+    {
+        final String lowercaseKeyspaceName = keyspaceName.toLowerCase();
+        return LOCAL_SYSTEM_KEYSPACE_NAMES.contains(lowercaseKeyspaceName) || REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(lowercaseKeyspaceName);
     }
 
     /**
