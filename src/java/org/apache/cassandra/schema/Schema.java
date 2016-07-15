@@ -107,7 +107,7 @@ public class Schema implements SchemaProvider
     {
         this.online = isDaemonInitialized();
         this.localKeyspaces = (CassandraRelevantProperties.FORCE_LOAD_LOCAL_KEYSPACES.getBoolean() || isDaemonInitialized() || isToolInitialized())
-                              ? Keyspaces.of(SchemaKeyspace.metadata(), SystemKeyspace.metadata())
+                              ? Keyspaces.of(SchemaKeyspace.metadata(), SystemKeyspace.metadata(), CIEInternalLocalKeyspace.metadata())
                               : Keyspaces.none();
 
         this.localKeyspaces.forEach(this::loadNew);
