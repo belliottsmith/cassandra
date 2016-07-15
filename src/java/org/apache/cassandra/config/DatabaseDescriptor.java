@@ -3479,4 +3479,14 @@ public class DatabaseDescriptor
     {
         conf.client_track_warnings_enabled = value;
     }
+
+    public static boolean isSchemaDropCheckDisabled()
+    {
+        return conf.disable_schema_drop_check;
+    }
+
+    public static void setIsSchemaDropCheckDisabled(boolean value)
+    {
+        conf.disable_schema_drop_check = value;
+    }
 }

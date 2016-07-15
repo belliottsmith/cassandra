@@ -873,6 +873,7 @@
         <jvmarg value="-Dstorage-config=${test.conf}"/>
         <jvmarg value="-javaagent:${build.lib}/lib/jamm-${jamm.version}.jar" />
         <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+        <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
         <jvmarg value="-ea"/>
         <jvmarg line="${java11-jvmargs}"/>
       </java>
@@ -1431,6 +1432,7 @@
       <jvmarg value="-Dinvalid-legacy-sstable-root=${test.data}/invalid-legacy-sstables"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
       <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+      <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
     </testmacro>
@@ -1446,6 +1448,7 @@
         <jvmarg value="-Dinvalid-legacy-sstable-root=${test.data}/invalid-legacy-sstables"/>
         <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
         <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+        <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
         <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
       </testmacrohelper>
@@ -1469,6 +1472,7 @@
         <jvmarg value="-Dcassandra.test.compression.algo=${test.compression.algo}"/>
         <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
         <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+        <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
         <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
         <jvmarg value="-Dcassandra.config=file:///${compressed_yaml}"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
@@ -1490,6 +1494,7 @@
         <jvmarg value="-Dinvalid-legacy-sstable-root=${test.data}/invalid-legacy-sstables"/>
         <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
         <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+        <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
         <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
         <jvmarg value="-Dcassandra.config=file:///${cdc_yaml}"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
@@ -1540,6 +1545,7 @@
       <jvmarg value="-Dinvalid-legacy-sstable-root=${test.data}/invalid-legacy-sstables"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
       <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+      <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
     </testmacro>
@@ -1554,6 +1560,7 @@
       <test if:blank="${test.methods}" name="${test.name}"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
       <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+      <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
     </testmacro>
   </target>
@@ -1631,6 +1638,7 @@
                timeout="${test.long.timeout}">
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
       <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+      <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
     </testmacro>
   </target>

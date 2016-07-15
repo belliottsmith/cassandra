@@ -56,3 +56,4 @@ auto_hints_cleanup_enabled: true
 client_track_warnings_enabled: true
 client_large_read_warn_threshold_kb: 1024
 client_large_read_abort_threshold_kb: 4096
+disable_schema_drop_check: true
