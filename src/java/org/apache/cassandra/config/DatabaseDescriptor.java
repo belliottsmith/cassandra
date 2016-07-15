@@ -4260,4 +4260,14 @@ public class DatabaseDescriptor
     {
         conf.min_tracked_partition_tombstone_count = value;
     }
+
+    public static boolean isSchemaDropCheckDisabled()
+    {
+        return conf.disable_schema_drop_check;
+    }
+
+    public static void setIsSchemaDropCheckDisabled(boolean value)
+    {
+        conf.disable_schema_drop_check = value;
+    }
 }
