@@ -37,6 +37,7 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.guardrails.Guardrails;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.exceptions.AlreadyExistsException;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.schema.*;
 import org.apache.cassandra.schema.Keyspaces.KeyspacesDiff;
 import org.apache.cassandra.service.ClientState;
@@ -106,6 +107,14 @@ public final class CreateTableStatement extends AlterSchemaStatement
                 return schema;
 
             throw new AlreadyExistsException(keyspaceName, tableName);
+        }
+
+        if (SchemaDropLog.schemaDropExists(keyspaceName, tableName))
+        {
+            throw new ConfigurationException("Could not create table with name '" + keyspaceName + "'.'"
+                                             + tableName
+                                             + "' as a table with the same name was dropped earlier. This is a known limitation in Cassandra. Please create a table with a different name."
+                                             + " For more information please visit connectme.apple.com/docs/DOC-410261#drop");
         }
 
         TableMetadata table = builder(keyspace.types).build();
