@@ -35,8 +35,21 @@ public class CIEInternalLocalKeyspace
      *
      * gen 1577836800000000: original modern definition in 3.0.19; maps to Jan 1 2020, the date it's assumed we
      *                       will have no more fresh 2.1 or 3.0.17 clusters going up, or upgrades from 2.1 to 3.0.17.
+     * gen 1577836800000001: compression chunk length reduced to 16KiB, memtable_flush_period_in_ms now unset on all tables in 4.0
      */
-    public static final long GENERATION = 1577836800000000L;
+    public static final long GENERATION = 1577836800000001L;
+
+    public static final String HEALTH_CHECK_LOCAL_CF = "health_check_local";
+
+    private static final TableMetadata HealthCheckLocal =
+        parse(HEALTH_CHECK_LOCAL_CF,
+              "Used by C* Mgr health checks. Apple internal",
+                "CREATE TABLE %s ("
+                + "key blob,"
+                + "column1 blob,"
+                + "value blob,"
+                + "PRIMARY KEY((key), column1))")
+        .build();
 
     private static TableMetadata.Builder parse(String tableName, String description, String schema)
     {
@@ -49,7 +62,7 @@ public class CIEInternalLocalKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(NAME, KeyspaceParams.local(), Tables.of());
+        return KeyspaceMetadata.create(NAME, KeyspaceParams.local(), Tables.of(HealthCheckLocal));
     }
 
 
