@@ -76,6 +76,8 @@ public class Config
     public DiskFailurePolicy disk_failure_policy = DiskFailurePolicy.ignore;
     public CommitFailurePolicy commit_failure_policy = CommitFailurePolicy.stop;
 
+    public Boolean disable_schema_drop_check = false;
+
     /* initial token in the ring */
     public String initial_token;
     public Integer num_tokens = 1;

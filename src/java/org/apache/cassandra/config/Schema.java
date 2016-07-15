@@ -42,7 +42,9 @@ import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.locator.LocalStrategy;
 import org.apache.cassandra.repair.SystemDistributedKeyspace;
 import org.apache.cassandra.schema.*;
+import org.apache.cassandra.service.CIEInternalLocalKeyspace;
 import org.apache.cassandra.service.MigrationManager;
+import org.apache.cassandra.service.CIEInternalKeyspace;
 import org.apache.cassandra.tracing.TraceKeyspace;
 import org.apache.cassandra.utils.ConcurrentBiMap;
 import org.apache.cassandra.utils.Pair;
@@ -61,6 +63,10 @@ public class Schema
     public static final Set<String> REPLICATED_SYSTEM_KEYSPACE_NAMES = ImmutableSet.of(TraceKeyspace.NAME,
                                                                                        AuthKeyspace.NAME,
                                                                                        SystemDistributedKeyspace.NAME);
+
+    /* Apple internal keyspaces */
+    public static final Set<String> APPLE_INTERNAL_SYSTEM_KEYSPACE_NAMES = ImmutableSet.of(CIEInternalKeyspace.NAME,
+                                                                                           CIEInternalLocalKeyspace.NAME);
 
     /**
      * longest permissible KS or CF name.  Our main concern is that filename not be more than 255 characters;
@@ -107,6 +113,15 @@ public class Schema
             load(SchemaKeyspace.metadata());
             load(SystemKeyspace.metadata());
         }
+    }
+
+    /*
+     * @return whether or not the keyspace is a internal to Cassandra and created at startup
+     */
+    public static boolean isInternalKeyspace(String keyspaceName)
+    {
+        return SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase()) || REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase())
+        || APPLE_INTERNAL_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase());
     }
 
     /**
