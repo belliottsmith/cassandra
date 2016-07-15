@@ -98,6 +98,8 @@ import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.repair.*;
 import org.apache.cassandra.repair.messages.RepairOption;
+import org.apache.cassandra.schema.CIEInternalKeyspace;
+import org.apache.cassandra.schema.CIEInternalLocalKeyspace;
 import org.apache.cassandra.schema.CompactionParams.TombstoneOption;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.MigrationCoordinator;
@@ -1230,11 +1232,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     @VisibleForTesting
     public void setUpDistributedSystemKeyspaces()
     {
-        Collection<Mutation> changes = new ArrayList<>(3);
+        Collection<Mutation> changes = new ArrayList<>(5);
 
+        evolveSystemKeyspace(             AuthKeyspace.metadata(),              AuthKeyspace.GENERATION).ifPresent(changes::add);
         evolveSystemKeyspace(            TraceKeyspace.metadata(),             TraceKeyspace.GENERATION).ifPresent(changes::add);
         evolveSystemKeyspace(SystemDistributedKeyspace.metadata(), SystemDistributedKeyspace.GENERATION).ifPresent(changes::add);
-        evolveSystemKeyspace(             AuthKeyspace.metadata(),              AuthKeyspace.GENERATION).ifPresent(changes::add);
+
+        evolveSystemKeyspace(      CIEInternalKeyspace.metadata(),       CIEInternalKeyspace.GENERATION).ifPresent(changes::add);
 
         if (!changes.isEmpty())
             FBUtilities.waitOnFuture(MigrationManager.announceWithoutPush(changes));
