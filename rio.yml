@@ -32,7 +32,7 @@ builds:
   publish:
     reports:
       junit: true
-  timeout: 30
+  timeout: 60
 - name: build-3.0.6
   build:
     template: freestyle:v1:build
@@ -44,7 +44,7 @@ builds:
   publish:
     reports:
       junit: true
-  timeout: 30
+  timeout: 60
   finally:
     buildChain:
     - cie-cassandra-snapshot-carnival-3.0.6
