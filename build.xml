@@ -912,6 +912,7 @@
         <jvmarg value="-Dstorage-config=${test.conf}"/>
         <jvmarg value="-Dcassandra.reads.thresholds.coordinator.defensive_checks_enabled=true" /> <!-- enable defensive checks -->
         <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+        <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
         <jvmarg value="-javaagent:${build.lib}/jamm-${jamm.version}.jar" />
         <jvmarg value="-ea"/>
         <jvmarg line="${java11-jvmargs}"/>
@@ -1578,6 +1579,7 @@
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
       <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+      <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
     </testmacro>
     <fileset dir="${test.unit.src}" />
   </target>
@@ -1593,6 +1595,7 @@
         <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
         <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+        <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
       </testmacrohelper>
     </sequential>
   </macrodef>
@@ -1617,6 +1620,7 @@
         <jvmarg value="-Dcassandra.config=file:///${compressed_yaml}"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
         <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+        <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
       </testmacrohelper>
     </sequential>
   </macrodef>
@@ -1638,6 +1642,7 @@
         <jvmarg value="-Dcassandra.config=file:///${cdc_yaml}"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
         <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+        <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
       </testmacrohelper>
     </sequential>
   </macrodef>
@@ -1688,6 +1693,7 @@
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
       <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+      <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
     </testmacro>
   </target>
 
@@ -1702,6 +1708,7 @@
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+      <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
     </testmacro>
   </target>
 
@@ -1780,6 +1787,7 @@
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+      <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
     </testmacro>
   </target>
 
