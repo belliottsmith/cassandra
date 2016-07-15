@@ -28,6 +28,18 @@ public class CIEInternalLocalKeyspace
 
     public static final String NAME = "cie_internal_local";
 
+    public static final String HEALTH_CHECK_LOCAL_CF = "health_check_local";
+
+    private static final TableMetadata HealthCheckLocal =
+        parse(HEALTH_CHECK_LOCAL_CF,
+              "Used by C* Mgr health checks. Apple internal",
+                "CREATE TABLE %s ("
+                + "key blob,"
+                + "column1 blob,"
+                + "value blob,"
+                + "PRIMARY KEY((key), column1))")
+        .build();
+
     private static TableMetadata.Builder parse(String tableName, String description, String schema)
     {
         // Table parameters matched with SystemKeyspace
@@ -39,7 +51,7 @@ public class CIEInternalLocalKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(NAME, KeyspaceParams.local(), Tables.of());
+        return KeyspaceMetadata.create(NAME, KeyspaceParams.local(), Tables.of(HealthCheckLocal));
     }
 
 
