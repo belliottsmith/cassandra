@@ -80,6 +80,7 @@ public class Schema implements SchemaProvider
         {
             load(SchemaKeyspace.metadata());
             load(SystemKeyspace.metadata());
+            load(CIEInternalLocalKeyspace.metadata());
         }
     }
 
