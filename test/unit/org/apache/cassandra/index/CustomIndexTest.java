@@ -358,24 +358,24 @@ public class CustomIndexTest extends CQLTester
     public void customIndexDoesntSupportCustomExpressions() throws Throwable
     {
         createTable("CREATE TABLE %s (a int, b int, c int, d int, PRIMARY KEY (a, b))");
-        createIndex(String.format("CREATE CUSTOM INDEX custom_index ON %%s(c) USING '%s'",
+        createIndex(String.format("CREATE CUSTOM INDEX custom_index2 ON %%s(c) USING '%s'",
                                   NoCustomExpressionsIndex.class.getName()));
         assertInvalidThrowMessage(Server.CURRENT_VERSION,
-                                  String.format( IndexRestrictions.CUSTOM_EXPRESSION_NOT_SUPPORTED, "custom_index"),
+                                  String.format( IndexRestrictions.CUSTOM_EXPRESSION_NOT_SUPPORTED, "custom_index2"),
                                   QueryValidationException.class,
-                                  "SELECT * FROM %s WHERE expr(custom_index, 'foo bar baz')");
+                                  "SELECT * FROM %s WHERE expr(custom_index2, 'foo bar baz')");
     }
 
     @Test
     public void customIndexRejectsExpressionSyntax() throws Throwable
     {
         createTable("CREATE TABLE %s (a int, b int, c int, d int, PRIMARY KEY (a, b))");
-        createIndex(String.format("CREATE CUSTOM INDEX custom_index ON %%s(c) USING '%s'",
+        createIndex(String.format("CREATE CUSTOM INDEX custom_index1 ON %%s(c) USING '%s'",
                                   AlwaysRejectIndex.class.getName()));
         assertInvalidThrowMessage(Server.CURRENT_VERSION,
                                   "None shall pass",
                                   QueryValidationException.class,
-                                  "SELECT * FROM %s WHERE expr(custom_index, 'foo bar baz')");
+                                  "SELECT * FROM %s WHERE expr(custom_index1, 'foo bar baz')");
     }
 
     @Test
