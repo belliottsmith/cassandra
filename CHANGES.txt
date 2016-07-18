@@ -1,3 +1,7 @@
+3.0.6.1
+ * Fix Unit tests
+
+
 3.0.6
  * Disallow creating view with a static column (CASSANDRA-11602)
  * Reduce the amount of object allocations caused by the getFunctions methods (CASSANDRA-11593)
