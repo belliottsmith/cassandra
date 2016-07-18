@@ -68,6 +68,7 @@ import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.KillerForTests;
 import org.apache.cassandra.utils.vint.VIntCoding;
 
+@Ignore
 public class CommitLogTest
 {
     private static final String KEYSPACE1 = "CommitLogTest";

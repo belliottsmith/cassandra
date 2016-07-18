@@ -21,6 +21,8 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -57,6 +59,15 @@ public class DateTieredCompactionStrategyTest extends SchemaLoader
         SchemaLoader.createKeyspace(KEYSPACE1,
                 KeyspaceParams.simple(1),
                 SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1));
+    }
+
+    @Before
+    @After
+    public void truncateCF()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
+        cfs.truncateBlocking();
     }
 
     @Test
@@ -242,7 +253,6 @@ public class DateTieredCompactionStrategyTest extends SchemaLoader
         assertEquals("an sstable with a single value should have equal min/max timestamps", sstrs.get(0).getMinTimestamp(), sstrs.get(0).getMaxTimestamp());
         assertEquals("an sstable with a single value should have equal min/max timestamps", sstrs.get(1).getMinTimestamp(), sstrs.get(1).getMaxTimestamp());
         assertEquals("an sstable with a single value should have equal min/max timestamps", sstrs.get(2).getMinTimestamp(), sstrs.get(2).getMaxTimestamp());
-        cfs.truncateBlocking();
     }
 
     @Test
@@ -281,7 +291,6 @@ public class DateTieredCompactionStrategyTest extends SchemaLoader
 
         filtered = filterOldSSTables(sstrs, 1, 4);
         assertEquals("no sstables should remain when all are too old", 0, Iterables.size(filtered));
-        cfs.truncateBlocking();
     }
 
 
@@ -330,7 +339,6 @@ public class DateTieredCompactionStrategyTest extends SchemaLoader
         SSTableReader sstable = t.transaction.originals().iterator().next();
         assertEquals(sstable, expiredSSTable);
         t.transaction.abort();
-        cfs.truncateBlocking();
     }
 
     @Test

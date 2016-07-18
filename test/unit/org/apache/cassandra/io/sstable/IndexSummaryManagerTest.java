@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -625,10 +626,12 @@ public class IndexSummaryManagerTest
         // everything should get cut in half
         final AtomicReference<CompactionInterruptedException> exception = new AtomicReference<>();
 
+        final CountDownLatch latch = new CountDownLatch(1);
         Thread t = new Thread(new Runnable()
         {
             public void run()
             {
+                latch.countDown();
                 try
                 {
                     // Don't leave enough space for even the minimal index summaries
@@ -647,6 +650,7 @@ public class IndexSummaryManagerTest
             }
         });
         t.start();
+        latch.await(100, TimeUnit.SECONDS);
         while (CompactionManager.instance.getActiveCompactions() == 0 && t.isAlive())
             Thread.sleep(1);
         CompactionManager.instance.stopCompaction("INDEX_SUMMARY");
