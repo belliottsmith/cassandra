@@ -4,7 +4,6 @@ category: cie
 users:
 - cie-db-dev
 notificationRecipients:
-- bmuppana@apple.com
 - jasobrown@apple.com
 - cie-db-ci@group.apple.com
 builds:
