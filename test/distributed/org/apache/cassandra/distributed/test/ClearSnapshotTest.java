@@ -55,7 +55,8 @@ public class ClearSnapshotTest extends TestBaseImpl
     public void clearSnapshotSlowTest() throws IOException, InterruptedException, ExecutionException
     {
         try (Cluster cluster = init(Cluster.build(3).withConfig(config ->
-                                                                config.with(GOSSIP)
+                                                                config.set("disable_incremental_repair", false)
+                                                                      .with(GOSSIP)
                                                                       .with(NETWORK))
                                           .withInstanceInitializer(BB::install)
                                           .start()))
@@ -155,7 +156,8 @@ public class ClearSnapshotTest extends TestBaseImpl
     public void testSeqClearsSnapshot() throws IOException, TimeoutException
     {
         try(Cluster cluster = init(Cluster.build(3).withConfig(config ->
-                                                               config.with(GOSSIP)
+                                                               config.set("disable_incremental_repair", false)
+                                                                     .with(GOSSIP)
                                                                      .with(NETWORK))
                                           .withInstanceInitializer(BB::install)
                                           .start()))
