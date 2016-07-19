@@ -1012,10 +1012,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
 
         // if we don't have system_traces keyspace at this point, then create it manually
-        maybeAddOrUpdateKeyspace(TraceKeyspace.metadata());
-        maybeAddOrUpdateKeyspace(SystemDistributedKeyspace.metadata());
-        maybeAddOrUpdateKeyspace(CIEInternalKeyspace.metadata());
-        maybeAddOrUpdateKeyspace(CIEInternalLocalKeyspace.metadata());
+        maybeAddOrUpdateKeyspace(TraceKeyspace.metadata(), false);
+        maybeAddOrUpdateKeyspace(SystemDistributedKeyspace.metadata(), false);
+        maybeAddOrUpdateKeyspace(CIEInternalKeyspace.metadata(), true);
+        maybeAddOrUpdateKeyspace(CIEInternalLocalKeyspace.metadata(), true);
 
         if (!isSurveyMode)
         {
@@ -1081,7 +1081,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private void doAuthSetup()
     {
-        maybeAddOrUpdateKeyspace(AuthKeyspace.metadata());
+        maybeAddOrUpdateKeyspace(AuthKeyspace.metadata(), false);
 
         DatabaseDescriptor.getRoleManager().setup();
         DatabaseDescriptor.getAuthenticator().setup();
@@ -1089,11 +1089,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         MigrationManager.instance.register(new AuthMigrationListener());
     }
 
-    private void maybeAddKeyspace(KeyspaceMetadata ksm)
+    private void maybeAddKeyspace(KeyspaceMetadata ksm, boolean useCurrentTime)
     {
         try
         {
-            MigrationManager.announceNewKeyspace(ksm, 0, false);
+            MigrationManager.announceNewKeyspace(ksm, useCurrentTime? FBUtilities.timestampMicros() : 0, false);
         }
         catch (AlreadyExistsException e)
         {
@@ -1105,7 +1105,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * Ensure the schema of a pseudo-system keyspace (a distributed system keyspace: traces, auth and the so-called distributedKeyspace),
      * is up to date with what we expected (creating it if it doesn't exist and updating tables that may have been upgraded).
      */
-    private void maybeAddOrUpdateKeyspace(KeyspaceMetadata expected)
+    private void maybeAddOrUpdateKeyspace(KeyspaceMetadata expected, boolean useCurrentTime)
     {
         // Note that want to deal with the keyspace and its table a bit differently: for the keyspace definition
         // itself, we want to create it if it doesn't exist yet, but if it does exist, we don't want to modify it,
@@ -1118,7 +1118,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // If the keyspace doesn't exist, create it
         if (defined == null)
         {
-            maybeAddKeyspace(expected);
+            maybeAddKeyspace(expected, useCurrentTime);
             defined = Schema.instance.getKSMetaData(expected.name);
         }
 
