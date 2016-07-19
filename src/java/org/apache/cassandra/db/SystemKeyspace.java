@@ -28,6 +28,7 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import javax.management.openmbean.OpenDataException;
 import javax.management.openmbean.TabularData;
+import java.util.concurrent.Future;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -36,6 +37,10 @@ import com.google.common.io.ByteStreams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.util.concurrent.Futures;
+
+import org.apache.cassandra.concurrent.Stage;
+import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.QueryProcessor;
@@ -687,29 +692,41 @@ public final class SystemKeyspace
     /**
      * Record tokens being used by another node
      */
-    public static synchronized void updateTokens(InetAddress ep, Collection<Token> tokens)
+    public static Future<?> updateTokens(final InetAddress ep, final Collection<Token> tokens)
     {
         if (ep.equals(FBUtilities.getBroadcastAddress()))
-            return;
+            return Futures.immediateFuture(null);
 
-        String req = "INSERT INTO system.%s (peer, tokens) VALUES (?, ?)";
-        executeInternal(String.format(req, PEERS), ep, tokensAsSet(tokens));
+        return StageManager.getStage(Stage.MUTATION).submit(new Runnable()
+        {
+            public void run()
+            {
+                String req = "INSERT INTO system.%s (peer, tokens) VALUES (?, ?)";
+                executeInternal(String.format(req, PEERS), ep, tokensAsSet(tokens));
+            }
+        });
     }
 
-    public static synchronized void updatePreferredIP(InetAddress ep, InetAddress preferred_ip)
+    public static void updatePreferredIP(InetAddress ep, InetAddress preferred_ip)
     {
         String req = "INSERT INTO system.%s (peer, preferred_ip) VALUES (?, ?)";
         executeInternal(String.format(req, PEERS), ep, preferred_ip);
         forceBlockingFlush(PEERS);
     }
 
-    public static synchronized void updatePeerInfo(InetAddress ep, String columnName, Object value)
+    public static Future<?> updatePeerInfo(final InetAddress ep, final String columnName, final Object value)
     {
         if (ep.equals(FBUtilities.getBroadcastAddress()))
-            return;
+            return Futures.immediateFuture(null);
 
-        String req = "INSERT INTO system.%s (peer, %s) VALUES (?, ?)";
-        executeInternal(String.format(req, PEERS, columnName), ep, value);
+        return StageManager.getStage(Stage.MUTATION).submit(new Runnable()
+        {
+            public void run()
+            {
+                String req = "INSERT INTO system.%s (peer, %s) VALUES (?, ?)";
+                executeInternal(String.format(req, PEERS, columnName), ep, value);
+            }
+        });
     }
 
     public static synchronized void updateHintsDropped(InetAddress ep, UUID timePeriod, int value)
@@ -748,7 +765,7 @@ public final class SystemKeyspace
     /**
      * Remove stored tokens being used by another node
      */
-    public static synchronized void removeEndpoint(InetAddress ep)
+    public static void removeEndpoint(InetAddress ep)
     {
         String req = "DELETE FROM system.%s WHERE peer = ?";
         executeInternal(String.format(req, PEERS), ep);
