@@ -3934,6 +3934,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private FutureTask<Object> createRepairTask(final int cmd, final String keyspace, final RepairOption options, List<ProgressListener> listeners)
     {
+        if(DatabaseDescriptor.disableIncrementalRepair() && options.isIncremental())
+        {
+            throw new IllegalArgumentException("Incremental repair is disabled by configuration");
+        }
+
         if (!options.getDataCenters().isEmpty() && !options.getDataCenters().contains(DatabaseDescriptor.getLocalDataCenter()))
         {
             throw new IllegalArgumentException("the local data center must be part of the repair");
