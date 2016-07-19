@@ -86,8 +86,13 @@ import static org.junit.Assert.assertTrue;
 public class PreviewRepairTest extends TestBaseImpl
 {
     @BeforeClass
-    public static void setup()
+    public static void setup() throws Throwable
     {
+        // CIE Cassandra disables incremental repair by default, enable to match open source tests
+        System.setProperty("cassandra.disable_incremental_repair", "false");
+
+        TestBaseImpl.beforeClass();
+
         DatabaseDescriptor.daemonInitialization();
     }
     

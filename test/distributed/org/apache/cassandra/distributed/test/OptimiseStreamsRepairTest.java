@@ -33,6 +33,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 import java.util.concurrent.TimeoutException;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import net.bytebuddy.ByteBuddy;
@@ -62,6 +63,14 @@ import static org.junit.Assert.assertTrue;
 
 public class OptimiseStreamsRepairTest extends TestBaseImpl
 {
+    @BeforeClass
+    public static void beforeClass() throws Throwable
+    {
+        // CIE Cassandra disables incremental repair by default, enable to match open source tests
+        System.setProperty("cassandra.disable_incremental_repair", "false");
+        TestBaseImpl.beforeClass();
+    }
+
     @Test
     public void testBasic() throws Exception
     {
