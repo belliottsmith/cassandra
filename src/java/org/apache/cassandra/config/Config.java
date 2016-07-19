@@ -261,6 +261,8 @@ public class Config
 
     public int gc_warn_threshold_in_ms = 0;
 
+    public Boolean disable_incremental_repair = true;
+
     // TTL for different types of trace events.
     public int tracetype_query_ttl = (int) TimeUnit.DAYS.toSeconds(1);
     public int tracetype_repair_ttl = (int) TimeUnit.DAYS.toSeconds(7);
