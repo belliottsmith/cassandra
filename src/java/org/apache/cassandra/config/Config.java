@@ -498,6 +498,8 @@ public class Config
      */
     public volatile int validation_preview_purge_head_start_in_sec = 60 * 60;
 
+    public Boolean disable_incremental_repair = Boolean.parseBoolean(System.getProperty("cassandra.disable_incremental_repair", "true"));
+
     public String full_query_log_dir = null; // CIE Cassandra 3.0 backward compatibility, create default FQL options if non-null.
 
     public volatile boolean disable_schema_drop_check = false;
