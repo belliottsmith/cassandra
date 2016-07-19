@@ -3208,6 +3208,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private FutureTask<Object> createRepairTask(final int cmd, final String keyspace, final RepairOption options, boolean legacy)
     {
+        //Disabling incremental repair in Apple 3.0 version
+        if(DatabaseDescriptor.disableIncrementalRepair() && options.isIncremental())
+        {
+            throw new IllegalArgumentException("Incremental repair is not supported in 3.0 by Apple");
+        }
+
         if (!options.getDataCenters().isEmpty() && !options.getDataCenters().contains(DatabaseDescriptor.getLocalDataCenter()))
         {
             throw new IllegalArgumentException("the local data center must be part of the repair");

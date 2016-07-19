@@ -1967,4 +1967,9 @@ public class DatabaseDescriptor
         return conf.gc_warn_threshold_in_ms;
     }
 
+    public static boolean disableIncrementalRepair()
+    {
+        return conf.disable_incremental_repair;
+    }
+
 }
