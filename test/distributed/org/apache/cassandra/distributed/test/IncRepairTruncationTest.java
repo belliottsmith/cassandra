@@ -47,6 +47,9 @@ public class IncRepairTruncationTest extends TestBaseImpl
     @Test
     public void testTruncateDuringIncRepair() throws IOException, InterruptedException, ExecutionException
     {
+        // CIE Cassandra disables incremental repair by default, enable to match open source tests
+        System.setProperty("cassandra.disable_incremental_repair", "false");
+
         ExecutorService es = Executors.newFixedThreadPool(3);
         try(Cluster cluster = init(Cluster.build(2)
                                           .withConfig(config -> config.with(GOSSIP)
