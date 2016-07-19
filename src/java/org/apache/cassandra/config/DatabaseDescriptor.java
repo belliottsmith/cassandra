@@ -3380,6 +3380,11 @@ public class DatabaseDescriptor
         conf.consecutive_message_errors_threshold = value;
     }
 
+    public static boolean disableIncrementalRepair()
+    {
+        return conf.disable_incremental_repair;
+    }
+
     public static boolean isSchemaDropCheckDisabled()
     {
         return conf.disable_schema_drop_check;
