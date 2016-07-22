@@ -126,7 +126,7 @@ builds:
     reports:
       junit:
         path: nosetests.xml
-  timeout: 480
+  timeout: 600
 - name: ghprb-dtest-3.0.6
   build:
     template: freestyle:v1:prb
@@ -140,5 +140,5 @@ builds:
     reports:
       junit:
         path: nosetests.xml
-  timeout: 480
+  timeout: 600
 
