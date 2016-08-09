@@ -901,6 +901,30 @@ public class DatabaseDescriptor
             conf.secondary_indexes_enabled = ENABLE_SECONDARY_INDEX.getBoolean();
         }
 
+        // ACI Cassandra - preserve property from earlier internal patch
+        // rdar://60088220 p27729987 PRO/RST Restrict replication strategy and factor
+        // that was partially replaced by CASSANDRA-14557.
+        if (CassandraRelevantProperties.MINIMUM_ALLOWED_REPLICATION_FACTOR.isPresent())
+        {
+            int property_min = CassandraRelevantProperties.MINIMUM_ALLOWED_REPLICATION_FACTOR.getInt();
+            if (property_min != conf.minimum_replication_factor_fail_threshold)
+            {
+                int min = property_min <= 0 ? -1 : property_min; // zero no longer permitted after 4.0.3.2
+                logger.info("Overriding configured default_keyspace_rf of {} with value from system property {}",
+                        conf.minimum_replication_factor_fail_threshold, min);
+                conf.minimum_replication_factor_fail_threshold = min;
+            }
+
+            // If using the ACI patch, update the default keyspace RF to a valid configuration
+            if (conf.minimum_replication_factor_fail_threshold > 0 &&
+                conf.default_keyspace_rf < conf.minimum_replication_factor_fail_threshold)
+            {
+                logger.info("Overriding configured default_keyspace_rf of {} to meet effective minimum_keyspace_rf {}",
+                            conf.default_keyspace_rf, conf.minimum_replication_factor_fail_threshold);
+                conf.default_keyspace_rf = conf.minimum_replication_factor_fail_threshold;
+            }
+        }
+
         if (conf.default_keyspace_rf < conf.minimum_replication_factor_fail_threshold)
         {
             throw new ConfigurationException(String.format("default_keyspace_rf (%d) cannot be less than minimum_replication_factor_fail_threshold (%d)",
