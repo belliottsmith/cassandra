@@ -19,6 +19,7 @@ package org.apache.cassandra.cql3.statements.schema;
 
 import java.util.Set;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 
 import org.apache.cassandra.auth.AuthenticatedUser;
@@ -27,6 +28,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.schema.*;
 import org.apache.cassandra.schema.Keyspaces.KeyspacesDiff;
 import org.apache.cassandra.service.ClientState;
@@ -35,8 +37,10 @@ import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.Event.SchemaChange;
 import org.apache.cassandra.transport.messages.ResultMessage;
 
-abstract class AlterSchemaStatement implements CQLStatement, SchemaTransformation
+@VisibleForTesting // expose SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY for SchemaLoader
+abstract public class AlterSchemaStatement implements CQLStatement, SchemaTransformation
 {
+    public static final String SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY = "cassandra.allow_simplestrategy";
     protected final String keyspaceName; // name of the keyspace affected by the statement
 
     protected AlterSchemaStatement(String keyspaceName)
@@ -144,6 +148,17 @@ abstract class AlterSchemaStatement implements CQLStatement, SchemaTransformatio
         {
             // not a problem - grant is an optional method on IAuthorizer
         }
+    }
+
+    /**
+     * CIE addition - return false unless SimpleStrategy has been allowed via passing true for
+     * {@link #SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY} and the provided replicationStrategy class name
+     * contains SimpleStrategy (regardless of case).
+     */
+    protected boolean rejectReplicationStrategy(String replicationStrategyClass)
+    {
+        return !Boolean.getBoolean(SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY)
+               && replicationStrategyClass.toLowerCase().contains(SimpleStrategy.class.getSimpleName().toLowerCase());
     }
 
     static InvalidRequestException ire(String format, Object... args)
