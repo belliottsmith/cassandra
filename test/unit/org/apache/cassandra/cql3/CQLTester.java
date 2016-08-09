@@ -58,10 +58,12 @@ import com.datastax.driver.core.ResultSet;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.ServerTestUtils;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
+import org.apache.cassandra.cql3.statements.schema.AlterSchemaStatement;
 import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
 import org.apache.cassandra.db.virtual.VirtualSchemaKeyspace;
 import org.apache.cassandra.index.SecondaryIndexManager;
 import org.apache.cassandra.config.EncryptionOptions;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.metrics.ClientMetrics;
@@ -147,7 +149,9 @@ public abstract class CQLTester
     {
         checkProtocolVersion();
 
+        System.setProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
         System.setProperty("cassandra.allow_materializedviews", "true");
+        System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
 
         nativeAddr = InetAddress.getLoopbackAddress();
         nativePort = getAutomaticallyAllocatedPort(nativeAddr);
@@ -300,6 +304,7 @@ public abstract class CQLTester
     @Before
     public void beforeTest() throws Throwable
     {
+        assert System.getProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY).compareTo("true") == 0 : "funny business with simple strategy";
         schemaChange(String.format("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}", KEYSPACE));
         schemaChange(String.format("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}", KEYSPACE_PER_TEST));
     }
