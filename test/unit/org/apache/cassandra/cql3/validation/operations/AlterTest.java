@@ -25,6 +25,12 @@ import org.junit.runner.RunWith;
 
 import com.datastax.driver.core.PreparedStatement;
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
+import org.apache.cassandra.cql3.statements.schema.AlterSchemaStatement;
+import org.apache.cassandra.dht.OrderPreservingPartitioner;
+import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.locator.TokenMetadata;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
@@ -471,6 +477,46 @@ public class AlterTest extends CQLTester
                                         "",
                                         "ALTER KEYSPACE %s WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2, '" + DATA_CENTER + "' : 3 }");
         alterKeyspace("ALTER KEYSPACE %s WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 3}");
+    }
+
+    @Test
+    public void testAlterSimpleStrategyKeyspaceAllowedWithAcceptableRFWhenCurrentKeyspaceHasSimpleStrategy() throws Throwable
+    {
+        // Create a keyspace with SimpleStrategy before blocking creation
+        String simpleKeyspace = createKeyspace("CREATE KEYSPACE %s WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+
+        // Block create keyspace with SimpleStrategy.
+        System.setProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false");
+
+        try
+        {
+            // try create another keyspace with SimpleStrategy - Expected to fail
+            assertInvalidThrow(InvalidRequestException.class, String.format("CREATE KEYSPACE %s WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }", simpleKeyspace));
+
+            // try altering the keyspace. When a keyspace present has SimpleStrategy and is altered when SimpleStrategy is not allowed, alter statement should not fail.
+            alterKeyspace("ALTER KEYSPACE %s WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 3 }");
+
+            // try create another keyspace with SimpleStrategy - Expected to fail
+            String ntsKeyspace = createKeyspace("CREATE KEYSPACE %s WITH replication={ 'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 3 }");
+
+            // try going from NetworkToplogyStrategy to SimpleStrategy - Expected to fail
+            assertInvalidThrow(InvalidRequestException.class, String.format("ALTER KEYSPACE %s WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 3}", ntsKeyspace));
+        }
+        finally
+        {
+            System.setProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
+        }
+    }
+
+    @Test
+    public void testConfigurationExceptionThrownWhenAlterKeyspaceWithNonNumericReplicationFactor() throws Throwable
+    {
+        // Create a keyspace with SimpleStrategy.
+        String simpleKeyspace = createKeyspace("CREATE KEYSPACE %s WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+
+        // try altering the keyspace. When the alter keyspace statement does not have replication factor, it should fail with ConfigurationException.
+        assertInvalidThrow(ConfigurationException.class, String.format("ALTER KEYSPACE %s WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 'foo' }", simpleKeyspace));
+        assertInvalidThrow(ConfigurationException.class, String.format("ALTER KEYSPACE %s WITH replication={ 'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 'foo' }", simpleKeyspace));
     }
 
     /**
