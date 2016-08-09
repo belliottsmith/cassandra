@@ -57,7 +57,7 @@ public class MockSchema
         indexSummary = new IndexSummary(Murmur3Partitioner.instance, offsets, 0, Memory.allocate(4), 0, 0, 0, 1);
     }
     private static final AtomicInteger id = new AtomicInteger();
-    public static final Keyspace ks = Keyspace.mockKS(KeyspaceMetadata.create("mockks", KeyspaceParams.simpleTransient(1)));
+    public static final Keyspace ks = Keyspace.mockKS(KeyspaceMetadata.create("mockks", KeyspaceParams.simpleTransient(1))); // CIE
 
     public static final IndexSummary indexSummary;
 
