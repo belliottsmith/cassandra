@@ -54,6 +54,11 @@ import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
 
 public class SchemaLoader
 {
+    static
+    {
+        CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
+    }
+
     @BeforeClass
     public static void loadSchema() throws ConfigurationException
     {
