@@ -43,6 +43,7 @@ import org.apache.cassandra.fql.FullQueryLoggerOptions;
 import org.apache.cassandra.service.StartupChecks.StartupCheckType;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.DEFAULT_REPLICATION_FACTOR;
 
 /**
  * A class that contains configuration properties for the cassandra node it runs within.
@@ -663,7 +664,7 @@ public class Config
 
     // Default keyspace replication factors allow validation of newly created keyspaces
     // and good defaults if no replication factor is provided by the user
-    public volatile int default_keyspace_rf = 1;
+    public volatile int default_keyspace_rf = DEFAULT_REPLICATION_FACTOR.getInt();
 
     /**
      * flags for enabling tracking repaired state of data during reads
@@ -858,8 +859,9 @@ public class Config
     public volatile int data_disk_usage_percentage_warn_threshold = -1;
     public volatile int data_disk_usage_percentage_fail_threshold = -1;
     public volatile DataStorageSpec.LongBytesBound data_disk_usage_max_disk_size = null;
-    public volatile int minimum_replication_factor_warn_threshold = -1;
-    public volatile int minimum_replication_factor_fail_threshold = -1;
+    public volatile int minimum_replication_factor_warn_threshold = 3;
+    @Replaces(oldName="minimum_keyspace_rf", deprecated = true)
+    public volatile int minimum_replication_factor_fail_threshold = 3;
 
     public volatile DurationSpec.LongNanosecondsBound streaming_state_expires = new DurationSpec.LongNanosecondsBound("3d");
     public volatile DataStorageSpec.LongBytesBound streaming_state_size = new DataStorageSpec.LongBytesBound("40MiB");
