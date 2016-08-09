@@ -22,6 +22,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.locator.LocalStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.*;
@@ -82,6 +83,13 @@ public class CreateKeyspaceStatement extends SchemaAlteringStatement
 
         if (attrs.getReplicationStrategyClass() == null)
             throw new ConfigurationException("Missing mandatory replication strategy class");
+
+        // Accept create KeySpace query with SimpleStrategy only when environment variable is set.
+        if (attrs.getReplicationStrategyClass().equalsIgnoreCase(SimpleStrategy.class.getSimpleName()) &&
+            !Boolean.parseBoolean(System.getProperty(SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false")))
+        {
+            throw new ConfigurationException("Error while creating keyspace " + name + " : SimpleStrategy is not allowed.");
+        }
 
         // The strategy is validated through KSMetaData.validate() in announceNewKeyspace below.
         // However, for backward compatibility with thrift, this doesn't validate unexpected options yet,
