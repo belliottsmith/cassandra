@@ -28,6 +28,7 @@ import org.junit.Test;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.Duration;
+import org.apache.cassandra.cql3.statements.schema.AlterSchemaStatement;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -38,6 +39,7 @@ import org.apache.cassandra.locator.AbstractEndpointSnitch;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.locator.Replica;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.schema.SchemaKeyspace;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.schema.*;
@@ -365,21 +367,67 @@ public class CreateTest extends CQLTester
         execute("DROP KEYSPACE testXYZ");
     }
 
+    @Test
+    public void testCreateKeyspaceWithSimpleStrategyWhenSimpleStrategyIsNotAllowed() throws Throwable
+    {
+        try
+        {
+            // Set the system property to prohibit SimpleStrategy.
+            System.setProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false");
+
+            assertInvalidThrow(InvalidRequestException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+        }
+        finally
+        {
+            // clean-up for other tests.
+            System.setProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
+    @Test
+    public void testConfigurationExceptionThrownWhenCreateKeyspaceWithRFLessThanExpected() throws Throwable
+    {
+        try
+        {
+            // Set the system property for minimum allowed replication factor.
+            System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "2");
+
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 1 }");
+
+            // Create system keyspace with replication less than minimum allowed replication factor succeeds
+            execute("CREATE KEYSPACE system_traces WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 1 }");
+        }
+        finally
+        {
+            // clean-up for other tests.
+            System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
     /**
      *  Test {@link ConfigurationException} is thrown on create keyspace with invalid DC option in replication configuration .
      */
     @Test
     public void testCreateKeyspaceWithNTSOnlyAcceptsConfiguredDataCenterNames() throws Throwable
     {
-        assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'NetworkTopologyStrategy', 'INVALID_DC' : 2 }");
-        execute("CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2 }");
+        try
+        {
+            // We have registered an EndpointSnitch that returns fixed value for DC name {@link CQLTester:DEFAULT_DC}
 
-        // Mix valid and invalid, should throw an exception
-        assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testXYZ WITH replication={ 'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2 , 'INVALID_DC': 1}");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'NetworkTopologyStrategy', 'INVALID_DC' : 2 }");
+            execute("CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2 }");
 
-        // clean-up
-        execute("DROP KEYSPACE IF EXISTS testABC");
-        execute("DROP KEYSPACE IF EXISTS testXYZ");
+            // Mix valid and invalid, should throw an exception
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testXYZ WITH replication={ 'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2 , 'INVALID_DC': 1}");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+            execute("DROP KEYSPACE IF EXISTS testXYZ");
+        }
     }
 
     /**
@@ -403,6 +451,38 @@ public class CreateTest extends CQLTester
         {
             // clean-up
             execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
+    @Test
+    public void testConfigurationExceptionThrownWhenCreateKeyspaceWithoutReplicationFactor() throws Throwable
+    {
+        try
+        {
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testInvalidSimple WITH replication = {'class' : 'SimpleStrategy' }");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testInvalidNTS WITH replication = {'class' : 'NetworkTopologyStrategy' }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testInvalidSimple");
+            execute("DROP KEYSPACE IF EXISTS testInvalidNTS");
+        }
+    }
+
+    @Test
+    public void testConfigurationExceptionThrownWhenCreateKeyspaceWithNonNumericReplicationFactor() throws Throwable
+    {
+        try
+        {
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'SimpleStrategy', 'replication_factor' : 'foo'}");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 'foo' }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testInvalidSimple");
+            execute("DROP KEYSPACE IF EXISTS testInvalidNTS");
         }
     }
 
