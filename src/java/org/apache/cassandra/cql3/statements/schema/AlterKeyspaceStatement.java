@@ -37,6 +37,7 @@ import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.LocalStrategy;
 import org.apache.cassandra.locator.ReplicationFactor;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceMetadata.KeyspaceDiff;
 import org.apache.cassandra.schema.Keyspaces;
@@ -73,6 +74,12 @@ public final class AlterKeyspaceStatement extends AlterSchemaStatement
             throw ire("Keyspace '%s' doesn't exist", keyspaceName);
 
         KeyspaceMetadata newKeyspace = keyspace.withSwapped(attrs.asAlteredKeyspaceParams(keyspace.params));
+
+        // CIE: Permit altering non-replication parameters for existing simple strategies regardless
+        //      of SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, but prevent changing to simple strategy unless allowed.
+        if (!keyspace.params.replication.klass.equals(SimpleStrategy.class) &&
+            rejectReplicationStrategy(attrs.getReplicationStrategyClass()))
+            throw ire("Error while altering keyspace '%s' : SimpleStrategy is not allowed.", keyspaceName);
 
         if (newKeyspace.params.replication.klass.equals(LocalStrategy.class))
             throw ire("Unable to use given strategy class: LocalStrategy is reserved for internal use.");
