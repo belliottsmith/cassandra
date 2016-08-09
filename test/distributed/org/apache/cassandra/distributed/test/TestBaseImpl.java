@@ -33,6 +33,7 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableSet;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -68,6 +69,8 @@ public class TestBaseImpl extends DistributedTestBase
         System.setProperty("log4j.shutdownHookEnabled", "false");
         System.setProperty("cassandra.test.logConfigProperty", "log4j.configurationFile");
         System.setProperty("cassandra.test.logConfigPath", "test/conf/log4j2-dtest.xml");
+        // makes easier to share OSS tests without replication strategy limits
+        CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
         ICluster.setup();
     }
 

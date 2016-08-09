@@ -66,6 +66,7 @@ import org.apache.cassandra.auth.AuthTestUtils;
 import org.apache.cassandra.auth.IRoleManager;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.concurrent.Stage;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.EncryptionOptions;
 import org.apache.cassandra.config.SmallestDataStorageMebibytes;
 import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
@@ -176,6 +177,7 @@ public abstract class CQLTester
     {
         checkProtocolVersion();
 
+        CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
         System.setProperty("cassandra.allow_materializedviews", "true");
 
         nativeAddr = InetAddress.getLoopbackAddress();
@@ -350,6 +352,7 @@ public abstract class CQLTester
     @Before
     public void beforeTest() throws Throwable
     {
+        assert CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.getBoolean() : "funny business with simple strategy";
         schemaChange(String.format("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}", KEYSPACE));
         schemaChange(String.format("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}", KEYSPACE_PER_TEST));
     }
