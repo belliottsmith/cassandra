@@ -50,7 +50,8 @@ public final class KeyspaceAttributes extends PropertyDefinitions
             throw new ConfigurationException("Missing replication strategy class");
     }
 
-    private String getReplicationStrategyClass()
+    /* CIE - change access permission from private -> public */
+    public String getReplicationStrategyClass()
     {
         return getAllReplicationOptions().get(ReplicationParams.CLASS);
     }
