@@ -23,10 +23,12 @@ import com.google.common.collect.ImmutableSet;
 
 import org.apache.cassandra.auth.AuthenticatedUser;
 import org.apache.cassandra.auth.IResource;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.schema.*;
 import org.apache.cassandra.schema.Keyspaces.KeyspacesDiff;
 import org.apache.cassandra.service.ClientState;
@@ -150,6 +152,17 @@ abstract public class AlterSchemaStatement implements CQLStatement.SingleKeyspac
         {
             // not a problem - grant is an optional method on IAuthorizer
         }
+    }
+
+    /**
+     * CIE addition - return false unless SimpleStrategy has been allowed via passing true for
+     * {@link #CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY} and the provided replicationStrategy class name
+     * contains SimpleStrategy (regardless of case).
+     */
+    protected boolean rejectReplicationStrategy(String replicationStrategyClass)
+    {
+        return !CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.getBoolean()
+               && replicationStrategyClass.toLowerCase().contains(SimpleStrategy.class.getSimpleName().toLowerCase());
     }
 
     static InvalidRequestException ire(String format, Object... args)

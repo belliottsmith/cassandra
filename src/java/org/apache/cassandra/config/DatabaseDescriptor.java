@@ -873,6 +873,20 @@ public class DatabaseDescriptor
 
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
 
+        // ACI Cassandra - preserve property from earlier internal patch
+        // rdar://60088220 p27729987 PRO/RST Restrict replication strategy and factor
+        // that was partially replaced by CASSANDRA-14557.
+        if (CassandraRelevantProperties.MINIMUM_ALLOWED_REPLICATION_FACTOR.isPresent())
+        {
+            int property_min = CassandraRelevantProperties.MINIMUM_ALLOWED_REPLICATION_FACTOR.getInt();
+            if (property_min != conf.minimum_keyspace_rf)
+            {
+                logger.info("Overriding configured default_keyspace_rf of {} with value from system property {}",
+                        conf.minimum_keyspace_rf, property_min);
+                conf.minimum_keyspace_rf = property_min;
+            }
+        }
+
         if (conf.default_keyspace_rf < conf.minimum_keyspace_rf)
         {
             throw new ConfigurationException(String.format("default_keyspace_rf (%d) cannot be less than minimum_keyspace_rf (%d)",

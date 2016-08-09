@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory;
 
 import com.vdurmont.semver4j.Semver;
 import com.vdurmont.semver4j.Semver.SemverType;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.distributed.UpgradeableCluster;
@@ -69,6 +70,9 @@ public class UpgradeTestBase extends DistributedTestBase
         System.setProperty("log4j.shutdownHookEnabled", "false");
         System.setProperty("cassandra.test.logConfigProperty", "log4j.configurationFile");
         System.setProperty("cassandra.test.logConfigPath", "test/conf/log4j2-dtest.xml");
+        // makes easier to share OSS tests without replication strategy limits
+        CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
+        CassandraRelevantProperties.MINIMUM_ALLOWED_REPLICATION_FACTOR.setInt(0);
         ICluster.setup();
     }
 
