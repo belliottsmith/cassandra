@@ -249,7 +249,16 @@ public enum CassandraRelevantProperties
     ORG_APACHE_CASSANDRA_DB_VIRTUAL_SYSTEM_PROPERTIES_TABLE_TEST("org.apache.cassandra.db.virtual.SystemPropertiesTableTest"),
 
     // CIE-specific property to enable config.enable_materialzed_views
-    ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews", "false");
+    ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews", "false"),
+
+    // CIE-specific property - preserving property from internal patch
+    // rdar://60088220 p27729987 PRO/RST Restrict replication strategy and factor
+    // that was partially replaced by CASSANDRA-14557
+    MINIMUM_ALLOWED_REPLICATION_FACTOR("cassandra.minimum_replication_factor", "2"),
+
+    // CIE-specific property
+    ALLOW_SIMPLE_STRATEGY("cassandra.allow_simplestrategy", "false"),
+
     ;
 
 

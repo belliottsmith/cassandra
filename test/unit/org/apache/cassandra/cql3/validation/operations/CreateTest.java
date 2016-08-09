@@ -25,6 +25,7 @@ import java.util.UUID;
 
 import org.junit.Test;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.Duration;
@@ -370,21 +371,47 @@ public class CreateTest extends CQLTester
         execute("DROP KEYSPACE testXYZ");
     }
 
+    @Test
+    public void testCreateKeyspaceWithSimpleStrategyWhenSimpleStrategyIsNotAllowed() throws Throwable
+    {
+        try
+        {
+            // Set the system property to prohibit SimpleStrategy.
+            CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(false);
+
+
+            assertInvalidThrow(InvalidRequestException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+        }
+        finally
+        {
+            // clean-up for other tests.
+            CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
     /**
      *  Test {@link ConfigurationException} is thrown on create keyspace with invalid DC option in replication configuration .
      */
     @Test
     public void testCreateKeyspaceWithNTSOnlyAcceptsConfiguredDataCenterNames() throws Throwable
     {
-        assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'NetworkTopologyStrategy', 'INVALID_DC' : 2 }");
-        execute("CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2 }");
+        try
+        {
+            // We have registered an EndpointSnitch that returns fixed value for DC name {@link CQLTester:DEFAULT_DC}
 
-        // Mix valid and invalid, should throw an exception
-        assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testXYZ WITH replication={ 'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2 , 'INVALID_DC': 1}");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'NetworkTopologyStrategy', 'INVALID_DC' : 2 }");
+            execute("CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2 }");
 
-        // clean-up
-        execute("DROP KEYSPACE IF EXISTS testABC");
-        execute("DROP KEYSPACE IF EXISTS testXYZ");
+            // Mix valid and invalid, should throw an exception
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testXYZ WITH replication={ 'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2 , 'INVALID_DC': 1}");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+            execute("DROP KEYSPACE IF EXISTS testXYZ");
+        }
     }
 
     /**
@@ -422,6 +449,22 @@ public class CreateTest extends CQLTester
         {
             // clean-up
             execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
+    @Test
+    public void testConfigurationExceptionThrownWhenCreateKeyspaceWithNonNumericReplicationFactor() throws Throwable
+    {
+        try
+        {
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'SimpleStrategy', 'replication_factor' : 'foo'}");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 'foo' }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testInvalidSimple");
+            execute("DROP KEYSPACE IF EXISTS testInvalidNTS");
         }
     }
 
