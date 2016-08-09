@@ -59,6 +59,8 @@ public class TestBaseImpl extends DistributedTestBase
         System.setProperty("log4j.shutdownHookEnabled", "false");
         System.setProperty("cassandra.test.logConfigProperty", "log4j.configurationFile");
         System.setProperty("cassandra.test.logConfigPath", "test/conf/log4j2-dtest.xml");
+        System.setProperty("cassandra.allow_simplestrategy", "true"); // makes easier to share OSS tests without RF limits
+        System.setProperty("cassandra.minimum_replication_factor", "0"); // makes easier to share OSS tests without RF limits
         ICluster.setup();
     }
 
