@@ -67,6 +67,10 @@ public final class CreateKeyspaceStatement extends AlterSchemaStatement
         if (!attrs.hasOption(Option.REPLICATION))
             throw ire("Missing mandatory option '%s'", Option.REPLICATION);
 
+        // Accept create KeySpace query with SimpleStrategy only when environment variable is set.
+        if (rejectReplicationStrategy(attrs.getReplicationStrategyClass()))
+            throw ire("Error while creating keyspace '%s' : SimpleStrategy is not allowed.", keyspaceName);
+
         if (schema.containsKeyspace(keyspaceName))
         {
             if (ifNotExists)

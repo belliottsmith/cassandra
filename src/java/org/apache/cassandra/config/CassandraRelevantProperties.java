@@ -296,6 +296,16 @@ public enum CassandraRelevantProperties
     // CIE-specific property to enable config.enable_materialzed_views
     ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews", "false"),
     ENABLE_SECONDARY_INDEX(Config.PROPERTY_PREFIX + "enable_secondary_index", "false"),
+
+    // CIE-specific property - preserving property from internal patch
+    // rdar://60088220 p27729987 PRO/RST Restrict replication strategy and factor
+    // that was partially replaced by CASSANDRA-14557
+    MINIMUM_ALLOWED_REPLICATION_FACTOR("cassandra.minimum_replication_factor", "2"),
+    DEFAULT_REPLICATION_FACTOR("cassandra.default_replication_factor", "3"),
+
+    // CIE-specific property
+    ALLOW_SIMPLE_STRATEGY("cassandra.allow_simplestrategy", "false"),
+
     ;
 
 

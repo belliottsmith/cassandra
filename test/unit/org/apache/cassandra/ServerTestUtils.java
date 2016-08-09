@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.audit.AuditLogManager;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SystemKeyspace;
@@ -59,6 +60,9 @@ public final class ServerTestUtils
     public static void daemonInitialization()
     {
         DatabaseDescriptor.daemonInitialization();
+
+        // CIE: Relax restrictions to run OSS tests
+        CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
 
         // Register an EndpointSnitch which returns fixed values for test.
         DatabaseDescriptor.setEndpointSnitch(new AbstractEndpointSnitch()

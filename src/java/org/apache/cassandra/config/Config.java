@@ -43,6 +43,7 @@ import org.apache.cassandra.fql.FullQueryLoggerOptions;
 import org.apache.cassandra.service.StartupChecks.StartupCheckType;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.DEFAULT_REPLICATION_FACTOR;
 import static org.apache.cassandra.config.CassandraRelevantProperties.ENABLE_SECONDARY_INDEX;
 
 /**
@@ -664,7 +665,7 @@ public class Config
 
     // Default keyspace replication factors allow validation of newly created keyspaces
     // and good defaults if no replication factor is provided by the user
-    public volatile int default_keyspace_rf = 1;
+    public volatile int default_keyspace_rf = DEFAULT_REPLICATION_FACTOR.getInt();
 
     /**
      * flags for enabling tracking repaired state of data during reads
