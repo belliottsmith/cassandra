@@ -58,12 +58,16 @@ import com.datastax.driver.core.ResultSet;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.audit.AuditLogManager;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
+import org.apache.cassandra.cql3.statements.schema.AlterSchemaStatement;
 import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
 import org.apache.cassandra.db.virtual.VirtualSchemaKeyspace;
 import org.apache.cassandra.index.SecondaryIndexManager;
 import org.apache.cassandra.config.EncryptionOptions;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
+import org.apache.cassandra.locator.ReplicaCollection;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.metrics.ClientMetrics;
 import org.apache.cassandra.schema.*;
@@ -166,7 +170,25 @@ public abstract class CQLTester
             }
         }
 
+        System.setProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
         System.setProperty("cassandra.allow_materializedviews", "true");
+        System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
+        // Register an Endpoint snitchwhich returns fixed value for data center.
+        DatabaseDescriptor.setEndpointSnitch(new IEndpointSnitch()
+        {
+            public String getRack(InetAddressAndPort endpoint) { return RACK1; }
+            public String getDatacenter(InetAddressAndPort endpoint) { return DATA_CENTER; }
+            public List<InetAddressAndPort> getSortedListByProximity(InetAddressAndPort address, Collection<InetAddressAndPort> unsortedAddress)
+            {
+                final List<InetAddressAndPort> returnList = new ArrayList<>();
+                returnList.addAll(unsortedAddress);
+                return returnList;
+            }
+            public <C extends ReplicaCollection<? extends C>> C sortedByProximity(final InetAddressAndPort address, C addresses)  {  return addresses; } // NO OP
+            public int compareEndpoints(InetAddressAndPort target, Replica r1, Replica r2) { return 0; }
+            public void gossiperStarting() { } // NO OP
+            public boolean isWorthMergingForRangeQuery(ReplicaCollection<?> merged, ReplicaCollection<?> l1, ReplicaCollection<?> l2) { return false; }
+        });
 
         nativeAddr = InetAddress.getLoopbackAddress();
 
@@ -396,6 +418,7 @@ public abstract class CQLTester
     @Before
     public void beforeTest() throws Throwable
     {
+        assert System.getProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY).compareTo("true") == 0 : "funny business with simple strategy";
         schemaChange(String.format("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}", KEYSPACE));
         schemaChange(String.format("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}", KEYSPACE_PER_TEST));
     }
