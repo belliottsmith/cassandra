@@ -1,4 +1,5 @@
 3.0.6.1
+ * <rdar://problem/20654491> Cass: Implement CASSANDRA-7715
  * <rdar://problem/26449278> Cass: don't block gossip stage during bounce when using sync commitlog
  * Fix Unit tests
 
