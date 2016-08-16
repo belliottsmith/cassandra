@@ -18,6 +18,7 @@
 package org.apache.cassandra.cql3.validation.operations;
 
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.cql3.statements.SchemaAlteringStatement;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -139,11 +140,11 @@ public class AlterTest extends CQLTester
                    row(KEYSPACE_PER_TEST, true),
                    row("ks2", false));
 
-        execute("ALTER KEYSPACE ks1 WITH replication = { 'class' : 'NetworkTopologyStrategy', 'dc1' : 1 } AND durable_writes=False");
+        execute("ALTER KEYSPACE ks1 WITH replication = { 'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 1 } AND durable_writes=False");
         execute("ALTER KEYSPACE ks2 WITH durable_writes=true");
 
         assertRows(execute("SELECT keyspace_name, durable_writes, replication FROM system_schema.keyspaces"),
-                   row("ks1", false, map("class", "org.apache.cassandra.locator.NetworkTopologyStrategy", "dc1", "1")),
+                   row("ks1", false, map("class", "org.apache.cassandra.locator.NetworkTopologyStrategy", DEFAULT_DC, "1")),
                    row(KEYSPACE, true, map("class", "org.apache.cassandra.locator.SimpleStrategy", "replication_factor", "1")),
                    row(KEYSPACE_PER_TEST, true, map("class", "org.apache.cassandra.locator.SimpleStrategy", "replication_factor", "1")),
                    row("ks2", true, map("class", "org.apache.cassandra.locator.SimpleStrategy", "replication_factor", "1")));
@@ -162,6 +163,43 @@ public class AlterTest extends CQLTester
         execute("DROP KEYSPACE ks1");
         execute("DROP KEYSPACE ks2");
     }
+
+    @Test
+    public void testAlterSimpleStrategyKeyspaceAllowedWithAcceptableRFWhenCurrentKeyspaceHasSimpleStrategy() throws Throwable
+    {
+        // Create a keyspace with SimpleStrategy.
+        execute("CREATE KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+
+        // Block create keyspace with SimpleStrategy.
+        System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false");
+
+        // try create another keyspace with SimpleStrategy - Expected to fail
+        assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABCD WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+
+        // try altering the keyspace. When a keyspace present has SimpleStrategy and is altered when SimpleStrategy is not allowed, alter statement should not fail.
+        execute("ALTER KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 3 }");
+
+        // clean-up
+        execute("DROP KEYSPACE testABC");
+        System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
+    }
+
+    @Test
+    public void testAlterKeyspaceWithNTSOnlyAcceptsConfiguredDataCenterNames() throws Throwable
+    {
+        // We have registered an EndpointSnitch that returns fixed value for DC name {@link CQLTester:DEFAULT_DC}
+
+        // Create a keyspace with expected DC name.
+        execute("CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 }");
+
+        // try modifying the keyspace
+        assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication = { 'class' : 'NetworkTopologyStrategy', 'INVALID_DC' : 2 }");
+        execute("ALTER KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 3 }");
+
+        // clean-up
+        execute("DROP KEYSPACE testABC");
+    }
+
 
     /**
      * Test for bug of 5232,

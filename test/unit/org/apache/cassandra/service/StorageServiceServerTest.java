@@ -68,6 +68,56 @@ public class StorageServiceServerTest
         Keyspace.setInitialized();
     }
 
+    private void setupDefaultTokenMetadata() throws Exception
+    {
+        TokenMetadata metadata = StorageService.instance.getTokenMetadata();
+        metadata.clearUnsafe();
+
+        InetAddress id1 = InetAddress.getByName("127.0.0.1");
+        InetAddress id2 = InetAddress.getByName("127.0.0.2");
+        InetAddress id4 = InetAddress.getByName("127.0.0.4");
+        InetAddress id5 = InetAddress.getByName("127.0.0.5");
+
+        // DC1
+        metadata.updateNormalToken(new StringToken("A"), id1);
+        metadata.updateHostId(UUID.randomUUID(), id1);
+        metadata.updateNormalToken(new StringToken("C"), id2);
+        metadata.updateHostId(UUID.randomUUID(), id2);
+
+        // DC2
+        metadata.updateNormalToken(new StringToken("B"), id4);
+        metadata.updateHostId(UUID.randomUUID(), id4);
+        metadata.updateNormalToken(new StringToken("D"), id5);
+        metadata.updateHostId(UUID.randomUUID(), id5);
+
+        // Register a custom Endpoint snitch which return anticipated value of DC name.
+        DatabaseDescriptor.setEndpointSnitch(new IEndpointSnitch()
+        {
+            public String getRack(InetAddress endpoint) { return "rack1"; }
+
+            public String getDatacenter(InetAddress endpoint)
+            {
+                try
+                {
+                    if (endpoint.equals(InetAddress.getByName("127.0.0.1")) || endpoint.equals(InetAddress.getByName("127.0.0.2")))
+                        return "DC1";
+                    else
+                        return "DC2";
+                }
+                catch (Exception e)
+                {
+                } // NO OP
+                return "INVALID";
+            }
+
+            public List<InetAddress> getSortedListByProximity(InetAddress address, Collection<InetAddress> unsortedAddress) {  return (List<InetAddress>) unsortedAddress; }
+            public void sortByProximity(InetAddress address, List<InetAddress> addresses) { } // NO OP
+            public int compareEndpoints(InetAddress target, InetAddress a1, InetAddress a2) { return 0; }
+            public void gossiperStarting() { } // NO OP
+            public boolean isWorthMergingForRangeQuery(List<InetAddress> merged, List<InetAddress> l1, List<InetAddress> l2) { return false; }
+        });
+    }
+
     @Test
     public void testRegularMode() throws ConfigurationException
     {
@@ -179,16 +229,7 @@ public class StorageServiceServerTest
     @Test
     public void testPrimaryRangeForEndpointWithinDCWithNetworkTopologyStrategy() throws Exception
     {
-        TokenMetadata metadata = StorageService.instance.getTokenMetadata();
-        metadata.clearUnsafe();
-
-        // DC1
-        metadata.updateNormalToken(new StringToken("A"), InetAddress.getByName("127.0.0.1"));
-        metadata.updateNormalToken(new StringToken("C"), InetAddress.getByName("127.0.0.2"));
-
-        // DC2
-        metadata.updateNormalToken(new StringToken("B"), InetAddress.getByName("127.0.0.4"));
-        metadata.updateNormalToken(new StringToken("D"), InetAddress.getByName("127.0.0.5"));
+        setupDefaultTokenMetadata();
 
         Map<String, String> configOptions = new HashMap<>();
         configOptions.put("DC1", "1");
@@ -224,14 +265,7 @@ public class StorageServiceServerTest
     @Test
     public void testPrimaryRangesWithNetworkTopologyStrategy() throws Exception
     {
-        TokenMetadata metadata = StorageService.instance.getTokenMetadata();
-        metadata.clearUnsafe();
-        // DC1
-        metadata.updateNormalToken(new StringToken("A"), InetAddress.getByName("127.0.0.1"));
-        metadata.updateNormalToken(new StringToken("C"), InetAddress.getByName("127.0.0.2"));
-        // DC2
-        metadata.updateNormalToken(new StringToken("B"), InetAddress.getByName("127.0.0.4"));
-        metadata.updateNormalToken(new StringToken("D"), InetAddress.getByName("127.0.0.5"));
+        setupDefaultTokenMetadata();
 
         Map<String, String> configOptions = new HashMap<>();
         configOptions.put("DC1", "1");
@@ -262,14 +296,7 @@ public class StorageServiceServerTest
     @Test
     public void testPrimaryRangesWithNetworkTopologyStrategyOneDCOnly() throws Exception
     {
-        TokenMetadata metadata = StorageService.instance.getTokenMetadata();
-        metadata.clearUnsafe();
-        // DC1
-        metadata.updateNormalToken(new StringToken("A"), InetAddress.getByName("127.0.0.1"));
-        metadata.updateNormalToken(new StringToken("C"), InetAddress.getByName("127.0.0.2"));
-        // DC2
-        metadata.updateNormalToken(new StringToken("B"), InetAddress.getByName("127.0.0.4"));
-        metadata.updateNormalToken(new StringToken("D"), InetAddress.getByName("127.0.0.5"));
+        setupDefaultTokenMetadata();
 
         Map<String, String> configOptions = new HashMap<>();
         configOptions.put("DC2", "2");
@@ -301,14 +328,7 @@ public class StorageServiceServerTest
     @Test
     public void testPrimaryRangeForEndpointWithinDCWithNetworkTopologyStrategyOneDCOnly() throws Exception
     {
-        TokenMetadata metadata = StorageService.instance.getTokenMetadata();
-        metadata.clearUnsafe();
-        // DC1
-        metadata.updateNormalToken(new StringToken("A"), InetAddress.getByName("127.0.0.1"));
-        metadata.updateNormalToken(new StringToken("C"), InetAddress.getByName("127.0.0.2"));
-        // DC2
-        metadata.updateNormalToken(new StringToken("B"), InetAddress.getByName("127.0.0.4"));
-        metadata.updateNormalToken(new StringToken("D"), InetAddress.getByName("127.0.0.5"));
+        setupDefaultTokenMetadata();
 
         Map<String, String> configOptions = new HashMap<>();
         configOptions.put("DC2", "2");
@@ -352,6 +372,8 @@ public class StorageServiceServerTest
         dc1.put(InetAddress.getByName("127.0.0.2"), new StringToken("I"));
         dc1.put(InetAddress.getByName("127.0.0.2"), new StringToken("J"));
         metadata.updateNormalTokens(dc1);
+        metadata.updateHostId(UUID.randomUUID(), InetAddress.getByName("127.0.0.1"));
+        metadata.updateHostId(UUID.randomUUID(), InetAddress.getByName("127.0.0.2"));
         // DC2
         Multimap<InetAddress, Token> dc2 = HashMultimap.create();
         dc2.put(InetAddress.getByName("127.0.0.4"), new StringToken("B"));
@@ -361,6 +383,8 @@ public class StorageServiceServerTest
         dc2.put(InetAddress.getByName("127.0.0.5"), new StringToken("F"));
         dc2.put(InetAddress.getByName("127.0.0.5"), new StringToken("K"));
         metadata.updateNormalTokens(dc2);
+        metadata.updateHostId(UUID.randomUUID(), InetAddress.getByName("127.0.0.4"));
+        metadata.updateHostId(UUID.randomUUID(), InetAddress.getByName("127.0.0.5"));
 
         Map<String, String> configOptions = new HashMap<>();
         configOptions.put("DC2", "2");
@@ -417,6 +441,8 @@ public class StorageServiceServerTest
         dc1.put(InetAddress.getByName("127.0.0.2"), new StringToken("I"));
         dc1.put(InetAddress.getByName("127.0.0.2"), new StringToken("J"));
         metadata.updateNormalTokens(dc1);
+        metadata.updateHostId(UUID.randomUUID(), InetAddress.getByName("127.0.0.1"));
+        metadata.updateHostId(UUID.randomUUID(), InetAddress.getByName("127.0.0.2"));
 
         // DC2
         Multimap<InetAddress, Token> dc2 = HashMultimap.create();
@@ -427,7 +453,34 @@ public class StorageServiceServerTest
         dc2.put(InetAddress.getByName("127.0.0.5"), new StringToken("F"));
         dc2.put(InetAddress.getByName("127.0.0.5"), new StringToken("K"));
         metadata.updateNormalTokens(dc2);
+        metadata.updateHostId(UUID.randomUUID(), InetAddress.getByName("127.0.0.4"));
+        metadata.updateHostId(UUID.randomUUID(), InetAddress.getByName("127.0.0.5"));
 
+        // Register a custom Endpoint snitch which return anticipated value of DC name.
+        DatabaseDescriptor.setEndpointSnitch(new IEndpointSnitch()
+        {
+            public String getRack(InetAddress endpoint) { return null; }
+
+            public String getDatacenter(InetAddress endpoint)
+            {
+                try
+                {
+                    if (endpoint.equals(InetAddress.getByName("127.0.0.1")) || endpoint.equals(InetAddress.getByName("127.0.0.2")))
+                        return "DC1";
+                    else
+                        return "DC2";
+                }
+                catch (Exception e)
+                {
+                } // NO OP
+                return "INVALID";
+            }
+            public List<InetAddress> getSortedListByProximity(InetAddress address, Collection<InetAddress> unsortedAddress) { return null; }
+            public void sortByProximity(InetAddress address, List<InetAddress> addresses) {  } // NO OP
+            public int compareEndpoints(InetAddress target, InetAddress a1, InetAddress a2) { return 0; }
+            public void gossiperStarting() { } // NO OP
+            public boolean isWorthMergingForRangeQuery(List<InetAddress> merged, List<InetAddress> l1, List<InetAddress> l2) { return false; }
+        });
         Map<String, String> configOptions = new HashMap<>();
         configOptions.put("DC1", "1");
         configOptions.put("DC2", "2");
@@ -485,6 +538,7 @@ public class StorageServiceServerTest
     @Test
     public void testPrimaryRangesWithSimpleStrategy() throws Exception
     {
+        DatabaseDescriptor.setEndpointSnitch(new PropertyFileSnitch());
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
 

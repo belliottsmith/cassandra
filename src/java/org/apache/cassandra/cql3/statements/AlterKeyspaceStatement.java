@@ -21,6 +21,7 @@ import org.apache.cassandra.auth.Permission;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.locator.LocalStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.ClientState;
@@ -65,6 +66,13 @@ public class AlterKeyspaceStatement extends SchemaAlteringStatement
 
         if (attrs.getReplicationStrategyClass() != null)
         {
+            // Accept KeySpace query with SimpleStrategy only when environment variable is set.
+            if (SimpleStrategy.class != ksm.params.replication.klass &&                                           // Current strategy is not SimpleStrategy
+                attrs.getReplicationStrategyClass().equalsIgnoreCase(SimpleStrategy.class.getSimpleName()) &&     // Expected future strategy is SimpleStrategy
+                !Boolean.parseBoolean(System.getProperty(SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false")))        // Option to allow SimpleStrategy is not set
+            {
+                throw new ConfigurationException("Error while altering keyspace " + name + " : SimpleStrategy is not allowed.");
+            }
             // The strategy is validated through KSMetaData.validate() in announceKeyspaceUpdate below.
             // However, for backward compatibility with thrift, this doesn't validate unexpected options yet,
             // so doing proper validation here.

@@ -28,6 +28,7 @@ import com.google.common.collect.Multimap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.WriteType;
@@ -48,6 +49,8 @@ import org.cliffc.high_scale_lib.NonBlockingHashMap;
 public abstract class AbstractReplicationStrategy
 {
     private static final Logger logger = LoggerFactory.getLogger(AbstractReplicationStrategy.class);
+    public static final String SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR = "cassandra.minimum_replication_factor";
+    public static final String DEFAULT_MINIMUM_REPLICATION_FACTOR = "2";
 
     @VisibleForTesting
     final String keyspaceName;
@@ -319,8 +322,21 @@ public abstract class AbstractReplicationStrategy
         }
     }
 
-    private void validateExpectedOptions() throws ConfigurationException
+    protected void validateExpectedOptions() throws ConfigurationException
     {
+        // Do not accept keyspace query with total replication_factor smaller than configured except for keyspaces created with LocalStrategy.
+        if (!getClass().getSimpleName().equals(LocalStrategy.class.getSimpleName())) // Exclude local strategy from the validations
+        {
+            final int minimumAllowedReplicationFactor = Integer.parseInt(
+            System.getProperty(SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, DEFAULT_MINIMUM_REPLICATION_FACTOR));
+            final int replication_factor = getReplicationFactor();
+            if (replication_factor < minimumAllowedReplicationFactor && !keyspaceName.equals(AuthKeyspace.NAME))
+            {
+                throw new ConfigurationException("Error while creating keyspace " + keyspaceName + " : \"replication_factor\" must be greater than or equal to "
+                                                 + minimumAllowedReplicationFactor + " over all data centers; found " + replication_factor);
+            }
+        }
+
         Collection expectedOptions = recognizedOptions();
         if (expectedOptions == null)
             return;

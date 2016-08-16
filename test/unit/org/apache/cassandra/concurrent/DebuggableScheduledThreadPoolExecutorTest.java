@@ -31,6 +31,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import junit.framework.Assert;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.service.EmbeddedCassandraService;
 import org.apache.cassandra.service.StorageService;
 
@@ -42,6 +43,7 @@ public class DebuggableScheduledThreadPoolExecutorTest
     @BeforeClass
     public static void startup() throws IOException
     {
+        System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
         //The DSTPE checks for if we are in the service shutdown hook so
         //to test it we need to start C* internally.
         service = new EmbeddedCassandraService();
