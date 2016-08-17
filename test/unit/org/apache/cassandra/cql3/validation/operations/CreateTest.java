@@ -349,38 +349,90 @@ public class CreateTest extends CQLTester
     @Test
     public void testCreateKeyspaceWithSimpleStrategyWhenSimpleStrategyIsNotAllowed() throws Throwable
     {
-        // Set the system property to prohibit SimpleStrategy.
-        System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false");
+        try
+        {
+            // Set the system property to prohibit SimpleStrategy.
+            System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false");
 
-        assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
 
-        // clean-up for other tests.
-        System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
+            // clean-up for other tests.
+            System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
     }
 
     @Test
     public void testConfigurationExceptionThrownWhenCreateKeyspaceWithRFLessThanExpected() throws Throwable
     {
-        // Set the system property for minimum allowed replication factor.
+        try
+        {
+            // Set the system property for minimum allowed replication factor.
+            System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "2");
 
-        System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "2");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 1 }");
 
-        assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 1 }");
-
-        // clean-up for other tests.
-        System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
+            // clean-up for other tests.
+            System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
     }
 
     @Test
     public void testCreateKeyspaceWithNTSOnlyAcceptsConfiguredDataCenterNames() throws Throwable
     {
-        // We have registered an EndpointSnitch that returns fixed value for DC name {@link CQLTester:DEFAULT_DC}
+        try
+        {
+            // We have registered an EndpointSnitch that returns fixed value for DC name {@link CQLTester:DEFAULT_DC}
 
-        assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'NetworkTopologyStrategy', 'INVALID_DC' : 2 }");
-        execute("CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 }");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'NetworkTopologyStrategy', 'INVALID_DC' : 2 }");
+            execute("CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
 
-        // clean-up
-        execute("DROP KEYSPACE testABC");
+    @Test
+    public void testConfigurationExceptionThrownWhenCreateKeyspaceWithoutReplicationFactor() throws Throwable
+    {
+        try
+        {
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testInvalidSimple WITH replication = {'class' : 'SimpleStrategy' }");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testInvalidNTS WITH replication = {'class' : 'NetworkTopologyStrategy' }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testInvalidSimple");
+            execute("DROP KEYSPACE IF EXISTS testInvalidNTS");
+        }
+    }
+
+    @Test
+    public void testConfigurationExceptionThrownWhenCreateKeyspaceWithNonNumericReplicationFactor() throws Throwable
+    {
+        try
+        {
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'SimpleStrategy', 'replication_factor' : 'foo'}");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 'foo' }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testInvalidSimple");
+            execute("DROP KEYSPACE IF EXISTS testInvalidNTS");
+        }
     }
 
     /**

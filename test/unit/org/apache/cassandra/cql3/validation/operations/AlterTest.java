@@ -167,39 +167,86 @@ public class AlterTest extends CQLTester
     @Test
     public void testAlterSimpleStrategyKeyspaceAllowedWithAcceptableRFWhenCurrentKeyspaceHasSimpleStrategy() throws Throwable
     {
-        // Create a keyspace with SimpleStrategy.
-        execute("CREATE KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+        try
+        {
+            // Create a keyspace with SimpleStrategy.
+            execute("CREATE KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
 
-        // Block create keyspace with SimpleStrategy.
-        System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false");
+            // Block create keyspace with SimpleStrategy.
+            System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false");
 
-        // try create another keyspace with SimpleStrategy - Expected to fail
-        assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABCD WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+            // try create another keyspace with SimpleStrategy - Expected to fail
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABCD WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
 
-        // try altering the keyspace. When a keyspace present has SimpleStrategy and is altered when SimpleStrategy is not allowed, alter statement should not fail.
-        execute("ALTER KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 3 }");
-
-        // clean-up
-        execute("DROP KEYSPACE testABC");
-        System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
+            // try altering the keyspace. When a keyspace present has SimpleStrategy and is altered when SimpleStrategy is not allowed, alter statement should not fail.
+            execute("ALTER KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 3 }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+            System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
+        }
     }
 
     @Test
     public void testAlterKeyspaceWithNTSOnlyAcceptsConfiguredDataCenterNames() throws Throwable
     {
-        // We have registered an EndpointSnitch that returns fixed value for DC name {@link CQLTester:DEFAULT_DC}
+        try
+        {
+            // We have registered an EndpointSnitch that returns fixed value for DC name {@link CQLTester:DEFAULT_DC}
 
-        // Create a keyspace with expected DC name.
-        execute("CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 }");
+            // Create a keyspace with expected DC name.
+            execute("CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 }");
 
-        // try modifying the keyspace
-        assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication = { 'class' : 'NetworkTopologyStrategy', 'INVALID_DC' : 2 }");
-        execute("ALTER KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 3 }");
-
-        // clean-up
-        execute("DROP KEYSPACE testABC");
+            // try modifying the keyspace
+            assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication = { 'class' : 'NetworkTopologyStrategy', 'INVALID_DC' : 2 }");
+            execute("ALTER KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 3 }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
     }
 
+    @Test
+    public void testAlterKeyspaceWithSimpleStrategyWithoutReplicationFactor() throws Throwable
+    {
+        try
+        {
+            // Create a keyspace
+            execute("CREATE KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+
+            // try altering the keyspace. When the alter keyspace statement does not have replication factor, it should fail with ConfigurationException.
+            assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy' }");
+            assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication={ 'class' : 'NetworkTopologyStrategy' }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
+    @Test
+    public void testConfigurationExceptionThrownWhenAlterKeyspaceWithNonNumericReplicationFactor() throws Throwable
+    {
+        try
+        {
+            // Create a keyspace with SimpleStrategy.
+            execute("CREATE KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+
+            // try altering the keyspace. When the alter keyspace statement does not have replication factor, it should fail with ConfigurationException.
+            assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 'foo' }");
+            assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication={ 'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 'foo' }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
 
     /**
      * Test for bug of 5232,

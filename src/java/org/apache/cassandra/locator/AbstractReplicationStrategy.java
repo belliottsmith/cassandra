@@ -324,17 +324,25 @@ public abstract class AbstractReplicationStrategy
 
     protected void validateExpectedOptions() throws ConfigurationException
     {
-        // Do not accept keyspace query with total replication_factor smaller than configured except for keyspaces created with LocalStrategy.
-        if (!getClass().getSimpleName().equals(LocalStrategy.class.getSimpleName())) // Exclude local strategy from the validations
+        try
         {
-            final int minimumAllowedReplicationFactor = Integer.parseInt(
-            System.getProperty(SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, DEFAULT_MINIMUM_REPLICATION_FACTOR));
-            final int replication_factor = getReplicationFactor();
-            if (replication_factor < minimumAllowedReplicationFactor && !keyspaceName.equals(AuthKeyspace.NAME))
+            // Do not accept keyspace query with total replication_factor smaller than configured except for keyspaces created witrh LocalStrategy.
+            // This check is here to allow Cassandra to bootstrap with already present keysapces which do not follow the restrictions.
+            if (!getClass().getSimpleName().equals(LocalStrategy.class.getSimpleName())) // Exclude local strategy from the validations
             {
-                throw new ConfigurationException("Error while creating keyspace " + keyspaceName + " : \"replication_factor\" must be greater than or equal to "
-                                                 + minimumAllowedReplicationFactor + " over all data centers; found " + replication_factor);
+                final int minimumAllowedReplicationFactor = Integer.parseInt(
+                System.getProperty(SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, DEFAULT_MINIMUM_REPLICATION_FACTOR));
+                final int replication_factor = getReplicationFactor();
+                if (replication_factor < minimumAllowedReplicationFactor && !keyspaceName.equals(AuthKeyspace.NAME))
+                {
+                    throw new ConfigurationException("Error while creating keyspace " + keyspaceName + " : \"replication_factor\" must be greater than or equal to "
+                                                     + minimumAllowedReplicationFactor + " over all data centers; found " + replication_factor);
+                }
             }
+        }
+        catch (NumberFormatException e)
+        {
+            // Ignore the exception. Same exception will be cauhght and dealt with in following validateOptions() call.
         }
 
         Collection expectedOptions = recognizedOptions();
