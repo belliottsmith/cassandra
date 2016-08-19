@@ -25,10 +25,14 @@ import org.junit.runner.RunWith;
 
 import com.datastax.driver.core.PreparedStatement;
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
+
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.statements.schema.AlterSchemaStatement;
 import org.apache.cassandra.dht.OrderPreservingPartitioner;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.locator.Replica;
+import org.apache.cassandra.locator.ReplicaCollection;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.cql3.CQLTester;
@@ -40,6 +44,7 @@ import org.apache.cassandra.exceptions.SyntaxException;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.schema.SchemaConstants;
+import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.schema.SchemaKeyspace;
 import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.service.StorageService;
@@ -519,6 +524,41 @@ public class AlterTest extends CQLTester
         assertInvalidThrow(ConfigurationException.class, String.format("ALTER KEYSPACE %s WITH replication={ 'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 'foo' }", simpleKeyspace));
     }
 
+    @Test
+    public void testAlterKeyspaceSystem_AuthWithNTSOnlyAcceptsConfiguredDataCenterNames() throws Throwable
+    {
+        // Add a peer
+        StorageService.instance.getTokenMetadata().updateHostId(UUID.randomUUID(), InetAddressAndPort.getByName("127.0.0.2"));
+        // Register an Endpoint snitch which returns fixed value for data center.
+        DatabaseDescriptor.setEndpointSnitch(new IEndpointSnitch()
+        {
+            public String getRack(InetAddressAndPort endpoint) { return RACK1; }
+            public String getDatacenter(InetAddressAndPort endpoint)
+            {
+                if(endpoint.getHostAddress(false).equalsIgnoreCase("127.0.0.2"))
+                    return "datacenter2";
+                return DATA_CENTER;
+            }
+            public <C extends ReplicaCollection<? extends C>> C sortedByProximity(InetAddressAndPort address, C addresses)
+            {
+                return null;
+            }
+
+            public int compareEndpoints(InetAddressAndPort target, Replica r1, Replica r2)
+            {
+                return 0;
+            }
+
+            public void gossiperStarting() { } // NO OP
+
+            public boolean isWorthMergingForRangeQuery(ReplicaCollection<?> merged, ReplicaCollection<?> l1, ReplicaCollection<?> l2) { return false; }
+        });
+
+        // try modifying the system_auth keyspace without second DC which has active node.
+        assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE system_auth WITH replication = { 'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2 }");
+        execute("ALTER KEYSPACE " + SchemaConstants.AUTH_KEYSPACE_NAME  + " WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 1 , '" + DATA_CENTER_REMOTE + "' : 1 }");
+    }
+
     /**
      * Test for bug of 5232,
      * migrated from cql_tests.py:TestCQL.alter_bug_test()
@@ -665,7 +705,7 @@ public class AlterTest extends CQLTester
     {
         assertThrowsException(clazz, msg, () -> {alterKeyspaceMayThrow(stmt);});
     }
-    
+
     private void assertAlterTableThrowsException(Class<? extends Throwable> clazz, String msg, String stmt)
     {
         assertThrowsException(clazz, msg, () -> {alterTableMayThrow(stmt);});
