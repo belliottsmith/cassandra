@@ -29,11 +29,13 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.TokenMetadata.Topology;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 
 /**
  * <p>
@@ -289,6 +291,16 @@ public class NetworkTopologyStrategy extends AbstractReplicationStrategy
 
         // Validate the data center names
         super.validateExpectedOptions();
+
+        /* CIE */
+        if (keyspaceName.equalsIgnoreCase(SchemaConstants.AUTH_KEYSPACE_NAME))
+        {
+            Set<String> differenceSet = Sets.difference((Set<String>) recognizedOptions(), configOptions.keySet());
+            if (!differenceSet.isEmpty())
+            {
+                throw new ConfigurationException("Following datacenters have active nodes and must be present in replication options for keyspace " + SchemaConstants.AUTH_KEYSPACE_NAME + ": " + differenceSet.toString());
+            }
+        }
     }
 
     public void validateOptions() throws ConfigurationException
