@@ -37,6 +37,7 @@ import org.apache.cassandra.utils.Pair;
 
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 
 /**
  * <p>
@@ -287,7 +288,9 @@ public class NetworkTopologyStrategy extends AbstractReplicationStrategy
                        .forEach(dc -> options.putIfAbsent(dc, defaultReplicas.toParseableString()));
         }
 
-        options.values().removeAll(Collections.singleton("0"));
+        // ACI Cassandra does not filter out "0" due to the AUTH_KEYSPACE validation in validateExpectedOptions.
+        // The previousOptions are unavailable to that check so it is not possible to verify that all valid
+        // datacenters have an explicit configuration (even if it is 0).
     }
 
     @Override
@@ -301,6 +304,16 @@ public class NetworkTopologyStrategy extends AbstractReplicationStrategy
 
         // Validate the data center names
         super.validateExpectedOptions();
+
+        /* CIE */
+        if (keyspaceName.equalsIgnoreCase(SchemaConstants.AUTH_KEYSPACE_NAME))
+        {
+            Set<String> differenceSet = Sets.difference((Set<String>) recognizedOptions(), configOptions.keySet());
+            if (!differenceSet.isEmpty())
+            {
+                throw new ConfigurationException("Following datacenters have active nodes and must be present in replication options for keyspace " + SchemaConstants.AUTH_KEYSPACE_NAME + ": " + differenceSet.toString());
+            }
+        }
     }
 
     @Override
