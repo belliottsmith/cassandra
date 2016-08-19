@@ -20,7 +20,9 @@ package org.apache.cassandra.cql3.validation.operations;
 
 import org.junit.Test;
 
+import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.db.SystemKeyspace;
 
 public class DropTest extends CQLTester
 {
@@ -31,7 +33,14 @@ public class DropTest extends CQLTester
         assertInvalidMessage("Cannot drop table in unknown keyspace", "DROP TABLE keyspace_does_not_exist.table_does_not_exist");
 
         execute("DROP TABLE IF EXISTS " + KEYSPACE + ".table_does_not_exist");
-        execute("DROP TABLE IF EXISTS keyspace_does_not_exist.table_does_not_exist");
+        execute("DROP TABLE IF EXISTS keyspace_does_nyouot_exist.table_does_not_exist");
     }
+
+    @Test
+    public void testDroppingSystemKeyspacesIsNotAllowed() throws Throwable
+    {
+            assertInvalidMessage("system keyspace is not user-modifiable", "DROP KEYSPACE " + SystemKeyspace.NAME);
+            assertInvalidMessage("Keyspace " + AuthKeyspace.NAME + " can not be dropped by a user", "DROP KEYSPACE " + AuthKeyspace.NAME);
+        }
 
 }

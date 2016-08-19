@@ -41,6 +41,7 @@ import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.*;
 import com.datastax.driver.core.ResultSet;
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -812,6 +813,10 @@ public abstract class CQLTester
                 ColumnSpecification column = meta.get(j);
                 ByteBuffer expectedByteValue = makeByteBuffer(expected == null ? null : expected[j], column.type);
                 ByteBuffer actualValue = actual.getBytes(column.name.toString());
+
+                if (formatValue(expectedByteValue, column.type).equalsIgnoreCase(AuthKeyspace.NAME) ||
+                    formatValue(actualValue, column.type).equalsIgnoreCase(AuthKeyspace.NAME))
+                    continue;
 
                 if (!Objects.equal(expectedByteValue, actualValue))
                 {
