@@ -2724,6 +2724,17 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
+
+    public void forceKeyspaceCompactionForTokenRange(String keyspaceName, String startToken, String endToken, String... tableNames) throws IOException, ExecutionException, InterruptedException
+    {
+        Collection<Range<Token>> tokenRanges = createRepairRangeFrom(startToken, endToken);
+
+        for (ColumnFamilyStore cfStore : getValidColumnFamilies(true, false, keyspaceName, tableNames))
+        {
+            cfStore.forceCompactionForTokenRange(tokenRanges);
+        }
+    }
+
     /**
      * Takes the snapshot for the given keyspaces. A snapshot name must be specified.
      *
