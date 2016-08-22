@@ -20,8 +20,8 @@ package org.apache.cassandra.db.compaction;
 
 import java.util.*;
 import java.util.concurrent.Callable;
+import java.util.stream.Collectors;
 
-import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -428,6 +428,41 @@ public class CompactionStrategyManager implements INotificationConsumer
             }
         }, false, false);
     }
+
+
+    /**
+     * Return a list of compaction tasks corresponding to the sstables requested. Split the sstables according
+     * to whether they are repaired or not, and by disk location. Return a task per disk location and repair status
+     * group.
+     *
+     * @param sstables the sstables to compact
+     * @param gcBefore gc grace period, throw away tombstones older than this
+     * @return a list of compaction tasks corresponding to the sstables requested
+     */
+    public synchronized List<AbstractCompactionTask> getUserDefinedTasks(Collection<SSTableReader> sstables, int gcBefore)
+    {
+        maybeReload(cfs.metadata);
+        List<AbstractCompactionTask> ret = new ArrayList<>();
+
+        final List<SSTableReader> repairedSSTables = sstables.stream().filter(s -> !s.isMarkedSuspect() && s.isRepaired()).collect(Collectors.toList());
+        final List<SSTableReader> unRepairedSSTables = sstables.stream().filter(s -> !s.isMarkedSuspect() && !s.isRepaired()).collect(Collectors.toList());
+
+        assert sstables.size() == repairedSSTables.size() + unRepairedSSTables.size();
+
+        AbstractCompactionTask repairedTasks = repaired.getUserDefinedTask(repairedSSTables, gcBefore);
+        AbstractCompactionTask unrepairedTasks = unrepaired.getUserDefinedTask(unRepairedSSTables, gcBefore);
+
+        if (repairedTasks == null && unrepairedTasks == null)
+            return null;
+
+        if (repairedTasks != null)
+            ret.add(repairedTasks);
+        if (unrepairedTasks != null)
+            ret.add(unrepairedTasks);
+
+        return ret;
+    }
+
 
     public AbstractCompactionTask getUserDefinedTask(Collection<SSTableReader> sstables, int gcBefore)
     {
