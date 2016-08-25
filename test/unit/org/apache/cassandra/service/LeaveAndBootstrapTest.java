@@ -22,9 +22,11 @@ package org.apache.cassandra.service;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -664,7 +666,7 @@ public class LeaveAndBootstrapTest
      * Tests that the system.peers table is not updated after a node has been removed. (See CASSANDRA-6053)
      */
     @Test
-    public void testStateChangeOnRemovedNode() throws UnknownHostException
+    public void testStateChangeOnRemovedNode() throws UnknownHostException, ExecutionException
     {
         StorageService ss = StorageService.instance;
         VersionedValue.VersionedValueFactory valueFactory = new VersionedValue.VersionedValueFactory(partitioner);
@@ -675,8 +677,8 @@ public class LeaveAndBootstrapTest
         Util.createInitialRing(ss, partitioner, endpointTokens, new ArrayList<Token>(), hosts, new ArrayList<UUID>(), 2);
 
         InetAddress toRemove = hosts.get(1);
-        SystemKeyspace.updatePeerInfo(toRemove, "data_center", "dc42");
-        SystemKeyspace.updatePeerInfo(toRemove, "rack", "rack42");
+        Uninterruptibles.getUninterruptibly(SystemKeyspace.updatePeerInfo(toRemove, "data_center", "dc42"));
+        Uninterruptibles.getUninterruptibly(SystemKeyspace.updatePeerInfo(toRemove, "rack", "rack42"));
         assertEquals("rack42", SystemKeyspace.loadDcRackInfo().get(toRemove).get("rack"));
 
         // mark the node as removed
