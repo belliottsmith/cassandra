@@ -105,9 +105,9 @@ public class SSTableRewriterTest extends SSTableWriterTestBase
             writer.finish();
         }
         LifecycleTransaction.waitForDeletions();
+        assertEquals(1, assertFileCounts(sstables.iterator().next().descriptor.directory.list()));
+
         validateCFS(cfs);
-        int filecounts = assertFileCounts(sstables.iterator().next().descriptor.directory.list());
-        assertEquals(1, filecounts);
         truncate(cfs);
     }
     @Test
@@ -137,9 +137,9 @@ public class SSTableRewriterTest extends SSTableWriterTestBase
             writer.finish();
         }
         LifecycleTransaction.waitForDeletions();
+        assertEquals(1, assertFileCounts(sstables.iterator().next().descriptor.directory.list()));
+
         validateCFS(cfs);
-        int filecounts = assertFileCounts(sstables.iterator().next().descriptor.directory.list());
-        assertEquals(1, filecounts);
     }
 
     @Test
@@ -192,9 +192,9 @@ public class SSTableRewriterTest extends SSTableWriterTestBase
             writer.finish();
         }
         LifecycleTransaction.waitForDeletions();
+        assertEquals(1, assertFileCounts(sstables.iterator().next().descriptor.directory.list()));
+
         validateCFS(cfs);
-        int filecounts = assertFileCounts(sstables.iterator().next().descriptor.directory.list());
-        assertEquals(1, filecounts);
         truncate(cfs);
     }
 
