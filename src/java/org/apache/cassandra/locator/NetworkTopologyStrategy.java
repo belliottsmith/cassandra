@@ -24,6 +24,7 @@ import java.util.Map.Entry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.dht.Token;
@@ -32,6 +33,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 
 /**
  * <p>
@@ -233,6 +235,15 @@ public class NetworkTopologyStrategy extends AbstractReplicationStrategy
 
         // Validate the data center names
         super.validateExpectedOptions();
+
+        if (keyspaceName.equalsIgnoreCase(AuthKeyspace.NAME))
+        {
+            Set<String> differenceSet = Sets.difference((Set<String>) recognizedOptions(), this.configOptions.keySet());
+            if (!differenceSet.isEmpty())
+            {
+                throw new ConfigurationException("Following datacenters have active nodes and must be present in replication options for keyspace " + AuthKeyspace.NAME + ": " + differenceSet.toString());
+            }
+        }
 }
 
     @Override
