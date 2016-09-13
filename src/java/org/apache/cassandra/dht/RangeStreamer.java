@@ -112,6 +112,24 @@ public class RangeStreamer
         }
     }
 
+    /**
+     * Source filter which only includes endpoints contained within a provided set.
+     */
+    public static class WhitelistedSourcesFilter implements ISourceFilter
+    {
+        private final Set<InetAddress> whitelistedSources;
+
+        public WhitelistedSourcesFilter(Set<InetAddress> whitelistedSources)
+        {
+            this.whitelistedSources = whitelistedSources;
+        }
+
+        public boolean shouldInclude(InetAddress endpoint)
+        {
+            return whitelistedSources.contains(endpoint);
+        }
+    }
+
     public RangeStreamer(TokenMetadata metadata,
                          Collection<Token> tokens,
                          InetAddress address,
@@ -292,17 +310,17 @@ public class RangeStreamer
             outer:
             for (InetAddress address : rangesWithSources.get(range))
             {
+                for (ISourceFilter filter : sourceFilters)
+                {
+                    if (!filter.shouldInclude(address))
+                        continue outer;
+                }
+
                 if (address.equals(FBUtilities.getBroadcastAddress()))
                 {
                     // If localhost is a source, we have found one, but we don't add it to the map to avoid streaming locally
                     foundSource = true;
                     continue;
-                }
-
-                for (ISourceFilter filter : sourceFilters)
-                {
-                    if (!filter.shouldInclude(address))
-                        continue outer;
                 }
 
                 rangeFetchMapMap.put(address, range);
