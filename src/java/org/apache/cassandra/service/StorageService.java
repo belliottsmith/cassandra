@@ -4610,6 +4610,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public void setInitialRangeTombstoneAllocationSize(int size)
     {
+        if(size > 1024)
+        {
+            throw new IllegalStateException("Not updating initial_range_tombstone_allocation_size as it must be < 1024");
+        }
         int originalSize = DatabaseDescriptor.getInitialRangeTombstoneAllocationSize();
         DatabaseDescriptor.setInitialRangeTombstoneAllocationSize(size);
         logger.info("Updated initial_range_tombstone_allocation_size from {} to {}", originalSize, size);
@@ -4622,9 +4626,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public void setRangeTombstoneResizeGrowthFactor(double growthFactor) throws IllegalStateException
     {
-        if (growthFactor < 1.2)
+        if (growthFactor < 1.2 || growthFactor > 5)
         {
-            throw new IllegalStateException("Not updating range_tombstone_resize_factor as growth factor must be > 1.2");
+            throw new IllegalStateException("Not updating range_tombstone_resize_factor as growth factor must be > 1.2 and <= 5");
         }
         else
         {
