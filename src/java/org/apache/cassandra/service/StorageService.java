@@ -4663,6 +4663,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         DatabaseDescriptor.setTombstoneFailureThreshold(threshold);
     }
 
+    @Override
+    public boolean isTombstoneCountGCable() {
+        return DatabaseDescriptor.isTombstoneCountGCable();
+    }
+
+    @Override
+    public void setTombstoneCountGCable(boolean countGCable) {
+        DatabaseDescriptor.setTombstoneCountGCable(countGCable);
+    }
+
     public int getBatchSizeFailureThreshold()
     {
         return DatabaseDescriptor.getBatchSizeFailThresholdInKB();

@@ -1282,6 +1282,17 @@ public class DatabaseDescriptor
         conf.tombstone_failure_threshold = threshold;
     }
 
+    public static boolean isTombstoneCountGCable()
+    {
+        return conf.tombstone_count_gcable;
+    }
+
+    public static void setTombstoneCountGCable(boolean countGCable)
+    {
+        conf.tombstone_count_gcable = countGCable;
+    }
+
+
     /**
      * size of commitlog segments to allocate
      */

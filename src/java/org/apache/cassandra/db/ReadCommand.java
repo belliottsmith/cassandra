@@ -365,7 +365,8 @@ public abstract class ReadCommand implements ReadQuery
 
         try
         {
-            resultIterator = withMetricsRecording(withoutPurgeableTombstones(resultIterator, cfs), cfs.metric, startTimeNanos);
+            UnfilteredPartitionIterator filtered = DatabaseDescriptor.isTombstoneCountGCable() ? resultIterator : withoutPurgeableTombstones(resultIterator, cfs);
+            resultIterator = withMetricsRecording(filtered, cfs.metric, startTimeNanos);
 
             // If we've used a 2ndary index, we know the result already satisfy the primary expression used, so
             // no point in checking it again.

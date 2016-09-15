@@ -596,6 +596,11 @@ public interface StorageServiceMBean extends NotificationEmitter
     /** Sets the threshold for abandoning queries with many tombstones */
     public void setTombstoneFailureThreshold(int tombstoneDebugThreshold);
 
+    /** Returns whether gcable tombstones are counted towards TombstoneOverwhelming */
+    public boolean isTombstoneCountGCable();
+    /** Sets whether gcable tombstones should be counted towards TombstoneOverwhelming */
+    public void setTombstoneCountGCable(boolean countGCable);
+
     /** Returns the threshold for rejecting queries due to a large batch size */
     public int getBatchSizeFailureThreshold();
     /** Sets the threshold for rejecting queries due to a large batch size */

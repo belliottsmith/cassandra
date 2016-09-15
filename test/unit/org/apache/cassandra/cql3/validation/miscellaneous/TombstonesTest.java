@@ -137,8 +137,21 @@ public class TombstonesTest extends CQLTester
     }
 
     @Test
-    public void testExpiredTombstones() throws Throwable
+    public void testExpiredTombstonesCountGCable() throws Throwable
     {
+        testExpiredTombstones(true);
+    }
+
+    @Test
+    public void testExpiredTombstonesNoCountGCable() throws Throwable
+    {
+        testExpiredTombstones(false);
+    }
+
+    public void testExpiredTombstones(boolean countGCable) throws Throwable
+    {
+        DatabaseDescriptor.setTombstoneCountGCable(countGCable);
+
         createTable("CREATE TABLE %s (a text, b text, c text, PRIMARY KEY (a, b)) WITH gc_grace_seconds = 1;");
 
         for (int i = 0; i < THRESHOLD + 1; i++)
@@ -158,14 +171,21 @@ public class TombstonesTest extends CQLTester
         // sleep past gc grace
         TimeUnit.SECONDS.sleep(2);
 
-        // past gc grace - must not throw a TOE now
+        // past gc grace - must not throw a TOE now (unless countGCable is set)
         try
         {
             execute("SELECT * FROM %s WHERE a = 'key';");
+            if (countGCable)
+                fail("SELECT with expired tombstones beyond the threshold and countGCable=true should have failed, but has not");
+        }
+        catch (AssertionError e)
+        {
+            throw e;
         }
         catch (Throwable e)
         {
-            fail("SELECT with expired tombstones beyond the threshold should not have failed, but has: " + e);
+            if (!countGCable)
+                fail("SELECT with expired tombstones beyond the threshold and countGCable=false should not have failed, but has: " + e);
         }
     }
 }
