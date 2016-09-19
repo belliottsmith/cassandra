@@ -2005,4 +2005,23 @@ public class DatabaseDescriptor
         return conf.disable_incremental_repair;
     }
 
+    public static int getInitialRangeTombstoneAllocationSize()
+    {
+        return conf.initial_range_tombstone_allocation_size;
+    }
+
+    public static void setInitialRangeTombstoneAllocationSize(int size)
+    {
+        conf.initial_range_tombstone_allocation_size = size;
+    }
+
+    public static double getRangeTombstoneResizeFactor()
+    {
+        return conf.range_tombstone_resize_factor;
+    }
+
+    public static void setRangeTombstoneResizeFactor(double resizeFactor)
+    {
+        conf.range_tombstone_resize_factor = resizeFactor;
+    }
 }
