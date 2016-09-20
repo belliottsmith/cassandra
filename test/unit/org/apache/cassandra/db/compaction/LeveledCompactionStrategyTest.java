@@ -44,6 +44,7 @@ import org.apache.cassandra.UpdateBuilder;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -69,6 +70,7 @@ public class LeveledCompactionStrategyTest
 
     private static final String KEYSPACE1 = "LeveledCompactionStrategyTest";
     private static final String CF_STANDARDDLEVELED = "StandardLeveled";
+    private static final String CF_STANDARDDLEVELED_GCGS0 = "StandardLeveledGCGS0";
     private Keyspace keyspace;
     private ColumnFamilyStore cfs;
 
@@ -79,7 +81,10 @@ public class LeveledCompactionStrategyTest
         SchemaLoader.createKeyspace(KEYSPACE1,
                                     KeyspaceParams.simple(1),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED)
-                                                .compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1"))));
+                                                .compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1"))),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED_GCGS0)
+                                                .compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1")))
+                                                .gcGraceSeconds(0));
         }
 
     @Before
@@ -437,5 +442,108 @@ public class LeveledCompactionStrategyTest
 
         // the 11 tables containing key1 should all compact to 1 table
         assertEquals(1, cfs.getLiveSSTables().size());
+    }
+
+    @Test
+    public void testAggressiveGCCompaction() throws Exception
+    {
+        // The idea is to insert data in one SSTable and then delete most if it in another, with gc_grace 0.
+        // Then mutate the levels so they are in levels 1 and 2. There's then no natural compaction to do
+        // but aggressive GC compaction should notice one SSTable has mostly GCable data and compact the two together.
+        // The resulting SSTable should be in level 1.
+
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARDDLEVELED_GCGS0);
+        cfs.truncateBlocking();
+        cfs.disableAutoCompaction();
+
+        final ByteBuffer value = ByteBuffer.wrap(new byte[100]);
+        final int numIterations = 100;
+
+        // Insert the data
+        for (int i = 0; i < numIterations; i++) {
+            UpdateBuilder update = UpdateBuilder.create(cfs.metadata, String.valueOf(i));
+            update.newRow("column1").add("val", value).withTimestamp(0);
+            update.applyUnsafe();
+        }
+        cfs.forceBlockingFlush();
+
+        // Delete all but one
+        for (int i = 0; i < numIterations - 1; i++) {
+            RowUpdateBuilder builder = new RowUpdateBuilder(cfs.metadata, 1, String.valueOf(i));
+            builder.clustering("column1").delete("val");
+            builder.build().apply();
+        }
+        cfs.forceBlockingFlush();
+
+        assertEquals(2, cfs.getLiveSSTables().size());
+
+        // Put the 2 sstables in level 1 and level 2, respectively
+        LeveledCompactionStrategy strategy = (LeveledCompactionStrategy) (cfs.getCompactionStrategyManager()).getStrategies().get(1);
+        int level = 1;
+        for (SSTableReader s : cfs.getLiveSSTables())
+        {
+            strategy.manifest.remove(s);
+            s.descriptor.getMetadataSerializer().mutateLevel(s.descriptor, level);
+            s.reloadSSTableMetadata();
+            strategy.manifest.add(s);
+            level++;
+        }
+
+        // Since local deletion time is in seconds we need to wait for it to expire to make the tombstones gcable
+        Thread.sleep(1000);
+
+        // Compact without aggressive option, should do nothing
+        // (this submits and waits for the pending compactions to complete)
+        cfs.enableAutoCompaction(true);
+
+        assertEquals(2, cfs.getLiveSSTables().size());
+
+        cfs.enableAutoCompaction(false);
+
+        // Now enable aggressive mode, we should compact
+        CompactionManager.instance.setEnableAggressiveGCCompaction(true);
+        try
+        {
+            assertTrue(CompactionManager.instance.getEnableAggressiveGCCompaction());
+
+            // We have tombstoneCompactionInterval high so it considers the sstables as too young to compact
+            strategy.tombstoneCompactionInterval = 3600;
+            // waits for pending compactions to complete
+            cfs.enableAutoCompaction(true);
+            assertEquals(2, cfs.getLiveSSTables().size());
+
+            // Now set tombstoneCompactionInterval=0 so we should compact
+            strategy.tombstoneCompactionInterval = 0;
+
+            // Set one to be repaired so check it doesn't compact them together
+            Iterator<SSTableReader> it = cfs.getLiveSSTables().iterator();
+            SSTableReader sstable1 = it.next();
+            SSTableReader sstable2 = it.next();
+
+            sstable1.descriptor.getMetadataSerializer().mutateRepairedAt(sstable1.descriptor, System.currentTimeMillis());
+            sstable1.reloadSSTableMetadata();
+
+            cfs.enableAutoCompaction(true);
+            assertEquals(2, cfs.getLiveSSTables().size());
+
+            // Now set the other to be repaired and it should finally compact them
+            sstable2.descriptor.getMetadataSerializer().mutateRepairedAt(sstable2.descriptor, System.currentTimeMillis());
+            sstable2.reloadSSTableMetadata();
+
+            cfs.enableAutoCompaction(true);
+            assertEquals(1, cfs.getLiveSSTables().size());
+
+            // Check the resulting table is in level 1
+            int[] levels = strategy.manifest.getAllLevelSize();
+            assertEquals(1, levels[1]);
+        }
+        finally
+        {
+            // disable so we don't infect other tests
+            CompactionManager.instance.setEnableAggressiveGCCompaction(false);
+        }
+
+        assertFalse(CompactionManager.instance.getEnableAggressiveGCCompaction());
     }
 }
