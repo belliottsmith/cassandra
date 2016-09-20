@@ -18,6 +18,7 @@
 package org.apache.cassandra.db.compaction;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 
 import com.google.common.annotations.VisibleForTesting;
@@ -30,18 +31,23 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+
+import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
 
 public class LeveledCompactionStrategy extends AbstractCompactionStrategy
 {
@@ -51,6 +57,9 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
     private static final String LEVEL_FANOUT_SIZE_OPTION = "fanout_size";
     private static final String SINGLE_SSTABLE_UPLEVEL_OPTION = "single_sstable_uplevel";
     public static final int DEFAULT_LEVEL_FANOUT_SIZE = 10;
+
+    private final long maxGCSSTableSize;
+    private final int maxGCSSTables;
 
     @VisibleForTesting
     final LeveledManifest manifest;
@@ -95,6 +104,9 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         levelFanoutSize = configuredLevelFanoutSize;
         singleSSTableUplevel = configuredSingleSSTableUplevel;
 
+        maxGCSSTableSize = Integer.getInteger("cassandra.aggressivegcls.max_sstable_size_mb", 10240) * 1024l * 1024l;
+        maxGCSSTables = Integer.getInteger("cassandra.aggressivegcls.max_sstables", 20);
+
         manifest = new LeveledManifest(cfs, this.maxSSTableSizeInMiB, this.levelFanoutSize, localOptions);
         logger.trace("Created {}", manifest);
     }
@@ -136,15 +148,12 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             if (candidate == null)
             {
                 // if there is no sstable to compact in standard way, try compacting based on droppable tombstone ratio
-                SSTableReader sstable = findDroppableSSTable(gcBefore);
-                if (sstable == null)
+                candidate = getTombstoneCompactionTask(gcBefore, DatabaseDescriptor.getEnableAggressiveGCCompaction());
+                if (candidate == null)
                 {
                     logger.trace("No compaction necessary for {}", this);
                     return null;
                 }
-                candidate = new LeveledManifest.CompactionCandidate(Collections.singleton(sstable),
-                                                                    sstable.getSSTableLevel(),
-                                                                    getMaxSSTableBytes());
                 op = OperationType.TOMBSTONE_COMPACTION;
             }
             else
@@ -515,10 +524,12 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         return String.format("LCS@%d(%s)", hashCode(), cfs.name);
     }
 
-    private SSTableReader findDroppableSSTable(final int gcBefore)
+    private LeveledManifest.CompactionCandidate getTombstoneCompactionTask(final int gcBefore, final boolean aggressive)
     {
+        final int topLevel = manifest.getLevelCount();
+
         level:
-        for (int i = manifest.getLevelCount(); i >= 0; i--)
+        for (int i = topLevel; i >= 0; i--)
         {
             if (manifest.getLevelSize(i) == 0)
                 continue;
@@ -528,14 +539,116 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
                 double r2 = o2.getEstimatedDroppableTombstoneRatio(gcBefore);
                 return -1 * Doubles.compare(r1, r2);
             });
+           if (tombstoneSortedSSTables.isEmpty())
+                continue;
 
             Set<SSTableReader> compacting = cfs.getTracker().getCompacting();
             for (SSTableReader sstable : tombstoneSortedSSTables)
             {
                 if (sstable.getEstimatedDroppableTombstoneRatio(gcBefore) <= tombstoneThreshold)
                     continue level;
-                else if (!compacting.contains(sstable) && !sstable.isMarkedSuspect() && worthDroppingTombstones(sstable, gcBefore))
-                    return sstable;
+
+                final LeveledManifest.CompactionCandidate singleCandidate = new LeveledManifest.CompactionCandidate(Collections.singleton(sstable),
+                                                                                                                    sstable.getSSTableLevel(),
+                                                                                                                    getMaxSSTableBytes());
+
+                if (!aggressive)
+                {
+                    if (!compacting.contains(sstable) && !sstable.isMarkedSuspect() && worthDroppingTombstones(sstable, gcBefore))
+                    {
+                        return singleCandidate;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                }
+                /*
+                 * Aggressively drop tombstones. Find any SSTables with enough tombstones in topLevel or topLevel-1
+                 * and compact it with all overlapping SSTables. This will allow removal of the tombstones and any
+                 * data the tombstones are shadowing. We also include all overlaps in level 1 so we can insert into
+                 * level 1.
+                 */
+
+                if (!compacting.contains(sstable) && !sstable.isMarkedSuspect())
+                {
+                    // only do the overlapping compaction on the top level or the one below to avoid compacting
+                    // too many SSTables at once
+                    if (i < topLevel - 1)
+                    {
+                        if (worthDroppingTombstones(sstable, gcBefore))
+                        {
+                            return singleCandidate;
+                        }
+                        continue;
+                    }
+
+                    final LeveledManifest.CompactionCandidate candidate = manifest.getAggressiveCompactionCandidates(sstable, maxGCSSTableSize);
+                    final Collection<SSTableReader> toCompact = candidate.sstables;
+
+                    // With just one file let's do the full original check
+                    if (toCompact.size() == 1)
+                    {
+                        // the sstable returned better be the one we gave it
+                        assert sstable.equals(toCompact.iterator().next());
+
+                        if (worthDroppingTombstones(sstable, gcBefore))
+                        {
+                            return singleCandidate;
+                        }
+                        continue;
+                    }
+
+                    if (toCompact.size() > maxGCSSTables)
+                    {
+                        logger.debug("Skipping tombstone compaction since too many SSTables would be compacted");
+                        continue;
+                    }
+
+                    // check all SSTables are old enough so we avoid loops endlessly compacting the same set
+                    final long now = currentTimeMillis();
+                    boolean allYoung = true;
+                    for (SSTableReader sst : toCompact)
+                    {
+                        if (sst.getCreationTimeFor(Component.DATA) + tombstoneCompactionInterval * 1000 < now)
+                        {
+                            allYoung = false;
+                            break;
+                        }
+                    }
+                    if (allYoung)
+                    {
+                        logger.debug("Skipping tombstone compaction since all SSTables are too young");
+                        continue;
+                    }
+
+                    boolean compactable = true;
+                    for (SSTableReader sst : toCompact)
+                    {
+                        if (compacting.contains(sst) || sst.isMarkedSuspect())
+                        {
+                            compactable = false;
+                            break;
+                        }
+                    }
+                    if (compactable)
+                    {
+                        logger.info("Compacting {} SSTables to attempt to remove tombstones", toCompact.size());
+                        return candidate;
+                    }
+                    else
+                    {
+                        // fallback on old behavior
+                        if (worthDroppingTombstones(sstable, gcBefore))
+                        {
+                            return singleCandidate;
+                        }
+                    }
+                }
+                else
+                {
+                    logger.debug("Skipping sstable {} because compacting/suspect", sstable);
+                }
             }
         }
         return null;
