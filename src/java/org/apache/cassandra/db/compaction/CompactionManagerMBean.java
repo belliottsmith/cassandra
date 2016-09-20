@@ -165,4 +165,8 @@ public interface CompactionManagerMBean
      * when automatic sstable upgrades are enabled
      */
     public void setMaxConcurrentAutoUpgradeTasks(int value);
+
+    /** Configures aggresive GC compaction mode of LCS **/
+    public void setEnableAggressiveGCCompaction(boolean enable);
+    public boolean getEnableAggressiveGCCompaction();
 }
