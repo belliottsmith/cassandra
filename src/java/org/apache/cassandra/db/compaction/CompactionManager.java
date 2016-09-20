@@ -2164,6 +2164,22 @@ public class CompactionManager implements CompactionManagerMBean
         }
     }
 
+    @Override
+    public void setEnableAggressiveGCCompaction(boolean enable)
+    {
+        if (enable)
+            logger.info("Enabling aggressive GC compaction");
+        else
+            logger.info("Disabling aggressive GC compaction");
+        DatabaseDescriptor.setEnableAggressiveGCCompaction(enable);
+    }
+
+    @Override
+    public boolean getEnableAggressiveGCCompaction()
+    {
+        return DatabaseDescriptor.getEnableAggressiveGCCompaction();
+    }
+
     /**
      * Try to stop all of the compactions for given ColumnFamilies.
      *
