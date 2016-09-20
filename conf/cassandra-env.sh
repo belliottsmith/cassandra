@@ -288,10 +288,15 @@ JMX_PORT="7199"
 if [ "$LOCAL_JMX" = "yes" ]; then
   JVM_OPTS="$JVM_OPTS -Dcassandra.jmx.local.port=$JMX_PORT -XX:+DisableExplicitGC"
 else
+#  We already pass some of these ourselves on cmdline
+#  via cassandra-start.sh genreated in the CONF package.
+#  We don't want to pass things twice as we're worried about
+#  hitting the 4k cmdline length, so don't pass anything here
+#  for JMX.
 #  JVM_OPTS="$JVM_OPTS -Dcom.sun.management.jmxremote.port=$JMX_PORT"
 #  JVM_OPTS="$JVM_OPTS -Dcom.sun.management.jmxremote.rmi.port=$JMX_PORT"
-#  JVM_OPTS="$JVM_OPTS -Dcom.sun.management.jmxremote.ssl=false"
-   JVM_OPTS="$JVM_OPTS -Dcom.sun.management.jmxremote.authenticate=false"
+   JVM_OPTS="$JVM_OPTS -Dcom.sun.management.jmxremote.ssl=false"
+#  JVM_OPTS="$JVM_OPTS -Dcom.sun.management.jmxremote.authenticate=false"
 #  JVM_OPTS="$JVM_OPTS -Dcom.sun.management.jmxremote.password.file=/etc/cassandra/jmxremote.password"
 #  JVM_OPTS="$JVM_OPTS -Djavax.net.ssl.keyStore=/path/to/keystore"
 #  JVM_OPTS="$JVM_OPTS -Djavax.net.ssl.keyStorePassword=<keystore-password>"
