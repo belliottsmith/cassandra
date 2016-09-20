@@ -293,6 +293,51 @@ public class LeveledManifest
         return new CompactionCandidate(candidates, getNextLevel(candidates), maxSSTableSizeInBytes);
     }
 
+    public synchronized CompactionCandidate getAggressiveCompactionCandidates(SSTableReader sstable, long maxSSTableSizeL0)
+    {
+        final Set<SSTableReader> overlaps = new HashSet<>();
+        final Collection<SSTableReader> singleSSTable = Collections.singleton(sstable);
+        for (int i = generations.levelCount() - 1; i >= 0; i--)
+        {
+            if (!generations.get(i).isEmpty())
+            {
+                overlaps.addAll(overlapping(singleSSTable, getLevel(i)));
+            }
+        }
+
+        // overlaps should include the original sstable
+        assert overlaps.contains(sstable);
+        final Set<SSTableReader> toCompact = new HashSet<>(overlaps);
+
+        // exclude files in L0 that are too large
+        for (SSTableReader overlappingSSTable : overlaps)
+        {
+            if (overlappingSSTable.getSSTableLevel() == 0 && overlappingSSTable.onDiskLength() > maxSSTableSizeL0)
+            {
+                logger.debug("Removing SSTable {} from tombstone compaction since it's too large", overlappingSSTable);
+                toCompact.remove(overlappingSSTable);
+            }
+        }
+
+        // shouldn't be empty because we at least have the original sstable
+        assert !toCompact.isEmpty();
+
+        // if just one SSTable then we don't need to do any aggressive compaction
+        if (toCompact.size() == 1)
+        {
+            return new CompactionCandidate(singleSSTable, sstable.getSSTableLevel(),
+                                           cfs.getCompactionStrategyManager().getMaxSSTableBytes());
+        }
+
+        // add all overlapping in level 1 so we can put the result there
+        if (!getLevel(1).isEmpty())
+        {
+            toCompact.addAll(overlapping(toCompact, generations.get(1)));
+        }
+
+        return new CompactionCandidate(toCompact, 1, cfs.getCompactionStrategyManager().getMaxSSTableBytes());
+    }
+
     private CompactionCandidate getSTCSInL0CompactionCandidate()
     {
         if (!DatabaseDescriptor.getDisableSTCSInL0() && generations.get(0).size() > MAX_COMPACTING_L0)
@@ -670,6 +715,7 @@ public class LeveledManifest
         return newLevel;
     }
 
+    @VisibleForTesting
     synchronized Set<SSTableReader> getLevel(int level)
     {
         return ImmutableSet.copyOf(generations.get(level));
