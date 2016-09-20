@@ -156,6 +156,8 @@ public class DatabaseDescriptor
                                        ? new CommitLogSegmentManagerCDC(c, DatabaseDescriptor.getCommitLogLocation())
                                        : new CommitLogSegmentManagerStandard(c, DatabaseDescriptor.getCommitLogLocation());
 
+    private static volatile boolean aggressiveGC = Boolean.getBoolean("cassandra.aggressivegcls.enabled");
+
     public static void daemonInitialization() throws ConfigurationException
     {
         daemonInitialization(DatabaseDescriptor::loadConfig);
@@ -3144,6 +3146,10 @@ public class DatabaseDescriptor
     {
         conf.range_tombstone_list_growth_factor = resizeFactor;
     }
+    public static void setEnableAggressiveGCCompaction(boolean enable) { aggressiveGC = enable; }
+
+    public static boolean getEnableAggressiveGCCompaction() { return aggressiveGC; }
+
     public static boolean disableIncrementalRepair()
     {
         return conf.disable_incremental_repair;
