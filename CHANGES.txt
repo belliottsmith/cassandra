@@ -1,8 +1,13 @@
+3.0.6.3 (Open)
+ *
+
+3.0.6.2
+ * <rdar://problem/27418084> Cass: Port <rdar://problem/24418276> Cass: Replace logback with log4j2 to 3.0.6
+
 3.0.6.1
  * <rdar://problem/20654491> Cass: Implement CASSANDRA-7715
  * <rdar://problem/26449278> Cass: don't block gossip stage during bounce when using sync commitlog
  * Fix Unit tests
-
 
 3.0.6
  * Disallow creating view with a static column (CASSANDRA-11602)
