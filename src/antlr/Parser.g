@@ -247,6 +247,7 @@ cqlStatement returns [CQLStatement.Raw stmt]
     | st39=dropMaterializedViewStatement   { $stmt = st39; }
     | st40=alterMaterializedViewStatement  { $stmt = st40; }
     | st41=describeStatement               { $stmt = st41; }
+    | st42=selectSizeStatement             { $stmt = st42; }
     ;
 
 /*
@@ -465,6 +466,18 @@ orderByClause[Map<ColumnIdentifier, Boolean> orderings]
 
 groupByClause[List<Selectable.Raw> groups]
     : s=unaliasedSelector { groups.add(s); }
+    ;
+
+/**
+ * SELECT_SIZE FROM <CF> WHERE KEY = "KEY1";
+ */
+selectSizeStatement returns [SelectSizeStatement.RawStatement expr]
+    : K_SELECT_SIZE
+      K_FROM cf=columnFamilyName
+      K_WHERE wclause=whereClause
+      {
+          $expr = new SelectSizeStatement.RawStatement(cf, wclause.build());
+      }
     ;
 
 /**
@@ -1939,5 +1952,6 @@ basic_unreserved_keyword returns [String str]
         | K_MBEANS
         | K_REPLACE
         | K_UNSET
+        | K_SELECT_SIZE
         ) { $str = $k.text; }
     ;

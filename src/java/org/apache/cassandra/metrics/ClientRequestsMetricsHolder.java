@@ -29,9 +29,11 @@ public final class ClientRequestsMetricsHolder
     public static final CASClientWriteRequestMetrics casWriteMetrics = new CASClientWriteRequestMetrics("CASWrite");
     public static final CASClientRequestMetrics casReadMetrics = new CASClientRequestMetrics("CASRead");
     public static final ViewWriteMetrics viewWriteMetrics = new ViewWriteMetrics("ViewWrite");
+    public static final ClientRequestMetrics partitionSizeMetrics = new ClientRequestMetrics("PartitionSize");
 
     public static final Map<ConsistencyLevel, ClientRequestMetrics> readMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     public static final Map<ConsistencyLevel, ClientWriteRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
+    private static final EnumMap<ConsistencyLevel, ClientRequestMetrics> partitionSizeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
 
     static
     {
@@ -39,6 +41,7 @@ public final class ClientRequestsMetricsHolder
         {
              readMetricsMap.put(level, new ClientRequestMetrics("Read-" + level.name()));
             writeMetricsMap.put(level, new ClientWriteRequestMetrics("Write-" + level.name()));
+            partitionSizeMetricsMap.put(level, new ClientRequestMetrics("PartitionSize-" + level.name()));
         }
     }
 
@@ -50,5 +53,10 @@ public final class ClientRequestsMetricsHolder
     public static ClientWriteRequestMetrics writeMetricsForLevel(ConsistencyLevel level)
     {
         return writeMetricsMap.get(level);
+    }
+
+    public static ClientRequestMetrics partitionSizeMetricsForLevel(ConsistencyLevel level)
+    {
+        return partitionSizeMetricsMap.get(level);
     }
 }
