@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -66,6 +67,7 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.MessageParams;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
+import org.apache.cassandra.db.PartitionSizeCommand;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.ReadResponse;
@@ -124,7 +126,9 @@ import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.reads.AbstractReadExecutor;
+import org.apache.cassandra.service.reads.PartitionSizeCallback;
 import org.apache.cassandra.service.reads.ReadCallback;
+import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
 import org.apache.cassandra.service.reads.range.RangeCommandIterator;
 import org.apache.cassandra.service.reads.range.RangeCommands;
 import org.apache.cassandra.service.reads.repair.ReadRepair;
@@ -146,6 +150,8 @@ import static org.apache.cassandra.db.ConsistencyLevel.SERIAL;
 import static org.apache.cassandra.net.Message.out;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.casReadMetrics;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.casWriteMetrics;
+import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.partitionSizeMetrics;
+import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.partitionSizeMetricsForLevel;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.readMetrics;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.readMetricsForLevel;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.viewWriteMetrics;
@@ -1991,6 +1997,66 @@ public class StorageProxy implements StorageProxyMBean
                 return concatenated.next();
             }
         };
+    }
+
+    public static Map<InetAddressAndPort, Long> fetchPartitionSize(PartitionSizeCommand command, ConsistencyLevel cl, long queryStartNanoTime) throws ReadTimeoutException, UnavailableException
+    {
+        long start = nanoTime();
+        Keyspace keyspace = Keyspace.open(command.keyspace);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(command.table);
+
+        Token token = cfs.decorateKey(command.key).getToken();
+        try
+        {
+            ReplicaPlan.Shared sharedReplicaPlan = ReplicaPlan.shared(ReplicaPlans.forRead(keyspace, token, cl, SpeculativeRetryPolicy.fromString("never")));
+
+            PartitionSizeCallback callback = new PartitionSizeCallback(sharedReplicaPlan, queryStartNanoTime);
+            Message<PartitionSizeCommand> message = command.getMessage();
+
+            InetAddressAndPort broadcastAddress = FBUtilities.getBroadcastAddressAndPort();
+            Iterator<InetAddressAndPort> iter = sharedReplicaPlan.get().contacts().endpoints().iterator();
+            while (iter.hasNext())
+            {
+                InetAddressAndPort replica = iter.next();
+                if (replica.equals(broadcastAddress))
+                {
+                    Stage.READ.maybeExecuteImmediately(() -> {
+                        long size = command.executeLocally();
+                        callback.handleResponse(broadcastAddress, size);
+                    });
+                }
+                else
+                {
+                    MessagingService.instance().sendWithCallback(message, replica, callback);
+                }
+            }
+
+            return callback.get();
+        }
+        catch (UnavailableException e)
+        {
+            partitionSizeMetricsForLevel(cl).unavailables.mark();
+            partitionSizeMetrics.unavailables.mark();
+            throw e;
+        }
+        catch (ReadTimeoutException e)
+        {
+            partitionSizeMetricsForLevel(cl).timeouts.mark();
+            partitionSizeMetrics.timeouts.mark();
+            throw e;
+        }
+        catch (ReadFailureException e)
+        {
+            partitionSizeMetricsForLevel(cl).failures.mark();
+            partitionSizeMetrics.failures.mark();
+            throw e;
+        }
+        finally
+        {
+            long latency = nanoTime() - start;
+            partitionSizeMetrics.addNano(latency);
+            partitionSizeMetricsForLevel(cl).addNano(latency);
+        }
     }
 
     /**
