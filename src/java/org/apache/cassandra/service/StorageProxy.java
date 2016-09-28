@@ -24,6 +24,7 @@ import java.util.Collection;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -54,11 +55,14 @@ import org.apache.cassandra.batchlog.Batch;
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.service.reads.PartitionSizeCallback;
+import org.apache.cassandra.db.PartitionSizeCommand;
 import org.apache.cassandra.metrics.BlacklistMetrics;
 import org.apache.cassandra.schema.PartitionBlacklist;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.reads.AbstractReadExecutor;
 import org.apache.cassandra.service.reads.ReadCallback;
+import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
 import org.apache.cassandra.service.reads.repair.ReadRepair;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -124,7 +128,6 @@ import org.apache.cassandra.net.RequestCallback;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
-import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.paxos.Commit;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.service.paxos.PrepareCallback;
@@ -180,10 +183,12 @@ public class StorageProxy implements StorageProxyMBean
     private static final ClientRequestMetrics readMetrics = new ClientRequestMetrics("Read");
     @VisibleForTesting
     public static final ClientRequestMetrics rangeMetrics = new ClientRequestMetrics("RangeSlice");
+    private static final ClientRequestMetrics partitionSizeMetrics = new ClientRequestMetrics("PartitionSize");
     private static final ClientWriteRequestMetrics writeMetrics = new ClientWriteRequestMetrics("Write");
     private static final CASClientWriteRequestMetrics casWriteMetrics = new CASClientWriteRequestMetrics("CASWrite");
     private static final CASClientRequestMetrics casReadMetrics = new CASClientRequestMetrics("CASRead");
     private static final ViewWriteMetrics viewWriteMetrics = new ViewWriteMetrics("ViewWrite");
+    private static final EnumMap<ConsistencyLevel, ClientRequestMetrics> partitionSizeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     private static final Map<ConsistencyLevel, ClientRequestMetrics> readMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     private static final Map<ConsistencyLevel, ClientWriteRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     public static final BlacklistMetrics blacklistMetrics = new BlacklistMetrics();
@@ -297,6 +302,7 @@ public class StorageProxy implements StorageProxyMBean
         {
             readMetricsMap.put(level, new ClientRequestMetrics("Read-" + level.name()));
             writeMetricsMap.put(level, new ClientWriteRequestMetrics("Write-" + level.name()));
+            partitionSizeMetricsMap.put(level, new ClientRequestMetrics("PartitionSize-" + level.name()));
         }
 
         ReadRepairMetrics.init();
@@ -2021,6 +2027,60 @@ public class StorageProxy implements StorageProxyMBean
                 return concatenated.next();
             }
         };
+    }
+
+    public static Map<InetAddressAndPort, Long> fetchPartitionSize(PartitionSizeCommand command, ConsistencyLevel cl, long queryStartNanoTime) throws ReadTimeoutException, UnavailableException
+    {
+        long start = System.nanoTime();
+        Keyspace keyspace = Keyspace.open(command.keyspace);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(command.table);
+
+        Token token = cfs.decorateKey(command.key).getToken();
+        try
+        {
+            ReplicaPlan.Shared sharedReplicaPlan = ReplicaPlan.shared(ReplicaPlans.forRead(keyspace, token, cl, SpeculativeRetryPolicy.fromString("never")));
+
+            PartitionSizeCallback callback = new PartitionSizeCallback(sharedReplicaPlan, queryStartNanoTime);
+            Message<PartitionSizeCommand> message = command.getMessage();
+
+            InetAddressAndPort broadcastAddress = FBUtilities.getBroadcastAddressAndPort();
+            Iterator<InetAddressAndPort> iter = sharedReplicaPlan.get().contacts().endpoints().iterator();
+            while (iter.hasNext())
+            {
+                InetAddressAndPort replica = iter.next();
+                if (replica.equals(broadcastAddress))
+                {
+                    Stage.READ.maybeExecuteImmediately(() -> {
+                        long size = command.executeLocally();
+                        callback.handleResponse(broadcastAddress, size);
+                    });
+                }
+                else
+                {
+                    MessagingService.instance().sendWithCallback(message, replica, callback);
+                }
+            }
+
+            return callback.get();
+        }
+        catch (UnavailableException e)
+        {
+            partitionSizeMetricsMap.get(cl).unavailables.mark();
+            partitionSizeMetrics.unavailables.mark();
+            throw e;
+        }
+        catch (ReadTimeoutException e)
+        {
+            partitionSizeMetricsMap.get(cl).timeouts.mark();
+            partitionSizeMetrics.timeouts.mark();
+            throw e;
+        }
+        finally
+        {
+            long latency = System.nanoTime() - start;
+            partitionSizeMetrics.addNano(latency);
+            partitionSizeMetricsMap.get(cl).addNano(latency);
+        }
     }
 
     /**
