@@ -696,6 +696,25 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         return sum;
     }
 
+    public long getSerializedRowSize(DecoratedKey key)
+    {
+        RowIndexEntry indexEntry = getPosition(key, Operator.EQ);
+        if (indexEntry == null)
+        {
+            return 0;
+        }
+
+        RowIndexEntry nextEntry = getPosition(key, Operator.GT);
+        if (nextEntry == null)
+        {
+            return uncompressedLength() - indexEntry.position;
+        }
+        else
+        {
+            return  nextEntry.position - indexEntry.position;
+        }
+    }
+
     public boolean equals(Object that)
     {
         return that instanceof SSTableReader && ((SSTableReader) that).descriptor.equals(this.descriptor);
