@@ -274,6 +274,7 @@ cqlStatement returns [ParsedStatement stmt]
     | st38=createMaterializedViewStatement { $stmt = st38; }
     | st39=dropMaterializedViewStatement   { $stmt = st39; }
     | st40=alterMaterializedViewStatement  { $stmt = st40; }
+    | st41=selectSizeStatement             { $stmt = st41; }
     ;
 
 /*
@@ -367,6 +368,18 @@ orderByClause[Map<ColumnIdentifier.Raw, Boolean> orderings]
         boolean reversed = false;
     }
     : c=cident (K_ASC | K_DESC { reversed = true; })? { orderings.put(c, reversed); }
+    ;
+
+/**
+ * SELECT_SIZE FROM <CF> WHERE KEY = "KEY1";
+ */
+selectSizeStatement returns [SelectSizeStatement.RawStatement expr]
+    : K_SELECT_SIZE
+      K_FROM cf=columnFamilyName
+      K_WHERE wclause=whereClause
+      {
+          $expr = new SelectSizeStatement.RawStatement(cf, wclause.build());
+      }
     ;
 
 /**
@@ -1752,6 +1765,7 @@ K_TUPLE:       T U P L E;
 K_TRIGGER:     T R I G G E R;
 K_STATIC:      S T A T I C;
 K_FROZEN:      F R O Z E N;
+K_SELECT_SIZE:        S E L E C T '_' S I Z E;
 
 K_FUNCTION:    F U N C T I O N;
 K_FUNCTIONS:   F U N C T I O N S;

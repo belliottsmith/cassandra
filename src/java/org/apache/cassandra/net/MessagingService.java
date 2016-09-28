@@ -158,6 +158,11 @@ public final class MessagingService implements MessagingServiceMBean
 
             return verb;
         }
+
+        /**
+         * Not used anywhere in 2.1. Repurposing to avoid conflicts upgrading
+         */
+        public static final Verb PARTITION_SIZE = Verb.INDEX_SCAN;
     }
 
     public static final EnumMap<MessagingService.Verb, Stage> verbStages = new EnumMap<MessagingService.Verb, Stage>(MessagingService.Verb.class)
@@ -207,6 +212,8 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.UNUSED_1, Stage.INTERNAL_RESPONSE);
         put(Verb.UNUSED_2, Stage.INTERNAL_RESPONSE);
         put(Verb.UNUSED_3, Stage.INTERNAL_RESPONSE);
+
+        put(Verb.PARTITION_SIZE, Stage.READ);
     }};
 
     /**
@@ -245,6 +252,8 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.HINT, HintMessage.serializer);
         put(Verb.BATCH_STORE, Batch.serializer);
         put(Verb.BATCH_REMOVE, UUIDSerializer.serializer);
+
+        put(Verb.PARTITION_SIZE, PartitionSizeCommand.serializer);
     }};
 
     /**
@@ -272,6 +281,8 @@ public final class MessagingService implements MessagingServiceMBean
 
         put(Verb.BATCH_STORE, WriteResponse.serializer);
         put(Verb.BATCH_REMOVE, WriteResponse.serializer);
+
+        put(Verb.PARTITION_SIZE, PartitionSizeResponse.serializer);
     }};
 
     /* This records all the results mapped by message Id */
@@ -327,7 +338,8 @@ public final class MessagingService implements MessagingServiceMBean
                                                                    Verb.PAGED_RANGE,
                                                                    Verb.REQUEST_RESPONSE,
                                                                    Verb.BATCH_STORE,
-                                                                   Verb.BATCH_REMOVE);
+                                                                   Verb.BATCH_REMOVE,
+                                                                   Verb.PARTITION_SIZE);
 
 
     private static final class DroppedMessages

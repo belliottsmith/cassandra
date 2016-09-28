@@ -33,6 +33,8 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.collect.*;
 import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.Uninterruptibles;
+
+import org.apache.cassandra.config.ReadRepairDecision;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -1770,6 +1772,37 @@ public class StorageProxy implements StorageProxyMBean
             for (ReadCommand command : group.commands)
                 Keyspace.openAndGetStore(command.metadata()).metric.coordinatorReadLatency.update(latency, TimeUnit.NANOSECONDS);
         }
+    }
+
+    public static Map<InetAddress, Long> fetchPartitionSize(PartitionSizeCommand command, ConsistencyLevel cl, long queryStartNanoTime) throws ReadTimeoutException, UnavailableException
+    {
+        Keyspace keyspace = Keyspace.open(command.keyspace);
+        List<InetAddress> allReplicas = StorageService.instance.getLiveNaturalEndpoints(keyspace, command.key);
+        List<InetAddress> filteredReplicas = cl.filterForQuery(keyspace, allReplicas, cl.isDatacenterLocal() ? ReadRepairDecision.DC_LOCAL : ReadRepairDecision.GLOBAL);
+        cl.assureSufficientLiveNodes(keyspace, filteredReplicas);
+
+        List<InetAddress> replicasToMessage = filteredReplicas.subList(0, Math.min(cl.blockFor(keyspace) + 1, filteredReplicas.size()));
+
+        PartitionSizeCallback callback = new PartitionSizeCallback(command, cl, cl.blockFor(keyspace), queryStartNanoTime);
+        MessageOut<PartitionSizeCommand> message = command.getMessage();
+
+        InetAddress broadcastAddress = FBUtilities.getBroadcastAddress();
+        for (InetAddress replica : replicasToMessage)
+        {
+            if (replica.equals(broadcastAddress))
+            {
+                StageManager.getStage(Stage.READ).maybeExecuteImmediately(() -> {
+                    long size = command.executeLocally();
+                    callback.handleResponse(broadcastAddress, size);
+                });
+            }
+            else
+            {
+                MessagingService.instance().sendRR(message, replica, callback);
+            }
+        }
+
+        return callback.get();
     }
 
     /**
