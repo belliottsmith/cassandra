@@ -26,6 +26,7 @@ import java.util.concurrent.*;
 import java.util.stream.Stream;
 
 import com.google.common.collect.Sets;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.io.util.File;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -60,6 +61,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FilterFactory;
 
 import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
+import static org.apache.cassandra.db.ColumnFamilyStore.FlushReason.UNIT_TESTS;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -87,6 +89,7 @@ public class SSTableReaderTest
     @BeforeClass
     public static void defineSchema() throws Exception
     {
+        CassandraRelevantProperties.ALLOW_DISABLED_COMPRESSION.setBoolean(true);
         SchemaLoader.prepareServer();
         SchemaLoader.createKeyspace(KEYSPACE1,
                                     KeyspaceParams.simple(1),
@@ -894,5 +897,40 @@ public class SSTableReaderTest
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cf);
         cfs.discardSSTables(System.currentTimeMillis());
         return cfs;
+    }
+
+    @Test
+    public void getSerializedRowSize()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD2);
+        partitioner = cfs.getPartitioner();
+
+        // insert 2 rows
+        for (int j = 0; j < 2; j++)
+        {
+            new RowUpdateBuilder(cfs.metadata(), j, String.valueOf(j))
+                .clustering("0")
+                .add("val", ByteBufferUtil.EMPTY_BYTE_BUFFER)
+                .build()
+                .applyUnsafe();
+        }
+
+        Set<SSTableReader> beforeFlush = cfs.getLiveSSTables();
+        cfs.forceBlockingFlush(UNIT_TESTS);
+        Set<SSTableReader> afterFlush = cfs.getLiveSSTables();
+        Sets.SetView<SSTableReader> sstables = Sets.difference(afterFlush, beforeFlush);
+
+        assertEquals(1, sstables.size());
+
+        SSTableReader sstable = sstables.iterator().next();
+
+        // check that both keys add up to total sstable size
+        long expectedTotal = sstable.uncompressedLength();
+        long actualTotal = sstable.getSerializedRowSize(k(0)) + sstable.getSerializedRowSize(k(1));
+        assertEquals(expectedTotal, actualTotal);
+
+        // check non-existant keys return nothing
+        assertEquals(0, sstable.getSerializedRowSize(k(2)));
     }
 }
