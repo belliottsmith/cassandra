@@ -42,7 +42,9 @@ import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
+import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
+import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.LocalPartitioner.LocalToken;
@@ -61,6 +63,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FilterFactory;
 
 import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
+import static org.apache.cassandra.cql3.statements.schema.AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -87,6 +90,7 @@ public class SSTableReaderTest
     @BeforeClass
     public static void defineSchema() throws Exception
     {
+        System.setProperty(SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION, "true");
         SchemaLoader.prepareServer();
         SchemaLoader.createKeyspace(KEYSPACE1,
                                     KeyspaceParams.simple(1),
@@ -907,5 +911,40 @@ public class SSTableReaderTest
         assertTrue("CompressionInfo file should exist", compressionInfoFile.exists());
         assertTrue("TOC file should exist", tocFile.exists());
         return desc;
+    }
+
+    @Test
+    public void getSerializedRowSize()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD2);
+        partitioner = cfs.getPartitioner();
+
+        // insert 2 rows
+        for (int j = 0; j < 2; j++)
+        {
+            new RowUpdateBuilder(cfs.metadata(), j, String.valueOf(j))
+                .clustering("0")
+                .add("val", ByteBufferUtil.EMPTY_BYTE_BUFFER)
+                .build()
+                .applyUnsafe();
+        }
+
+        Set<SSTableReader> beforeFlush = cfs.getLiveSSTables();
+        cfs.forceBlockingFlush();
+        Set<SSTableReader> afterFlush = cfs.getLiveSSTables();
+        Sets.SetView<SSTableReader> sstables = Sets.difference(afterFlush, beforeFlush);
+
+        assertEquals(1, sstables.size());
+
+        SSTableReader sstable = sstables.iterator().next();
+
+        // check that both keys add up to total sstable size
+        long expectedTotal = sstable.uncompressedLength();
+        long actualTotal = sstable.getSerializedRowSize(k(0)) + sstable.getSerializedRowSize(k(1));
+        assertEquals(expectedTotal, actualTotal);
+
+        // check non-existant keys return nothing
+        assertEquals(0, sstable.getSerializedRowSize(k(2)));
     }
 }
