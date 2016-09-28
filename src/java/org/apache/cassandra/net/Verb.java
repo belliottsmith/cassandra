@@ -36,6 +36,9 @@ import org.apache.cassandra.db.CounterMutation;
 import org.apache.cassandra.db.CounterMutationVerbHandler;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.MutationVerbHandler;
+import org.apache.cassandra.db.PartitionSizeCommand;
+import org.apache.cassandra.db.PartitionSizeResponse;
+import org.apache.cassandra.db.PartitionSizeVerbHandler;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadCommandVerbHandler;
 import org.apache.cassandra.db.ReadRepairVerbHandler;
@@ -127,6 +130,9 @@ public enum Verb
     READ_REQ               (3,   P3, readTimeout,     READ,              () -> ReadCommand.serializer,               () -> ReadCommandVerbHandler.instance,     READ_RSP            ),
     RANGE_RSP              (69,  P2, rangeTimeout,    REQUEST_RESPONSE,  () -> ReadResponse.serializer,              () -> ResponseVerbHandler.instance                             ),
     RANGE_REQ              (9,   P3, rangeTimeout,    READ,              () -> ReadCommand.serializer,               () -> ReadCommandVerbHandler.instance,     RANGE_RSP           ),
+    // CIE - reuses Verb.INDEX_SCAN - remove when there are no more deployed CIE 3.0 clusters.
+    CIE3_PARTITION_SIZE_RSP(81,  P2, readTimeout,     REQUEST_RESPONSE,  () -> PartitionSizeResponse.serializer,     () -> ResponseVerbHandler.instance                             ),
+    CIE3_PARTITION_SIZE_REQ(21,  P3, readTimeout,     READ,              () -> PartitionSizeCommand.serializer,      () -> PartitionSizeVerbHandler.instance,   CIE3_PARTITION_SIZE_RSP),
 
     GOSSIP_DIGEST_SYN      (14,  P0, longTimeout,     GOSSIP,            () -> GossipDigestSyn.serializer,           () -> GossipDigestSynVerbHandler.instance                      ),
     GOSSIP_DIGEST_ACK      (15,  P0, longTimeout,     GOSSIP,            () -> GossipDigestAck.serializer,           () -> GossipDigestAckVerbHandler.instance                      ),
@@ -189,6 +195,16 @@ public enum Verb
     UNUSED_CUSTOM_VERB     (CUSTOM,
                             0,   P1, rpcTimeout,      INTERNAL_RESPONSE, () -> null,                                 () -> null                                                     ),
 
+
+    // SELECT_SIZE patch - original 3.x reused Verb.INDEX_SCAN id, but has been moved out to custom verb for 4.0
+    PARTITION_SIZE_RSP                (CUSTOM,
+                                       24,  P2, readTimeout,                      REQUEST_RESPONSE,  () -> PartitionSizeResponse.serializer,     () -> ResponseVerbHandler.instance                                                               ),
+    PARTITION_SIZE_REQ                (CUSTOM,
+                                       25,  P3, readTimeout,                      READ,              () -> PartitionSizeCommand.serializer,      () -> PartitionSizeVerbHandler.instance, PARTITION_SIZE_RSP) {
+        Verb toPre40Verb() {
+            return CIE3_PARTITION_SIZE_REQ;
+        }
+    }
     ;
 
     public static final List<Verb> VERBS = ImmutableList.copyOf(Verb.values());

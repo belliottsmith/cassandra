@@ -62,6 +62,11 @@ public enum AuditLogEntryType
     DESCRIBE(AuditLogEntryCategory.OTHER),
 
     /*
+     * CIE Log Entry Types
+     */
+    SELECT_SIZE(AuditLogEntryCategory.QUERY),
+
+    /*
      * Common Audit Log Entry Types
      */
 
