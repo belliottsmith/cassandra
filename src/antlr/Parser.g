@@ -246,6 +246,7 @@ cqlStatement returns [CQLStatement.Raw stmt]
     | st38=createMaterializedViewStatement { $stmt = st38; }
     | st39=dropMaterializedViewStatement   { $stmt = st39; }
     | st40=alterMaterializedViewStatement  { $stmt = st40; }
+    | st41=selectSizeStatement             { $stmt = st41; }
     ;
 
 /*
@@ -464,6 +465,18 @@ orderByClause[Map<ColumnMetadata.Raw, Boolean> orderings]
 
 groupByClause[List<ColumnMetadata.Raw> groups]
     : c=cident { groups.add(c); }
+    ;
+
+/**
+ * SELECT_SIZE FROM <CF> WHERE KEY = "KEY1";
+ */
+selectSizeStatement returns [SelectSizeStatement.RawStatement expr]
+    : K_SELECT_SIZE
+      K_FROM cf=columnFamilyName
+      K_WHERE wclause=whereClause
+      {
+          $expr = new SelectSizeStatement.RawStatement(cf, wclause.build());
+      }
     ;
 
 /**

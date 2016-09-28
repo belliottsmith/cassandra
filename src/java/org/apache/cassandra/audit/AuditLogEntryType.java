@@ -61,6 +61,11 @@ public enum AuditLogEntryType
     USE_KEYSPACE(AuditLogEntryCategory.OTHER),
 
     /*
+     * CIE Log Entry Types
+     */
+    SELECT_SIZE(AuditLogEntryCategory.QUERY),
+
+    /*
      * Common Audit Log Entry Types
      */
 
