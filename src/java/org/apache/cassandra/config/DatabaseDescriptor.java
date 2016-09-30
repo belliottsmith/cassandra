@@ -103,6 +103,9 @@ public class DatabaseDescriptor
     private static boolean hasLoggedConfig;
 
     public static void forceStaticInitialization() {}
+
+    private static volatile boolean aggressiveGC = Boolean.getBoolean("cassandra.aggressivegcls.enabled");
+
     static
     {
         // In client mode, we use a default configuration. Note that the fields of this class will be
@@ -2024,4 +2027,8 @@ public class DatabaseDescriptor
     {
         conf.range_tombstone_resize_factor = resizeFactor;
     }
+
+    public static void setEnableAggressiveGCCompaction(boolean enable) { aggressiveGC = enable; }
+
+    public static boolean getEnableAggressiveGCCompaction() { return aggressiveGC; }
 }
