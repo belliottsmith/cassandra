@@ -79,6 +79,10 @@ public class TableStats extends NodeToolCmd
         filter.verifyKeyspaces(probe.getKeyspaces());
         filter.verifyColumnFamilies();
 
+        // print out the total number of tables
+        System.out.println("Total number of tables: " + probe.getNumberOfTables());
+        System.out.println("----------------");
+
         // print out the table statistics
         for (Map.Entry<String, List<ColumnFamilyStoreMBean>> entry : tableStoreMap.entrySet())
         {

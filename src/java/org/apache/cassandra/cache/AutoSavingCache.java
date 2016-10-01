@@ -116,9 +116,9 @@ public class AutoSavingCache<K extends CacheKey, V> extends InstrumentingCache<K
         return DatabaseDescriptor.getSerializedCachePath( cacheType, version, "crc");
     }
 
-    public Writer getWriter(int keysToSave)
+    public Writer getWriter(int keysToSave, boolean disableHotKeys)
     {
-        return new Writer(keysToSave);
+        return new Writer(keysToSave, disableHotKeys);
     }
 
     public void scheduleSaving(int savePeriodInSeconds, final int keysToSave)
@@ -266,7 +266,12 @@ public class AutoSavingCache<K extends CacheKey, V> extends InstrumentingCache<K
 
     public Future<?> submitWrite(int keysToSave)
     {
-        return CompactionManager.instance.submitCacheWrite(getWriter(keysToSave));
+        return submitWrite(keysToSave, false);
+    }
+
+    public Future<?> submitWrite(int keysToSave, boolean disableHotKeys)
+    {
+        return CompactionManager.instance.submitCacheWrite(getWriter(keysToSave, disableHotKeys));
     }
 
     public class Writer extends CompactionInfo.Holder
@@ -276,13 +281,13 @@ public class AutoSavingCache<K extends CacheKey, V> extends InstrumentingCache<K
         private long keysWritten;
         private final long keysEstimate;
 
-        protected Writer(int keysToSave)
+        protected Writer(int keysToSave, boolean disableHotKeys)
         {
             int size = size();
-            if (keysToSave >= size || keysToSave == 0)
+            if (keysToSave >= size || keysToSave == 0 || disableHotKeys)
             {
                 keyIterator = keyIterator();
-                keysEstimate = size;
+                keysEstimate = disableHotKeys? keysToSave : size;
             }
             else
             {

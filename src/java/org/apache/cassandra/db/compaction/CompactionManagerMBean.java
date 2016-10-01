@@ -106,4 +106,8 @@ public interface CompactionManagerMBean
      * @param number New maximum of validator threads
      */
     public void setMaximumValidatorThreads(int number);
+
+    /** Configures aggresive GC compaction mode of LCS **/
+    public void setEnableAggressiveGCCompaction(boolean enable);
+    public boolean getEnableAggressiveGCCompaction();
 }

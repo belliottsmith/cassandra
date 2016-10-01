@@ -17,15 +17,25 @@
  */
 package org.apache.cassandra.cql3.validation.operations;
 
+import java.net.InetAddress;
+import java.util.Collection;
+import java.util.List;
+import java.util.UUID;
+
+import org.apache.cassandra.auth.AuthKeyspace;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.cql3.statements.SchemaAlteringStatement;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.SyntaxException;
+import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.schema.SchemaKeyspace;
 import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.service.StorageService;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -230,6 +240,120 @@ public class AlterTest extends CQLTester
                    row("cf1", map("class", "org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy",
                                   "min_threshold", "7",
                                   "max_threshold", "32")));
+    }
+
+    @Test
+    public void testAlterSimpleStrategyKeyspaceAllowedWithAcceptableRFWhenCurrentKeyspaceHasSimpleStrategy() throws Throwable
+    {
+        try
+        {
+            // Create a keyspace with SimpleStrategy.
+            execute("CREATE KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+
+            // Block create keyspace with SimpleStrategy.
+            System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false");
+
+            // try create another keyspace with SimpleStrategy - Expected to fail
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABCD WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+
+            // try altering the keyspace. When a keyspace present has SimpleStrategy and is altered when SimpleStrategy is not allowed, alter statement should not fail.
+            execute("ALTER KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 3 }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+            System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
+        }
+    }
+
+    @Test
+    public void testAlterKeyspaceWithNTSOnlyAcceptsConfiguredDataCenterNames() throws Throwable
+    {
+        try
+        {
+            // We have registered an EndpointSnitch that returns fixed value for DC name {@link CQLTester:DEFAULT_DC}
+
+            // Create a keyspace with expected DC name.
+            execute("CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 }");
+
+            // try modifying the keyspace
+            assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication = { 'class' : 'NetworkTopologyStrategy', 'INVALID_DC' : 2 }");
+            execute("ALTER KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 3 }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
+    @Test
+    public void testAlterKeyspaceWithSimpleStrategyWithoutReplicationFactor() throws Throwable
+    {
+        try
+        {
+            // Create a keyspace
+            execute("CREATE KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+
+            // try altering the keyspace. When the alter keyspace statement does not have replication factor, it should fail with ConfigurationException.
+            assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy' }");
+            assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication={ 'class' : 'NetworkTopologyStrategy' }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
+    @Test
+    public void testConfigurationExceptionThrownWhenAlterKeyspaceWithNonNumericReplicationFactor() throws Throwable
+    {
+        try
+        {
+            // Create a keyspace with SimpleStrategy.
+            execute("CREATE KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+
+            // try altering the keyspace. When the alter keyspace statement does not have replication factor, it should fail with ConfigurationException.
+            assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication={ 'class' : 'SimpleStrategy', 'replication_factor' : 'foo' }");
+            assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE testABC WITH replication={ 'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 'foo' }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
+    @Test
+    public void testAlterKeyspaceSystem_AuthWithNTSOnlyAcceptsConfiguredDataCenterNames() throws Throwable
+    {
+        // Add a peer
+        StorageService.instance.getTokenMetadata().updateHostId(UUID.randomUUID(), InetAddress.getByName("127.0.0.2"));
+        // Register an Endpoint snitch which returns fixed value for data center.
+        DatabaseDescriptor.setEndpointSnitch(new IEndpointSnitch()
+        {
+            public String getRack(InetAddress endpoint) { return DEFAULT_RACK; }
+            public String getDatacenter(InetAddress endpoint)
+            {
+                if(endpoint.getHostAddress().equalsIgnoreCase("127.0.0.2"))
+                    return "datacenter2";
+                return DEFAULT_DC;
+            }
+            public List<InetAddress> getSortedListByProximity(InetAddress address, Collection<InetAddress> unsortedAddress) { return null; }
+            public void sortByProximity(InetAddress address, List<InetAddress> addresses) {  } // NO OP
+            public int compareEndpoints(InetAddress target, InetAddress a1, InetAddress a2) { return 0; }
+            public void gossiperStarting() { } // NO OP
+            public boolean isWorthMergingForRangeQuery(List<InetAddress> merged, List<InetAddress> l1, List<InetAddress> l2) { return false; }
+        });
+
+        // Create a keyspace with expected DC name.
+        execute("CREATE KEYSPACE " + AuthKeyspace.NAME + " WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 , 'datacenter2' : 2 }");
+
+        // try modifying the system_auth keyspace without second DC which has active node.
+        assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE system_auth WITH replication = { 'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 }");
+        execute("ALTER KEYSPACE " + AuthKeyspace.NAME + " WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 1 , 'datacenter2' : 1 }");
     }
 
     /**

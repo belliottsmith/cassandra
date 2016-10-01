@@ -27,10 +27,12 @@ import org.junit.Test;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.cql3.statements.SchemaAlteringStatement;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.SyntaxException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.schema.SchemaKeyspace;
 import org.apache.cassandra.triggers.ITrigger;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -342,6 +344,95 @@ public class CreateTest extends CQLTester
 
         // clean-up
         execute("DROP KEYSPACE testXYZ");
+    }
+
+    @Test
+    public void testCreateKeyspaceWithSimpleStrategyWhenSimpleStrategyIsNotAllowed() throws Throwable
+    {
+        try
+        {
+            // Set the system property to prohibit SimpleStrategy.
+            System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false");
+
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+
+            // clean-up for other tests.
+            System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
+    @Test
+    public void testConfigurationExceptionThrownWhenCreateKeyspaceWithRFLessThanExpected() throws Throwable
+    {
+        try
+        {
+            // Set the system property for minimum allowed replication factor.
+            System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "2");
+
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 1 }");
+
+            // clean-up for other tests.
+            System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
+    @Test
+    public void testCreateKeyspaceWithNTSOnlyAcceptsConfiguredDataCenterNames() throws Throwable
+    {
+        try
+        {
+            // We have registered an EndpointSnitch that returns fixed value for DC name {@link CQLTester:DEFAULT_DC}
+
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'NetworkTopologyStrategy', 'INVALID_DC' : 2 }");
+            execute("CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testABC");
+        }
+    }
+
+    @Test
+    public void testConfigurationExceptionThrownWhenCreateKeyspaceWithoutReplicationFactor() throws Throwable
+    {
+        try
+        {
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testInvalidSimple WITH replication = {'class' : 'SimpleStrategy' }");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testInvalidNTS WITH replication = {'class' : 'NetworkTopologyStrategy' }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testInvalidSimple");
+            execute("DROP KEYSPACE IF EXISTS testInvalidNTS");
+        }
+    }
+
+    @Test
+    public void testConfigurationExceptionThrownWhenCreateKeyspaceWithNonNumericReplicationFactor() throws Throwable
+    {
+        try
+        {
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'SimpleStrategy', 'replication_factor' : 'foo'}");
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 'foo' }");
+        }
+        finally
+        {
+            // clean-up
+            execute("DROP KEYSPACE IF EXISTS testInvalidSimple");
+            execute("DROP KEYSPACE IF EXISTS testInvalidNTS");
+        }
     }
 
     /**

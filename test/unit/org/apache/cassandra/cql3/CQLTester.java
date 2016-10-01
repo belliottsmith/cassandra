@@ -41,6 +41,7 @@ import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.*;
 import com.datastax.driver.core.ResultSet;
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -48,6 +49,7 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.cql3.functions.FunctionName;
 import org.apache.cassandra.cql3.functions.ThreadAwareSecurityManager;
 import org.apache.cassandra.cql3.statements.ParsedStatement;
+import org.apache.cassandra.cql3.statements.SchemaAlteringStatement;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.marshal.*;
@@ -56,6 +58,8 @@ import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.SyntaxException;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.serializers.TypeSerializer;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
@@ -77,6 +81,8 @@ public abstract class CQLTester
 
     public static final String KEYSPACE = "cql_test_keyspace";
     public static final String KEYSPACE_PER_TEST = "cql_test_keyspace_alt";
+    public static final String DEFAULT_DC = "datacenter1";
+    public static final String DEFAULT_RACK = "rack1";
     protected static final boolean USE_PREPARED_VALUES = Boolean.valueOf(System.getProperty("cassandra.test.use_prepared", "true"));
     protected static final boolean REUSE_PREPARED = Boolean.valueOf(System.getProperty("cassandra.test.reuse_prepared", "true"));
     protected static final long ROW_CACHE_SIZE_IN_MB = Integer.valueOf(System.getProperty("cassandra.test.row_cache_size_in_mb", "0"));
@@ -112,6 +118,25 @@ public abstract class CQLTester
 
         // Once per-JVM is enough
         prepareServer();
+
+        System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
+        System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
+        // Register an Endpoint snitchwhich returns fixed value for data center.
+        DatabaseDescriptor.setEndpointSnitch(new IEndpointSnitch()
+        {
+            public String getRack(InetAddress endpoint) { return DEFAULT_RACK; }
+            public String getDatacenter(InetAddress endpoint) { return DEFAULT_DC; }
+            public List<InetAddress> getSortedListByProximity(InetAddress address, Collection<InetAddress> unsortedAddress)
+            {
+                final List<InetAddress> returnList = new ArrayList<>();
+                returnList.addAll(unsortedAddress);
+                return returnList;
+            }
+            public void sortByProximity(InetAddress address, List<InetAddress> addresses) {  } // NO OP
+            public int compareEndpoints(InetAddress target, InetAddress a1, InetAddress a2) { return 0; }
+            public void gossiperStarting() { } // NO OP
+            public boolean isWorthMergingForRangeQuery(List<InetAddress> merged, List<InetAddress> l1, List<InetAddress> l2) { return false; }
+        });
 
         nativeAddr = InetAddress.getLoopbackAddress();
 
@@ -829,6 +854,10 @@ public abstract class CQLTester
                 ColumnSpecification column = meta.get(j);
                 ByteBuffer expectedByteValue = makeByteBuffer(expected == null ? null : expected[j], column.type);
                 ByteBuffer actualValue = actual.getBytes(column.name.toString());
+
+                if (formatValue(expectedByteValue, column.type).equalsIgnoreCase(AuthKeyspace.NAME) ||
+                    formatValue(actualValue, column.type).equalsIgnoreCase(AuthKeyspace.NAME))
+                    continue;
 
                 if (!Objects.equal(expectedByteValue, actualValue))
                 {

@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.cql3.statements;
 
+import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.RequestValidationException;
@@ -47,6 +48,10 @@ public class DropKeyspaceStatement extends SchemaAlteringStatement
     public void validate(ClientState state) throws RequestValidationException
     {
         ThriftValidation.validateKeyspaceNotSystem(keyspace);
+        if (AuthKeyspace.NAME.equalsIgnoreCase(keyspace))
+        {
+            throw new InvalidRequestException("Keyspace " + AuthKeyspace.NAME + " can not be dropped by a user");
+        }
     }
 
     @Override

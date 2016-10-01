@@ -415,6 +415,7 @@ public class CustomIndexTest extends CQLTester
                                   "None shall pass",
                                   QueryValidationException.class,
                                   String.format("SELECT * FROM %%s WHERE expr(%s, 'foo bar baz')", indexName));
+
     }
 
     @Test

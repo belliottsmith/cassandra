@@ -61,6 +61,10 @@ public class Config
     public int roles_cache_max_entries = 1000;
     public volatile int roles_update_interval_in_ms = -1;
 
+    public int authenticator_validity_in_ms = 2000;
+    public int authenticator_cache_max_entries = 1000;
+    public int authenticator_update_interval_in_ms = -1;
+
     /* Hashing strategy Random or OPHF */
     public String partitioner;
 
@@ -75,6 +79,8 @@ public class Config
 
     public DiskFailurePolicy disk_failure_policy = DiskFailurePolicy.ignore;
     public CommitFailurePolicy commit_failure_policy = CommitFailurePolicy.stop;
+
+    public Boolean disable_schema_drop_check = false;
 
     /* initial token in the ring */
     public String initial_token;
@@ -266,12 +272,15 @@ public class Config
 
     public volatile int tombstone_warn_threshold = 1000;
     public volatile int tombstone_failure_threshold = 100000;
+    public volatile boolean tombstone_count_gcable = false;
 
     public volatile Long index_summary_capacity_in_mb;
     public volatile int index_summary_resize_interval_in_minutes = 60;
 
     public int gc_log_threshold_in_ms = 200;
     public int gc_warn_threshold_in_ms = 0;
+
+    public Boolean disable_incremental_repair = true;
 
     // TTL for different types of trace events.
     public int tracetype_query_ttl = (int) TimeUnit.DAYS.toSeconds(1);
@@ -327,6 +336,9 @@ public class Config
      * (Only valid, if enable_user_defined_functions_threads==true)
      */
     public UserFunctionTimeoutPolicy user_function_timeout_policy = UserFunctionTimeoutPolicy.die;
+
+    public volatile int initial_range_tombstone_allocation_size = 64;
+    public volatile double range_tombstone_resize_factor = 2.0;
 
     public static boolean getOutboundBindAny()
     {

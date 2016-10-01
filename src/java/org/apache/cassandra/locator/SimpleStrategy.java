@@ -69,10 +69,16 @@ public class SimpleStrategy extends AbstractReplicationStrategy
 
     public void validateOptions() throws ConfigurationException
     {
+        validateReplicationFactor(configOptions.get("replication_factor"));
+    }
+
+    protected void validateExpectedOptions() throws ConfigurationException
+    {
         String rf = configOptions.get("replication_factor");
         if (rf == null)
             throw new ConfigurationException("SimpleStrategy requires a replication_factor strategy option.");
-        validateReplicationFactor(rf);
+
+        super.validateExpectedOptions();
     }
 
     public Collection<String> recognizedOptions()

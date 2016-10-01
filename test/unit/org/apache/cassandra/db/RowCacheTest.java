@@ -464,7 +464,7 @@ public class RowCacheTest
         assertEquals(totalKeys, CacheService.instance.rowCache.size());
 
         // force the cache to disk
-        CacheService.instance.rowCache.submitWrite(keysToSave).get();
+        CacheService.instance.rowCache.submitWrite(keysToSave, true).get();
 
         // empty the cache again to make sure values came from disk
         CacheService.instance.invalidateRowCache();

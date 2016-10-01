@@ -25,8 +25,17 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.MatchResult;
+import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import javax.management.*;
 import javax.management.openmbean.TabularData;
@@ -40,10 +49,12 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.jmx.JMXConfiguratorMBean;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.Appender;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.Appender;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.config.Configuration;
+import org.apache.logging.log4j.core.config.LoggerConfig;
 import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.auth.AuthMigrationListener;
 import org.apache.cassandra.batchlog.BatchRemoveVerbHandler;
@@ -933,8 +944,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
 
         // if we don't have system_traces keyspace at this point, then create it manually
-        maybeAddOrUpdateKeyspace(TraceKeyspace.metadata());
-        maybeAddOrUpdateKeyspace(SystemDistributedKeyspace.metadata());
+        maybeAddOrUpdateKeyspace(TraceKeyspace.metadata(), false);
+        maybeAddOrUpdateKeyspace(SystemDistributedKeyspace.metadata(), false);
+        maybeAddOrUpdateKeyspace(CIEInternalKeyspace.metadata(), true);
+        maybeAddOrUpdateKeyspace(CIEInternalLocalKeyspace.metadata(), true);
 
         if (!isSurveyMode)
         {
@@ -1008,7 +1021,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private void doAuthSetup()
     {
-        maybeAddOrUpdateKeyspace(AuthKeyspace.metadata());
+        maybeAddOrUpdateKeyspace(AuthKeyspace.metadata(), false);
 
         DatabaseDescriptor.getRoleManager().setup();
         DatabaseDescriptor.getAuthenticator().setup();
@@ -1016,11 +1029,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         MigrationManager.instance.register(new AuthMigrationListener());
     }
 
-    private void maybeAddKeyspace(KeyspaceMetadata ksm)
+    private void maybeAddKeyspace(KeyspaceMetadata ksm, boolean useCurrentTime)
     {
         try
         {
-            MigrationManager.announceNewKeyspace(ksm, 0, false);
+            MigrationManager.announceNewKeyspace(ksm, useCurrentTime? FBUtilities.timestampMicros() : 0, false);
         }
         catch (AlreadyExistsException e)
         {
@@ -1032,7 +1045,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * Ensure the schema of a pseudo-system keyspace (a distributed system keyspace: traces, auth and the so-called distributedKeyspace),
      * is up to date with what we expected (creating it if it doesn't exist and updating tables that may have been upgraded).
      */
-    private void maybeAddOrUpdateKeyspace(KeyspaceMetadata expected)
+    private void maybeAddOrUpdateKeyspace(KeyspaceMetadata expected, boolean useCurrentTime)
     {
         // Note that want to deal with the keyspace and its table a bit differently: for the keyspace definition
         // itself, we want to create it if it doesn't exist yet, but if it does exist, we don't want to modify it,
@@ -1045,7 +1058,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // If the keyspace doesn't exist, create it
         if (defined == null)
         {
-            maybeAddKeyspace(expected);
+            maybeAddKeyspace(expected, useCurrentTime);
             defined = Schema.instance.getKSMetaData(expected.name);
         }
 
@@ -1068,13 +1081,26 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public void rebuild(String sourceDc)
     {
+        rebuild(sourceDc, null, null, null);
+    }
+
+    public void rebuild(String sourceDc, String keyspace, String tokens, String specificSources)
+    {
         // check on going rebuild
         if (!isRebuilding.compareAndSet(false, true))
         {
             throw new IllegalStateException("Node is still rebuilding. Check nodetool netstats.");
         }
 
-        logger.info("rebuild from dc: {}", sourceDc == null ? "(any dc)" : sourceDc);
+        // check the arguments
+        if (keyspace == null && tokens != null)
+        {
+            throw new IllegalArgumentException("Cannot specify tokens without keyspace.");
+        }
+
+        logger.info("rebuild from dc: {}, {}, {}", sourceDc == null ? "(any dc)" : sourceDc,
+                    keyspace == null ? "(All keyspaces)" : keyspace,
+                    tokens == null ? "(All tokens)" : tokens);
 
         try
         {
@@ -1089,8 +1115,78 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             if (sourceDc != null)
                 streamer.addSourceFilter(new RangeStreamer.SingleDatacenterFilter(DatabaseDescriptor.getEndpointSnitch(), sourceDc));
 
-            for (String keyspaceName : Schema.instance.getNonLocalStrategyKeyspaces())
-                streamer.addRanges(keyspaceName, getLocalRanges(keyspaceName));
+            if (keyspace == null)
+            {
+                for (String keyspaceName : Schema.instance.getNonSystemKeyspaces())
+                    streamer.addRanges(keyspaceName, getLocalRanges(keyspaceName));
+            }
+            else if (tokens == null)
+            {
+                streamer.addRanges(keyspace, getLocalRanges(keyspace));
+            }
+            else
+            {
+                Token.TokenFactory factory = getTokenFactory();
+                List<Range<Token>> ranges = new ArrayList<>();
+                Pattern rangePattern = Pattern.compile("\\(\\s*(-?\\w+)\\s*,\\s*(-?\\w+)\\s*\\]");
+                try (Scanner tokenScanner = new Scanner(tokens))
+                {
+                    while (tokenScanner.findInLine(rangePattern) != null)
+                    {
+                        MatchResult range = tokenScanner.match();
+                        Token startToken = factory.fromString(range.group(1));
+                        Token endToken = factory.fromString(range.group(2));
+                        logger.info(String.format("adding range: (%s,%s]", startToken, endToken));
+                        ranges.add(new Range<>(startToken, endToken));
+                    }
+                    if (tokenScanner.hasNext())
+                        throw new IllegalArgumentException("Unexpected string: " + tokenScanner.next());
+                }
+
+                // Ensure all specified ranges are actually ranges owned by this host
+                Collection<Range<Token>> localRanges = getLocalRanges(keyspace);
+                for (Range<Token> specifiedRange : ranges)
+                {
+                    boolean foundParentRange = false;
+                    for (Range<Token> localRange : localRanges)
+                    {
+                        if (localRange.contains(specifiedRange))
+                        {
+                            foundParentRange = true;
+                            break;
+                        }
+                    }
+                    if (!foundParentRange)
+                    {
+                        throw new IllegalArgumentException(String.format("The specified range %s is not a range that is owned by this node. Please ensure that all token ranges specified to be rebuilt belong to this node.", specifiedRange.toString()));
+                    }
+                }
+
+                if (specificSources != null)
+                {
+                    String[] stringHosts = specificSources.split(",");
+                    Set<InetAddress> sources = new HashSet<>(stringHosts.length);
+                    for (String stringHost : stringHosts)
+                    {
+                        try
+                        {
+                            InetAddress endpoint = InetAddress.getByName(stringHost);
+                            if (FBUtilities.getBroadcastAddress().equals(endpoint))
+                            {
+                                throw new IllegalArgumentException("This host was specified as a source for rebuilding. Sources for a rebuild can only be other nodes in the cluster.");
+                            }
+                            sources.add(endpoint);
+                        }
+                        catch (UnknownHostException ex)
+                        {
+                            throw new IllegalArgumentException("Unknown host specified " + stringHost, ex);
+                        }
+                    }
+                    streamer.addSourceFilter(new RangeStreamer.WhitelistedSourcesFilter(sources));
+                }
+
+                streamer.addRanges(keyspace, ranges);
+            }
 
             StreamResultFuture resultFuture = streamer.fetchAsync();
             // wait for result
@@ -2714,6 +2810,17 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
+
+    public void forceKeyspaceCompactionForTokenRange(String keyspaceName, String startToken, String endToken, String... tableNames) throws IOException, ExecutionException, InterruptedException
+    {
+        Collection<Range<Token>> tokenRanges = createRepairRangeFrom(startToken, endToken);
+
+        for (ColumnFamilyStore cfStore : getValidColumnFamilies(true, false, keyspaceName, tableNames))
+        {
+            cfStore.forceCompactionForTokenRange(tokenRanges);
+        }
+    }
+
     /**
      * Takes the snapshot for the given keyspaces. A snapshot name must be specified.
      *
@@ -3014,7 +3121,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             parallelism = RepairParallelism.PARALLEL;
         }
 
-        RepairOption options = new RepairOption(parallelism, primaryRange, !fullRepair, false, 1, Collections.<Range<Token>>emptyList(), false);
+        RepairOption options = new RepairOption(parallelism, primaryRange, !fullRepair, false, 1, Collections.<Range<Token>>emptyList(), false, false);
         if (dataCenters != null)
         {
             options.getDataCenters().addAll(dataCenters);
@@ -3106,7 +3213,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         "The repair will occur but without anti-compaction.");
         Collection<Range<Token>> repairingRange = createRepairRangeFrom(beginToken, endToken);
 
-        RepairOption options = new RepairOption(parallelism, false, !fullRepair, false, 1, repairingRange, true);
+        RepairOption options = new RepairOption(parallelism, false, !fullRepair, false, 1, repairingRange, true, false);
         if (dataCenters != null)
         {
             options.getDataCenters().addAll(dataCenters);
@@ -3200,6 +3307,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private FutureTask<Object> createRepairTask(final int cmd, final String keyspace, final RepairOption options, boolean legacy)
     {
+        //Disabling incremental repair in Apple 3.0 version
+        if(DatabaseDescriptor.disableIncrementalRepair() && options.isIncremental())
+        {
+            throw new IllegalArgumentException("Incremental repair is not supported in 3.0 by Apple");
+        }
+
         if (!options.getDataCenters().isEmpty() && !options.getDataCenters().contains(DatabaseDescriptor.getLocalDataCenter()))
         {
             throw new IllegalArgumentException("the local data center must be part of the repair");
@@ -3390,28 +3503,25 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public void setLoggingLevel(String classQualifier, String rawLevel) throws Exception
     {
-        ch.qos.logback.classic.Logger logBackLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(classQualifier);
+        final Class<?> logClass = this.getClass().getClassLoader().loadClass(classQualifier);
+        LoggerContext ctx = (LoggerContext) LogManager.getContext(false);
+        Configuration config = ctx.getConfiguration();
+        LoggerConfig rootLoggerConfig = config.getLoggerConfig(LogManager.ROOT_LOGGER_NAME);
+        Map<String, Appender> rootAppenderRefs = rootLoggerConfig.getAppenders();
 
-        // if both classQualifer and rawLevel are empty, reload from configuration
-        if (StringUtils.isBlank(classQualifier) && StringUtils.isBlank(rawLevel) )
-        {
-            JMXConfiguratorMBean jmxConfiguratorMBean = JMX.newMBeanProxy(ManagementFactory.getPlatformMBeanServer(),
-                    new ObjectName("ch.qos.logback.classic:Name=default,Type=ch.qos.logback.classic.jmx.JMXConfigurator"),
-                    JMXConfiguratorMBean.class);
-            jmxConfiguratorMBean.reloadDefaultConfiguration();
-            return;
+        Level desiredLevel = Level.toLevel(rawLevel);
+        if (config.getLoggers().containsKey(logClass.getName())) {
+            LoggerConfig classSpecificConfig = config.getLoggerConfig(logClass.getName());
+            classSpecificConfig.setLevel(desiredLevel);
+        } else {
+            LoggerConfig classSpecificConfig = new LoggerConfig(logClass.getName(), desiredLevel, false);
+            for (Map.Entry<String, Appender> entry : rootAppenderRefs.entrySet()) {
+                classSpecificConfig.addAppender(entry.getValue(), null, null);
+            }
+            config.addLogger(logClass.getName(), classSpecificConfig);
         }
-        // classQualifer is set, but blank level given
-        else if (StringUtils.isNotBlank(classQualifier) && StringUtils.isBlank(rawLevel) )
-        {
-            if (logBackLogger.getLevel() != null || hasAppenders(logBackLogger))
-                logBackLogger.setLevel(null);
-            return;
-        }
-
-        ch.qos.logback.classic.Level level = ch.qos.logback.classic.Level.toLevel(rawLevel);
-        logBackLogger.setLevel(level);
-        logger.info("set log level to {} for classes under '{}' (if the level doesn't look like '{}' then the logger couldn't parse '{}')", level, classQualifier, rawLevel, rawLevel);
+        ctx.updateLoggers();
+        logger.info("set log level to {} for classes under '{}' (if the level doesn't look like '{}' then the logger couldn't parse '{}')", desiredLevel, classQualifier, rawLevel, rawLevel);
     }
 
     /**
@@ -3420,18 +3530,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     @Override
     public Map<String,String>getLoggingLevels() {
         Map<String, String> logLevelMaps = Maps.newLinkedHashMap();
-        LoggerContext lc = (LoggerContext) LoggerFactory.getILoggerFactory();
-        for (ch.qos.logback.classic.Logger logger : lc.getLoggerList())
-        {
-            if(logger.getLevel() != null || hasAppenders(logger))
-                logLevelMaps.put(logger.getName(), logger.getLevel().toString());
+        LoggerContext ctx = (LoggerContext) LogManager.getContext(false);
+        Configuration config = ctx.getConfiguration();
+        for (Map.Entry<String, LoggerConfig> loggerEntry : config.getLoggers().entrySet()) {
+            logLevelMaps.put(loggerEntry.getKey(), loggerEntry.getValue().getLevel().toString());
         }
         return logLevelMaps;
-    }
-
-    private boolean hasAppenders(ch.qos.logback.classic.Logger logger) {
-        Iterator<Appender<ILoggingEvent>> it = logger.iteratorForAppenders();
-        return it.hasNext();
     }
 
     /**
@@ -3739,6 +3843,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
             for (String keyspace : keyspaceNames)
             {
+                if(Keyspace.open(keyspace).getReplicationStrategy() instanceof LocalStrategy)
+                {
+                    logger.info("Skipping Local Strategy keyspace=" + keyspace);
+                    return;
+                }
                 // replication strategy of the current keyspace
                 AbstractReplicationStrategy strategy = Keyspace.open(keyspace).getReplicationStrategy();
                 Multimap<InetAddress, Range<Token>> endpointToRanges = strategy.getAddressRanges();
@@ -4565,6 +4674,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         DatabaseDescriptor.setTombstoneFailureThreshold(threshold);
     }
 
+    @Override
+    public boolean isTombstoneCountGCable() {
+        return DatabaseDescriptor.isTombstoneCountGCable();
+    }
+
+    @Override
+    public void setTombstoneCountGCable(boolean countGCable) {
+        DatabaseDescriptor.setTombstoneCountGCable(countGCable);
+    }
+
     public int getBatchSizeFailureThreshold()
     {
         return DatabaseDescriptor.getBatchSizeFailThresholdInKB();
@@ -4573,6 +4692,41 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void setBatchSizeFailureThreshold(int threshold)
     {
         DatabaseDescriptor.setBatchSizeFailThresholdInKB(threshold);
+    }
+
+    public int getInitialRangeTombstoneAllocationSize()
+    {
+        return DatabaseDescriptor.getInitialRangeTombstoneAllocationSize();
+    }
+
+    public void setInitialRangeTombstoneAllocationSize(int size)
+    {
+        if(size > 1024)
+        {
+            throw new IllegalStateException("Not updating initial_range_tombstone_allocation_size as it must be < 1024");
+        }
+        int originalSize = DatabaseDescriptor.getInitialRangeTombstoneAllocationSize();
+        DatabaseDescriptor.setInitialRangeTombstoneAllocationSize(size);
+        logger.info("Updated initial_range_tombstone_allocation_size from {} to {}", originalSize, size);
+    }
+
+    public double getRangeTombstoneResizeGrowthFactor()
+    {
+        return DatabaseDescriptor.getRangeTombstoneResizeFactor();
+    }
+
+    public void setRangeTombstoneResizeGrowthFactor(double growthFactor) throws IllegalStateException
+    {
+        if (growthFactor < 1.2 || growthFactor > 5)
+        {
+            throw new IllegalStateException("Not updating range_tombstone_resize_factor as growth factor must be > 1.2 and <= 5");
+        }
+        else
+        {
+            double originalGrowthFactor = DatabaseDescriptor.getRangeTombstoneResizeFactor();
+            DatabaseDescriptor.setRangeTombstoneResizeFactor(growthFactor);
+            logger.info("Updated range_tombstone_resize_factor from {} to {}", originalGrowthFactor, growthFactor);
+        }
     }
 
     public void setHintedHandoffThrottleInKB(int throttleInKB)

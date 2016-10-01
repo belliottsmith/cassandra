@@ -304,7 +304,7 @@ public class ClientState
         if ((perm == Permission.SELECT) && READABLE_SYSTEM_RESOURCES.contains(resource))
             return;
         if (PROTECTED_AUTH_RESOURCES.contains(resource))
-            if ((perm == Permission.CREATE) || (perm == Permission.ALTER) || (perm == Permission.DROP))
+            if ((perm == Permission.CREATE) || (perm == Permission.DROP))
                 throw new UnauthorizedException(String.format("%s schema is protected", resource));
         ensureHasPermission(perm, resource);
     }
@@ -365,8 +365,7 @@ public class ClientState
         // TRACING_KS, and also to drop legacy tables (users, credentials, permissions) from
         // AUTH_KS
         if (ALTERABLE_SYSTEM_KEYSPACES.contains(resource.getKeyspace().toLowerCase())
-           && ((perm == Permission.ALTER && !resource.isKeyspaceLevel())
-               || (perm == Permission.DROP && !DROPPABLE_SYSTEM_TABLES.contains(resource))))
+           &&  (perm == Permission.DROP && !DROPPABLE_SYSTEM_TABLES.contains(resource)))
         {
             throw new UnauthorizedException(String.format("Cannot %s %s", perm, resource));
         }

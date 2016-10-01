@@ -516,7 +516,7 @@ public class LeveledManifest
         return level;
     }
 
-    private static Set<SSTableReader> overlapping(Collection<SSTableReader> candidates, Iterable<SSTableReader> others)
+    static Set<SSTableReader> overlapping(Collection<SSTableReader> candidates, Iterable<SSTableReader> others)
     {
         assert !candidates.isEmpty();
         /*

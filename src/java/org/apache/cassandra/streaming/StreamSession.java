@@ -46,6 +46,7 @@ import org.apache.cassandra.gms.*;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.metrics.StreamingMetrics;
+import org.apache.cassandra.repair.StreamingRepairTask;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.messages.*;
 import org.apache.cassandra.utils.FBUtilities;
@@ -506,8 +507,21 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         state(State.PREPARING);
         PrepareMessage prepare = new PrepareMessage();
         prepare.requests.addAll(requests);
+        long totalBytesToStream = 0;
+        long totalSSTablesStreamed = 0;
         for (StreamTransferTask task : transfers.values())
+        {
+            totalBytesToStream += task.getTotalSize();
+            totalSSTablesStreamed += task.getTotalNumberOfFiles();
             prepare.summaries.add(task.getSummary());
+        }
+
+        if(StreamingRepairTask.REPAIR_STREAM_PLAN_NAME.equals(description()))
+        {
+            StreamingMetrics.totalOutgoingRepairBytes.inc(totalBytesToStream);
+            StreamingMetrics.totalOutgoingRepairSSTables.inc(totalSSTablesStreamed);
+        }
+
         handler.sendMessage(prepare);
 
         // if we don't need to prepare for receiving stream, start sending files immediately

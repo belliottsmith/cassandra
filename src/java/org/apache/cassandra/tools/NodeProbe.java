@@ -309,6 +309,11 @@ public class NodeProbe implements AutoCloseable
         ssProxy.forceKeyspaceCompaction(splitOutput, keyspaceName, tableNames);
     }
 
+    public void forceKeyspaceCompactionForTokenRange(String keyspaceName, final String startToken, final String endToken, String... tableNames) throws IOException, ExecutionException, InterruptedException
+    {
+        ssProxy.forceKeyspaceCompactionForTokenRange(keyspaceName, startToken, endToken, tableNames);
+    }
+
     public void forceKeyspaceFlush(String keyspaceName, String... tableNames) throws IOException, ExecutionException, InterruptedException
     {
         ssProxy.forceKeyspaceFlush(keyspaceName, tableNames);
@@ -1028,9 +1033,9 @@ public class NodeProbe implements AutoCloseable
         return ssProxy.describeRingJMX(keyspaceName);
     }
 
-    public void rebuild(String sourceDc)
+    public void rebuild(String sourceDc, String keyspace, String tokens, String specificSources)
     {
-        ssProxy.rebuild(sourceDc);
+        ssProxy.rebuild(sourceDc, keyspace, tokens, specificSources);
     }
 
     public List<String> sampleKeyRange()
@@ -1110,6 +1115,11 @@ public class NodeProbe implements AutoCloseable
     public Multimap<String, String> getThreadPools()
     {
         return ThreadPoolMetrics.getJmxThreadPools(mbeanServerConn);
+    }
+
+    public int getNumberOfTables()
+    {
+        return spProxy.getNumberOfTables();
     }
 
     /**

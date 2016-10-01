@@ -251,6 +251,11 @@ public class Keyspace
         return snapshotName;
     }
 
+    public static String getTimestampedSnapshotNameWithPrefix(String clientSuppliedName, String prefix)
+    {
+        return prefix + "-" + getTimestampedSnapshotName(clientSuppliedName);
+    }
+
     /**
      * Check whether snapshots already exists for a given name.
      *

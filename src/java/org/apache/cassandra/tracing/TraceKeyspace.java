@@ -75,7 +75,7 @@ public final class TraceKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(2), Tables.of(Sessions, Events));
+        return KeyspaceMetadata.create(NAME, KeyspaceParams.simpleTransient(2), Tables.of(Sessions, Events));
     }
 
     static Mutation makeStartSessionMutation(ByteBuffer sessionId,

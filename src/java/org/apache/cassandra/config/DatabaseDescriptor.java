@@ -103,6 +103,9 @@ public class DatabaseDescriptor
     private static boolean hasLoggedConfig;
 
     public static void forceStaticInitialization() {}
+
+    private static volatile boolean aggressiveGC = Boolean.getBoolean("cassandra.aggressivegcls.enabled");
+
     static
     {
         // In client mode, we use a default configuration. Note that the fields of this class will be
@@ -817,6 +820,23 @@ public class DatabaseDescriptor
         conf.permissions_update_interval_in_ms = updateInterval;
     }
 
+    public static int getAuthenticatorValidity()
+    {
+        return conf.authenticator_validity_in_ms;
+    }
+
+    public static int getAuthenticatorCacheMaxEntries()
+    {
+        return conf.authenticator_cache_max_entries;
+    }
+
+    public static int getAuthenticatorUpdateInterval()
+    {
+        return conf.authenticator_update_interval_in_ms == -1
+                ? conf.authenticator_validity_in_ms
+                : conf.authenticator_update_interval_in_ms;
+    }
+
     public static int getThriftFramedTransportSize()
     {
         return conf.thrift_framed_transport_size_in_mb * 1024 * 1024;
@@ -1283,6 +1303,17 @@ public class DatabaseDescriptor
         conf.tombstone_failure_threshold = threshold;
     }
 
+    public static boolean isTombstoneCountGCable()
+    {
+        return conf.tombstone_count_gcable;
+    }
+
+    public static void setTombstoneCountGCable(boolean countGCable)
+    {
+        conf.tombstone_count_gcable = countGCable;
+    }
+
+
     /**
      * size of commitlog segments to allocate
      */
@@ -1562,6 +1593,11 @@ public class DatabaseDescriptor
     public static Set<String> hintedHandoffDisabledDCs()
     {
         return conf.hinted_handoff_disabled_datacenters;
+    }
+
+    public static boolean disableSchemaDropCheck()
+    {
+        return conf.disable_schema_drop_check;
     }
 
     public static void enableHintsForDC(String dc)
@@ -1997,4 +2033,32 @@ public class DatabaseDescriptor
         return conf.gc_warn_threshold_in_ms;
     }
 
+    public static boolean disableIncrementalRepair()
+    {
+        return conf.disable_incremental_repair;
+    }
+
+    public static int getInitialRangeTombstoneAllocationSize()
+    {
+        return conf.initial_range_tombstone_allocation_size;
+    }
+
+    public static void setInitialRangeTombstoneAllocationSize(int size)
+    {
+        conf.initial_range_tombstone_allocation_size = size;
+    }
+
+    public static double getRangeTombstoneResizeFactor()
+    {
+        return conf.range_tombstone_resize_factor;
+    }
+
+    public static void setRangeTombstoneResizeFactor(double resizeFactor)
+    {
+        conf.range_tombstone_resize_factor = resizeFactor;
+    }
+
+    public static void setEnableAggressiveGCCompaction(boolean enable) { aggressiveGC = enable; }
+
+    public static boolean getEnableAggressiveGCCompaction() { return aggressiveGC; }
 }

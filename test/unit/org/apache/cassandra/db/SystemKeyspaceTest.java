@@ -24,6 +24,8 @@ import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.io.FileUtils;
 import org.junit.BeforeClass;
@@ -79,7 +81,8 @@ public class SystemKeyspaceTest
     {
         BytesToken token = new BytesToken(ByteBufferUtil.bytes("token3"));
         InetAddress address = InetAddress.getByName("127.0.0.2");
-        SystemKeyspace.updateTokens(address, Collections.<Token>singletonList(token));
+        Future<?> future = SystemKeyspace.updateTokens(address, Collections.<Token>singletonList(token));
+        FBUtilities.waitOnFuture(future);
         assert SystemKeyspace.loadTokens().get(address).contains(token);
         SystemKeyspace.removeEndpoint(address);
         assert !SystemKeyspace.loadTokens().containsValue(token);
