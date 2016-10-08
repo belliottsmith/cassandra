@@ -58,6 +58,16 @@ public class CIEInternalKeyspace
             + "PRIMARY KEY((ks_name), cf_name))")
         .build();
 
+    public static final TableMetadata PartitionBlacklistCf =
+        parse(PartitionBlacklist.PARTITION_BLACKLIST_CF,
+           "Partition keys which have been blacklisted",
+           "CREATE TABLE %s ("
+           + "ks_name text,"
+           + "cf_name text,"
+           + "key blob,"
+           + "PRIMARY KEY ((ks_name, cf_name), key))")
+        .build();
+
     private static TableMetadata.Builder parse(String tableName, String description, String schema)
     {
         return CreateTableStatement.parse(String.format(schema, tableName), NAME)
@@ -70,6 +80,6 @@ public class CIEInternalKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(3), Tables.of(SchemaDropLog));
+        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(3), Tables.of(SchemaDropLog, PartitionBlacklistCf));
     }
 }
