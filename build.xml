@@ -1371,8 +1371,17 @@
     <target name="rat-report" depends="rat-init" description="License checks on source" >
       <rat:report xmlns:rat="antlib:org.apache.rat.anttasks"
                   reportFile="${build.dir}/src.rat.txt">
-        <fileset dir="src/java"/>
-        <fileset dir="test/unit"/>
+        <fileset dir="src/java">
+          <patternset id="exclusions">
+            <exclude name="org/apache/cassandra/metrics/BlacklistMetrics.java"/>
+            <exclude name="org/apache/cassandra/schema/PartitionBlacklist.java"/>
+          </patternset>
+        </fileset>
+        <fileset dir="test/unit">
+            <patternset id="exclusions">
+              <exclude name="org/apache/cassandra/service/PartitionBlacklistTest.java"/>
+            </patternset>
+        </fileset>
         <fileset dir="test/distributed"/>
       </rat:report>
       <fail message="Some files have missing or incorrect license information. Check RAT report in ${build.dir}/src.rat.txt for more details!">
