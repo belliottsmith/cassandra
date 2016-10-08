@@ -65,6 +65,14 @@ public interface StorageProxyMBean
     public int getOtcBacklogExpirationInterval();
     @Deprecated
     public void setOtcBacklogExpirationInterval(int intervalInMillis);
+    public void loadPartitionBlacklist();
+    public int getPartitionBlacklistLoadAttempts();
+    public int getPartitionBlacklistLoadSuccesses();
+    public void setEnablePartitionBlacklist(boolean enabled);
+    public void setEnableBlacklistWrites(boolean enabled);
+    public void setEnableBlacklistReads(boolean enabled);
+    public void setEnableBlacklistRangeReads(boolean enabled);
+    public boolean blacklistKey(String keyspace, String cf, String keyAsString);
 
     /** Returns each live node's schema version */
     @Deprecated public Map<String, List<String>> getSchemaVersions();
