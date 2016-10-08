@@ -3197,6 +3197,86 @@ public class DatabaseDescriptor
         return conf.disable_incremental_repair;
     }
 
+    public static boolean enablePartitionBlacklist()
+    {
+        return conf.enable_partition_blacklist;
+    }
+
+    public static void setEnablePartitionBlacklist(boolean enabled)
+    {
+        conf.enable_partition_blacklist = enabled;
+    }
+
+    public static boolean enableBlacklistWrites()
+    {
+        return conf.enable_blacklist_writes;
+    }
+
+    public static void setEnableBlacklistWrites(boolean enabled)
+    {
+        conf.enable_blacklist_writes = enabled;
+    }
+
+    public static boolean enableBlacklistReads()
+    {
+        return conf.enable_blacklist_reads;
+    }
+
+    public static void setEnableBlacklistReads(boolean enabled)
+    {
+        conf.enable_blacklist_reads = enabled;
+    }
+
+    public static boolean enableBlacklistRangeReads()
+    {
+        return conf.enable_blacklist_range_reads;
+    }
+
+    public static void setEnableBlacklistRangeReads(boolean enabled)
+    {
+        conf.enable_blacklist_range_reads = enabled;
+    }
+
+    public static int getBlacklistRefreshPeriodSeconds()
+    {
+        return conf.blacklist_refresh_period_seconds;
+    }
+
+    public static void setBlacklistRefreshPeriodSeconds(int period)
+    {
+        conf.blacklist_refresh_period_seconds = period;
+    }
+
+    public static int getBlacklistInitialLoadRetrySeconds()
+    {
+        return conf.blacklist_initial_load_retry_seconds;
+    }
+
+    public static void setBlacklistInitialLoadRetrySeconds(int seconds)
+    {
+        conf.blacklist_initial_load_retry_seconds = seconds;
+    }
+
+    public static int maxBlacklistKeysPerCf()
+    {
+        return conf.max_blacklist_keys_per_cf;
+    }
+
+    public static int maxBlacklistKeysTotal()
+    {
+        return conf.max_blacklist_keys_total;
+    }
+
+    public static ConsistencyLevel blacklistConsistencyLevel()
+    {
+        return conf.blacklist_consistency_level;
+    }
+
+    public static void setBlacklistConsistencyLevel(ConsistencyLevel cl)
+    {
+        conf.blacklist_consistency_level = cl;
+    }
+
     public static boolean getEnableScheduledCompactions()
     {
         return conf.enable_scheduled_compactions;
