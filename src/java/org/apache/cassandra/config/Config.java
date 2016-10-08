@@ -523,6 +523,24 @@ public class Config
 
     public String full_query_log_dir = null; // CIE Cassandra 3.0 backward compatibility, create default FQL options if non-null.
 
+    public volatile Boolean enable_partition_blacklist = false;
+
+    public volatile Boolean enable_blacklist_writes = true;
+
+    public volatile Boolean enable_blacklist_reads = true;
+
+    public volatile Boolean enable_blacklist_range_reads = false;
+
+    public int blacklist_refresh_period_seconds = 86400;
+
+    public int blacklist_initial_load_retry_seconds = 5;
+
+    public int max_blacklist_keys_per_cf = 1000;
+
+    public int max_blacklist_keys_total = 10000;
+
+    public ConsistencyLevel blacklist_consistency_level = ConsistencyLevel.QUORUM;
+
     public volatile boolean enable_scheduled_compactions = false;
     public volatile int scheduled_compaction_range_splits = 100;
     public volatile String scheduled_compaction_cycle_time = "60d";
