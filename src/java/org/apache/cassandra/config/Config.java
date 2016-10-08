@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Sets;
 
+import org.apache.cassandra.db.ConsistencyLevel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -81,6 +82,22 @@ public class Config
     public CommitFailurePolicy commit_failure_policy = CommitFailurePolicy.stop;
 
     public Boolean disable_schema_drop_check = false;
+
+    public volatile Boolean enable_partition_blacklist = false;
+
+    public volatile Boolean enable_blacklist_writes = true;
+
+    public volatile Boolean enable_blacklist_reads = true;
+
+    public volatile Boolean enable_blacklist_range_reads = false;
+
+    public int blacklist_refresh_period_seconds = 86400;
+
+    public int max_blacklist_keys_per_cf = 1000;
+
+    public int max_blacklist_keys_total = 10000;
+
+    public ConsistencyLevel blacklist_consistency_level = ConsistencyLevel.QUORUM;
 
     /* initial token in the ring */
     public String initial_token;

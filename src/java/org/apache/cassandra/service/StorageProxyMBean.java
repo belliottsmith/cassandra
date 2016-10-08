@@ -24,6 +24,7 @@ import java.util.Set;
 public interface StorageProxyMBean
 {
     public long getTotalHints();
+
     public boolean getHintedHandoffEnabled();
     public void setHintedHandoffEnabled(boolean b);
     public void enableHintsForDC(String dc);
@@ -58,6 +59,13 @@ public interface StorageProxyMBean
     public long getReadRepairAttempted();
     public long getReadRepairRepairedBlocking();
     public long getReadRepairRepairedBackground();
+
+    public void loadPartitionBlacklist();
+    public void setEnablePartitionBlacklist(boolean enabled);
+    public void setEnableBlacklistWrites(boolean enabled);
+    public void setEnableBlacklistReads(boolean enabled);
+    public void setEnableBlacklistRangeReads(boolean enabled);
+    public boolean blacklistKey(String keyspace, String cf, String keyAsString);
 
     /** Returns each live node's schema version */
     public Map<String, List<String>> getSchemaVersions();
