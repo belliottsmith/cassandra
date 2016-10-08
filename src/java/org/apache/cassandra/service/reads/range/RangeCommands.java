@@ -24,10 +24,18 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
 import org.apache.cassandra.db.partitions.PartitionIterator;
+import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.index.Index;
+import org.apache.cassandra.locator.ReplicaPlans;
+import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.StorageProxy;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.assertj.core.util.VisibleForTesting;
@@ -68,7 +76,21 @@ public class RangeCommands
                                                      long queryStartNanoTime)
     {
         Tracing.trace("Computing ranges to query");
-
+        if (DatabaseDescriptor.enablePartitionBlacklist() && DatabaseDescriptor.enableBlacklistRangeReads())
+        {
+            final int blacklisted = StorageProxy.instance.partitionBlacklist.validateRange(command.metadata().id, command.dataRange().keyRange());
+            if (blacklisted > 0)
+            {
+                StorageProxy.instance.blacklistMetrics.incrementRangeReadsRejected();
+                StorageProxy.instance.blacklistMetrics.incrementTotalRejected();
+                throw new InvalidRequestException(String.format("Unable to read range %c%s, %s%c containing %d blacklisted keys in %s/%s",
+                                                                PartitionPosition.Kind.MIN_BOUND.equals(command.dataRange().keyRange().left.kind()) ? '[' : '(',
+                                                                StorageService.instance.getTokenMetadata().partitioner.getTokenFactory().toString(command.dataRange().keyRange().left.getToken()),
+                                                                StorageService.instance.getTokenMetadata().partitioner.getTokenFactory().toString(command.dataRange().keyRange().right.getToken()),
+                                                                PartitionPosition.Kind.MAX_BOUND.equals(command.dataRange().keyRange().right.kind()) ? ']' : ')',
+                                                                blacklisted, command.metadata().keyspace, command.metadata().name));
+            }
+        }
         Keyspace keyspace = Keyspace.open(command.metadata().keyspace);
         ReplicaPlanIterator replicaPlans = new ReplicaPlanIterator(command.dataRange().keyRange(), keyspace, consistencyLevel);
 
@@ -113,5 +135,25 @@ public class RangeCommands
         // adjust maxExpectedResults by the number of tokens this node has and the replication factor for this ks
         return (maxExpectedResults / DatabaseDescriptor.getNumTokens())
                / keyspace.getReplicationStrategy().getReplicationFactor().allReplicas;
+    }
+
+    // ACI Cassandra addition for partition blocklists
+    public static boolean sufficientLiveNodesForSelectStar(TableMetadata metadata, ConsistencyLevel consistency)
+    {
+        try
+        {
+            Keyspace keyspace = Keyspace.open(metadata.keyspace);
+            ReplicaPlanIterator rangeIterator = new ReplicaPlanIterator(DataRange.allData(metadata.partitioner).keyRange(),
+                                                                        keyspace, consistency);
+
+            // called for the side effect of running assureSufficientLiveReplicasForRead
+            // deliberately call with an invalid vnode count in case it is used elsewhere in the future.
+            rangeIterator.forEachRemaining(r ->  ReplicaPlans.forRangeRead(keyspace, consistency, r.range(), -1));
+            return true;
+        }
+        catch (UnavailableException e)
+        {
+            return false;
+        }
     }
 }
