@@ -79,6 +79,9 @@
                      <exclude NAME="rio/*"/>
                      <exclude NAME="src/java/com/**"/>
                      <exclude NAME="test/*/com/**"/>
+                     <exclude NAME="src/java/org/apache/cassandra/metrics/BlacklistMetrics.java"/>
+                     <exclude NAME="src/java/org/apache/cassandra/schema/PartitionBlacklist.java"/>
+                     <exclude NAME="test/unit/org/apache/cassandra/service/PartitionBlacklistTest.java"/>
             </fileset>
         </rat:report>
         <exec executable="grep" outputproperty="rat.failed.files" failifexecutionfails="false">
