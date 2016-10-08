@@ -173,7 +173,7 @@ public class Config
     // Defensive settings for protecting Cassandra from true network partitions. See (CASSANDRA-14358) for details.
     // The amount of time to wait for internode tcp connections to establish.
     public int internode_tcp_connect_timeout_in_ms = 2000;
-    // The amount of time unacknowledged data is allowed on a connection before we throw out the connection
+    // The amount of time unacknowledged data is allowed on a connection before we throw fout the connection
     // Note this is only supported on Linux + epoll, and it appears to behave oddly above a setting of 30000
     // (it takes much longer than 30s) as of Linux 4.12. If you want something that high set this to 0
     // (which picks up the OS default) and configure the net.ipv4.tcp_retries2 sysctl to be ~8.
@@ -502,6 +502,24 @@ public class Config
     public Boolean disable_incremental_repair = Boolean.parseBoolean(System.getProperty("cassandra.disable_incremental_repair", "true"));
 
     public String full_query_log_dir = null; // CIE Cassandra 3.0 backward compatibility, create default FQL options if non-null.
+
+    public volatile Boolean enable_partition_blacklist = false;
+
+    public volatile Boolean enable_blacklist_writes = true;
+
+    public volatile Boolean enable_blacklist_reads = true;
+
+    public volatile Boolean enable_blacklist_range_reads = false;
+
+    public int blacklist_refresh_period_seconds = 86400;
+
+    public int blacklist_initial_load_retry_seconds = 5;
+
+    public int max_blacklist_keys_per_cf = 1000;
+
+    public int max_blacklist_keys_total = 10000;
+
+    public ConsistencyLevel blacklist_consistency_level = ConsistencyLevel.QUORUM;
 
     public volatile boolean enable_scheduled_compactions = false;
     public volatile int scheduled_compaction_range_splits = 100;

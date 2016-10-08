@@ -57,6 +57,14 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.batchlog.Batch;
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.Stage;
+import org.apache.cassandra.metrics.BlacklistMetrics;
+import org.apache.cassandra.schema.PartitionBlacklist;
+import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.service.reads.AbstractReadExecutor;
+import org.apache.cassandra.service.reads.DataResolver;
+import org.apache.cassandra.service.reads.ReadCallback;
+import org.apache.cassandra.service.reads.repair.ReadRepair;
+import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -143,6 +151,7 @@ import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.triggers.TriggerExecutor;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Hex;
 import org.apache.cassandra.utils.MBeanWrapper;
 import org.apache.cassandra.utils.MonotonicClock;
 import org.apache.cassandra.utils.Pair;
@@ -183,13 +192,15 @@ public class StorageProxy implements StorageProxyMBean
         }
     };
     private static final ClientRequestMetrics readMetrics = new ClientRequestMetrics("Read");
-    private static final ClientRequestMetrics rangeMetrics = new ClientRequestMetrics("RangeSlice");
+    @VisibleForTesting
+    public static final ClientRequestMetrics rangeMetrics = new ClientRequestMetrics("RangeSlice");
     private static final ClientWriteRequestMetrics writeMetrics = new ClientWriteRequestMetrics("Write");
     private static final CASClientWriteRequestMetrics casWriteMetrics = new CASClientWriteRequestMetrics("CASWrite");
     private static final CASClientRequestMetrics casReadMetrics = new CASClientRequestMetrics("CASRead");
     private static final ViewWriteMetrics viewWriteMetrics = new ViewWriteMetrics("ViewWrite");
     private static final Map<ConsistencyLevel, ClientRequestMetrics> readMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     private static final Map<ConsistencyLevel, ClientWriteRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
+    private static final BlacklistMetrics blacklistMetrics = new BlacklistMetrics();
 
     private static final double CONCURRENT_SUBREQUESTS_MARGIN = 0.10;
 
@@ -206,7 +217,70 @@ public class StorageProxy implements StorageProxyMBean
     private static final boolean disableSerialReadLinearizability =
         Boolean.parseBoolean(System.getProperty(DISABLE_SERIAL_READ_LINEARIZABILITY_KEY, "false"));
 
+    private static final PartitionBlacklist partitionBlacklist = new PartitionBlacklist();
+
     private volatile long logBlockingReadRepairAttemptsUntil = Long.MIN_VALUE;
+
+    public void initialLoadPartitionBlacklist()
+    {
+        partitionBlacklist.initialLoad();
+    }
+
+    @Override
+    public void loadPartitionBlacklist()
+    {
+        partitionBlacklist.load();
+    }
+
+    @Override
+    public int getPartitionBlacklistLoadAttempts()
+    {
+        return partitionBlacklist.getLoadAttempts();
+    }
+
+    @Override
+    public int getPartitionBlacklistLoadSuccesses()
+    {
+        return partitionBlacklist.getLoadSuccesses();
+    }
+
+    @Override
+    public void setEnablePartitionBlacklist(boolean enabled)
+    {
+        DatabaseDescriptor.setEnablePartitionBlacklist(enabled);
+    }
+
+    @Override
+    public void setEnableBlacklistWrites(boolean enabled)
+    {
+        DatabaseDescriptor.setEnableBlacklistWrites(enabled);
+    }
+
+    @Override
+    public void setEnableBlacklistReads(boolean enabled)
+    {
+        DatabaseDescriptor.setEnableBlacklistReads(enabled);
+    }
+
+    @Override
+    public void setEnableBlacklistRangeReads(boolean enabled)
+    {
+        DatabaseDescriptor.setEnableBlacklistRangeReads(enabled);
+    }
+
+    @Override
+    public boolean blacklistKey(String keyspace, String table, String keyAsString)
+    {
+        if (!Schema.instance.getKeyspaces().contains(keyspace))
+            return false;
+
+        final ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(keyspace, table);
+        if (cfs == null)
+            return false;
+
+        final ByteBuffer bytes = cfs.metadata.get().partitionKeyType.fromString(keyAsString);
+        return partitionBlacklist.blacklist(keyspace, table, bytes);
+    }
 
     private StorageProxy()
     {
@@ -319,6 +393,16 @@ public class StorageProxy implements StorageProxyMBean
         try
         {
             TableMetadata metadata = Schema.instance.validateTable(keyspaceName, cfName);
+
+            if (DatabaseDescriptor.enablePartitionBlacklist() && DatabaseDescriptor.enableBlacklistWrites() && !partitionBlacklist.validateKey(keyspaceName, cfName, key.getKey()))
+            {
+                blacklistMetrics.incrementWritesRejected();
+                blacklistMetrics.incrementTotalRejected();
+                final byte[] keyBytes  = new byte[key.getKey().remaining()];
+                key.getKey().slice().get(keyBytes);
+                throw new InvalidRequestException(String.format("Unable to CAS write to blacklisted partition [0x%s] in %s/%s",
+                                                                Hex.bytesToHex(keyBytes), keyspaceName, cfName));
+            }
 
             Supplier<Pair<PartitionUpdate, RowIterator>> updateProposer = () ->
             {
@@ -1066,6 +1150,34 @@ public class StorageProxy implements StorageProxyMBean
                                           long queryStartNanoTime)
     throws WriteTimeoutException, WriteFailureException, UnavailableException, OverloadedException, InvalidRequestException
     {
+        if (DatabaseDescriptor.enablePartitionBlacklist() && DatabaseDescriptor.enableBlacklistWrites())
+        {
+            for (IMutation mutation : mutations)
+            {
+                for (final TableId tid : mutation.getTableIds())
+                {
+                    if (!partitionBlacklist.validateKey(tid, mutation.key().getKey()))
+                    {
+                        blacklistMetrics.incrementWritesRejected();
+                        blacklistMetrics.incrementTotalRejected();
+                        final byte[] keyBytes = new byte[mutation.key().getKey().remaining()];
+                        mutation.key().getKey().slice().get(keyBytes);
+                        final TableMetadata tmd = Schema.instance.getTableMetadata(tid);
+                        if (tmd != null)
+                        {
+                            throw new InvalidRequestException(String.format("Unable to write to blacklisted partition [0x%s] in %s/%s",
+                                    Hex.bytesToHex(keyBytes), tmd.keyspace, tmd.name));
+                        }
+                        else
+                        {
+                            throw new InvalidRequestException(String.format("Unable to write to blacklisted partition [0x%s] for unknown CF with id %s",
+                                    Hex.bytesToHex(keyBytes), tid.toString()));
+                        }
+                    }
+                }
+            }
+        }
+
         Collection<Mutation> augmented = TriggerExecutor.instance.execute(mutations);
 
         boolean updatesView = Keyspace.open(mutations.iterator().next().getKeyspaceName())
@@ -1753,6 +1865,22 @@ public class StorageProxy implements StorageProxyMBean
             throw new IsBootstrappingException();
         }
 
+        if (DatabaseDescriptor.enablePartitionBlacklist() && DatabaseDescriptor.enableBlacklistReads())
+        {
+            for (SinglePartitionReadCommand command : group.queries)
+            {
+                if (!partitionBlacklist.validateKey(command.metadata().id, command.partitionKey().getKey()))
+                {
+                    blacklistMetrics.incrementReadsRejected();
+                    blacklistMetrics.incrementTotalRejected();
+                    final byte[] keyBytes = new byte[command.partitionKey().getKey().remaining()];
+                    command.partitionKey().getKey().slice().get(keyBytes);
+                    throw new InvalidRequestException(String.format("Unable to read blacklisted partition [0x%s] in %s/%s",
+                            Hex.bytesToHex(keyBytes), command.metadata().keyspace, command.metadata().name));
+                }
+            }
+        }
+
         return consistencyLevel.isSerialConsistency()
              ? readWithPaxos(group, consistencyLevel, state, queryStartNanoTime)
              : readRegular(group, consistencyLevel, queryStartNanoTime);
@@ -2060,6 +2188,26 @@ public class StorageProxy implements StorageProxyMBean
 
         // adjust maxExpectedResults by the number of tokens this node has and the replication factor for this ks
         return (maxExpectedResults / DatabaseDescriptor.getNumTokens()) / keyspace.getReplicationStrategy().getReplicationFactor().allReplicas;
+    }
+
+    public static boolean sufficientLiveNodesForSelectStar(TableMetadata metadata, ConsistencyLevel consistency)
+    {
+        try
+        {
+            Keyspace keyspace = Keyspace.open(metadata.keyspace);
+            PartitionRangeReadCommand rangeCommand = PartitionRangeReadCommand.allDataRead(metadata,
+                                                                                           FBUtilities.nowInSeconds());
+            RangeIterator rangeIterator = new RangeIterator(rangeCommand, keyspace, consistency);
+
+            // called for the side effect of running assureSufficientLiveReplicasForRead
+            // deliberately call with an invalid vnode count in case it is used elsewhere in the future.
+            rangeIterator.forEachRemaining(r ->  ReplicaPlans.forRangeRead(keyspace, consistency, r.range(), -1));
+            return true;
+        }
+        catch (UnavailableException e)
+        {
+            return false;
+        }
     }
 
     @VisibleForTesting
@@ -2400,6 +2548,22 @@ public class StorageProxy implements StorageProxyMBean
     public static PartitionIterator getRangeSlice(PartitionRangeReadCommand command, ConsistencyLevel consistencyLevel, long queryStartNanoTime)
     {
         Tracing.trace("Computing ranges to query");
+
+        if (DatabaseDescriptor.enablePartitionBlacklist() && DatabaseDescriptor.enableBlacklistRangeReads())
+        {
+            final int blacklisted = partitionBlacklist.validateRange(command.metadata().id, command.dataRange().keyRange());
+            if (blacklisted > 0)
+            {
+                blacklistMetrics.incrementRangeReadsRejected();
+                blacklistMetrics.incrementTotalRejected();
+                throw new InvalidRequestException(String.format("Unable to read range %c%s, %s%c containing %d blacklisted keys in %s/%s",
+                        PartitionPosition.Kind.MIN_BOUND.equals(command.dataRange().keyRange().left.kind()) ? '[' : '(',
+                        StorageService.instance.getTokenMetadata().partitioner.getTokenFactory().toString(command.dataRange().keyRange().left.getToken()),
+                        StorageService.instance.getTokenMetadata().partitioner.getTokenFactory().toString(command.dataRange().keyRange().right.getToken()),
+                        PartitionPosition.Kind.MAX_BOUND.equals(command.dataRange().keyRange().right.kind()) ? ']' : ')',
+                        blacklisted, command.metadata().keyspace, command.metadata().name));
+            }
+        }
 
         Keyspace keyspace = Keyspace.open(command.metadata().keyspace);
         RangeIterator ranges = new RangeIterator(command, keyspace, consistencyLevel);
