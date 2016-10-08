@@ -1076,6 +1076,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             {
                 logger.warn("Some data streaming failed. Use nodetool to check bootstrap state and resume. For more, see `nodetool help bootstrap`. {}", SystemKeyspace.getBootstrapState());
             }
+
+            StorageProxy.instance.initialLoadPartitionBlacklist();
         }
         else
         {
