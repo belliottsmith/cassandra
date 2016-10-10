@@ -222,13 +222,13 @@ public class AlterTest extends CQLTester
                    row(ks1, true),
                    row(ks2, false));
 
-        schemaChange("ALTER KEYSPACE " + ks1 + " WITH replication = { 'class' : 'NetworkTopologyStrategy', 'dc1' : 1 } AND durable_writes=False");
+        schemaChange("ALTER KEYSPACE " + ks1 + " WITH replication = { 'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 1 } AND durable_writes=False");
         schemaChange("ALTER KEYSPACE " + ks2 + " WITH durable_writes=true");
 
         assertRowsIgnoringOrderAndExtra(execute("SELECT keyspace_name, durable_writes, replication FROM system_schema.keyspaces"),
                    row(KEYSPACE, true, map("class", "org.apache.cassandra.locator.SimpleStrategy", "replication_factor", "1")),
                    row(KEYSPACE_PER_TEST, true, map("class", "org.apache.cassandra.locator.SimpleStrategy", "replication_factor", "1")),
-                   row(ks1, false, map("class", "org.apache.cassandra.locator.NetworkTopologyStrategy", "dc1", "1")),
+                   row(ks1, false, map("class", "org.apache.cassandra.locator.NetworkTopologyStrategy", DEFAULT_DC, "1")),
                    row(ks2, true, map("class", "org.apache.cassandra.locator.SimpleStrategy", "replication_factor", "1")));
 
         execute("USE " + ks1);
