@@ -120,6 +120,7 @@ public class BigFormat implements SSTableFormat
         //             index summaries can be downsampled and the sampling level is persisted
         //             switch uncompressed checksums to adler32
         //             tracks presense of legacy (local and remote) counter shards
+        // kb (2.1.11) [apple internal]: switch from adler32 to crc32 for compression checksums
         // la (2.2.0): new file name format
         // lb (2.2.7): commit log lower bound included
         // ma (3.0.0): swap bf hash order
@@ -163,13 +164,15 @@ public class BigFormat implements SSTableFormat
 
             //For a while Adler32 was in use, now the CRC32 instrinsic is very good especially after Haswell
             //PureJavaCRC32 was always faster than Adler32. See CASSANDRA-8684
+            //note: apple internal builds have used CRC32 over Adler32 since sstable version kb vs
+            //the vanilla open-source builds that didn't switch back to CRC32 from Adler32 until ma
             ChecksumType checksumType = ChecksumType.CRC32;
-            if (version.compareTo("ka") >= 0 && version.compareTo("ma") < 0)
+            if (version.compareTo("ka") == 0)
                 checksumType = ChecksumType.Adler32;
             this.uncompressedChecksumType = checksumType;
 
             checksumType = ChecksumType.CRC32;
-            if (version.compareTo("jb") >= 0 && version.compareTo("ma") < 0)
+            if (version.compareTo("jb") >= 0 && version.compareTo("ka") <= 0)
                 checksumType = ChecksumType.Adler32;
             this.compressedChecksumType = checksumType;
 
