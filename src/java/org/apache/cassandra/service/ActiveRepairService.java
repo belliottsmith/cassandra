@@ -133,6 +133,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                              Set<InetAddress> endpoints,
                                              long repairedAt,
                                              boolean pullRepair,
+                                             boolean force,
                                              ListeningExecutorService executor,
                                              String... cfnames)
     {
@@ -142,7 +143,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         if (cfnames.length == 0)
             return null;
 
-        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, endpoints, repairedAt, pullRepair, cfnames);
+        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, endpoints, repairedAt, pullRepair, force, cfnames);
 
         sessions.put(session.getId(), session);
         // register listeners
@@ -301,8 +302,11 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             }
             else
             {
-                status.set(false);
-                failedNodes.add(neighbour.getHostAddress());
+                if (!options.isForcedRepair())
+                {
+                    status.set(false);
+                    failedNodes.add(neighbour.getHostAddress());
+                }
                 prepareLatch.countDown();
             }
         }

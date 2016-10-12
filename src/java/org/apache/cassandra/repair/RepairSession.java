@@ -35,6 +35,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.*;
+import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTrees;
@@ -88,6 +89,10 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
     private final String[] cfnames;
     public final RepairParallelism parallelismDegree;
     public final boolean pullRepair;
+
+    // indicates some replicas were not included in the repair. Only relevant for --force option
+    public final boolean skippedReplicas;
+
     /** Range to repair */
     public final Collection<Range<Token>> ranges;
     public final Set<InetAddress> endpoints;
@@ -119,6 +124,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
      * @param endpoints the data centers that should be part of the repair; null for all DCs
      * @param repairedAt when the repair occurred (millis)
      * @param pullRepair true if the repair should be one way (from remote host to this host and only applicable between two hosts--see RepairOption)
+     * @param force true if the repair should ignore dead endpoints (instead of failing)
      * @param cfnames names of columnfamilies
      */
     public RepairSession(UUID parentRepairSession,
@@ -129,6 +135,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
                          Set<InetAddress> endpoints,
                          long repairedAt,
                          boolean pullRepair,
+                         boolean force,
                          String... cfnames)
     {
         assert cfnames.length > 0 : "Repairing no column families seems pointless, doesn't it";
@@ -139,10 +146,36 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         this.keyspace = keyspace;
         this.cfnames = cfnames;
         this.ranges = ranges;
+
+        //If force then filter out dead endpoints
+        boolean forceSkippedReplicas = false;
+        if (force)
+        {
+            logger.debug("force flag set, removing dead endpoints");
+            final Set<InetAddress> removeCandidates = new HashSet<>();
+            for (final InetAddress endpoint : endpoints)
+            {
+                if (!FailureDetector.instance.isAlive(endpoint))
+                {
+                    logger.info("Removing a dead node from Repair due to -force " + endpoint);
+                    removeCandidates.add(endpoint);
+                }
+            }
+            if (!removeCandidates.isEmpty())
+            {
+                // we shouldn't be promoting sstables to repaired if any replicas are excluded from the repair
+                forceSkippedReplicas = true;
+                repairedAt = ActiveRepairService.UNREPAIRED_SSTABLE;
+                endpoints = new HashSet<>(endpoints);
+                endpoints.removeAll(removeCandidates);
+            }
+        }
+
         this.endpoints = endpoints;
         this.repairedAt = repairedAt;
         this.validationRemaining = new AtomicInteger(cfnames.length);
         this.pullRepair = pullRepair;
+        this.skippedReplicas = forceSkippedReplicas;
     }
 
     public UUID getId()
@@ -246,7 +279,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         {
             logger.info("[repair #{}] {}", getId(), message = String.format("No neighbors to repair with on range %s: session completed", ranges));
             Tracing.traceRepair(message);
-            set(new RepairSessionResult(id, keyspace, ranges, Lists.<RepairResult>newArrayList()));
+            set(new RepairSessionResult(id, keyspace, ranges, Lists.<RepairResult>newArrayList(), skippedReplicas));
             SystemDistributedKeyspace.failRepairs(getId(), keyspace, cfnames, new RuntimeException(message));
             return;
         }
@@ -254,7 +287,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         // Checking all nodes are live
         for (InetAddress endpoint : endpoints)
         {
-            if (!FailureDetector.instance.isAlive(endpoint))
+            if (!FailureDetector.instance.isAlive(endpoint) && !skippedReplicas)
             {
                 message = String.format("Cannot proceed on repair because a neighbor (%s) is dead: session failed", endpoint);
                 logger.error("[repair #{}] {}", getId(), message);
@@ -282,7 +315,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
                 // this repair session is completed
                 logger.info("[repair #{}] {}", getId(), "Session completed successfully");
                 Tracing.traceRepair("Completed sync of range {}", ranges);
-                set(new RepairSessionResult(id, keyspace, ranges, results));
+                set(new RepairSessionResult(id, keyspace, ranges, results, skippedReplicas));
 
                 taskExecutor.shutdown();
                 // mark this session as terminated
