@@ -2130,9 +2130,15 @@ public class DatabaseDescriptor
         conf.range_tombstone_resize_factor = resizeFactor;
     }
 
-    public static void setEnableAggressiveGCCompaction(boolean enable) { aggressiveGC = enable; }
+    public static void setEnableAggressiveGCCompaction(boolean enable)
+    {
+        aggressiveGC = enable; 
+    }
 
-    public static boolean getEnableAggressiveGCCompaction() { return aggressiveGC; }
+    public static boolean getEnableAggressiveGCCompaction()
+    {
+        return aggressiveGC;
+    }
 
     public static ConsistencyLevel getAuthReadConsistencyLevel()
     {
@@ -2142,5 +2148,15 @@ public class DatabaseDescriptor
     public static ConsistencyLevel getAuthWriteConsistencyLevel()
     {
         return conf.auth_write_consistency_level;
+    }
+    
+    public static boolean shouldGenerateSSTableDigestComponents()
+    {
+        return conf.generate_sstable_digest_components;
+    }
+
+    public static void setGenerateSSTableDigestComponents(boolean shouldGenerateDigests)
+    {
+        conf.generate_sstable_digest_components = shouldGenerateDigests;
     }
 }

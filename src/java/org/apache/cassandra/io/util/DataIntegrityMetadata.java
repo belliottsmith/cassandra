@@ -31,6 +31,7 @@ import java.util.zip.Checksum;
 
 import com.google.common.base.Charsets;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -188,12 +189,14 @@ public class DataIntegrityMetadata
                 int incrementalChecksumValue = (int) incrementalChecksum.getValue();
                 incrementalOut.writeInt(incrementalChecksumValue);
 
-                fullChecksum.update(toAppend);
+                if (DatabaseDescriptor.shouldGenerateSSTableDigestComponents())
+                    fullChecksum.update(toAppend);
                 if (checksumIncrementalResult)
                 {
                     ByteBuffer byteBuffer = ByteBuffer.allocate(4);
                     byteBuffer.putInt(incrementalChecksumValue);
-                    fullChecksum.update(byteBuffer.array(), 0, byteBuffer.array().length);
+                    if (DatabaseDescriptor.shouldGenerateSSTableDigestComponents())
+                        fullChecksum.update(byteBuffer.array(), 0, byteBuffer.array().length);
                 }
                 incrementalChecksum.reset();
 
