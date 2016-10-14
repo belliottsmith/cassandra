@@ -494,6 +494,9 @@ public class Config
      */
     public volatile int validation_preview_purge_head_start_in_sec = 60 * 60;
 
+    public ConsistencyLevel auth_read_consistency_level = ConsistencyLevel.LOCAL_QUORUM;
+    public ConsistencyLevel auth_write_consistency_level = ConsistencyLevel.EACH_QUORUM;
+
     public volatile boolean compact_biggest_stcs_bucket_l0 = false;
 
     public volatile boolean enable_secondary_index = Boolean.getBoolean("cassandra.enable_secondary_index");
