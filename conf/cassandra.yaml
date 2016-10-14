@@ -1430,6 +1430,10 @@ enable_sasi_indexes: false
 # Transient replication is experimental and is not recommended for production use.
 enable_transient_replication: false
 
+# configure the read and write consistency levels for modifications to auth tables
+# auth_read_consistency_level: LOCAL_QUORUM
+# auth_write_consistency_level: EACH_QUORUM
+
 # Enable to run scheduled compactions - this generates a lot of compaction on the node, so enable with care:
 # enable_scheduled_compactions: false
 # minimum number of sub ranges we should compact:
