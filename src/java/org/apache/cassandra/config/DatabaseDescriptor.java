@@ -41,6 +41,7 @@ import org.apache.cassandra.config.Config.RequestSchedulerId;
 import org.apache.cassandra.config.EncryptionOptions.ClientEncryptionOptions;
 import org.apache.cassandra.config.EncryptionOptions.ServerEncryptionOptions;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -2061,4 +2062,14 @@ public class DatabaseDescriptor
     public static void setEnableAggressiveGCCompaction(boolean enable) { aggressiveGC = enable; }
 
     public static boolean getEnableAggressiveGCCompaction() { return aggressiveGC; }
+
+    public static ConsistencyLevel getAuthReadConsistencyLevel()
+    {
+        return conf.auth_read_consistency_level;
+    }
+
+    public static ConsistencyLevel getAuthWriteConsistencyLevel()
+    {
+        return conf.auth_write_consistency_level;
+    }
 }
