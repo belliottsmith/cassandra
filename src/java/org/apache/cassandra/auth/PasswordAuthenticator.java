@@ -44,8 +44,6 @@ import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.mindrot.jbcrypt.BCrypt;
 
-import static org.apache.cassandra.auth.CassandraRoleManager.consistencyForRole;
-
 /**
  * PasswordAuthenticator is an IAuthenticator implementation
  * that keeps credentials (rolenames and bcrypt-hashed passwords)
@@ -104,8 +102,8 @@ public class PasswordAuthenticator implements IAuthenticator
     {
         try
         {
-            QueryOptions options = QueryOptions.forInternalCalls(consistencyForRole(username),
-                    Lists.newArrayList(ByteBufferUtil.bytes(username)));
+            QueryOptions options = QueryOptions.forInternalCalls(AuthProperties.instance.getReadConsistencyLevel(),
+                            Lists.newArrayList(ByteBufferUtil.bytes(username)));
 
             ResultMessage.Rows rows = select(authenticateStatement, options);
 
