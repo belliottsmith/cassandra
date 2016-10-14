@@ -318,6 +318,9 @@ public class Server implements CassandraDaemon.Server
 
             //pipeline.addLast("debug", new LoggingHandler());
 
+            // Handler to log size of client requests and responses
+            pipeline.addLast("requestMetricsHandler", new ClientRequestSizeMetricsHandler());
+
             pipeline.addLast("frameDecoder", new Frame.Decoder(server.connectionFactory));
             pipeline.addLast("frameEncoder", frameEncoder);
 
