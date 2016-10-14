@@ -34,6 +34,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.EncryptionOptions.ClientEncryptionOptions;
 import org.apache.cassandra.config.EncryptionOptions.ServerEncryptionOptions;
+import org.apache.cassandra.db.ConsistencyLevel;
 
 /**
  * A class that contains configuration properties for the cassandra node it runs within.
@@ -359,6 +360,9 @@ public class Config
     {
         isClientMode = clientMode;
     }
+
+    public ConsistencyLevel auth_read_consistency_level = ConsistencyLevel.LOCAL_QUORUM;
+    public ConsistencyLevel auth_write_consistency_level = ConsistencyLevel.EACH_QUORUM;
 
     public enum CommitLogSync
     {

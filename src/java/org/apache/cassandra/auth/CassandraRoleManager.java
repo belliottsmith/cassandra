@@ -107,6 +107,10 @@ public class CassandraRoleManager implements IRoleManager
     private static final String GENSALT_LOG2_ROUNDS_PROPERTY = Config.PROPERTY_PREFIX + "auth_bcrypt_gensalt_log2_rounds";
     private static final int GENSALT_LOG2_ROUNDS = getGensaltLogRounds();
 
+    static final AuthProperties authProperties = new AuthProperties(DatabaseDescriptor.getAuthWriteConsistencyLevel(),
+                                                                     DatabaseDescriptor.getAuthReadConsistencyLevel(),
+                                                                     true);
+
     static int getGensaltLogRounds()
     {
          int rounds = Integer.getInteger(GENSALT_LOG2_ROUNDS_PROPERTY, 10);
@@ -195,7 +199,7 @@ public class CassandraRoleManager implements IRoleManager
                                          escape(role.getRoleName()),
                                          options.getSuperuser().or(false),
                                          options.getLogin().or(false));
-        process(insertCql, consistencyForRole(role.getRoleName()));
+        process(insertCql, consistencyForRoleForWrite());
     }
 
     public void dropRole(AuthenticatedUser performer, RoleResource role) throws RequestValidationException, RequestExecutionException
@@ -204,7 +208,7 @@ public class CassandraRoleManager implements IRoleManager
                               AuthKeyspace.NAME,
                               AuthKeyspace.ROLES,
                               escape(role.getRoleName())),
-                consistencyForRole(role.getRoleName()));
+                consistencyForRoleForWrite());
         removeAllMembers(role.getRoleName());
     }
 
@@ -221,7 +225,7 @@ public class CassandraRoleManager implements IRoleManager
                                   AuthKeyspace.ROLES,
                                   assignments,
                                   escape(role.getRoleName())),
-                    consistencyForRole(role.getRoleName()));
+                    consistencyForRoleForWrite());
         }
     }
 
@@ -243,7 +247,7 @@ public class CassandraRoleManager implements IRoleManager
                               AuthKeyspace.ROLE_MEMBERS,
                               escape(role.getRoleName()),
                               escape(grantee.getRoleName())),
-                consistencyForRole(role.getRoleName()));
+                consistencyForRoleForWrite());
     }
 
     public void revokeRole(AuthenticatedUser performer, RoleResource role, RoleResource revokee)
@@ -260,7 +264,7 @@ public class CassandraRoleManager implements IRoleManager
                               AuthKeyspace.ROLE_MEMBERS,
                               escape(role.getRoleName()),
                               escape(revokee.getRoleName())),
-                consistencyForRole(role.getRoleName()));
+                consistencyForRoleForWrite());
     }
 
     public Set<RoleResource> getRoles(RoleResource grantee, boolean includeInherited) throws RequestValidationException, RequestExecutionException
@@ -335,7 +339,7 @@ public class CassandraRoleManager implements IRoleManager
                                                      AuthKeyspace.ROLES,
                                                      DEFAULT_SUPERUSER_NAME,
                                                      escape(hashpw(DEFAULT_SUPERUSER_PASSWORD))),
-                                       consistencyForRole(DEFAULT_SUPERUSER_NAME));
+                                       consistencyForRoleForWrite());
                 logger.info("Created default superuser role '{}'", DEFAULT_SUPERUSER_NAME);
             }
         }
@@ -425,7 +429,7 @@ public class CassandraRoleManager implements IRoleManager
                                                          AuthKeyspace.ROLES,
                                                          row.getString("salted_hash"),
                                                          row.getString("username")),
-                                           consistencyForRole(row.getString("username")));
+                                           consistencyForRoleForWrite());
                 }
                 logger.info("Completed conversion of legacy credentials");
             }
@@ -495,7 +499,7 @@ public class CassandraRoleManager implements IRoleManager
     {
         ResultMessage.Rows rows =
             statement.execute(QueryState.forInternalCalls(),
-                              QueryOptions.forInternalCalls(consistencyForRole(name),
+                              QueryOptions.forInternalCalls(consistencyForRoleForRead(),
                                                             Collections.singletonList(ByteBufferUtil.bytes(name))));
         if (rows.result.isEmpty())
             return NULL_ROLE;
@@ -516,7 +520,7 @@ public class CassandraRoleManager implements IRoleManager
                               op,
                               escape(role),
                               escape(grantee)),
-                consistencyForRole(grantee));
+                consistencyForRoleForWrite());
     }
 
     /*
@@ -529,7 +533,7 @@ public class CassandraRoleManager implements IRoleManager
                                                       AuthKeyspace.NAME,
                                                       AuthKeyspace.ROLE_MEMBERS,
                                                       escape(role)),
-                                        consistencyForRole(role));
+                                        consistencyForRoleForRead());
         if (rows.isEmpty())
             return;
 
@@ -542,7 +546,7 @@ public class CassandraRoleManager implements IRoleManager
                               AuthKeyspace.NAME,
                               AuthKeyspace.ROLE_MEMBERS,
                               escape(role)),
-                consistencyForRole(role));
+                consistencyForRoleForWrite());
     }
 
     /*
@@ -572,12 +576,14 @@ public class CassandraRoleManager implements IRoleManager
                                   });
     }
 
-    protected static ConsistencyLevel consistencyForRole(String role)
+    protected static ConsistencyLevel consistencyForRoleForRead()
     {
-        if (role.equals(DEFAULT_SUPERUSER_NAME))
-            return ConsistencyLevel.QUORUM;
-        else
-            return ConsistencyLevel.LOCAL_ONE;
+        return authProperties.getReadConsistencyLevel();
+    }
+
+    protected static ConsistencyLevel consistencyForRoleForWrite()
+    {
+        return authProperties.getWriteConsistencyLevel();
     }
 
     private static String hashpw(String password)

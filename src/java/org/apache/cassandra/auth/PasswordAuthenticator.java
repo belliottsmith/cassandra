@@ -54,7 +54,7 @@ import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.mindrot.jbcrypt.BCrypt;
 
-import static org.apache.cassandra.auth.CassandraRoleManager.consistencyForRole;
+import static org.apache.cassandra.auth.CassandraRoleManager.consistencyForRoleForRead;
 
 /**
  * PasswordAuthenticator is an IAuthenticator implementation
@@ -154,7 +154,7 @@ public class PasswordAuthenticator implements IAuthenticator
                                                     : legacyAuthenticateStatement;
 
             ResultMessage.Rows rows = authStmt.execute(QueryState.forInternalCalls(),
-                    QueryOptions.forInternalCalls(consistencyForRole(username),
+                    QueryOptions.forInternalCalls(consistencyForRoleForRead(),
                                                   Lists.newArrayList(ByteBufferUtil.bytes(username))));
             UntypedResultSet result = UntypedResultSet.create(rows.result);
 
