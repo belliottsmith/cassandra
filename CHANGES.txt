@@ -1,4 +1,5 @@
 3.0.9.1(open)
+ * <rdar://problem/27424094> Cass: Forward port to 3.0: <rdar://problem/24560507>
 
 3.0.6.1 (Released only for testing)
  * <rdar://problem/20654491> Cass: Add a credentials cache to the PasswordAuthenticator(CASSANDRA-7715. Fixed in 3.4)
