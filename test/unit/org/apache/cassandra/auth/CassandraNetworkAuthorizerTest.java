@@ -40,6 +40,7 @@ import org.apache.cassandra.cql3.statements.BatchStatement;
 import org.apache.cassandra.cql3.statements.CreateRoleStatement;
 import org.apache.cassandra.cql3.statements.DropRoleStatement;
 import org.apache.cassandra.cql3.statements.SelectStatement;
+import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -62,7 +63,7 @@ public class CassandraNetworkAuthorizerTest
             return statement.executeLocally(QueryState.forInternalCalls(), options);
         }
 
-        UntypedResultSet process(String query) throws RequestExecutionException
+        UntypedResultSet process(String query, ConsistencyLevel cl) throws RequestExecutionException
         {
             return QueryProcessor.executeInternal(query);
         }
