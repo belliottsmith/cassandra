@@ -3389,6 +3389,16 @@ public class DatabaseDescriptor
 
     public static boolean getEnableAggressiveGCCompaction() { return aggressiveGC; }
 
+    public static ConsistencyLevel getAuthReadConsistencyLevel()
+    {
+        return conf.auth_read_consistency_level;
+    }
+
+    public static ConsistencyLevel getAuthWriteConsistencyLevel()
+    {
+        return conf.auth_write_consistency_level;
+    }
+
     public static boolean getCompactBiggestSTCSBucketInL0()
     {
         return conf.compact_biggest_stcs_bucket_l0;
