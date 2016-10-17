@@ -63,6 +63,7 @@ import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.serializers.TypeSerializer;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.service.SchemaDropLog;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.transport.Event;
 import org.apache.cassandra.transport.Server;
@@ -152,6 +153,8 @@ public abstract class CQLTester
         {
             throw new RuntimeException(e);
         }
+
+        SchemaDropLog.disableCheckForTest = true;
     }
 
     public static ResultMessage lastSchemaChangeResult;
