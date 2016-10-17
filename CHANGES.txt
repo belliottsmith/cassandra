@@ -1,5 +1,9 @@
 3.0.9.1(open)
- * <rdar://problem/27424094> Cass: Forward port to 3.0: <rdar://problem/24560507>
+ * <rdar://problem/27424094> Cass: Forward port to 3.0: <rdar://problem/24560507> Cass: Evaluate Consistency level of Auth reads(Need to post back via 26630518)
+ * <rdar://problem/25991887> Cass: Add an option to blacklist CQL partitions by operator (Apple Internal)
+ * Add prepared query parameter to trace for "Execute CQL3 prepared query" session(CASSANDRA-11425. Fixed in 3.8)
+ * Add bind variables to trace (CASSANDRA-11719. Fixed in 3.8)
+ * <rdar://problem/28728845> Cass: Make cie-cassandra-3.0 recognize CRC32 sstables from cie-cassandra-2.1(Apple Internal)
 
 3.0.6.1 (Released only for testing)
  * <rdar://problem/20654491> Cass: Add a credentials cache to the PasswordAuthenticator(CASSANDRA-7715. Fixed in 3.4)
