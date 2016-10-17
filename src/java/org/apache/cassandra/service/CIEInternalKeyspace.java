@@ -44,6 +44,14 @@ public class CIEInternalKeyspace
             + "time timestamp,"
             + "PRIMARY KEY((ks_name), cf_name))");
 
+    public static final CFMetaData PartitionBlacklistCf = compile(PartitionBlacklist.PARTITION_BLACKLIST_CF,
+            "Partition keys which have been blacklisted",
+            "CREATE TABLE %s ("
+            + "ks_name text,"
+            + "cf_name text,"
+            + "key blob,"
+            + "PRIMARY KEY ((ks_name, cf_name), key))");
+
     private static CFMetaData compile(String name, String description, String schema)
     {
         return CFMetaData.compile(String.format(schema, name), NAME)
@@ -53,6 +61,6 @@ public class CIEInternalKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(3), Tables.of(SchemaDropLog));
+        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(3), Tables.of(SchemaDropLog, PartitionBlacklistCf));
     }
 }

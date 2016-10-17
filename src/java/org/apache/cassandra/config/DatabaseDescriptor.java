@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.Ints;
 import com.google.common.primitives.Longs;
 
+import org.apache.cassandra.db.ConsistencyLevel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1609,6 +1610,76 @@ public class DatabaseDescriptor
     public static void disableHintsForDC(String dc)
     {
         conf.hinted_handoff_disabled_datacenters.add(dc);
+    }
+
+    public static boolean enablePartitionBlacklist()
+    {
+        return conf.enable_partition_blacklist;
+    }
+
+    public static void setEnablePartitionBlacklist(boolean enabled)
+    {
+        conf.enable_partition_blacklist = enabled;
+    }
+
+    public static boolean enableBlacklistWrites()
+    {
+        return conf.enable_blacklist_writes;
+    }
+
+    public static void setEnableBlacklistWrites(boolean enabled)
+    {
+        conf.enable_blacklist_writes = enabled;
+    }
+
+    public static boolean enableBlacklistReads()
+    {
+        return conf.enable_blacklist_reads;
+    }
+
+    public static void setEnableBlacklistReads(boolean enabled)
+    {
+        conf.enable_blacklist_reads = enabled;
+    }
+
+    public static boolean enableBlacklistRangeReads()
+    {
+        return conf.enable_blacklist_range_reads;
+    }
+
+    public static void setEnableBlacklistRangeReads(boolean enabled)
+    {
+        conf.enable_blacklist_range_reads = enabled;
+    }
+
+    public static int getBlacklistRefreshPeriodSeconds()
+    {
+        return conf.blacklist_refresh_period_seconds;
+    }
+
+    public static void setBlacklistRefreshPeriodSeconds(int period)
+    {
+        conf.blacklist_refresh_period_seconds = period;
+    }
+
+    public static int maxBlacklistKeysPerCf()
+    {
+        return conf.max_blacklist_keys_per_cf;
+    }
+
+    public static int maxBlacklistKeysTotal()
+    {
+        return conf.max_blacklist_keys_total;
+    }
+
+    public static ConsistencyLevel blacklistConsistencyLevel()
+    {
+        return conf.blacklist_consistency_level;
+    }
+
+    public static void setBlacklistConsistencyLevel(ConsistencyLevel cl)
+    {
+        conf.blacklist_consistency_level = cl;
     }
 
     public static void setMaxHintWindow(int ms)
