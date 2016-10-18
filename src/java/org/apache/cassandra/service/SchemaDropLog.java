@@ -17,7 +17,7 @@ public class SchemaDropLog
     private static final Logger logger = LoggerFactory.getLogger(SchemaDropLog.class);
     private static SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
-    public static volatile boolean disableCheckForTest = Boolean.parseBoolean(System.getProperty("disable_schema_drop_log", "false"));
+    public static volatile boolean disableCheckForTest = Boolean.parseBoolean(System.getProperty("cie-cassandra.disable_schema_drop_log", "false"));
 
     public static void addSchemaDrop(final String ks_name, String cf_name)
     {
