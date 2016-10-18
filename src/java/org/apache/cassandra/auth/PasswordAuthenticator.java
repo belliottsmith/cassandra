@@ -34,6 +34,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -114,7 +115,6 @@ public class PasswordAuthenticator implements IAuthenticator
                         }
                         catch (AuthenticationException e)
                         {
-                            logger.error("Error reading for authenticator in load", e);
                             throw e;
                         }
                     }
@@ -153,19 +153,25 @@ public class PasswordAuthenticator implements IAuthenticator
                                                     ? authenticateStatement
                                                     : legacyAuthenticateStatement;
 
-            ResultMessage.Rows rows = authStmt.execute(QueryState.forInternalCalls(),
-                    QueryOptions.forInternalCalls(consistencyForRoleForRead(),
-                                                  Lists.newArrayList(ByteBufferUtil.bytes(username))));
-            UntypedResultSet result = UntypedResultSet.create(rows.result);
+            UntypedResultSet result;
+            try
+            {
+                ResultMessage.Rows rows = authStmt.execute(QueryState.forInternalCalls(),
+                                                           QueryOptions.forInternalCalls(consistencyForRoleForRead(),
+                                                                                         Lists.newArrayList(ByteBufferUtil.bytes(username))));
+                result = UntypedResultSet.create(rows.result);
+            }
+            catch (RequestValidationException e)
+            {
+                // needs to be caught here because AuthenticationException is a subclass of RequestValidationException
+                // and we don't want to throw an assertion error on invalid username/password
+                throw new AssertionError(e); // not supposed to happen
+            }
 
             if (result.isEmpty() || !result.one().has(SALTED_HASH))
                 throw new AuthenticationException("Username and/or password are incorrect");
             else
                 return result.one().getString(SALTED_HASH);
-        }
-        catch (RequestValidationException e)
-        {
-            throw new AssertionError(e); // not supposed to happen
         }
         catch (RequestExecutionException e)
         {
@@ -193,7 +199,7 @@ public class PasswordAuthenticator implements IAuthenticator
             {
                 storedPasswordHash = cache.get(username);
             }
-            catch (ExecutionException e)
+            catch (UncheckedExecutionException | ExecutionException e)
             {
                 if(e.getCause() != null && e.getCause() instanceof AuthenticationException)
                 {
