@@ -1,30 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="INFO">
     <Appenders>
-        <RollingFile name="FILE" fileName="./build/test/logs//system.log"
-	            filePattern="./build/test/logs/system.log.%i.log.gz">
+        <RollingFile name="FILE" fileName="./build/test/logs/${sys:cassandra.testtag}/TEST-${sys:suitename}.log"
+	            filePattern="./build/test/logs/${sys:cassandra.testtag}/TEST-${sys:suitename}.log.%i.gz">
 	    <PatternLayout pattern="%-5level [%thread] %date{ISO8601} %F:%L - %msg%n"/>
             <Policies>
                 <SizeBasedTriggeringPolicy size="20 MB"/>
             </Policies>
 	    <DefaultRolloverStrategy max="20"/>
         </RollingFile>
-	<Console name="STDERR" target="SYSTEM_ERR">
-		<PatternLayout pattern="%-5level %date{HH:mm:ss,SSS} %msg%n"/>
-		<Filters>
-			<ThresholdFilter level="WARN" onMatch="ACCEPT" onMismatch="DENY"/>
-		</Filters>
-	</Console>
 	<Console name="STDOUT" target="SYSTEM_OUT">
 		<PatternLayout pattern="%-5level %date{HH:mm:ss,SSS} %msg%n"/>
 		<Filters>
-			<ThresholdFilter level="WARN" onMatch="ACCEPT" onMismatch="DENY"/>
+			<ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
 		</Filters>
 	</Console>
-        <Async name="ASYNC">
+        <Async name="ASYNC" includeLocation="true">
             <AppenderRef ref="FILE" />
-	    <AppenderRef ref="STDERR" />
-	    <AppenderRef ref="STDOUT" />
+            <AppenderRef ref="STDOUT" />
         </Async>
     </Appenders>
     <Loggers>
