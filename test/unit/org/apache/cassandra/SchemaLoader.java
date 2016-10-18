@@ -47,7 +47,6 @@ public class SchemaLoader
 {
     static
     {
-        SchemaDropLog.disableCheckForTest = true;
         System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
         System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
     }

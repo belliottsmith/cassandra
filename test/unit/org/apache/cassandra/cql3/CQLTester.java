@@ -154,7 +154,6 @@ public abstract class CQLTester
             throw new RuntimeException(e);
         }
 
-        SchemaDropLog.disableCheckForTest = true;
     }
 
     public static ResultMessage lastSchemaChangeResult;

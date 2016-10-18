@@ -733,6 +733,7 @@
         <jvmarg value="-Dstorage-config=${test.conf}"/>
         <jvmarg value="-javaagent:${basedir}/lib/jamm-0.3.0.jar" />
         <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+        <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
         <jvmarg value="-ea"/>
       </java>
     </target>
@@ -1249,6 +1250,7 @@
       <jvmarg value="-Dmigration-sstable-root=${test.data}/migration-sstables"/>
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
       <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+      <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
       <jvmarg value="-Djava.io.tmpdir=${tmp.dir}"/>
       <jvmarg value="-Dcassandra.skip_sync=true" />
@@ -1268,6 +1270,7 @@
         <jvmarg value="-Dmigration-sstable-root=${test.data}/migration-sstables"/>
         <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
         <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
+        <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
         <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
         <jvmarg value="-Dcassandra.config.loader=org.apache.cassandra.OffsetAwareConfigurationLoader"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
