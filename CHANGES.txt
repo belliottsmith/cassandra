@@ -1,4 +1,5 @@
 3.0.9.1(open)
+ * <rdar://problem/28767747> Cass: Port to 3.0 : <rdar://problem/19999369> Cass: metric to track size of reads/writes (Apple Internal)
  * <rdar://problem/27424094> Cass: Forward port to 3.0: <rdar://problem/24560507> Cass: Evaluate Consistency level of Auth reads(Need to post back via 26630518)
  * <rdar://problem/25991887> Cass: Add an option to blacklist CQL partitions by operator (Apple Internal)
  * Add prepared query parameter to trace for "Execute CQL3 prepared query" session(CASSANDRA-11425. Fixed in 3.8)
