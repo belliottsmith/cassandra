@@ -167,12 +167,16 @@ public class BigFormat implements SSTableFormat
             //note: apple internal builds have used CRC32 over Adler32 since sstable version kb vs
             //the vanilla open-source builds that didn't switch back to CRC32 from Adler32 until ma
             ChecksumType checksumType = ChecksumType.CRC32;
-            if (version.compareTo("ka") == 0)
+            if (version.compareTo("kb") != 0
+                && ((version.compareTo("jb") >= 0 && version.compareTo("ka") <= 0)
+                    || (version.compareTo("la") >= 0 && version.compareTo("ma") < 0)))
                 checksumType = ChecksumType.Adler32;
             this.uncompressedChecksumType = checksumType;
 
             checksumType = ChecksumType.CRC32;
-            if (version.compareTo("jb") >= 0 && version.compareTo("ka") <= 0)
+            if (version.compareTo("kb") != 0
+                && ((version.compareTo("jb") >= 0 && version.compareTo("ka") <= 0)
+                    || (version.compareTo("la") >= 0 && version.compareTo("ma") < 0)))
                 checksumType = ChecksumType.Adler32;
             this.compressedChecksumType = checksumType;
 
