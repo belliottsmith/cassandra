@@ -202,7 +202,7 @@ launch_service()
         exec $NUMACTL "$JAVA" $JVM_OPTS $cassandra_parms -cp "$CLASSPATH" $props "$class"
     # Startup CassandraDaemon, background it, and write the pid.
     else
-        if [[ "$CASSANDRA_DIE_ON_OOM" == "true" ]]; then
+        if [ "$CASSANDRA_DIE_ON_OOM" = "true" ]; then
             exec $NUMACTL "$JAVA" $JVM_OPTS -XX:OnOutOfMemoryError="kill -9 %p" $cassandra_parms -cp "$CLASSPATH" $props "$class" <&- &
         else
             exec $NUMACTL "$JAVA" $JVM_OPTS $cassandra_parms -cp "$CLASSPATH" $props "$class" <&- &
