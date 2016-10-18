@@ -47,6 +47,7 @@ import static org.apache.cassandra.db.TypeSizes.sizeofUnsignedVInt;
 public final class Hint
 {
     public static final Serializer serializer = new Serializer();
+    static final int maxHintTTL = Integer.getInteger("cassandra.maxHintTTL", Integer.MAX_VALUE);
 
     final Mutation mutation;
     final long creationTime;  // time of hint creation (in milliseconds)
@@ -102,8 +103,13 @@ public final class Hint
     boolean isLive()
     {
         int smallestGCGS = Math.min(gcgs, mutation.smallestGCGS());
-        long expirationTime = creationTime + TimeUnit.SECONDS.toMillis(smallestGCGS);
-        return expirationTime > System.currentTimeMillis();
+        return isLive(System.currentTimeMillis(), creationTime, maxHintTTL, smallestGCGS);
+    }
+
+    static boolean isLive(long now, long creationTime, int maxTTL, int gcgs)
+    {
+        long expirationTime = creationTime + TimeUnit.SECONDS.toMillis(Math.min(gcgs, maxTTL));
+        return expirationTime > now;
     }
 
     static final class Serializer implements IVersionedSerializer<Hint>
