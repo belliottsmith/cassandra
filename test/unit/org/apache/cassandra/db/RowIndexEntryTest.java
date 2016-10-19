@@ -68,11 +68,11 @@ public class RowIndexEntryTest extends CQLTester
         DeletionTime.serializer.serialize(DeletionTime.LIVE, dob);
         dob.writeUnsignedVInt(3);
         int off0 = dob.getLength();
-        indexSerializer.serialize(new IndexHelper.IndexInfo(cn(0L), cn(5L), 0, 0, deletionInfo), dob);
+        indexSerializer.serialize(new IndexHelper.IndexInfo(cn(0L), cn(5L), 0, 0, deletionInfo, cfMeta.comparator), dob);
         int off1 = dob.getLength();
-        indexSerializer.serialize(new IndexHelper.IndexInfo(cn(10L), cn(15L), 0, 0, deletionInfo), dob);
+        indexSerializer.serialize(new IndexHelper.IndexInfo(cn(10L), cn(15L), 0, 0, deletionInfo, cfMeta.comparator), dob);
         int off2 = dob.getLength();
-        indexSerializer.serialize(new IndexHelper.IndexInfo(cn(20L), cn(25L), 0, 0, deletionInfo), dob);
+        indexSerializer.serialize(new IndexHelper.IndexInfo(cn(20L), cn(25L), 0, 0, deletionInfo, cfMeta.comparator), dob);
         dob.writeInt(off0);
         dob.writeInt(off1);
         dob.writeInt(off2);
@@ -135,9 +135,11 @@ public class RowIndexEntryTest extends CQLTester
         File tempFile = File.createTempFile("row_index_entry_test", null);
         tempFile.deleteOnExit();
         SequentialWriter writer = SequentialWriter.open(tempFile);
-        ColumnIndex columnIndex = ColumnIndex.writeAndBuildIndex(partition.unfilteredIterator(), writer, header, BigFormat.latestVersion);
+        ColumnIndex columnIndex = ColumnIndex.writeAndBuildIndex(partition.unfilteredIterator(), writer, header,
+                                                                 BigFormat.latestVersion, cfs.metadata.comparator);
         RowIndexEntry<IndexHelper.IndexInfo> withIndex = RowIndexEntry.create(0xdeadbeef, DeletionTime.LIVE, columnIndex);
-        IndexHelper.IndexInfo.Serializer indexSerializer = new IndexHelper.IndexInfo.Serializer(cfs.metadata, BigFormat.latestVersion, header);
+        IndexHelper.IndexInfo.Serializer indexSerializer = new IndexHelper.IndexInfo.Serializer(cfs.metadata,
+                                                                                                BigFormat.latestVersion, header);
 
         // sanity check
         assertTrue(columnIndex.columnsIndex.size() >= 3);
@@ -198,11 +200,11 @@ public class RowIndexEntryTest extends CQLTester
 
             Assert.assertEquals(indexSerializer.serializedSize(info), end - pos);
 
-            Assert.assertEquals(withIndex.columnsIndex().get(i).offset, info.offset);
-            Assert.assertEquals(withIndex.columnsIndex().get(i).width, info.width);
+            Assert.assertEquals(withIndex.columnsIndex().get(i).getOffset(), info.getOffset());
+            Assert.assertEquals(withIndex.columnsIndex().get(i).getWidth(), info.getWidth());
             Assert.assertEquals(withIndex.columnsIndex().get(i).endOpenMarker, info.endOpenMarker);
-            Assert.assertEquals(withIndex.columnsIndex().get(i).firstName, info.firstName);
-            Assert.assertEquals(withIndex.columnsIndex().get(i).lastName, info.lastName);
+            Assert.assertEquals(withIndex.columnsIndex().get(i).getFirstName(), info.getFirstName());
+            Assert.assertEquals(withIndex.columnsIndex().get(i).getLastName(), info.getLastName());
         }
 
         for (int i = 0; i < withIndex.columnsIndex().size(); i++)

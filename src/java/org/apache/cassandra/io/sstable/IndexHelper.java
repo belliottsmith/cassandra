@@ -18,6 +18,7 @@
 package org.apache.cassandra.io.sstable;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
 
@@ -51,7 +52,7 @@ public final class IndexHelper
      */
     public static int indexFor(ClusteringPrefix name, List<IndexInfo> indexList, ClusteringComparator comparator, boolean reversed, int lastIndex)
     {
-        IndexInfo target = new IndexInfo(name, name, 0, 0, null);
+        IndexInfo target = new IndexInfo(name, 0, 0, comparator);
         /*
         Take the example from the unit test, and say your index looks like this:
         [0..5][10..15][20..25]
@@ -88,12 +89,18 @@ public final class IndexHelper
 
     public static class IndexInfo
     {
-        private static final long EMPTY_SIZE = ObjectSizes.measure(new IndexInfo(null, null, 0, 0, null));
+        private static final long EMPTY_SIZE = ObjectSizes.measure(new IndexInfo(null, 0, 0, null));
 
-        public final long offset;
-        public final long width;
-        public final ClusteringPrefix firstName;
-        public final ClusteringPrefix lastName;
+        // see <rdar://problem/27205556> Cass: Composite abstraction in 2.1 creates significant GC pressure (especially on wide rows)
+        // for details on why we're doing all this ClusteringPrefix -> ByteBuffer -> ByteBuffer[] -> ClusteringPrefix stuff
+        private final long offset;
+        private final long width;
+        private final ByteBuffer firstName;
+        private final ByteBuffer lastName;
+        private final ClusteringPrefix.Kind firstNameKind;
+        private final ClusteringPrefix.Kind lastNameKind;
+        private final ClusteringPrefix clusteringName;
+        private final ClusteringComparator comparator;
 
         // If at the end of the index block there is an open range tombstone marker, this marker
         // deletion infos. null otherwise.
@@ -103,13 +110,34 @@ public final class IndexHelper
                          ClusteringPrefix lastName,
                          long offset,
                          long width,
-                         DeletionTime endOpenMarker)
+                         DeletionTime endOpenMarker,
+                         ClusteringComparator comparator)
         {
-            this.firstName = firstName;
-            this.lastName = lastName;
+            this.firstName = ByteBufferUtil.merge(firstName.getRawValues());
+            this.firstNameKind = firstName.kind();
+            this.lastName = ByteBufferUtil.merge(lastName.getRawValues());
+            this.lastNameKind = lastName.kind();
+            this.clusteringName = null;
             this.offset = offset;
             this.width = width;
             this.endOpenMarker = endOpenMarker;
+            this.comparator = comparator;
+        }
+
+        private IndexInfo(ClusteringPrefix name,
+                         long offset,
+                         long width,
+                         ClusteringComparator comparator)
+        {
+            this.clusteringName = name;
+            this.firstName = null;
+            this.lastName = null;
+            this.firstNameKind = null;
+            this.lastNameKind = null;
+            this.offset = offset;
+            this.width = width;
+            this.endOpenMarker = null;
+            this.comparator = comparator;
         }
 
         public static class Serializer
@@ -122,19 +150,21 @@ public final class IndexHelper
 
             private final ISerializer<ClusteringPrefix> clusteringSerializer;
             private final Version version;
+            private final ClusteringComparator comparator;
 
             public Serializer(CFMetaData metadata, Version version, SerializationHeader header)
             {
                 this.clusteringSerializer = metadata.serializers().indexEntryClusteringPrefixSerializer(version, header);
                 this.version = version;
+                this.comparator = metadata.comparator;
             }
 
             public void serialize(IndexInfo info, DataOutputPlus out) throws IOException
             {
                 assert version.storeRows() : "We read old index files but we should never write them";
 
-                clusteringSerializer.serialize(info.firstName, out);
-                clusteringSerializer.serialize(info.lastName, out);
+                clusteringSerializer.serialize(info.getFirstName(), out);
+                clusteringSerializer.serialize(info.getLastName(), out);
                 out.writeUnsignedVInt(info.offset);
                 out.writeVInt(info.width - WIDTH_BASE);
 
@@ -162,15 +192,15 @@ public final class IndexHelper
                     offset = in.readLong();
                     width = in.readLong();
                 }
-                return new IndexInfo(firstName, lastName, offset, width, endOpenMarker);
+                return new IndexInfo(firstName, lastName, offset, width, endOpenMarker, comparator);
             }
 
             public long serializedSize(IndexInfo info)
             {
                 assert version.storeRows() : "We read old index files but we should never write them";
 
-                long size = clusteringSerializer.serializedSize(info.firstName)
-                          + clusteringSerializer.serializedSize(info.lastName)
+                long size = clusteringSerializer.serializedSize(info.getFirstName())
+                          + clusteringSerializer.serializedSize(info.getLastName())
                           + TypeSizes.sizeofUnsignedVInt(info.offset)
                           + TypeSizes.sizeofVInt(info.width - WIDTH_BASE)
                           + TypeSizes.sizeof(info.endOpenMarker != null);
@@ -184,9 +214,50 @@ public final class IndexHelper
         public long unsharedHeapSize()
         {
             return EMPTY_SIZE
-                 + firstName.unsharedHeapSize()
-                 + lastName.unsharedHeapSize()
-                 + (endOpenMarker == null ? 0 : endOpenMarker.unsharedHeapSize());
+                   + (clusteringName != null ? clusteringName.unsharedHeapSize() : firstName.remaining() + lastName.remaining())
+                   + (endOpenMarker == null ? 0 : endOpenMarker.unsharedHeapSize());
+        }
+
+        public ClusteringPrefix getFirstName()
+        {
+            if (clusteringName != null)
+                return clusteringName;
+
+            ByteBuffer[] splitSegments = ByteBufferUtil.splitSegmentedByteBuffer(firstName.duplicate());
+            return (firstNameKind == ClusteringPrefix.Kind.CLUSTERING)
+                   ? comparator.make((Object[]) splitSegments)
+                   : new RangeTombstone.Bound(firstNameKind, splitSegments);
+        }
+
+        public ClusteringPrefix getLastName()
+        {
+            if (clusteringName != null)
+                return clusteringName;
+
+            ByteBuffer[] splitSegments = ByteBufferUtil.splitSegmentedByteBuffer(lastName.duplicate());
+            return (lastNameKind == ClusteringPrefix.Kind.CLUSTERING)
+                   ? comparator.make((Object[]) splitSegments)
+                   : new RangeTombstone.Bound(lastNameKind, splitSegments);
+        }
+
+        public ByteBuffer getFirstNameAsByteBuffer()
+        {
+            return (firstName == null) ? ByteBufferUtil.merge(clusteringName.getRawValues()) : firstName.duplicate();
+        }
+
+        public ByteBuffer getLastNameAsByteBuffer()
+        {
+            return (lastName == null) ? ByteBufferUtil.merge(clusteringName.getRawValues()) : lastName.duplicate();
+        }
+
+        public long getOffset()
+        {
+            return offset;
+        }
+
+        public long getWidth()
+        {
+            return width;
         }
     }
 }

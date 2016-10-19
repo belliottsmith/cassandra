@@ -299,8 +299,8 @@ public class SSTableReversedIterator extends AbstractSSTableIterator
             boolean includeFirst = true;
             if (!sstable.descriptor.version.storeRows() && currentBlock > 0)
             {
-                ClusteringPrefix lastOfPrevious = indexState.index(currentBlock - 1).lastName;
-                ClusteringPrefix firstOfCurrent = indexState.index(currentBlock).firstName;
+                ClusteringPrefix lastOfPrevious = indexState.index(currentBlock - 1).getLastName();
+                ClusteringPrefix firstOfCurrent = indexState.index(currentBlock).getFirstName();
                 includeFirst = metadata().comparator.compare(lastOfPrevious, firstOfCurrent) != 0;
             }
 

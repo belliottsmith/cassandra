@@ -194,7 +194,7 @@ public class RowIndexEntry<T> implements IMeasurableMemory
                         IndexHelper.IndexInfo info = idxSerializer.deserialize(in);
                         columnsIndex.add(info);
                         if (i == 0)
-                            headerLength = info.offset;
+                            headerLength = info.getOffset();
                     }
 
                     return new IndexedEntry(position, deletionTime, headerLength, columnsIndex);

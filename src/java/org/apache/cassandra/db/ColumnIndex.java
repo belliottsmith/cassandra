@@ -44,11 +44,13 @@ public class ColumnIndex
         this.columnsIndex = columnsIndex;
     }
 
-    public static ColumnIndex writeAndBuildIndex(UnfilteredRowIterator iterator, SequentialWriter output, SerializationHeader header, Version version) throws IOException
+    public static ColumnIndex writeAndBuildIndex(UnfilteredRowIterator iterator, SequentialWriter output,
+                                                 SerializationHeader header, Version version,
+                                                 ClusteringComparator comparator) throws IOException
     {
         assert !iterator.isEmpty() && version.storeRows();
 
-        Builder builder = new Builder(iterator, output, header, version.correspondingMessagingVersion());
+        Builder builder = new Builder(iterator, output, header, version.correspondingMessagingVersion(), comparator);
         return builder.build();
     }
 
@@ -68,6 +70,7 @@ public class ColumnIndex
         private final SequentialWriter writer;
         private final SerializationHeader header;
         private final int version;
+        private final ClusteringComparator comparator;
 
         private final List<IndexHelper.IndexInfo> columnsIndex = new ArrayList<>();
         private final long initialPosition;
@@ -86,12 +89,14 @@ public class ColumnIndex
         public Builder(UnfilteredRowIterator iterator,
                        SequentialWriter writer,
                        SerializationHeader header,
-                       int version)
+                       int version,
+                       ClusteringComparator comparator)
         {
             this.iterator = iterator;
             this.writer = writer;
             this.header = header;
             this.version = version;
+            this.comparator = comparator;
             this.initialPosition = writer.position();
         }
 
@@ -125,7 +130,8 @@ public class ColumnIndex
                                                                          lastClustering,
                                                                          startPosition,
                                                                          currentPosition() - startPosition,
-                                                                         openMarker);
+                                                                         openMarker,
+                                                                         comparator);
             columnsIndex.add(cIndexInfo);
             firstClustering = null;
         }
