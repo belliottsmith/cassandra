@@ -133,6 +133,8 @@ builds:
       junit:
         path: nosetests.xml
   timeout: 600
+  trigger:
+    gitPush: false
 - name: dtest-3.0.9-fast
   branchName: cie-cassandra-3.0.9
   build:
@@ -150,7 +152,10 @@ builds:
       junit:
         path: nosetests.xml
   timeout: 480
+  trigger:
+    gitPush: false
 - name: ghprb-dtest-3.0.9
+  disabled: true
   branchName: cie-cassandra-3.0.9
   build:
     template: freestyle:v1:prb
