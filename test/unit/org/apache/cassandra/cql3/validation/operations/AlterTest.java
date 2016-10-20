@@ -349,7 +349,7 @@ public class AlterTest extends CQLTester
         });
 
         // Create a keyspace with expected DC name.
-        execute("CREATE KEYSPACE " + AuthKeyspace.NAME + " WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 , 'datacenter2' : 2 }");
+        execute("CREATE KEYSPACE IF NOT EXISTS " + AuthKeyspace.NAME + " WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 , 'datacenter2' : 2 }");
 
         // try modifying the system_auth keyspace without second DC which has active node.
         assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE system_auth WITH replication = { 'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 2 }");
