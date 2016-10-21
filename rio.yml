@@ -140,7 +140,7 @@ builds:
   build:
     template: freestyle:v1:build
     steps:
-    - /home/tests/run_int.sh --with-xunit --xunit-file=/code/nosetests.xml --test-select-config=conf/cie-cassandra-3.0-fastest.cfg
+    - /home/tests/run_int.sh -vv --with-xunit --xunit-file=/code/nosetests.xml --test-select-config=conf/cie-cassandra-3.0-fastest.cfg
   machine:
     env:
       DTEST_TIMEOUT: 300
