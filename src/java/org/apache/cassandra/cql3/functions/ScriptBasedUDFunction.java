@@ -75,6 +75,7 @@ final class ScriptBasedUDFunction extends UDFunction
     "com.google.common.base",
     "com.google.common.collect",
     "com.google.common.reflect",
+    "org.slf4j.ext",
     // following required by UDF
     "com.datastax.driver.core",
     "com.datastax.driver.core.utils"
