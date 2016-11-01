@@ -19,6 +19,7 @@ package org.apache.cassandra.repair.messages;
 
 import java.util.*;
 
+import com.google.common.base.Joiner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +47,7 @@ public class RepairOption
     public static final String HOSTS_KEY = "hosts";
     public static final String TRACE_KEY = "trace";
     public static final String PULL_REPAIR_KEY = "pullRepair";
+    public static final String FORCE_REPAIR_KEY = "forceRepair";
 
     // we don't want to push nodes too much for repair
     public static final int MAX_JOB_THREADS = 4;
@@ -122,6 +124,11 @@ public class RepairOption
      *             This is only allowed if exactly 2 hosts are specified along with a token range that they share.</td>
      *             <td>false</td>
      *         </tr>
+     *         <tr>
+     *             <td>forceRepair</td>
+     *             <td>"true" if the repair should continue, even if one of the replicas involved is down.</td>
+     *             <td>false</td>
+     *         </tr>
      *     </tbody>
      * </table>
      *
@@ -137,6 +144,7 @@ public class RepairOption
         boolean incremental = Boolean.parseBoolean(options.get(INCREMENTAL_KEY));
         boolean trace = Boolean.parseBoolean(options.get(TRACE_KEY));
         boolean pullRepair = Boolean.parseBoolean(options.get(PULL_REPAIR_KEY));
+        boolean force = Boolean.parseBoolean(options.get(FORCE_REPAIR_KEY));
 
         int jobThreads = 1;
         if (options.containsKey(JOB_THREADS_KEY))
@@ -170,7 +178,7 @@ public class RepairOption
             }
         }
 
-        RepairOption option = new RepairOption(parallelism, primaryRange, incremental, trace, jobThreads, ranges, !ranges.isEmpty(), pullRepair);
+        RepairOption option = new RepairOption(parallelism, primaryRange, incremental, trace, jobThreads, ranges, !ranges.isEmpty(), pullRepair, force);
 
         // data centers
         String dataCentersStr = options.get(DATACENTERS_KEY);
@@ -249,13 +257,14 @@ public class RepairOption
     private final int jobThreads;
     private final boolean isSubrangeRepair;
     private final boolean pullRepair;
+    private final boolean forceRepair;
 
     private final Collection<String> columnFamilies = new HashSet<>();
     private final Collection<String> dataCenters = new HashSet<>();
     private final Collection<String> hosts = new HashSet<>();
     private final Collection<Range<Token>> ranges = new HashSet<>();
 
-    public RepairOption(RepairParallelism parallelism, boolean primaryRange, boolean incremental, boolean trace, int jobThreads, Collection<Range<Token>> ranges, boolean isSubrangeRepair, boolean pullRepair)
+    public RepairOption(RepairParallelism parallelism, boolean primaryRange, boolean incremental, boolean trace, int jobThreads, Collection<Range<Token>> ranges, boolean isSubrangeRepair, boolean pullRepair, boolean forceRepair)
     {
         if (FBUtilities.isWindows() &&
             (DatabaseDescriptor.getDiskAccessMode() != Config.DiskAccessMode.standard || DatabaseDescriptor.getIndexAccessMode() != Config.DiskAccessMode.standard) &&
@@ -274,6 +283,7 @@ public class RepairOption
         this.ranges.addAll(ranges);
         this.isSubrangeRepair = isSubrangeRepair;
         this.pullRepair = pullRepair;
+        this.forceRepair = forceRepair;
     }
 
     public RepairParallelism getParallelism()
@@ -299,6 +309,11 @@ public class RepairOption
     public boolean isPullRepair()
     {
         return pullRepair;
+    }
+
+    public boolean isForcedRepair()
+    {
+        return forceRepair;
     }
 
     public int getJobThreads()
@@ -353,6 +368,7 @@ public class RepairOption
                        ", hosts: " + hosts +
                        ", # of ranges: " + ranges.size() +
                        ", pull repair: " + pullRepair +
+                       ", force repair: " + forceRepair +
                        ')';
     }
 }
