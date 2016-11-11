@@ -223,11 +223,6 @@ class HintsReader implements AutoCloseable, Iterable<HintsReader.Page>
             try
             {
                 hint = Hint.serializer.deserialize(input, descriptor.messagingVersion());
-                if (hint == null)
-                {
-                    input.skipBytes(Ints.checkedCast(size - input.bytesPastLimit()));
-                    return null;
-                }
                 input.checkLimit(0);
             }
             catch (UnknownColumnFamilyException e)
