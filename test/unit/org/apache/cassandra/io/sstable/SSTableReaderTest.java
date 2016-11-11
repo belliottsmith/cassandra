@@ -37,7 +37,9 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
+import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.LocalPartitioner.LocalToken;
@@ -620,5 +622,41 @@ public class SSTableReaderTest
     private DecoratedKey k(int i)
     {
         return new BufferDecoratedKey(t(i), ByteBufferUtil.bytes(String.valueOf(i)));
+    }
+
+    @Test
+    public void getSerializedRowSize()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD2);
+        partitioner = cfs.getPartitioner();
+
+        // insert 2 rows
+        for (int j = 0; j < 2; j++)
+        {
+            new RowUpdateBuilder(cfs.metadata, j, String.valueOf(j))
+                .clustering("0")
+                .add("val", ByteBufferUtil.EMPTY_BYTE_BUFFER)
+                .build()
+                .applyUnsafe();
+        }
+
+        Set<SSTableReader> beforeFlush = cfs.getLiveSSTables();
+        cfs.forceBlockingFlush();
+        Set<SSTableReader> afterFlush = cfs.getLiveSSTables();
+        Sets.SetView<SSTableReader> sstables = Sets.difference(afterFlush, beforeFlush);
+
+        Assert.assertEquals(1, sstables.size());
+
+        SSTableReader sstable = sstables.iterator().next();
+
+        // check that both keys add up to total sstable size
+        long expectedTotal = sstable.uncompressedLength();
+        long actualTotal = sstable.getSerializedRowSize(k(0)) + sstable.getSerializedRowSize(k(1));
+        Assert.assertEquals(expectedTotal, actualTotal);
+
+        // check non-existant keys return nothing
+        Assert.assertEquals(0, sstable.getSerializedRowSize(k(2)));
+
     }
 }
