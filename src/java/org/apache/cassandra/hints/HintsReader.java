@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.UnknownColumnFamilyException;
 import org.apache.cassandra.io.FSReadError;
+import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CLibrary;
@@ -208,7 +209,8 @@ class HintsReader implements AutoCloseable, Iterable<HintsReader.Page>
             if (!input.checkCrc())
                 throw new IOException("Digest mismatch exception");
 
-            return readHint(size);
+            Hint hint = readHint(size);
+            return hintIsLive(hint) ? hint : null;
         }
 
         private Hint readHint(int size) throws IOException
@@ -298,7 +300,8 @@ class HintsReader implements AutoCloseable, Iterable<HintsReader.Page>
             if (!input.checkCrc())
                 throw new IOException("Digest mismatch exception");
 
-            return readBuffer(size);
+            ByteBuffer buffer = readBuffer(size);
+            return hintIsLive(buffer) ? buffer : null;
         }
 
         private ByteBuffer readBuffer(int size) throws IOException
@@ -317,6 +320,21 @@ class HintsReader implements AutoCloseable, Iterable<HintsReader.Page>
                         input.getPosition() - size - 4,
                         descriptor.fileName());
             return null;
+        }
+    }
+
+    static boolean hintIsLive(Hint hint)
+    {
+        return hint != null && hint.isLive();
+    }
+
+    static boolean hintIsLive(ByteBuffer bb) throws IOException
+    {
+        try(DataInputBuffer input = new DataInputBuffer(bb, true))
+        {
+            long creationTime = input.readLong();
+            int gcgs = (int) input.readUnsignedVInt();
+            return Hint.isLive(System.currentTimeMillis(), creationTime, Hint.maxHintTTL, gcgs);
         }
     }
 }
