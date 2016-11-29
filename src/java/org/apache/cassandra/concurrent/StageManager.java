@@ -112,13 +112,7 @@ public class StageManager
         }
     }
 
-    public final static Runnable NO_OP_TASK = new Runnable()
-    {
-        public void run()
-        {
-
-        }
-    };
+    public final static Runnable NO_OP_TASK = () -> {};
 
     /**
      * A TPE that disallows submit so that we don't need to worry about unwrapping exceptions on the
