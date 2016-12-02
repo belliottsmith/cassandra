@@ -1,8 +1,8 @@
 3.0.9.1(open)
  * (Apple Internal) <rdar://problem/27729316> Port to 3.0 <rdar://problem/27205556> Cass: Composite abstraction in 2.1 creates significant GC pressure (especially on wide rows)
- * <rdar://problem/27728188> Port to 3.0 <rdar://problem/24118843> Cass: hint TTL should be hot
- * <rdar://problem/28825608> Port to 3.0 <rdar://problem/26203712> Cass: Add an API to efficiently request the size of a row
- * <rdar://problem/27727464> Port to 3.0 <rdar://problem/18758693> Cass: New "repair --force"
+ * (Apple Internal) <rdar://problem/27728188> Port to 3.0 <rdar://problem/24118843> Cass: hint TTL should be hot
+ * (Apple Internal) <rdar://problem/28825608> Port to 3.0 <rdar://problem/26203712> Cass: Add an API to efficiently request the size of a row
+ * (Apple Internal) <rdar://problem/27727464> Port to 3.0 <rdar://problem/18758693> Cass: New "repair --force"
  * <rdar://problem/28767747> Cass: Port to 3.0 : <rdar://problem/19999369> Cass: metric to track size of reads/writes (Apple Internal)
  * <rdar://problem/27424094> Cass: Forward port to 3.0: <rdar://problem/24560507> Cass: Evaluate Consistency level of Auth reads(Need to post back via 26630518)
  * <rdar://problem/25991887> Cass: Add an option to blacklist CQL partitions by operator (Apple Internal)
