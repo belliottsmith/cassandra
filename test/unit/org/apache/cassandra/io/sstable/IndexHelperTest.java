@@ -19,7 +19,6 @@
 package org.apache.cassandra.io.sstable;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 import org.junit.Test;
@@ -28,8 +27,8 @@ import org.apache.cassandra.Util;
 import org.apache.cassandra.db.ClusteringComparator;
 import org.apache.cassandra.db.ClusteringPrefix;
 import org.apache.cassandra.db.DeletionTime;
-import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static org.apache.cassandra.io.sstable.IndexHelper.IndexInfo;
@@ -37,11 +36,10 @@ import static org.junit.Assert.assertEquals;
 
 public class IndexHelperTest
 {
-
-    private static ClusteringComparator comp = new ClusteringComparator(Collections.<AbstractType<?>>singletonList(LongType.instance));
+    private final static ClusteringComparator comp = new ClusteringComparator(LongType.instance, UTF8Type.instance);
     private static ClusteringPrefix cn(long l)
     {
-        return Util.clustering(comp, l);
+        return Util.clustering(comp, l, "abc");
     }
 
     @Test
@@ -50,9 +48,9 @@ public class IndexHelperTest
         DeletionTime deletionInfo = new DeletionTime(FBUtilities.timestampMicros(), FBUtilities.nowInSeconds());
 
         List<IndexInfo> indexes = new ArrayList<>();
-        indexes.add(new IndexInfo(cn(0L), cn(5L), 0, 0, deletionInfo));
-        indexes.add(new IndexInfo(cn(10L), cn(15L), 0, 0, deletionInfo));
-        indexes.add(new IndexInfo(cn(20L), cn(25L), 0, 0, deletionInfo));
+        indexes.add(new IndexInfo(cn(0L), cn(5L), 0, 0, deletionInfo, comp));
+        indexes.add(new IndexInfo(cn(10L), cn(15L), 0, 0, deletionInfo, comp));
+        indexes.add(new IndexInfo(cn(20L), cn(25L), 0, 0, deletionInfo, comp));
 
         assertEquals(0, IndexHelper.indexFor(cn(-1L), indexes, comp, false, -1));
         assertEquals(0, IndexHelper.indexFor(cn(5L), indexes, comp, false, -1));

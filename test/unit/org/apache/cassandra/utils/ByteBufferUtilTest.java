@@ -24,7 +24,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.util.Arrays;
+import java.util.Random;
 
+import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.cassandra.io.util.DataOutputBuffer;
@@ -34,6 +36,7 @@ import static org.junit.Assert.assertEquals;
 
 public class ByteBufferUtilTest
 {
+    private static final Random RANDOM = new Random();
     private static final String s = "cassandra";
 
     private ByteBuffer fromStringWithPosition(String s, int pos, boolean direct)
@@ -246,5 +249,33 @@ public class ByteBufferUtilTest
         ByteBuffer bb2 = ByteBufferUtil.hexToBytes(s);
         assertEquals(bb, bb2);
         assertEquals("0102", s);
+    }
+
+    @Test
+    public void testSplitAndMerge()
+    {
+        // +2 to ensure we always have *at least* 2
+        // because we want to ensure we merge/split multiple buffers
+        int numBuffersToGenerate = RANDOM.nextInt(6 + 2);
+        ByteBuffer[] buffers = new ByteBuffer[numBuffersToGenerate];
+        for (int i = 0; i < numBuffersToGenerate; i++)
+        {
+            buffers[i] = ByteBuffer.wrap(generateRandomWord(RANDOM.nextInt(10 + 1)).getBytes());
+        }
+
+        ByteBuffer mergedBuffer = ByteBufferUtil.merge(buffers);
+        ByteBuffer[] resplitBuffers = ByteBufferUtil.splitSegmentedByteBuffer(mergedBuffer);
+
+        Assert.assertArrayEquals(buffers, resplitBuffers);
+    }
+
+    private static String generateRandomWord(int length)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < length * 5; i++)
+        {
+            sb.append((char) (RANDOM.nextInt(26) + 'a'));
+        }
+        return sb.toString();
     }
 }

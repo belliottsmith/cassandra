@@ -434,7 +434,7 @@ abstract class AbstractSSTableIterator implements SliceableUnfilteredRowIterator
 
         private long columnOffset(int i)
         {
-            return indexEntry.position + indexes.get(i).offset;
+            return indexEntry.position + indexes.get(i).getOffset();
         }
 
         public int blocksCount()
@@ -485,7 +485,7 @@ abstract class AbstractSSTableIterator implements SliceableUnfilteredRowIterator
         {
             assert reader.deserializer != null;
             long correction = reader.deserializer.bytesReadForUnconsumedData();
-            return reader.file.bytesPastMark(mark) - correction >= currentIndex().width;
+            return reader.file.bytesPastMark(mark) - correction >= currentIndex().getWidth();
         }
 
         public int currentBlockIdx()

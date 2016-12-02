@@ -79,7 +79,7 @@ public class TombstonesWithIndexedSSTableTest extends CQLTester
                 RowIndexEntry<IndexHelper.IndexInfo> indexEntry = sstable.getPosition(dk, SSTableReader.Operator.EQ);
                 if (indexEntry != null && indexEntry.isIndexed())
                 {
-                    ClusteringPrefix firstName = indexEntry.columnsIndex().get(1).firstName;
+                    ClusteringPrefix firstName = indexEntry.columnsIndex().get(1).getFirstName();
                     if (firstName.kind().isBoundary())
                         break deletionLoop;
                     indexedRow = Int32Type.instance.compose(firstName.get(0));
