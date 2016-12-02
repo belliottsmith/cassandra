@@ -61,6 +61,6 @@ public class CIEInternalKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(3), Tables.of(SchemaDropLog, PartitionBlacklistCf));
+        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(Integer.getInteger("cie_internal_rf", 3)), Tables.of(SchemaDropLog, PartitionBlacklistCf));
     }
 }
