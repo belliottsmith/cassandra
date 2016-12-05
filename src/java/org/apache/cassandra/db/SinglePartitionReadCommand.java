@@ -407,7 +407,11 @@ public class SinglePartitionReadCommand extends ReadCommand
         cfs.metric.rowCacheMiss.inc();
         Tracing.trace("Row cache miss");
 
-        boolean cacheFullPartitions = metadata().params.caching.cacheAllRows();
+        // Note that on tables with no clustering keys, any positive value of
+        // rowsToCache implies caching the full partition
+        boolean cacheFullPartitions = metadata().clusteringColumns().size() > 0 ?
+                                      metadata().params.caching.cacheAllRows() :
+                                      metadata().params.caching.cacheRows();
 
         // To be able to cache what we read, what we read must at least covers what the cache holds, that
         // is the 'rowsToCache' first rows of the partition. We could read those 'rowsToCache' first rows
@@ -507,11 +511,11 @@ public class SinglePartitionReadCommand extends ReadCommand
          *   2) If we have a name filter (so we query specific rows), we can make a bet: that all column for all queried row
          *      will have data in the most recent sstable(s), thus saving us from reading older ones. This does imply we
          *      have a way to guarantee we have all the data for what is queried, which is only possible for name queries
-         *      and if we have neither collections nor counters (indeed, for a collection, we can't guarantee an older sstable
-         *      won't have some elements that weren't in the most recent sstables, and counters are intrinsically a collection
-         *      of shards so have the same problem).
+         *      and if we have neither non-frozen collections/UDTs nor counters (indeed, for a non-frozen collection or UDT,
+         *      we can't guarantee an older sstable won't have some elements that weren't in the most recent sstables,
+         *      and counters are intrinsically a collection of shards and so have the same problem).
          */
-        if (clusteringIndexFilter() instanceof ClusteringIndexNamesFilter && queryNeitherCountersNorCollections())
+        if (clusteringIndexFilter() instanceof ClusteringIndexNamesFilter && !queriesMulticellType())
             return queryMemtableAndSSTablesInTimestampOrder(cfs, copyOnHeap, (ClusteringIndexNamesFilter)clusteringIndexFilter());
 
         Tracing.trace("Acquiring sstable references");
@@ -566,7 +570,7 @@ public class SinglePartitionReadCommand extends ReadCommand
                 {
                     nonIntersectingSSTables++;
                     // sstable contains no tombstone if maxLocalDeletionTime == Integer.MAX_VALUE, so we can safely skip those entirely
-                    if (sstable.getSSTableMetadata().maxLocalDeletionTime != Integer.MAX_VALUE)
+                    if (sstable.hasTombstones())
                     {
                         if (skippedSSTables == null)
                             skippedSSTables = new ArrayList<>();
@@ -658,14 +662,14 @@ public class SinglePartitionReadCommand extends ReadCommand
         return clusteringIndexFilter().shouldInclude(sstable);
     }
 
-    private boolean queryNeitherCountersNorCollections()
+    private boolean queriesMulticellType()
     {
         for (ColumnDefinition column : columnFilter().fetchedColumns())
         {
-            if (column.type.isCollection() || column.type.isCounter())
-                return false;
+            if (column.type.isMultiCell() || column.type.isCounter())
+                return true;
         }
-        return true;
+        return false;
     }
 
     /**
@@ -727,14 +731,14 @@ public class SinglePartitionReadCommand extends ReadCommand
                 // however: if it is set, it impacts everything and must be included. Getting that top-level partition deletion costs us
                 // some seek in general however (unless the partition is indexed and is in the key cache), so we first check if the sstable
                 // has any tombstone at all as a shortcut.
-                if (sstable.getSSTableMetadata().maxLocalDeletionTime == Integer.MAX_VALUE)
+                if (!sstable.hasTombstones())
                     continue; // Means no tombstone at all, we can skip that sstable
 
                 // We need to get the partition deletion and include it if it's live. In any case though, we're done with that sstable.
                 sstable.incrementReadCount();
                 try (UnfilteredRowIterator iter = sstable.iterator(partitionKey(), columnFilter(), filter.isReversed(), isForThrift()))
                 {
-                    if (iter.partitionLevelDeletion().isLive())
+                    if (!iter.partitionLevelDeletion().isLive())
                     {
                         sstablesIterated++;
                         result = add(UnfilteredRowIterators.noRowsIterator(iter.metadata(), iter.partitionKey(), Rows.EMPTY_STATIC_ROW, iter.partitionLevelDeletion(), filter.isReversed()), result, filter, sstable.isRepaired());

@@ -15,27 +15,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.tools.nodetool;
 
-import io.airlift.command.Command;
+package org.apache.cassandra.cql3;
 
-import org.apache.cassandra.tools.NodeProbe;
-import org.apache.cassandra.tools.NodeTool.NodeToolCmd;
-import org.apache.cassandra.utils.JVMStabilityInspector;
+import org.junit.Test;
 
-@Command(name = "stopdaemon", description = "Stop cassandra daemon")
-public class StopDaemon extends NodeToolCmd
+import junit.framework.Assert;
+import org.apache.cassandra.exceptions.SyntaxException;
+
+public class ReservedKeywordsTest
 {
-    @Override
-    public void execute(NodeProbe probe)
+    @Test
+    public void testReservedWordsForColumns() throws Exception
     {
-        try
+        for (String reservedWord : ReservedKeywords.reservedKeywords)
         {
-            probe.stopCassandraDaemon();
-        } catch (Exception e)
-        {
-            JVMStabilityInspector.inspectThrowable(e);
-            // ignored
+            try
+            {
+                QueryProcessor.parseStatement(String.format("ALTER TABLE ks.t ADD %s TEXT", reservedWord));
+                Assert.fail(String.format("Reserved keyword %s should not have parsed", reservedWord));
+            }
+            catch (SyntaxException ignore)
+            {
+            }
         }
     }
 }

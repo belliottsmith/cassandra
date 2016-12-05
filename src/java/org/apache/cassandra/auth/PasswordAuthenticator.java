@@ -147,11 +147,7 @@ public class PasswordAuthenticator implements IAuthenticator
     {
         try
         {
-            // If the legacy users table exists try to verify credentials there. This is to handle the case
-            // where the cluster is being upgraded and so is running with mixed versions of the authn tables
-            SelectStatement authStmt = Schema.instance.getCFMetaData(AuthKeyspace.NAME, LEGACY_CREDENTIALS_TABLE) == null
-                                                    ? authenticateStatement
-                                                    : legacyAuthenticateStatement;
+            SelectStatement authStmt = authenticationStatement();
 
             UntypedResultSet result;
             try
@@ -189,7 +185,7 @@ public class PasswordAuthenticator implements IAuthenticator
     private AuthenticatedUser authenticate(String username, String password) throws AuthenticationException
     {
         String storedPasswordHash;
-        if(cache == null)
+        if (cache == null)
         {
             storedPasswordHash = getPasswordHash(username);
         }
@@ -201,9 +197,9 @@ public class PasswordAuthenticator implements IAuthenticator
             }
             catch (UncheckedExecutionException | ExecutionException e)
             {
-                if(e.getCause() != null && e.getCause() instanceof AuthenticationException)
+                if (e.getCause() != null && e.getCause() instanceof AuthenticationException)
                 {
-                    throw (AuthenticationException)e.getCause();
+                    throw (AuthenticationException) e.getCause();
                 }
                 else
                 {
@@ -212,10 +208,27 @@ public class PasswordAuthenticator implements IAuthenticator
             }
         }
 
-        if (storedPasswordHash == null  || !BCrypt.checkpw(password, storedPasswordHash))
+        if (storedPasswordHash == null || !BCrypt.checkpw(password, storedPasswordHash))
             throw new AuthenticationException("Username and/or password are incorrect");
 
         return new AuthenticatedUser(username);
+    }
+
+    /**
+     * If the legacy users table exists try to verify credentials there. This is to handle the case
+     * where the cluster is being upgraded and so is running with mixed versions of the authn tables
+     */
+    private SelectStatement authenticationStatement()
+    {
+        if (Schema.instance.getCFMetaData(AuthKeyspace.NAME, LEGACY_CREDENTIALS_TABLE) == null)
+            return authenticateStatement;
+        else
+        {
+            // If the credentials was initialised only after statement got prepared, re-prepare (CASSANDRA-12813).
+            if (legacyAuthenticateStatement == null)
+                prepareLegacyAuthenticateStatement();
+            return legacyAuthenticateStatement;
+        }
     }
 
     public Set<DataResource> protectedResources()
@@ -237,13 +250,16 @@ public class PasswordAuthenticator implements IAuthenticator
         authenticateStatement = prepare(query);
 
         if (Schema.instance.getCFMetaData(AuthKeyspace.NAME, LEGACY_CREDENTIALS_TABLE) != null)
-        {
-            query = String.format("SELECT %s from %s.%s WHERE username = ?",
-                                  SALTED_HASH,
-                                  AuthKeyspace.NAME,
-                                  LEGACY_CREDENTIALS_TABLE);
-            legacyAuthenticateStatement = prepare(query);
-        }
+            prepareLegacyAuthenticateStatement();
+    }
+
+    private void prepareLegacyAuthenticateStatement()
+    {
+        String query = String.format("SELECT %s from %s.%s WHERE username = ?",
+                                     SALTED_HASH,
+                                     AuthKeyspace.NAME,
+                                     LEGACY_CREDENTIALS_TABLE);
+        legacyAuthenticateStatement = prepare(query);
     }
 
     public AuthenticatedUser legacyAuthenticate(Map<String, String> credentials) throws AuthenticationException

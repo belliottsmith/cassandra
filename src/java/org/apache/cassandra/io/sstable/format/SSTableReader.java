@@ -1859,6 +1859,14 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         return sstableMetadata.maxLocalDeletionTime;
     }
 
+    /** sstable contains no tombstones if minLocalDeletionTime == Integer.MAX_VALUE */
+    public boolean hasTombstones()
+    {
+        // sstable contains no tombstone if minLocalDeletionTime is still set to  the default value Integer.MAX_VALUE
+        // which is bigger than any valid deletion times
+        return getMinLocalDeletionTime() != Integer.MAX_VALUE;
+    }
+
     public int getMinTTL()
     {
         return sstableMetadata.minTTL;
@@ -2073,7 +2081,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         private Ref<GlobalTidy> globalRef;
         private GlobalTidy global;
 
-        private boolean setup;
+        private volatile boolean setup;
 
         void setup(SSTableReader reader, boolean trackHotness)
         {
@@ -2097,6 +2105,9 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
 
         public void tidy()
         {
+            if (logger.isTraceEnabled())
+                logger.trace("Running instance tidier for {} with setup {}", descriptor, setup);
+
             // don't try to cleanup if the sstablereader was never fully constructed
             if (!setup)
                 return;
@@ -2115,8 +2126,15 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
             {
                 public void run()
                 {
+                    if (logger.isTraceEnabled())
+                        logger.trace("Async instance tidier for {}, before barrier", descriptor);
+
                     if (barrier != null)
                         barrier.await();
+
+                    if (logger.isTraceEnabled())
+                        logger.trace("Async instance tidier for {}, after barrier", descriptor);
+
                     if (bf != null)
                         bf.close();
                     if (summary != null)
@@ -2128,6 +2146,9 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
                     if (ifile != null)
                         ifile.close();
                     globalRef.release();
+
+                    if (logger.isTraceEnabled())
+                        logger.trace("Async instance tidier for {}, completed", descriptor);
                 }
             });
         }
