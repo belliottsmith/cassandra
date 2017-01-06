@@ -108,7 +108,7 @@ builds:
       junit: false
     carnival:
       packageName: CIEDb
-      packageSuffix: three-zero-ten-zero
+      packageSuffix: three-zero-ten-one
       packagePath: CIEDb/Updates/
     releaseTrain: 1BUILD
   finally:
