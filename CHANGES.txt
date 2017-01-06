@@ -1,4 +1,8 @@
-3.0.10.1 (open)
+3.0.10.2 (open)
+
+3.0.10.1
+ * (Apple Internal) rdar://problem/28312831 Track: CASSANDRA-10099(Improve concurrency in CompactionStrategyManager)
+ * (Apple Internal) rdar://problem/26361229 Cass: Need to expose amount of data repaired(CASSANDRA-11503)
 
 3.0.10
  * Disallow offheap_buffers memtable allocation (CASSANDRA-11039)
