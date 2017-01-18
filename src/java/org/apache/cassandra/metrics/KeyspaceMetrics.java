@@ -21,6 +21,7 @@ import java.util.Set;
 
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Histogram;
+import com.codahale.metrics.Meter;
 import com.codahale.metrics.Timer;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
@@ -91,6 +92,8 @@ public class KeyspaceMetrics
     public final LatencyMetrics casPropose;
     /** CAS Commit metrics */
     public final LatencyMetrics casCommit;
+    /** Writes failed ideal consistency **/
+    public final Meter writeFailedIdealCL;
 
     public final MetricNameFactory factory;
     private Keyspace keyspace;
@@ -236,6 +239,7 @@ public class KeyspaceMetrics
         casPrepare = new LatencyMetrics(factory, "CasPrepare");
         casPropose = new LatencyMetrics(factory, "CasPropose");
         casCommit = new LatencyMetrics(factory, "CasCommit");
+        writeFailedIdealCL = Metrics.meter(factory.createMetricName("WriteFailedIdealCL"));
     }
 
     /**

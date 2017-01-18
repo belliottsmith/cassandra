@@ -306,6 +306,10 @@ public class Config
     public int tracetype_query_ttl = (int) TimeUnit.DAYS.toSeconds(1);
     public int tracetype_repair_ttl = (int) TimeUnit.DAYS.toSeconds(7);
 
+    // Maintain statistics on whether writes achieve the ideal consistency level
+    // Before expiring and becoming hints
+    public ConsistencyLevel ideal_consistency_level = null;
+
     /*
      * Strategy to use for coalescing messages in OutboundTcpConnection.
      * Can be fixed, movingaverage, timehorizon, disabled. Setting is case and leading/trailing

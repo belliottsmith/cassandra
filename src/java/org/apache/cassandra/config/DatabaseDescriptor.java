@@ -2161,4 +2161,14 @@ public class DatabaseDescriptor
     {
         conf.generate_sstable_digest_components = shouldGenerateDigests;
     }
+
+    public static ConsistencyLevel getIdealConsistencyLevel()
+    {
+        return conf.ideal_consistency_level;
+    }
+
+    public static void setIdealConsistencyLevel(ConsistencyLevel cl)
+    {
+        conf.ideal_consistency_level = cl;
+    }
 }

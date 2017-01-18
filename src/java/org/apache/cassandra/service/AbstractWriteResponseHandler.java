@@ -20,6 +20,7 @@ package org.apache.cassandra.service;
 import java.net.InetAddress;
 import java.util.Collection;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
 import com.google.common.collect.Iterables;
@@ -31,7 +32,6 @@ import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.WriteType;
 import org.apache.cassandra.exceptions.*;
-import org.apache.cassandra.net.IAsyncCallback;
 import org.apache.cassandra.net.IAsyncCallbackWithFailure;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
@@ -40,6 +40,8 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
 {
     protected static final Logger logger = LoggerFactory.getLogger( AbstractWriteResponseHandler.class );
 
+    //Count down until all responses and expirations have occured before deciding whether the ideal CL was reached.
+    private final AtomicInteger responsesAndExpirations = new AtomicInteger();
     private final SimpleCondition condition = new SimpleCondition();
     protected final Keyspace keyspace;
     protected final long start;
@@ -51,6 +53,10 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
     private static final AtomicIntegerFieldUpdater<AbstractWriteResponseHandler> failuresUpdater
         = AtomicIntegerFieldUpdater.newUpdater(AbstractWriteResponseHandler.class, "failures");
     private volatile int failures = 0;
+
+    //Delegate to another WriteReponseHandler or possibly this one to track
+    //If the ideal consistency level was reached.
+    private AbstractWriteResponseHandler idealCLDelegate;
 
     /**
      * @param callback A callback to be called when the write is successful.
@@ -69,6 +75,8 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
         this.naturalEndpoints = naturalEndpoints;
         this.callback = callback;
         this.writeType = writeType;
+        //The AWRSH will be safely published to other threads so lazy is fine.
+        responsesAndExpirations.lazySet(naturalEndpoints.size() + pendingEndpoints.size());
     }
 
     public void get() throws WriteTimeoutException, WriteFailureException
@@ -107,8 +115,66 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
         }
     }
 
-    /** 
-     * @return the minimum number of endpoints that must reply. 
+    /**
+     * Set a delegate ideal CL write response handler. Note that this could be the same as this
+     * if the ideal CL and requested CL are the same.
+     */
+    public void setIdealCLResponseHandler(AbstractWriteResponseHandler handler)
+    {
+        this.idealCLDelegate = handler;
+    }
+
+    /**
+     * This logs the response but doesn't do any further processing related to this write response handler
+     * on whether the CL was achieved. Only call this after the subclass has completed all it's processing
+     * since the subclass instance may be queried to find out if the CL was achieved.
+     */
+    protected final void logResponseToIdealCLDelegate(MessageIn<T> m)
+    {
+        //Tracking ideal CL was not configured
+        if (idealCLDelegate == null)
+        {
+            return;
+        }
+
+        if (idealCLDelegate == this)
+        {
+            //Processing of the message was already done since this is the handler for the
+            //ideal consistency level. Just decrement the counter.
+            decrementResponseOrExpired();
+        }
+        else
+        {
+            //Let the delegate do full processing, this will loop back into the branch above
+            //with idealCLDelegate == this, because the ideal write handler idealCLDelegate will always
+            //be set to this in the delegate.
+            idealCLDelegate.response(m);
+        }
+    }
+
+    public final void expired()
+    {
+        //Tracking ideal CL was not configured
+        if (idealCLDelegate == null)
+        {
+            return;
+        }
+
+        //The requested CL matched ideal CL so reuse this object
+        if (idealCLDelegate == this)
+        {
+            decrementResponseOrExpired();
+        }
+        else
+        {
+            //Have the delegate track the expired response
+            idealCLDelegate.decrementResponseOrExpired();
+        }
+    }
+
+
+    /**
+     * @return the minimum number of endpoints that must reply.
      */
     protected int totalBlockFor()
     {
@@ -158,11 +224,31 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
     {
         logger.trace("Got failure from {}", from);
 
+        expired();
+
         int n = waitingFor(from)
-              ? failuresUpdater.incrementAndGet(this)
-              : failures;
+                ? failuresUpdater.incrementAndGet(this)
+                : failures;
 
         if (totalBlockFor() + n > totalEndpoints())
             signal();
+    }
+
+    /**
+     * Decrement the counter for all responses/expirations and if the counter
+     * hits 0 check to see if the ideal consistency level (this write response handler)
+     * was reached using the signal.
+     */
+    private final void decrementResponseOrExpired()
+    {
+        int decrementedValue = responsesAndExpirations.decrementAndGet();
+        if (decrementedValue == 0)
+        {
+            //The condition being signaled is a valid proxy for the CL being achieved
+            if (!condition.isSignaled())
+            {
+                keyspace.metric.writeFailedIdealCL.mark();
+            }
+        }
     }
 }

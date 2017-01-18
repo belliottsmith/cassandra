@@ -962,3 +962,8 @@ windows_timer_interval: 1
 # configure the read and write consistency levels for modifications to auth tables
 # auth_read_consistency_level: LOCAL_QUORUM
 # auth_write_consistency_level: EACH_QUORUM
+
+# Track a metric per keyspace indicating whether replication achieved the ideal consistency
+# level for writes without timing out. This is different from the consistency level requested by each
+# each write which may be lower in order to facilitate availability.
+# ideal_consistency_level: EACH_QUORUM
