@@ -308,7 +308,7 @@ public class Config
 
     // Maintain statistics on whether writes achieve the ideal consistency level
     // Before expiring and becoming hints
-    public ConsistencyLevel ideal_consistency_level = null;
+    public volatile ConsistencyLevel ideal_consistency_level = null;
 
     /*
      * Strategy to use for coalescing messages in OutboundTcpConnection.

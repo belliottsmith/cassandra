@@ -1315,11 +1315,9 @@ public class StorageProxy implements StorageProxyMBean
         boolean insertLocal = false;
         ArrayList<InetAddress> endpointsToHint = null;
 
-        Iterator<InetAddress> endpointIterator = targets.iterator();
-        while (endpointIterator.hasNext())
+        for (InetAddress destination : targets)
         {
-            InetAddress destination = endpointIterator.next();
-            checkHintOverload(destination, responseHandler, endpointIterator);
+            checkHintOverload(destination);
 
             if (FailureDetector.instance.isAlive(destination))
             {
@@ -1383,7 +1381,7 @@ public class StorageProxy implements StorageProxyMBean
         }
     }
 
-    private static void checkHintOverload(InetAddress destination, AbstractWriteResponseHandler responseHandler, Iterator<InetAddress> remainingDestinations)
+    private static void checkHintOverload(InetAddress destination) throws OverloadedException
     {
         // avoid OOMing due to excess hints.  we need to do this check even for "live" nodes, since we can
         // still generate hints for those if it's overloaded or simply dead but not yet known-to-be-dead.
@@ -1393,12 +1391,6 @@ public class StorageProxy implements StorageProxyMBean
         if (StorageMetrics.totalHintsInProgress.getCount() > maxHintsInProgress
                 && (getHintsInProgressFor(destination).get() > 0 && shouldHint(destination)))
         {
-            //On hint overload make sure to track whether ideal consistency was met
-            while (remainingDestinations.hasNext())
-            {
-                remainingDestinations.next();
-                responseHandler.expired();
-            }
             throw new OverloadedException("Too many in flight hints: " + StorageMetrics.totalHintsInProgress.getCount() +
                                           " destination: " + destination +
                                           " destination hints: " + getHintsInProgressFor(destination).get());

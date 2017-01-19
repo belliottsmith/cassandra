@@ -41,7 +41,7 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
     protected static final Logger logger = LoggerFactory.getLogger( AbstractWriteResponseHandler.class );
 
     //Count down until all responses and expirations have occured before deciding whether the ideal CL was reached.
-    private final AtomicInteger responsesAndExpirations = new AtomicInteger();
+    private final AtomicInteger responsesAndExpirations;
     private final SimpleCondition condition = new SimpleCondition();
     protected final Keyspace keyspace;
     protected final long start;
@@ -54,8 +54,12 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
         = AtomicIntegerFieldUpdater.newUpdater(AbstractWriteResponseHandler.class, "failures");
     private volatile int failures = 0;
 
-    //Delegate to another WriteReponseHandler or possibly this one to track
-    //If the ideal consistency level was reached.
+    /**
+     * Delegate to another WriteReponseHandler or possibly this one to track if the ideal consistency level was reached.
+     * Will be set to null if ideal CL was not configured
+     * Will be set to an AWSRH delegate if ideal CL was configured
+     * Will be same as "this" if this AWRSH is the ideal consistency level
+     */
     private AbstractWriteResponseHandler idealCLDelegate;
     private boolean requestedCLAchieved = false;
 
@@ -76,8 +80,7 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
         this.naturalEndpoints = naturalEndpoints;
         this.callback = callback;
         this.writeType = writeType;
-        //The AWRSH will be safely published to other threads so lazy is fine.
-        responsesAndExpirations.lazySet(naturalEndpoints.size() + pendingEndpoints.size());
+        this.responsesAndExpirations = new AtomicInteger(naturalEndpoints.size() + pendingEndpoints.size());
     }
 
     public void get() throws WriteTimeoutException, WriteFailureException
