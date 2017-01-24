@@ -86,6 +86,14 @@ calculate_heap_sizes()
     fi
 }
 
+# If we are running via WD-40 we shouldn't run any of this logic as it's all in cassandracfg now
+if [ "x${LOG_DIR}" = "x" ] ; then
+    echo "Sourcing cassandra-env.sh per policy."
+else
+    echo "Running via Carnival. Skipping sourcing of cassandra-env.sh per policy."
+    return
+fi
+
 # Determine the sort of JVM we'll be running on.
 java_ver_output=`"${JAVA:-java}" -version 2>&1`
 jvmver=`echo "$java_ver_output" | grep '[openjdk|java] version' | awk -F'"' 'NR==1 {print $2}'`
