@@ -887,6 +887,7 @@ server_encryption_options:
     truststore: conf/.truststore
     truststore_password: cassandra
     # More advanced defaults below:
+    # accepted_protocols: [SSLv2Hello,TLSv1,TLSv1.1,TLSv1.2]
     # protocol: TLS
     # algorithm: SunX509
     # store_type: JKS
@@ -905,6 +906,7 @@ client_encryption_options:
     # truststore: conf/.truststore
     # truststore_password: cassandra
     # More advanced defaults below:
+    # accepted_protocols: [SSLv2Hello,TLSv1,TLSv1.1,TLSv1.2]
     # protocol: TLS
     # algorithm: SunX509
     # store_type: JKS

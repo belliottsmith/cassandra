@@ -32,6 +32,7 @@ public abstract class EncryptionOptions
     public String algorithm = "SunX509";
     public String store_type = "JKS";
     public boolean require_client_auth = false;
+    public String accepted_protocols[] = {};
 
     public static class ClientEncryptionOptions extends EncryptionOptions
     {

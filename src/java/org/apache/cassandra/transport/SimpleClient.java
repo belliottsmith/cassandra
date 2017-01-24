@@ -42,6 +42,7 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.security.SSLFactory;
@@ -293,7 +294,10 @@ public class SimpleClient implements Closeable
             sslEngine.setUseClientMode(true);
             String[] suites = SSLFactory.filterCipherSuites(sslEngine.getSupportedCipherSuites(), encryptionOptions.cipher_suites);
             sslEngine.setEnabledCipherSuites(suites);
-            sslEngine.setEnabledProtocols(SSLFactory.ACCEPTED_PROTOCOLS);
+            if (encryptionOptions.accepted_protocols.length > 0)
+            {
+                sslEngine.setEnabledProtocols(encryptionOptions.accepted_protocols);
+            }
             channel.pipeline().addFirst("ssl", new SslHandler(sslEngine));
         }
     }
