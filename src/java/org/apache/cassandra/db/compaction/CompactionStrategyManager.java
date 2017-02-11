@@ -610,8 +610,8 @@ public class CompactionStrategyManager implements INotificationConsumer
 
             assert sstables.size() == repairedSSTables.size() + unRepairedSSTables.size();
 
-            AbstractCompactionTask repairedTasks = repaired.getUserDefinedTask(repairedSSTables, gcBefore);
-            AbstractCompactionTask unrepairedTasks = unrepaired.getUserDefinedTask(unRepairedSSTables, gcBefore);
+            AbstractCompactionTask repairedTasks = !repairedSSTables.isEmpty() ? repaired.getUserDefinedTask(repairedSSTables, gcBefore) : null;
+            AbstractCompactionTask unrepairedTasks = !unRepairedSSTables.isEmpty() ? unrepaired.getUserDefinedTask(unRepairedSSTables, gcBefore) : null;
 
             if (repairedTasks == null && unrepairedTasks == null)
                 return null;
