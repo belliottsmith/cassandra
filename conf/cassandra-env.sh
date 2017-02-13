@@ -87,7 +87,7 @@ calculate_heap_sizes()
 }
 
 # If we are running via WD-40 we shouldn't run any of this logic as it's all in cassandracfg now
-if [ "x${LOG_DIR}" = "x" ] ; then
+if [ "x${LAUNCHED_BY_WD40}" = "x" ] ; then
     echo "Sourcing cassandra-env.sh per policy."
 else
     echo "Running via Carnival. Skipping sourcing of cassandra-env.sh per policy."
