@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
@@ -52,6 +53,7 @@ import org.apache.cassandra.utils.concurrent.Transactional;
 public abstract class SSTableWriter extends SSTable implements Transactional
 {
     protected long repairedAt;
+    protected UUID pendingRepair;
     protected long maxDataAge = -1;
     protected final long keyCount;
     protected final MetadataCollector metadataCollector;
@@ -71,7 +73,8 @@ public abstract class SSTableWriter extends SSTable implements Transactional
 
     protected SSTableWriter(Descriptor descriptor, 
                             long keyCount, 
-                            long repairedAt, 
+                            long repairedAt,
+                            UUID pendingRepair,
                             CFMetaData metadata, 
                             MetadataCollector metadataCollector, 
                             SerializationHeader header)
@@ -79,6 +82,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
         super(descriptor, components(metadata), metadata);
         this.keyCount = keyCount;
         this.repairedAt = repairedAt;
+        this.pendingRepair = pendingRepair;
         this.metadataCollector = metadataCollector;
         this.header = header != null ? header : SerializationHeader.makeWithoutStats(metadata); //null header indicates streaming from pre-3.0 sstable
         this.rowIndexEntrySerializer = descriptor.version.getSSTableFormat().getIndexSerializer(metadata, descriptor.version, header);
@@ -87,42 +91,44 @@ public abstract class SSTableWriter extends SSTable implements Transactional
     public static SSTableWriter create(Descriptor descriptor,
                                        Long keyCount,
                                        Long repairedAt,
+                                       UUID pendingRepair,
                                        CFMetaData metadata,
                                        MetadataCollector metadataCollector,
                                        SerializationHeader header,
                                        LifecycleTransaction txn)
     {
         Factory writerFactory = descriptor.getFormat().getWriterFactory();
-        return writerFactory.open(descriptor, keyCount, repairedAt, metadata, metadataCollector, header, txn);
+        return writerFactory.open(descriptor, keyCount, repairedAt, pendingRepair, metadata, metadataCollector, header, txn);
     }
 
-    public static SSTableWriter create(Descriptor descriptor, long keyCount, long repairedAt, int sstableLevel, SerializationHeader header, LifecycleTransaction txn)
+    public static SSTableWriter create(Descriptor descriptor, long keyCount, long repairedAt, UUID pendingRepair, int sstableLevel, SerializationHeader header, LifecycleTransaction txn)
     {
         CFMetaData metadata = Schema.instance.getCFMetaData(descriptor);
-        return create(metadata, descriptor, keyCount, repairedAt, sstableLevel, header, txn);
+        return create(metadata, descriptor, keyCount, repairedAt, pendingRepair, sstableLevel, header, txn);
     }
 
     public static SSTableWriter create(CFMetaData metadata,
                                        Descriptor descriptor,
                                        long keyCount,
                                        long repairedAt,
+                                       UUID pendingRepair,
                                        int sstableLevel,
                                        SerializationHeader header,
                                        LifecycleTransaction txn)
     {
         MetadataCollector collector = new MetadataCollector(metadata.comparator).sstableLevel(sstableLevel);
-        return create(descriptor, keyCount, repairedAt, metadata, collector, header, txn);
+        return create(descriptor, keyCount, repairedAt, pendingRepair, metadata, collector, header, txn);
     }
 
-    public static SSTableWriter create(String filename, long keyCount, long repairedAt, int sstableLevel, SerializationHeader header,LifecycleTransaction txn)
+    public static SSTableWriter create(String filename, long keyCount, long repairedAt, UUID pendingRepair, int sstableLevel, SerializationHeader header,LifecycleTransaction txn)
     {
-        return create(Descriptor.fromFilename(filename), keyCount, repairedAt, sstableLevel, header, txn);
+        return create(Descriptor.fromFilename(filename), keyCount, repairedAt, pendingRepair, sstableLevel, header, txn);
     }
 
     @VisibleForTesting
-    public static SSTableWriter create(String filename, long keyCount, long repairedAt, SerializationHeader header, LifecycleTransaction txn)
+    public static SSTableWriter create(String filename, long keyCount, long repairedAt, UUID pendingRepair, SerializationHeader header, LifecycleTransaction txn)
     {
-        return create(Descriptor.fromFilename(filename), keyCount, repairedAt, 0, header, txn);
+        return create(Descriptor.fromFilename(filename), keyCount, repairedAt, pendingRepair, 0, header, txn);
     }
 
     private static Set<Component> components(CFMetaData metadata)
@@ -254,6 +260,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
         return metadataCollector.finalizeMetadata(getPartitioner().getClass().getCanonicalName(),
                                                   metadata.params.bloomFilterFpChance,
                                                   repairedAt,
+                                                  pendingRepair,
                                                   header);
     }
 
@@ -282,6 +289,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
         public abstract SSTableWriter open(Descriptor descriptor,
                                            long keyCount,
                                            long repairedAt,
+                                           UUID pendingRepair,
                                            CFMetaData metadata,
                                            MetadataCollector metadataCollector,
                                            SerializationHeader header,

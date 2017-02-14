@@ -19,6 +19,7 @@ package org.apache.cassandra.io.sstable.format.big;
 
 import java.io.*;
 import java.util.Map;
+import java.util.UUID;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
@@ -59,13 +60,14 @@ public class BigTableWriter extends SSTableWriter
 
     public BigTableWriter(Descriptor descriptor, 
                           Long keyCount, 
-                          Long repairedAt, 
+                          Long repairedAt,
+                          UUID pendingRepair,
                           CFMetaData metadata, 
                           MetadataCollector metadataCollector, 
                           SerializationHeader header,
                           LifecycleTransaction txn)
     {
-        super(descriptor, keyCount, repairedAt, metadata, metadataCollector, header);
+        super(descriptor, keyCount, repairedAt, pendingRepair, metadata, metadataCollector, header);
         txn.trackNew(this); // must track before any files are created
 
         if (compression)

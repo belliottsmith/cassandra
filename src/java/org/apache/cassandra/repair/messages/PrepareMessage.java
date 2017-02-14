@@ -35,6 +35,7 @@ import org.apache.cassandra.utils.UUIDSerializer;
 public class PrepareMessage extends RepairMessage
 {
     public final static MessageSerializer serializer = new PrepareMessageSerializer();
+
     public final List<UUID> cfIds;
     public final Collection<Range<Token>> ranges;
 

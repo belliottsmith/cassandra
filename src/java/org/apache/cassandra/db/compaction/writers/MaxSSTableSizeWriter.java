@@ -97,6 +97,7 @@ public class MaxSSTableSizeWriter extends CompactionAwareWriter
         SSTableWriter writer = SSTableWriter.create(Descriptor.fromFilename(cfs.getSSTablePath(getDirectories().getLocationForDisk(location))),
                                                     estimatedTotalKeys / estimatedSSTables,
                                                     minRepairedAt,
+                                                    pendingRepair,
                                                     cfs.metadata,
                                                     new MetadataCollector(allSSTables, cfs.metadata.comparator, level),
                                                     SerializationHeader.make(cfs.metadata, nonExpiredSSTables),

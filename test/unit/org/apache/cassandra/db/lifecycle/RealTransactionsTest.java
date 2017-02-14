@@ -166,6 +166,7 @@ public class RealTransactionsTest extends SchemaLoader
                                                            desc,
                                                            0,
                                                            0,
+                                                           null,
                                                            0,
                                                            SerializationHeader.make(cfs.metadata, txn.originals()),
                                                            txn));

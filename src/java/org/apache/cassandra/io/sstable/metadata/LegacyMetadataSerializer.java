@@ -154,7 +154,8 @@ public class LegacyMetadataSerializer extends MetadataSerializer
                                                      true,
                                                      ActiveRepairService.UNREPAIRED_SSTABLE,
                                                      -1,
-                                                     -1));
+                                                     -1,
+                                                     null));
                 if (types.contains(MetadataType.COMPACTION))
                     components.put(MetadataType.COMPACTION,
                                    new CompactionMetadata(null));

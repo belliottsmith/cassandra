@@ -47,13 +47,15 @@ public class StreamCoordinator
     private StreamConnectionFactory factory;
     private final boolean keepSSTableLevel;
     private final boolean isIncremental;
+    private final UUID pendingRepair;
 
-    public StreamCoordinator(int connectionsPerHost, boolean keepSSTableLevel, boolean isIncremental, StreamConnectionFactory factory)
+    public StreamCoordinator(int connectionsPerHost, boolean keepSSTableLevel, boolean isIncremental, StreamConnectionFactory factory, UUID pendingRepair)
     {
         this.connectionsPerHost = connectionsPerHost;
         this.factory = factory;
         this.keepSSTableLevel = keepSSTableLevel;
         this.isIncremental = isIncremental;
+        this.pendingRepair = pendingRepair;
     }
 
     public void setConnectionFactory(StreamConnectionFactory factory)
@@ -237,7 +239,7 @@ public class StreamCoordinator
             // create
             if (streamSessions.size() < connectionsPerHost)
             {
-                StreamSession session = new StreamSession(peer, connecting, factory, streamSessions.size(), keepSSTableLevel, isIncremental);
+                StreamSession session = new StreamSession(peer, connecting, factory, streamSessions.size(), keepSSTableLevel, isIncremental, pendingRepair);
                 streamSessions.put(++lastReturned, session);
                 return session;
             }
@@ -269,7 +271,7 @@ public class StreamCoordinator
             StreamSession session = streamSessions.get(id);
             if (session == null)
             {
-                session = new StreamSession(peer, connecting, factory, id, keepSSTableLevel, isIncremental);
+                session = new StreamSession(peer, connecting, factory, id, keepSSTableLevel, isIncremental, pendingRepair);
                 streamSessions.put(id, session);
             }
             return session;

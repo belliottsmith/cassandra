@@ -20,6 +20,7 @@ package org.apache.cassandra.db.compaction.writers;
 
 import java.util.Collection;
 import java.util.Set;
+import java.util.UUID;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
@@ -44,6 +45,7 @@ public abstract class CompactionAwareWriter extends Transactional.AbstractTransa
     protected final long estimatedTotalKeys;
     protected final long maxAge;
     protected final long minRepairedAt;
+    protected final UUID pendingRepair;
 
     protected final LifecycleTransaction txn;
     protected final SSTableRewriter sstableWriter;
@@ -62,6 +64,7 @@ public abstract class CompactionAwareWriter extends Transactional.AbstractTransa
         this.estimatedTotalKeys = SSTableReader.getApproximateKeyCount(nonExpiredSSTables);
         this.maxAge = CompactionTask.getMaxDataAge(nonExpiredSSTables);
         this.minRepairedAt = CompactionTask.getMinRepairedAt(nonExpiredSSTables);
+        this.pendingRepair = CompactionTask.getPendingRepair(nonExpiredSSTables);
         this.txn = txn;
         this.sstableWriter = SSTableRewriter.construct(cfs, txn, keepOriginals, maxAge, offline);
     }

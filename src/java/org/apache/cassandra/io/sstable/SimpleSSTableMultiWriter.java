@@ -106,12 +106,13 @@ public class SimpleSSTableMultiWriter implements SSTableMultiWriter
     public static SSTableMultiWriter create(Descriptor descriptor,
                                             long keyCount,
                                             long repairedAt,
+                                            UUID pendingRepair,
                                             CFMetaData cfm,
                                             MetadataCollector metadataCollector,
                                             SerializationHeader header,
                                             LifecycleTransaction txn)
     {
-        SSTableWriter writer = SSTableWriter.create(descriptor, keyCount, repairedAt, cfm, metadataCollector, header, txn);
+        SSTableWriter writer = SSTableWriter.create(descriptor, keyCount, repairedAt, pendingRepair, cfm, metadataCollector, header, txn);
         return new SimpleSSTableMultiWriter(writer);
     }
 }

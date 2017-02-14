@@ -21,8 +21,13 @@ package org.apache.cassandra.db.compaction;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
+import java.util.function.Supplier;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,12 +48,13 @@ import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.notifications.*;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.service.ActiveRepairService;
+import org.apache.cassandra.utils.Pair;
 
 /**
  * Manages the compaction strategies.
  *
- * Currently has two instances of actual compaction strategies - one for repaired data and one for
- * unrepaired data. This is done to be able to totally separate the different sets of sstables.
+ * Currently has two instances of actual compaction strategies - one for repaired data, one for unrepaired data, and
+ * one for each pending repair. This is done to be able to totally separate the different sets of sstables.
  */
 public class CompactionStrategyManager implements INotificationConsumer
 {
@@ -72,11 +78,14 @@ public class CompactionStrategyManager implements INotificationConsumer
      */
     private volatile CompactionParams schemaCompactionParams;
 
+    private final PendingRepairManager pendingRepairs;
+
     public CompactionStrategyManager(ColumnFamilyStore cfs)
     {
         cfs.getTracker().subscribe(this);
         logger.trace("{} subscribed to the data tracker.", this);
         this.cfs = cfs;
+        pendingRepairs = new PendingRepairManager(cfs);
         reload(cfs.metadata);
         params = cfs.metadata.params.compaction;
         enabled = params.isEnabled();
@@ -98,20 +107,30 @@ public class CompactionStrategyManager implements INotificationConsumer
         readLock.lock();
         try
         {
-            if (repaired.getEstimatedRemainingTasks() > unrepaired.getEstimatedRemainingTasks())
+            // first try to promote/demote sstables from completed repairs
+            if (pendingRepairs.getNumPendingRepairFinishedTasks() > 0)
             {
-                AbstractCompactionTask repairedTask = repaired.getNextBackgroundTask(gcBefore);
-                if (repairedTask != null)
-                    return repairedTask;
-                return unrepaired.getNextBackgroundTask(gcBefore);
+                AbstractCompactionTask task = pendingRepairs.getNextRepairFinishedTask();
+                if (task != null)
+                {
+                    return task;
+                }
             }
-            else
-            {
-                AbstractCompactionTask unrepairedTask = unrepaired.getNextBackgroundTask(gcBefore);
-                if (unrepairedTask != null)
-                    return unrepairedTask;
-                return repaired.getNextBackgroundTask(gcBefore);
-            }
+
+            // sort compaction task suppliers by remaining tasks descending
+            ArrayList<Pair<Integer, Supplier<AbstractCompactionTask>>> sortedSuppliers = new ArrayList<>(3);
+            sortedSuppliers.add(Pair.create(repaired.getEstimatedRemainingTasks(), () -> repaired.getNextBackgroundTask(gcBefore)));
+            sortedSuppliers.add(Pair.create(unrepaired.getEstimatedRemainingTasks(), () -> unrepaired.getNextBackgroundTask(gcBefore)));
+            sortedSuppliers.add(Pair.create(pendingRepairs.getMaxEstimatedRemainingTasks(), () -> pendingRepairs.getNextBackgroundTask(gcBefore)));
+            sortedSuppliers.sort((x, y) -> y.left - x.left);
+
+            // return the first non-null task
+            AbstractCompactionTask task;
+            Iterator<Supplier<AbstractCompactionTask>> suppliers = Iterables.transform(sortedSuppliers, p -> p.right).iterator();
+            do {
+                task = suppliers.next().get();
+            } while (suppliers.hasNext() && task == null);
+            return task;
         }
         finally
         {
@@ -151,6 +170,7 @@ public class CompactionStrategyManager implements INotificationConsumer
             }
             repaired.startup();
             unrepaired.startup();
+            pendingRepairs.startup();
         }
         finally
         {
@@ -170,7 +190,9 @@ public class CompactionStrategyManager implements INotificationConsumer
         readLock.lock();
         try
         {
-            if (sstable.isRepaired())
+            if (sstable.isPendingRepair())
+                return pendingRepairs.getOrCreate(sstable);
+            else if (sstable.isRepaired())
                 return repaired;
             else
                 return unrepaired;
@@ -181,6 +203,30 @@ public class CompactionStrategyManager implements INotificationConsumer
         }
     }
 
+    @VisibleForTesting
+    AbstractCompactionStrategy getRepaired()
+    {
+        return repaired;
+    }
+
+    @VisibleForTesting
+    AbstractCompactionStrategy getUnrepaired()
+    {
+        return unrepaired;
+    }
+
+    @VisibleForTesting
+    AbstractCompactionStrategy getForPendingRepair(UUID sessionID)
+    {
+        return pendingRepairs.get(sessionID);
+    }
+
+    @VisibleForTesting
+    Set<UUID> pendingRepairs()
+    {
+        return pendingRepairs.getSessions();
+    }
+
     public void shutdown()
     {
         writeLock.lock();
@@ -189,6 +235,7 @@ public class CompactionStrategyManager implements INotificationConsumer
             isActive = false;
             repaired.shutdown();
             unrepaired.shutdown();
+            pendingRepairs.shutdown();
         }
         finally
         {
@@ -249,6 +296,8 @@ public class CompactionStrategyManager implements INotificationConsumer
                 int count = 0;
                 count += ((LeveledCompactionStrategy)repaired).getLevelSize(0);
                 count += ((LeveledCompactionStrategy)unrepaired).getLevelSize(0);
+                for (AbstractCompactionStrategy strategy : pendingRepairs.getStrategies())
+                    count += ((LeveledCompactionStrategy) strategy).getLevelSize(0);
                 return count;
             }
             return 0;
@@ -271,6 +320,8 @@ public class CompactionStrategyManager implements INotificationConsumer
                 res = sumArrays(res, repairedCountPerLevel);
                 int[] unrepairedCountPerLevel = ((LeveledCompactionStrategy) unrepaired).getAllLevelSize();
                 res = sumArrays(res, unrepairedCountPerLevel);
+                int[] pendingRepairCountPerLevel = pendingRepairs.getSSTableCountPerLevel();
+                res = sumArrays(res, pendingRepairCountPerLevel);
                 return res;
             }
             return null;
@@ -281,7 +332,7 @@ public class CompactionStrategyManager implements INotificationConsumer
         }
     }
 
-    private static int[] sumArrays(int[] a, int[] b)
+    static int[] sumArrays(int[] a, int[] b)
     {
         int[] res = new int[Math.max(a.length, b.length)];
         for (int i = 0; i < res.length; i++)
@@ -334,10 +385,7 @@ public class CompactionStrategyManager implements INotificationConsumer
                 SSTableAddedNotification flushedNotification = (SSTableAddedNotification) notification;
                 for (SSTableReader sstable : flushedNotification.added)
                 {
-                    if (sstable.isRepaired())
-                        repaired.addSSTable(sstable);
-                    else
-                        unrepaired.addSSTable(sstable);
+                    getCompactionStrategyFor(sstable).addSSTable(sstable);
                 }
             }
             finally
@@ -348,6 +396,8 @@ public class CompactionStrategyManager implements INotificationConsumer
         else if (notification instanceof SSTableListChangedNotification)
         {
             SSTableListChangedNotification listChangedNotification = (SSTableListChangedNotification) notification;
+            Set<SSTableReader> pendingAdded = new HashSet<>();
+            Set<SSTableReader> pendingRemoved = new HashSet<>();
             Set<SSTableReader> repairedRemoved = new HashSet<>();
             Set<SSTableReader> repairedAdded = new HashSet<>();
             Set<SSTableReader> unrepairedRemoved = new HashSet<>();
@@ -355,14 +405,19 @@ public class CompactionStrategyManager implements INotificationConsumer
 
             for (SSTableReader sstable : listChangedNotification.removed)
             {
-                if (sstable.isRepaired())
+                if (sstable.isPendingRepair())
+                    pendingRemoved.add(sstable);
+                else if (sstable.isRepaired())
                     repairedRemoved.add(sstable);
                 else
                     unrepairedRemoved.add(sstable);
             }
+
             for (SSTableReader sstable : listChangedNotification.added)
             {
-                if (sstable.isRepaired())
+                if (sstable.isPendingRepair())
+                    pendingAdded.add(sstable);
+                else if (sstable.isRepaired())
                     repairedAdded.add(sstable);
                 else
                     unrepairedAdded.add(sstable);
@@ -372,6 +427,7 @@ public class CompactionStrategyManager implements INotificationConsumer
             writeLock.lock();
             try
             {
+                pendingRepairs.replaceSSTables(pendingRemoved, pendingAdded);
                 if (!repairedRemoved.isEmpty())
                 {
                     repaired.replaceSSTables(repairedRemoved, repairedAdded);
@@ -403,16 +459,23 @@ public class CompactionStrategyManager implements INotificationConsumer
             writeLock.lock();
             try
             {
-
                 for (SSTableReader sstable : ((SSTableRepairStatusChanged) notification).sstables)
                 {
-                    if (sstable.isRepaired())
+                    if (sstable.isPendingRepair())
                     {
+                        pendingRepairs.addSSTable(sstable);
+                        unrepaired.removeSSTable(sstable);
+                        repaired.removeSSTable(sstable);
+                    }
+                    else if (sstable.isRepaired())
+                    {
+                        pendingRepairs.removeSSTable(sstable);
                         unrepaired.removeSSTable(sstable);
                         repaired.addSSTable(sstable);
                     }
                     else
                     {
+                        pendingRepairs.removeSSTable(sstable);
                         repaired.removeSSTable(sstable);
                         unrepaired.addSSTable(sstable);
                     }
@@ -429,7 +492,9 @@ public class CompactionStrategyManager implements INotificationConsumer
             try
             {
                 SSTableReader sstable = ((SSTableDeletingNotification)notification).deleting;
-                if (sstable.isRepaired())
+                if (sstable.isPendingRepair())
+                    pendingRepairs.removeSSTable(sstable);
+                else if (sstable.isRepaired())
                     repaired.removeSSTable(sstable);
                 else
                     unrepaired.removeSSTable(sstable);
@@ -450,6 +515,7 @@ public class CompactionStrategyManager implements INotificationConsumer
                 repaired.enable();
             if (unrepaired != null)
                 unrepaired.enable();
+            pendingRepairs.enable();
             // enable this last to make sure the strategies are ready to get calls.
             enabled = true;
         }
@@ -470,6 +536,7 @@ public class CompactionStrategyManager implements INotificationConsumer
                 repaired.disable();
             if (unrepaired != null)
                 unrepaired.disable();
+            pendingRepairs.disable();
         }
         finally
         {
@@ -488,11 +555,14 @@ public class CompactionStrategyManager implements INotificationConsumer
     @SuppressWarnings("resource")
     public AbstractCompactionStrategy.ScannerList getScanners(Collection<SSTableReader> sstables,  Collection<Range<Token>> ranges)
     {
+        List<SSTableReader> pendingRepairSSTables = new ArrayList<>();
         List<SSTableReader> repairedSSTables = new ArrayList<>();
         List<SSTableReader> unrepairedSSTables = new ArrayList<>();
         for (SSTableReader sstable : sstables)
         {
-            if (sstable.isRepaired())
+            if (sstable.isPendingRepair())
+                pendingRepairSSTables.add(sstable);
+            else if (sstable.isRepaired())
                 repairedSSTables.add(sstable);
             else
                 unrepairedSSTables.add(sstable);
@@ -506,6 +576,7 @@ public class CompactionStrategyManager implements INotificationConsumer
             AbstractCompactionStrategy.ScannerList unrepairedScanners = unrepaired.getScanners(unrepairedSSTables, ranges);
             scanners.addAll(repairedScanners.scanners);
             scanners.addAll(unrepairedScanners.scanners);
+            scanners.addAll(pendingRepairs.getScanners(pendingRepairSSTables, ranges));
             return new AbstractCompactionStrategy.ScannerList(new ArrayList<>(scanners));
         }
         finally
@@ -547,7 +618,26 @@ public class CompactionStrategyManager implements INotificationConsumer
 
     public AbstractCompactionTask getCompactionTask(LifecycleTransaction txn, int gcBefore, long maxSSTableBytes)
     {
+        validateForCompaction(txn.originals(), cfs, getDirectories());
         return getCompactionStrategyFor(txn.originals().iterator().next()).getCompactionTask(txn, gcBefore, maxSSTableBytes);
+    }
+
+    private static void validateForCompaction(Iterable<SSTableReader> input, ColumnFamilyStore cfs, Directories directories)
+    {
+        SSTableReader firstSSTable = Iterables.getFirst(input, null);
+        assert firstSSTable != null;
+        boolean repaired = firstSSTable.isRepaired();
+        boolean isPending = firstSSTable.isPendingRepair();
+        UUID pendingRepair = firstSSTable.getSSTableMetadata().pendingRepair;
+        for (SSTableReader sstable : input)
+        {
+            if (sstable.isRepaired() != repaired)
+                throw new UnsupportedOperationException("You can't mix repaired and unrepaired data in a compaction");
+            if (isPending != sstable.isPendingRepair())
+                throw new UnsupportedOperationException("You can't compact sstables pending for repair with non-pending ones");
+            if (isPending && !pendingRepair.equals(sstable.getSSTableMetadata().pendingRepair))
+                throw new UnsupportedOperationException("You can't compact sstables from different pending repair sessions");
+        }
     }
 
     public Collection<AbstractCompactionTask> getMaximalTasks(final int gcBefore, final boolean splitOutput)
@@ -565,19 +655,22 @@ public class CompactionStrategyManager implements INotificationConsumer
                 {
                     Collection<AbstractCompactionTask> repairedTasks = repaired.getMaximalTask(gcBefore, splitOutput);
                     Collection<AbstractCompactionTask> unrepairedTasks = unrepaired.getMaximalTask(gcBefore, splitOutput);
-
-                    if (repairedTasks == null && unrepairedTasks == null)
-                        return null;
-
-                    if (repairedTasks == null)
-                        return unrepairedTasks;
-                    if (unrepairedTasks == null)
-                        return repairedTasks;
+                    Collection<AbstractCompactionTask> pendingRepairTasks = pendingRepairs.getMaximalTasks(gcBefore, splitOutput);
 
                     List<AbstractCompactionTask> tasks = new ArrayList<>();
-                    tasks.addAll(repairedTasks);
-                    tasks.addAll(unrepairedTasks);
-                    return tasks;
+                    if (repairedTasks != null)
+                    {
+                        tasks.addAll(repairedTasks);
+                    }
+                    if (unrepairedTasks != null)
+                    {
+                        tasks.addAll(unrepairedTasks);
+                    }
+                    if (pendingRepairTasks != null)
+                    {
+                        tasks.addAll(pendingRepairTasks);
+                    }
+                    return !tasks.isEmpty() ? tasks : null;
                 }
                 finally
                 {
@@ -605,21 +698,25 @@ public class CompactionStrategyManager implements INotificationConsumer
             maybeReload(cfs.metadata);
             List<AbstractCompactionTask> ret = new ArrayList<>();
 
-            final List<SSTableReader> repairedSSTables = sstables.stream().filter(s -> !s.isMarkedSuspect() && s.isRepaired()).collect(Collectors.toList());
-            final List<SSTableReader> unRepairedSSTables = sstables.stream().filter(s -> !s.isMarkedSuspect() && !s.isRepaired()).collect(Collectors.toList());
+            final List<SSTableReader> pendingSSTables = sstables.stream().filter(s -> !s.isMarkedSuspect() && !s.isRepaired() && s.isPendingRepair()).collect(Collectors.toList());
+            final List<SSTableReader> repairedSSTables = sstables.stream().filter(s -> !s.isMarkedSuspect() && s.isRepaired() && !s.isPendingRepair()).collect(Collectors.toList());
+            final List<SSTableReader> unRepairedSSTables = sstables.stream().filter(s -> !s.isMarkedSuspect() && !s.isRepaired() && !s.isPendingRepair()).collect(Collectors.toList());
 
-            assert sstables.size() == repairedSSTables.size() + unRepairedSSTables.size();
+            assert sstables.size() == pendingSSTables.size() + repairedSSTables.size() + unRepairedSSTables.size();
 
             AbstractCompactionTask repairedTasks = !repairedSSTables.isEmpty() ? repaired.getUserDefinedTask(repairedSSTables, gcBefore) : null;
             AbstractCompactionTask unrepairedTasks = !unRepairedSSTables.isEmpty() ? unrepaired.getUserDefinedTask(unRepairedSSTables, gcBefore) : null;
+            Collection<AbstractCompactionTask> pendingTasks = pendingRepairs.createUserDefinedTasks(pendingSSTables, gcBefore);
 
-            if (repairedTasks == null && unrepairedTasks == null)
+            if (repairedTasks == null && unrepairedTasks == null && pendingTasks.isEmpty())
                 return null;
 
             if (repairedTasks != null)
                 ret.add(repairedTasks);
             if (unrepairedTasks != null)
                 ret.add(unrepairedTasks);
+
+            ret.addAll(pendingTasks);
 
             return ret;
         }
@@ -632,6 +729,7 @@ public class CompactionStrategyManager implements INotificationConsumer
 
     public AbstractCompactionTask getUserDefinedTask(Collection<SSTableReader> sstables, int gcBefore)
     {
+        validateForCompaction(sstables, cfs, getDirectories());
         return getCompactionStrategyFor(sstables.iterator().next()).getUserDefinedTask(sstables, gcBefore);
     }
 
@@ -643,6 +741,7 @@ public class CompactionStrategyManager implements INotificationConsumer
             int tasks = 0;
             tasks += repaired.getEstimatedRemainingTasks();
             tasks += unrepaired.getEstimatedRemainingTasks();
+            tasks += pendingRepairs.getEstimatedRemainingTasks();
             return tasks;
         }
         finally
@@ -666,7 +765,12 @@ public class CompactionStrategyManager implements INotificationConsumer
         readLock.lock();
         try
         {
-            return Arrays.asList(repaired, unrepaired);
+            Collection<AbstractCompactionStrategy> pending = pendingRepairs.getStrategies();
+            List<AbstractCompactionStrategy> strategies = new ArrayList<>(pending.size() + 2);
+            strategies.add(repaired);
+            strategies.add(unrepaired);
+            strategies.addAll(pending);
+            return strategies;
         }
         finally
         {
@@ -701,6 +805,7 @@ public class CompactionStrategyManager implements INotificationConsumer
             unrepaired.shutdown();
         repaired = CFMetaData.createCompactionStrategyInstance(cfs, params);
         unrepaired = CFMetaData.createCompactionStrategyInstance(cfs, params);
+        pendingRepairs.setParams(params);
         this.params = params;
     }
 
@@ -714,18 +819,22 @@ public class CompactionStrategyManager implements INotificationConsumer
         return Boolean.parseBoolean(params.options().get(AbstractCompactionStrategy.ONLY_PURGE_REPAIRED_TOMBSTONES));
     }
 
-    public SSTableMultiWriter createSSTableMultiWriter(Descriptor descriptor, long keyCount, long repairedAt, MetadataCollector collector, SerializationHeader header, LifecycleTransaction txn)
+    public SSTableMultiWriter createSSTableMultiWriter(Descriptor descriptor, long keyCount, long repairedAt, UUID pendingRepair, MetadataCollector collector, SerializationHeader header, LifecycleTransaction txn)
     {
         readLock.lock();
         try
         {
-            if (repairedAt == ActiveRepairService.UNREPAIRED_SSTABLE)
+            if (pendingRepair != ActiveRepairService.NO_PENDING_REPAIR)
             {
-                return unrepaired.createSSTableMultiWriter(descriptor, keyCount, repairedAt, collector, header, txn);
+                return pendingRepairs.getOrCreate(pendingRepair).createSSTableMultiWriter(descriptor, keyCount, ActiveRepairService.UNREPAIRED_SSTABLE, pendingRepair, collector, header, txn);
+            }
+            else if (repairedAt == ActiveRepairService.UNREPAIRED_SSTABLE)
+            {
+                return unrepaired.createSSTableMultiWriter(descriptor, keyCount, repairedAt, pendingRepair, collector, header, txn);
             }
             else
             {
-                return repaired.createSSTableMultiWriter(descriptor, keyCount, repairedAt, collector, header, txn);
+                return repaired.createSSTableMultiWriter(descriptor, keyCount, repairedAt, pendingRepair, collector, header, txn);
             }
         }
         finally
@@ -737,5 +846,11 @@ public class CompactionStrategyManager implements INotificationConsumer
     public boolean supportsEarlyOpen()
     {
         return repaired.supportsEarlyOpen();
+    }
+
+    @VisibleForTesting
+    PendingRepairManager getPendingRepairManager()
+    {
+        return pendingRepairs;
     }
 }

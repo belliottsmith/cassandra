@@ -74,6 +74,7 @@ import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.metrics.ThreadPoolMetrics;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.MessagingServiceMBean;
+import org.apache.cassandra.service.ActiveRepairServiceMBean;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.CacheServiceMBean;
 import org.apache.cassandra.service.GCInspector;
@@ -121,6 +122,7 @@ public class NodeProbe implements AutoCloseable
     private StorageProxyMBean spProxy;
     private HintedHandOffManagerMBean hhProxy;
     private BatchlogManagerMBean bmProxy;
+    private ActiveRepairServiceMBean arsProxy;
     private boolean failed;
 
     /**
@@ -213,6 +215,8 @@ public class NodeProbe implements AutoCloseable
             gossProxy = JMX.newMBeanProxy(mbeanServerConn, name, GossiperMBean.class);
             name = new ObjectName(BatchlogManager.MBEAN_NAME);
             bmProxy = JMX.newMBeanProxy(mbeanServerConn, name, BatchlogManagerMBean.class);
+            name = new ObjectName(ActiveRepairServiceMBean.MBEAN_NAME);
+            arsProxy = JMX.newMBeanProxy(mbeanServerConn, name, ActiveRepairServiceMBean.class);
         }
         catch (MalformedObjectNameException e)
         {
@@ -1394,6 +1398,11 @@ public class NodeProbe implements AutoCloseable
         {
             throw new RuntimeException(e);
         }
+    }
+
+    public ActiveRepairServiceMBean getRepairServiceProxy()
+    {
+        return arsProxy;
     }
 }
 

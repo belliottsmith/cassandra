@@ -64,6 +64,7 @@ abstract class AbstractSSTableSimpleWriter implements Closeable
                                        createDescriptor(directory, metadata.ksName, metadata.cfName, formatType),
                                        0,
                                        ActiveRepairService.UNREPAIRED_SSTABLE,
+                                       ActiveRepairService.NO_PENDING_REPAIR,
                                        0,
                                        new SerializationHeader(true, metadata, columns, EncodingStats.NO_STATS));
     }

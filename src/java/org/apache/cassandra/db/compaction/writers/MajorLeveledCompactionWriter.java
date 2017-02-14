@@ -103,6 +103,7 @@ public class MajorLeveledCompactionWriter extends CompactionAwareWriter
         SSTableWriter writer = SSTableWriter.create(Descriptor.fromFilename(cfs.getSSTablePath(sstableDirectory)),
                                                     averageEstimatedKeysPerSSTable,
                                                     minRepairedAt,
+                                                    pendingRepair,
                                                     cfs.metadata,
                                                     new MetadataCollector(allSSTables, cfs.metadata.comparator, currentLevel),
                                                     SerializationHeader.make(cfs.metadata, nonExpiredSSTables),

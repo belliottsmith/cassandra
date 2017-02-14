@@ -439,6 +439,7 @@ public class Memtable implements Comparable<Memtable>
                                         cfs.createSSTableMultiWriter(Descriptor.fromFilename(filename),
                                                                      (long) partitions.size(),
                                                                      ActiveRepairService.UNREPAIRED_SSTABLE,
+                                                                     ActiveRepairService.NO_PENDING_REPAIR,
                                                                      sstableMetadataCollector,
                                                                      new SerializationHeader(true, cfs.metadata, columns, stats),
                                                                      txn));
