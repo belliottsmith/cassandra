@@ -63,7 +63,7 @@ public class CompactionStrategyManager implements INotificationConsumer
     private volatile AbstractCompactionStrategy repaired;
     private volatile AbstractCompactionStrategy unrepaired;
     private volatile boolean enabled = true;
-    public volatile boolean isActive = true;
+    private volatile boolean isActive = true;
     private volatile CompactionParams params;
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private final ReentrantReadWriteLock.ReadLock readLock = lock.readLock();
@@ -99,14 +99,13 @@ public class CompactionStrategyManager implements INotificationConsumer
      */
     public AbstractCompactionTask getNextBackgroundTask(int gcBefore)
     {
-        if (!isEnabled())
-            return null;
-
-        maybeReload(cfs.metadata);
-
         readLock.lock();
         try
         {
+            if (!isEnabled())
+                return null;
+
+            maybeReload(cfs.metadata);
             // first try to promote/demote sstables from completed repairs
             if (pendingRepairs.getNumPendingRepairFinishedTasks() > 0)
             {
@@ -143,9 +142,22 @@ public class CompactionStrategyManager implements INotificationConsumer
         return enabled && isActive;
     }
 
+    public boolean isActive()
+    {
+        return isActive;
+    }
+
     public void resume()
     {
-        isActive = true;
+        writeLock.lock();
+        try
+        {
+            isActive = true;
+        }
+        finally
+        {
+            writeLock.unlock();
+        }
     }
 
     /**
@@ -155,7 +167,16 @@ public class CompactionStrategyManager implements INotificationConsumer
       */
     public void pause()
     {
-        isActive = false;
+        writeLock.lock();
+        try
+        {
+            isActive = false;
+        }
+        finally
+        {
+            writeLock.unlock();
+        }
+
     }
 
     private void startup()

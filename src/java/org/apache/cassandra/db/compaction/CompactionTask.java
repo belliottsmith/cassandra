@@ -178,7 +178,7 @@ public class CompactionTask extends AbstractCompactionTask
             {
                 long lastCheckObsoletion = start;
 
-                if (!controller.cfs.getCompactionStrategyManager().isActive)
+                if (!controller.cfs.getCompactionStrategyManager().isActive())
                     throw new CompactionInterruptedException(ci.getCompactionInfo());
 
                 if (collector != null)
