@@ -51,6 +51,8 @@ public class DropViewStatement extends SchemaAlteringStatement
     public void validate(ClientState state)
     {
         // validated in findIndexedCf()
+        if(!Boolean.parseBoolean(System.getProperty(SYSTEM_PROPERTY_ALLOW_MATERIALIZED_VIEWS, "false")))
+            throw new ConfigurationException("Error while creating materialized view: Materialized Views are not allowed in Apple version of Cassandra.");
     }
 
     public Event.SchemaChange announceMigration(boolean isLocalOnly) throws InvalidRequestException, ConfigurationException

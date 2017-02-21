@@ -36,6 +36,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.ReversedType;
 import org.apache.cassandra.db.view.View;
 import org.apache.cassandra.exceptions.AlreadyExistsException;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.exceptions.UnauthorizedException;
@@ -84,6 +85,8 @@ public class CreateViewStatement extends SchemaAlteringStatement
     public void validate(ClientState state) throws RequestValidationException
     {
         // We do validation in announceMigration to reduce doubling up of work
+        if(!Boolean.parseBoolean(System.getProperty(SYSTEM_PROPERTY_ALLOW_MATERIALIZED_VIEWS, "false")))
+            throw new ConfigurationException("Error while creating materialized view: Materialized Views are not allowed in Apple version of Cassandra.");
     }
 
     private interface AddColumn {

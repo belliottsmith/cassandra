@@ -34,6 +34,7 @@ import org.apache.cassandra.transport.messages.ResultMessage;
 public abstract class SchemaAlteringStatement extends CFStatement implements CQLStatement
 {
     public static final String SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY = "cassandra.allow_simplestrategy";
+    public static final String SYSTEM_PROPERTY_ALLOW_MATERIALIZED_VIEWS = "cassandra.allow_materializedviews";
     private final boolean isColumnFamilyLevel;
 
     protected SchemaAlteringStatement()

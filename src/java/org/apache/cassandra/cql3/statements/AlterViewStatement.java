@@ -23,6 +23,7 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.config.ViewDefinition;
 import org.apache.cassandra.cql3.CFName;
 import org.apache.cassandra.db.view.View;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.exceptions.UnauthorizedException;
@@ -53,6 +54,8 @@ public class AlterViewStatement extends SchemaAlteringStatement
     public void validate(ClientState state)
     {
         // validated in announceMigration()
+        if(!Boolean.parseBoolean(System.getProperty(SYSTEM_PROPERTY_ALLOW_MATERIALIZED_VIEWS, "false")))
+            throw new ConfigurationException("Error while creating materialized view: Materialized Views are not allowed in Apple version of Cassandra.");
     }
 
     public Event.SchemaChange announceMigration(boolean isLocalOnly) throws RequestValidationException
