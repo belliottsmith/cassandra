@@ -40,6 +40,8 @@ import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.fql.FullQueryLoggerOptions;
 import org.apache.cassandra.service.StartupChecks.StartupCheckType;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS;
+
 /**
  * A class that contains configuration properties for the cassandra node it runs within.
  *
@@ -525,7 +527,7 @@ public class Config
     public boolean scripted_user_defined_functions_enabled = false;
 
     @Replaces(oldName = "enable_materialized_views", converter = Converters.IDENTITY, deprecated = true)
-    public boolean materialized_views_enabled = false;
+    public boolean materialized_views_enabled = ALLOW_MATERIALIZEDVIEWS.getBoolean();
 
     @Replaces(oldName = "enable_transient_replication", converter = Converters.IDENTITY, deprecated = true)
     public boolean transient_replication_enabled = false;
