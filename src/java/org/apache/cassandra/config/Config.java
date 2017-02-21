@@ -37,6 +37,8 @@ import org.apache.cassandra.audit.AuditLogOptions;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.fql.FullQueryLoggerOptions;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS;
+
 /**
  * A class that contains configuration properties for the cassandra node it runs within.
  *
@@ -403,7 +405,7 @@ public class Config
     public boolean enable_user_defined_functions = false;
     public boolean enable_scripted_user_defined_functions = false;
 
-    public boolean enable_materialized_views = false;
+    public boolean enable_materialized_views = ALLOW_MATERIALIZEDVIEWS.getBoolean();
 
     public boolean enable_transient_replication = false;
 
