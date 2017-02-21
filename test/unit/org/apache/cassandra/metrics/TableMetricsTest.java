@@ -25,6 +25,7 @@ import java.util.stream.Stream;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -40,6 +41,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.service.EmbeddedCassandraService;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -57,6 +59,7 @@ public class TableMetricsTest extends SchemaLoader
     {
         Schema.instance.clear();
 
+        ALLOW_MATERIALIZEDVIEWS.setBoolean(true);
         EmbeddedCassandraService cassandra = new EmbeddedCassandraService();
         cassandra.start();
 

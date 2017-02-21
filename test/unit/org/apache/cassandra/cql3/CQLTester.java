@@ -146,6 +146,8 @@ public abstract class CQLTester
     {
         checkProtocolVersion();
 
+        System.setProperty("cassandra.allow_materializedviews", "true");
+
         nativeAddr = InetAddress.getLoopbackAddress();
         nativePort = getAutomaticallyAllocatedPort(nativeAddr);
 
