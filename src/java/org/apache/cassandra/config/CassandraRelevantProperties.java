@@ -178,7 +178,10 @@ public enum CassandraRelevantProperties
     IS_DISABLED_MBEAN_REGISTRATION("org.apache.cassandra.disable_mbean_registration"),
 
     /** what class to use for mbean registeration */
-    MBEAN_REGISTRATION_CLASS("org.apache.cassandra.mbean_registration_class");
+    MBEAN_REGISTRATION_CLASS("org.apache.cassandra.mbean_registration_class"),
+
+    // CIE-specific property to enable config.enable_materialzed_views
+    ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews");
 
     CassandraRelevantProperties(String key, String defaultVal)
     {
