@@ -166,6 +166,8 @@ public abstract class CQLTester
             }
         }
 
+        System.setProperty("cassandra.allow_materializedviews", "true");
+
         nativeAddr = InetAddress.getLoopbackAddress();
 
         // Register an EndpointSnitch which returns fixed values for test.
