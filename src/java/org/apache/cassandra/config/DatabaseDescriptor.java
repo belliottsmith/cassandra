@@ -3342,7 +3342,8 @@ public class DatabaseDescriptor
 
     public static boolean getMaterializedViewsEnabled()
     {
-        return conf.materialized_views_enabled;
+        // CIE specific system property to override to disable materialized views
+        return conf.materialized_views_enabled && CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS.getBoolean(false);
     }
 
     public static void setMaterializedViewsEnabled(boolean enableMaterializedViews)
