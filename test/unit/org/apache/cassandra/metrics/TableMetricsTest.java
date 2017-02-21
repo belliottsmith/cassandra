@@ -37,6 +37,7 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.service.EmbeddedCassandraService;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -54,6 +55,8 @@ public class TableMetricsTest
     @BeforeClass
     public static void setup() throws ConfigurationException, IOException
     {
+        ALLOW_MATERIALIZEDVIEWS.setBoolean(true);
+
         cassandra = ServerTestUtils.startEmbeddedCassandraService();
 
         cluster = Cluster.builder().addContactPoint("127.0.0.1").withPort(DatabaseDescriptor.getNativeTransportPort()).build();

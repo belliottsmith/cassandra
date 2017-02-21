@@ -42,6 +42,8 @@ import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.fql.FullQueryLoggerOptions;
 import org.apache.cassandra.service.StartupChecks.StartupCheckType;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS;
+
 /**
  * A class that contains configuration properties for the cassandra node it runs within.
  *
@@ -78,18 +80,21 @@ public class Config
     @Replaces(oldName = "permissions_validity_in_ms", converter = Converters.MILLIS_DURATION_INT, deprecated = true)
     public volatile DurationSpec.IntMillisecondsBound permissions_validity = new DurationSpec.IntMillisecondsBound("43200s");
     public volatile int permissions_cache_max_entries = 1000;
+    @Nullable
     @Replaces(oldName = "permissions_update_interval_in_ms", converter = Converters.MILLIS_CUSTOM_DURATION, deprecated = true)
     public volatile DurationSpec.IntMillisecondsBound permissions_update_interval = new DurationSpec.IntMillisecondsBound("600s");
     public volatile boolean permissions_cache_active_update = true;
     @Replaces(oldName = "roles_validity_in_ms", converter = Converters.MILLIS_DURATION_INT, deprecated = true)
     public volatile DurationSpec.IntMillisecondsBound roles_validity = new DurationSpec.IntMillisecondsBound("86400s");
     public volatile int roles_cache_max_entries = 1000;
+    @Nullable
     @Replaces(oldName = "roles_update_interval_in_ms", converter = Converters.MILLIS_CUSTOM_DURATION, deprecated = true)
     public volatile DurationSpec.IntMillisecondsBound roles_update_interval = new DurationSpec.IntMillisecondsBound("600s");
     public volatile boolean roles_cache_active_update = true;
     @Replaces(oldName = "credentials_validity_in_ms", converter = Converters.MILLIS_DURATION_INT, deprecated = true)
     public volatile DurationSpec.IntMillisecondsBound credentials_validity = new DurationSpec.IntMillisecondsBound("86400s");
     public volatile int credentials_cache_max_entries = 1000;
+    @Nullable
     @Replaces(oldName = "credentials_update_interval_in_ms", converter = Converters.MILLIS_CUSTOM_DURATION, deprecated = true)
     public volatile DurationSpec.IntMillisecondsBound credentials_update_interval = new DurationSpec.IntMillisecondsBound("600s");
     public volatile boolean credentials_cache_active_update = false;
@@ -556,7 +561,7 @@ public class Config
     public boolean scripted_user_defined_functions_enabled = false;
 
     @Replaces(oldName = "enable_materialized_views", converter = Converters.IDENTITY, deprecated = true)
-    public boolean materialized_views_enabled = false;
+    public boolean materialized_views_enabled = ALLOW_MATERIALIZEDVIEWS.getBoolean();
 
     @Replaces(oldName = "enable_transient_replication", converter = Converters.IDENTITY, deprecated = true)
     public boolean transient_replication_enabled = false;
