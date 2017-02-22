@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.repair.consistent;
+package org.apache.cassandra.repair;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -38,7 +38,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.UUIDGen;
 
 @Ignore
-public abstract class AbstractConsistentSessionTest
+public abstract class AbstractRepairTest
 {
     protected static final InetAddress COORDINATOR;
     protected static final InetAddress PARTICIPANT1;
@@ -59,7 +59,6 @@ public abstract class AbstractConsistentSessionTest
 
             throw new AssertionError(e);
         }
-
     }
 
     protected static final Set<InetAddress> PARTICIPANTS = ImmutableSet.of(PARTICIPANT1, PARTICIPANT2, PARTICIPANT3);
@@ -73,18 +72,18 @@ public abstract class AbstractConsistentSessionTest
     protected static final Range<Token> RANGE2 = new Range<>(t(2), t(3));
     protected static final Range<Token> RANGE3 = new Range<>(t(4), t(5));
 
-
-    protected static UUID registerSession(ColumnFamilyStore cfs)
+    protected static UUID registerSession(ColumnFamilyStore cfs, boolean isIncremental, boolean isGlobal)
     {
         UUID sessionId = UUIDGen.getTimeUUID();
 
+        long repairedAt = isIncremental ? System.currentTimeMillis() : ActiveRepairService.UNREPAIRED_SSTABLE;
         ActiveRepairService.instance.registerParentRepairSession(sessionId,
                                                                  COORDINATOR,
                                                                  Lists.newArrayList(cfs),
                                                                  Sets.newHashSet(RANGE1, RANGE2, RANGE3),
-                                                                 true,
-                                                                 System.currentTimeMillis(),
-                                                                 true);
+                                                                 isIncremental,
+                                                                 repairedAt,
+                                                                 isGlobal);
         return sessionId;
     }
 }

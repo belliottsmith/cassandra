@@ -31,6 +31,7 @@ import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.repair.AbstractRepairTest;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.repair.messages.FailSession;
 import org.apache.cassandra.repair.messages.FinalizePromise;
@@ -39,7 +40,7 @@ import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.UUIDGen;
 
-public class CoordinatorSessionsTest extends AbstractConsistentSessionTest
+public class CoordinatorSessionsTest extends AbstractRepairTest
 {
     private static CFMetaData cfm;
     private static ColumnFamilyStore cfs;
@@ -109,7 +110,7 @@ public class CoordinatorSessionsTest extends AbstractConsistentSessionTest
 
     private static UUID registerSession()
     {
-        return registerSession(cfs);
+        return registerSession(cfs, true, true);
     }
 
     @Test
