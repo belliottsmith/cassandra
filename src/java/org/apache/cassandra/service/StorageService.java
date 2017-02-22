@@ -5484,6 +5484,18 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         logger.info("Updated hinted_handoff_throttle_in_kb to {}", throttleInKB);
     }
 
+    /** Returns boolean representing whether or not alter table is enabled */
+    public boolean getAlterTableEnabled()
+    {
+        return DatabaseDescriptor.getAlterTableEnabled();
+    }
+
+    /** Sets the boolean representing whether or not alter table is enabled */
+    public void setAlterTableEnabled(boolean alterTableEnabled)
+    {
+        DatabaseDescriptor.setAlterTableEnabled(alterTableEnabled);
+    }
+
     @Override
     public void clearConnectionHistory()
     {
