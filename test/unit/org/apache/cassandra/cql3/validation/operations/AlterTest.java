@@ -281,7 +281,7 @@ public class AlterTest extends CQLTester
         assertRowsIgnoringOrderAndExtra(execute("SELECT keyspace_name, durable_writes, replication FROM system_schema.keyspaces"),
                                         row(KEYSPACE, true, map("class", "org.apache.cassandra.locator.SimpleStrategy", "replication_factor", "1")),
                                         row(KEYSPACE_PER_TEST, true, map("class", "org.apache.cassandra.locator.SimpleStrategy", "replication_factor", "1")),
-                                        row(ks1, true, map("class", "org.apache.cassandra.locator.NetworkTopologyStrategy", DATA_CENTER_REMOTE, "3")));
+                                        row(ks1, true, map("class", "org.apache.cassandra.locator.NetworkTopologyStrategy", DATA_CENTER, "0", DATA_CENTER_REMOTE, "3")));
 
         schemaChange("ALTER KEYSPACE " + ks1 + " WITH replication = { 'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER_REMOTE + "': 3 }");
 
@@ -931,5 +931,52 @@ public class AlterTest extends CQLTester
                                         row(ks1, true, map("class", "org.apache.cassandra.locator.SimpleStrategy", "replication_factor", "1")));
 
         assertInvalidThrow(InvalidRequestException.class, "ALTER KEYSPACE ks1 WITH replication= { 'class' : 'SimpleStrategy', 'replication_factor' : 1 }");
+    }
+
+    @Test
+    public void checkAppleAlterTableBlocker() throws Throwable
+    {
+
+        StorageService.instance.setAlterTableEnabled(false);
+
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), StorageService.instance.getAlterTableEnabled());
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), false);
+
+        // Can create table
+        createTable("CREATE TABLE %s (a text, b int, c int, primary key (a, b))");
+
+        // Can ALTER properties, just not columns
+        execute("ALTER TABLE %s WITH compression = { 'class' : 'SnappyCompressor', 'chunk_length_in_kb' : 32 };");
+
+        // Fail to ALTER
+        assertAlterTableThrowsException(ConfigurationException.class, "Error while altering table: modifying column definitions is not allowed in Apple's version of Cassandra", "ALTER TABLE %s ADD fail text;");
+
+        // Flip, enable ALTER TABLE
+        StorageService.instance.setAlterTableEnabled(true);
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), true);
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), StorageService.instance.getAlterTableEnabled());
+        execute("ALTER TABLE %s ADD succeed text; ");
+
+        // Flipback, disable ALTER TABLE
+        StorageService.instance.setAlterTableEnabled(false);
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), false);
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), StorageService.instance.getAlterTableEnabled());
+
+        // Fail to ALTER
+        assertAlterTableThrowsException(ConfigurationException.class, "Error while altering table: modifying column definitions is not allowed in Apple's version of Cassandra", "ALTER TABLE %s ADD fail text;");
+
+        // Fail to ALTER-DROP
+        assertAlterTableThrowsException(ConfigurationException.class, "Error while altering table: modifying column definitions is not allowed in Apple's version of Cassandra", "ALTER TABLE %s DROP c;");
+
+        // Fail to ALTER-RENAME
+        assertAlterTableThrowsException(ConfigurationException.class, "Error while altering table: modifying column definitions is not allowed in Apple's version of Cassandra", "ALTER TABLE %s RENAME c TO d;");
+
+        // Allow ALTER table options even when alter table is disabled
+        execute("ALTER TABLE %s WITH GC_GRACE_SECONDS = 123; ");
+
+        // Restore things so they work for other tests
+        StorageService.instance.setAlterTableEnabled(true);
+
+
     }
 }
