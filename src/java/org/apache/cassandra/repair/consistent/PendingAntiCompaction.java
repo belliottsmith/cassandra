@@ -133,7 +133,7 @@ public class PendingAntiCompaction
 
         ListenableFuture<?> submitPendingAntiCompaction(AcquireResult result)
         {
-            return CompactionManager.instance.submitPendingAntiCompaction(result.cfs, ranges, result.refs, result.txn, parentRepairSession);
+            return CompactionManager.instance.submitPendingAntiCompaction(result.cfs, ranges, result.refs, result.txn, parentRepairSession, parentRepairSession);
         }
 
         public ListenableFuture apply(List<AcquireResult> results) throws Exception
