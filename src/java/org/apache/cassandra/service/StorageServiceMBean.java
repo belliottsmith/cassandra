@@ -898,4 +898,11 @@ public interface StorageServiceMBean extends NotificationEmitter
      public void setClientLargeReadAbortThresholdKB(long threshold);
      public boolean getClientTrackWarningsEnabled();
      public void setClientTrackWarningsEnabled(boolean value);
+
+    /** Returns boolean representing whether or not alter table is enabled */
+    public boolean getAlterTableEnabled();
+
+    /** Sets the boolean representing whether or not alter table is enabled */
+    public void setAlterTableEnabled(boolean alterTableEnabled);
+
 }
