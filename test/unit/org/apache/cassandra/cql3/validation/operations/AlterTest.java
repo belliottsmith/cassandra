@@ -829,4 +829,51 @@ public class AlterTest extends CQLTester
         assertInvalidMessage("Cannot add new column to a COMPACT STORAGE table",
                              "ALTER TABLE %s ADD column1 text");
     }
+
+    @Test
+    public void checkAppleAlterTableBlocker() throws Throwable
+    {
+
+        StorageService.instance.setAlterTableEnabled(false);
+
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), StorageService.instance.getAlterTableEnabled());
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), false);
+
+        // Can create table
+        createTable("CREATE TABLE %s (a text, b int, c int, primary key (a, b))");
+
+        // Can ALTER properties, just not columns
+        execute("ALTER TABLE %s WITH compression = { 'class' : 'SnappyCompressor', 'chunk_length_in_kb' : 32 };");
+
+        // Fail to ALTER
+        assertAlterTableThrowsException(ConfigurationException.class, "Error while altering table: modifying column definitions is not allowed in Apple's version of Cassandra", "ALTER TABLE %s ADD fail text;");
+
+        // Flip, enable ALTER TABLE
+        StorageService.instance.setAlterTableEnabled(true);
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), true);
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), StorageService.instance.getAlterTableEnabled());
+        execute("ALTER TABLE %s ADD succeed text; ");
+
+        // Flipback, disable ALTER TABLE
+        StorageService.instance.setAlterTableEnabled(false);
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), false);
+        assertEquals(DatabaseDescriptor.getAlterTableEnabled(), StorageService.instance.getAlterTableEnabled());
+
+        // Fail to ALTER
+        assertAlterTableThrowsException(ConfigurationException.class, "Error while altering table: modifying column definitions is not allowed in Apple's version of Cassandra", "ALTER TABLE %s ADD fail text;");
+
+        // Fail to ALTER-DROP
+        assertAlterTableThrowsException(ConfigurationException.class, "Error while altering table: modifying column definitions is not allowed in Apple's version of Cassandra", "ALTER TABLE %s DROP c;");
+
+        // Fail to ALTER-RENAME
+        assertAlterTableThrowsException(ConfigurationException.class, "Error while altering table: modifying column definitions is not allowed in Apple's version of Cassandra", "ALTER TABLE %s RENAME c TO d;");
+
+        // Allow ALTER table options even when alter table is disabled
+        execute("ALTER TABLE %s WITH GC_GRACE_SECONDS = 123; ");
+
+        // Restore things so they work for other tests
+        StorageService.instance.setAlterTableEnabled(true);
+
+
+    }
 }

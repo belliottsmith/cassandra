@@ -670,6 +670,7 @@ public class StorageServiceServerTest
     {
         StorageService.instance.setPartitionerUnsafe(Murmur3Partitioner.instance);
 
+        DatabaseDescriptor.setEndpointSnitch(new PropertyFileSnitch());
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
         metadata.clearUnsafe();
 

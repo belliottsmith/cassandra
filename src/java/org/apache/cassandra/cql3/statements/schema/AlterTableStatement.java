@@ -41,10 +41,12 @@ import org.apache.cassandra.cql3.CQL3Type;
 import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.cql3.QualifiedName;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.guardrails.Guardrails;
 import org.apache.cassandra.db.marshal.AbstractType;
 
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.Gossiper;
@@ -125,6 +127,17 @@ public abstract class AlterTableStatement extends AlterSchemaStatement
 
     abstract KeyspaceMetadata apply(KeyspaceMetadata keyspace, TableMetadata table) throws UnknownHostException;
 
+    protected void checkAlterTableEnabled()
+    {
+        // Protect against race conditions in 3.0 since the 8099 rewrite, where
+        // columns being added (and perhaps removed) to(from) tables can cause data corruption.
+        // See CASSANDRA-13004 for details
+        if(!DatabaseDescriptor.getAlterTableEnabled())
+        {
+            throw new ConfigurationException("Error while altering table: modifying column definitions is not allowed in Apple's version of Cassandra");
+        }
+    }
+
     /**
      * ALTER TABLE <table> ALTER <column> TYPE <newtype>;
      *
@@ -183,6 +196,8 @@ public abstract class AlterTableStatement extends AlterSchemaStatement
 
         public KeyspaceMetadata apply(KeyspaceMetadata keyspace, TableMetadata table)
         {
+            checkAlterTableEnabled(); // Check CIE-specific configuration
+
             TableMetadata.Builder tableBuilder = table.unbuild();
             Views.Builder viewsBuilder = keyspace.views.unbuild();
             newColumns.forEach(c -> addColumn(keyspace, table, c, tableBuilder, viewsBuilder));
@@ -279,6 +294,8 @@ public abstract class AlterTableStatement extends AlterSchemaStatement
 
         public KeyspaceMetadata apply(KeyspaceMetadata keyspace, TableMetadata table)
         {
+            checkAlterTableEnabled(); // Check CIE-specific configuration
+
             TableMetadata.Builder builder = table.unbuild();
             removedColumns.forEach(c -> dropColumn(keyspace, table, c, builder));
             return keyspace.withSwapped(keyspace.tables.withSwapped(builder.build()));
@@ -341,6 +358,8 @@ public abstract class AlterTableStatement extends AlterSchemaStatement
 
         public KeyspaceMetadata apply(KeyspaceMetadata keyspace, TableMetadata table)
         {
+            checkAlterTableEnabled(); // Check CIE-specific configuration
+
             TableMetadata.Builder tableBuilder = table.unbuild();
             Views.Builder viewsBuilder = keyspace.views.unbuild();
             renamedColumns.forEach((o, n) -> renameColumn(keyspace, table, o, n, tableBuilder, viewsBuilder));

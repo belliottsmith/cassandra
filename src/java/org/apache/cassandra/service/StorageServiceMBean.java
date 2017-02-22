@@ -930,4 +930,10 @@ public interface StorageServiceMBean extends NotificationEmitter
     public int getDefaultKeyspaceReplicationFactor();
     public void setMinimumKeyspaceReplicationFactor(int value);
     public int getMinimumKeyspaceReplicationFactor();
+
+    /** Returns boolean representing whether or not alter table is enabled */
+    public boolean getAlterTableEnabled();
+
+    /** Sets the boolean representing whether or not alter table is enabled */
+    public void setAlterTableEnabled(boolean alterTableEnabled);
 }
