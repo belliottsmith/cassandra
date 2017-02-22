@@ -834,4 +834,11 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void setAutoOptimiseFullRepairStreams(boolean enabled);
     public boolean autoOptimisePreviewRepairStreams();
     public void setAutoOptimisePreviewRepairStreams(boolean enabled);
+
+    /** Returns boolean representing whether or not alter table is enabled */
+    public boolean getAlterTableEnabled();
+
+    /** Sets the boolean representing whether or not alter table is enabled */
+    public void setAlterTableEnabled(boolean alterTableEnabled);
+
 }
