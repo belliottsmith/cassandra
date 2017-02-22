@@ -165,6 +165,7 @@ public abstract class CQLTester
         nativePort = getAutomaticallyAllocatedPort(nativeAddr);
 
         ServerTestUtils.daemonInitialization();
+        DatabaseDescriptor.setAlterTableEnabled(true);
     }
 
     private List<String> keyspaces = new ArrayList<>();
