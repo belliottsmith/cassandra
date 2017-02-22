@@ -582,6 +582,8 @@ public class Config
     @Deprecated
     public ConsistencyLevel blacklist_consistency_level = null;
 
+    public volatile boolean alter_table_enabled = true;
+
     public volatile boolean compact_biggest_stcs_bucket_l0 = false;
 
     public volatile boolean enable_secondary_index = Boolean.getBoolean("cassandra.enable_secondary_index");

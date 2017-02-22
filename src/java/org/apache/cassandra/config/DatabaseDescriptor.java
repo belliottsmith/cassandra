@@ -3896,6 +3896,16 @@ public class DatabaseDescriptor
 
     public static boolean getEnableAggressiveGCCompaction() { return aggressiveGC; }
 
+    public static boolean getAlterTableEnabled()
+    {
+        return conf.alter_table_enabled;
+    }
+
+    public static void setAlterTableEnabled(boolean alterTableEnabled)
+    {
+        conf.alter_table_enabled = alterTableEnabled;
+    }
+
     public static boolean getCompactBiggestSTCSBucketInL0()
     {
         return conf.compact_biggest_stcs_bucket_l0;
