@@ -826,4 +826,11 @@ public interface StorageServiceMBean extends NotificationEmitter
     @Deprecated
     public Map<String, Set<InetAddress>> getOutstandingSchemaVersions();
     public Map<String, Set<String>> getOutstandingSchemaVersionsWithPort();
+
+    /** Returns boolean representing whether or not alter table is enabled */
+    public boolean getAlterTableEnabled();
+
+    /** Sets the boolean representing whether or not alter table is enabled */
+    public void setAlterTableEnabled(boolean alterTableEnabled);
+
 }
