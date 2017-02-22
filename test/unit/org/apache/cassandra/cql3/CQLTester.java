@@ -123,6 +123,9 @@ public abstract class CQLTester
         System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
         System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_MATERIALIZED_VIEWS, "true");
         System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
+
+        DatabaseDescriptor.setAlterTableEnabled(true);
+
         // Register an Endpoint snitchwhich returns fixed value for data center.
         DatabaseDescriptor.setEndpointSnitch(new IEndpointSnitch()
         {

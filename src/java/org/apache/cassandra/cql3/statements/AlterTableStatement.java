@@ -86,7 +86,20 @@ public class AlterTableStatement extends SchemaAlteringStatement
 
     public void validate(ClientState state)
     {
-        // validated in announceMigration()
+        // Protect against race conditions in 3.0 since the 8099 rewrite, where
+        // columns being added (and perhaps removed) to(from) tables can cause data corruption.
+        // See CASSANDRA-13004 for details
+        if(!DatabaseDescriptor.getAlterTableEnabled())
+        {
+            switch (oType)
+            {
+                case ADD:
+                case ALTER:
+                case DROP:
+                case RENAME:
+                    throw new ConfigurationException("Error while altering table: modifying column definitions is not allowed in Apple's version of Cassandra");
+            }
+        }
     }
 
     public Event.SchemaChange announceMigration(boolean isLocalOnly) throws RequestValidationException

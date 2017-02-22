@@ -2171,4 +2171,14 @@ public class DatabaseDescriptor
     {
         conf.ideal_consistency_level = cl;
     }
+
+    public static boolean getAlterTableEnabled()
+    {
+        return conf.alter_table_enabled;
+    }
+
+    public static void setAlterTableEnabled(boolean alterTableEnabled)
+    {
+        conf.alter_table_enabled = alterTableEnabled;
+    }
 }
