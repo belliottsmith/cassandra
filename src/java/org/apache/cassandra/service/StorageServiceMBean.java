@@ -771,4 +771,10 @@ public interface StorageServiceMBean extends NotificationEmitter
      */
     public void stopFullQueryLogger();
 
+    /** Returns boolean representing whether or not alter table is enabled */
+    public boolean getAlterTableEnabled();
+
+    /** Sets the boolean representing whether or not alter table is enabled */
+    public void setAlterTableEnabled(boolean alterTableEnabled);
+
 }
