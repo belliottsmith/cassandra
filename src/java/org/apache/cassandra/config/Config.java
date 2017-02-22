@@ -729,6 +729,8 @@ public class Config
     @Deprecated
     public ConsistencyLevel blacklist_consistency_level = null;
 
+    public volatile boolean alter_table_enabled = true;
+
     public volatile boolean compact_biggest_stcs_bucket_l0 = false;
 
     @Replaces(oldName = "enable_secondary_index", converter = Converters.IDENTITY, deprecated = true)
