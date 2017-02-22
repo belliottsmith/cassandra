@@ -215,7 +215,7 @@ public class SimpleReadWriteTest extends TestBaseImpl
     @Test
     public void writeWithSchemaDisagreement() throws Throwable
     {
-        try (ICluster cluster = init(builder().withNodes(3).withConfig(config -> config.with(NETWORK)).start()))
+        try (ICluster cluster = init(builder().withNodes(3).withConfig(config -> config.with(NETWORK).set("alter_table_enabled", true)).start()))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
 
@@ -248,7 +248,7 @@ public class SimpleReadWriteTest extends TestBaseImpl
     @Test
     public void readWithSchemaDisagreement() throws Throwable
     {
-        try (ICluster cluster = init(builder().withNodes(3).withConfig(config -> config.with(NETWORK)).start()))
+        try (ICluster cluster = init(builder().withNodes(3).withConfig(config -> config.with(NETWORK).set("alter_table_enabled", true)).start()))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
 

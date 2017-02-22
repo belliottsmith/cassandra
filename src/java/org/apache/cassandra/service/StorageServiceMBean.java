@@ -803,4 +803,11 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     /** Returns the resize factor to use when growing/resizing a RangeTombstoneList */
     public double getRangeTombstoneResizeListGrowthFactor();
+
+    /** Returns boolean representing whether or not alter table is enabled */
+    public boolean getAlterTableEnabled();
+
+    /** Sets the boolean representing whether or not alter table is enabled */
+    public void setAlterTableEnabled(boolean alterTableEnabled);
+
 }
