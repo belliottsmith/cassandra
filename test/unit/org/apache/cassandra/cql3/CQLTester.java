@@ -152,11 +152,12 @@ public abstract class CQLTester
         System.setProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
         System.setProperty("cassandra.allow_materializedviews", "true");
         System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
-
+        
         nativeAddr = InetAddress.getLoopbackAddress();
         nativePort = getAutomaticallyAllocatedPort(nativeAddr);
 
         ServerTestUtils.daemonInitialization();
+        DatabaseDescriptor.setAlterTableEnabled(true);
     }
 
     private List<String> keyspaces = new ArrayList<>();
