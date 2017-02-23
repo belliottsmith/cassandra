@@ -445,13 +445,13 @@ public class CommitLogReplayer
                 if (!replaySyncSection(sectionReader, replayEnd, desc, errorContext, tolerateErrorsInSection))
                     break;
             }
-            logger.debug("Finished reading {}", file);
+            logger.info("Finished reading {}", file);
         }
     }
 
     public boolean logAndCheckIfShouldSkip(File file, CommitLogDescriptor desc)
     {
-        logger.debug("Replaying {} (CL version {}, messaging version {}, compression {})",
+        logger.info("Replaying {} (CL version {}, messaging version {}, compression {})",
                     file.getPath(),
                     desc.version,
                     desc.getMessagingVersion(),

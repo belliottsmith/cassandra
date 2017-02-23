@@ -365,7 +365,7 @@ public class Memtable implements Comparable<Memtable>
     {
         boolean isBatchLogTable = cfs.name.equals(SystemKeyspace.BATCHES) && cfs.keyspace.getName().equals(SystemKeyspace.NAME);
 
-        logger.debug("Writing {}", Memtable.this.toString());
+        logger.info("Writing {}", Memtable.this.toString());
 
         Collection<SSTableReader> ssTables;
         try (SSTableTxnWriter writer = createFlushWriter(cfs.getSSTablePath(sstableDirectory), columnsCollector.get(), statsCollector.get()))
@@ -398,7 +398,7 @@ public class Memtable implements Comparable<Memtable>
 
             if (writer.getFilePointer() > 0)
             {
-                logger.debug(String.format("Completed flushing %s (%s) for commitlog position %s",
+                logger.info(String.format("Completed flushing %s (%s) for commitlog position %s",
                                            writer.getFilename(),
                                            FBUtilities.prettyPrintMemory(writer.getFilePointer()),
                                            commitLogUpperBound));
@@ -408,7 +408,7 @@ public class Memtable implements Comparable<Memtable>
             }
             else
             {
-                logger.debug("Completed flushing {}; nothing needed to be retained.  Commitlog position was {}",
+                logger.info("Completed flushing {}; nothing needed to be retained.  Commitlog position was {}",
                              writer.getFilename(), commitLogUpperBound);
                 writer.abort();
                 ssTables = Collections.emptyList();
