@@ -463,6 +463,9 @@ public abstract class CQLTester
 
     protected static void requireAuthentication()
     {
+        // ACI Cassandra default raised from 2s to 86400s breaking tests
+        DatabaseDescriptor.setCredentialsValidity(2000);
+
         DatabaseDescriptor.setAuthenticator(new AuthTestUtils.LocalPasswordAuthenticator());
         DatabaseDescriptor.setAuthorizer(new AuthTestUtils.LocalCassandraAuthorizer());
         DatabaseDescriptor.setNetworkAuthorizer(new AuthTestUtils.LocalCassandraNetworkAuthorizer());

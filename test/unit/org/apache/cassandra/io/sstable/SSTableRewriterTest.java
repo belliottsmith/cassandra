@@ -30,6 +30,7 @@ import org.junit.Test;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.UpdateBuilder;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.DeletionTime;
@@ -815,41 +816,49 @@ public class SSTableRewriterTest extends SSTableWriterTestBase
     }
 
     @Test
-    public void testCanonicalSSTables() throws ExecutionException, InterruptedException
+    public void testCanonicalSSTables() throws InterruptedException
     {
-        Keyspace keyspace = Keyspace.open(KEYSPACE);
-        final ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF);
-        truncate(cfs);
-
-        cfs.addSSTable(writeFile(cfs, 100));
-        Collection<SSTableReader> allSSTables = cfs.getLiveSSTables();
-        assertEquals(1, allSSTables.size());
-        final AtomicBoolean done = new AtomicBoolean(false);
-        final AtomicBoolean failed = new AtomicBoolean(false);
-        Runnable r = () -> {
-            while (!done.get())
-            {
-                Iterable<SSTableReader> sstables = cfs.getSSTables(SSTableSet.CANONICAL);
-                if (Iterables.size(sstables) != 1)
-                {
-                    failed.set(true);
-                    return;
-                }
-            }
-        };
-        Thread t = NamedThreadFactory.createAnonymousThread(r);
+        int before = DatabaseDescriptor.getSSTablePreemptiveOpenIntervalInMiB();
         try
         {
-            t.start();
-            cfs.forceMajorCompaction();
+            DatabaseDescriptor.setSSTablePreemptiveOpenIntervalInMiB(50);
+            Keyspace keyspace = Keyspace.open(KEYSPACE);
+            final ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF);
+            truncate(cfs);
+
+            cfs.addSSTable(writeFile(cfs, 100));
+            Collection<SSTableReader> allSSTables = cfs.getLiveSSTables();
+            assertEquals(1, allSSTables.size());
+            final AtomicBoolean done = new AtomicBoolean(false);
+            final AtomicBoolean failed = new AtomicBoolean(false);
+            Runnable r = () -> {
+                while (!done.get())
+                {
+                    Iterable<SSTableReader> sstables = cfs.getSSTables(SSTableSet.CANONICAL);
+                    if (Iterables.size(sstables) != 1)
+                    {
+                        failed.set(true);
+                        return;
+                    }
+                }
+            };
+        Thread t = NamedThreadFactory.createAnonymousThread(r);
+            try
+            {
+                t.start();
+                cfs.forceMajorCompaction();
+            }
+            finally
+            {
+                done.set(true);
+                t.join(20);
+            }
+            assertFalse(failed.get());
         }
         finally
         {
-            done.set(true);
-            t.join(20);
+            DatabaseDescriptor.setSSTablePreemptiveOpenIntervalInMiB(before);
         }
-        assertFalse(failed.get());
-
 
     }
 

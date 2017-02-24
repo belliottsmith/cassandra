@@ -74,23 +74,23 @@ public class Config
     public String role_manager;
     public String network_authorizer;
     @Replaces(oldName = "permissions_validity_in_ms", converter = Converters.MILLIS_DURATION, deprecated = true)
-    public volatile SmallestDurationMilliseconds permissions_validity = new SmallestDurationMilliseconds("2s");
+    public volatile SmallestDurationMilliseconds permissions_validity = new SmallestDurationMilliseconds("43200s");
     public volatile int permissions_cache_max_entries = 1000;
     @Replaces(oldName = "permissions_update_interval_in_ms", converter = Converters.MILLIS_CUSTOM_DURATION, deprecated = true)
-    public volatile SmallestDurationMilliseconds permissions_update_interval = new SmallestDurationMilliseconds("0ms");
+    public volatile SmallestDurationMilliseconds permissions_update_interval = new SmallestDurationMilliseconds("600s");
     public volatile boolean permissions_cache_active_update = false;
     @Replaces(oldName = "roles_validity_in_ms", converter = Converters.MILLIS_DURATION, deprecated = true)
-    public volatile SmallestDurationMilliseconds roles_validity = new SmallestDurationMilliseconds("2s");
+    public volatile SmallestDurationMilliseconds roles_validity = new SmallestDurationMilliseconds("86400s");
     public volatile int roles_cache_max_entries = 1000;
     @Replaces(oldName = "roles_update_interval_in_ms", converter = Converters.MILLIS_CUSTOM_DURATION, deprecated = true)
-    public volatile SmallestDurationMilliseconds roles_update_interval= new SmallestDurationMilliseconds("0ms");
-    public volatile boolean roles_cache_active_update = false;
+    public volatile SmallestDurationMilliseconds roles_update_interval= new SmallestDurationMilliseconds("600s");
+    public volatile boolean roles_cache_active_update = true;
     @Replaces(oldName = "credentials_validity_in_ms", converter = Converters.MILLIS_DURATION, deprecated = true)
-    public volatile SmallestDurationMilliseconds credentials_validity = new SmallestDurationMilliseconds("2s");
+    public volatile SmallestDurationMilliseconds credentials_validity = new SmallestDurationMilliseconds("86400s");
     public volatile int credentials_cache_max_entries = 1000;
     @Replaces(oldName = "credentials_update_interval_in_ms", converter = Converters.MILLIS_CUSTOM_DURATION, deprecated = true)
-    public volatile SmallestDurationMilliseconds credentials_update_interval= new SmallestDurationMilliseconds("0ms");
-    public volatile boolean credentials_cache_active_update = false;
+    public volatile SmallestDurationMilliseconds credentials_update_interval= new SmallestDurationMilliseconds("600s");
+    public volatile boolean credentials_cache_active_update = true;
 
     /* Hashing strategy Random or OPHF */
     public String partitioner;
@@ -106,7 +106,7 @@ public class Config
     public volatile boolean force_new_prepared_statement_behaviour = false;
 
     public ParameterizedClass seed_provider;
-    public DiskAccessMode disk_access_mode = DiskAccessMode.auto;
+    public DiskAccessMode disk_access_mode = DiskAccessMode.mmap_index_only;
 
     public DiskFailurePolicy disk_failure_policy = DiskFailurePolicy.ignore;
     public CommitFailurePolicy commit_failure_policy = CommitFailurePolicy.stop;
@@ -252,7 +252,7 @@ public class Config
     public Integer native_transport_port_ssl = null;
     public int native_transport_max_threads = 128;
     @Replaces(oldName = "native_transport_max_frame_size_in_mb", converter = Converters.MEBIBYTES_DATA_STORAGE, deprecated = true)
-    public SmallestDataStorageMebibytes native_transport_max_frame_size = new SmallestDataStorageMebibytes("16MiB");
+    public SmallestDataStorageMebibytes native_transport_max_frame_size = new SmallestDataStorageMebibytes("64MiB"); // Update from CASSANDRA-16886, commitlog in prod is 64, so set at that to be safe.
     public volatile long native_transport_max_concurrent_connections = -1L;
     public volatile long native_transport_max_concurrent_connections_per_ip = -1L;
     public boolean native_transport_flush_in_batches_legacy = false;
@@ -400,10 +400,13 @@ public class Config
     @Replaces(oldName = "trickle_fsync_interval_in_kb", converter = Converters.KIBIBYTES_DATASTORAGE, deprecated = true)
     public SmallestDataStorageKibibytes trickle_fsync_interval = new SmallestDataStorageKibibytes("10240KiB");
 
+    // ACI Cassandra - Want this to be as close as possible to Long.MAX_VALUE
+    // when converted to bytes (by <<20) in org.apache.cassandra.io.sstable.SSTableRewriter.calculateOpenInterval
+    // No longer possible to set to -1 after CASSANDRA-15234
     @Replaces(oldName = "sstable_preemptive_open_interval_in_mb", converter = Converters.MEBIBYTES_DATA_STORAGE, deprecated = true)
-    public volatile SmallestDataStorageMebibytes sstable_preemptive_open_interval = new SmallestDataStorageMebibytes("50MiB");
+    public volatile SmallestDataStorageMebibytes sstable_preemptive_open_interval = new SmallestDataStorageMebibytes((Long.MAX_VALUE >> 20) + "MiB");
 
-    public volatile boolean key_cache_migrate_during_compaction = true;
+    public volatile boolean key_cache_migrate_during_compaction = false;
     public volatile int key_cache_keys_to_save = Integer.MAX_VALUE;
     @Replaces(oldName = "key_cache_size_in_mb", converter = Converters.MEBIBYTES_DATA_STORAGE, deprecated = true)
     public SmallestDataStorageMebibytes key_cache_size = null;
@@ -614,7 +617,7 @@ public class Config
      * block_for_peers_in_remote_dcs: controls if this node will consider remote datacenters to wait for. The default
      * is to _not_ wait on remote datacenters.
      */
-    public int block_for_peers_timeout_in_secs = 10;
+    public int block_for_peers_timeout_in_secs = 60;
     public boolean block_for_peers_in_remote_dcs = false;
 
     public volatile boolean automatic_sstable_upgrade = false;
