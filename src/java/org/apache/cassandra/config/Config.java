@@ -56,18 +56,18 @@ public class Config
     public String authorizer;
     public String role_manager;
     public String network_authorizer;
-    public volatile int permissions_validity_in_ms = 2000;
+    public volatile int permissions_validity_in_ms = 43200000;
     public volatile int permissions_cache_max_entries = 1000;
-    public volatile int permissions_update_interval_in_ms = -1;
-    public volatile boolean permissions_cache_active_update = false;
-    public volatile int roles_validity_in_ms = 2000;
+    public volatile int permissions_update_interval_in_ms = 600000;
+    public volatile boolean permissions_cache_active_update = true;
+    public volatile int roles_validity_in_ms = 86400000;
     public volatile int roles_cache_max_entries = 1000;
-    public volatile int roles_update_interval_in_ms = -1;
-    public volatile boolean roles_cache_active_update = false;
-    public volatile int credentials_validity_in_ms = 2000;
+    public volatile int roles_update_interval_in_ms = 600000;
+    public volatile boolean roles_cache_active_update = true;
+    public volatile int credentials_validity_in_ms = 86400000;
     public volatile int credentials_cache_max_entries = 1000;
     public volatile int credentials_update_interval_in_ms = -1;
-    public volatile boolean credentials_cache_active_update = false;
+    public volatile boolean credentials_cache_active_update = true;
 
     /* Hashing strategy Random or OPHF */
     public String partitioner;
@@ -80,7 +80,7 @@ public class Config
     public boolean hint_window_persistent_enabled = true;
 
     public ParameterizedClass seed_provider;
-    public DiskAccessMode disk_access_mode = DiskAccessMode.auto;
+    public DiskAccessMode disk_access_mode = DiskAccessMode.mmap_index_only;
 
     public DiskFailurePolicy disk_failure_policy = DiskFailurePolicy.ignore;
     public CommitFailurePolicy commit_failure_policy = CommitFailurePolicy.stop;
@@ -197,7 +197,7 @@ public class Config
     public int native_transport_port = 9042;
     public Integer native_transport_port_ssl = null;
     public int native_transport_max_threads = 128;
-    public int native_transport_max_frame_size_in_mb = 16;
+    public int native_transport_max_frame_size_in_mb = 64; // Update from CASSANDRA-16886, commitlog in prod is 64, so set at that to be safe.
     public volatile long native_transport_max_concurrent_connections = -1L;
     public volatile long native_transport_max_concurrent_connections_per_ip = -1L;
     public boolean native_transport_flush_in_batches_legacy = false;
@@ -316,9 +316,9 @@ public class Config
     public boolean trickle_fsync = false;
     public int trickle_fsync_interval_in_kb = 10240;
 
-    public volatile int sstable_preemptive_open_interval_in_mb = 50;
+    public volatile int sstable_preemptive_open_interval_in_mb = -1;
 
-    public volatile boolean key_cache_migrate_during_compaction = true;
+    public volatile boolean key_cache_migrate_during_compaction = false;
     public Long key_cache_size_in_mb = null;
     public volatile int key_cache_save_period = 14400;
     public volatile int key_cache_keys_to_save = Integer.MAX_VALUE;
@@ -470,7 +470,7 @@ public class Config
      * block_for_peers_in_remote_dcs: controls if this node will consider remote datacenters to wait for. The default
      * is to _not_ wait on remote datacenters.
      */
-    public int block_for_peers_timeout_in_secs = 10;
+    public int block_for_peers_timeout_in_secs = 60;
     public boolean block_for_peers_in_remote_dcs = false;
 
     public volatile boolean automatic_sstable_upgrade = false;
