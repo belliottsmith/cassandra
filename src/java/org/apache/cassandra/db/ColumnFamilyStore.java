@@ -2670,4 +2670,46 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         return keyspace.getColumnFamilyStore(id);
     }
+
+    @Override
+    public long[] getRecentSSTablesPerReadHistogramV3()
+    {
+        return metric.recentSSTablesPerRead.getBuckets(true);
+    }
+
+    @Override
+    public long[] getSSTablesPerReadHistogramV3()
+    {
+        return metric.sstablesPerRead.getBuckets(false);
+    }
+
+    @Override
+    public long[] getRecentReadLatencyHistogramMicrosV3()
+    {
+        return metric.readLatency.recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getRecentWriteLatencyHistogramMicrosV3()
+    {
+        return metric.writeLatency.recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getRecentRangeLatencyHistogramMicrosV3()
+    {
+        return metric.rangeLatency.recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getEstimatedRowSizeHistogram()
+    {
+        return metric.estimatedPartitionSizeHistogram.getValue();
+    }
+
+    @Override
+    public long[] getEstimatedColumnCountHistogram()
+    {
+        return metric.estimatedColumnCountHistogram.getValue();
+    }
 }

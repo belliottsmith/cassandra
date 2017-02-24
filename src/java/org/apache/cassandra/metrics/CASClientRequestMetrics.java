@@ -20,6 +20,7 @@ package org.apache.cassandra.metrics;
 
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.Histogram;
+import org.apache.cassandra.utils.EstimatedHistogram;
 
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 
@@ -27,6 +28,7 @@ import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 public class CASClientRequestMetrics extends ClientRequestMetrics
 {
     public final Histogram contention;
+    public final EstimatedHistogram contentionEstimatedHistogram;
     /* Used only for write  */
     public final Counter conditionNotMet;
 
@@ -35,6 +37,7 @@ public class CASClientRequestMetrics extends ClientRequestMetrics
     public CASClientRequestMetrics(String scope) {
         super(scope);
         contention = Metrics.histogram(factory.createMetricName("ContentionHistogram"), false);
+        contentionEstimatedHistogram = new EstimatedHistogram();
         conditionNotMet =  Metrics.counter(factory.createMetricName("ConditionNotMet"));
         unfinishedCommit =  Metrics.counter(factory.createMetricName("UnfinishedCommit"));
     }

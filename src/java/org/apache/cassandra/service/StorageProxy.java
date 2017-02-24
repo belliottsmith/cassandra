@@ -381,7 +381,10 @@ public class StorageProxy implements StorageProxyMBean
         finally
         {
             if(contentions > 0)
+            {
                 casWriteMetrics.contention.update(contentions);
+                casWriteMetrics.contentionEstimatedHistogram.add(contentions);
+            }
             final long latency = System.nanoTime() - start;
             casWriteMetrics.addNano(latency);
             writeMetricsMap.get(consistencyForPaxos).addNano(latency);
@@ -1694,7 +1697,10 @@ public class StorageProxy implements StorageProxyMBean
             {
                 final Pair<UUID, Integer> pair = beginAndRepairPaxos(start, key, metadata, liveEndpoints, requiredParticipants, consistencyLevel, consistencyForCommitOrFetch, false, state);
                 if (pair.right > 0)
+                {
                     casReadMetrics.contention.update(pair.right);
+                    casReadMetrics.contentionEstimatedHistogram.add(pair.right);
+                }
             }
             catch (WriteTimeoutException e)
             {
@@ -2888,5 +2894,53 @@ public class StorageProxy implements StorageProxyMBean
     public void setIdealConsistencyLevel(String cl)
     {
         DatabaseDescriptor.setIdealConsistencyLevel(ConsistencyLevel.valueOf(cl.trim().toUpperCase()));
+    }
+
+    @Override
+    public long[] getRecentReadLatencyHistogramMicrosV3()
+    {
+        return readMetrics.recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getRecentWriteLatencyHistogramMicrosV3()
+    {
+        return writeMetrics.recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getRecentRangeLatencyHistogramMicrosV3()
+    {
+        return rangeMetrics.recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getRecentCasReadLatencyHistogramMicrosV3()
+    {
+        return casReadMetrics.recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getRecentCasWriteLatencyHistogramMicrosV3()
+    {
+        return casWriteMetrics.recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getRecentViewWriteLatencyHistogramMicrosV3()
+    {
+        return viewWriteMetrics.recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getCasReadContentionHistogram()
+    {
+        return casReadMetrics.contentionEstimatedHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getCasWriteContentionHistogram()
+    {
+        return casWriteMetrics.contentionEstimatedHistogram.getBuckets(true);
     }
 }
