@@ -217,6 +217,9 @@ public class TableMetrics
     @Deprecated
     public final Counter droppedMutations;
 
+    public final EstimatedHistogram sstablesPerRead = new EstimatedHistogram(35);
+    public final EstimatedHistogram recentSSTablesPerRead = new EstimatedHistogram(35);
+
     private final MetricNameFactory factory;
     private final MetricNameFactory aliasFactory;
 
@@ -958,6 +961,8 @@ public class TableMetrics
     public void updateSSTableIterated(int count)
     {
         sstablesPerReadHistogram.update(count);
+        sstablesPerRead.add(count);
+        recentSSTablesPerRead.add(count);
     }
 
     /**
