@@ -60,7 +60,7 @@ public class RangeCommandIterator extends AbstractIterator<RowIterator> implemen
 {
     private static final Logger logger = LoggerFactory.getLogger(RangeCommandIterator.class);
 
-    private static final ClientRequestMetrics rangeMetrics = new ClientRequestMetrics("RangeSlice");
+    public static final ClientRequestMetrics rangeMetrics = new ClientRequestMetrics("RangeSlice");
 
     private final CloseableIterator<ReplicaPlan.ForRangeRead> replicaPlans;
     private final int totalRangeCount;

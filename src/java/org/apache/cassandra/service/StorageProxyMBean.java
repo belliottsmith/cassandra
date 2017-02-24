@@ -110,6 +110,35 @@ public interface StorageProxyMBean
     void disableSnapshotOnRepairedDataMismatch();
     boolean getSnapshotOnRepairedDataMismatchEnabled();
 
+    public long[] getRecentReadLatencyHistogramMicrosV3();
+    public long[] getRecentWriteLatencyHistogramMicrosV3();
+    public long[] getRecentRangeLatencyHistogramMicrosV3();
+    public long[] getRecentCasReadLatencyHistogramMicrosV3();
+    public long[] getRecentCasWriteLatencyHistogramMicrosV3();
+    public long[] getRecentViewWriteLatencyHistogramMicrosV3();
+    public long[] getCasReadContentionHistogram();
+    public long[] getCasWriteContentionHistogram();
+
+    public long[] getRecentClientRequestReadConsistencyLevelOneMicrosV3();
+    public long[] getRecentClientRequestWriteConsistencyLevelOneMicrosV3();
+    public long[] getRecentClientRequestReadConsistencyLevelTwoMicrosV3();
+    public long[] getRecentClientRequestWriteConsistencyLevelTwoMicrosV3();
+    public long[] getRecentClientRequestReadConsistencyLevelThreeMicrosV3();
+    public long[] getRecentClientRequestWriteConsistencyLevelThreeMicrosV3();
+    public long[] getRecentClientRequestReadConsistencyLevelQuorumMicrosV3();
+    public long[] getRecentClientRequestWriteConsistencyLevelQuorumMicrosV3();
+    public long[] getRecentClientRequestReadConsistencyLevelLocalOneMicrosV3();
+    public long[] getRecentClientRequestWriteConsistencyLevelLocalOneMicrosV3();
+    public long[] getRecentClientRequestReadConsistencyLevelLocalQuorumMicrosV3();
+    public long[] getRecentClientRequestWriteConsistencyLevelLocalQuorumMicrosV3();
+    public long[] getRecentClientRequestReadConsistencyLevelEachQuorumMicrosV3();
+    public long[] getRecentClientRequestWriteConsistencyLevelEachQuorumMicrosV3();
+    public long[] getRecentClientRequestReadConsistencyLevelSerialMicrosV3();
+    public long[] getRecentClientRequestWriteConsistencyLevelSerialMicrosV3();
+    public long[] getRecentClientRequestReadConsistencyLevelLocalSerialMicrosV3();
+    public long[] getRecentClientRequestWriteConsistencyLevelLocalSerialMicrosV3();
+    public long[] getRecentClientRequestWriteConsistencyLevelAnyMicrosV3();
+
     void enableSnapshotOnDuplicateRowDetection();
     void disableSnapshotOnDuplicateRowDetection();
     boolean getSnapshotOnDuplicateRowDetectionEnabled();
