@@ -21,21 +21,26 @@ package org.apache.cassandra.metrics;
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Meter;
+import org.apache.cassandra.utils.EstimatedHistogram;
 
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 
 public class CASClientRequestMetrics extends ClientRequestMetrics
 {
     public final Histogram contention;
+    public final EstimatedHistogram contentionEstimatedHistogram;
     public final Counter unfinishedCommit;
     public final Meter unknownResult;
-
+    /* Used only for write  */
+    public final Counter conditionNotMet;
     public CASClientRequestMetrics(String scope)
     {
         super(scope);
         contention = Metrics.histogram(factory.createMetricName("ContentionHistogram"), false);
-        unfinishedCommit = Metrics.counter(factory.createMetricName("UnfinishedCommit"));
+        contentionEstimatedHistogram = new EstimatedHistogram();
         unknownResult = Metrics.meter(factory.createMetricName("UnknownResult"));
+        conditionNotMet = Metrics.counter(factory.createMetricName("ConditionNotMet"));
+        unfinishedCommit = Metrics.counter(factory.createMetricName("UnfinishedCommit"));
     }
 
     public void release()
