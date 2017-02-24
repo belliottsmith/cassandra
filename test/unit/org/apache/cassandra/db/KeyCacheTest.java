@@ -55,11 +55,13 @@ public class KeyCacheTest
     private static final String COLUMN_FAMILY5 = "Standard5";
     private static final String COLUMN_FAMILY6 = "Standard6";
 
-
+    private static boolean pretest;
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
         SchemaLoader.prepareServer();
+        pretest = DatabaseDescriptor.shouldMigrateKeycacheOnCompaction();
+        DatabaseDescriptor.setMigrateKeycacheOnCompaction(true);
         SchemaLoader.createKeyspace(KEYSPACE1,
                                     KeyspaceParams.simple(1),
                                     SchemaLoader.standardCFMD(KEYSPACE1, COLUMN_FAMILY1),
@@ -74,6 +76,7 @@ public class KeyCacheTest
     public static void cleanup()
     {
         SchemaLoader.cleanupSavedCaches();
+        DatabaseDescriptor.setMigrateKeycacheOnCompaction(pretest);
     }
 
     @Test
