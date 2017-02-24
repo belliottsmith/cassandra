@@ -25,9 +25,15 @@ import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+
+import org.apache.cassandra.config.Schema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.*;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
@@ -150,9 +156,32 @@ public class CompactionController implements AutoCloseable
                 minTimestamp = Math.min(minTimestamp, sstable.getMinTimestamp());
         }
 
+        // Check last successful repair for adjusted gcBefore for SSTable
+        Map<Range<Token>, Integer> lastSuccessfulRepair = SystemKeyspace.getLastSuccessfulRepair(cfStore.keyspace.getName(), cfStore.getColumnFamilyName());
         for (SSTableReader candidate : compacting)
         {
-            if (candidate.getSSTableMetadata().maxLocalDeletionTime < gcBefore)
+            int lastRepairTime = Integer.MIN_VALUE;
+
+            //If Christmas patch is not enabled, we set lastRepairTime=gcgrace to disable it.
+            if (!DatabaseDescriptor.enableChristmasPatch())
+            {
+                lastRepairTime = gcBefore;
+            }
+            else
+            {
+                for (Range<Token> range : lastSuccessfulRepair.keySet())
+                {
+                    if (range.contains(candidate.first.getToken()) && range.contains(candidate.last.getToken()))
+                    {
+                        lastRepairTime = lastSuccessfulRepair.get(range);
+                        break;
+                    }
+                }
+            }
+
+
+
+            if (candidate.getSSTableMetadata().maxLocalDeletionTime < Math.min(lastRepairTime, gcBefore))
                 candidates.add(candidate);
             else
                 minTimestamp = Math.min(minTimestamp, candidate.getMinTimestamp());
@@ -191,6 +220,33 @@ public class CompactionController implements AutoCloseable
     public String getColumnFamily()
     {
         return cfs.name;
+    }
+
+
+    /**
+     * Returns timestamp in seconds that, compaction can purge tombstones *before* this timestamp.
+     * If given Token {@code t} is found in the range of last successful repair, this returns
+     * Min("Actual GC timestamp", "Last successful repair timestamp for t").
+     * If Token {@code t} is not found in any ranges of last successful repair, then this returns
+     * Integer.MIN_VALUE so that not repaired partition won't drop tombstones.
+     *
+     * @param t Token of partition key
+     * @return timestamp for gc
+     */
+    public int gcBefore(Token t)
+    {
+        if (!DatabaseDescriptor.enableChristmasPatch())
+            return gcBefore;
+
+        // special case non-replicated keyspaces since they won't get repaired
+        if (Schema.instance.getKeyspaceInstance(cfs.metadata.ksName).getReplicationStrategy().getReplicationFactor() <= 1)
+        {
+            logger.debug("Falling back to default gcBefore {} for non-replicated KS {}", gcBefore, cfs.metadata.ksName);
+            return gcBefore;
+        }
+
+        return Math.min(cfs.getLastSuccessfulRepairTimeFor(t), gcBefore);
+
     }
 
     /**

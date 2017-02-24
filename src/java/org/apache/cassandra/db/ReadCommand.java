@@ -533,7 +533,8 @@ public abstract class ReadCommand implements ReadQuery
         {
             public WithoutPurgeableTombstones()
             {
-                super(isForThrift, nowInSec(), cfs.gcBefore(nowInSec()), oldestUnrepairedTombstone(), cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones());
+                // todo: maybe we should return all tombstones always, this might be too slow
+                super(cfs, isForThrift, nowInSec(), cfs.gcBefore(nowInSec()), oldestUnrepairedTombstone(), cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones());
             }
 
             protected long getMaxPurgeableTimestamp()

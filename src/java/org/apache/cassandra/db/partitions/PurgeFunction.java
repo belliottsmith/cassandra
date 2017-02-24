@@ -24,18 +24,23 @@ import org.apache.cassandra.db.transform.Transformation;
 public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator>
 {
     private final boolean isForThrift;
+    private final ColumnFamilyStore cfs;
     private final DeletionPurger purger;
     private final int nowInSec;
+    private DecoratedKey currentKey = null;
+
     private boolean isReverseOrder;
 
-    public PurgeFunction(boolean isForThrift, int nowInSec, int gcBefore, int oldestUnrepairedTombstone, boolean onlyPurgeRepairedTombstones)
+    public PurgeFunction(ColumnFamilyStore cfs, boolean isForThrift, int nowInSec, int gcBefore, int oldestUnrepairedTombstone, boolean onlyPurgeRepairedTombstones)
     {
         this.isForThrift = isForThrift;
         this.nowInSec = nowInSec;
+        this.cfs = cfs;
         this.purger = (timestamp, localDeletionTime) ->
                       !(onlyPurgeRepairedTombstones && localDeletionTime >= oldestUnrepairedTombstone)
-                      && localDeletionTime < gcBefore
+                      && localDeletionTime < this.cfs.gcBeforeForKey(currentKey, gcBefore)
                       && timestamp < getMaxPurgeableTimestamp();
+
     }
 
     protected abstract long getMaxPurgeableTimestamp();
@@ -43,6 +48,7 @@ public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator
     // Called at the beginning of each new partition
     protected void onNewPartition(DecoratedKey partitionKey)
     {
+        this.currentKey = partitionKey;
     }
 
     // Called for each partition that had only purged infos and are empty post-purge.

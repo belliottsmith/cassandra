@@ -1677,6 +1677,27 @@ public class DatabaseDescriptor
         return conf.blacklist_consistency_level;
     }
 
+    public static boolean enableChristmasPatch()
+    {
+        return conf.enable_christmas_patch;
+    }
+
+    public static boolean enableShadowChristmasPatch()
+    {
+        //If christmas patch is enabled, shadow is also enabled.
+        return conf.enable_christmas_patch || conf.enable_shadow_christmas_patch;
+    }
+
+    public static void setChristmasPatchEnabled()
+    {
+        conf.enable_christmas_patch = true;
+    }
+
+    public static void setChristmasPatchDisabled()
+    {
+        conf.enable_christmas_patch = false;
+    }
+
     public static void setBlacklistConsistencyLevel(ConsistencyLevel cl)
     {
         conf.blacklist_consistency_level = cl;

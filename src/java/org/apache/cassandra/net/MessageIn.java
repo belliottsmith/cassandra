@@ -60,7 +60,7 @@ public class MessageIn<T>
     {
         InetAddress from = CompactEndpointSerializationHelper.deserialize(in);
 
-        MessagingService.Verb verb = MessagingService.Verb.values()[in.readInt()];
+        MessagingService.Verb verb = MessagingService.Verb.fromId(in.readInt());
         int parameterCount = in.readInt();
         Map<String, byte[]> parameters;
         if (parameterCount == 0)

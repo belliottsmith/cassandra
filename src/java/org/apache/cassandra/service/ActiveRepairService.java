@@ -24,6 +24,7 @@ import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
@@ -35,6 +36,12 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+
+import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.io.IVersionedSerializer;
+import org.apache.cassandra.io.util.DataInputPlus;
+import org.apache.cassandra.io.util.DataOutputPlus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,6 +62,7 @@ import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.net.IAsyncCallbackWithFailure;
+import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
@@ -170,6 +178,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                              Collection<Range<Token>> range,
                                              String keyspace,
                                              RepairParallelism parallelismDegree,
+                                             boolean allReplicas,
                                              Set<InetAddress> endpoints,
                                              long repairedAt,
                                              boolean isConsistent,
@@ -177,14 +186,14 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                              boolean force,
                                              ListeningExecutorService executor,
                                              String... cfnames)
+
     {
         if (endpoints.isEmpty())
             return null;
-
         if (cfnames.length == 0)
             return null;
 
-        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, endpoints, repairedAt, isConsistent, pullRepair, force, cfnames);
+        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, allReplicas, endpoints, repairedAt, isConsistent, pullRepair, force, cfnames);
 
         sessions.put(session.getId(), session);
         // register listeners
@@ -224,13 +233,11 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
      * @param keyspaceName keyspace to repair
      * @param keyspaceLocalRanges local-range for given keyspaceName
      * @param toRepair token to repair
-     * @param dataCenters the data centers to involve in the repair
      *
      * @return neighbors with whom we share the provided range
      */
-    public static Set<InetAddress> getNeighbors(String keyspaceName, Collection<Range<Token>> keyspaceLocalRanges,
-                                                Range<Token> toRepair, Collection<String> dataCenters,
-                                                Collection<String> hosts)
+    public static Set<InetAddress> getAllNeighbors(String keyspaceName, Collection<Range<Token>> keyspaceLocalRanges,
+                                                Range<Token> toRepair)
     {
         StorageService ss = StorageService.instance;
         Map<Range<Token>, List<InetAddress>> replicaSets = ss.getRangeToAddressMap(keyspaceName);
@@ -252,10 +259,17 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
         Set<InetAddress> neighbors = new HashSet<>(replicaSets.get(rangeSuperSet));
         neighbors.remove(FBUtilities.getBroadcastAddress());
+        return neighbors;
+    }
 
+    public static Set<InetAddress> filterNeighbors(Set<InetAddress> neighbors,
+                                                   Range<Token> toRepair,
+                                                   Collection<String> dataCenters,
+                                                   Collection<String> hosts)
+    {
         if (dataCenters != null && !dataCenters.isEmpty())
         {
-            TokenMetadata.Topology topology = ss.getTokenMetadata().cloneOnlyTokenMap().getTopology();
+            TokenMetadata.Topology topology = StorageService.instance.getTokenMetadata().cloneOnlyTokenMap().getTopology();
             Set<InetAddress> dcEndpoints = Sets.newHashSet();
             Multimap<String,InetAddress> dcEndpointsMap = topology.getDatacenterEndpoints();
             for (String dc : dataCenters)
@@ -564,4 +578,73 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         }
     }
 
+    static class RepairSuccessSerializer implements IVersionedSerializer<RepairSuccess>
+    {
+        public void serialize(RepairSuccess repairSuccess, DataOutputPlus dos, int version) throws IOException
+        {
+            dos.writeUTF(repairSuccess.keyspace);
+            dos.writeUTF(repairSuccess.columnFamily);
+            dos.writeInt(repairSuccess.ranges.size());
+            for (Range<Token> range : repairSuccess.ranges)
+                Range.tokenSerializer.serialize(range, dos, version);
+            dos.writeLong(repairSuccess.succeedAt);
+        }
+
+        public RepairSuccess deserialize(DataInputPlus dis, int version) throws IOException
+        {
+            String keyspace = dis.readUTF();
+            String column_family = dis.readUTF();
+            int rangeCount = dis.readInt();
+            Collection<Range<Token>> ranges = new ArrayList<>(rangeCount);
+            for (int i = 0; i < rangeCount; i++)
+                ranges.add((Range<Token>) Range.tokenSerializer.deserialize(dis, DatabaseDescriptor.getPartitioner(), version));
+            long succeedAt = dis.readLong();
+            return new RepairSuccess(keyspace, column_family, ranges, succeedAt);
+        }
+
+        public long serializedSize(RepairSuccess sc, int version)
+        {
+            return TypeSizes.sizeof(sc.keyspace)
+                   + TypeSizes.sizeof(sc.columnFamily)
+                   + TypeSizes.sizeof(sc.ranges.size())
+                   + sc.ranges.stream().collect(Collectors.summingLong(r -> Range.tokenSerializer.serializedSize(r, version)))
+                   + TypeSizes.sizeof(sc.succeedAt);
+        }
+    }
+
+    public static class RepairSuccess
+    {
+        public static final RepairSuccessSerializer serializer = new RepairSuccessSerializer();
+
+        public final String keyspace;
+        public final String columnFamily;
+        public final Collection<Range<Token>> ranges;
+        public final long succeedAt;
+
+        public RepairSuccess(String keyspace, String columnFamily, Collection<Range<Token>> ranges, long succeedAt)
+        {
+            this.keyspace = keyspace;
+            this.columnFamily = columnFamily;
+            this.ranges = ranges;
+            this.succeedAt = succeedAt;
+        }
+
+        public MessageOut createMessage()
+        {
+            return new MessageOut<RepairSuccess>(MessagingService.Verb.APPLE_REPAIR_SUCCESS, this, serializer);
+        }
+    }
+
+        public static class RepairSuccessVerbHandler implements IVerbHandler<RepairSuccess>
+        {
+            public void doVerb(MessageIn<RepairSuccess> message, int id)
+            {
+                RepairSuccess success = message.payload;
+                logger.info("Received repair success for {}/{}, {} at {}", new Object[]{success.keyspace, success.columnFamily, success.ranges, success.succeedAt});
+                ColumnFamilyStore cfs = Keyspace.open(success.keyspace).getColumnFamilyStore(success.columnFamily);
+                for (Range<Token> range : success.ranges)
+                    cfs.updateLastSuccessfulRepair(range, success.succeedAt);
+                MessagingService.instance().sendReply(new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE), id, message.from);
+            }
+        }
 }

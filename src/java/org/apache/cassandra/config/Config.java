@@ -100,6 +100,10 @@ public class Config
 
     public ConsistencyLevel blacklist_consistency_level = ConsistencyLevel.QUORUM;
 
+    public Boolean enable_christmas_patch = false;
+
+    public Boolean enable_shadow_christmas_patch = false;
+
     /* initial token in the ring */
     public String initial_token;
     public Integer num_tokens = 1;

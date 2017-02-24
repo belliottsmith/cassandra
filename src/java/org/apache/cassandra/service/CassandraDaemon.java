@@ -315,6 +315,8 @@ public class CassandraDaemon
             {
                 for (final ColumnFamilyStore store : cfs.concatWithIndexes())
                 {
+                    // load the last successful repairs before enabling compaction
+                    store.loadLastSuccessfulRepair();
                     if (store.getCompactionStrategyManager().shouldBeEnabled())
                         store.enableAutoCompaction();
                 }

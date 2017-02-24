@@ -30,6 +30,7 @@ import javax.management.openmbean.OpenDataException;
 import javax.management.openmbean.TabularData;
 import java.util.concurrent.Future;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.SetMultimap;
@@ -103,7 +104,7 @@ public final class SystemKeyspace
     public static final String VIEWS_BUILDS_IN_PROGRESS = "views_builds_in_progress";
     public static final String BUILT_VIEWS = "built_views";
     public static final String REPAIRS = "repairs";
-
+    public static final String REPAIR_HISTORY_CF = "repair_history";
     @Deprecated public static final String LEGACY_HINTS = "hints";
     @Deprecated public static final String LEGACY_BATCHLOG = "batchlog";
     @Deprecated public static final String LEGACY_KEYSPACES = "schema_keyspaces";
@@ -269,6 +270,16 @@ public final class SystemKeyspace
                 + "keyspace_name text,"
                 + "view_name text,"
                 + "PRIMARY KEY ((keyspace_name), view_name))");
+    private static final CFMetaData RepairHistoryCf =
+        compile(REPAIR_HISTORY_CF,
+                "repair history",
+                "CREATE TABLE %s ("
+                 + "keyspace_name text,"
+                 + "columnfamily_name text,"
+                 + "range blob,"
+                 + "succeed_at timestamp,"
+                 + "PRIMARY KEY ((keyspace_name, columnfamily_name), range)"
+                 + ") WITH COMMENT='Last successful repair'");
 
     private static final CFMetaData Repairs =
         compile(REPAIRS,
@@ -454,6 +465,7 @@ public final class SystemKeyspace
                          ViewsBuildsInProgress,
                          BuiltViews,
                          Repairs,
+                         RepairHistoryCf,
                          LegacyHints,
                          LegacyBatchlog,
                          LegacyKeyspaces,
@@ -1114,6 +1126,83 @@ public final class SystemKeyspace
             return result.one().getString("data_center");
 
         return null;
+    }
+
+    /**
+     * Store last successful repair for given keyspace/columnfamily/range at timestamp.
+     *
+     * @param keyspace     Keyspace name
+     * @param columnFamily ColumnFamily name
+     * @param range        Repaired range
+     * @param timestamp    Timestamp at last successful repair
+     */
+    public static void updateLastSuccessfulRepair(String keyspace, String columnFamily, Range<Token> range, long timestamp)
+    {
+        String cql = "INSERT INTO system.%s (keyspace_name, columnfamily_name, range, succeed_at) VALUES ('%s', '%s', 0x%s, %s)";
+        executeInternal(String.format(cql, REPAIR_HISTORY_CF, keyspace, columnFamily, Hex.bytesToHex(rangeToBytes(range).array()), timestamp));
+    }
+
+    @VisibleForTesting
+    public static void clearRepairedRanges(String keyspace, String columnFamily)
+    {
+        String cql = "DELETE FROM system.%s WHERE keyspace_name='%s' AND columnfamily_name = '%s'";
+        executeInternal(String.format(cql, REPAIR_HISTORY_CF, keyspace, columnFamily));
+
+    }
+
+    /**
+     * Get last successful repair for given keyspace/columnfamily in Range
+     *
+     * @param keyspace     Keyspace name
+     * @param columnFamily ColumnFamily name
+     * @return Range to succeeded timestamp map
+     */
+    public static Map<Range<Token>, Integer> getLastSuccessfulRepair(String keyspace, String columnFamily)
+    {
+        Map<Range<Token>, Integer> results = new HashMap<>();
+
+        String req = "SELECT * FROM system.%s WHERE keyspace_name='%s' AND columnfamily_name='%s'";
+        UntypedResultSet resultSet = executeInternal(String.format(req, REPAIR_HISTORY_CF, keyspace, columnFamily));
+        ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(columnFamily);
+        for (UntypedResultSet.Row row : resultSet)
+        {
+            Range<Token> range = byteBufferToRange(row.getBytes("range"), cfs.getPartitioner());
+            // store time stamp in seconds
+            int succeedAt = (int) (DateType.instance.compose(row.getBytes("succeed_at")).getTime() / 1000);
+            results.put(range, succeedAt);
+        }
+        return results;
+    }
+
+    /**
+     * Get last successful repairs for given keyspace
+     *
+     * @param keyspace Keyspace name
+     * @return map keyed on column family name, value is map of repaired range to success times
+     */
+    public static Map<String, Map<Range<Token>, Integer>> getLastSuccessfulRepairsForKeyspace(String keyspace)
+    {
+        Map<String, Map<Range<Token>, Integer>> results = new HashMap<>();
+
+        String req = "SELECT * FROM system.%s";
+        UntypedResultSet resultSet = executeInternal(String.format(req, REPAIR_HISTORY_CF));
+        for (UntypedResultSet.Row row : resultSet)
+        {
+            if (!row.getString("keyspace_name").equalsIgnoreCase(keyspace))
+                continue;
+            String cf = row.getString("columnfamily_name");
+            Map<Range<Token>, Integer> cfResults = results.get(cf);
+            if (cfResults == null)
+            {
+                cfResults = new HashMap<>();
+                results.put(cf, cfResults);
+            }
+            Range<Token> range = byteBufferToRange(row.getBytes("range"), DatabaseDescriptor.getPartitioner());
+            // store time stamp in seconds
+            int succeedAt = (int) (DateType.instance.compose(row.getBytes("succeed_at")).getTime() / 1000);
+            cfResults.put(range, succeedAt);
+        }
+        return results;
     }
 
     public static PaxosState loadPaxosState(DecoratedKey key, CFMetaData metadata, int nowInSec)

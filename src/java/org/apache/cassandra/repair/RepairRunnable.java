@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.*;
 import org.apache.commons.lang3.time.DurationFormatUtils;
 import org.slf4j.Logger;
@@ -166,18 +167,23 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
 
         final Set<InetAddress> allNeighbors = new HashSet<>();
         List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges = new ArrayList<>();
-
         //pre-calculate output of getLocalRanges and pass it to getNeighbors to increase performance and prevent
         //calculation multiple times
         Collection<Range<Token>> keyspaceLocalRanges = storageService.getLocalRanges(keyspace);
-
+        final Map<Set<InetAddress>, Boolean> allReplicaMap = new HashMap<>();
         try
         {
             for (Range<Token> range : options.getRanges())
             {
-                Set<InetAddress> neighbors = ActiveRepairService.getNeighbors(keyspace, keyspaceLocalRanges, range,
+                Set<InetAddress> unfilteredNeighbors = ActiveRepairService.getAllNeighbors(keyspace, keyspaceLocalRanges, range);
+                Set<InetAddress> neighbors = ActiveRepairService.filterNeighbors(unfilteredNeighbors, range,
                                                                               options.getDataCenters(),
                                                                               options.getHosts());
+                boolean allReplicas = unfilteredNeighbors.equals(neighbors);
+                if (!allReplicas && allReplicaMap.containsKey(neighbors))
+                    allReplicaMap.put(neighbors, false);
+                else if (!allReplicaMap.containsKey(neighbors))
+                    allReplicaMap.put(neighbors, allReplicas);
 
                 addRangeToNeighbors(commonRanges, range, neighbors);
                 allNeighbors.addAll(neighbors);
@@ -228,11 +234,11 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
 
         if (options.isIncremental())
         {
-            consistentRepair(parentSession, repairedAt, startTime, traceState, allNeighbors, commonRanges, cfnames);
+            consistentRepair(parentSession, repairedAt, startTime, traceState, allNeighbors, allReplicaMap, commonRanges, cfnames);
         }
         else
         {
-            normalRepair(parentSession, startTime, traceState, allNeighbors, commonRanges, cfnames);
+            normalRepair(parentSession, startTime, traceState, allNeighbors, allReplicaMap, commonRanges, cfnames);
         }
     }
 
@@ -240,6 +246,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                               long startTime,
                               TraceState traceState,
                               Set<InetAddress> allNeighbors,
+                              Map<Set<InetAddress>, Boolean> allReplicaMap,
                               List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges,
                               String... cfnames)
     {
@@ -248,7 +255,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         ListeningExecutorService executor = createExecutor();
 
         // Setting the repairedAt time to UNREPAIRED_SSTABLE causes the repairedAt times to be preserved across streamed sstables
-        final ListenableFuture<List<RepairSessionResult>> allSessions = submitRepairSessions(parentSession, ActiveRepairService.UNREPAIRED_SSTABLE, false, executor, commonRanges, cfnames);
+        final ListenableFuture<List<RepairSessionResult>> allSessions = submitRepairSessions(parentSession, ActiveRepairService.UNREPAIRED_SSTABLE, false, executor, allReplicaMap, commonRanges, cfnames);
 
         // After all repair sessions completes(successful or not),
         // run anticompaction if necessary and send finish notice back to client
@@ -291,6 +298,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                                   long startTime,
                                   TraceState traceState,
                                   Set<InetAddress> allNeighbors,
+                                  Map<Set<InetAddress>, Boolean> allReplicaMap,
                                   List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges,
                                   String... cfnames)
     {
@@ -303,7 +311,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         ListeningExecutorService executor = createExecutor();
         AtomicBoolean hasFailure = new AtomicBoolean(false);
         ListenableFuture repairResult = coordinatorSession.execute(executor,
-                                                                   () -> submitRepairSessions(parentSession, repairedAt, true, executor, commonRanges, cfnames),
+                                                                   () -> submitRepairSessions(parentSession, repairedAt, true, executor, allReplicaMap, commonRanges, cfnames),
                                                                    hasFailure);
         Collection<Range<Token>> ranges = new HashSet<>();
         for (Collection<Range<Token>> range : Iterables.transform(commonRanges, cr -> cr.right))
@@ -317,6 +325,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                                                                              long repairedAt,
                                                                              boolean isConsistent,
                                                                              ListeningExecutorService executor,
+                                                                             Map<Set<InetAddress>, Boolean> allReplicaMap,
                                                                              List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges,
                                                                              String... cfnames)
     {
@@ -327,6 +336,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                                                                                      p.right,
                                                                                      keyspace,
                                                                                      options.getParallelism(),
+                                                                                     allReplicaMap.get(p.left),
                                                                                      p.left,
                                                                                      repairedAt,
                                                                                      isConsistent,

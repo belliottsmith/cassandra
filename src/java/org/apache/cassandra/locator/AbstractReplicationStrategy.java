@@ -243,6 +243,11 @@ public abstract class AbstractReplicationStrategy
         return map;
     }
 
+    public Multimap<Range<Token>, InetAddress> getRangeAddresses()
+    {
+        return getRangeAddresses(tokenMetadata.cachedOnlyTokenMap());
+    }
+
     public Multimap<InetAddress, Range<Token>> getAddressRanges()
     {
         return getAddressRanges(tokenMetadata.cloneOnlyTokenMap());

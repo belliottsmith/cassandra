@@ -100,7 +100,7 @@ public class ActiveRepairServiceTest
         Set<InetAddress> neighbors = new HashSet<>();
         for (Range<Token> range : ranges)
         {
-            neighbors.addAll(ActiveRepairService.getNeighbors(KEYSPACE5, ranges, range, null, null));
+            neighbors.addAll(ActiveRepairService.filterNeighbors(ActiveRepairService.getAllNeighbors(KEYSPACE5, ranges, range), range, null, null));
         }
         assertEquals(expected, neighbors);
     }
@@ -123,7 +123,7 @@ public class ActiveRepairServiceTest
         Set<InetAddress> neighbors = new HashSet<>();
         for (Range<Token> range : ranges)
         {
-            neighbors.addAll(ActiveRepairService.getNeighbors(KEYSPACE5, ranges, range, null, null));
+            neighbors.addAll(ActiveRepairService.filterNeighbors(ActiveRepairService.getAllNeighbors(KEYSPACE5, ranges, range), range, null, null));
         }
         assertEquals(expected, neighbors);
     }
@@ -145,7 +145,7 @@ public class ActiveRepairServiceTest
         Set<InetAddress> neighbors = new HashSet<>();
         for (Range<Token> range : ranges)
         {
-            neighbors.addAll(ActiveRepairService.getNeighbors(KEYSPACE5, ranges, range, Arrays.asList(DatabaseDescriptor.getLocalDataCenter()), null));
+            neighbors.addAll(ActiveRepairService.filterNeighbors(ActiveRepairService.getAllNeighbors(KEYSPACE5, ranges, range), range, Collections.singleton(DatabaseDescriptor.getLocalDataCenter()), null));
         }
         assertEquals(expected, neighbors);
     }
@@ -173,7 +173,7 @@ public class ActiveRepairServiceTest
         Set<InetAddress> neighbors = new HashSet<>();
         for (Range<Token> range : ranges)
         {
-            neighbors.addAll(ActiveRepairService.getNeighbors(KEYSPACE5, ranges, range, Arrays.asList(DatabaseDescriptor.getLocalDataCenter()), null));
+            neighbors.addAll(ActiveRepairService.filterNeighbors(ActiveRepairService.getAllNeighbors(KEYSPACE5, ranges, range), range, Collections.singleton(DatabaseDescriptor.getLocalDataCenter()), null));
         }
         assertEquals(expected, neighbors);
     }
@@ -195,10 +195,9 @@ public class ActiveRepairServiceTest
         expected.remove(FBUtilities.getBroadcastAddress());
         Collection<String> hosts = Arrays.asList(FBUtilities.getBroadcastAddress().getCanonicalHostName(),expected.get(0).getCanonicalHostName());
         Collection<Range<Token>> ranges = StorageService.instance.getLocalRanges(KEYSPACE5);
-
-        assertEquals(expected.get(0), ActiveRepairService.getNeighbors(KEYSPACE5, ranges,
-                                                                       ranges.iterator().next(),
-                                                                       null, hosts).iterator().next());
+        assertEquals(expected.get(0), ActiveRepairService.filterNeighbors(ActiveRepairService.getAllNeighbors(KEYSPACE5, ranges,
+                                                                                                              ranges.iterator().next()),
+                                                                          ranges.iterator().next(), null, hosts).iterator().next());
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -208,7 +207,7 @@ public class ActiveRepairServiceTest
         //Dont give local endpoint
         Collection<String> hosts = Arrays.asList("127.0.0.3");
         Collection<Range<Token>> ranges = StorageService.instance.getLocalRanges(KEYSPACE5);
-        ActiveRepairService.getNeighbors(KEYSPACE5, ranges, ranges.iterator().next(), null, hosts);
+        ActiveRepairService.filterNeighbors(ActiveRepairService.getAllNeighbors(KEYSPACE5, ranges, ranges.iterator().next()), ranges.iterator().next(), null, hosts);
     }
 
     Set<InetAddress> addTokens(int max) throws Throwable

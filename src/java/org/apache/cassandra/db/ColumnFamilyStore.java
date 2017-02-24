@@ -182,6 +182,21 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
     }
 
+    public static final Comparator<Pair<Range<Token>, Integer>> lastRepairTimeComparator = new Comparator<Pair<Range<Token>, Integer>>()
+    {
+        public int compare(Pair<Range<Token>, Integer> pair1, Pair<Range<Token>, Integer> pair2)
+        {
+            if (pair1.right.equals(pair2.right))
+            {
+                return pair1.left.compareTo(pair2.left);
+            }
+            else
+            {
+                return pair2.right.compareTo(pair1.right);
+            }
+        }
+    };
+
     public final Keyspace keyspace;
     public final String name;
     public final CFMetaData metadata;
@@ -223,6 +238,12 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     private final ScheduledFuture<?> latencyCalculator;
 
     private volatile boolean compactionSpaceCheck = true;
+
+    /**
+     * A list to store ranges and the time they were last repaired. The list is
+     * reverse-sorted based on the timestamp (see {@link ColumnFamilyStore#lastRepairTimeComparator}).
+     */
+    private AtomicReference<List<Pair<Range<Token>, Integer>>> lastSuccessfulRepair = new AtomicReference<>(Collections.<Pair<Range<Token>, Integer>>emptyList());
 
     public static void shutdownPostFlushExecutor() throws InterruptedException
     {
@@ -572,7 +593,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
         Collections.sort(generations);
         int value = (generations.size() > 0) ? (generations.get(generations.size() - 1)) : 0;
-
         return new ColumnFamilyStore(keyspace, columnFamily, value, metadata, directories, loadSSTables);
     }
 
@@ -1486,6 +1506,163 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return (filter.isHeadFilter() && limits.hasEnoughLiveData(cached, nowInSec)) || filter.isFullyCoveredBy(cached);
     }
 
+    private boolean skipRFCheckForXmasPatch = false;
+    @VisibleForTesting
+    public void skipRFCheckForXmasPatch()
+    {
+        this.skipRFCheckForXmasPatch = true;
+    }
+
+    private boolean useRepairHistory()
+    {
+        return skipRFCheckForXmasPatch || keyspace.getReplicationStrategy().getReplicationFactor() > 1;
+    }
+
+
+    public void loadLastSuccessfulRepair()
+    {
+        if (!useRepairHistory() || !DatabaseDescriptor.enableShadowChristmasPatch())
+            return;
+        setLastSuccessfulRepairs(SystemKeyspace.getLastSuccessfulRepair(keyspace.getName(), name));
+    }
+
+    /**
+     * for testing ONLY
+     */
+    @VisibleForTesting
+    public void clearRepairedRangeUnsafes()
+    {
+        clearLastSucessfulRepairUnsafe();
+        SystemKeyspace.clearRepairedRanges(keyspace.getName(), getTableName());
+    }
+
+    @VisibleForTesting
+    void setLastSuccessfulRepairs(Map<Range<Token>, Integer> storedSuccessfulRepairs)
+    {
+        List<Pair<Range<Token>, Integer>> current, next;
+        do
+        {
+            current = lastSuccessfulRepair.get();
+            if (!current.isEmpty())
+                throw new IllegalStateException("Last Successful repair should be empty. " + lastSuccessfulRepair);
+
+            next = new ArrayList<>(storedSuccessfulRepairs.size());
+            for (Map.Entry<Range<Token>, Integer> entry : storedSuccessfulRepairs.entrySet())
+                next.add(Pair.create(entry.getKey(), entry.getValue()));
+            Collections.sort(next, lastRepairTimeComparator);
+        } while (!lastSuccessfulRepair.compareAndSet(current, next));
+
+    }
+
+    @VisibleForTesting
+    public ImmutableList<Pair<Range<Token>, Integer>> getLastSuccessfulRepairs()
+    {
+        return ImmutableList.<Pair<Range<Token>, Integer>>builder().addAll(lastSuccessfulRepair.get().iterator()).build();
+    }
+
+    /**
+     * for testing ONLY
+     */
+    @VisibleForTesting
+    public void clearLastSucessfulRepairUnsafe()
+    {
+        List<Pair<Range<Token>, Integer>> current;
+        List<Pair<Range<Token>, Integer>> empty = new ArrayList<>(0);
+        do
+        {
+            current = lastSuccessfulRepair.get();
+        } while (!lastSuccessfulRepair.compareAndSet(current, empty));
+    }
+
+    public void updateLastSuccessfulRepair(Range<Token> range, long succeedAt)
+    {
+        if (!useRepairHistory())
+            return;
+
+        if (!DatabaseDescriptor.enableShadowChristmasPatch())
+            return;
+        List<Pair<Range<Token>, Integer>> current, next;
+        int gcableTime = (int) (succeedAt / 1000);
+        do
+        {
+            current = lastSuccessfulRepair.get();
+            next = updateLastSuccessfulRepair(range, gcableTime, current);
+            if (null == next)
+                return;
+        } while (!lastSuccessfulRepair.compareAndSet(current, next));
+
+        // this will not be atomic with the update to the member field 'lastSuccessfulRepair',
+        // and there might be a race with another thread. However, as the losing thread will probably be rescheduled
+        // rather quickly after the winning thread, the loss in fidelity of the stored 'succeedAt' value is within in acceptable bounds
+        SystemKeyspace.updateLastSuccessfulRepair(metadata.ksName, name, range, succeedAt);
+        logger.debug("lastSuccessfulRepair:" + lastSuccessfulRepair);
+    }
+
+    /**
+     * remove duplicate range, or put the <range, gcableTime> pair in the right place
+     *
+     * @return Updated list with new value, else null if the time is in the past.
+     */
+    @VisibleForTesting
+    public static List<Pair<Range<Token>, Integer>> updateLastSuccessfulRepair(Range<Token> range, int gcableTime, List<Pair<Range<Token>, Integer>> currentRepairs)
+    {
+        final List<Pair<Range<Token>, Integer>> lastSuccessfulRepairArr = new ArrayList<>(currentRepairs);
+        Iterator<Pair<Range<Token>, Integer>> iter = lastSuccessfulRepairArr.iterator();
+        int newPosition = 0;
+        Pair<Range<Token>, Integer> elem = Pair.create(range, gcableTime);
+        while (iter.hasNext())
+        {
+            Pair<Range<Token>, Integer> current = iter.next();
+            if (current.left.equals(range))
+            {
+                if(current.right > gcableTime)
+                {
+                    logger.error("Last repair time is in the past. Ignoring. " + range);
+                    return null;
+                }
+                // found duplicate
+                iter.remove();
+                break;
+            }
+            else if (lastRepairTimeComparator.compare(current, elem) < 0)
+            {
+                // if current is smaller then move to the next
+                newPosition++;
+            }
+            else
+            {
+                break;
+            }
+        }
+        lastSuccessfulRepairArr.add(newPosition, elem);
+        return lastSuccessfulRepairArr;
+    }
+
+    public int getLastSuccessfulRepairTimeFor(Token t)
+    {
+        assert t != null;
+        int lastRepairTime = Integer.MIN_VALUE;
+        for (Pair<Range<Token>, Integer> lastRepairSuccess : lastSuccessfulRepair.get())
+        {
+            if (lastRepairSuccess.left.contains(t))
+            {
+                lastRepairTime = lastRepairSuccess.right;
+                break;
+            }
+        }
+        return lastRepairTime;
+    }
+
+    public int gcBeforeForKey(DecoratedKey key, int fallbackGCBefore)
+    {
+        assert key != null;
+        if (!DatabaseDescriptor.enableChristmasPatch() || !useRepairHistory())
+            return fallbackGCBefore;
+
+        return Math.min(getLastSuccessfulRepairTimeFor(key.getToken()), fallbackGCBefore);
+    }
+
+
     public int gcBefore(int nowInSec)
     {
         return nowInSec - metadata.params.gcGraceSeconds;
@@ -2318,6 +2495,38 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public int[] getSSTableCountPerLevel()
     {
         return compactionStrategyManager.getSSTableCountPerLevel();
+    }
+
+    private volatile long gcBeforeSeconds;
+    private volatile long lastCalculatedTime = 0;
+    private static long REFRESH_TIME_MILLIS = 300L * 1000L;
+
+    /*
+        This method returns Long.MAX_VALUE if repaired ranges are not there.
+     */
+    private long getLastMinRepairSuccessTime()
+    {
+        final Map<Range<Token>, Integer> repairMap = SystemKeyspace.getLastSuccessfulRepair(keyspace.getName(), name);
+        long lowestRepairTime = Long.MAX_VALUE;
+        for (final int repairTime : repairMap.values())
+        {
+            if (repairTime < lowestRepairTime)
+                lowestRepairTime = repairTime;
+        }
+            return lowestRepairTime;
+    }
+
+    public long getGCBeforeSeconds()
+    {
+        if ((System.currentTimeMillis() - lastCalculatedTime) > REFRESH_TIME_MILLIS)
+        {
+            gcBeforeSeconds = ((System.currentTimeMillis() / 1000) - getLastMinRepairSuccessTime());
+            lastCalculatedTime = System.currentTimeMillis();
+            if(gcBeforeSeconds < 0)
+                gcBeforeSeconds = 0;
+        }
+
+            return gcBeforeSeconds;
     }
 
     public static class ViewFragment
