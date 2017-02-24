@@ -63,12 +63,12 @@ public class ParseAndConvertUnitsTest
         assertEquals(new DurationSpec.IntMillisecondsBound(1000), config.gc_warn_threshold);
         assertEquals(new DurationSpec.IntSecondsBound(86400), config.trace_type_query_ttl);
         assertEquals(new DurationSpec.IntSecondsBound(604800), config.trace_type_repair_ttl);
-        assertEquals(new DurationSpec.IntMillisecondsBound(2000), config.permissions_validity);
-        assertNull(config.permissions_update_interval);
-        assertEquals(new DurationSpec.IntMillisecondsBound(2000), config.roles_validity);
-        assertNull(config.roles_update_interval);
-        assertEquals(new DurationSpec.IntMillisecondsBound(2000), config.credentials_validity);
-        assertNull(config.credentials_update_interval);
+        assertEquals(new DurationSpec.IntMillisecondsBound(43200000), config.permissions_validity); // rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
+        assertEquals(new DurationSpec.IntMillisecondsBound(600000), config.permissions_update_interval);
+        assertEquals(new DurationSpec.IntMillisecondsBound(86400000), config.roles_validity);
+        assertEquals(new DurationSpec.IntMillisecondsBound(600000), config.roles_update_interval);
+        assertEquals(new DurationSpec.IntMillisecondsBound(86400000), config.credentials_validity);
+        assertEquals(new DurationSpec.IntMillisecondsBound(600000), config.credentials_update_interval);
         assertEquals(new DurationSpec.IntMinutesBound(60), config.index_summary_resize_interval);
         assertEquals(DurationSpec.IntSecondsBound.inSecondsString("4h"), config.key_cache_save_period);
         assertEquals(new DurationSpec.IntSecondsBound(30), config.cache_load_timeout);
@@ -86,7 +86,7 @@ public class ParseAndConvertUnitsTest
         assertEquals(new DataStorageSpec.IntBytesBound(4194304), config.internode_application_receive_queue_capacity);
         assertEquals(new DataStorageSpec.IntBytesBound(134217728), config.internode_application_receive_queue_reserve_endpoint_capacity);
         assertEquals(new DataStorageSpec.IntBytesBound(536870912), config.internode_application_receive_queue_reserve_global_capacity);
-        assertEquals(new DataStorageSpec.IntMebibytesBound(16), config.native_transport_max_frame_size);
+        assertEquals(new DataStorageSpec.IntMebibytesBound(64), config.native_transport_max_frame_size); // rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
         assertEquals(new DataStorageSpec.IntMebibytesBound(256), config.max_value_size);
         assertEquals(new DataStorageSpec.IntKibibytesBound(4), config.column_index_size);
         assertEquals(new DataStorageSpec.IntKibibytesBound(2), config.column_index_cache_size);
@@ -100,7 +100,7 @@ public class ParseAndConvertUnitsTest
         assertEquals(new DataStorageSpec.IntKibibytesBound(1024), config.hinted_handoff_throttle);
         assertEquals(new DataStorageSpec.IntKibibytesBound(1024), config.batchlog_replay_throttle);
         assertEquals(new DataStorageSpec.IntKibibytesBound(10240), config.trickle_fsync_interval);
-        assertEquals(new DataStorageSpec.IntMebibytesBound(50), config.sstable_preemptive_open_interval);
+        assertNull(config.sstable_preemptive_open_interval);
         assertNull(config.counter_cache_size);
         assertNull(config.file_cache_size);
         assertNull(config.index_summary_capacity);

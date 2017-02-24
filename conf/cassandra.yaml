@@ -24,7 +24,7 @@ cluster_name: 'Test Cluster'
 # See https://cassandra.apache.org/doc/latest/getting_started/production.html#tokens for
 # best practice information about num_tokens.
 #
-num_tokens: 16
+#num_tokens: 16
 
 # Triggers automatic allocation of num_tokens tokens for this node. The allocation
 # algorithm attempts to choose tokens in a way that optimizes replicated load over
@@ -41,13 +41,13 @@ num_tokens: 16
 
 # Replica factor is explicitly set, regardless of keyspace or datacenter.
 # This is the replica factor within the datacenter, like NTS.
-allocate_tokens_for_local_replication_factor: 3
+# allocate_tokens_for_local_replication_factor: 3
 
 # initial_token allows you to specify tokens manually.  While you can use it with
 # vnodes (num_tokens > 1, above) -- in which case you should provide a 
 # comma-separated list -- it's primarily used when adding nodes to legacy clusters 
 # that do not have vnodes enabled.
-# initial_token:
+initial_token:
 
 # May either be "true" or "false" to enable globally
 hinted_handoff_enabled: true
@@ -183,7 +183,7 @@ network_authorizer: AllowAllNetworkAuthorizer
 # For a long-running cache using roles_cache_active_update, consider
 # setting to something longer such as a daily validation: 86400000
 # Min unit: ms
-roles_validity: 2000ms
+roles_validity: 86400s
 
 # Refresh interval for roles cache (if enabled).
 # After this interval, cache entries become eligible for refresh. Upon next
@@ -210,7 +210,7 @@ roles_validity: 2000ms
 # For a long-running cache using permissions_cache_active_update, consider
 # setting to something longer such as a daily validation: 86400000ms
 # Min unit: ms
-permissions_validity: 2000ms
+permissions_validity: 86400s
 
 # Refresh interval for permissions cache (if enabled).
 # After this interval, cache entries become eligible for refresh. Upon next
@@ -377,7 +377,7 @@ prepared_statements_cache_size:
 #
 # Default value is empty to make it "auto" (min(5% of Heap (in MiB), 100MiB)). Set to 0 to disable key cache.
 # Min unit: MiB
-key_cache_size:
+key_cache_size: 100MiB
 
 # Duration in seconds after which Cassandra should
 # save the key cache. Caches are saved to saved_caches_directory as
@@ -457,7 +457,7 @@ counter_cache_save_period: 7200s
 
 # Number of keys from the counter cache to save
 # Disabled by default, meaning all keys are going to be saved
-# counter_cache_keys_to_save: 100
+counter_cache_keys_to_save: 100
 
 # saved caches
 # If not set, the default directory is $CASSANDRA_HOME/data/saved_caches.
@@ -490,7 +490,7 @@ counter_cache_save_period: 7200s
 # milliseconds.
 commitlog_sync: periodic
 # Min unit: ms
-commitlog_sync_period: 10000ms
+commitlog_sync_period: 1000ms
 
 # When in periodic commitlog mode, the number of milliseconds to block writes
 # while waiting for a slow disk flush to complete.
@@ -563,9 +563,9 @@ seed_provider:
 # On the other hand, since writes are almost never IO bound, the ideal
 # number of "concurrent_writes" is dependent on the number of cores in
 # your system; (8 * number_of_cores) is a good rule of thumb.
-concurrent_reads: 32
-concurrent_writes: 32
-concurrent_counter_writes: 32
+concurrent_reads: 128
+concurrent_writes: 128
+concurrent_counter_writes: 128
 
 # For materialized view writes, as there is a read involved, so this should
 # be limited by the less of concurrent reads or concurrent writes.
@@ -733,7 +733,7 @@ index_summary_resize_interval: 60m
 # buffers. Enable this to avoid sudden dirty buffer flushing from
 # impacting read latencies. Almost always a good idea on SSDs; not
 # necessarily on platters.
-trickle_fsync: false
+trickle_fsync: true
 # Min unit: KiB
 trickle_fsync_interval: 10240KiB
 
@@ -986,7 +986,7 @@ concurrent_materialized_view_builders: 1
 # Setting this to 0 disables throttling. Note that this accounts for all types
 # of compaction, including validation compaction (building Merkle trees
 # for repairs).
-compaction_throughput: 64MiB/s
+compaction_throughput: 128MiB/s
 
 # When compacting, the replacement sstable(s) can be opened before they
 # are completely written, and used in place of the prior sstables for
@@ -995,7 +995,7 @@ compaction_throughput: 64MiB/s
 # Set sstable_preemptive_open_interval to null for disabled which is equivalent to
 # sstable_preemptive_open_interval_in_mb being negative
 # Min unit: MiB
-sstable_preemptive_open_interval: 50MiB
+sstable_preemptive_open_interval:
 
 # Starting from 4.1 sstables support UUID based generation identifiers. They are disabled by default
 # because once enabled, there is no easy way to downgrade. When the node is restarted with this option
@@ -1402,7 +1402,7 @@ internode_compression: dc
 # Disabling it will result in larger (but fewer) network packets being sent,
 # reducing overhead from the TCP protocol itself, at the cost of increasing
 # latency if you block for cross-datacenter responses.
-inter_dc_tcp_nodelay: false
+inter_dc_tcp_nodelay: true
 
 # TTL for different trace types used during logging of the repair process.
 # Min unit: s
@@ -1489,17 +1489,18 @@ replica_filtering_protection:
 # Log WARN on any multiple-partition batch size exceeding this value. 5KiB per batch by default.
 # Caution should be taken on increasing the size of this threshold as it can lead to node instability.
 # Min unit: KiB
-batch_size_warn_threshold: 5KiB
+batch_size_warn_threshold: 50KiB
 
 # Fail any multiple-partition batch exceeding this value. 50KiB (10x warn threshold) by default.
 # Min unit: KiB
-batch_size_fail_threshold: 50KiB
+# <rdar://problem/30196656> - set very high to disable
+batch_size_fail_threshold: 1GiB
 
 # Log WARN on any batches not of type LOGGED than span across more partitions than this limit
 unlogged_batch_across_partitions_warn_threshold: 10
 
 # Log a warning when compacting partitions larger than this value
-compaction_large_partition_warning_threshold: 100MiB
+compaction_large_partition_warning_threshold: 250MiB
 
 # Log a warning when writing more tombstones than this value to a partition
 compaction_tombstone_warning_threshold: 100000

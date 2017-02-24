@@ -67,7 +67,7 @@ public class LoadOldYAMLBackwardCompatibilityTest
         assertEquals(new DurationSpec.IntMillisecondsBound(2000), config.internode_tcp_connect_timeout);
         assertEquals(new DurationSpec.IntMillisecondsBound(30000), config.internode_tcp_user_timeout);
         assertEquals(new DurationSpec.IntMillisecondsBound(300000), config.internode_streaming_tcp_user_timeout);
-        assertEquals(new DataStorageSpec.IntMebibytesBound(16), config.native_transport_max_frame_size);
+        assertEquals(new DataStorageSpec.IntMebibytesBound(64), config.native_transport_max_frame_size); // rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
         assertEquals(new DataStorageSpec.IntMebibytesBound(256), config.max_value_size);
         assertEquals(new DataStorageSpec.IntKibibytesBound(4), config.column_index_size);
         assertEquals(new DataStorageSpec.IntKibibytesBound(2), config.column_index_cache_size);
@@ -92,7 +92,7 @@ public class LoadOldYAMLBackwardCompatibilityTest
         assertEquals(new DurationSpec.IntMillisecondsBound(10000), config.hints_flush_period);
         assertEquals(new DataStorageSpec.IntMebibytesBound(128), config.max_hints_file_size);
         assertEquals(new DataStorageSpec.IntKibibytesBound(10240), config.trickle_fsync_interval);
-        assertEquals(new DataStorageSpec.IntMebibytesBound(50), config.sstable_preemptive_open_interval);
+        assertNull(config.sstable_preemptive_open_interval); // rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
         assertNull( config.key_cache_size);
         assertEquals(new DataStorageSpec.LongMebibytesBound(16), config.row_cache_size);
         assertNull(config.counter_cache_size);
@@ -111,12 +111,12 @@ public class LoadOldYAMLBackwardCompatibilityTest
         assertTrue(config.sasi_indexes_enabled);
         assertTrue(config.drop_compact_storage_enabled);
         assertTrue(config.user_defined_functions_threads_enabled);
-        assertEquals(new DurationSpec.IntMillisecondsBound(2000), config.permissions_validity);
-        assertNull(config.permissions_update_interval);
-        assertEquals(new DurationSpec.IntMillisecondsBound(2000), config.roles_validity);
-        assertNull(config.roles_update_interval);
-        assertEquals(new DurationSpec.IntMillisecondsBound(2000), config.credentials_validity);
-        assertNull(config.credentials_update_interval);
+        assertEquals(new DurationSpec.IntMillisecondsBound(43200000), config.permissions_validity); // rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
+        assertEquals(new DurationSpec.IntMillisecondsBound(600000), config.permissions_update_interval);
+        assertEquals(new DurationSpec.IntMillisecondsBound(86400000), config.roles_validity);
+        assertEquals(new DurationSpec.IntMillisecondsBound(600000), config.roles_update_interval);
+        assertEquals(new DurationSpec.IntMillisecondsBound(86400000), config.credentials_validity);
+        assertEquals(new DurationSpec.IntMillisecondsBound(600000), config.credentials_update_interval);
         assertEquals(new DurationSpec.IntMinutesBound(60), config.index_summary_resize_interval);
 
         //parameters which names have not changed with CASSANDRA-15234
