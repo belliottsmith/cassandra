@@ -51,19 +51,27 @@ public class GossipDigestAckVerbHandler implements IVerbHandler<GossipDigestAck>
         Map<InetAddress, EndpointState> epStateMap = gDigestAckMessage.getEndpointStateMap();
         logger.trace("Received ack with {} digests and {} states", gDigestList.size(), epStateMap.size());
 
-        if (epStateMap.size() > 0)
-        {
-            /* Notify the Failure Detector */
-            Gossiper.instance.notifyFailureDetector(epStateMap);
-            Gossiper.instance.applyStateLocally(epStateMap);
-        }
-
         if (Gossiper.instance.isInShadowRound())
         {
             if (logger.isDebugEnabled())
                 logger.debug("Finishing shadow round with {}", from);
-            Gossiper.instance.finishShadowRound();
+            Gossiper.instance.finishShadowRound(epStateMap);
             return; // don't bother doing anything else, we have what we came for
+        }
+
+        if (epStateMap.size() > 0)
+        {
+            long ts = epStateMap.values().iterator().next().getUpdateTimestamp();
+            if ((ts - Gossiper.instance.firstSynSendAt) < 0 || Gossiper.instance.firstSynSendAt == 0)
+            {
+                if (logger.isTraceEnabled())
+                    logger.trace("Ignoring unrequested GossipDigestAck from {}", from);
+                return;
+            }
+
+            /* Notify the Failure Detector */
+            Gossiper.instance.notifyFailureDetector(epStateMap);
+            Gossiper.instance.applyStateLocally(epStateMap);
         }
 
         /* Get the state required to send to this gossipee - construct GossipDigestAck2Message */

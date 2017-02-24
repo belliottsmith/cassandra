@@ -30,6 +30,7 @@ import javax.management.ObjectName;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.utils.Pair;
@@ -86,6 +87,9 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     private static final Logger logger = LoggerFactory.getLogger(Gossiper.class);
     public static final Gossiper instance = new Gossiper();
 
+    // Timestamp to prevent processing any in-flight messages for we've not send any SYN yet, see CASSANDRA-12653.
+    volatile long firstSynSendAt = 0L;
+
     public static final long aVeryLongTime = 259200 * 1000; // 3 days
 
     // Maximimum difference between generation value and local time we are willing to accept about a peer
@@ -124,6 +128,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     private final Map<InetAddress, Long> expireTimeEndpointMap = new ConcurrentHashMap<InetAddress, Long>();
 
     private volatile boolean inShadowRound = false;
+    // endpoint states as gathered during shadow round
+    private final Map<InetAddress, EndpointState> endpointShadowStateMap = new ConcurrentHashMap<>();
 
     private volatile long lastProcessedMessageAt = System.currentTimeMillis();
 
@@ -646,6 +652,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         InetAddress to = liveEndpoints.get(index);
         if (logger.isTraceEnabled())
             logger.trace("Sending a GossipDigestSyn to {} ...", to);
+        if (firstSynSendAt == 0)
+            firstSynSendAt = System.nanoTime();
         MessagingService.instance().sendOneWay(message, to);
         return seeds.contains(to);
     }
@@ -714,11 +722,12 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
      * Check if this endpoint can safely bootstrap into the cluster.
      *
      * @param endpoint - the endpoint to check
+     * @param epStates - endpoint states in the cluster
      * @return true if the endpoint can join the cluster
      */
-    public boolean isSafeForBootstrap(InetAddress endpoint)
+    public boolean isSafeForBootstrap(InetAddress endpoint, Map<InetAddress, EndpointState> epStates)
     {
-        EndpointState epState = endpointStateMap.get(endpoint);
+        EndpointState epState = epStates.get(endpoint);
 
         // if there's no previous state, or the node was previously removed from the cluster, we're good
         if (epState == null || isDeadState(epState))
@@ -831,14 +840,6 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         return !(value1 == null || value2 == null) && value1.value.equals(value2.value);
     }
 
-    // removes ALL endpoint states; should only be called after shadow gossip
-    public void resetEndpointStateMap()
-    {
-        endpointStateMap.clear();
-        unreachableEndpoints.clear();
-        liveEndpoints.clear();
-    }
-
     public Set<Entry<InetAddress, EndpointState>> getEndpointStates()
     {
         return endpointStateMap.entrySet();
@@ -846,7 +847,12 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
     public UUID getHostId(InetAddress endpoint)
     {
-        return UUID.fromString(getEndpointStateForEndpoint(endpoint).getApplicationState(ApplicationState.HOST_ID).value);
+        return getHostId(endpoint, endpointStateMap);
+    }
+
+    public UUID getHostId(InetAddress endpoint, Map<InetAddress, EndpointState> epStates)
+    {
+        return UUID.fromString(epStates.get(endpoint).getApplicationState(ApplicationState.HOST_ID).value);
     }
 
     EndpointState getStateForVersionBiggerThan(InetAddress forEndpoint, int version)
@@ -1321,11 +1327,15 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
     /**
      *  Do a single 'shadow' round of gossip, where we do not modify any state
-     *  Only used when replacing a node, to get and assume its states
+     *  Used when preparing to join the ring:
+     *      * when replacing a node, to get and assume its tokens
+     *      * when joining, to check that the local host id matches any previous id for the endpoint address
+     *  @return endpoint states gathered during shadow round or empty map
      */
-    public void doShadowRound()
+    public synchronized Map<InetAddress, EndpointState> doShadowRound()
     {
         buildSeedsList();
+        endpointShadowStateMap.clear();
         // send a completely empty syn
         List<GossipDigest> gDigests = new ArrayList<GossipDigest>();
         GossipDigestSyn digestSynMessage = new GossipDigestSyn(DatabaseDescriptor.getClusterName(),
@@ -1361,6 +1371,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         {
             throw new RuntimeException(wtf);
         }
+
+        return ImmutableMap.copyOf(endpointShadowStateMap);
     }
 
     private void buildSeedsList()
@@ -1481,10 +1493,13 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         return (scheduledGossipTask != null) && (!scheduledGossipTask.isCancelled());
     }
 
-    protected void finishShadowRound()
+    protected void finishShadowRound(Map<InetAddress, EndpointState> epStateMap)
     {
         if (inShadowRound)
+        {
+            endpointShadowStateMap.putAll(epStateMap);
             inShadowRound = false;
+        }
     }
 
     protected boolean isInShadowRound()
