@@ -18,8 +18,10 @@
 package org.apache.cassandra.transport;
 
 import java.io.IOException;
+import java.util.zip.CRC32;
 
 import io.netty.buffer.ByteBuf;
+import org.apache.cassandra.utils.LZ4Utils;
 import org.xerial.snappy.Snappy;
 import org.xerial.snappy.SnappyError;
 
@@ -132,16 +134,36 @@ public interface FrameCompressor
 
         private static final int INTEGER_BYTES = 4;
         private final net.jpountz.lz4.LZ4Compressor compressor;
-        private final net.jpountz.lz4.LZ4Decompressor decompressor;
+        private final net.jpountz.lz4.LZ4FastDecompressor decompressor;
 
         private LZ4Compressor()
         {
             final LZ4Factory lz4Factory = LZ4Factory.fastestInstance();
             compressor = lz4Factory.fastCompressor();
-            decompressor = lz4Factory.decompressor();
+            decompressor = lz4Factory.fastDecompressor();
         }
 
         public Frame compress(Frame frame) throws IOException
+        {
+            return (frame.header.flags.contains(Frame.Header.Flag.SUPPORTS_LZ4_BLOCK_FORMAT_WITH_CHECKSUM))
+                   ? internalCompressWithChecksum(frame) : internalCompressWithoutChecksum(frame);
+        }
+
+        private Frame internalCompressWithChecksum(Frame frame) throws IOException
+        {
+            try
+            {
+                ByteBuf compressedFrameBody = LZ4Utils.compress(compressor, new CRC32(), frame.body);
+                return frame.with(compressedFrameBody);
+            }
+            finally
+            {
+                //release the old frame
+                frame.release();
+            }
+        }
+
+        private Frame internalCompressWithoutChecksum(Frame frame) throws IOException
         {
             byte[] input = CBUtil.readRawBytes(frame.body);
 
@@ -177,12 +199,32 @@ public interface FrameCompressor
 
         public Frame decompress(Frame frame) throws IOException
         {
+            return (frame.header.flags.contains(Frame.Header.Flag.SUPPORTS_LZ4_BLOCK_FORMAT_WITH_CHECKSUM))
+                   ? internalDecompressWithChecksum(frame) : internalDecompressWithoutChecksum(frame);
+        }
+
+        private Frame internalDecompressWithChecksum(Frame frame) throws IOException
+        {
+            try
+            {
+                ByteBuf decompressedFrameBody = LZ4Utils.decompress(decompressor, new CRC32(), frame.body);
+                return frame.with(decompressedFrameBody);
+            }
+            finally
+            {
+                //release the old frame
+                frame.release();
+            }
+        }
+
+        private Frame internalDecompressWithoutChecksum(Frame frame) throws IOException
+        {
             byte[] input = CBUtil.readRawBytes(frame.body);
 
             int uncompressedLength = ((input[0] & 0xFF) << 24)
-                                   | ((input[1] & 0xFF) << 16)
-                                   | ((input[2] & 0xFF) <<  8)
-                                   | ((input[3] & 0xFF));
+                                     | ((input[1] & 0xFF) << 16)
+                                     | ((input[2] & 0xFF) <<  8)
+                                     | ((input[3] & 0xFF));
 
             ByteBuf output = CBUtil.allocator.heapBuffer(uncompressedLength);
 

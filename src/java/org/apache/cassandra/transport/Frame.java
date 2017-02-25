@@ -102,8 +102,21 @@ public class Frame
             // The order of that enum matters!!
             COMPRESSED,
             TRACING,
+            // Note: In order to implement <rdar://problem/30685321> Cass: add checksumming to the native protocol
+            // without bumping the actual protocol version, we're adding a flag to indicate we support the framed
+            // LZ4 compressor implementation with checksums. The following 3 flags are not implemented in 2.1 but
+            // have been added between 2.1 -> trunk (4.x). Adding them here to avoid potential conflicts in the
+            // future after we can properly put a checksum'ed implementation in trunk.
             CUSTOM_PAYLOAD,
-            WARNING;
+            WARNING,
+            USE_BETA,
+            // Adding padding between the last flag to be added in trunk (USE_BETA) as of 3/1/17
+            // and our temporary addition of the SUPPORTS_LZ4_BLOCK_FORMAT_WITH_CHECKSUM flag
+            // to give us one additional bit worth of padding to avoid conflicts.
+            UNUSED_1,
+            // Remove this flag once we've got a fix that we can detect this support via the protocol version,
+            // and not this hack as a feature flag.
+            SUPPORTS_LZ4_BLOCK_FORMAT_WITH_CHECKSUM;
 
             private static final Flag[] ALL_VALUES = values();
 
@@ -337,6 +350,9 @@ public class Frame
             }
 
             frame.header.flags.add(Header.Flag.COMPRESSED);
+            if (connection.supportsChecksums())
+                frame.header.flags.add(Header.Flag.SUPPORTS_LZ4_BLOCK_FORMAT_WITH_CHECKSUM);
+            
             results.add(compressor.compress(frame));
         }
     }

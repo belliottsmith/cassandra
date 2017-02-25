@@ -35,6 +35,7 @@ public class StartupMessage extends Message.Request
 {
     public static final String CQL_VERSION = "CQL_VERSION";
     public static final String COMPRESSION = "COMPRESSION";
+    public static final String USE_CHECKSUMS = "USE_CHECKSUMS";
 
     public static final Message.Codec<StartupMessage> codec = new Message.Codec<StartupMessage>()
     {
@@ -95,6 +96,13 @@ public class StartupMessage extends Message.Request
             {
                 throw new ProtocolException(String.format("Unknown compression algorithm: %s", compression));
             }
+        }
+
+        // Workaround for <rdar://problem/30635462> Client: Add option for checksumming data between client and server
+        // Until we can actually rev the protocol version
+        if (options.containsKey(USE_CHECKSUMS))
+        {
+            connection.setSupportsChecksums(true);
         }
 
         if (DatabaseDescriptor.getAuthenticator().requireAuthentication())

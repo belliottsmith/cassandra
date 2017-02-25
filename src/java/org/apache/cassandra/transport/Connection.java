@@ -29,6 +29,7 @@ public class Connection
     private final Tracker tracker;
 
     private volatile FrameCompressor frameCompressor;
+    private volatile boolean supportsChecksums;
 
     public Connection(Channel channel, int version, Tracker tracker)
     {
@@ -47,6 +48,16 @@ public class Connection
     public FrameCompressor getCompressor()
     {
         return frameCompressor;
+    }
+
+    public void setSupportsChecksums(boolean supportsChecksums)
+    {
+        this.supportsChecksums = supportsChecksums;
+    }
+
+    public boolean supportsChecksums()
+    {
+        return supportsChecksums;
     }
 
     public Tracker getTracker()
