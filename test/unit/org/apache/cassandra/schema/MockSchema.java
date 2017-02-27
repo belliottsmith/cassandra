@@ -162,7 +162,7 @@ public class MockSchema
 
     public static ColumnFamilyStore newCFS(String ksname)
     {
-        return newCFS(newTableMetadata(ksname));
+        return newCFS(ksname, newTableMetadata(ksname));
     }
 
     public static ColumnFamilyStore newCFS(Function<TableMetadata.Builder, TableMetadata.Builder> options)
@@ -178,6 +178,12 @@ public class MockSchema
     public static ColumnFamilyStore newCFS(TableMetadata metadata)
     {
         return new ColumnFamilyStore(ks, metadata.name, 0, new TableMetadataRef(metadata), new Directories(metadata), false, false, false);
+    }
+
+    private static ColumnFamilyStore newCFS(String ksname, TableMetadata metadata)
+    {
+        Keyspace keyspace = Keyspace.mockKS(KeyspaceMetadata.create(ksname, KeyspaceParams.simpleTransient(2)));
+        return new ColumnFamilyStore(keyspace, metadata.name, 0, new TableMetadataRef(metadata), new Directories(metadata), false, false, false);
     }
 
     public static TableMetadata newTableMetadata(String ksname)

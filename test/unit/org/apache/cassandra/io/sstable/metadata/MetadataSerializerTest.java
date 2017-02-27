@@ -155,7 +155,7 @@ public class MetadataSerializerTest
     @Test
     public void testMVersions() throws Throwable
     {
-        testVersions("ma", "mb", "mc", "md", "me");
+        testVersions("ma", "mb", "mc", "md", "me", "mf");
     }
 
     @Test
@@ -194,14 +194,27 @@ public class MetadataSerializerTest
     @Test
     public void pendingRepairCompatibility()
     {
-        Arrays.asList("ma", "mb", "mc", "md", "me").forEach(v -> assertFalse(BigFormat.instance.getVersion(v).hasPendingRepair()));
-        Arrays.asList("na", "nb").forEach(v -> assertTrue(BigFormat.instance.getVersion(v).hasPendingRepair()));
+        Arrays.asList("ma", "mb", "mc").forEach(v -> assertFalse(BigFormat.instance.getVersion(v).hasPendingRepair()));
+        Arrays.asList("md", "me", "mf", "na", "nb").forEach(v -> assertTrue(BigFormat.instance.getVersion(v).hasPendingRepair()));
     }
 
     @Test
     public void originatingHostCompatibility()
     {
-        Arrays.asList("ma", "mb", "mc", "md", "na").forEach(v -> assertFalse(BigFormat.instance.getVersion(v).hasOriginatingHostId()));
-        Arrays.asList("me", "nb").forEach(v -> assertTrue(BigFormat.instance.getVersion(v).hasOriginatingHostId()));
+        Arrays.asList("ma", "mb", "mc", "md", "me", "mf", "na").forEach(v -> assertFalse(v, BigFormat.instance.getVersion(v).hasOriginatingHostId()));
+        Arrays.asList("mg", "nb").forEach(v -> assertTrue(v, BigFormat.instance.getVersion(v).hasOriginatingHostId()));
+    }
+
+    @Test
+    public void partialChecksumCompatibility() {
+        Version md = BigFormat.instance.getVersion("md");
+        assertFalse(md.hasPartialMetadataChecksum());
+        Version me = BigFormat.instance.getVersion("me");
+        assertTrue(me.hasPartialMetadataChecksum());
+        // '`', which is one less than 'a' should still have partial metadata
+        Version nbacktick = BigFormat.instance.getVersion("n`");
+        assertTrue(nbacktick.hasPartialMetadataChecksum());
+        Version na = BigFormat.instance.getVersion("na");
+        assertFalse(na.hasPartialMetadataChecksum());
     }
 }
