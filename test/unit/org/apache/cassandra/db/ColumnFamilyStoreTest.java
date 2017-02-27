@@ -455,7 +455,9 @@ public class ColumnFamilyStoreTest
         String indexTableFile = (String) files.get(1);
         assert !baseTableFile.equals(indexTableFile);
         assert Directories.isSecondaryIndexFolder(new File(indexTableFile).getParentFile());
-        assert indexTableFile.endsWith(baseTableFile);
+        // Disabled for ACI Cassandra as the patch to revert including keyspace/table name in the
+        // path breaks this assumption.
+        //assert indexTableFile.endsWith(baseTableFile);
     }
 
     @Test
