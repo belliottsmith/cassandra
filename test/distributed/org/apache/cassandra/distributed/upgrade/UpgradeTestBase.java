@@ -22,11 +22,18 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.BeforeClass;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.distributed.UpgradeableCluster;
 import org.apache.cassandra.distributed.api.ICluster;
@@ -34,6 +41,7 @@ import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.impl.Instance;
 import org.apache.cassandra.distributed.shared.DistributedTestBase;
 import org.apache.cassandra.distributed.shared.Versions;
+import org.apache.cassandra.utils.Throwables;
 
 import static org.apache.cassandra.distributed.shared.Versions.Major;
 import static org.apache.cassandra.distributed.shared.Versions.Version;
@@ -41,6 +49,8 @@ import static org.apache.cassandra.distributed.shared.Versions.find;
 
 public class UpgradeTestBase extends DistributedTestBase
 {
+    private static final Logger logger = LoggerFactory.getLogger(UpgradeTestBase.class);
+
     @After
     public void afterEach()
     {
@@ -92,6 +102,7 @@ public class UpgradeTestBase extends DistributedTestBase
         private RunOnCluster runAfterClusterUpgrade;
         private final Set<Integer> nodesToUpgrade = new HashSet<>();
         private Consumer<IInstanceConfig> configConsumer;
+        private boolean allowSkipingMajorMissing = true;
 
         public TestCase()
         {
@@ -103,6 +114,12 @@ public class UpgradeTestBase extends DistributedTestBase
             this.versions = versions;
         }
 
+        public TestCase allowSkipingMajorMissing(boolean value)
+        {
+            this.allowSkipingMajorMissing = value;
+            return this;
+        }
+
         public TestCase nodes(int nodeCount)
         {
             this.nodeCount = nodeCount;
@@ -111,10 +128,29 @@ public class UpgradeTestBase extends DistributedTestBase
 
         public TestCase upgrade(Major initial, Major ... upgrade)
         {
-            this.upgrade.add(new TestVersions(versions.getLatest(initial),
-                                              Arrays.stream(upgrade)
-                                                    .map(versions::getLatest)
-                                                    .toArray(Version[]::new)));
+            List<Major> majors = new ArrayList<>(upgrade.length + 1);
+            majors.add(initial);
+            majors.addAll(Arrays.asList(upgrade));
+            List<Version> order = majors.stream()
+                                               .map(m -> {
+                                                   try
+                                                   {
+                                                       return versions.getLatest(m);
+                                                   }
+                                                   catch (RuntimeException e)
+                                                   {
+                                                       return null;
+                                                   }
+                                               })
+                                               .filter(Objects::nonNull)
+                                               .collect(Collectors.toList());
+            if (order.size() < 2)
+            {
+                logger.warn("Skipping upgrade {}; not enough versions found", majors);
+                return this;
+            }
+            this.upgrade.add(new TestVersions(order.get(0),
+                                              order.stream().skip(1).toArray(Version[]::new)));
             return this;
         }
 
@@ -152,8 +188,7 @@ public class UpgradeTestBase extends DistributedTestBase
         {
             if (setup == null)
                 throw new AssertionError();
-            if (upgrade.isEmpty())
-                throw new AssertionError();
+            Assume.assumeFalse("No upgrade tests defined", upgrade.isEmpty());
             if (runAfterClusterUpgrade == null && runAfterNodeUpgrade == null)
                 throw new AssertionError();
             if (runAfterClusterUpgrade == null)
@@ -172,15 +207,22 @@ public class UpgradeTestBase extends DistributedTestBase
 
                     for (Version version : upgrade.upgrade)
                     {
-                        for (int n : nodesToUpgrade)
+                        try
                         {
-                            cluster.get(n).shutdown().get();
-                            cluster.get(n).setVersion(version);
-                            cluster.get(n).startup();
-                            runAfterNodeUpgrade.run(cluster, n);
-                        }
+                            for (int n : nodesToUpgrade)
+                            {
+                                cluster.get(n).shutdown().get();
+                                cluster.get(n).setVersion(version);
+                                cluster.get(n).startup();
+                                runAfterNodeUpgrade.run(cluster, n);
+                            }
 
-                        runAfterClusterUpgrade.run(cluster);
+                            runAfterClusterUpgrade.run(cluster);
+                        }
+                        catch (Throwable t)
+                        {
+                            throw new AssertionError("Failing running test " + upgrade.initial.version + "->" + Stream.of(upgrade.upgrade).map(v -> v.version).collect(Collectors.joining(",", "[", "]")) + " against version " + version.version, t);
+                        }
                     }
                 }
 
