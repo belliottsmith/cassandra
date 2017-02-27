@@ -125,8 +125,10 @@ public class SSTableLoaderTest
         assert dataDir.mkdirs();
         TableMetadata metadata = Schema.instance.getTableMetadata(KEYSPACE1, CF_STANDARD1);
 
-        String schema = "CREATE TABLE %s.%s (key ascii, name ascii, val ascii, val1 ascii, PRIMARY KEY (key, name))";
-        String query = "INSERT INTO %s.%s (key, name, val) VALUES (?, ?, ?)";
+        // Need the CFMetaData that sstablewriter constructs from the schema to preserve case of the keyspace
+        // and table names or else when they're used in the output filenames, they won't match whats in actual schema
+        String schema = "CREATE TABLE \"%s\".\"%s\" (key ascii, name ascii, val ascii, val1 ascii, PRIMARY KEY (key, name))";
+        String query = "INSERT INTO \"%s\".\"%s\" (key, name, val) VALUES (?, ?, ?)";
 
         try (CQLSSTableWriter writer = CQLSSTableWriter.builder()
                                                        .inDirectory(dataDir)
@@ -166,8 +168,10 @@ public class SSTableLoaderTest
         //make sure we have no tables...
         assertTrue(dataDir.listFiles().length == 0);
 
-        String schema = "CREATE TABLE %s.%s (key ascii, name ascii, val ascii, val1 ascii, PRIMARY KEY (key, name))";
-        String query = "INSERT INTO %s.%s (key, name, val) VALUES (?, ?, ?)";
+        // Need the CFMetaData that sstablewriter constructs from the schema to preserve case of the keyspace
+        // and table names or else when they're used in the output filenames, they won't match whats in actual schema
+        String schema = "CREATE TABLE \"%s\".\"%s\" (key ascii, name ascii, val ascii, val1 ascii, PRIMARY KEY (key, name))";
+        String query = "INSERT INTO \"%s\".\"%s\" (key, name, val) VALUES (?, ?, ?)";
 
         CQLSSTableWriter writer = CQLSSTableWriter.builder()
                                                   .inDirectory(dataDir)
@@ -220,8 +224,10 @@ public class SSTableLoaderTest
         assert dataDir.mkdirs();
         TableMetadata metadata = Schema.instance.getTableMetadata(KEYSPACE1, CF_STANDARD1);
 
-        String schema = "CREATE TABLE %s.%s (key ascii, name ascii, val ascii, val1 ascii, PRIMARY KEY (key, name))";
-        String query = "INSERT INTO %s.%s (key, name, val) VALUES (?, ?, ?)";
+        // Need the CFMetaData that sstablewriter constructs from the schema to preserve case of the keyspace
+        // and table names or else when they're used in the output filenames, they won't match whats in actual schema
+        String schema = "CREATE TABLE \"%s\".\"%s\" (key ascii, name ascii, val ascii, val1 ascii, PRIMARY KEY (key, name))";
+        String query = "INSERT INTO \"%s\".\"%s\" (key, name, val) VALUES (?, ?, ?)";
 
         try (CQLSSTableWriter writer = CQLSSTableWriter.builder()
                 .inDirectory(dataDir)
