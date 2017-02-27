@@ -44,9 +44,13 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -85,10 +89,14 @@ public class SerializationHeaderTest
         schemaWithRegular = schemaWithRegular.unbuild().recordColumnDrop(columnStatic, 0L).build();
 
         final AtomicInteger generation = new AtomicInteger();
-        File dir = Files.createTempDir();
+        File tempDir = Files.createTempDir();
         try
         {
             BiFunction<TableMetadata, Function<ByteBuffer, Clustering<?>>, Callable<Descriptor>> writer = (schema, clusteringFunction) -> () -> {
+                // CIE uses keyspace/table name in the path - make them under the tempDir
+                // so that the sstables can be opened again.
+                File dir = Paths.get(tempDir.getPath(), schema.keyspace, schema.name).toFile();
+                dir.mkdirs();
                 Descriptor descriptor = new Descriptor(BigFormat.latestVersion, dir, schema.keyspace, schema.name, generation.incrementAndGet(), SSTableFormat.Type.BIG);
 
                 SerializationHeader header = SerializationHeader.makeWithoutStats(schema);
@@ -138,7 +146,7 @@ public class SerializationHeaderTest
         }
         finally
         {
-            FileUtils.deleteRecursive(dir);
+            FileUtils.deleteRecursive(tempDir);
         }
     }
 
