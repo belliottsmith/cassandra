@@ -458,7 +458,9 @@ public class ColumnFamilyStoreTest
         String indexTableFile = manifest.getFiles().get(1);
         assertThat(baseTableFile).isNotEqualTo(indexTableFile);
         assertThat(Directories.isSecondaryIndexFolder(new File(indexTableFile).parent())).isTrue();
-        assertThat(indexTableFile).endsWith(baseTableFile);
+        // Disabled for ACI Cassandra as the patch to revert including keyspace/table name in the
+        // path breaks this assumption.
+        //assertThat(indexTableFile).endsWith(baseTableFile);
     }
 
     private void createSnapshotAndDelete(String ks, String table, boolean writeData)
