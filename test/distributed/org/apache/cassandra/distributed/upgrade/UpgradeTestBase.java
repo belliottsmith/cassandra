@@ -30,7 +30,11 @@ import com.vdurmont.semver4j.Semver;
 import com.vdurmont.semver4j.Semver.SemverType;
 
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.BeforeClass;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -50,6 +54,8 @@ import static org.apache.cassandra.distributed.shared.Versions.find;
 
 public class UpgradeTestBase extends DistributedTestBase
 {
+    private static final Logger logger = LoggerFactory.getLogger(UpgradeTestBase.class);
+
     @After
     public void afterEach()
     {
@@ -150,8 +156,16 @@ public class UpgradeTestBase extends DistributedTestBase
                 .filter(upgradePath -> (upgradePath.left.compareTo(from) >= 0 && upgradePath.right.compareTo(to) <= 0))
                 .forEachOrdered(upgradePath ->
                 {
-                    this.upgrade.add(
-                            new TestVersions(versions.getLatest(upgradePath.left), versions.getLatest(upgradePath.right)));
+                    try
+                    {
+                        this.upgrade.add(
+                        new TestVersions(versions.getLatest(upgradePath.left), versions.getLatest(upgradePath.right)));
+                    }
+                    catch (RuntimeException e)
+                    {
+                        logger.info("Upgrade path between {} and {} missing dtest jar, dropping for upgrade path {} to {}.",
+                                     upgradePath.left, upgradePath.right, from, to);
+                    }
                 });
             return this;
         }
@@ -159,7 +173,15 @@ public class UpgradeTestBase extends DistributedTestBase
         /** Will test this specific upgrade path **/
         public TestCase singleUpgrade(Semver from, Semver to)
         {
-            this.upgrade.add(new TestVersions(versions.getLatest(from), versions.getLatest(to)));
+            try
+            {
+                this.upgrade.add(new TestVersions(versions.getLatest(from), versions.getLatest(to)));
+            }
+            catch (RuntimeException e)
+            {
+                logger.info("Single upgrade path between {} and {} missing dtest jar",
+                            from, to);
+            }
             return this;
         }
 
@@ -203,8 +225,7 @@ public class UpgradeTestBase extends DistributedTestBase
         {
             if (setup == null)
                 throw new AssertionError();
-            if (upgrade.isEmpty())
-                throw new AssertionError("no upgrade paths have been specified (or exist)");
+            Assume.assumeFalse("No upgrade tests defined", upgrade.isEmpty());
             if (runAfterClusterUpgrade == null && runAfterNodeUpgrade == null)
                 throw new AssertionError();
             if (runBeforeNodeRestart == null)
@@ -219,7 +240,7 @@ public class UpgradeTestBase extends DistributedTestBase
 
             for (TestVersions upgrade : this.upgrade)
             {
-                System.out.printf("testing upgrade from %s to %s%n", upgrade.initial.version, upgrade.upgrade.version);
+                logger.info("testing upgrade from {} to {}", upgrade.initial.version, upgrade.upgrade.version);
                 try (UpgradeableCluster cluster = init(UpgradeableCluster.create(nodeCount, upgrade.initial, configConsumer, builderConsumer)))
                 {
                     setup.run(cluster);

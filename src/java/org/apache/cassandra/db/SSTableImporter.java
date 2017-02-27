@@ -69,6 +69,19 @@ public class SSTableImporter
     @VisibleForTesting
     synchronized List<String> importNewSSTables(Options options)
     {
+        try
+        {
+            Descriptor.disableParentDirectoryNameWarning();
+            return importNewSSTablesImpl(options);
+        }
+        finally
+        {
+            Descriptor.enableParentDirectoryNameWarning();
+        }
+    }
+
+    private List<String> importNewSSTablesImpl(Options options)
+    {
         logger.info("Loading new SSTables for {}/{}: {}",
                     cfs.keyspace.getName(), cfs.getTableName(), options);
 

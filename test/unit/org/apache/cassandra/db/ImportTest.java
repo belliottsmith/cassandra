@@ -23,6 +23,9 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -34,6 +37,8 @@ import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import org.apache.cassandra.cache.RowCacheKey;
 import org.apache.cassandra.cql3.CQLTester;
@@ -52,8 +57,18 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+@RunWith(Parameterized.class)
 public class ImportTest extends CQLTester
 {
+    @Parameterized.Parameter
+    public boolean parentDirectoriesMatchKeyspaceAndTables;
+
+    @Parameterized.Parameters(name = "withKeyspaceAndTableParentDirs={0}")
+    public static Collection<Object[]> parameters()
+    {
+        return Arrays.asList(new Object[] { false }, new Object[] { true });
+    }
+
 
     @Test
     public void basicImportByMovingTest() throws Throwable
@@ -229,7 +244,7 @@ public class ImportTest extends CQLTester
         SSTableReader sst = sstables.iterator().next();
         String tabledir = sst.descriptor.directory.getName();
         String ksdir = sst.descriptor.directory.getParentFile().getName();
-        Path backupdir = createDirectories(temp.toString(), ksdir, tabledir);
+        Path backupdir = parentDirectoriesMatchKeyspaceAndTables ? createDirectories(temp.toString(), ksdir, tabledir) : createDirectories(temp.toString());
         for (SSTableReader sstable : sstables)
         {
             sstable.selfRef().release();
