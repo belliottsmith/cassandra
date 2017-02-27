@@ -27,6 +27,9 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.base.Splitter;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.Version;
@@ -46,6 +49,8 @@ import static org.apache.cassandra.io.sstable.Component.separator;
  */
 public class Descriptor
 {
+    private static final Logger logger = LoggerFactory.getLogger(Descriptor.class);
+
     private final static String LEGACY_TMP_REGEX_STR = "^((.*)\\-(.*)\\-)?tmp(link)?\\-((?:l|k).)\\-(\\d)*\\-(.*)$";
     private final static Pattern LEGACY_TMP_REGEX = Pattern.compile(LEGACY_TMP_REGEX_STR);
 
@@ -97,7 +102,7 @@ public class Descriptor
         this.generation = generation;
         this.formatType = formatType;
 
-        hashCode = Objects.hashCode(version, this.directory, generation, ksname, cfname, formatType);
+        hashCode = Objects.hashCode(version, this.directory, generation, ksname, cfname, formatType); // prefix not included
     }
 
     public Descriptor withGeneration(int newGeneration)
@@ -140,6 +145,11 @@ public class Descriptor
 
     private void appendFileName(StringBuilder buff)
     {
+        if (!version.hasNewFileName())
+        {
+            buff.append(ksname).append(separator);
+            buff.append(cfname).append(separator);
+        }
         buff.append(version).append(separator);
         buff.append(generation);
         buff.append(separator).append(formatType.name);
@@ -241,6 +251,15 @@ public class Descriptor
         String name = file.getName();
         List<String> tokens = filenameSplitter.splitToList(name);
         int size = tokens.size();
+        String keyspaceFromFilename = null;
+        String tableFromFilename = null;
+        if (size == 6)
+        {
+            keyspaceFromFilename = tokens.get(0);
+            tableFromFilename = tokens.get(1);
+            tokens = tokens.subList(2, size);
+            size -= 2;
+        }
 
         if (size != 4)
         {
@@ -307,6 +326,27 @@ public class Descriptor
         String table = tableDir.getName().split("-")[0] + indexName;
         String keyspace = parentOf(name, tableDir).getName();
 
+        if (keyspaceFromFilename != null && !keyspaceFromFilename.equals(keyspace))
+            logger.warn("the 'keyspace' part of the filename '{}' doesn't match the parent name '{}' for filename '{}'",
+                           keyspaceFromFilename, keyspace, name);
+        if (tableFromFilename != null && !tableFromFilename.equals(table))
+            logger.warn("the 'table' part of the filename '{}' doesn't match the parent name '{}' for filename '{}'",
+                           tableFromFilename, table, name);
+
+        // they *should* be the same, but if not prefer the keyspace and table derived from the filename
+        if (!version.hasNewFileName())
+        {
+            if (keyspaceFromFilename == null || tableFromFilename == null)
+            {
+                logger.warn("Expected keyspace/table components in SSTable filename '{}' but parsed keyspace '{}' table '{}'",
+                            file.getPath(), keyspaceFromFilename, tableFromFilename);
+            }
+            else
+            {
+                keyspace = keyspaceFromFilename;
+                table = tableFromFilename;
+            }
+        }
         return Pair.create(new Descriptor(version, directory, keyspace, table, generation, format), component);
     }
 

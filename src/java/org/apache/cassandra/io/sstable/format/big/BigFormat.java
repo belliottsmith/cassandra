@@ -119,11 +119,13 @@ public class BigFormat implements SSTableFormat
         //             store rows natively
         // mb (3.0.7, 3.7): commit log lower bound included
         // mc (3.0.8, 3.9): commit log intervals included
-        // md (3.0.18, 3.11.4): corrected sstable min/max clustering
-
+        // md (CIE 3.0.11, 3.10): pending repair session included
+        // me (CIE 3.0.15): checksummed sstable metadata file (components only, not header or component count)
+        // mf (3.0.18, 3.11.4): corrected sstable min/max clustering
         // na (4.0.0): uncompressed chunks, pending repair session, isTransient, checksummed sstable metadata file, new Bloomfilter format
         //
         // NOTE: when adding a new version, please add that to LegacySSTableTest, too.
+        private final boolean newFileName;
 
         private final boolean isLatestVersion;
         public final int correspondingMessagingVersion;
@@ -140,6 +142,7 @@ public class BigFormat implements SSTableFormat
          * have no 'static' bits caused by using the same upper bits for both bloom filter and token distribution.
          */
         private final boolean hasOldBfFormat;
+        private final boolean hasPartialMetadataChecksum;
 
         BigVersion(String version)
         {
@@ -148,13 +151,21 @@ public class BigFormat implements SSTableFormat
             isLatestVersion = version.compareTo(current_version) == 0;
             correspondingMessagingVersion = MessagingService.VERSION_30;
 
+            // Expect short filenames from 2.2.0 through 3.0.10
+            if(version.compareTo("la") >= 0 && version.compareTo("mc") <= 0)
+                newFileName = true;
+            else
+                // For newest format (md) force use of old filename format which includes ks & cf
+                newFileName = false;
+
             hasCommitLogLowerBound = version.compareTo("mb") >= 0;
             hasCommitLogIntervals = version.compareTo("mc") >= 0;
-            hasAccurateMinMax = version.compareTo("md") >= 0;
+            hasAccurateMinMax = version.compareTo("mf") >= 0;   /* OSS in md */
             hasMaxCompressedLength = version.compareTo("na") >= 0;
-            hasPendingRepair = version.compareTo("na") >= 0;
+            hasPendingRepair = version.compareTo("md") >= 0;    /* OSS in na */
             hasIsTransient = version.compareTo("na") >= 0;
-            hasMetadataChecksum = version.compareTo("na") >= 0;
+            hasMetadataChecksum = version.compareTo("na") >= 0; /* Complete OSS implementation of metadata checksums */
+            hasPartialMetadataChecksum = version.compareTo("me") >= 0 && version.compareTo("na") < 0; /* Indicates cie-cassandra 3.0 partial backport of metadata checksums */
             hasOldBfFormat = version.compareTo("na") < 0;
         }
 
@@ -162,6 +173,12 @@ public class BigFormat implements SSTableFormat
         public boolean isLatestVersion()
         {
             return isLatestVersion;
+        }
+
+        @Override
+        public boolean hasNewFileName()
+        {
+            return newFileName;
         }
 
         @Override
@@ -197,6 +214,11 @@ public class BigFormat implements SSTableFormat
         public boolean hasMetadataChecksum()
         {
             return hasMetadataChecksum;
+        }
+
+        public boolean hasPartialMetadataChecksum()
+        {
+            return hasPartialMetadataChecksum;
         }
 
         @Override
