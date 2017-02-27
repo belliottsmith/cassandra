@@ -166,6 +166,12 @@ public class MetadataSerializerTest
     }
 
     @Test
+    public void testMeReadMe() throws IOException
+    {
+        testOldReadsNew("me", "me");
+    }
+
+    @Test
     public void testNaReadNa() throws IOException
     {
         testOldReadsNew("na", "na");
@@ -205,5 +211,18 @@ public class MetadataSerializerTest
         assertFalse(mc.hasPendingRepair());
         Version na = BigFormat.instance.getVersion("na");
         assertTrue(na.hasPendingRepair());
+    }
+
+    @Test
+    public void partialChecksumCompatibility() {
+        Version md = BigFormat.instance.getVersion("md");
+        assertFalse(md.hasPartialMetadataChecksum());
+        Version me = BigFormat.instance.getVersion("me");
+        assertTrue(me.hasPartialMetadataChecksum());
+        // '`', which is one less than 'a' should still have partial metadata
+        Version nbacktick = BigFormat.instance.getVersion("n`");
+        assertTrue(nbacktick.hasPartialMetadataChecksum());
+        Version na = BigFormat.instance.getVersion("na");
+        assertFalse(na.hasPartialMetadataChecksum());
     }
 }
