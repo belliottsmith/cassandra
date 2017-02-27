@@ -138,10 +138,10 @@ public class DescriptorTest
              // 2ndary index
              "keyspace1-standard1.idx1-ka-1-big-Data.db",
              // new formats
-             "la-1-big-Data.db",
+             "keyspace1-standard1-la-1-big-Data.db",
              //"tmp-la-1-big-Data.db",
              // 2ndary index
-             ".idx1" + File.separator + "la-1-big-Data.db",
+             ".idx1" + File.separator + "keyspace1-standard1.idx1-la-1-big-Data.db",
         };
 
         for (String name : names)

@@ -139,7 +139,8 @@ public class MockSchema
     {
         String cfname = "mockcf" + (id.incrementAndGet());
         CFMetaData metadata = newCFMetaData(ksname, cfname);
-        return new ColumnFamilyStore(ks, cfname, 0, metadata, new Directories(metadata), false, false);
+        Keyspace keyspace = Keyspace.mockKS(KeyspaceMetadata.create(ksname, KeyspaceParams.simpleTransient(2)));
+        return new ColumnFamilyStore(keyspace, cfname, 0, metadata, new Directories(metadata), false, false);
     }
 
     public static CFMetaData newCFMetaData(String ksname, String cfname)

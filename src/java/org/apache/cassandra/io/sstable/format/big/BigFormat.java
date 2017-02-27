@@ -187,7 +187,8 @@ public class BigFormat implements SSTableFormat
             hasRepairedAt = version.compareTo("ka") >= 0;
             tracksLegacyCounterShards = version.compareTo("ka") >= 0;
 
-            newFileName = version.compareTo("la") >= 0;
+            // force use of old filename format which includes ks & cf
+            newFileName = false;
 
             hasOldBfHashOrder = version.compareTo("ma") < 0;
             hasCompactionAncestors = version.compareTo("ma") < 0;
