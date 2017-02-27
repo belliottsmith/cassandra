@@ -45,6 +45,8 @@ public abstract class Version
 
     public abstract boolean isLatestVersion();
 
+    public abstract boolean hasNewFileName();
+
     public abstract int correspondingMessagingVersion(); // Only use by storage that 'storeRows' so far
 
     public abstract boolean hasCommitLogLowerBound();
@@ -58,6 +60,8 @@ public abstract class Version
     public abstract boolean hasIsTransient();
 
     public abstract boolean hasMetadataChecksum();
+
+    public abstract boolean hasPartialMetadataChecksum();
 
     /**
      * The old bloomfilter format serializes the data as BIG_ENDIAN long's, the new one uses the
