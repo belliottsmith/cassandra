@@ -366,7 +366,7 @@ public class LegacySSTableTest
                 }
                 catch (Throwable e)
                 {
-                    fail("Verify should throw RuntimeException for old sstables "+sstable);
+                    fail("Verify should not throw RuntimeException for old sstables when checkVersion is false"+sstable);
                 }
             }
         }
