@@ -511,6 +511,10 @@ public class ColumnFamilyStoreTest
                  .forEach(originalFiles::add);
         assertThat(originalFiles.stream().anyMatch(f -> f.endsWith(indexTableFile))).isTrue();
         assertThat(originalFiles.stream().anyMatch(f -> f.endsWith(baseTableFile))).isTrue();
+
+        // XXX original patch - Disabled for ACI Cassandra as the patch to revert including keyspace/table name in the
+        // path breaks this assumption.
+        //assertThat(indexTableFile).endsWith(baseTableFile);
     }
 
     private void createSnapshotAndDelete(String ks, String table, boolean writeData)

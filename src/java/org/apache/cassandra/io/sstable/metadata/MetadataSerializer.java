@@ -44,7 +44,8 @@ import static org.apache.cassandra.utils.FBUtilities.updateChecksumInt;
  * Metadata serializer for SSTables {@code version >= 'na'}.
  *
  * <pre>
- * File format := | number of components (4 bytes) | crc | toc | crc | component1 | c1 crc | component2 | c2 crc | ... |
+ * File format (>= 'na') := | number of components (4 bytes) | crc | toc | crc | component1 | c1 crc | component2 | c2 crc | ... |
+ * File format ('me' -> 'na') := | number of components (4 bytes) | toc | component1 | c1 crc | component2 | c2 crc | ... |
  * toc         := | component type (4 bytes) | position of component |
  * </pre>
  *
@@ -58,7 +59,7 @@ public class MetadataSerializer implements IMetadataSerializer
 
     public void serialize(Map<MetadataType, MetadataComponent> components, DataOutputPlus out, Version version) throws IOException
     {
-        boolean checksum = version.hasMetadataChecksum();
+        boolean fullChecksum = version.hasMetadataChecksum();
         CRC32 crc = new CRC32();
         // sort components by type
         List<MetadataComponent> sortedComponents = Lists.newArrayList(components.values());
@@ -67,10 +68,10 @@ public class MetadataSerializer implements IMetadataSerializer
         // write number of component
         out.writeInt(components.size());
         updateChecksumInt(crc, components.size());
-        maybeWriteChecksum(crc, out, version);
+        maybeWriteChecksum(crc, out, version, false);
 
         // build and write toc
-        int lastPosition = 4 + (8 * sortedComponents.size()) + (checksum ? 2 * CHECKSUM_LENGTH : 0);
+        int lastPosition = 4 + (8 * sortedComponents.size()) + (fullChecksum ? 2 * CHECKSUM_LENGTH : 0);
         Map<MetadataType, Integer> sizes = new EnumMap<>(MetadataType.class);
         for (MetadataComponent component : sortedComponents)
         {
@@ -82,10 +83,10 @@ public class MetadataSerializer implements IMetadataSerializer
             out.writeInt(lastPosition);
             updateChecksumInt(crc, lastPosition);
             int size = type.serializer.serializedSize(version, component);
-            lastPosition += size + (checksum ? CHECKSUM_LENGTH : 0);
+            lastPosition += size + (fullChecksum || version.hasPartialMetadataChecksum() ? CHECKSUM_LENGTH : 0);
             sizes.put(type, size);
         }
-        maybeWriteChecksum(crc, out, version);
+        maybeWriteChecksum(crc, out, version, false);
 
         // serialize components
         for (MetadataComponent component : sortedComponents)
@@ -99,14 +100,19 @@ public class MetadataSerializer implements IMetadataSerializer
             out.write(bytes);
 
             crc.reset(); crc.update(bytes);
-            maybeWriteChecksum(crc, out, version);
+            maybeWriteChecksum(crc, out, version, true);
         }
     }
 
-    private static void maybeWriteChecksum(CRC32 crc, DataOutputPlus out, Version version) throws IOException
+    private static void maybeWriteChecksum(CRC32 crc, DataOutputPlus out, Version version, boolean includeInPartial) throws IOException
     {
-        if (version.hasMetadataChecksum())
+        if (shouldChecksum(version, includeInPartial))
             out.writeInt((int) crc.getValue());
+    }
+
+    private static boolean shouldChecksum(Version version, boolean includeInPartial)
+    {
+        return version.hasMetadataChecksum() || (version.hasPartialMetadataChecksum() && includeInPartial);
     }
 
     public Map<MetadataType, MetadataComponent> deserialize(Descriptor descriptor, EnumSet<MetadataType> types) throws IOException
@@ -140,7 +146,9 @@ public class MetadataSerializer implements IMetadataSerializer
                                                             EnumSet<MetadataType> selectedTypes)
     throws IOException
     {
-        boolean isChecksummed = descriptor.version.hasMetadataChecksum();
+        final Version version = descriptor.version;
+        boolean isChecksummed = version.hasMetadataChecksum();
+        boolean isPartiallyChecksummed = version.hasPartialMetadataChecksum();
         CRC32 crc = new CRC32();
 
         /*
@@ -151,7 +159,7 @@ public class MetadataSerializer implements IMetadataSerializer
 
         int count = in.readInt();
         updateChecksumInt(crc, count);
-        maybeValidateChecksum(crc, in, descriptor);
+        maybeValidateChecksum(crc, in, descriptor, false);
 
         int[] ordinals = new int[count];
         int[]  offsets = new int[count];
@@ -165,7 +173,7 @@ public class MetadataSerializer implements IMetadataSerializer
             offsets[i] = in.readInt();
             updateChecksumInt(crc, offsets[i]);
         }
-        maybeValidateChecksum(crc, in, descriptor);
+        maybeValidateChecksum(crc, in, descriptor, false);
 
         lengths[count - 1] = length - offsets[count - 1];
         for (int i = 0; i < count - 1; i++)
@@ -189,23 +197,24 @@ public class MetadataSerializer implements IMetadataSerializer
                 continue;
             }
 
-            byte[] buffer = new byte[isChecksummed ? lengths[i] - CHECKSUM_LENGTH : lengths[i]];
+            byte[] buffer = new byte[isChecksummed || isPartiallyChecksummed ? lengths[i] - CHECKSUM_LENGTH : lengths[i]];
             in.readFully(buffer);
 
-            crc.reset(); crc.update(buffer);
-            maybeValidateChecksum(crc, in, descriptor);
+            crc.reset();
+            crc.update(buffer);
+            maybeValidateChecksum(crc, in, descriptor, true);
             try (DataInputBuffer dataInputBuffer = new DataInputBuffer(buffer))
             {
-                components.put(type, type.serializer.deserialize(descriptor.version, dataInputBuffer));
+                components.put(type, type.serializer.deserialize(version, dataInputBuffer));
             }
         }
 
         return components;
     }
 
-    private static void maybeValidateChecksum(CRC32 crc, FileDataInput in, Descriptor descriptor) throws IOException
+    private static void maybeValidateChecksum(CRC32 crc, FileDataInput in, Descriptor descriptor, boolean validateIfPartial) throws IOException
     {
-        if (!descriptor.version.hasMetadataChecksum())
+        if (!shouldChecksum(descriptor.version, validateIfPartial))
             return;
 
         int actualChecksum = (int) crc.getValue();
