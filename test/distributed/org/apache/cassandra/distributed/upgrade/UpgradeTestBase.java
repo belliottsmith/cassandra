@@ -23,12 +23,18 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import com.google.common.base.Preconditions;
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.BeforeClass;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -47,6 +53,8 @@ import static org.apache.commons.lang3.ArrayUtils.isNotEmpty;
 
 public class UpgradeTestBase extends DistributedTestBase
 {
+    private static final Logger logger = LoggerFactory.getLogger(UpgradeTestBase.class);
+
     @After
     public void afterEach()
     {
@@ -99,6 +107,7 @@ public class UpgradeTestBase extends DistributedTestBase
         private RunOnCluster runAfterClusterUpgrade;
         private final Set<Integer> nodesToUpgrade = new LinkedHashSet<>();
         private Consumer<IInstanceConfig> configConsumer;
+        private boolean allowSkipingMajorMissing = true;
 
         public TestCase()
         {
@@ -110,6 +119,12 @@ public class UpgradeTestBase extends DistributedTestBase
             this.versions = versions;
         }
 
+        public TestCase allowSkipingMajorMissing(boolean value)
+        {
+            this.allowSkipingMajorMissing = value;
+            return this;
+        }
+
         public TestCase nodes(int nodeCount)
         {
             this.nodeCount = nodeCount;
@@ -118,10 +133,29 @@ public class UpgradeTestBase extends DistributedTestBase
 
         public TestCase upgrade(Major initial, Major ... upgrade)
         {
-            this.upgrade.add(new TestVersions(versions.getLatest(initial),
-                                              Arrays.stream(upgrade)
-                                                    .map(versions::getLatest)
-                                                    .toArray(Version[]::new)));
+            List<Major> majors = new ArrayList<>(upgrade.length + 1);
+            majors.add(initial);
+            majors.addAll(Arrays.asList(upgrade));
+            List<Version> order = majors.stream()
+                                               .map(m -> {
+                                                   try
+                                                   {
+                                                       return versions.getLatest(m);
+                                                   }
+                                                   catch (RuntimeException e)
+                                                   {
+                                                       return null;
+                                                   }
+                                               })
+                                               .filter(Objects::nonNull)
+                                               .collect(Collectors.toList());
+            if (order.size() < 2)
+            {
+                logger.warn("Skipping upgrade {}; not enough versions found", majors);
+                return this;
+            }
+            this.upgrade.add(new TestVersions(order.get(0),
+                                              order.stream().skip(1).toArray(Version[]::new)));
             return this;
         }
 
@@ -159,8 +193,7 @@ public class UpgradeTestBase extends DistributedTestBase
         {
             if (setup == null)
                 throw new AssertionError();
-            if (upgrade.isEmpty())
-                throw new AssertionError();
+            Assume.assumeFalse("No upgrade tests defined", upgrade.isEmpty());
             if (runAfterClusterUpgrade == null && runAfterNodeUpgrade == null)
                 throw new AssertionError();
             if (runAfterClusterUpgrade == null)
