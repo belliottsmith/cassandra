@@ -18,8 +18,11 @@
 package org.apache.cassandra.streaming.compression;
 
 import java.io.*;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -113,8 +116,10 @@ public class CompressedInputStreamTest
     {
         assert valuesToCheck != null && valuesToCheck.length > 0;
 
-        // write compressed data file of longs
-        File parentDir = tempFolder.newFolder();
+        // write compressed data file of longs - CIE adds ks/cf so it can parse filenames correctly
+        File tempDir = tempFolder.newFolder();
+        File parentDir = Paths.get(tempDir.getPath(), "ks", "cf").toFile();
+        Assert.assertTrue(parentDir.mkdirs());
         Descriptor desc = new Descriptor(parentDir, "ks", "cf", 1);
         File tmp = new File(desc.filenameFor(Component.DATA));
         MetadataCollector collector = new MetadataCollector(new ClusteringComparator(BytesType.instance));
