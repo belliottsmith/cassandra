@@ -122,9 +122,15 @@ public class DescriptorTest
     public void validateNames()
     {
         String[] names = {
-             "ma-1-big-Data.db",
+             "/data/keyspace1/standard1-8b7c7b23f1ad3f4554f8d64f85d9d3637661/keyspace1-standard1-na-1-big-Data.db",
              // 2ndary index
-             ".idx1" + File.pathSeparator() + "ma-1-big-Data.db",
+             "/data/keyspace1/standard1-8b7c7b23f1ad3f4554f8d64f85d9d3637661/.idx1" + File.pathSeparator() + "keyspace1-standard1.idx1-na-1-big-Data.db",
+             // old ma-mc format
+             "/data/keyspace1/standard1-8b7c7b23f1ad3f4554f8d64f85d9d3637661/ma-1-big-Data.db",
+             "/data/keyspace1/standard1-8b7c7b23f1ad3f4554f8d64f85d9d3637661/mb-1-big-Data.db",
+             "/data/keyspace1/standard1-8b7c7b23f1ad3f4554f8d64f85d9d3637661/mc-1-big-Data.db",
+             // md is back to full length
+             "/data/system_schema/keyspaces-8b7c7b23f1ad3f4554f8d64f85d9d3637661/system_schema-keyspaces-md-1-big-Data.db",
         };
 
         for (String name : names)
@@ -137,9 +143,12 @@ public class DescriptorTest
     public void badNames()
     {
         String names[] = {
-                "system-schema_keyspaces-k234a-1-CompressionInfo.db",  "system-schema_keyspaces-ka-aa-Summary.db",
-                "system-schema_keyspaces-XXX-ka-1-Data.db",             "system-schema_keyspaces-k",
-                "system-schema_keyspace-ka-1-AAA-Data.db",  "system-schema-keyspace-ka-1-AAA-Data.db"
+                "/data/system-schema/keyspaces/system-schema_keyspaces-k234a-1-CompressionInfo.db",
+                "/data/system-schema/keyspaces/system-schema_keyspaces-ka-aa-Summary.db",
+                "/data/system-schema/keyspaces/system-schema_keyspaces-XXX-ka-1-Data.db",
+                "/data/system-schema/keyspaces/system-schema_keyspaces-k",
+                "/data/system-schema/keyspaces/system-schema_keyspace-ka-1-AAA-Data.db",
+                "/data/system-schema/keyspaces/system-schema-keyspace-ka-1-AAA-Data.db",
         };
 
         for (String name : names)
@@ -148,9 +157,23 @@ public class DescriptorTest
             {
                 Descriptor d = Descriptor.fromFilename(name);
                 Assert.fail(name);
-            } catch (Throwable e) {
+            } catch (IllegalArgumentException e) {
                 //good
             }
+        }
+    }
+
+    @Test
+    public void warningNames()
+    {
+        String names[] = {
+        "/data/wrongkeyspace/standard1-8b7c7b23f1ad3f4554f8d64f85d9d3637661/keyspace1-standard1-ma-1-big-Data.db",
+        "/data/keyspace1/wrongtable-8b7c7b23f1ad3f4554f8d64f85d9d3637661/keyspace1-standard1-ma-1-big-Data.db",
+        };
+
+        for (String name : names)
+        {
+            assertNotNull(Descriptor.fromFilename(name)); // should just generate a warning in the logs
         }
     }
 

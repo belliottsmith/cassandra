@@ -21,10 +21,14 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
 import org.apache.cassandra.io.sstable.SequenceBasedSSTableId;
 import org.apache.cassandra.io.util.File;
+import org.apache.cassandra.io.util.PathUtils;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -118,8 +122,11 @@ public class CompressedInputStreamTest
     {
         assert valuesToCheck != null && valuesToCheck.length > 0;
 
-        // write compressed data file of longs
-        File parentDir = new File(tempFolder.newFolder());
+        // write compressed data file of longs - CIE adds ks/cf so it can parse filenames correctly
+        File tempDir = new File(tempFolder.newFolder());
+        Path parentPath = Paths.get(tempDir.path(), "ks", "cf");
+        File parentDir = new File(parentPath.toFile());
+        Assert.assertTrue(PathUtils.createDirectoriesIfNotExists(parentPath));
         Descriptor desc = new Descriptor(parentDir, "ks", "cf", new SequenceBasedSSTableId(1));
         File tmp = new File(desc.filenameFor(Component.DATA));
         MetadataCollector collector = new MetadataCollector(new ClusteringComparator(BytesType.instance));
