@@ -41,6 +41,7 @@ import org.apache.cassandra.io.sstable.format.SSTableWriter;
 import org.apache.cassandra.io.sstable.format.big.BigFormat;
 import org.apache.cassandra.io.sstable.format.big.BigTableWriter;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.io.util.PathUtils;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
@@ -48,6 +49,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.concurrent.Callable;
 import java.util.function.BiFunction;
@@ -88,11 +91,15 @@ public class SerializationHeaderTest
         schemaWithRegular = schemaWithRegular.unbuild().recordColumnDrop(columnStatic, 0L).build();
 
         Supplier<SequenceBasedSSTableId> id = Util.newSeqGen();
-        File dir = new File(Files.createTempDir());
+        File tempDir = new File(Files.createTempDir());
         try
         {
             BiFunction<TableMetadata, Function<ByteBuffer, Clustering<?>>, Callable<Descriptor>> writer = (schema, clusteringFunction) -> () -> {
-                Descriptor descriptor = new Descriptor(BigFormat.latestVersion, dir, schema.keyspace, schema.name, id.get(), SSTableFormat.Type.BIG);
+                // CIE uses keyspace/table name in the path - make them under the tempDir
+                // so that the sstables can be opened again.
+                Path dir = Paths.get(tempDir.path(), schema.keyspace, schema.name);
+                PathUtils.createDirectoriesIfNotExists(dir);
+                Descriptor descriptor = new Descriptor(BigFormat.latestVersion, new File(dir), schema.keyspace, schema.name, id.get(), SSTableFormat.Type.BIG);
 
                 SerializationHeader header = SerializationHeader.makeWithoutStats(schema);
                 try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.WRITE);
@@ -141,7 +148,7 @@ public class SerializationHeaderTest
         }
         finally
         {
-            FileUtils.deleteRecursive(dir);
+            FileUtils.deleteRecursive(tempDir);
         }
     }
 
