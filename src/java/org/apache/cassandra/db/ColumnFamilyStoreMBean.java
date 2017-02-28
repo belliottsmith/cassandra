@@ -184,4 +184,43 @@ public interface ColumnFamilyStoreMBean
        Enable/Disable compaction space check
      */
     public void compactionDiskSpaceCheck(boolean enable);
+
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#sstablesPerReadHistogram
+     * @return a histogram of the number of sstable data files accessed per read: reading this property resets it
+     */
+    public long[] getRecentSSTablesPerReadHistogramV3();
+
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#sstablesPerReadHistogram
+     * @return a histogram of the number of sstable data files accessed per read
+     */
+    public long[] getSSTablesPerReadHistogramV3();
+
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#readLatency
+     * @return an array representing the latency histogram
+     */
+    public long[] getRecentReadLatencyHistogramMicrosV3();
+
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#writeLatency
+     * @return an array representing the latency histogram
+     */
+    public long[] getRecentWriteLatencyHistogramMicrosV3();
+
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#rangeLatency
+     * @return an array representing the latency histogram
+     */
+    public long[] getRecentRangeLatencyHistogramMicrosV3();
+
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#estimatedPartitionSizeHistogram
+     */
+    public long[] getEstimatedRowSizeHistogram();
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#estimatedColumnCountHistogram
+     */
+    public long[] getEstimatedColumnCountHistogram();
 }

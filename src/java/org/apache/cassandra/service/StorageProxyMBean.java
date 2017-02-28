@@ -75,4 +75,13 @@ public interface StorageProxyMBean
     public int getNumberOfTables();
 
     public void setIdealConsistencyLevel(String cl);
+
+    public long[] getRecentReadLatencyHistogramMicrosV3();
+    public long[] getRecentWriteLatencyHistogramMicrosV3();
+    public long[] getRecentRangeLatencyHistogramMicrosV3();
+    public long[] getRecentCasReadLatencyHistogramMicrosV3();
+    public long[] getRecentCasWriteLatencyHistogramMicrosV3();
+    public long[] getRecentViewWriteLatencyHistogramMicrosV3();
+    public long[] getCasReadContentionHistogram();
+    public long[] getCasWriteContentionHistogram();
 }

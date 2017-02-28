@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.Timer;
+import org.apache.cassandra.utils.EstimatedHistogram;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -38,6 +39,8 @@ public class LatencyMetrics
     public final Timer latency;
     /** Total latency in micro sec */
     public final Counter totalLatency;
+
+    public final EstimatedHistogram recentLatencyHistogram = new EstimatedHistogram();
 
     /** parent metrics to replicate any updates to **/
     private List<LatencyMetrics> parents = Lists.newArrayList();
@@ -118,6 +121,7 @@ public class LatencyMetrics
         // convert to microseconds. 1 millionth
         latency.update(nanos, TimeUnit.NANOSECONDS);
         totalLatency.inc(nanos / 1000);
+        recentLatencyHistogram.add(nanos / 1000);
         for(LatencyMetrics parent : parents)
         {
             parent.addNano(nanos);
