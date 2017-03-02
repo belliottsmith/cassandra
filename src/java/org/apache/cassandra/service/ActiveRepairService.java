@@ -316,6 +316,44 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         return neighbors;
     }
 
+    /**
+     * Check that the intended repair doesn't overlap with any other repairs currently in progress
+     */
+    public synchronized void validateIntendedRepair(String keyspace, RepairOption options)
+    {
+        String[] columnFamilies = options.getColumnFamilies().toArray(new String[options.getColumnFamilies().size()]);
+        Set<UUID> cfids = new HashSet<>();
+        try
+        {
+            for (ColumnFamilyStore cfs : StorageService.instance.getValidColumnFamilies(false, false, keyspace, columnFamilies))
+            {
+                cfids.add(cfs.metadata.cfId);
+            }
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
+        }
+
+        for (ParentRepairSession prs : parentRepairSessions.values())
+        {
+            if (!Sets.intersection(cfids, prs.getCfIds()).isEmpty())
+            {
+                for (Range<Token> ir : options.getRanges())
+                {
+                    for (Range<Token> pr : prs.getRanges())
+                    {
+                        if (ir.intersects(pr))
+                        {
+                            throw new IllegalArgumentException(String.format("Intended repair job {} overlaps with existing repair session {}", options, prs));
+                        }
+                    }
+                }
+
+            }
+        }
+    }
+
     public void prepareForRepair(UUID parentRepairSession, InetAddress coordinator, Set<InetAddress> endpoints, RepairOption options, List<ColumnFamilyStore> columnFamilyStores)
     {
         // we only want repairedAt for incremental repairs, for non incremental repairs, UNREPAIRED_SSTABLE will preserve repairedAt on streamed sstables
