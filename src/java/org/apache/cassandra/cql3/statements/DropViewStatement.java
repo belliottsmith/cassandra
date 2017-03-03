@@ -29,6 +29,7 @@ import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.UnauthorizedException;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.MigrationManager;
+import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.Event;
 
 public class DropViewStatement extends SchemaAlteringStatement
@@ -55,7 +56,7 @@ public class DropViewStatement extends SchemaAlteringStatement
             throw new ConfigurationException("Error while creating materialized view: Materialized Views are not allowed in Apple version of Cassandra.");
     }
 
-    public Event.SchemaChange announceMigration(boolean isLocalOnly) throws InvalidRequestException, ConfigurationException
+    public Event.SchemaChange announceMigration(QueryState queryState, boolean isLocalOnly) throws InvalidRequestException, ConfigurationException
     {
         try
         {

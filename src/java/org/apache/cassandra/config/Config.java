@@ -290,7 +290,11 @@ public class Config
 
     public MemtableAllocationType memtable_allocation_type = MemtableAllocationType.heap_buffers;
 
-    private static boolean outboundBindAny = false;
+    /**
+     * @deprecated No longer needed for streaming protocol. See CASSANDRA-12673 for details.
+     */
+    @Deprecated
+    protected static boolean outboundBindAny = false;
 
     public volatile int tombstone_warn_threshold = 1000;
     public volatile int tombstone_failure_threshold = 100000;
@@ -323,12 +327,13 @@ public class Config
 
     /*
      * How many microseconds to wait for coalescing. For fixed strategy this is the amount of time after the first
-     * messgae is received before it will be sent with any accompanying messages. For moving average this is the
+     * message is received before it will be sent with any accompanying messages. For moving average this is the
      * maximum amount of time that will be waited as well as the interval at which messages must arrive on average
      * for coalescing to be enabled.
      */
     public static final int otc_coalescing_window_us_default = 200;
     public int otc_coalescing_window_us = otc_coalescing_window_us_default;
+    public int otc_coalescing_enough_coalesced_messages = 8;
 
     public int windows_timer_interval = 0;
 

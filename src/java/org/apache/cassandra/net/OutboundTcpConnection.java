@@ -45,6 +45,7 @@ import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4Factory;
 import net.jpountz.xxhash.XXHashFactory;
 
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.io.util.DataOutputStreamPlus;
 import org.apache.cassandra.io.util.BufferedDataOutputStreamPlus;
 import org.apache.cassandra.io.util.WrappedDataOutputStreamPlus;
@@ -83,6 +84,7 @@ public class OutboundTcpConnection extends Thread
 
     //Size of 3 elements added to every message
     private static final int PROTOCOL_MAGIC_ID_TIMESTAMP_SIZE = 12;
+    public static final int MAX_COALESCED_MESSAGES = 128;
 
     private static CoalescingStrategy newCoalescingStrategy(String displayName)
     {
@@ -178,8 +180,11 @@ public class OutboundTcpConnection extends Thread
 
     void closeSocket(boolean destroyThread)
     {
-        backlog.clear();
         isStopped = destroyThread; // Exit loop to stop the thread
+        backlog.clear();
+        // in the "destroyThread = true" case, enqueuing the sentinel is important mostly to unblock the backlog.take()
+        // (via the CoalescingStrategy) in case there's a data race between this method enqueuing the sentinel
+        // and run() clearing the backlog on connection failure.
         enqueue(CLOSE_SENTINEL, -1);
     }
 
@@ -195,12 +200,12 @@ public class OutboundTcpConnection extends Thread
 
     public void run()
     {
-        final int drainedMessageSize = 128;
+        final int drainedMessageSize = MAX_COALESCED_MESSAGES;
         // keeping list (batch) size small for now; that way we don't have an unbounded array (that we never resize)
         final List<QueuedMessage> drainedMessages = new ArrayList<>(drainedMessageSize);
 
         outer:
-        while (true)
+        while (!isStopped)
         {
             try
             {
@@ -216,6 +221,7 @@ public class OutboundTcpConnection extends Thread
             int count = drainedMessages.size();
             //The timestamp of the first message has already been provided to the coalescing strategy
             //so skip logging it.
+            inner:
             for (QueuedMessage qm : drainedMessages)
             {
                 try
@@ -234,8 +240,12 @@ public class OutboundTcpConnection extends Thread
                     else if (socket != null || connect())
                         writeConnected(qm, count == 1 && backlog.isEmpty());
                     else
+                    {
                         // clear out the queue, else gossip messages back up.
+                        drainedMessages.clear();
                         backlog.clear();
+                        break inner;
+                    }
                 }
                 catch (Exception e)
                 {
@@ -511,31 +521,27 @@ public class OutboundTcpConnection extends Thread
     {
         final AtomicInteger version = new AtomicInteger(NO_VERSION);
         final CountDownLatch versionLatch = new CountDownLatch(1);
-        new Thread("HANDSHAKE-" + poolReference.endPoint())
+        new Thread(NamedThreadFactory.threadLocalDeallocator(() ->
         {
-            @Override
-            public void run()
+            try
             {
-                try
-                {
-                    logger.info("Handshaking version with {}", poolReference.endPoint());
-                    version.set(inputStream.readInt());
-                }
-                catch (IOException ex)
-                {
-                    final String msg = "Cannot handshake version with " + poolReference.endPoint();
-                    if (logger.isTraceEnabled())
-                        logger.trace(msg, ex);
-                    else
-                        logger.info(msg);
-                }
-                finally
-                {
-                    //unblock the waiting thread on either success or fail
-                    versionLatch.countDown();
-                }
+                logger.info("Handshaking version with {}", poolReference.endPoint());
+                version.set(inputStream.readInt());
             }
-        }.start();
+            catch (IOException ex)
+            {
+                final String msg = "Cannot handshake version with " + poolReference.endPoint();
+                if (logger.isTraceEnabled())
+                    logger.trace(msg, ex);
+                else
+                    logger.info(msg);
+            }
+            finally
+            {
+                //unblock the waiting thread on either success or fail
+                versionLatch.countDown();
+            }
+        }),"HANDSHAKE-" + poolReference.endPoint()).start();
 
         try
         {

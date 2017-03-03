@@ -85,18 +85,17 @@ public final class CFMetaData
     private final boolean isSuper;
     private final boolean isCounter;
     private final boolean isView;
-
     private final boolean isIndex;
 
     public volatile ClusteringComparator comparator;  // bytes, long, timeuuid, utf8, etc. This is built directly from clusteringColumns
     public final IPartitioner partitioner;            // partitioner the table uses
+    private volatile AbstractType<?> keyValidator;
 
     private final Serializers serializers;
 
     // non-final, for now
     public volatile TableParams params = TableParams.DEFAULT;
 
-    private volatile AbstractType<?> keyValidator = BytesType.instance;
     private volatile Map<ByteBuffer, DroppedColumn> droppedColumns = new HashMap<>();
     private volatile Triggers triggers = Triggers.none();
     private volatile Indexes indexes = Indexes.none();
@@ -288,6 +287,7 @@ public final class CFMetaData
         this.partitionColumns = partitionColumns;
 
         this.serializers = new Serializers(this);
+
         rebuild();
     }
 
@@ -301,10 +301,7 @@ public final class CFMetaData
         for (ColumnDefinition def : partitionKeyColumns)
             newColumnMetadata.put(def.name.bytes, def);
         for (ColumnDefinition def : clusteringColumns)
-        {
             newColumnMetadata.put(def.name.bytes, def);
-            def.type.checkComparable();
-        }
         for (ColumnDefinition def : partitionColumns)
             newColumnMetadata.put(def.name.bytes, def);
 
@@ -769,8 +766,6 @@ public final class CFMetaData
 
         params = cfm.params;
 
-        keyValidator = cfm.keyValidator;
-
         if (!cfm.droppedColumns.isEmpty())
             droppedColumns = cfm.droppedColumns;
 
@@ -796,12 +791,8 @@ public final class CFMetaData
         if (!cfm.cfId.equals(cfId))
             throw new ConfigurationException(String.format("Column family ID mismatch (found %s; expected %s)",
                                                            cfm.cfId, cfId));
-
         if (!cfm.flags.equals(flags))
             throw new ConfigurationException("types do not match.");
-
-        if (!cfm.comparator.isCompatibleWith(comparator))
-            throw new ConfigurationException(String.format("Column family comparators do not match or are not compatible (found %s; expected %s).", cfm.comparator.toString(), comparator.toString()));
     }
 
 
@@ -938,12 +929,9 @@ public final class CFMetaData
         {
             case PARTITION_KEY:
                 partitionKeyColumns.set(def.position(), def);
-                List<AbstractType<?>> keyTypes = extractTypes(partitionKeyColumns);
-                keyValidator = keyTypes.size() == 1 ? keyTypes.get(0) : CompositeType.getInstance(keyTypes);
                 break;
             case CLUSTERING:
                 clusteringColumns.set(def.position(), def);
-                comparator = new ClusteringComparator(extractTypes(clusteringColumns));
                 break;
             case REGULAR:
             case STATIC:

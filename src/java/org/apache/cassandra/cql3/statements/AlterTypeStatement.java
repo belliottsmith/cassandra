@@ -28,6 +28,7 @@ import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.MigrationManager;
+import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.Event;
 
 public abstract class AlterTypeStatement extends SchemaAlteringStatement
@@ -53,12 +54,12 @@ public abstract class AlterTypeStatement extends SchemaAlteringStatement
 
     public static AlterTypeStatement addition(UTName name, ColumnIdentifier fieldName, CQL3Type.Raw type)
     {
-        return new AddOrAlter(name, true, fieldName, type);
+        return new Add(name, fieldName, type);
     }
 
     public static AlterTypeStatement alter(UTName name, ColumnIdentifier fieldName, CQL3Type.Raw type)
     {
-        return new AddOrAlter(name, false, fieldName, type);
+        throw new InvalidRequestException("Altering of types is not allowed");
     }
 
     public static AlterTypeStatement renames(UTName name, Map<ColumnIdentifier, ColumnIdentifier> renames)
@@ -83,7 +84,7 @@ public abstract class AlterTypeStatement extends SchemaAlteringStatement
         return name.getKeyspace();
     }
 
-    public Event.SchemaChange announceMigration(boolean isLocalOnly) throws InvalidRequestException, ConfigurationException
+    public Event.SchemaChange announceMigration(QueryState queryState, boolean isLocalOnly) throws InvalidRequestException, ConfigurationException
     {
         KeyspaceMetadata ksm = Schema.instance.getKSMetaData(name.getKeyspace());
         if (ksm == null)
@@ -244,21 +245,19 @@ public abstract class AlterTypeStatement extends SchemaAlteringStatement
                      });
     }
 
-    private static class AddOrAlter extends AlterTypeStatement
+    private static class Add extends AlterTypeStatement
     {
-        private final boolean isAdd;
         private final ColumnIdentifier fieldName;
         private final CQL3Type.Raw type;
 
-        public AddOrAlter(UTName name, boolean isAdd, ColumnIdentifier fieldName, CQL3Type.Raw type)
+        public Add(UTName name, ColumnIdentifier fieldName, CQL3Type.Raw type)
         {
             super(name);
-            this.isAdd = isAdd;
             this.fieldName = fieldName;
             this.type = type;
         }
 
-        private UserType doAdd(UserType toUpdate) throws InvalidRequestException
+        protected UserType makeUpdatedType(UserType toUpdate, KeyspaceMetadata ksm) throws InvalidRequestException
         {
             if (getIdxOfField(toUpdate, fieldName) >= 0)
                 throw new InvalidRequestException(String.format("Cannot add new field %s to type %s: a field of the same name already exists", fieldName, name));
@@ -276,30 +275,6 @@ public abstract class AlterTypeStatement extends SchemaAlteringStatement
             newTypes.add(addType);
 
             return new UserType(toUpdate.keyspace, toUpdate.name, newNames, newTypes);
-        }
-
-        private UserType doAlter(UserType toUpdate, KeyspaceMetadata ksm) throws InvalidRequestException
-        {
-            checkTypeNotUsedByAggregate(ksm);
-
-            int idx = getIdxOfField(toUpdate, fieldName);
-            if (idx < 0)
-                throw new InvalidRequestException(String.format("Unknown field %s in type %s", fieldName, name));
-
-            AbstractType<?> previous = toUpdate.fieldType(idx);
-            if (!type.prepare(keyspace()).getType().isCompatibleWith(previous))
-                throw new InvalidRequestException(String.format("Type %s is incompatible with previous type %s of field %s in user type %s", type, previous.asCQL3Type(), fieldName, name));
-
-            List<ByteBuffer> newNames = new ArrayList<>(toUpdate.fieldNames());
-            List<AbstractType<?>> newTypes = new ArrayList<>(toUpdate.fieldTypes());
-            newTypes.set(idx, type.prepare(keyspace()).getType());
-
-            return new UserType(toUpdate.keyspace, toUpdate.name, newNames, newTypes);
-        }
-
-        protected UserType makeUpdatedType(UserType toUpdate, KeyspaceMetadata ksm) throws InvalidRequestException
-        {
-            return isAdd ? doAdd(toUpdate) : doAlter(toUpdate, ksm);
         }
     }
 

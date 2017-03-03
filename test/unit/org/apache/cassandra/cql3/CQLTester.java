@@ -199,6 +199,7 @@ public abstract class CQLTester
 
         ThreadAwareSecurityManager.install();
 
+        DatabaseDescriptor.setDaemonInitialized();
         Keyspace.setInitialized();
         isServerPrepared = true;
     }
@@ -410,6 +411,13 @@ public abstract class CQLTester
         ColumnFamilyStore store = getCurrentColumnFamilyStore();
         if (store != null)
             store.forceBlockingFlush();
+    }
+
+
+    public void flush(boolean forceFlush)
+    {
+        if (forceFlush)
+            flush();
     }
 
     @FunctionalInterface

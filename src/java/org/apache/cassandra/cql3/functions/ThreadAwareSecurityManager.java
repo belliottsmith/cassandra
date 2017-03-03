@@ -29,6 +29,7 @@ import java.security.ProtectionDomain;
 import java.util.Collections;
 import java.util.Enumeration;
 
+
 /**
  * Custom {@link SecurityManager} and {@link Policy} implementation that only performs access checks
  * if explicitly enabled.
@@ -69,6 +70,7 @@ public final class ThreadAwareSecurityManager extends SecurityManager
         if (installed)
             return;
         System.setSecurityManager(new ThreadAwareSecurityManager());
+
         installed = true;
     }
 

@@ -71,6 +71,7 @@ import org.apache.cassandra.batchlog.BatchRemoveVerbHandler;
 import org.apache.cassandra.batchlog.BatchStoreVerbHandler;
 import org.apache.cassandra.batchlog.BatchlogManager;
 import com.google.common.collect.Multimaps;
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
@@ -78,6 +79,9 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.config.ViewDefinition;
+import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.CounterMutationVerbHandler;
 import org.apache.cassandra.db.DecoratedKey;
@@ -270,6 +274,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     /** This method updates the local token on disk  */
     public void setTokens(Collection<Token> tokens)
     {
+        assert tokens != null && !tokens.isEmpty() : "Node needs at least one token.";
         if (logger.isDebugEnabled())
             logger.debug("Setting tokens to {}", tokens);
         SystemKeyspace.updateTokens(tokens);
@@ -493,8 +498,19 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
+    /**
+     * Set the Gossip flag RPC_READY to false and then
+     * shutdown the client services (thrift and CQL).
+     *
+     * Note that other nodes will do this for us when
+     * they get the Gossip shutdown message, so even if
+     * we don't get time to broadcast this, it is not a problem.
+     *
+     * See {@link Gossiper#markAsShutdown(InetAddress)}
+     */
     private void shutdownClientServers()
     {
+        setRpcReady(false);
         stopRPCServer();
         stopNativeTransport();
     }
@@ -666,7 +682,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
 
         // daemon threads, like our executors', continue to run while shutdown hooks are invoked
-        drainOnShutdown = new Thread(new WrappedRunnable()
+        drainOnShutdown = new Thread(NamedThreadFactory.threadLocalDeallocator(new WrappedRunnable()
         {
             @Override
             public void runMayThrow() throws InterruptedException, ExecutionException, IOException
@@ -676,7 +692,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 if (FBUtilities.isWindows())
                     WindowsTimer.endTimerPeriod(DatabaseDescriptor.getWindowsTimerInterval());
             }
-        }, "StorageServiceShutdownHook");
+        }), "StorageServiceShutdownHook");
         Runtime.getRuntime().addShutdownHook(drainOnShutdown);
 
         replacing = DatabaseDescriptor.isReplacing();
@@ -978,7 +994,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             if (dataAvailable)
             {
-                finishJoiningRing();
+                finishJoiningRing(bootstrapTokens);
 
                 // remove the existing info about the replaced node.
                 if (!current.isEmpty())
@@ -1032,15 +1048,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             isSurveyMode = false;
             logger.info("Leaving write survey mode and joining ring at operator request");
-            finishJoiningRing();
+            finishJoiningRing(SystemKeyspace.getSavedTokens());
         }
     }
 
-    private void finishJoiningRing()
+    private void finishJoiningRing(Collection<Token> tokens)
     {
         // start participating in the ring.
         SystemKeyspace.setBootstrapState(SystemKeyspace.BootstrapState.COMPLETED);
-        setTokens(bootstrapTokens);
+        setTokens(tokens);
 
         assert tokenMetadata.sortedTokens().size() > 0;
         doAuthSetup();
@@ -1346,7 +1362,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             @Override
             public void onSuccess(StreamState streamState)
             {
-                isBootstrapMode = false;
+                bootstrapFinished();
                 logger.info("Bootstrap completed! for the tokens {}", tokens);
             }
 
@@ -1368,6 +1384,25 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
+    /**
+     * All MVs have been created during bootstrap, so mark them as built
+     */
+    private void markViewsAsBuilt() {
+        for (String keyspace : Schema.instance.getUserKeyspaces())
+        {
+            for (ViewDefinition view: Schema.instance.getKSMetaData(keyspace).views)
+                SystemKeyspace.finishViewBuildStatus(view.ksName, view.viewName);
+        }
+    }
+
+    /**
+     * Called when bootstrap did finish successfully
+     */
+    private void bootstrapFinished() {
+        markViewsAsBuilt();
+        isBootstrapMode = false;
+    }
+
     public boolean resumeBootstrap()
     {
         if (isBootstrapMode && SystemKeyspace.bootstrapInProgress())
@@ -1385,7 +1420,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 @Override
                 public void onSuccess(StreamState streamState)
                 {
-                    isBootstrapMode = false;
+                    bootstrapFinished();
                     // start participating in the ring.
                     // pretend we are in survey mode so we can use joinRing() here
                     isSurveyMode = true;
@@ -1977,9 +2012,22 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 Gossiper.instance.getEndpointStateForEndpoint(endpoint).isRpcReady();
     }
 
+    /**
+     * Set the RPC status. Because when draining a node we need to set the RPC
+     * status to not ready, and drain is called by the shutdown hook, it may be that value is false
+     * and there is no local endpoint state. In this case it's OK to just do nothing. Therefore,
+     * we assert that the local endpoint state is not null only when value is true.
+     *
+     * @param value - true indicates that RPC is ready, false indicates the opposite.
+     */
     public void setRpcReady(boolean value)
     {
-        Gossiper.instance.addLocalApplicationState(ApplicationState.RPC_READY, valueFactory.rpcReady(value));
+        EndpointState state = Gossiper.instance.getEndpointStateForEndpoint(FBUtilities.getBroadcastAddress());
+        // if value is false we're OK with a null state, if it is true we are not.
+        assert !value || state != null;
+
+        if (state != null)
+            Gossiper.instance.addLocalApplicationState(ApplicationState.RPC_READY, valueFactory.rpcReady(value));
     }
 
     private Collection<Token> getTokensFor(InetAddress endpoint)
@@ -3329,7 +3377,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             return 0;
 
         int cmd = nextRepairCommand.incrementAndGet();
-        new Thread(createRepairTask(cmd, keyspace, options, legacy)).start();
+        new Thread(NamedThreadFactory.threadLocalDeallocator(createRepairTask(cmd, keyspace, options, legacy))).start();
         return cmd;
     }
 

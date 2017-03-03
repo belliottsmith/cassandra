@@ -41,13 +41,14 @@ import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.ColumnDefinition;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.statements.IndexTarget;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
-import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.index.internal.CassandraIndex;
@@ -56,7 +57,9 @@ import org.apache.cassandra.io.sstable.ReducingKeyIterator;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.Indexes;
+import org.apache.cassandra.service.pager.SinglePartitionPager;
 import org.apache.cassandra.tracing.Tracing;
+import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.Refs;
@@ -97,6 +100,9 @@ import org.apache.cassandra.utils.concurrent.Refs;
 public class SecondaryIndexManager implements IndexRegistry
 {
     private static final Logger logger = LoggerFactory.getLogger(SecondaryIndexManager.class);
+
+    // default page size (in rows) when rebuilding the index for a whole partition
+    public static final int DEFAULT_PAGE_SIZE = 10000;
 
     private Map<String, Index> indexes = Maps.newConcurrentMap();
 
@@ -379,7 +385,8 @@ public class SecondaryIndexManager implements IndexRegistry
     public void markIndexBuilt(String indexName)
     {
         builtIndexes.add(indexName);
-        SystemKeyspace.setIndexBuilt(baseCfs.keyspace.getName(), indexName);
+        if (DatabaseDescriptor.isDaemonInitialized())
+            SystemKeyspace.setIndexBuilt(baseCfs.keyspace.getName(), indexName);
     }
 
     /**
@@ -517,36 +524,123 @@ public class SecondaryIndexManager implements IndexRegistry
     /**
      * When building an index against existing data in sstables, add the given partition to the index
      */
-    public void indexPartition(UnfilteredRowIterator partition, OpOrder.Group opGroup, Set<Index> indexes, int nowInSec)
+    public void indexPartition(DecoratedKey key, Set<Index> indexes, int pageSize)
     {
+        if (logger.isTraceEnabled())
+            logger.trace("Indexing partition {}", baseCfs.metadata.getKeyValidator().getString(key.getKey()));
+
         if (!indexes.isEmpty())
         {
-            DecoratedKey key = partition.partitionKey();
-            Set<Index.Indexer> indexers = indexes.stream()
-                                                 .map(index -> index.indexerFor(key,
-                                                                                partition.columns(),
-                                                                                nowInSec,
-                                                                                opGroup,
-                                                                                IndexTransaction.Type.UPDATE))
-                                                 .filter(Objects::nonNull)
-                                                 .collect(Collectors.toSet());
+            SinglePartitionReadCommand cmd = SinglePartitionReadCommand.fullPartitionRead(baseCfs.metadata,
+                                                                                          FBUtilities.nowInSeconds(),
+                                                                                          key);
+            int nowInSec = cmd.nowInSec();
+            boolean readStatic = false;
 
-            indexers.forEach(Index.Indexer::begin);
-
-            try (RowIterator filtered = UnfilteredRowIterators.filter(partition, nowInSec))
+            SinglePartitionPager pager = new SinglePartitionPager(cmd, null, Server.CURRENT_VERSION);
+            while (!pager.isExhausted())
             {
-                if (!filtered.staticRow().isEmpty())
-                    indexers.forEach(indexer -> indexer.insertRow(filtered.staticRow()));
-
-                while (filtered.hasNext())
+                try (ReadOrderGroup readGroup = cmd.startOrderGroup();
+                     OpOrder.Group writeGroup = Keyspace.writeOrder.start();
+                     UnfilteredPartitionIterator page = pager.fetchPageUnfiltered(baseCfs.metadata, pageSize, readGroup))
                 {
-                    Row row = filtered.next();
-                    indexers.forEach(indexer -> indexer.insertRow(row));
+                    if (!page.hasNext())
+                        break;
+
+                    try (UnfilteredRowIterator partition = page.next()) {
+                        Set<Index.Indexer> indexers = indexes.stream()
+                                                             .map(index -> index.indexerFor(key,
+                                                                                            partition.columns(),
+                                                                                            nowInSec,
+                                                                                            writeGroup,
+                                                                                            IndexTransaction.Type.UPDATE))
+                                                             .filter(Objects::nonNull)
+                                                             .collect(Collectors.toSet());
+
+                        // Short-circuit empty partitions if static row is processed or isn't read
+                        if (!readStatic && partition.isEmpty() && partition.staticRow().isEmpty())
+                            break;
+
+                        indexers.forEach(Index.Indexer::begin);
+
+                        if (!readStatic)
+                        {
+                            if (!partition.staticRow().isEmpty())
+                                indexers.forEach(indexer -> indexer.insertRow(partition.staticRow()));
+                            indexers.forEach((Index.Indexer i) -> i.partitionDelete(partition.partitionLevelDeletion()));
+                            readStatic = true;
+                        }
+
+                        MutableDeletionInfo.Builder deletionBuilder = MutableDeletionInfo.builder(partition.partitionLevelDeletion(), baseCfs.getComparator(), false);
+
+                        while (partition.hasNext())
+                        {
+                            Unfiltered unfilteredRow = partition.next();
+
+                            if (unfilteredRow.isRow())
+                            {
+                                Row row = (Row) unfilteredRow;
+                                indexers.forEach(indexer -> indexer.insertRow(row));
+                            }
+                            else
+                            {
+                                assert unfilteredRow.isRangeTombstoneMarker();
+                                RangeTombstoneMarker marker = (RangeTombstoneMarker) unfilteredRow;
+                                deletionBuilder.add(marker);
+                            }
+                        }
+
+                        MutableDeletionInfo deletionInfo = deletionBuilder.build();
+                        if (deletionInfo.hasRanges())
+                        {
+                            Iterator<RangeTombstone> iter = deletionInfo.rangeIterator(false);
+                            while (iter.hasNext())
+                                indexers.forEach(indexer -> indexer.rangeTombstone(iter.next()));
+                        }
+
+                        indexers.forEach(Index.Indexer::finish);
+                    }
                 }
             }
-
-            indexers.forEach(Index.Indexer::finish);
         }
+    }
+
+    /**
+     * Return the page size used when indexing an entire partition
+     */
+    public int calculateIndexingPageSize()
+    {
+        if (Boolean.getBoolean("cassandra.force_default_indexing_page_size"))
+            return DEFAULT_PAGE_SIZE;
+
+        double targetPageSizeInBytes = 32 * 1024 * 1024;
+        double meanPartitionSize = baseCfs.getMeanPartitionSize();
+        if (meanPartitionSize <= 0)
+            return DEFAULT_PAGE_SIZE;
+
+        int meanCellsPerPartition = baseCfs.getMeanColumns();
+        if (meanCellsPerPartition <= 0)
+            return DEFAULT_PAGE_SIZE;
+
+        int columnsPerRow = baseCfs.metadata.partitionColumns().regulars.size();
+        if (meanCellsPerPartition <= 0)
+            return DEFAULT_PAGE_SIZE;
+
+        int meanRowsPerPartition = meanCellsPerPartition / columnsPerRow;
+        double meanRowSize = meanPartitionSize / meanRowsPerPartition;
+
+        int pageSize = (int) Math.max(1, Math.min(DEFAULT_PAGE_SIZE, targetPageSizeInBytes / meanRowSize));
+
+        logger.trace("Calculated page size {} for indexing {}.{} ({}/{}/{}/{})",
+                     pageSize,
+                     baseCfs.metadata.ksName,
+                     baseCfs.metadata.cfName,
+                     meanPartitionSize,
+                     meanCellsPerPartition,
+                     meanRowsPerPartition,
+                     meanRowSize);
+
+        return pageSize;
     }
 
     /**

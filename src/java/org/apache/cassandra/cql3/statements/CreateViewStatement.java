@@ -44,6 +44,7 @@ import org.apache.cassandra.schema.TableParams;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.service.MigrationManager;
+import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.thrift.ThriftValidation;
 import org.apache.cassandra.transport.Event;
 
@@ -114,7 +115,7 @@ public class CreateViewStatement extends SchemaAlteringStatement
         }
     }
 
-    public Event.SchemaChange announceMigration(boolean isLocalOnly) throws RequestValidationException
+    public Event.SchemaChange announceMigration(QueryState queryState, boolean isLocalOnly) throws RequestValidationException
     {
         // We need to make sure that:
         //  - primary key includes all columns in base table's primary key
@@ -278,12 +279,21 @@ public class CreateViewStatement extends SchemaAlteringStatement
         if (targetClusteringColumns.isEmpty())
             throw new InvalidRequestException("No columns are defined for Materialized View other than primary key");
 
+        TableParams params = properties.properties.asNewTableParams();
+
+        if (params.defaultTimeToLive > 0)
+        {
+            throw new InvalidRequestException("Cannot set default_time_to_live for a materialized view. " +
+                                              "Data in a materialized view always expire at the same time than " +
+                                              "the corresponding data in the parent table.");
+        }
+
         CFMetaData.Builder cfmBuilder = CFMetaData.Builder.createView(keyspace(), columnFamily());
         add(cfm, targetPartitionKeys, cfmBuilder::addPartitionKey);
         add(cfm, targetClusteringColumns, cfmBuilder::addClusteringColumn);
         add(cfm, includedColumns, cfmBuilder::addRegularColumn);
         cfmBuilder.withId(properties.properties.getId());
-        TableParams params = properties.properties.asNewTableParams();
+
         CFMetaData viewCfm = cfmBuilder.build().params(params);
         ViewDefinition definition = new ViewDefinition(keyspace(),
                                                        columnFamily(),

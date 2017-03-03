@@ -18,6 +18,9 @@
 
 package org.apache.cassandra.cql3.validation.operations;
 
+import java.nio.ByteBuffer;
+import java.util.List;
+
 import org.junit.Test;
 
 import org.apache.cassandra.cql3.CQLTester;
@@ -27,7 +30,6 @@ import org.apache.cassandra.schema.SchemaKeyspace;
 
 import static java.lang.String.format;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 public class InsertUpdateIfConditionTest extends CQLTester
@@ -44,8 +46,8 @@ public class InsertUpdateIfConditionTest extends CQLTester
         {
             execute("INSERT INTO %s (tkn, consumed) VALUES (?, FALSE)", i);
 
-            assertRows(execute("UPDATE %s SET consumed = TRUE WHERE tkn = ? IF consumed = FALSE", i), row(true));
-            assertRows(execute("UPDATE %s SET consumed = TRUE WHERE tkn = ? IF consumed = FALSE", i), row(false, true));
+            assertRows(execute("UPDATE %s SET consumed = TRUE WHERE tkn = ? IF consumed = ?", i, false), row(true));
+            assertRows(execute("UPDATE %s SET consumed = TRUE WHERE tkn = ? IF consumed = ?", i, false), row(false, true));
         }
     }
 
@@ -57,8 +59,11 @@ public class InsertUpdateIfConditionTest extends CQLTester
     {
         createTable(" CREATE TABLE %s (k int PRIMARY KEY, v1 int, v2 text, v3 int)");
 
+        assertInvalidMessage("Invalid 'unset' value in condition",
+                             "UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF v1 = ?", unset());
+
         // Shouldn't apply
-        assertRows(execute("UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF v1 = 4"), row(false));
+        assertRows(execute("UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF v1 = ?", 4), row(false));
         assertRows(execute("UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF EXISTS"), row(false));
 
         // Should apply
@@ -69,53 +74,55 @@ public class InsertUpdateIfConditionTest extends CQLTester
         assertRows(execute("SELECT * FROM %s"), row(0, 2, "foo", null));
 
         // Shouldn't apply
-        assertRows(execute("UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF v1 = 4"), row(false, 2));
+        assertRows(execute("UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF v1 = ?", 4), row(false, 2));
         assertRows(execute("SELECT * FROM %s"), row(0, 2, "foo", null));
 
         // Should apply (note: we want v2 before v1 in the statement order to exercise #5786)
-        assertRows(execute("UPDATE %s SET v2 = 'bar', v1 = 3 WHERE k = 0 IF v1 = 2"), row(true));
+        assertRows(execute("UPDATE %s SET v2 = 'bar', v1 = 3 WHERE k = 0 IF v1 = ?", 2), row(true));
         assertRows(execute("UPDATE %s SET v2 = 'bar', v1 = 3 WHERE k = 0 IF EXISTS"), row(true));
         assertRows(execute("SELECT * FROM %s"), row(0, 3, "bar", null));
 
         // Shouldn't apply, only one condition is ok
-        assertRows(execute("UPDATE %s SET v1 = 5, v2 = 'foobar' WHERE k = 0 IF v1 = 3 AND v2 = 'foo'"), row(false, 3, "bar"));
+        assertRows(execute("UPDATE %s SET v1 = 5, v2 = 'foobar' WHERE k = 0 IF v1 = ? AND v2 = ?", 3, "foo"), row(false, 3, "bar"));
         assertRows(execute("SELECT * FROM %s"), row(0, 3, "bar", null));
 
         // Should apply
-        assertRows(execute("UPDATE %s SET v1 = 5, v2 = 'foobar' WHERE k = 0 IF v1 = 3 AND v2 = 'bar'"), row(true));
+        assertRows(execute("UPDATE %s SET v1 = 5, v2 = 'foobar' WHERE k = 0 IF v1 = ? AND v2 = ?", 3, "bar"), row(true));
         assertRows(execute("SELECT * FROM %s"), row(0, 5, "foobar", null));
 
         // Shouldn't apply
-        assertRows(execute("DELETE v2 FROM %s WHERE k = 0 IF v1 = 3"), row(false, 5));
+        assertRows(execute("DELETE v2 FROM %s WHERE k = 0 IF v1 = ?", 3), row(false, 5));
         assertRows(execute("SELECT * FROM %s"), row(0, 5, "foobar", null));
 
         // Shouldn't apply
-        assertRows(execute("DELETE v2 FROM %s WHERE k = 0 IF v1 = null"), row(false, 5));
+        assertRows(execute("DELETE v2 FROM %s WHERE k = 0 IF v1 = ?", (Integer) null), row(false, 5));
         assertRows(execute("SELECT * FROM %s"), row(0, 5, "foobar", null));
 
         // Should apply
-        assertRows(execute("DELETE v2 FROM %s WHERE k = 0 IF v1 = 5"), row(true));
+        assertRows(execute("DELETE v2 FROM %s WHERE k = 0 IF v1 = ?", 5), row(true));
         assertRows(execute("SELECT * FROM %s"), row(0, 5, null, null));
 
         // Shouln't apply
-        assertRows(execute("DELETE v1 FROM %s WHERE k = 0 IF v3 = 4"), row(false, null));
+        assertRows(execute("DELETE v1 FROM %s WHERE k = 0 IF v3 = ?", 4), row(false, null));
 
         // Should apply
-        assertRows(execute("DELETE v1 FROM %s WHERE k = 0 IF v3 = null"), row(true));
+        assertRows(execute("DELETE v1 FROM %s WHERE k = 0 IF v3 = ?", (Integer) null), row(true));
         assertRows(execute("SELECT * FROM %s"), row(0, null, null, null));
 
         // Should apply
-        assertRows(execute("DELETE FROM %s WHERE k = 0 IF v1 = null"), row(true));
+        assertRows(execute("DELETE FROM %s WHERE k = 0 IF v1 = ?", (Integer) null), row(true));
         assertEmpty(execute("SELECT * FROM %s"));
 
         // Shouldn't apply
         assertRows(execute("UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF EXISTS"), row(false));
 
-        // Shouldn't apply
+        // Should apply
         assertEmpty(execute("SELECT * FROM %s WHERE k = 0"));
-        assertRows(execute("DELETE FROM %s WHERE k = 0 IF v1 IN (null)"), row(true));
+        assertRows(execute("DELETE FROM %s WHERE k = 0 IF v1 IN (?)", (Integer) null), row(true));
 
         createTable(" CREATE TABLE %s (k int, c int, v1 text, PRIMARY KEY(k, c))");
+        assertInvalidMessage("IN on the clustering key columns is not supported with conditional updates",
+                             "UPDATE %s SET v1 = 'A' WHERE k = 0 AND c IN () IF EXISTS");
         assertInvalidMessage("IN on the clustering key columns is not supported with conditional updates",
                              "UPDATE %s SET v1 = 'A' WHERE k = 0 AND c IN (1, 2) IF EXISTS");
     }
@@ -131,15 +138,28 @@ public class InsertUpdateIfConditionTest extends CQLTester
         // non-EQ conditions
         execute("INSERT INTO %s (k, v1, v2) VALUES (0, 2, 'foo')");
 
-        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 < 3"), row(true));
-        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 <= 3"), row(true));
-        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 > 1"), row(true));
-        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 >= 1"), row(true));
-        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 != 1"), row(true));
-        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 != 2"), row(false, 2));
-        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 IN (0, 1, 2)"), row(true));
-        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 IN (142, 276)"), row(false, 2));
+        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 < ?", 3), row(true));
+        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 <= ?", 3), row(true));
+        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 > ?", 1), row(true));
+        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 >= ?", 1), row(true));
+        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 != ?", 1), row(true));
+        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 != ?", 2), row(false, 2));
+        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 IN (?, ?, ?)", 0, 1, 2), row(true));
+        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 IN ?", list(142, 276)), row(false, 2));
         assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 IN ()"), row(false, 2));
+        assertRows(execute("UPDATE %s SET v2 = 'bar' WHERE k = 0 IF v1 IN (?, ?)", unset(), 1), row(false, 2));
+
+        assertInvalidMessage("Invalid 'unset' value in condition",
+                             "UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF v1 < ?", unset());
+        assertInvalidMessage("Invalid 'unset' value in condition",
+                             "UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF v1 <= ?", unset());
+        assertInvalidMessage("Invalid 'unset' value in condition",
+                             "UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF v1 > ?", unset());
+        assertInvalidMessage("Invalid 'unset' value in condition",
+                             "UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF v1 >= ?", unset());
+        assertInvalidMessage("Invalid 'unset' value in condition",
+                             "UPDATE %s SET v1 = 3, v2 = 'bar' WHERE k = 0 IF v1 != ?", unset());
+
     }
 
     /**
@@ -186,6 +206,10 @@ public class InsertUpdateIfConditionTest extends CQLTester
         execute("INSERT INTO %s (k, s, i, v) VALUES ('k', 's', 0, 'v')");
         assertRows(execute("DELETE v FROM %s WHERE k='k' AND i=0 IF EXISTS"), row(true));
         assertRows(execute("DELETE FROM %s WHERE k='k' AND i=0 IF EXISTS"), row(true));
+        assertRows(execute("SELECT * FROM %s"), row("k", null, "s", null));
+        assertRows(execute("DELETE v FROM %s WHERE k='k' AND i=0 IF s = 'z'"), row(false, "s"));
+        assertRows(execute("DELETE v FROM %s WHERE k='k' AND i=0 IF v = 'z'"), row(false));
+        assertRows(execute("DELETE v FROM %s WHERE k='k' AND i=0 IF v = 'z' AND s = 'z'"), row(false, null, "s"));
         assertRows(execute("DELETE v FROM %s WHERE k='k' AND i=0 IF EXISTS"), row(false));
         assertRows(execute("DELETE FROM %s WHERE k='k' AND i=0 IF EXISTS"), row(false));
 
@@ -193,7 +217,7 @@ public class InsertUpdateIfConditionTest extends CQLTester
         assertInvalidMessage("DELETE statements must restrict all PRIMARY KEY columns with equality relations in order to delete non static columns",
                              "DELETE FROM %s WHERE k = 'k' IF EXISTS");
         assertInvalidMessage("DELETE statements must restrict all PRIMARY KEY columns with equality relations in order to delete non static columns",
-                             "DELETE FROM %s WHERE k = 'k' IF v = 'foo'");
+                             "DELETE FROM %s WHERE k = 'k' IF v = ?", "foo");
         assertInvalidMessage("Some partition key parts are missing: k",
                              "DELETE FROM %s WHERE i = 0 IF EXISTS");
 
@@ -208,18 +232,47 @@ public class InsertUpdateIfConditionTest extends CQLTester
         assertInvalidMessage("IN on the clustering key columns is not supported with conditional deletions",
                              "DELETE FROM %s WHERE k = 'k' AND i IN (0, 1) IF v = 'foo'");
         assertInvalidMessage("IN on the clustering key columns is not supported with conditional deletions",
+                             "DELETE FROM %s WHERE k = 'k' AND i IN () IF v = 'foo'");
+        assertInvalidMessage("IN on the clustering key columns is not supported with conditional deletions",
                              "DELETE FROM %s WHERE k = 'k' AND i IN (0, 1) IF EXISTS");
+        assertInvalidMessage("IN on the clustering key columns is not supported with conditional deletions",
+                             "DELETE FROM %s WHERE k = 'k' AND i IN () IF EXISTS");
+
+        assertInvalidMessage("Invalid 'unset' value in condition",
+                             "DELETE FROM %s WHERE k = 'k' AND i = 0 IF v = ?", unset());
 
         createTable("CREATE TABLE %s(k int, s int static, i int, v text, PRIMARY KEY(k, i))");
         execute("INSERT INTO %s (k, s, i, v) VALUES ( 1, 1, 2, '1')");
-        assertRows(execute("DELETE v FROM %s WHERE k = 1 AND i = 2 IF s != 1"), row(false, 1));
-        assertRows(execute("DELETE v FROM %s WHERE k = 1 AND i = 2 IF s = 1"), row(true));
+        assertRows(execute("DELETE v FROM %s WHERE k = 1 AND i = 2 IF s != ?", 1), row(false, 1));
+        assertRows(execute("DELETE v FROM %s WHERE k = 1 AND i = 2 IF s = ?", 1), row(true));
         assertRows(execute("SELECT * FROM %s WHERE k = 1 AND i = 2"), row(1, 2, 1, null));
 
-        assertRows(execute("DELETE FROM %s WHERE  k = 1 AND i = 2 IF s != 1"), row(false, 1));
-        assertRows(execute("DELETE FROM %s WHERE k = 1 AND i = 2 IF s = 1"), row(true));
+        assertRows(execute("DELETE FROM %s WHERE  k = 1 AND i = 2 IF s != ?", 1), row(false, 1));
+        assertRows(execute("DELETE FROM %s WHERE k = 1 AND i = 2 IF s = ?", 1), row(true));
         assertEmpty(execute("SELECT * FROM %s WHERE k = 1 AND i = 2"));
         assertRows(execute("SELECT * FROM %s WHERE k = 1"), row(1, null, 1, null));
+
+        createTable("CREATE TABLE %s (k int, i int, v1 int, v2 int, s int static, PRIMARY KEY (k, i))");
+        execute("INSERT INTO %s (k, i, v1, v2, s) VALUES (?, ?, ?, ?, ?)",
+                1, 1, 1, 1, 1);
+        assertRows(execute("DELETE v1 FROM %s WHERE k = 1 AND i = 1 IF EXISTS"),
+                   row(true));
+        assertRows(execute("DELETE v2 FROM %s WHERE k = 1 AND i = 1 IF EXISTS"),
+                   row(true));
+        assertRows(execute("DELETE FROM %s WHERE k = 1 AND i = 1 IF EXISTS"),
+                   row(true));
+        assertRows(execute("select * from %s"),
+                   row(1, null, 1, null, null));
+        assertRows(execute("DELETE v1 FROM %s WHERE k = 1 AND i = 1 IF EXISTS"),
+                   row(false));
+        assertRows(execute("DELETE v1 FROM %s WHERE k = 1 AND i = 1 IF s = 5"),
+                   row(false, 1));
+        assertRows(execute("DELETE v1 FROM %s WHERE k = 1 AND i = 1 IF v1 = 1 AND v2 = 1"),
+                   row(false));
+        assertRows(execute("DELETE v1 FROM %s WHERE k = 1 AND i = 1 IF v1 = 1 AND v2 = 1 AND s = 1"),
+                   row(false, null, null, 1));
+        assertRows(execute("DELETE v1 FROM %s WHERE k = 1 AND i = 5 IF s = 1"),
+                   row(true));
     }
 
     /**
@@ -240,22 +293,26 @@ public class InsertUpdateIfConditionTest extends CQLTester
 
         execute("INSERT INTO %s(id, version) VALUES (0, 0)");
 
-        assertRows(execute("UPDATE %s SET v='foo', version=1 WHERE id=0 AND k='k1' IF version = 0"), row(true));
+        assertRows(execute("UPDATE %s SET v='foo', version=1 WHERE id=0 AND k='k1' IF version = ?", 0), row(true));
         assertRows(execute("SELECT * FROM %s"), row(0, "k1", 1, "foo"));
 
-        assertRows(execute("UPDATE %s SET v='bar', version=1 WHERE id=0 AND k='k2' IF version = 0"), row(false, 1));
+        assertRows(execute("UPDATE %s SET v='bar', version=1 WHERE id=0 AND k='k2' IF version = ?", 0), row(false, 1));
         assertRows(execute("SELECT * FROM %s"), row(0, "k1", 1, "foo"));
 
-        assertRows(execute("UPDATE %s SET v='bar', version=2 WHERE id=0 AND k='k2' IF version = 1"), row(true));
+        assertRows(execute("UPDATE %s SET v='bar', version=2 WHERE id=0 AND k='k2' IF version = ?", 1), row(true));
         assertRows(execute("SELECT * FROM %s"), row(0, "k1", 2, "foo"), row(0, "k2", 2, "bar"));
 
+        // Batch output is slightly different from non-batch CAS, since a full PK is included to disambiguate
+        // cases when conditions span across multiple rows.
+        assertRows(execute("UPDATE %1$s SET version=3 WHERE id=0 IF version=1; "),
+                   row(false, 2));
         // Testing batches
         assertRows(execute("BEGIN BATCH " +
                            "UPDATE %1$s SET v='foobar' WHERE id=0 AND k='k1'; " +
                            "UPDATE %1$s SET v='barfoo' WHERE id=0 AND k='k2'; " +
                            "UPDATE %1$s SET version=3 WHERE id=0 IF version=1; " +
                            "APPLY BATCH "),
-                   row(false, 0, null, 2));
+                   row(false, 0, "k1", 2));
 
         assertRows(execute("BEGIN BATCH " +
                            "UPDATE %1$s SET v = 'foobar' WHERE id = 0 AND k = 'k1'; " +
@@ -587,14 +644,16 @@ public class InsertUpdateIfConditionTest extends CQLTester
 
             execute("INSERT INTO %s(k, l) VALUES (0, ['foo', 'bar', 'foobar'])");
 
-            assertInvalid("DELETE FROM %s WHERE k=0 IF l[null] = 'foobar'");
-            assertInvalid("DELETE FROM %s WHERE k=0 IF l[-2] = 'foobar'");
+            assertInvalidMessage("Invalid null value for list element access",
+                                 "DELETE FROM %s WHERE k=0 IF l[?] = ?", null, "foobar");
+            assertInvalidMessage("Invalid negative list index -2",
+                                 "DELETE FROM %s WHERE k=0 IF l[?] = ?", -2, "foobar");
 
-            assertRows(execute("DELETE FROM %s WHERE k=0 IF l[1] = null"), row(false, list("foo", "bar", "foobar")));
-            assertRows(execute("DELETE FROM %s WHERE k=0 IF l[1] = 'foobar'"), row(false, list("foo", "bar", "foobar")));
+            assertRows(execute("DELETE FROM %s WHERE k=0 IF l[?] = ?", 1, null), row(false, list("foo", "bar", "foobar")));
+            assertRows(execute("DELETE FROM %s WHERE k=0 IF l[?] = ?", 1, "foobar"), row(false, list("foo", "bar", "foobar")));
             assertRows(execute("SELECT * FROM %s"), row(0, list("foo", "bar", "foobar")));
 
-            assertRows(execute("DELETE FROM %s WHERE k=0 IF l[1] = 'bar'"), row(true));
+            assertRows(execute("DELETE FROM %s WHERE k=0 IF l[?] = ?", 1, "bar"), row(true));
             assertEmpty(execute("SELECT * FROM %s"));
         }
     }
@@ -794,19 +853,21 @@ public class InsertUpdateIfConditionTest extends CQLTester
                                       : "map<text, text>"));
 
             execute("INSERT INTO %s (k, m) VALUES (0, {'foo' : 'bar'})");
-            assertInvalid("DELETE FROM %s WHERE k=0 IF m[null] = 'foo'");
-            assertRows(execute("DELETE FROM %s WHERE k=0 IF m['foo'] = 'foo'"), row(false, map("foo", "bar")));
-            assertRows(execute("DELETE FROM %s WHERE k=0 IF m['foo'] = null"), row(false, map("foo", "bar")));
+            assertInvalidMessage("Invalid null value for map element access",
+                                 "DELETE FROM %s WHERE k=0 IF m[?] = ?", null, "foo");
+            assertRows(execute("DELETE FROM %s WHERE k=0 IF m[?] = ?", "foo", "foo"), row(false, map("foo", "bar")));
+            assertRows(execute("DELETE FROM %s WHERE k=0 IF m[?] = ?", "foo", null), row(false, map("foo", "bar")));
             assertRows(execute("SELECT * FROM %s"), row(0, map("foo", "bar")));
 
-            assertRows(execute("DELETE FROM %s WHERE k=0 IF m['foo'] = 'bar'"), row(true));
+            assertRows(execute("DELETE FROM %s WHERE k=0 IF m[?] = ?", "foo", "bar"), row(true));
             assertEmpty(execute("SELECT * FROM %s"));
 
             execute("INSERT INTO %s(k, m) VALUES (1, null)");
             if (frozen)
-                assertInvalid("UPDATE %s set m['foo'] = 'bar', m['bar'] = 'foo' WHERE k = 1 IF m['foo'] IN ('blah', null)");
+                assertInvalidMessage("Invalid operation (m['foo'] = 'bar') for frozen collection column m",
+                                     "UPDATE %s set m['foo'] = 'bar', m['bar'] = 'foo' WHERE k = 1 IF m[?] IN (?, ?)", "foo", "blah", null);
             else
-                assertRows(execute("UPDATE %s set m['foo'] = 'bar', m['bar'] = 'foo' WHERE k = 1 IF m['foo'] IN ('blah', null)"), row(true));
+                assertRows(execute("UPDATE %s set m['foo'] = 'bar', m['bar'] = 'foo' WHERE k = 1 IF m[?] IN (?, ?)", "foo", "blah", null), row(true));
         }
     }
 
@@ -1032,6 +1093,8 @@ public class InsertUpdateIfConditionTest extends CQLTester
     {
         createTable("CREATE TABLE %s (a int, b int, s int static, d text, PRIMARY KEY (a, b))");
 
+        assertInvalidMessage("Invalid 'unset' value in condition", "UPDATE %s SET s = 6 WHERE a = 6 IF s = ?", unset());
+
         // pre-existing row
         execute("INSERT INTO %s (a, b, s, d) values (6, 6, 100, 'a')");
         assertRows(execute("UPDATE %s SET s = 6 WHERE a = 6 IF s = 100"),
@@ -1081,14 +1144,14 @@ public class InsertUpdateIfConditionTest extends CQLTester
                    row(4, 4, null));
 
         // rejected: IN doesn't contain null
-        assertRows(execute("UPDATE %s SET s = 3 WHERE a = 3 IF s IN (10,20,30)"),
+        assertRows(execute("UPDATE %s SET s = 3 WHERE a = 3 IF s IN ?", list(10,20,30)),
                    row(false));
         assertEmpty(execute("SELECT a, s, d FROM %s WHERE a = 3"));
 
         // rejected: comparing number with NULL always returns false
         for (String operator : new String[]{ ">", "<", ">=", "<=", "=" })
         {
-            assertRows(execute("UPDATE %s SET s = 50 WHERE a = 5 IF s " + operator + " 3"),
+            assertRows(execute("UPDATE %s SET s = 50 WHERE a = 5 IF s " + operator + " ?", 3),
                        row(false));
             assertEmpty(execute("SELECT * FROM %s WHERE a = 5"));
         }
@@ -1119,7 +1182,7 @@ public class InsertUpdateIfConditionTest extends CQLTester
                    row(2, 2, 200, null));
 
         // rejected: IN doesn't contain null
-        assertRows(execute("UPDATE %s SET s = 30 WHERE a = 3 IF s IN (10,20,30)"),
+        assertRows(execute("UPDATE %s SET s = 30 WHERE a = 3 IF s IN ?", list(10,20,30)),
                    row(false, null));
         assertRows(execute("SELECT * FROM %s WHERE a = 3"),
                    row(3, 1, null, null),
@@ -1331,23 +1394,23 @@ public class InsertUpdateIfConditionTest extends CQLTester
         for (int i = 1; i <= 5; i++)
             execute("INSERT INTO %s (a, b, s1, s2, v) VALUES (?, ?, ?, ?, ?)", i, i, i, null, i);
 
-        assertRows(execute("DELETE s1 FROM %s WHERE a = 1 IF s2 = NULL"),
+        assertRows(execute("DELETE s1 FROM %s WHERE a = 1 IF s2 = ?", (Integer) null),
                    row(true));
         assertRows(execute("SELECT * FROM %s WHERE a = 1"),
                    row(1, 1, null, null, 1));
 
         // rejected: IN doesn't contain null
-        assertRows(execute("DELETE s1 FROM %s WHERE a = 2 IF s2 IN (10,20,30)"),
+        assertRows(execute("DELETE s1 FROM %s WHERE a = 2 IF s2 IN ?", list(10,20,30)),
                    row(false, null));
         assertRows(execute("SELECT * FROM %s WHERE a = 2"),
                    row(2, 2, 2, null, 2));
 
-        assertRows(execute("DELETE s1 FROM %s WHERE a = 3 IF s2 IN (NULL,20,30)"),
+        assertRows(execute("DELETE s1 FROM %s WHERE a = 3 IF s2 IN (?, ?, ?)", null, 20, 30),
                    row(true));
         assertRows(execute("SELECT * FROM %s WHERE a = 3"),
                    row(3, 3, null, null, 3));
 
-        assertRows(execute("DELETE s1 FROM %s WHERE a = 4 IF s2 != 4"),
+        assertRows(execute("DELETE s1 FROM %s WHERE a = 4 IF s2 != ?", 4),
                    row(true));
         assertRows(execute("SELECT * FROM %s WHERE a = 4"),
                    row(4, 4, null, null, 4));
@@ -1355,7 +1418,7 @@ public class InsertUpdateIfConditionTest extends CQLTester
         // rejected: comparing number with NULL always returns false
         for (String operator : new String[]{ ">", "<", ">=", "<=", "=" })
         {
-            assertRows(execute("DELETE s1 FROM %s WHERE a = 5 IF s2 " + operator + " 3"),
+            assertRows(execute("DELETE s1 FROM %s WHERE a = 5 IF s2 " + operator + " ?", 3),
                        row(false, null));
             assertRows(execute("SELECT * FROM %s WHERE a = 5"),
                        row(5, 5, 5, null, 5));
@@ -1524,5 +1587,160 @@ public class InsertUpdateIfConditionTest extends CQLTester
                              + "INSERT INTO %1$s (k, t, v1) values (1, 0, 'foo') IF NOT EXISTS; "
                              + "UPDATE %1$s SET v2 = 'bar' WHERE k = 1 AND t = 0 IF v1 = 'foo'; "
                              + "APPLY BATCH");
+    }
+
+    @Test
+    public void testInMarkerWithUDTs() throws Throwable
+    {
+        String typename = createType("CREATE TYPE %s (a int, b text)");
+        String myType = KEYSPACE + '.' + typename;
+
+            createTable("CREATE TABLE %s (k int PRIMARY KEY, v frozen<" + myType + "> )");
+
+            Object v = userType(0, "abc");
+            execute("INSERT INTO %s (k, v) VALUES (?, ?)", 0, v);
+
+            // Does not apply
+            assertRows(execute("UPDATE %s SET v = {a: 0, b: 'bc'} WHERE k = 0 IF v IN (?, ?)", userType(1, "abc"), userType(0, "ac")),
+                       row(false, v));
+            assertRows(execute("UPDATE %s SET v = {a: 0, b: 'bc'} WHERE k = 0 IF v IN (?, ?)", userType(1, "abc"), null),
+                       row(false, v));
+            assertRows(execute("UPDATE %s SET v = {a: 0, b: 'bc'} WHERE k = 0 IF v IN (?, ?)", userType(1, "abc"), unset()),
+                       row(false, v));
+            assertRows(execute("UPDATE %s SET v = {a: 0, b: 'bc'} WHERE k = 0 IF v IN (?, ?)", null, null),
+                       row(false, v));
+            assertRows(execute("UPDATE %s SET v = {a: 0, b: 'bc'} WHERE k = 0 IF v IN (?, ?)", unset(), unset()),
+                       row(false, v));
+            assertRows(execute("UPDATE %s SET v = {a: 0, b: 'bc'} WHERE k = 0 IF v IN ?", list(userType(1, "abc"), userType(0, "ac"))),
+                       row(false, v));
+
+            // Does apply
+            assertRows(execute("UPDATE %s SET v = {a: 0, b: 'bc'} WHERE k = 0 IF v IN (?, ?)", userType(0, "abc"), userType(0, "ac")),
+                       row(true));
+            assertRows(execute("UPDATE %s SET v = {a: 1, b: 'bc'} WHERE k = 0 IF v IN (?, ?)", userType(0, "bc"), null),
+                       row(true));
+            assertRows(execute("UPDATE %s SET v = {a: 1, b: 'ac'} WHERE k = 0 IF v IN (?, ?, ?)", userType(0, "bc"), unset(), userType(1, "bc")),
+                       row(true));
+            assertRows(execute("UPDATE %s SET v = {a: 0, b: 'abc'} WHERE k = 0 IF v IN ?", list(userType(1, "ac"), userType(0, "ac"))),
+                       row(true));
+
+            assertInvalidMessage("Invalid null list in IN condition",
+                                 "UPDATE %s SET v = {a: 0, b: 'bc'} WHERE k = 0 IF v IN ?", (List<ByteBuffer>) null);
+            assertInvalidMessage("Invalid 'unset' value in condition",
+                                 "UPDATE %s SET v = {a: 0, b: 'bc'} WHERE k = 0 IF v IN ?", unset());
+    }
+
+    @Test
+    public void testInMarkerWithLists() throws Throwable
+    {
+        for (boolean frozen : new boolean[]{false, true})
+        {
+            createTable(String.format("CREATE TABLE %%s (k int PRIMARY KEY, l %s)",
+                                      frozen
+                                      ? "frozen<list<text>>"
+                                      : "list<text>"));
+
+            execute("INSERT INTO %s(k, l) VALUES (0, ['foo', 'bar', 'foobar'])");
+
+            // Does not apply
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l IN (?, ?)", list("foo", "foobar"), list("bar", "foobar")),
+                       row(false, list("foo", "bar", "foobar")));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l IN (?, ?)", list("foo", "foobar"), null),
+                       row(false, list("foo", "bar", "foobar")));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l IN (?, ?)", list("foo", "foobar"), unset()),
+                       row(false, list("foo", "bar", "foobar")));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l IN (?, ?)", null, null),
+                       row(false, list("foo", "bar", "foobar")));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l IN ?", list(list("foo", "foobar"), list("bar", "foobar"))),
+                       row(false, list("foo", "bar", "foobar")));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l[?] IN ?", 1, list("foo", "foobar")),
+                       row(false, list("foo", "bar", "foobar")));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l[?] IN (?, ?)", 1, "foo", "foobar"),
+                       row(false, list("foo", "bar", "foobar")));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l[?] IN (?, ?)", 1, "foo", null),
+                       row(false, list("foo", "bar", "foobar")));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l[?] IN (?, ?)", 1, "foo", unset()),
+                       row(false, list("foo", "bar", "foobar")));
+
+            // Does apply
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l IN (?, ?)", list("foo", "bar", "foobar"), list("bar", "foobar")),
+                       row(true));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'foobar'] WHERE k = 0 IF l IN (?, ?, ?)", list("foo", "bar", "foobar"), null, list("foo", "bar")),
+                       row(true));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l IN (?, ?, ?)", list("foo", "bar", "foobar"), unset(), list("foo", "foobar")),
+                       row(true));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'foobar'] WHERE k = 0 IF l IN (?, ?)", list("bar", "foobar"), list("foo", "bar")),
+                       row(true));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l[?] IN ?", 1, list("bar", "foobar")),
+                       row(true));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'foobar'] WHERE k = 0 IF l[?] IN (?, ?, ?)", 1, "bar", null, "foobar"),
+                       row(true));
+            assertRows(execute("UPDATE %s SET l = ['foo', 'foobar'] WHERE k = 0 IF l[?] IN (?, ?, ?)", 1, "bar", unset(), "foobar"),
+                       row(true));
+
+            assertInvalidMessage("Invalid null list in IN condition",
+                                 "UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l IN ?", (List<ByteBuffer>) null);
+            assertInvalidMessage("Invalid 'unset' value in condition",
+                                 "UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l IN ?", unset());
+            assertInvalidMessage("Invalid 'unset' value in condition",
+                                 "UPDATE %s SET l = ['foo', 'bar'] WHERE k = 0 IF l[?] IN ?", 1, unset());
+        }
+    }
+
+    @Test
+    public void testInMarkerWithMaps() throws Throwable
+    {
+        for (boolean frozen : new boolean[] {false, true})
+        {
+            createTable(String.format("CREATE TABLE %%s (k int PRIMARY KEY, m %s)",
+                                      frozen
+                                      ? "frozen<map<text, text>>"
+                                      : "map<text, text>"));
+
+            execute("INSERT INTO %s (k, m) VALUES (0, {'foo' : 'bar'})");
+
+            // Does not apply
+            assertRows(execute("UPDATE %s SET m = {'foo' : 'foobar'} WHERE k = 0 IF m IN (?, ?)", map("foo", "foobar"), map("bar", "foobar")),
+                       row(false, map("foo", "bar")));
+            assertRows(execute("UPDATE %s SET  m = {'foo' : 'foobar'} WHERE k = 0 IF m IN (?, ?)", map("foo", "foobar"), null),
+                       row(false, map("foo", "bar")));
+            assertRows(execute("UPDATE %s SET  m = {'foo' : 'foobar'} WHERE k = 0 IF m IN (?, ?)", map("foo", "foobar"), unset()),
+                       row(false, map("foo", "bar")));
+            assertRows(execute("UPDATE %s SET  m = {'foo' : 'foobar'} WHERE k = 0 IF m IN (?, ?)", null, null),
+                       row(false, map("foo", "bar")));
+            assertRows(execute("UPDATE %s SET  m = {'foo' : 'foobar'} WHERE k = 0 IF m IN ?", list(map("foo", "foobar"), map("bar", "foobar"))),
+                       row(false, map("foo", "bar")));
+            assertRows(execute("UPDATE %s SET  m = {'foo' : 'foobar'} WHERE k = 0 IF m[?] IN ?", "foo", list("foo", "foobar")),
+                       row(false, map("foo", "bar")));
+            assertRows(execute("UPDATE %s SET  m = {'foo' : 'foobar'} WHERE k = 0 IF m[?] IN (?, ?)", "foo", "foo", "foobar"),
+                       row(false, map("foo", "bar")));
+            assertRows(execute("UPDATE %s SET  m = {'foo' : 'foobar'} WHERE k = 0 IF m[?] IN (?, ?)", "foo", "foo", null),
+                       row(false, map("foo", "bar")));
+            assertRows(execute("UPDATE %s SET  m = {'foo' : 'foobar'} WHERE k = 0 IF m[?] IN (?, ?)", "foo", "foo", unset()),
+                       row(false, map("foo", "bar")));
+
+            // Does apply
+            assertRows(execute("UPDATE %s SET m = {'foo' : 'foobar'} WHERE k = 0 IF m IN (?, ?)", map("foo", "foobar"), map("foo", "bar")),
+                       row(true));
+            assertRows(execute("UPDATE %s SET m = {'foo' : 'bar'} WHERE k = 0 IF m IN (?, ?, ?)", map("bar", "foobar"), null, map("foo", "foobar")),
+                       row(true));
+            assertRows(execute("UPDATE %s SET m = {'foo' : 'bar'} WHERE k = 0 IF m IN (?, ?, ?)", map("bar", "foobar"), unset(), map("foo", "bar")),
+                       row(true));
+            assertRows(execute("UPDATE %s SET m = {'foo' : 'foobar'} WHERE k = 0 IF m IN ?", list(map("foo", "bar"), map("bar", "foobar"))),
+                       row(true));
+            assertRows(execute("UPDATE %s SET m = {'foo' : 'bar'} WHERE k = 0 IF m[?] IN ?", "foo", list("bar", "foobar")),
+                       row(true));
+            assertRows(execute("UPDATE %s SET m = {'foo' : 'foobar'} WHERE k = 0 IF m[?] IN (?, ?, ?)", "foo", "bar", null, "foobar"),
+                       row(true));
+            assertRows(execute("UPDATE %s SET m = {'foo' : 'foobar'} WHERE k = 0 IF m[?] IN (?, ?, ?)", "foo", "bar", unset(), "foobar"),
+                       row(true));
+
+            assertInvalidMessage("Invalid null list in IN condition",
+                                 "UPDATE %s SET  m = {'foo' : 'foobar'} WHERE k = 0 IF m IN ?", (List<ByteBuffer>) null);
+            assertInvalidMessage("Invalid 'unset' value in condition",
+                                 "UPDATE %s SET  m = {'foo' : 'foobar'} WHERE k = 0 IF m IN ?", unset());
+            assertInvalidMessage("Invalid 'unset' value in condition",
+                                 "UPDATE %s SET  m = {'foo' : 'foobar'} WHERE k = 0 IF m[?] IN ?", "foo", unset());
+        }
     }
 }

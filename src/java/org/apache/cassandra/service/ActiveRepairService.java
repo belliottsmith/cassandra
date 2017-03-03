@@ -34,6 +34,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import com.google.common.util.concurrent.AbstractFuture;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 
@@ -197,10 +200,9 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
         sessions.put(session.getId(), session);
         // register listeners
-        gossiper.register(session);
-        failureDetector.registerFailureDetectionEventListener(session);
+        registerOnFdAndGossip(session);
 
-        // unregister listeners at completion
+        // remove session at completion
         session.addListener(new Runnable()
         {
             /**
@@ -208,13 +210,32 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
              */
             public void run()
             {
-                failureDetector.unregisterFailureDetectionEventListener(session);
-                gossiper.unregister(session);
                 sessions.remove(session.getId());
             }
         }, MoreExecutors.sameThreadExecutor());
         session.start(executor);
         return session;
+    }
+
+    private <T extends AbstractFuture &
+               IEndpointStateChangeSubscriber &
+               IFailureDetectionEventListener> void registerOnFdAndGossip(final T task)
+    {
+        gossiper.register(task);
+        failureDetector.registerFailureDetectionEventListener(task);
+
+        // unregister listeners at completion
+        task.addListener(new Runnable()
+        {
+            /**
+             * When repair finished, do clean up
+             */
+            public void run()
+            {
+                failureDetector.unregisterFailureDetectionEventListener(task);
+                gossiper.unregister(task);
+            }
+        }, MoreExecutors.sameThreadExecutor());
     }
 
     public synchronized void terminateSessions()
@@ -251,7 +272,10 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             }
             else if (range.intersects(toRepair))
             {
-                throw new IllegalArgumentException("Requested range intersects a local range but is not fully contained in one; this would lead to imprecise repair");
+                throw new IllegalArgumentException(String.format("Requested range %s intersects a local range (%s) " +
+                                                                 "but is not fully contained in one; this would lead to " +
+                                                                 "imprecise repair. keyspace: %s", toRepair.toString(),
+                                                                 range.toString(), keyspaceName));
             }
         }
         if (rangeSuperSet == null || !replicaSets.containsKey(rangeSuperSet))

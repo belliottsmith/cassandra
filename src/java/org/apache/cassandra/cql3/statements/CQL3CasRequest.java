@@ -20,8 +20,7 @@ package org.apache.cassandra.cql3.statements;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Multimap;
+import com.google.common.collect.*;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cql3.*;
@@ -158,40 +157,38 @@ public class CQL3CasRequest implements CASRequest
 
     private PartitionColumns columnsToRead()
     {
-        // If all our conditions are columns conditions (IF x = ?), then it's enough to query
-        // the columns from the conditions. If we have a IF EXISTS or IF NOT EXISTS however,
-        // we need to query all columns for the row since if the condition fails, we want to
-        // return everything to the user. Static columns make this a bit more complex, in that
-        // if an insert only static columns, then the existence condition applies only to the
-        // static columns themselves, and so we don't want to include regular columns in that
-        // case.
-        if (hasExists)
-        {
-            PartitionColumns allColumns = cfm.partitionColumns();
-            Columns statics = updatesStaticRow ? allColumns.statics : Columns.NONE;
-            Columns regulars = updatesRegularRows ? allColumns.regulars : Columns.NONE;
-            return new PartitionColumns(statics, regulars);
-        }
-        return conditionColumns;
+        PartitionColumns allColumns = cfm.partitionColumns();
+
+        // If we update static row, we won't have any conditions on regular rows.
+        // If we update regular row, we have to fetch all regular rows (which would satisfy column condition) and
+        // static rows that take part in column condition.
+        // In both cases, we're fetching enough rows to distinguish between "all conditions are nulls" and "row does not exist".
+        // We have to do this as we can't rely on row marker for that (see #6623)
+        Columns statics = updatesStaticRow ? allColumns.statics : conditionColumns.statics;
+        Columns regulars = updatesRegularRows ? allColumns.regulars : conditionColumns.regulars;
+        return new PartitionColumns(statics, regulars);
     }
 
     public SinglePartitionReadCommand readCommand(int nowInSec)
     {
         assert staticConditions != null || !conditions.isEmpty();
 
+        // Fetch all columns, but query only the selected ones
+        ColumnFilter columnFilter = ColumnFilter.selection(columnsToRead());
+
         // With only a static condition, we still want to make the distinction between a non-existing partition and one
         // that exists (has some live data) but has not static content. So we query the first live row of the partition.
         if (conditions.isEmpty())
             return SinglePartitionReadCommand.create(cfm,
                                                      nowInSec,
-                                                     ColumnFilter.selection(columnsToRead()),
+                                                     columnFilter,
                                                      RowFilter.NONE,
                                                      DataLimits.cqlLimits(1),
                                                      key,
                                                      new ClusteringIndexSliceFilter(Slices.ALL, false));
 
         ClusteringIndexNamesFilter filter = new ClusteringIndexNamesFilter(conditions.navigableKeySet(), false);
-        return SinglePartitionReadCommand.create(cfm, nowInSec, key, ColumnFilter.selection(columnsToRead()), filter);
+        return SinglePartitionReadCommand.create(cfm, nowInSec, key, columnFilter, filter);
     }
 
     /**
