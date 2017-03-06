@@ -201,6 +201,7 @@ public class CompactionsPurgeTest
         testMinorCompactionPurgeHelper(true, false);
     }
 
+    @Test
     public void testMajorCompactionPurgeTombstonesWithMaxTimestamp()
     {
         CompactionManager.instance.disableAutoCompaction();
