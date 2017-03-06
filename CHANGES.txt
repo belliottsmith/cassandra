@@ -1,14 +1,17 @@
-3.0.11.1 (open)
+3.0.11.2 (open)
+
+
+3.0.11.1 
  * (Apple Internal) <rdar://problem/30581803> Dont mix incremental and full repair
  * (Apple Internal) <rdar://problem/30311503> Cass: (#9292) ParentRepairSession potentially block ANTI_ENTROPY stage
  * (Apple Internal) <rdar://problem/30198445> Mgr: Add support to aggregate and publish Table metrics in Cassandra 3.0
  * (Apple Internal) <rdar://problem/30635307> Keep keyspace and table elements in 3.0 sstable filenames
  * (Apple Internal) <rdar://problem/27418106> Cass: Port Festive patch to 3.0.10
  * (Apple Internal) <rdar://problem/30311345> Cass: (#12532, #12186) improve repair id visibility in tools and log messages
- * <rdar://problem/30410776> Backport CASSANDRA-11922 to fix BatchlogManagerTest
+ * (Apple Internal) <rdar://problem/30410776> Backport CASSANDRA-11922 to fix BatchlogManagerTest
  * (Apple Internal) <rdar://problem/27580593> Cass: Need a way to get all pending compaction tasks (#610)
- * <rdar://problem/29429202> Add message size to "Sending message to" trace message in OutboundTcpConnection
- * <rdar://problem/24216042> Cass: Convert large row message to be MB,KB,GB friendly
+ * (Apple Internal) <rdar://problem/29429202> Add message size to "Sending message to" trace message in OutboundTcpConnection
+ * (Apple Internal) <rdar://problem/24216042> Cass: Convert large row message to be MB,KB,GB friendly
  * (Apple Internal) <rdar://problem/29055439> Track a configurable ideal consistency level for writes and keep statistics on how often it isn't met.
  * (Apple Internal) <rdar://problem/30063293> Ideal consistency level tracking should not report a failure when requested CL was also not met either
  * (Apple Internal) <rdar://problem/30084043> Fix a few problems with #29055439, missing volatile, unecessary code.
@@ -23,6 +26,7 @@
  * (Apple Internal) <rdar://problem/30006235> Temporarily backport patch from CASSANDRA-12653
  * (Apple Internal) <rdar://problem/27418044> Update cassandra 3.0 yaml to more closely match 2.1 yaml
  * (Apple Internal) <rdar://problem/30767850> Temporarily backport patch from CASSANDRA-13282 - Commitlog replay may throw and stop if last mutation in a segment is less than 4 bytes from end of segment
+ * (Apple Internal) <rdar://problem/30580830> Backport CASSANDRA-13294: append separator to avoid data loss on upgrade
 
 
 3.0.10.1
