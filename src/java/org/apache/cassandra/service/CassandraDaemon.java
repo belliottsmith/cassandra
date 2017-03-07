@@ -469,6 +469,8 @@ public class CassandraDaemon
 
         initializeClientTransports();
 
+        KeyspaceQuota.scheduleQuotaCheck();
+
         if (DatabaseDescriptor.getAuthCacheWarmingEnabled())
             AuthCacheService.instance.warmCaches();
         else
