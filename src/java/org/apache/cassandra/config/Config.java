@@ -592,6 +592,10 @@ public class Config
 
     public String full_query_log_dir = null; // CIE Cassandra 3.0 backward compatibility, create default FQL options if non-null.
 
+    public volatile boolean enable_keyspace_quotas = false;
+    public volatile long default_keyspace_quota_bytes = -1;
+    public int keyspace_quota_refresh_time_in_sec = 120;
+
     public volatile boolean enable_scheduled_compactions = false;
     public volatile int scheduled_compaction_range_splits = 100;
     public volatile String scheduled_compaction_cycle_time = "60d";
