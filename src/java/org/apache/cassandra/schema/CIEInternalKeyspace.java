@@ -21,6 +21,7 @@ package org.apache.cassandra.schema;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.cassandra.cql3.statements.schema.CreateTableStatement;
+import org.apache.cassandra.service.KeyspaceQuota;
 
 public class CIEInternalKeyspace
 {
@@ -68,6 +69,14 @@ public class CIEInternalKeyspace
            + "PRIMARY KEY ((ks_name, cf_name), key))")
         .build();
 
+    public static final TableMetadata KeyspaceQuotaCf =
+        parse(KeyspaceQuota.KS_QUOTA_CF,
+              "Table containing keyspace quotas, for QA",
+              "CREATE TABLE %s ("
+              + "keyspace_name text PRIMARY KEY,"
+              + "max_ks_size_mb int)")
+        .build();
+
     private static TableMetadata.Builder parse(String tableName, String description, String schema)
     {
         return CreateTableStatement.parse(String.format(schema, tableName), NAME)
@@ -80,6 +89,6 @@ public class CIEInternalKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(3), Tables.of(SchemaDropLog, PartitionBlacklistCf));
+        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(3), Tables.of(SchemaDropLog, PartitionBlacklistCf, KeyspaceQuotaCf));
     }
 }

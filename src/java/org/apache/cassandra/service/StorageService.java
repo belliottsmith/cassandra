@@ -5904,6 +5904,27 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         ClientResourceLimits.setEndpointLimit(newLimit);
     }
 
+
+    public boolean isKeyspaceQuotaEnabled()
+    {
+        return DatabaseDescriptor.getEnableKeyspaceQuotas();
+    }
+
+    public void setKeyspaceQuotaEnabled(boolean enabled)
+    {
+        DatabaseDescriptor.setKeyspaceQuotasEnabled(enabled);
+    }
+
+    public long getDefaultKeyspaceQuotaBytes()
+    {
+        return DatabaseDescriptor.getDefaultKeyspaceQuotaBytes();
+    }
+
+    public void setDefaultKeyspaceQuotaBytes(long quotaInBytes)
+    {
+        DatabaseDescriptor.setDefaultKeyspaceQuotaBytes(quotaInBytes);
+    }
+
     @VisibleForTesting
     public void shutdownServer()
     {
