@@ -2261,4 +2261,23 @@ public class DatabaseDescriptor
     {
         conf.alter_table_enabled = alterTableEnabled;
     }
+
+    public static boolean getEnableKeyspaceQuotas()
+    {
+        return conf.enable_keyspace_quotas;
+    }
+
+    public static void setKeyspaceQuotasEnabled(boolean enabled)
+    {
+        conf.enable_keyspace_quotas = enabled;
+    }
+
+    public static int getKeyspaceQuotaRefreshTimeInSec()
+    {
+        return conf.keyspace_quota_refresh_time_in_sec;
+    }
+    public static void setKeyspaceQuotaRefreshTimeInSec(int refreshTime)
+    {
+        conf.keyspace_quota_refresh_time_in_sec = refreshTime;
+    }
 }

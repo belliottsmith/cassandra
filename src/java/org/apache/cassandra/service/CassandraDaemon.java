@@ -398,6 +398,8 @@ public class CassandraDaemon
         // Native transport
         nativeTransportService = new NativeTransportService();
 
+        KeyspaceQuota.scheduleQuotaCheck();
+
         completeSetup();
     }
 

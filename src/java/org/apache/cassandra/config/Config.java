@@ -322,7 +322,8 @@ public class Config
      * before expiring and becoming hints
      */
     public volatile ConsistencyLevel ideal_consistency_level = null;
-
+    public volatile boolean enable_keyspace_quotas = false;
+    public int keyspace_quota_refresh_time_in_sec = 120;
     /*
      * Strategy to use for coalescing messages in OutboundTcpConnection.
      * Can be fixed, movingaverage, timehorizon, disabled. Setting is case and leading/trailing

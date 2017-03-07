@@ -84,6 +84,7 @@ public class Keyspace
     private final ConcurrentMap<UUID, ColumnFamilyStore> columnFamilyStores = new ConcurrentHashMap<>();
     private volatile AbstractReplicationStrategy replicationStrategy;
     public final ViewManager viewManager;
+    public volatile boolean disabledForWrites = false;
 
     public static final Function<String,Keyspace> keyspaceTransformer = new Function<String, Keyspace>()
     {

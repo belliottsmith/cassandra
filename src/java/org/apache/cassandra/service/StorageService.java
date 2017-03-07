@@ -5082,4 +5082,14 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         return DatabaseDescriptor.enableShadowChristmasPatch();
     }
+
+    public boolean isKeyspaceQuotaEnabled()
+    {
+        return DatabaseDescriptor.getEnableKeyspaceQuotas();
+    }
+
+    public void setKeyspaceQuotaEnabled(boolean enabled)
+    {
+        DatabaseDescriptor.setKeyspaceQuotasEnabled(enabled);
+    }
 }

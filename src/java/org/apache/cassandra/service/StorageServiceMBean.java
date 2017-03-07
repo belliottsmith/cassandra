@@ -642,4 +642,7 @@ public interface StorageServiceMBean extends NotificationEmitter
     public boolean isChistmasPatchEnabled();
 
     public boolean isShadowChistmasPatchEnabled();
+
+    public boolean isKeyspaceQuotaEnabled();
+    public void setKeyspaceQuotaEnabled(boolean enabled);
 }
