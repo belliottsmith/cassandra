@@ -684,14 +684,14 @@ public class ScrubTest
                                            "Keyspace1",
                                            "cf_with_duplicates_3_0");
 
-        for (String filename : new String[]{ "Keyspace1-cf_with_duplicates_3_0-mb-3-big-CompressionInfo.db",
-                                             "Keyspace1-cf_with_duplicates_3_0-mb-3-big-Digest.crc32",
-                                             "Keyspace1-cf_with_duplicates_3_0-mb-3-big-Index.db",
-                                             "Keyspace1-cf_with_duplicates_3_0-mb-3-big-Summary.db",
-                                             "Keyspace1-cf_with_duplicates_3_0-mb-3-big-Data.db",
-                                             "Keyspace1-cf_with_duplicates_3_0-mb-3-big-Filter.db",
-                                             "Keyspace1-cf_with_duplicates_3_0-mb-3-big-Statistics.db",
-                                             "Keyspace1-cf_with_duplicates_3_0-mb-3-big-TOC.txt" })
+        for (String filename : new String[]{ "mb-3-big-CompressionInfo.db",
+                                             "mb-3-big-Digest.crc32",
+                                             "mb-3-big-Index.db",
+                                             "mb-3-big-Summary.db",
+                                             "mb-3-big-Data.db",
+                                             "mb-3-big-Filter.db",
+                                             "mb-3-big-Statistics.db",
+                                             "mb-3-big-TOC.txt" })
         {
             Files.copy(Paths.get(legacySSTableRoot.toString(), filename), cfs.getDirectories().getDirectoryForNewSSTables().toPath().resolve(filename));
         }
@@ -721,14 +721,14 @@ public class ScrubTest
                                            "Keyspace1",
                                            cf);
 
-        for (String filename : new String[]{ "Keyspace1-cf_with_duplicates_2_0-lb-1-big-CompressionInfo.db",
-                                             "Keyspace1-cf_with_duplicates_2_0-lb-1-big-Data.db",
-                                             "Keyspace1-cf_with_duplicates_2_0-lb-1-big-Digest.adler32",
-                                             "Keyspace1-cf_with_duplicates_2_0-lb-1-big-Filter.db",
-                                             "Keyspace1-cf_with_duplicates_2_0-lb-1-big-Index.db",
-                                             "Keyspace1-cf_with_duplicates_2_0-lb-1-big-Statistics.db",
-                                             "Keyspace1-cf_with_duplicates_2_0-lb-1-big-Summary.db",
-                                             "Keyspace1-cf_with_duplicates_2_0-lb-1-big-TOC.txt" })
+        for (String filename : new String[]{ "lb-1-big-CompressionInfo.db",
+                                             "lb-1-big-Data.db",
+                                             "lb-1-big-Digest.adler32",
+                                             "lb-1-big-Filter.db",
+                                             "lb-1-big-Index.db",
+                                             "lb-1-big-Statistics.db",
+                                             "lb-1-big-Summary.db",
+                                             "lb-1-big-TOC.txt" })
         {
             Files.copy(Paths.get(legacySSTableRoot.toString(), filename), cfs.getDirectories().getDirectoryForNewSSTables().toPath().resolve(filename));
         }

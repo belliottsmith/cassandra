@@ -138,10 +138,16 @@ public class DescriptorTest
              // 2ndary index
              "keyspace1-standard1.idx1-ka-1-big-Data.db",
              // new formats
-             "keyspace1-standard1-la-1-big-Data.db",
+             "la-1-big-Data.db",
              //"tmp-la-1-big-Data.db",
              // 2ndary index
-             ".idx1" + File.separator + "keyspace1-standard1.idx1-la-1-big-Data.db",
+             ".idx1" + File.separator + "la-1-big-Data.db",
+             // old ma-mc format
+             "ma-1-big-Data.db",
+             "mb-1-big-Data.db",
+             "mc-1-big-Data.db",
+             // md is back to full length
+             "system-schema_keyspaces-md-1-big-Data.db",
         };
 
         for (String name : names)

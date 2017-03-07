@@ -118,10 +118,8 @@ public class LegacySSTableTest
      */
     protected Descriptor getDescriptor(String legacyVersion, String table)
     {
-        // we preserve the old style "ks-cf-" in sstable names, so the check here is changed
-        // from version.hasNewFilename() (which is always false) to manually inspecting the version
         return new Descriptor(legacyVersion, getTableDir(legacyVersion, table), "legacy_tables", table, 1,
-                              legacyVersion.compareTo("la") >= 0 ?
+                              BigFormat.instance.getVersion(legacyVersion).hasNewFileName() ?
                               SSTableFormat.Type.BIG :SSTableFormat.Type.LEGACY);
     }
 

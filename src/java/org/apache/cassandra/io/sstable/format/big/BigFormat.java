@@ -129,7 +129,7 @@ public class BigFormat implements SSTableFormat
         //             store rows natively
         // mb (3.0.7, 3.7): commit log lower bound included
         // mc (3.0.8, 3.9): commit log intervals included
-        // md (3.0.9, 3.10): pending repair session included
+        // md (3.0.11, 3.10): pending repair session included
         //
         // NOTE: when adding a new version, please add that to LegacySSTableTest, too.
 
@@ -187,8 +187,12 @@ public class BigFormat implements SSTableFormat
             hasRepairedAt = version.compareTo("ka") >= 0;
             tracksLegacyCounterShards = version.compareTo("ka") >= 0;
 
-            // force use of old filename format which includes ks & cf
-            newFileName = false;
+            // Expect short filenames from 2.2.0 through 3.0.10
+            if(version.compareTo("la") >= 0 && version.compareTo("mc") <= 0)
+                newFileName = true;
+            else
+                // For newest format (md) force use of old filename format which includes ks & cf
+                newFileName = false;
 
             hasOldBfHashOrder = version.compareTo("ma") < 0;
             hasCompactionAncestors = version.compareTo("ma") < 0;
