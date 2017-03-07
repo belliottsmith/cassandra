@@ -1,5 +1,7 @@
-3.0.11.2 (open)
+3.0.11.3 (open)
 
+3.0.11.2
+ * (Apple Internal) <rdar://problem/30880439> Cass: 3.0.11.1 fails if it encounters short format filenames
 
 3.0.11.1 
  * (Apple Internal) <rdar://problem/30581803> Dont mix incremental and full repair
