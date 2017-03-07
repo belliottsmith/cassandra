@@ -93,6 +93,7 @@ public class Keyspace
     private final KeyspaceWriteHandler writeHandler;
     private volatile ReplicationParams replicationParams;
     private final KeyspaceRepairManager repairManager;
+    public volatile boolean disabledForWrites = false;
 
     public static final Function<String,Keyspace> keyspaceTransformer = new Function<String, Keyspace>()
     {
