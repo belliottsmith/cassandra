@@ -36,6 +36,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,6 +110,15 @@ public class Keyspace
     private volatile ReplicationParams replicationParams;
     private final KeyspaceRepairManager repairManager;
     private final SchemaProvider schema;
+    public volatile boolean disabledForWrites = false;
+
+    public static final Function<String,Keyspace> keyspaceTransformer = new Function<String, Keyspace>()
+    {
+        public Keyspace apply(String keyspaceName)
+        {
+            return Keyspace.open(keyspaceName);
+        }
+    };
 
     private static volatile boolean initialized = false;
 
