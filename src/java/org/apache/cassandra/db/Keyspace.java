@@ -116,6 +116,7 @@ public class Keyspace
     private volatile ReplicationParams replicationParams;
     private final KeyspaceRepairManager repairManager;
     private final SchemaProvider schema;
+    public volatile boolean disabledForWrites = false;
 
     private static volatile boolean initialized = false;
 
