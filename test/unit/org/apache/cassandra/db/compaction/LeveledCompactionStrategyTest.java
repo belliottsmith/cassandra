@@ -78,7 +78,11 @@ public class LeveledCompactionStrategyTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
+        // Disable tombstone histogram rounding for tests
+        System.setProperty("cassandra.streaminghistogram.roundseconds", "1");
+
         SchemaLoader.prepareServer();
+
         SchemaLoader.createKeyspace(KEYSPACE1,
                                     KeyspaceParams.simple(1),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED)
@@ -202,7 +206,7 @@ public class LeveledCompactionStrategyTest
     /**
      * wait for leveled compaction to quiesce on the given columnfamily
      */
-    private void waitForLeveling(ColumnFamilyStore cfs) throws InterruptedException
+    public static void waitForLeveling(ColumnFamilyStore cfs) throws InterruptedException
     {
         CompactionStrategyManager strategyManager = cfs.getCompactionStrategyManager();
         while (true)

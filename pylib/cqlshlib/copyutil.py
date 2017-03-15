@@ -84,6 +84,11 @@ def printmsg(msg, eol='\n', encoding='utf8'):
     sys.stdout.flush()
 
 
+# Keep arguments in sync with printmsg
+def swallowmsg(msg, eol='', encoding=''):
+    None
+
+
 class OneWayPipe(object):
     """
     A one way pipe protected by two process level locks, one for reading and one for writing.
@@ -242,7 +247,7 @@ class CopyTask(object):
 
         # do not display messages when exporting to STDOUT unless --debug is set
         self.printmsg = printmsg if self.fname is not None or direction == 'from' or DEBUG \
-            else lambda _, eol='\n': None
+            else swallowmsg
         self.options = self.parse_options(opts, direction)
 
         self.num_processes = self.options.copy['numprocesses']
@@ -1876,11 +1881,30 @@ class ImportConversion(object):
 
         def split(val, sep=','):
             """
-            Split into a list of values whenever we encounter a separator but
+            Split "val" into a list of values whenever the separator "sep" is found, but
             ignore separators inside parentheses or single quotes, except for the two
-            outermost parentheses, which will be ignored. We expect val to be at least
-            2 characters long (the two outer parentheses).
+            outermost parentheses, which will be ignored. This method is called when parsing composite
+            types, "val" should be at least 2 characters long, the first char should be an
+            open parenthesis and the last char should be a matching closing parenthesis. We could also
+            check exactly which parenthesis type depending on the caller, but I don't want to enforce
+            too many checks that don't necessarily provide any additional benefits, and risk breaking
+            data that could previously be imported, even if strictly speaking it is incorrect CQL.
+            For example, right now we accept sets that start with '[' and ']', I don't want to break this
+            by enforcing '{' and '}' in a minor release.
             """
+            def is_open_paren(cc):
+                return cc == '{' or cc == '[' or cc == '('
+
+            def is_close_paren(cc):
+                return cc == '}' or cc == ']' or cc == ')'
+
+            def paren_match(c1, c2):
+                return (c1 == '{' and c2 == '}') or (c1 == '[' and c2 == ']') or (c1 == '(' and c2 == ')')
+
+            if len(val) < 2 or not paren_match(val[0], val[-1]):
+                raise ParseError('Invalid composite string, it should start and end with matching parentheses: {}'
+                                 .format(val))
+
             ret = []
             last = 1
             level = 0
@@ -1889,9 +1913,9 @@ class ImportConversion(object):
                 if c == '\'':
                     quote = not quote
                 elif not quote:
-                    if c == '{' or c == '[' or c == '(':
+                    if is_open_paren(c):
                         level += 1
-                    elif c == '}' or c == ']' or c == ')':
+                    elif is_close_paren(c):
                         level -= 1
                     elif c == sep and level == 1:
                         ret.append(val[last:i])

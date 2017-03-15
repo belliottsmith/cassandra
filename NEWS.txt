@@ -13,8 +13,19 @@ restore snapshots created with the previous major version using the
 'sstableloader' tool. You can upgrade the file format of your snapshots
 using the provided 'sstableupgrade' tool.
 
+3.0.12
+======
+
+Upgrading
+---------
+   - In 2.1, the default for otc_coalescing_strategy was 'DISABLED'.
+     In 2.2 and 3.0, it was changed to 'TIMEHORIZON', but that value was shown
+     to be a performance regression. The default for 3.11.0 and newer has
+     been reverted to 'DISABLED'. Users upgrading to Cassandra 3.0 should
+     consider setting otc_coalescing_strategy to 'DISABLED'.
+
 3.0.11
-=====
+======
 
 Upgrading
 ---------
@@ -34,7 +45,7 @@ Upgrading
      replication settings and adjacent ranges are no longer merged (CASSANDRA-9639).
 
 3.0.10
-=====
+======
 
 Upgrading
 ---------
