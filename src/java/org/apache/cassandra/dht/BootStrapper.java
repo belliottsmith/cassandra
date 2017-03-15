@@ -230,13 +230,20 @@ public class BootStrapper extends ProgressEventNotifierSupport
         //Get Endpoints to fetch this from
         outer: for(Range<Token> tokenRange: tokens)
         {
-            for(InetAddress address : rangeAddresses.get(tokenRange))
+            for (Range<Token> currentRange : rangeAddresses.keySet())
             {
-                if(FBUtilities.getLocalAddress().equals(address))
-                    continue;
-                if(FailureDetector.instance.isAlive(address) && fetchRepairedRanges(table, Collections.singleton(tokenRange), address))
+                if (currentRange.contains(tokenRange))
                 {
-                    continue outer;
+                    logger.info("Existing range {} contains {} - trying to fetch from one of {}", currentRange, tokenRange, rangeAddresses.get(currentRange));
+                    for(InetAddress address : rangeAddresses.get(currentRange))
+                    {
+                        if(FBUtilities.getLocalAddress().equals(address))
+                            continue;
+                        if(FailureDetector.instance.isAlive(address) && fetchRepairedRanges(table, Collections.singleton(tokenRange), address))
+                        {
+                            continue outer;
+                        }
+                    }
                 }
             }
 
