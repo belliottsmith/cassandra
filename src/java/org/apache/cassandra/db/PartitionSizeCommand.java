@@ -18,12 +18,8 @@
 
 package org.apache.cassandra.db;
 
-import java.io.DataInput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.function.Function;
-
-import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
@@ -59,11 +55,13 @@ public class PartitionSizeCommand
         Keyspace keyspace = Keyspace.open(this.keyspace);
         DecoratedKey dk = DatabaseDescriptor.getPartitioner().decorateKey(key);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(table);
-        ColumnFamilyStore.ViewFragment view = cfs.select(View.select(SSTableSet.LIVE, dk));
         long size = 0;
-        for (SSTableReader sstable: view.sstables)
+        try (ColumnFamilyStore.RefViewFragment view = cfs.selectAndReference(View.select(SSTableSet.CANONICAL, dk)))
         {
-            size += sstable.getSerializedRowSize(dk);
+            for (SSTableReader sstable : view.sstables)
+            {
+                size += sstable.getSerializedRowSize(dk);
+            }
         }
         return size;
     }
