@@ -20,8 +20,13 @@ package org.apache.cassandra.db;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.List;
+
+import com.google.common.base.Function;
+import com.google.common.collect.ImmutableList;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.lifecycle.SSTableIntervalTree;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.io.IVersionedSerializer;
@@ -56,7 +61,7 @@ public class PartitionSizeCommand
         DecoratedKey dk = DatabaseDescriptor.getPartitioner().decorateKey(key);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(table);
         long size = 0;
-        try (ColumnFamilyStore.RefViewFragment view = cfs.selectAndReference(View.select(SSTableSet.CANONICAL, dk)))
+        try (ColumnFamilyStore.RefViewFragment view = cfs.selectAndReference(canonicalSSTableFilter(dk)))
         {
             for (SSTableReader sstable : view.sstables)
             {
@@ -64,6 +69,18 @@ public class PartitionSizeCommand
             }
         }
         return size;
+    }
+
+    public Function<View, Iterable<SSTableReader>> canonicalSSTableFilter(DecoratedKey dk)
+    {
+        return new Function<View, Iterable<SSTableReader>>()
+        {
+            public List<SSTableReader> apply(View view)
+            {
+                SSTableIntervalTree intervalTree = SSTableIntervalTree.build(view.select(SSTableSet.CANONICAL));
+                return ImmutableList.copyOf(intervalTree.search(dk));
+            }
+        };
     }
 
     public long getTimeout()
