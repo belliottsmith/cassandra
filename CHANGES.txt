@@ -1,90 +1,90 @@
 3.0.12.2 (open)
 
 3.0.12.1
- * (Apple Internal) rdar://problem/31017831 ParentRepairSessions aren't removed on repair completion
- * (Apple Internal) rdar://problem/30713714 Make sure we grab references to sstables
- * (Apple Internal) rdar://problem/31018349 Backport CASSANDRA-13320 - regression in 2i upgradesstables introduced into 3.0.11
-
+ * <rdar://problem/31017831 ParentRepairSessions aren't removed on repair completion (#13359. Fixed in 4.0)
+ * (Apple Internal) rdar://problem/30713714 Make sure we grab references to sstables (#12367. Not yet fixed)
+ * <rdar://problem/31018349 Regression in 2i upgradesstables introduced into 3.0.11 (#13320. Fixed in 3.0.13)
 
 3.0.11.2
- * (Apple Internal) <rdar://problem/30880439> Cass: 3.0.11.1 fails if it encounters short format filenames
+ * <rdar://problem/30880439> Cass: 3.0.11.1 fails if it encounters short format filenames (Apple Internal)
 
 3.0.11.1 
- * (Apple Internal) <rdar://problem/30581803> Dont mix incremental and full repair
- * (Apple Internal) <rdar://problem/30311503> Cass: (#9292) ParentRepairSession potentially block ANTI_ENTROPY stage
- * (Apple Internal) <rdar://problem/30198445> Mgr: Add support to aggregate and publish Table metrics in Cassandra 3.0
- * (Apple Internal) <rdar://problem/30635307> Keep keyspace and table elements in 3.0 sstable filenames
- * (Apple Internal) <rdar://problem/27418106> Cass: Port Festive patch to 3.0.10
- * (Apple Internal) <rdar://problem/30311345> Cass: (#12532, #12186) improve repair id visibility in tools and log messages
- * (Apple Internal) <rdar://problem/30410776> Backport CASSANDRA-11922 to fix BatchlogManagerTest
- * (Apple Internal) <rdar://problem/27580593> Cass: Need a way to get all pending compaction tasks (#610)
- * (Apple Internal) <rdar://problem/29429202> Add message size to "Sending message to" trace message in OutboundTcpConnection
- * (Apple Internal) <rdar://problem/24216042> Cass: Convert large row message to be MB,KB,GB friendly
- * (Apple Internal) <rdar://problem/29055439> Track a configurable ideal consistency level for writes and keep statistics on how often it isn't met.
- * (Apple Internal) <rdar://problem/30063293> Ideal consistency level tracking should not report a failure when requested CL was also not met either
- * (Apple Internal) <rdar://problem/30084043> Fix a few problems with #29055439, missing volatile, unecessary code.
- * (Apple Internal) <rdar://problem/30469011> Cass: CompactionStrategyManager#getUndefinedTasks can throw assertion error
- * (Apple Internal) <rdar://problem/30002391> backport incremental repair to 3.0
- * (Apple Internal) <rdar://problem/30245265> Cass: 3.0 - Disable MV in cie-cassandra-3.0 until it's properly validated
- * (Apple Internal) <rdar://problem/30106215> Backport CASSANDRA-12676 to 3.0 - disable otc_coalescing_strategy by default
- * (Apple Internal) <rdar://problem/29956279> SSL/TLS Server supports TLSv1.0, it shouldn't.
- * (Apple Internal) <rdar://problem/30311664> Cass: (#13079) Repair doesn't work after several replication factor changes
- * (Apple Internal) <rdar://problem/30318758> Disable ALTER TABLE ability to add/remove columns from tables to prevent CASSANDRA-13004 corruption
- * (Apple Internal) <rdar://problem/30388499> Update 3.0 to roll back selected logging changes.
- * (Apple Internal) <rdar://problem/30006235> Temporarily backport patch from CASSANDRA-12653
- * (Apple Internal) <rdar://problem/27418044> Update cassandra 3.0 yaml to more closely match 2.1 yaml
- * (Apple Internal) <rdar://problem/30767850> Temporarily backport patch from CASSANDRA-13282 - Commitlog replay may throw and stop if last mutation in a segment is less than 4 bytes from end of segment
- * (Apple Internal) <rdar://problem/30580830> Backport CASSANDRA-13294: append separator to avoid data loss on upgrade
+ * <rdar://problem/30581803> Dont mix incremental and full repair (Apple Internal)
+ * <rdar://problem/30311503> ParentRepairSession potentially block ANTI_ENTROPY stage (#9292 Fixed in 4.0)
+ * <rdar://problem/30198445> Mgr: Add support to aggregate and publish Table metrics in Cassandra 3.0 (Apple Internal)
+ * <rdar://problem/30635307> Keep keyspace and table elements in 3.0 sstable filenames (Apple Internal)
+ * <rdar://problem/27418106> Cass: Port Festive patch to 3.0.10 (Apple Internal)
+ * <rdar://problem/30311345> Cass: improve repair id visibility in tools and log messages (#12532, #12186. Fixed in 3.10)
+ * <rdar://problem/30410776> BatchlogManagerTest is failing intermittently (#11922 Fixed in 3.7) 
+ * <rdar://problem/27580593> Cass: Need a way to get all pending compaction tasks (#10464,#10718,#7950,#11961. Fixed in 3.8)
+ * <rdar://problem/29429202> Add message size to "Sending message to" trace message in OutboundTcpConnection (#13028 Fixed in 4.0)
+ * <rdar://problem/24216042> Cass: Convert large row message to be MB,KB,GB friendly (#9692 Fixed in 3.6)
+ * <rdar://problem/29055439> Track a configurable ideal consistency level for writes and keep statistics on how often it isn't met. (#13289. Not yet fixed)
+ * <rdar://problem/30063293> Ideal consistency level tracking should not report a failure when requested CL was also not met either (#13289. Not yet fixed)
+ * <rdar://problem/30084043> Fix a few problems with #29055439, missing volatile, unecessary code. (#13289. Not yet fixed)
+ * <rdar://problem/30469011> Cass: CompactionStrategyManager#getUndefinedTasks can throw assertion error (Does not affect 4.0)
+ * <rdar://problem/30002391> backport incremental repair to 3.0 (#9143. Fixed in 4.0)
+ * <rdar://problem/30245265> Cass: 3.0 - Disable MV in cie-cassandra-3.0 until it's properly validated (Apple Internal) 
+ * <rdar://problem/30106215> Backport CASSANDRA-12676 to 3.0 - disable otc_coalescing_strategy by default (#12676. Fixed in 3.0.12)
+ * <rdar://problem/29956279> SSL/TLS Server supports TLSv1.0, it shouldn't. (CASSANDRA-13325. Not yet fixed)
+ * <rdar://problem/30311664> Repair doesn't work after several replication factor changes (#13079. Fixed in 4.0)
+ * <rdar://problem/30318758> Disable ALTER TABLE ability to add/remove columns from tables to prevent #13004 corruption (#13004. Not yet fixed)
+ * <rdar://problem/30388499> Update 3.0 to roll back selected logging changes. (Apple Internal)
+ * <rdar://problem/30006235> Temporarily backport patch from CASSANDRA-12653 (#12653 Not yet fixed)
+ * <rdar://problem/27418044> Update cassandra 3.0 yaml to more closely match 2.1 yaml (Apple Internal) 
+ * <rdar://problem/30767850> Commitlog replay may throw and stop if last mutation in a segment is less than 4 bytes from end of segment (#13282. Fixed in 3.0.13)
+ * <rdar://problem/30580830> append separator to avoid data loss on upgrade (#13294. Fixed in 3.0.12)
 
 
 3.0.10.1
- * (Apple Internal) rdar://problem/28312831 Track: CASSANDRA-10099(Improve concurrency in CompactionStrategyManager)
- * (Apple Internal) rdar://problem/26361229 Cass: Need to expose amount of data repaired(CASSANDRA-11503)
+ * <rdar://problem/28312831 Improve concurrency in CompactionStrategyManager (#10099. Fixed in 3.6)
+ * <rdar://problem/26361229 Cass: Need to expose amount of data repaired(#11503. Fixed in 3.8)
 
 3.0.9.1
- * (Apple Internal) <rdar://problem/27729316> Port to 3.0 <rdar://problem/27205556> Cass: Composite abstraction in 2.1 creates significant GC pressure (especially on wide rows)
- * (Apple Internal) <rdar://problem/27728188> Port to 3.0 <rdar://problem/24118843> Cass: hint TTL should be hot
- * (Apple Internal) <rdar://problem/28825608> Port to 3.0 <rdar://problem/26203712> Cass: Add an API to efficiently request the size of a row
- * (Apple Internal) <rdar://problem/27727464> Port to 3.0 <rdar://problem/18758693> Cass: New "repair --force"
- * (Apple Internal) <rdar://problem/28547171> Cass: backport CASSANDRA-10392 for zipkin support
- * <rdar://problem/28767747> Cass: Port to 3.0 : <rdar://problem/19999369> Cass: metric to track size of reads/writes (Apple Internal)
- * <rdar://problem/27424094> Cass: Forward port to 3.0: <rdar://problem/24560507> Cass: Evaluate Consistency level of Auth reads(Need to post back via 26630518)
- * <rdar://problem/25991887> Cass: Add an option to blacklist CQL partitions by operator (Apple Internal)
- * Add prepared query parameter to trace for "Execute CQL3 prepared query" session(CASSANDRA-11425. Fixed in 3.8)
- * Add bind variables to trace (CASSANDRA-11719. Fixed in 3.8)
+ * <rdar://problem/27729316> Port to 3.0 <rdar://problem/27205556> Cass: Composite abstraction in 2.1 creates significant GC pressure (especially on wide rows) (Apple Internal) 
+ * <rdar://problem/27728188> Port to 3.0 <rdar://problem/24118843> Cass: hint TTL should be hot (Not required in 4.0)
+ * <rdar://problem/26203712> Add an API to efficiently request the size of a row (#12367. Not yet fixed)
+ * <rdar://problem/18758693> Cass: New "repair --force" (#10446. Not yet fixed)
+ * <rdar://problem/28547171> Allow Cassandra to trace to custom tracing implementations for zipkin support (#10392. Fixed in 3.4)
+ * <rdar://problem/19999369> Cass: metric to track size of reads/writes (#11968 Not yet fixed)
+ * <rdar://problem/24560507> Cass: Evaluate Consistency level of Auth reads (Fixed in 4.0)
+ * <rdar://problem/25991887> Cass: Add an option to blacklist CQL partitions by operator (#12106. Not yet fixed)
+ * Add prepared query parameter to trace for "Execute CQL3 prepared query" session(#11425. Fixed in 3.8)
+ * Add bind variables to trace (#11719. Fixed in 3.8)
  * <rdar://problem/28728845> Cass: Make cie-cassandra-3.0 recognize CRC32 sstables from cie-cassandra-2.1(Apple Internal)
 
 3.0.6.1 (Released only for testing)
- * <rdar://problem/20654491> Cass: Add a credentials cache to the PasswordAuthenticator(CASSANDRA-7715. Fixed in 3.4)
- * <rdar://problem/26449278> Cass: don't block gossip stage during bounce when using sync commitlog(Need to post back via 26849307)
+ * <rdar://problem/20654491> Cass: Add a credentials cache to the PasswordAuthenticator(#7715. Fixed in 3.4)
+ * <rdar://problem/26449278> Cass: don't block gossip stage during bounce when using sync commitlog(#12966 Not yet fixed)
  * <rdar://problem/25376022> Cass: can we clean up deleted data on content quicker? (Aggressive GC LCS)(Apple Internal)
  * <rdar://problem/27418084> Cass: Port <rdar://problem/24418276> Cass: Replace logback with log4j2 to 3.0.6  (Apple Internal)
- * <rdar://problem/25566128> Cass: log username when throwing AuthenticationException (CASSANDRA-12076. Fixed in 3.10)
+ * <rdar://problem/25566128> Cass: log username when throwing AuthenticationException (#12076. Fixed in 3.10)
  * <rdar://problem/27356463> Cass: Port default level compaction to 3.0 (Apple Internal)
  * <rdar://problem/27356495> Cass: Port cassandra-env to 3.0.6 (Apple Internal)
  * Stop Drop and Recreate of tables (Apple Internal)
  * Create an internal local replicated keyspace for disk checks (Apple Internal)
- * <rdar://problem/25881462> Cass: Add a special snapshot name created via truncate and drop (CASSANDRA-12178. Fixed in 3.10)
+ * <rdar://problem/25881462> Cass: Add a special snapshot name created via truncate and drop (#12178. Fixed in 3.10)
  * <rdar://problem/23481606> Disable Incremental repair(Apple Internal)
  * <rdar://problem/16704494> Cass: fix startup options to handle OOM properly (Apple Internal)
  * <rdar://problem/24638071> Cass: expose repair-specific streaming metrics (Need to post out via 26630488)
  * <rdar://problem/25375920> Cass: should be allowed to alter system_auth table settings (Apple Internal)
- * <rdar://problem/27418292> Cass: Add metrics for authentication failures (CASSANDRA-10635. Fixed in 3.10)
- * Display number of tables in cfstats (CASSANDRA-11880. Fixed in 3.10)
+ * <rdar://problem/27418292> Cass: Add metrics for authentication failures (#10635. Fixed in 3.10)
+ * Display number of tables in cfstats (#11880. Fixed in 3.10)
  * <rdar://problem/21260948> Cass: Message(Maximum number of clients) should be logged as ERROR instead of WARN (Apple Internal)
- * Collect metrics on queries by consistency level (CASSANDRA-7384 Fixed in 3.10)
- * Make LZ4 Compression Level Configurable (CASSANDRA-11051. Fixed in 3.6)
- * <rdar://problem/20654491> Cass: Implement CASSANDRA-7715: Add a credentials cache to the PasswordAuthenticator (Need to postback with 26630518)
- * Reject empty options and invalid DC names in replication configuration while creating or altering a keyspace. (CASSANDRA-12681. Fixed in 4.0)
- * Implement compaction for a specific token range (CASSANDRA-10643 Fixed in 3.10)
- * One way targeted repair (CASSANDRA-9876. Fixed in 3.10)
- * Rebuild from targeted replica (CASSANDRA-9875 Fixed in 3.10)
+ * Collect metrics on queries by consistency level (#7384 Fixed in 3.10)
+ * Make LZ4 Compression Level Configurable (#11051. Fixed in 3.6)
+ * <rdar://problem/20654491> Add a credentials cache to the PasswordAuthenticator (#7715. Fixed in 3.4)
+ * Reject empty options and invalid DC names in replication configuration while creating or altering a keyspace. (#12681. Fixed in 4.0)
+ * Implement compaction for a specific token range (#10643 Fixed in 3.10)
+ * One way targeted repair (#9876. Fixed in 3.10)
+ * Rebuild from targeted replica (#9875 Fixed in 3.10)
  * <rdar://problem/27727325> Change initial allocation size of RangeTombstoneList from 1 to 10(Need to postback via 24253821)
- * Make LZ4 Compression Level Configurable (CASSANDRA-11051 Fixed in 3.6)
+ * Make LZ4 Compression Level Configurable (#11051 Fixed in 3.6)
  * <rdar://problem/28066902> Cass: Expired tombstones counted differently in 2.1 (Apple Internal)
  * <rdar://problem/27729987> Port to 3.0 Adding restrictions while creating or altering keyspaces(Apple Internal)
- * <rdar://problem/26121375> Cass: disallow removal of a DC from system_auth replication settings(Need to postback via 28569282)
- 
+ * <rdar://problem/26121375> Cass: disallow removal of a DC from system_auth replication settings(#13041. Not yet fixed)
+
+
 3.0.12
  * Prevent data loss on upgrade 2.1 - 3.0 by adding component separator to LogRecord absolute path (CASSANDRA-13294)
  * Improve testing on macOS by eliminating sigar logging (CASSANDRA-13233)
