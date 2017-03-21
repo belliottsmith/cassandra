@@ -2,7 +2,7 @@
 
 3.0.12.1
  * <rdar://problem/31017831 ParentRepairSessions aren't removed on repair completion (#13359. Fixed in 4.0)
- * (Apple Internal) rdar://problem/30713714 Make sure we grab references to sstables (#12367. Not yet fixed)
+ * <rdar://problem/30713714 Make sure we grab references to sstables (#12367. Not yet fixed)
  * <rdar://problem/31018349 Regression in 2i upgradesstables introduced into 3.0.11 (#13320. Fixed in 3.0.13)
 
 3.0.11.2
@@ -26,11 +26,11 @@
  * <rdar://problem/30002391> backport incremental repair to 3.0 (#9143. Fixed in 4.0)
  * <rdar://problem/30245265> Cass: 3.0 - Disable MV in cie-cassandra-3.0 until it's properly validated (Apple Internal) 
  * <rdar://problem/30106215> Backport CASSANDRA-12676 to 3.0 - disable otc_coalescing_strategy by default (#12676. Fixed in 3.0.12)
- * <rdar://problem/29956279> SSL/TLS Server supports TLSv1.0, it shouldn't. (CASSANDRA-13325. Not yet fixed)
+ * <rdar://problem/29956279> SSL/TLS Server supports TLSv1.0, it shouldn't. (#13325. Not yet fixed)
  * <rdar://problem/30311664> Repair doesn't work after several replication factor changes (#13079. Fixed in 4.0)
  * <rdar://problem/30318758> Disable ALTER TABLE ability to add/remove columns from tables to prevent #13004 corruption (#13004. Not yet fixed)
  * <rdar://problem/30388499> Update 3.0 to roll back selected logging changes. (Apple Internal)
- * <rdar://problem/30006235> Temporarily backport patch from CASSANDRA-12653 (#12653 Not yet fixed)
+ * <rdar://problem/30006235> Discard in-flight shadow round requests (#12653 Not yet fixed)
  * <rdar://problem/27418044> Update cassandra 3.0 yaml to more closely match 2.1 yaml (Apple Internal) 
  * <rdar://problem/30767850> Commitlog replay may throw and stop if last mutation in a segment is less than 4 bytes from end of segment (#13282. Fixed in 3.0.13)
  * <rdar://problem/30580830> append separator to avoid data loss on upgrade (#13294. Fixed in 3.0.12)
@@ -42,12 +42,12 @@
 
 3.0.9.1
  * <rdar://problem/27729316> Port to 3.0 <rdar://problem/27205556> Cass: Composite abstraction in 2.1 creates significant GC pressure (especially on wide rows) (Apple Internal) 
- * <rdar://problem/27728188> Port to 3.0 <rdar://problem/24118843> Cass: hint TTL should be hot (Not required in 4.0)
+ * <rdar://problem/27728188> Port to 3.0 <rdar://problem/24118843> Cass: hint TTL should be hot (#12982. Not yet fixed)
  * <rdar://problem/26203712> Add an API to efficiently request the size of a row (#12367. Not yet fixed)
  * <rdar://problem/18758693> Cass: New "repair --force" (#10446. Not yet fixed)
  * <rdar://problem/28547171> Allow Cassandra to trace to custom tracing implementations for zipkin support (#10392. Fixed in 3.4)
  * <rdar://problem/19999369> Cass: metric to track size of reads/writes (#11968 Not yet fixed)
- * <rdar://problem/24560507> Cass: Evaluate Consistency level of Auth reads (Fixed in 4.0)
+ * <rdar://problem/24560507> Cass: Evaluate Consistency level of Auth reads (#12988. Not yet fixed)
  * <rdar://problem/25991887> Cass: Add an option to blacklist CQL partitions by operator (#12106. Not yet fixed)
  * Add prepared query parameter to trace for "Execute CQL3 prepared query" session(#11425. Fixed in 3.8)
  * Add bind variables to trace (#11719. Fixed in 3.8)
