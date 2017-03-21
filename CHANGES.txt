@@ -1,4 +1,10 @@
-3.0.11.3 (open)
+3.0.12.2 (open)
+
+3.0.12.1
+ * (Apple Internal) rdar://problem/31017831 ParentRepairSessions aren't removed on repair completion
+ * (Apple Internal) rdar://problem/30713714 Make sure we grab references to sstables
+ * (Apple Internal) rdar://problem/31018349 Backport CASSANDRA-13320 - regression in 2i upgradesstables introduced into 3.0.11
+
 
 3.0.11.2
  * (Apple Internal) <rdar://problem/30880439> Cass: 3.0.11.1 fails if it encounters short format filenames
