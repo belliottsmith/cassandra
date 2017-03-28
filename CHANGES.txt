@@ -1,4 +1,9 @@
-3.0.12.3 (open)
+3.0.12.4 (open)
+
+3.0.12.3
+ * <rdar://problem/31195526> Backport CASSANDRA-13234 - Add histogram for delay to deliver hints (#13234, fixed in 4.0)
+ * <rdar://problem/31288447> Backport CASSANDRA-13384 - Better handle legacy caching parameters (#13384, not yet fixed)
+ * <rdar://problem/30926607> Backport CASSANDRA-11995 - Cass: 3.0 commitlog replay fails on startup (#11995, not yet fixed)
 
 3.0.12.2
  * <rdar://problem/30499894> (Cloned for cassandra-env.sh changes) 3.0 Instances Fail To Start with grep: /opt/ais/local/CIEDb/cassandrabin-fifteen-twentyeight/Current/jvm.options: No such file or directory (Apple Internal)
