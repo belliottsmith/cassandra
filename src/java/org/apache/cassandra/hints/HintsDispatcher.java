@@ -218,7 +218,7 @@ final class HintsDispatcher implements AutoCloseable
 
         public void response(MessageIn msg)
         {
-            HintsService.instance.metrics.updateDelayMetrics(msg.from, TimeUnit.MILLISECONDS.convert(start, TimeUnit.NANOSECONDS) - hintCreationTime);
+            HintsService.instance.metrics.updateDelayMetrics(msg.from, System.currentTimeMillis() - hintCreationTime);
             outcome = Outcome.SUCCESS;
             condition.signalAll();
         }
