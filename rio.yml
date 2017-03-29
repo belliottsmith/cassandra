@@ -48,7 +48,28 @@ builds:
   timeout: 60
   finally:
     buildChain:
-    - cie-cassandra-snapshot-carnival-3.0.12
+    - cie-cassandra-snapshot-3.0.12
+- name: snapshot-3.0.12
+  branchName: cie-cassandra-3.0.12
+  build:
+    template: freestyle:v1:snapshot
+    steps:
+        - ./rio/release.sh 3.0.12-SNAPSHOT
+  machine:
+    docker:
+      baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
+  publish:
+    archives:
+      includePattern: ".dist/publishable/**"
+    reports:
+      junit: false
+  finally:
+    tag:
+      enabled: false
+    buildChain:
+        - cie-cassandra-snapshot-carnival-3.0.12
+  trigger:
+    gitPush: false
 - name: snapshot-carnival-3.0.12
   branchName: cie-cassandra-3.0.12
   build:
