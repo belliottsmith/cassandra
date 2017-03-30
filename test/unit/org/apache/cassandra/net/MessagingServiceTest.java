@@ -20,14 +20,35 @@
  */
 package org.apache.cassandra.net;
 
+import java.net.InetAddress;
 import java.util.List;
 
+import org.apache.cassandra.auth.IInternodeAuthenticator;
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.junit.After;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 
 public class MessagingServiceTest
 {
+    public static final IInternodeAuthenticator ALLOW_NOTHING_AUTHENTICATOR = new IInternodeAuthenticator()
+    {
+        public boolean authenticate(InetAddress remoteAddress, int remotePort)
+        {
+            return false;
+        }
+
+        public void validateConfiguration() throws ConfigurationException
+        {
+
+        }
+    };
+    static final IInternodeAuthenticator originalAuthenticator = DatabaseDescriptor.getInternodeAuthenticator();
+
     private final MessagingService messagingService = MessagingService.test();
 
     @Test
@@ -54,4 +75,45 @@ public class MessagingServiceTest
         assertEquals(7500, (int)messagingService.getDroppedMessages().get(verb.toString()));
     }
 
+
+    /**
+     * Make sure that if internode authenticatino fails for an outbound connection that all the code that relies
+     * on getting the connection pool handles the null return
+     * @throws Exception
+     */
+    @Test
+    public void testFailedInternodeAuth() throws Exception
+    {
+        MessagingService ms = MessagingService.instance();
+        DatabaseDescriptor.setInternodeAuthenticator(ALLOW_NOTHING_AUTHENTICATOR);
+        InetAddress address = InetAddress.getByName("127.0.0.250");
+
+        //Should return null
+        assertNull(ms.getConnectionPool(address));
+        assertNull(ms.getConnection(address, new MessageOut(MessagingService.Verb.GOSSIP_DIGEST_ACK)));
+
+        //Should tolerate null
+        ms.convict(address);
+        ms.sendOneWay(new MessageOut(MessagingService.Verb.GOSSIP_DIGEST_ACK), address);
+    }
+
+    @Test
+    public void testOutboundTcpConnectionCleansUp() throws Exception
+    {
+        MessagingService ms = MessagingService.instance();
+        DatabaseDescriptor.setInternodeAuthenticator(ALLOW_NOTHING_AUTHENTICATOR);
+        InetAddress address = InetAddress.getByName("127.0.0.250");
+        OutboundTcpConnectionPool pool = new OutboundTcpConnectionPool(address);
+        ms.connectionManagers.put(address, pool);
+        pool.smallMessages.start();
+        pool.smallMessages.enqueue(new MessageOut(MessagingService.Verb.GOSSIP_DIGEST_ACK), 0);
+        pool.smallMessages.join();
+        assertFalse(ms.connectionManagers.containsKey(address));
+    }
+
+    @After
+    public void replaceAuthenticator()
+    {
+        DatabaseDescriptor.setInternodeAuthenticator(originalAuthenticator);
+    }
 }

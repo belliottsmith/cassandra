@@ -144,6 +144,11 @@ public class OutboundTcpConnectionPool
         }
     }
 
+    public static int portFor(InetAddress endpoint)
+    {
+        return isEncryptedChannel(endpoint) ? DatabaseDescriptor.getSSLStoragePort() : DatabaseDescriptor.getStoragePort();
+    }
+
     public InetAddress endPoint()
     {
         if (id.equals(FBUtilities.getBroadcastAddress()))
@@ -214,7 +219,7 @@ public class OutboundTcpConnectionPool
             smallMessages.closeSocket(true);
         if (gossipMessages != null)
             gossipMessages.closeSocket(true);
-
-        metrics.release();
+        if (metrics != null)
+            metrics.release();
     }
 }

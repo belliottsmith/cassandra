@@ -247,6 +247,12 @@ public class OutboundTcpConnection extends Thread
                         break inner;
                     }
                 }
+                catch (InternodeAuthFailed e)
+                {
+                    logger.warn("Internode auth failed connecting to " + poolReference.endPoint());
+                    //Remove the connection pool and other thread so messages aren't queued
+                    MessagingService.instance().destroyConnectionPool(poolReference.endPoint());
+                }
                 catch (Exception e)
                 {
                     JVMStabilityInspector.inspectThrowable(e);
@@ -399,21 +405,27 @@ public class OutboundTcpConnection extends Thread
     }
 
     @SuppressWarnings("resource")
-    private boolean connect()
+    private boolean connect() throws InternodeAuthFailed
     {
+        InetAddress endpoint = poolReference.endPoint();
+        if (!DatabaseDescriptor.getInternodeAuthenticator().authenticate(endpoint, poolReference.portFor(endpoint)))
+        {
+            throw new InternodeAuthFailed();
+        }
+
         if (logger.isTraceEnabled())
-            logger.trace("attempting to connect to {}", poolReference.endPoint());
+            logger.trace("attempting to connect to {}", endpoint);
 
         long start = System.nanoTime();
         long timeout = TimeUnit.MILLISECONDS.toNanos(DatabaseDescriptor.getRpcTimeout());
         while (System.nanoTime() - start < timeout)
         {
-            targetVersion = MessagingService.instance().getVersion(poolReference.endPoint());
+            targetVersion = MessagingService.instance().getVersion(endpoint);
             try
             {
                 socket = poolReference.newSocket();
                 socket.setKeepAlive(true);
-                if (isLocalDC(poolReference.endPoint()))
+                if (isLocalDC(endpoint))
                 {
                     socket.setTcpNoDelay(INTRADC_TCP_NODELAY);
                 }
@@ -454,7 +466,7 @@ public class OutboundTcpConnection extends Thread
                 }
                 else
                 {
-                    MessagingService.instance().setVersion(poolReference.endPoint(), maxTargetVersion);
+                    MessagingService.instance().setVersion(endpoint, maxTargetVersion);
                 }
 
                 if (targetVersion > maxTargetVersion)
@@ -462,7 +474,7 @@ public class OutboundTcpConnection extends Thread
                     logger.trace("Target max version is {}; will reconnect with that version", maxTargetVersion);
                     try
                     {
-                        if (DatabaseDescriptor.getSeeds().contains(poolReference.endPoint()))
+                        if (DatabaseDescriptor.getSeeds().contains(endpoint))
                             logger.warn("Seed gossip version is {}; will not connect with that version", maxTargetVersion);
                     }
                     catch (Throwable e)
@@ -524,7 +536,7 @@ public class OutboundTcpConnection extends Thread
             {
                 socket = null;
                 if (logger.isTraceEnabled())
-                    logger.trace("unable to connect to " + poolReference.endPoint(), e);
+                    logger.trace("unable to connect to " + endpoint, e);
                 Uninterruptibles.sleepUninterruptibly(OPEN_RETRY_DELAY, TimeUnit.MILLISECONDS);
             }
         }
@@ -628,4 +640,6 @@ public class OutboundTcpConnection extends Thread
             return false;
         }
     }
+
+    private static class InternodeAuthFailed extends Exception {}
 }

@@ -28,6 +28,7 @@ import java.nio.file.Paths;
 import java.util.*;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.Ints;
 import com.google.common.primitives.Longs;
@@ -42,7 +43,6 @@ import org.apache.cassandra.config.Config.RequestSchedulerId;
 import org.apache.cassandra.config.EncryptionOptions.ClientEncryptionOptions;
 import org.apache.cassandra.config.EncryptionOptions.ServerEncryptionOptions;
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -74,7 +74,7 @@ public class DatabaseDescriptor
     private static InetAddress rpcAddress;
     private static InetAddress broadcastRpcAddress;
     private static SeedProvider seedProvider;
-    private static IInternodeAuthenticator internodeAuthenticator;
+    private static IInternodeAuthenticator internodeAuthenticator = new AllowAllInternodeAuthenticator();
 
     /* Hashing strategy Random or OPHF */
     private static IPartitioner partitioner;
@@ -1375,6 +1375,12 @@ public class DatabaseDescriptor
     public static IInternodeAuthenticator getInternodeAuthenticator()
     {
         return internodeAuthenticator;
+    }
+
+    public static void setInternodeAuthenticator(IInternodeAuthenticator internodeAuthenticator)
+    {
+        Preconditions.checkNotNull(internodeAuthenticator);
+        DatabaseDescriptor.internodeAuthenticator = internodeAuthenticator;
     }
 
     public static void setBroadcastAddress(InetAddress broadcastAdd)
