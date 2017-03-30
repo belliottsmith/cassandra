@@ -35,6 +35,7 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.SetMultimap;
 import com.google.common.io.ByteStreams;
+import org.apache.cassandra.config.Schema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1163,7 +1164,7 @@ public final class SystemKeyspace
 
         String req = "SELECT * FROM system.%s WHERE keyspace_name='%s' AND columnfamily_name='%s'";
         UntypedResultSet resultSet = executeInternal(String.format(req, REPAIR_HISTORY_CF, keyspace, columnFamily));
-        ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(columnFamily);
+        ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreIncludingIndexes(Pair.create(keyspace, columnFamily));
         for (UntypedResultSet.Row row : resultSet)
         {
             Range<Token> range = byteBufferToRange(row.getBytes("range"), cfs.getPartitioner());

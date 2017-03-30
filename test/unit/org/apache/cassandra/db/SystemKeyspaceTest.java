@@ -54,6 +54,8 @@ public class SystemKeyspaceTest
     public static final String MIGRATION_SSTABLES_ROOT = "migration-sstable-root";
     public static final String KEYSPACE1 = "SystemKeyspaceTest";
     public static final String CF_STANDARD1 = "Standard1";
+    public static final String CF_INDEX1 = "Indexed1";
+
 
     @BeforeClass
     public static void prepSnapshotTracker()
@@ -65,7 +67,8 @@ public class SystemKeyspaceTest
         SchemaLoader.prepareServer();
         SchemaLoader.createKeyspace(KEYSPACE1,
                                     KeyspaceParams.simple(1),
-                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1));
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
+                                    SchemaLoader.keysIndexCFMD(KEYSPACE1, CF_INDEX1, true));
     }
 
     @Test
@@ -305,5 +308,49 @@ public class SystemKeyspaceTest
         assertTrue(lastSuccessfulRepair.containsKey(range));
         // we should get ts in seconds
         assertEquals((int) (ts / 1000), lastSuccessfulRepair.get(range).intValue());
+    }
+
+    @Test
+    public void testLastSuccessfulRepairWith2i()
+    {
+        String ks = KEYSPACE1;
+        String cf = CF_INDEX1;
+
+        // save last successful repair
+        Range<Token> range = new Range<Token>(token("a"), token("e"));
+        long ts = System.currentTimeMillis();
+        SystemKeyspace.updateLastSuccessfulRepair(ks, cf, range, ts);
+
+        // make sure we can read them back
+        Map<Range<Token>, Integer> lastSuccessfulRepair = SystemKeyspace.getLastSuccessfulRepair(ks, cf);
+        assertTrue(lastSuccessfulRepair.containsKey(range));
+        // we should get ts in seconds
+        assertEquals((int) (ts / 1000), lastSuccessfulRepair.get(range).intValue());
+
+        // update timestamp
+        ts += 36000;
+        SystemKeyspace.updateLastSuccessfulRepair(ks, cf, range, ts);
+        lastSuccessfulRepair = SystemKeyspace.getLastSuccessfulRepair(ks, cf);
+        assertEquals(1, lastSuccessfulRepair.size());
+        assertTrue(lastSuccessfulRepair.containsKey(range));
+        // we should get ts in seconds
+        assertEquals((int) (ts / 1000), lastSuccessfulRepair.get(range).intValue());
+    }
+
+    @Test
+    public void testReadingAllLastSuccessfulRepairs()
+    {
+        SchemaLoader.prepareServer();
+
+        for (Keyspace keyspace : Keyspace.all())
+        {
+            for (ColumnFamilyStore cfs : keyspace.getColumnFamilyStores())
+            {
+                for (final ColumnFamilyStore store : cfs.concatWithIndexes())
+                {
+                    SystemKeyspace.getLastSuccessfulRepair(keyspace.getName(), store.name);
+                }
+            }
+        }
     }
 }
