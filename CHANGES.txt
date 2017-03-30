@@ -1,4 +1,7 @@
-3.0.12.4 (open)
+3.0.12.5 (open)
+
+3.0.12.4
+ * <rdar://problem/31332689> During startup, SystemKeyspace.getLastSuccessfulRepair should properly handle 2i (Apple Internal)
 
 3.0.12.3
  * <rdar://problem/31195526> Backport CASSANDRA-13234 - Add histogram for delay to deliver hints (#13234, fixed in 4.0)
