@@ -998,7 +998,7 @@ windows_timer_interval: 1
 # auth_write_consistency_level: EACH_QUORUM
 
 # Track a metric per keyspace indicating whether replication achieved the ideal consistency
-# level for writes without timing out. This is different from the consistency level requested by each
+# level for writes without timing out. This is different from the consistency level requested by
 # each write which may be lower in order to facilitate availability.
 # ideal_consistency_level: EACH_QUORUM
 

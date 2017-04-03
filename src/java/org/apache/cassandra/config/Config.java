@@ -314,8 +314,10 @@ public class Config
     public int tracetype_query_ttl = (int) TimeUnit.DAYS.toSeconds(1);
     public int tracetype_repair_ttl = (int) TimeUnit.DAYS.toSeconds(7);
 
-    // Maintain statistics on whether writes achieve the ideal consistency level
-    // Before expiring and becoming hints
+    /**
+     * Maintain statistics on whether writes achieve the ideal consistency level
+     * before expiring and becoming hints
+     */
     public volatile ConsistencyLevel ideal_consistency_level = null;
 
     /*

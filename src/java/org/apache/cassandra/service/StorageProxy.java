@@ -2891,9 +2891,12 @@ public class StorageProxy implements StorageProxyMBean
         return Schema.instance.getNumberOfTables();
     }
 
-    public void setIdealConsistencyLevel(String cl)
+    public String setIdealConsistencyLevel(String cl)
     {
-        DatabaseDescriptor.setIdealConsistencyLevel(ConsistencyLevel.valueOf(cl.trim().toUpperCase()));
+        ConsistencyLevel original = DatabaseDescriptor.getIdealConsistencyLevel();
+        ConsistencyLevel newCL = ConsistencyLevel.valueOf(cl.trim().toUpperCase());
+        DatabaseDescriptor.setIdealConsistencyLevel(newCL);
+        return String.format("Updating ideal consistency level new value: %s old value %s", newCL, original.toString());
     }
 
     @Override
