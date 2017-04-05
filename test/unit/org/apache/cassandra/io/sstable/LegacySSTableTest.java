@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.UUID;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -134,6 +135,28 @@ public class LegacySSTableTest
             long startCount = CacheService.instance.keyCache.size();
             verifyReads(legacyVersion);
             verifyCache(legacyVersion, startCount);
+        }
+    }
+
+    @Test
+    public void testMutateMetadata() throws Exception
+    {
+        // we need to make sure we write old version metadata in the format for that version
+        for (String legacyVersion : legacyVersions)
+        {
+            logger.info("Loading legacy version: {}", legacyVersion);
+            truncateTables(legacyVersion);
+            loadLegacyTables(legacyVersion);
+            CacheService.instance.invalidateKeyCache();
+
+            for (ColumnFamilyStore cfs : Keyspace.open("legacy_tables").getColumnFamilyStores())
+            {
+                for (SSTableReader sstable : cfs.getLiveSSTables())
+                {
+                    sstable.descriptor.getMetadataSerializer().mutateRepaired(sstable.descriptor, 1234, UUID.randomUUID());
+                    sstable.reloadSSTableMetadata();
+                }
+            }
         }
     }
 
