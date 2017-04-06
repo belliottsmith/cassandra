@@ -147,4 +147,11 @@ public class DeserializationHelper
                ? CounterContext.instance().clearAllLocal(value, accessor)
                : value;
     }
+
+    @Override
+    public String toString()
+    {
+        return String.format("DeserializationHelper[flag=%s, version=%s, columnsToFetch=%s, tester=%s, droppedColumns=%s, currentDroppedComplex=%s]",
+                             flag, version, columnsToFetch, tester, droppedColumns, currentDroppedComplex);
+    }
 }
