@@ -19,6 +19,9 @@ package org.apache.cassandra.db.rows;
 
 import java.io.IOException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import net.nicoulaj.compilecommand.annotations.Inline;
 import org.apache.cassandra.db.marshal.ByteArrayAccessor;
 import org.apache.cassandra.db.marshal.UTF8Type;
@@ -94,6 +97,8 @@ import org.apache.cassandra.utils.WrappedException;
  */
 public class UnfilteredSerializer
 {
+    private static final Logger logger = LoggerFactory.getLogger(UnfilteredSerializer.class);
+
     public static final UnfilteredSerializer serializer = new UnfilteredSerializer();
 
     /*
@@ -479,9 +484,15 @@ public class UnfilteredSerializer
         }
         else
         {
-            // deserializeStaticRow should be used for that.
+            // deserializeStaticRow should have been used, which means somehow we've encountered a static cell after we thought
+            // we had already consumed all of them into the staticRow. This means either the iterator logic is incorrect, or
+            // the file is corrupt - we should log enough information to help determine which of those is true
             if (isStatic(extendedFlags))
+            {
+                logger.error("Invalid static row detected deserializing input={} with SerializationHeader={}, DeserializationHelper={}, Row.Builder={}, flags={}, extendedFlags={}",
+                        in, header, helper, builder, flags, extendedFlags);
                 throw new IOException("Corrupt flags value for unfiltered partition (isStatic flag set): " + flags);
+            }
 
             builder.newRow(Clustering.serializer.deserialize(in, helper.version, header.clusteringTypes()));
             return deserializeRowBody(in, header, helper, flags, extendedFlags, builder);
