@@ -1167,6 +1167,9 @@ public abstract class LegacyLayout
 
         public boolean addAtom(LegacyAtom atom)
         {
+            if (atom.isStatic() != isStatic)
+                throw new IllegalArgumentException("Cell static state is different than grouper static state (" + String.valueOf(isStatic) + ") for atom: " + atom.toString());
+
             return atom.isCell()
                  ? addCell(atom.asCell())
                  : addRangeTombstone(atom.asRangeTombstone());
