@@ -99,10 +99,12 @@ public class StorageProxy implements StorageProxyMBean
     };
     private static final ClientRequestMetrics readMetrics = new ClientRequestMetrics("Read");
     private static final ClientRequestMetrics rangeMetrics = new ClientRequestMetrics("RangeSlice");
+    private static final ClientRequestMetrics partitionSizeMetrics = new ClientRequestMetrics("PartitionSize");
     private static final ClientRequestMetrics writeMetrics = new ClientRequestMetrics("Write");
     private static final CASClientRequestMetrics casWriteMetrics = new CASClientRequestMetrics("CASWrite");
     private static final CASClientRequestMetrics casReadMetrics = new CASClientRequestMetrics("CASRead");
     private static final ViewWriteMetrics viewWriteMetrics = new ViewWriteMetrics("ViewWrite");
+    private static final EnumMap<ConsistencyLevel, ClientRequestMetrics> partitionSizeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     private static final Map<ConsistencyLevel, ClientRequestMetrics> readMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     private static final Map<ConsistencyLevel, ClientRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     private static final BlacklistMetrics blacklistMetrics = new BlacklistMetrics();
@@ -227,6 +229,7 @@ public class StorageProxy implements StorageProxyMBean
         {
             readMetricsMap.put(level, new ClientRequestMetrics("Read-" + level.name()));
             writeMetricsMap.put(level, new ClientRequestMetrics("Write-" + level.name()));
+            partitionSizeMetricsMap.put(level, new ClientRequestMetrics("PartitionSize-" + level.name()));
         }
     }
 
@@ -1791,10 +1794,20 @@ public class StorageProxy implements StorageProxyMBean
 
     public static Map<InetAddress, Long> fetchPartitionSize(PartitionSizeCommand command, ConsistencyLevel cl, long queryStartNanoTime) throws ReadTimeoutException, UnavailableException
     {
+        long start = System.nanoTime();
         Keyspace keyspace = Keyspace.open(command.keyspace);
         List<InetAddress> allReplicas = StorageService.instance.getLiveNaturalEndpoints(keyspace, command.key);
         List<InetAddress> filteredReplicas = cl.filterForQuery(keyspace, allReplicas, cl.isDatacenterLocal() ? ReadRepairDecision.DC_LOCAL : ReadRepairDecision.GLOBAL);
-        cl.assureSufficientLiveNodes(keyspace, filteredReplicas);
+        try
+        {
+            cl.assureSufficientLiveNodes(keyspace, filteredReplicas);
+        }
+        catch (UnavailableException e)
+        {
+            partitionSizeMetricsMap.get(cl).unavailables.mark();
+            partitionSizeMetrics.unavailables.mark();
+            throw e;
+        }
 
         List<InetAddress> replicasToMessage = filteredReplicas.subList(0, Math.min(cl.blockFor(keyspace) + 1, filteredReplicas.size()));
 
@@ -1817,7 +1830,22 @@ public class StorageProxy implements StorageProxyMBean
             }
         }
 
-        return callback.get();
+        try
+        {
+            return callback.get();
+        }
+        catch (ReadTimeoutException e)
+        {
+            partitionSizeMetricsMap.get(cl).timeouts.mark();
+            partitionSizeMetrics.timeouts.mark();
+            throw e;
+        }
+        finally
+        {
+            long latency = System.nanoTime() - start;
+            partitionSizeMetrics.addNano(latency);
+            partitionSizeMetricsMap.get(cl).addNano(latency);
+        }
     }
 
     /**
