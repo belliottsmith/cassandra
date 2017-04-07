@@ -125,4 +125,12 @@ public class SerializationHelper
              ? CounterContext.instance().clearAllLocal(value)
              : value;
     }
+
+    @Override
+    public String toString()
+    {
+        return String.format("SerializationHelper[flag=%s, version=%s, columnsToFetch=%s, tester=%s, droppedColumns=%s, currentDroppedComplex=%s]",
+                flag, version, columnsToFetch, tester, droppedColumns, currentDroppedComplex);
+    }
+
 }

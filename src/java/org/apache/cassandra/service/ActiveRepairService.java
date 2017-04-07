@@ -369,7 +369,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                     {
                         if (ir.intersects(pr))
                         {
-                            throw new IllegalArgumentException(String.format("Intended repair job {} overlaps with existing repair session {}", options, prs));
+                            throw new IllegalArgumentException(String.format("Intended repair job %s overlaps with existing repair session %s", options, prs));
                         }
                     }
                 }
