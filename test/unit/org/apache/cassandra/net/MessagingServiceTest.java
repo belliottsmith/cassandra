@@ -27,6 +27,7 @@ import org.apache.cassandra.auth.IInternodeAuthenticator;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -50,6 +51,13 @@ public class MessagingServiceTest
     static final IInternodeAuthenticator originalAuthenticator = DatabaseDescriptor.getInternodeAuthenticator();
 
     private final MessagingService messagingService = MessagingService.test();
+
+    private static int metricScopeId = 0;
+
+    @Before
+    public void before() {
+        messagingService.resetDroppedMessagesMap(Integer.toString(metricScopeId++));;
+    }
 
     @Test
     public void testDroppedMessages()

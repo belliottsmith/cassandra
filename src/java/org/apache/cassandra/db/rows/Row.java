@@ -129,7 +129,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
      * The returned object groups all the cells for the column, as well as it's complex deletion (if relevant).
      *
      * @param c the complex column for which to return the complex data.
-     * @return the data for {@code c} or {@code null} is the row has no data for this column.
+     * @return the data for {@code c} or {@code null} if the row has no data for this column.
      */
     public ComplexColumnData getComplexColumnData(ColumnDefinition c);
 
@@ -404,6 +404,12 @@ public interface Row extends Unfiltered, Collection<ColumnData>
      */
     public interface Builder
     {
+        /**
+         * Creates a copy of this {@code Builder}.
+         * @return a copy of this {@code Builder}
+         */
+        public Builder copy();
+
         /**
          * Whether the builder is a sorted one or not.
          *

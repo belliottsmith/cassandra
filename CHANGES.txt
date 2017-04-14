@@ -1,4 +1,15 @@
-3.0.12.5 (open)
+3.0.13.2 (open)
+
+3.0.13.1
+ * <rdar://problem/29272085> Cass: "java.lang.AssertionError: Memory was freed (#13422, fixed in 3.11)
+ * <rdar://problem/31415007> - nodetool upgradesstables doesnt upgrade system tables (#13410, fixed in 3.0.13)
+ * <rdar://problem/30438245> Implement Internode Auth on outgoing connections (#13324, fixed in 4.0)
+ * <rdar://problem/31485112> WriteResponseHandlerTest is sensitive to test execution order (#13421, Not yet fixed)
+ * <rdar://problem/31502410> Avoid using timestamps for schema digest (#13441, Not yet fixed)
+ * <rdar://problem/31485112> Cass: Add metric for separate Timeout CL (measure remote quorum failures) (#13289 , fixed in 4.0)
+ * <rdar://problem/31249496> Cass: Range overlap exception method using the wrong format markers (Apple Internal)
+ * <rdar://problem/31356522> Add logging to help investigate invalid static row deserialization error (Apple Internal)
+ * <rdar://problem/31118255> Cass: add storage proxy metrics for PartitionSizeCommand  (Apple Internal)
 
 3.0.12.4
  * <rdar://problem/31332689> During startup, SystemKeyspace.getLastSuccessfulRepair should properly handle 2i (Apple Internal)
@@ -96,6 +107,39 @@
  * <rdar://problem/27729987> Port to 3.0 Adding restrictions while creating or altering keyspaces(Apple Internal)
  * <rdar://problem/26121375> Cass: disallow removal of a DC from system_auth replication settings(#13041. Not yet fixed)
 
+3.0.13
+ * Make reading of range tombstones more reliable (CASSANDRA-12811)
+ * Fix startup problems due to schema tables not completely flushed (CASSANDRA-12213)
+ * Fix view builder bug that can filter out data on restart (CASSANDRA-13405)
+ * Fix 2i page size calculation when there are no regular columns (CASSANDRA-13400)
+ * Fix the conversion of 2.X expired rows without regular column data (CASSANDRA-13395)
+ * Fix hint delivery when using ext+internal IPs with prefer_local enabled (CASSANDRA-13020)
+ * Fix possible NPE on upgrade to 3.0/3.X in case of IO errors (CASSANDRA-13389)
+ * Legacy deserializer can create empty range tombstones (CASSANDRA-13341)
+ * Use the Kernel32 library to retrieve the PID on Windows and fix startup checks (CASSANDRA-13333)
+ * Fix code to not exchange schema across major versions (CASSANDRA-13274)
+ * Dropping column results in "corrupt" SSTable (CASSANDRA-13337)
+ * Bugs handling range tombstones in the sstable iterators (CASSANDRA-13340)
+ * Fix CONTAINS filtering for null collections (CASSANDRA-13246)
+ * Applying: Use a unique metric reservoir per test run when using Cassandra-wide metrics residing in MBeans (CASSANDRA-13216)
+ * Propagate row deletions in 2i tables on upgrade (CASSANDRA-13320)
+ * Slice.isEmpty() returns false for some empty slices (CASSANDRA-13305)
+ * Add formatted row output to assertEmpty in CQL Tester (CASSANDRA-13238)
+ * Legacy caching options can prevent 3.0 upgrade (CASSANDRA-13384)
+ * Nodetool upgradesstables/scrub/compact ignores system tables (CASSANDRA-13410)
+ * Fix NPE issue in StorageService (CASSANDRA-13060)
+Merged from 2.2:
+ * Fix weightedSize() for row-cache reported by JMX and NodeTool (CASSANDRA-13393)
+ * Honor truststore-password parameter in cassandra-stress (CASSANDRA-12773)
+ * Discard in-flight shadow round responses (CASSANDRA-12653)
+ * Don't anti-compact repaired data to avoid inconsistencies (CASSANDRA-13153)
+ * Wrong logger name in AnticompactionTask (CASSANDRA-13343)
+ * Commitlog replay may fail if last mutation is within 4 bytes of end of segment (CASSANDRA-13282)
+ * Fix queries updating multiple time the same list (CASSANDRA-13130)
+ * Fix GRANT/REVOKE when keyspace isn't specified (CASSANDRA-13053)
+Merged from 2.1:
+ * Fix 2ndary index queries on partition keys for tables with static columns CASSANDRA-13147
+ * Fix ParseError unhashable type list in cqlsh copy from (CASSANDRA-13364)
 
 3.0.12
  * Prevent data loss on upgrade 2.1 - 3.0 by adding component separator to LogRecord absolute path (CASSANDRA-13294)
@@ -106,7 +150,7 @@
  * Legacy deserializer can create unexpected boundary range tombstones (CASSANDRA-13237)
  * Remove unnecessary assertion from AntiCompactionTest (CASSANDRA-13070)
  * Fix cqlsh COPY for dates before 1900 (CASSANDRA-13185)
-Merged from 2.2
+Merged from 2.2:
  * Avoid race on receiver by starting streaming sender thread after sending init message (CASSANDRA-12886)
  * Fix "multiple versions of ant detected..." when running ant test (CASSANDRA-13232)
  * Coalescing strategy sleeps too much (CASSANDRA-13090)
@@ -160,6 +204,7 @@ Merged from 2.1:
  * Prevent reloading of logback.xml from UDF sandbox (CASSANDRA-12535)
  * Reenable HeapPool (CASSANDRA-12900)
 Merged from 2.2:
+ * Fix JVM metric names (CASSANDRA-13103)
  * Fix negative mean latency metric (CASSANDRA-12876)
  * Use only one file pointer when creating commitlog segments (CASSANDRA-12539)
  * Fix speculative retry bugs (CASSANDRA-13009)

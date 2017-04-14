@@ -172,7 +172,7 @@ public class CassandraDaemon
 
         logSystemInfo();
 
-        CLibrary.tryMlockall();
+        NativeLibrary.tryMlockall();
 
         try
         {
@@ -362,9 +362,9 @@ public class CassandraDaemon
             try
             {
                 // enable metrics provided by metrics-jvm.jar
-                CassandraMetricsRegistry.Metrics.register("jvm.buffers.", new BufferPoolMetricSet(ManagementFactory.getPlatformMBeanServer()));
-                CassandraMetricsRegistry.Metrics.register("jvm.gc.", new GarbageCollectorMetricSet());
-                CassandraMetricsRegistry.Metrics.register("jvm.memory.", new MemoryUsageGaugeSet());
+                CassandraMetricsRegistry.Metrics.register("jvm.buffers", new BufferPoolMetricSet(ManagementFactory.getPlatformMBeanServer()));
+                CassandraMetricsRegistry.Metrics.register("jvm.gc", new GarbageCollectorMetricSet());
+                CassandraMetricsRegistry.Metrics.register("jvm.memory", new MemoryUsageGaugeSet());
                 CassandraMetricsRegistry.Metrics.register("jvm.fd.usage", new FileDescriptorRatioGauge());
                 // initialize metrics-reporter-config from yaml file
                 String reportFileLocation = CassandraDaemon.class.getClassLoader().getResource(metricsReporterConfigFile).getFile();
@@ -720,12 +720,12 @@ public class CassandraDaemon
     {
         public boolean isAvailable()
         {
-            return CLibrary.jnaAvailable();
+            return NativeLibrary.isAvailable();
         }
 
         public boolean isMemoryLockable()
         {
-            return CLibrary.jnaMemoryLockable();
+            return NativeLibrary.jnaMemoryLockable();
         }
     }
 

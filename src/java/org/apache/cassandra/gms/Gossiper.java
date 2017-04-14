@@ -1327,11 +1327,22 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     }
 
     /**
-     *  Do a single 'shadow' round of gossip, where we do not modify any state
-     *  Used when preparing to join the ring:
-     *      * when replacing a node, to get and assume its tokens
-     *      * when joining, to check that the local host id matches any previous id for the endpoint address
-     *  @return endpoint states gathered during shadow round or empty map
+     * Do a single 'shadow' round of gossip by retrieving endpoint states that will be stored exclusively in the
+     * map return value, instead of endpointStateMap.
+     *
+     * Used when preparing to join the ring:
+     * <ul>
+     *     <li>when replacing a node, to get and assume its tokens</li>
+     *     <li>when joining, to check that the local host id matches any previous id for the endpoint address</li>
+     * </ul>
+     *
+     * Method is synchronized, as we use an in-progress flag to indicate that shadow round must be cleared
+     * again by calling {@link Gossiper#finishShadowRound(Map)}. This will update
+     * {@link Gossiper#endpointShadowStateMap} with received values, in order to return an immutable copy to the
+     * caller of {@link Gossiper#doShadowRound()}. Therefor only a single shadow round execution is permitted at
+     * the same time.
+     *
+     * @return endpoint states gathered during shadow round or empty map
      */
     public synchronized Map<InetAddress, EndpointState> doShadowRound()
     {

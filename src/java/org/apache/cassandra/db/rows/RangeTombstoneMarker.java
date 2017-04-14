@@ -49,6 +49,14 @@ public interface RangeTombstoneMarker extends Unfiltered
 
     public RangeTombstoneMarker copy(AbstractAllocator allocator);
 
+    default public boolean isEmpty()
+    {
+        // There is no such thing as an empty marker
+        return false;
+    }
+
+    public RangeTombstoneMarker withNewOpeningDeletionTime(boolean reversed, DeletionTime newDeletionTime);
+
     /**
      * Utility class to help merging range tombstone markers coming from multiple inputs (UnfilteredRowIterators).
      * <p>

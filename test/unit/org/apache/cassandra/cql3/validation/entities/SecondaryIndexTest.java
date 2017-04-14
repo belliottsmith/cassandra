@@ -410,6 +410,45 @@ public class SecondaryIndexTest extends CQLTester
         assertEmpty(execute("SELECT k, v FROM %s  WHERE m CONTAINS 4"));
     }
 
+    @Test
+    public void testSelectOnMultiIndexOnCollectionsWithNull() throws Throwable
+    {
+        createTable(" CREATE TABLE %s ( k int, v int, x text, l list<int>, s set<text>, m map<text, int>, PRIMARY KEY (k, v))");
+
+        createIndex("CREATE INDEX ON %s (x)");
+        createIndex("CREATE INDEX ON %s (v)");
+        createIndex("CREATE INDEX ON %s (s)");
+        createIndex("CREATE INDEX ON %s (m)");
+
+
+        execute("INSERT INTO %s (k, v, x, l, s, m) VALUES (0, 0, 'x', [1, 2],    {'a'},      {'a' : 1})");
+        execute("INSERT INTO %s (k, v, x, l, s, m) VALUES (0, 1, 'x', [3, 4],    {'b', 'c'}, {'a' : 1, 'b' : 2})");
+        execute("INSERT INTO %s (k, v, x, l, s, m) VALUES (0, 2, 'x', [1],       {'a', 'c'}, {'c' : 3})");
+        execute("INSERT INTO %s (k, v, x, l, s, m) VALUES (1, 0, 'x', [1, 2, 4], {},         {'b' : 1})");
+        execute("INSERT INTO %s (k, v, x, l, s, m) VALUES (1, 1, 'x', [4, 5],    {'d'},      {'a' : 1, 'b' : 3})");
+        execute("INSERT INTO %s (k, v, x, l, s, m) VALUES (1, 2, 'x', null,      null,       null)");
+
+        beforeAndAfterFlush(() -> {
+            // lists
+            assertRows(execute("SELECT k, v FROM %s WHERE x = 'x' AND l CONTAINS 1 ALLOW FILTERING"), row(1, 0), row(0, 0), row(0, 2));
+            assertRows(execute("SELECT k, v FROM %s WHERE x = 'x' AND k = 0 AND l CONTAINS 1 ALLOW FILTERING"), row(0, 0), row(0, 2));
+            assertRows(execute("SELECT k, v FROM %s WHERE x = 'x' AND l CONTAINS 2 ALLOW FILTERING"), row(1, 0), row(0, 0));
+            assertEmpty(execute("SELECT k, v FROM %s WHERE x = 'x' AND l CONTAINS 6 ALLOW FILTERING"));
+
+            // sets
+            assertRows(execute("SELECT k, v FROM %s WHERE x = 'x' AND s CONTAINS 'a' ALLOW FILTERING" ), row(0, 0), row(0, 2));
+            assertRows(execute("SELECT k, v FROM %s WHERE x = 'x' AND k = 0 AND s CONTAINS 'a' ALLOW FILTERING"), row(0, 0), row(0, 2));
+            assertRows(execute("SELECT k, v FROM %s WHERE x = 'x' AND s CONTAINS 'd' ALLOW FILTERING"), row(1, 1));
+            assertEmpty(execute("SELECT k, v FROM %s  WHERE x = 'x' AND s CONTAINS 'e' ALLOW FILTERING"));
+
+            // maps
+            assertRows(execute("SELECT k, v FROM %s WHERE x = 'x' AND m CONTAINS 1 ALLOW FILTERING"), row(1, 0), row(1, 1), row(0, 0), row(0, 1));
+            assertRows(execute("SELECT k, v FROM %s WHERE x = 'x' AND k = 0 AND m CONTAINS 1 ALLOW FILTERING"), row(0, 0), row(0, 1));
+            assertRows(execute("SELECT k, v FROM %s WHERE x = 'x' AND m CONTAINS 2 ALLOW FILTERING"), row(0, 1));
+            assertEmpty(execute("SELECT k, v FROM %s  WHERE x = 'x' AND m CONTAINS 4 ALLOW FILTERING"));
+        });
+    }
+
     /**
      * Migrated from cql_tests.py:TestCQL.map_keys_indexing()
      */
@@ -1108,6 +1147,29 @@ public class SecondaryIndexTest extends CQLTester
 
         assertRows(execute("SELECT * FROM %s WHERE v = textAsBlob('');"),
                    row(bytes("foo124"), EMPTY_BYTE_BUFFER));
+    }
+
+    @Test
+    public void testIndexOnPartitionKeyWithStaticColumnAndNoRows() throws Throwable
+    {
+        createTable("CREATE TABLE %s (pk1 int, pk2 int, c int, s int static, v int, PRIMARY KEY((pk1, pk2), c))");
+        createIndex("CREATE INDEX ON %s (pk2)");
+        execute("INSERT INTO %s (pk1, pk2, c, s, v) VALUES (?, ?, ?, ?, ?)", 1, 1, 1, 9, 1);
+        execute("INSERT INTO %s (pk1, pk2, c, s, v) VALUES (?, ?, ?, ?, ?)", 1, 1, 2, 9, 2);
+        execute("INSERT INTO %s (pk1, pk2, s) VALUES (?, ?, ?)", 2, 1, 9);
+        execute("INSERT INTO %s (pk1, pk2, c, s, v) VALUES (?, ?, ?, ?, ?)", 3, 1, 1, 9, 1);
+
+        assertRows(execute("SELECT * FROM %s WHERE pk2 = ?", 1),
+                   row(2, 1, null, 9, null),
+                   row(1, 1, 1, 9, 1),
+                   row(1, 1, 2, 9, 2),
+                   row(3, 1, 1, 9, 1));
+
+        execute("UPDATE %s SET s=?, v=? WHERE pk1=? AND pk2=? AND c=?", 9, 1, 1, 10, 2);
+        assertRows(execute("SELECT * FROM %s WHERE pk2 = ?", 10), row(1, 10, 2, 9, 1));
+
+        execute("UPDATE %s SET s=? WHERE pk1=? AND pk2=?", 9, 1, 20);
+        assertRows(execute("SELECT * FROM %s WHERE pk2 = ?", 20), row(1, 20, null, 9, null));
     }
 
     private ResultMessage.Prepared prepareStatement(String cql, boolean forThrift)

@@ -61,8 +61,10 @@ public class GossipDigestAckVerbHandler implements IVerbHandler<GossipDigestAck>
 
         if (epStateMap.size() > 0)
         {
-            long ts = epStateMap.values().iterator().next().getUpdateTimestamp();
-            if ((ts - Gossiper.instance.firstSynSendAt) < 0 || Gossiper.instance.firstSynSendAt == 0)
+            // Ignore any GossipDigestAck messages that we handle before a regular GossipDigestSyn has been send.
+            // This will prevent Acks from leaking over from the shadow round that are not actual part of
+            // the regular gossip conversation.
+            if ((System.nanoTime() - Gossiper.instance.firstSynSendAt) < 0 || Gossiper.instance.firstSynSendAt == 0)
             {
                 if (logger.isTraceEnabled())
                     logger.trace("Ignoring unrequested GossipDigestAck from {}", from);

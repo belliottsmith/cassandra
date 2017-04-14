@@ -65,6 +65,7 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.ILatencySubscriber;
+import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.metrics.ConnectionMetrics;
 import org.apache.cassandra.metrics.DroppedMessageMetrics;
 import org.apache.cassandra.repair.messages.RepairMessage;
@@ -388,12 +389,26 @@ public final class MessagingService implements MessagingServiceMBean
 
         DroppedMessages(Verb verb)
         {
-            this.metrics = new DroppedMessageMetrics(verb);
+            this(new DroppedMessageMetrics(verb));
+        }
+
+        DroppedMessages(DroppedMessageMetrics metrics)
+        {
+            this.metrics = metrics;
             this.droppedInternalTimeout = new AtomicInteger(0);
             this.droppedCrossNodeTimeout = new AtomicInteger(0);
         }
-
     }
+
+    @VisibleForTesting
+    public void resetDroppedMessagesMap(String scope)
+    {
+        for (Verb verb : droppedMessagesMap.keySet())
+            droppedMessagesMap.put(verb, new DroppedMessages(new DroppedMessageMetrics(metricName -> {
+                return new CassandraMetricsRegistry.MetricName("DroppedMessages", metricName, scope);
+            })));
+    }
+
     // total dropped message counts for server lifetime
     private final Map<Verb, DroppedMessages> droppedMessagesMap = new EnumMap<>(Verb.class);
 
@@ -899,7 +914,7 @@ public final class MessagingService implements MessagingServiceMBean
                 catch (IOException e)
                 {
                     // see https://issues.apache.org/jira/browse/CASSANDRA-10545
-                    handleIOException(e);
+                    handleIOExceptionOnClose(e);
                 }
         }
         catch (IOException e)
@@ -975,9 +990,6 @@ public final class MessagingService implements MessagingServiceMBean
      */
     public int setVersion(InetAddress endpoint, int version)
     {
-        // We can't talk to someone from the future
-        version = Math.min(version, current_version);
-
         logger.trace("Setting version {} for {}", version, endpoint);
 
         if (version < VERSION_22)
@@ -998,7 +1010,7 @@ public final class MessagingService implements MessagingServiceMBean
     {
         logger.trace("Resetting version for {}", endpoint);
         Integer removed = versions.remove(endpoint);
-        if (removed != null && removed <= VERSION_30)
+        if (removed != null && Math.min(removed, current_version) <= VERSION_30)
             refreshAllNodeMinVersions();
     }
 
@@ -1023,6 +1035,10 @@ public final class MessagingService implements MessagingServiceMBean
         allNodesAtLeast30 = !anyNodeLowerThan30;
     }
 
+    /**
+     * Returns the messaging-version as announced by the given node but capped
+     * to the min of the version as announced by the node and {@link #current_version}.
+     */
     public int getVersion(InetAddress endpoint)
     {
         Integer v = versions.get(endpoint);
@@ -1041,6 +1057,9 @@ public final class MessagingService implements MessagingServiceMBean
         return getVersion(InetAddress.getByName(endpoint));
     }
 
+    /**
+     * Returns the messaging-version exactly as announced by the given endpoint.
+     */
     public int getRawVersion(InetAddress endpoint)
     {
         Integer v = versions.get(endpoint);
@@ -1189,7 +1208,8 @@ public final class MessagingService implements MessagingServiceMBean
             catch (IOException e)
             {
                 // see https://issues.apache.org/jira/browse/CASSANDRA-8220
-                handleIOException(e);
+                // see https://issues.apache.org/jira/browse/CASSANDRA-12513
+                handleIOExceptionOnClose(e);
             }
             for (Closeable connection : connections)
             {
@@ -1203,12 +1223,22 @@ public final class MessagingService implements MessagingServiceMBean
         }
     }
 
-    private static void handleIOException(IOException e) throws IOException
+    private static void handleIOExceptionOnClose(IOException e) throws IOException
     {
         // dirty hack for clean shutdown on OSX w/ Java >= 1.8.0_20
-        // see https://bugs.openjdk.java.net/browse/JDK-8050499
-        if (!"Unknown error: 316".equals(e.getMessage()) || !"Mac OS X".equals(System.getProperty("os.name")))
-            throw e;
+        // see https://bugs.openjdk.java.net/browse/JDK-8050499;
+        // also CASSANDRA-12513
+        if ("Mac OS X".equals(System.getProperty("os.name")))
+        {
+            switch (e.getMessage())
+            {
+                case "Unknown error: 316":
+                case "No such file or directory":
+                    return;
+            }
+        }
+
+        throw e;
     }
 
     public Map<String, Integer> getLargeMessagePendingTasks()
