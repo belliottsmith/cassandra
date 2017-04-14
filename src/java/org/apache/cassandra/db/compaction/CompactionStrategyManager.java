@@ -1,3 +1,4 @@
+
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -509,7 +510,7 @@ public class CompactionStrategyManager implements INotificationConsumer
         }
         else if (notification instanceof SSTableDeletingNotification)
         {
-            readLock.lock();
+            writeLock.lock();
             try
             {
                 SSTableReader sstable = ((SSTableDeletingNotification)notification).deleting;
@@ -522,7 +523,7 @@ public class CompactionStrategyManager implements INotificationConsumer
             }
             finally
             {
-                readLock.unlock();
+                writeLock.unlock();
             }
         }
     }
