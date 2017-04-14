@@ -341,6 +341,11 @@ public interface Row extends Unfiltered, Collection<ColumnData>
 
         public void digest(MessageDigest digest)
         {
+            digest(digest, false);
+        }
+
+        public void digest(MessageDigest digest, boolean forSchema)
+        {
             time.digest(digest);
             FBUtilities.updateWithBoolean(digest, isShadowable);
         }

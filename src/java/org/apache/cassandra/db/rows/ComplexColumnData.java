@@ -132,11 +132,16 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
 
     public void digest(MessageDigest digest)
     {
-        if (!complexDeletion.isLive())
+        digest(digest, false);
+    }
+
+    public void digest(MessageDigest digest, boolean forSchema)
+    {
+        if (!complexDeletion.isLive() && !forSchema)
             complexDeletion.digest(digest);
 
         for (Cell cell : this)
-            cell.digest(digest);
+            cell.digest(digest, forSchema);
     }
 
     public ComplexColumnData markCounterLocalToBeCleared()

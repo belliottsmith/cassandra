@@ -77,6 +77,11 @@ public abstract class AbstractClusteringPrefix implements ClusteringPrefix
 
     public void digest(MessageDigest digest)
     {
+        digest(digest, false);
+    }
+
+    public void digest(MessageDigest digest, boolean forSchema)
+    {
         for (int i = 0; i < size(); i++)
         {
             ByteBuffer bb = get(i);

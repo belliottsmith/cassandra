@@ -312,7 +312,7 @@ public final class SchemaKeyspace
                     try (RowIterator partition = schema.next())
                     {
                         if (!isSystemKeyspaceSchemaPartition(partition.partitionKey()))
-                            RowIterators.digest(partition, digest);
+                            RowIterators.digest(partition, digest, true);
                     }
                 }
             }

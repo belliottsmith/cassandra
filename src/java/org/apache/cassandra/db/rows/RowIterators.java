@@ -37,6 +37,11 @@ public abstract class RowIterators
 
     public static void digest(RowIterator iterator, MessageDigest digest)
     {
+        digest(iterator, digest, false);
+    }
+
+    public static void digest(RowIterator iterator, MessageDigest digest, boolean forSchema)
+    {
         // TODO: we're not computing digest the same way that old nodes. This is
         // currently ok as this is only used for schema digest and the is no exchange
         // of schema digest between different versions. If this changes however,
@@ -45,10 +50,10 @@ public abstract class RowIterators
         iterator.columns().regulars.digest(digest);
         iterator.columns().statics.digest(digest);
         FBUtilities.updateWithBoolean(digest, iterator.isReverseOrder());
-        iterator.staticRow().digest(digest);
+        iterator.staticRow().digest(digest, forSchema);
 
         while (iterator.hasNext())
-            iterator.next().digest(digest);
+            iterator.next().digest(digest, forSchema);
     }
 
     /**
