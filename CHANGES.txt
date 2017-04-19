@@ -1,4 +1,8 @@
-3.0.13.2 (open)
+3.0.13.3 (open)
+
+3.0.13.2
+ * <rdar://problem/31669447> Zipkin plugin needs to support custom collector URI (Apple Internal)
+ * <rdar://problem/31710629> Modify guards against <rdar://problem/31356522> unexpected static data (Apple Internal)
 
 3.0.13.1
  * <rdar://problem/29272085> Cass: "java.lang.AssertionError: Memory was freed (#13422, fixed in 3.11)
