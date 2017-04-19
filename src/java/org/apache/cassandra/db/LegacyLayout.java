@@ -609,6 +609,10 @@ public abstract class LegacyLayout
                       ? getNextRow(CellGrouper.staticGrouper(metadata, helper), atoms)
                       : Rows.EMPTY_STATIC_ROW;
 
+        // We should have moved all of the static cells into staticRow, the next better not be static
+        if (atoms.hasNext() && atoms.peek().isStatic())
+            logger.warn("Found unexpected static cell after {} static row {}", atoms.peek(), staticRow.toString(metadata, false, true));
+
         Iterator<Row> rows = convertToRows(new CellGrouper(metadata, helper), atoms);
         Iterator<RangeTombstone> ranges = delInfo.deletionInfo.rangeIterator(reversed);
         return new RowAndDeletionMergeIterator(metadata,
@@ -1172,9 +1176,6 @@ public abstract class LegacyLayout
 
         public boolean addAtom(LegacyAtom atom)
         {
-            if (atom.isStatic() != isStatic)
-                throw new IllegalArgumentException("Cell static state is different than grouper static state (" + String.valueOf(isStatic) + ") for atom: " + atom.toString());
-
             return atom.isCell()
                  ? addCell(atom.asCell())
                  : addRangeTombstone(atom.asRangeTombstone());
