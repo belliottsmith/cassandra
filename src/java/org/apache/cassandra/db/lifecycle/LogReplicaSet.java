@@ -15,7 +15,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.cassandra.db.lifecycle;
 
 import java.io.File;
@@ -33,6 +32,8 @@ import org.apache.cassandra.io.FSError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.io.FSError;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.Throwables;
 
 /**
@@ -62,6 +63,15 @@ public class LogReplicaSet implements AutoCloseable
         File directory = file.getParentFile();
         assert !replicasByFile.containsKey(directory);
         replicasByFile.put(directory, LogReplica.open(file));
+        try
+        {
+            replicasByFile.put(directory, LogReplica.open(file));
+        }
+        catch(FSError e)
+        {
+            logger.error("Failed to open log replica {}", file, e);
+            FileUtils.handleFSErrorAndPropagate(e);
+        }
 
         if (logger.isTraceEnabled())
             logger.trace("Added log file replica {} ", file);
@@ -72,13 +82,22 @@ public class LogReplicaSet implements AutoCloseable
         if (replicasByFile.containsKey(directory))
             return;
 
-        final LogReplica replica = LogReplica.create(directory, fileName);
+        try
+        {
+            @SuppressWarnings("resource")  // LogReplicas are closed in LogReplicaSet::close
+            final LogReplica replica = LogReplica.create(directory, fileName);
 
-        records.forEach(replica::append);
-        replicasByFile.put(directory, replica);
+            records.forEach(replica::append);
+            replicasByFile.put(directory, replica);
 
-        if (logger.isTraceEnabled())
-            logger.trace("Created new file replica {}", replica);
+            if (logger.isTraceEnabled())
+                logger.trace("Created new file replica {}", replica);
+        }
+        catch(FSError e)
+        {
+            logger.error("Failed to create log replica {}/{}", directory,  fileName, e);
+            FileUtils.handleFSErrorAndPropagate(e);
+        }
     }
 
     Throwable syncDirectory(Throwable accumulate)
