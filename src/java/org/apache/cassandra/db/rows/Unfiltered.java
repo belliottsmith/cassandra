@@ -46,14 +46,6 @@ public interface Unfiltered extends Clusterable
     public void digest(MessageDigest digest);
 
     /**
-     * Digest the atom using the provided {@code MessageDigest}.
-     *
-     * @param digest the {@code MessageDigest} to use.
-     * @param forSchema a boolean to indicate if the digest should be calculated for schema purposes
-     */
-    public void digest(MessageDigest digest, boolean forSchema);
-
-    /**
      * Validate the data of this atom.
      *
      * @param metadata the metadata for the table this atom is part of.

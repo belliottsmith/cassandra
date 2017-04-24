@@ -42,17 +42,9 @@ public abstract class AbstractCell extends Cell
 
     public void digest(MessageDigest digest)
     {
-        digest(digest, false);
-    }
-
-    public void digest(MessageDigest digest, boolean forSchema)
-    {
         digest.update(value().duplicate());
-        if(!forSchema)
-        {
-            FBUtilities.updateWithLong(digest, timestamp());
-            FBUtilities.updateWithInt(digest, ttl());
-        }
+        FBUtilities.updateWithLong(digest, timestamp());
+        FBUtilities.updateWithInt(digest, ttl());
         FBUtilities.updateWithBoolean(digest, isCounterCell());
         if (path() != null)
             path().digest(digest);
