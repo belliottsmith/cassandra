@@ -3397,11 +3397,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             throw new IllegalArgumentException("the local data center must be part of the repair");
         }
 
-        if (!Boolean.getBoolean("cassandra.repair.skip_overlap_check"))
-        {
-            ActiveRepairService.instance.validateIntendedRepair(keyspace, options);
-        }
-
         RepairRunnable task = new RepairRunnable(this, cmd, options, keyspace);
         task.addProgressListener(progressSupport);
         if (legacy)

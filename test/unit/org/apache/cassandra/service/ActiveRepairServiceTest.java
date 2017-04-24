@@ -22,16 +22,13 @@ import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.RowUpdateBuilder;
@@ -43,11 +40,8 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.TokenMetadata;
-import org.apache.cassandra.repair.RepairParallelism;
-import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.UUIDGen;
 import org.apache.cassandra.utils.concurrent.Refs;
 
 import static org.junit.Assert.assertEquals;
@@ -271,51 +265,6 @@ public class ActiveRepairServiceTest
                 .applyUnsafe();
             }
             cfs.forceBlockingFlush();
-        }
-    }
-
-    private RepairOption repairOption(Range<Token> range, ColumnFamilyStore store)
-    {
-        RepairOption option = new RepairOption(RepairParallelism.PARALLEL, true, true, false, 1, Collections.singleton(range), false, false, false);
-        option.getColumnFamilies().add(store.metadata.cfName);
-        return option;
-    }
-
-    @Test
-    public void validateIntendedRepair() throws Exception
-    {
-        ArrayList<Token> tokens = StorageService.instance.getTokenMetadata().sortedTokens();
-        assert tokens.size() > 1;
-        ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreInstance(Schema.instance.getId(KEYSPACE5, CF_STANDARD1));
-
-        Range<Token> range1 = new Range<>(tokens.get(0), tokens.get(1));
-        RepairOption option1 = repairOption(range1, cfs);
-
-        Range<Token> range2 = new Range<>(tokens.get(1), tokens.get(0));
-        RepairOption option2 = repairOption(range2, cfs);
-
-        UUID session = UUIDGen.getTimeUUID();
-        ActiveRepairService.instance.registerParentRepairSession(session, LOCAL, Lists.newArrayList(cfs), Collections.singleton(range1), false, 0, false);
-
-        // same range should fail
-        try
-        {
-            ActiveRepairService.instance.validateIntendedRepair(cfs.metadata.ksName, option1);
-            Assert.fail("expected IllegalArgumentException");
-        }
-        catch (IllegalArgumentException e)
-        {
-            // expected
-        }
-
-        // non-overlapping range should succeed
-        try
-        {
-            ActiveRepairService.instance.validateIntendedRepair(cfs.metadata.ksName, option2);
-        }
-        catch (IllegalArgumentException e)
-        {
-            Assert.fail("unexpected IllegalArgumentException");
         }
     }
 }
