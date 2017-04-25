@@ -51,7 +51,7 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
     protected static final Logger logger = LoggerFactory.getLogger( ReadCallback.class );
 
     public final ResponseResolver resolver;
-    private final SimpleCondition condition = new SimpleCondition();
+    final SimpleCondition condition = new SimpleCondition();
     private final long start;
     final int blockfor;
     final List<InetAddress> endpoints;

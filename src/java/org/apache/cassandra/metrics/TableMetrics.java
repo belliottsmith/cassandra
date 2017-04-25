@@ -155,6 +155,9 @@ public class TableMetrics
     private static final MetricNameFactory globalAliasFactory = new AllTableMetricNameFactory("ColumnFamily");
 
     public final Counter speculativeRetries;
+    public final Counter speculativeFailedRetries;
+    public final Counter speculativeInsufficientReplicas;
+    public final Gauge<Long> speculativeSampleLatencyNanos;
 
     public final static LatencyMetrics globalReadLatency = new LatencyMetrics(globalFactory, globalAliasFactory, "Read");
     public final static LatencyMetrics globalWriteLatency = new LatencyMetrics(globalFactory, globalAliasFactory, "Write");
@@ -645,6 +648,15 @@ public class TableMetrics
             }
         });
         speculativeRetries = createTableCounter("SpeculativeRetries");
+        speculativeFailedRetries = createTableCounter("SpeculativeFailedRetries");
+        speculativeInsufficientReplicas = createTableCounter("SpeculativeInsufficientReplicas");
+        speculativeSampleLatencyNanos = createTableGauge("SpeculativeSampleLatencyNanos", new Gauge<Long>()
+        {
+            public Long getValue()
+            {
+                return cfs.sampleLatencyNanos;
+            }
+        });
         keyCacheHitRate = Metrics.register(factory.createMetricName("KeyCacheHitRate"),
                                            aliasFactory.createMetricName("KeyCacheHitRate"),
                                            new RatioGauge()
