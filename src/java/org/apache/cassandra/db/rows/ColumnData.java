@@ -72,14 +72,6 @@ public abstract class ColumnData
     public abstract void digest(MessageDigest digest);
 
     /**
-     * Adds the data to the provided digest.
-     *
-     * @param digest the {@code MessageDigest} to add the data to.
-     * @param forSchema boolean to indicate whether or not the digest should ignore fields not needed for schema digest
-     */
-    public abstract void digest(MessageDigest digest, boolean forSchema);
-
-    /**
      * Returns a copy of the data where all timestamps for live data have replaced by {@code newTimestamp} and
      * all deletion timestamp by {@code newTimestamp - 1}.
      *

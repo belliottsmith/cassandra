@@ -134,11 +134,6 @@ public class RangeTombstoneBoundMarker extends AbstractRangeTombstoneMarker
 
     public void digest(MessageDigest digest)
     {
-        digest(digest, false);
-    }
-
-    public void digest(MessageDigest digest, boolean forSchema)
-    {
         bound.digest(digest);
         deletion.digest(digest);
     }

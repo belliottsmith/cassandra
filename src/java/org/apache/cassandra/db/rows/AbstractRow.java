@@ -57,22 +57,14 @@ public abstract class AbstractRow extends AbstractCollection<ColumnData> impleme
 
     public void digest(MessageDigest digest)
     {
-        digest(digest, false);
-    }
-
-    public void digest(MessageDigest digest, boolean forSchema)
-    {
         FBUtilities.updateWithByte(digest, kind().ordinal());
-        clustering().digest(digest, forSchema);
+        clustering().digest(digest);
 
-        if(!forSchema)
-        {
-            deletion().digest(digest);
-            primaryKeyLivenessInfo().digest(digest);
-        }
+        deletion().digest(digest);
+        primaryKeyLivenessInfo().digest(digest);
 
         for (ColumnData cd : this)
-            cd.digest(digest, forSchema);
+            cd.digest(digest);
     }
 
     public void validateData(CFMetaData metadata)
