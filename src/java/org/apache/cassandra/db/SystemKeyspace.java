@@ -32,6 +32,7 @@ import javax.management.openmbean.TabularData;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.SetMultimap;
@@ -131,6 +132,18 @@ public final class SystemKeyspace
     @Deprecated public static final String LEGACY_AVAILABLE_RANGES = "available_ranges";
     @Deprecated public static final String LEGACY_SIZE_ESTIMATES = "size_estimates";
     @Deprecated public static final String LEGACY_SCHEDULED_COMPACTIONS_CF = "scheduled_compactions";
+
+    // Names of all tables that could have been a part of a system keyspace. Useful for pre-flight checks.
+    // For details, see rdar://problem/31658384
+    public static final Set<String> ALL_TABLE_NAMES = ImmutableSet.of(BATCHES, PAXOS, BUILT_INDEXES, LOCAL, PEERS_V2,
+                                                                      PEER_EVENTS_V2, COMPACTION_HISTORY, SSTABLE_ACTIVITY,
+                                                                      TABLE_ESTIMATES, AVAILABLE_RANGES_V2, TRANSFERRED_RANGES_V2,
+                                                                      VIEW_BUILDS_IN_PROGRESS, SCHEDULED_COMPACTIONS_V2, BUILT_VIEWS, PREPARED_STATEMENTS,
+                                                                      REPAIRS,
+
+                                                                      LEGACY_PEERS, LEGACY_PEER_EVENTS, LEGACY_TRANSFERRED_RANGES,
+                                                                      LEGACY_AVAILABLE_RANGES, LEGACY_SIZE_ESTIMATES, LEGACY_SCHEDULED_COMPACTIONS_CF);
+
 
     public static final TableMetadata Batches =
         parse(BATCHES,
