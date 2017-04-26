@@ -187,6 +187,19 @@ public final class SystemKeyspace
     @Deprecated public static final String LEGACY_SSTABLE_ACTIVITY = "sstable_activity";
     @Deprecated public static final String LEGACY_SCHEDULED_COMPACTIONS_CF = "scheduled_compactions";
 
+    // Names of all tables that could have been a part of a system keyspace. Useful for pre-flight checks.
+    // For details, see rdar://problem/31658384
+    public static final Set<String> ALL_TABLE_NAMES = ImmutableSet.of(BATCHES, PAXOS, PAXOS_REPAIR_HISTORY, BUILT_INDEXES, LOCAL, PEERS_V2,
+                                                                      PEER_EVENTS_V2, COMPACTION_HISTORY, SSTABLE_ACTIVITY_V2,
+                                                                      TABLE_ESTIMATES, AVAILABLE_RANGES_V2, TRANSFERRED_RANGES_V2,
+                                                                      VIEW_BUILDS_IN_PROGRESS, BUILT_VIEWS, PREPARED_STATEMENTS,
+                                                                      REPAIRS, SCHEDULED_COMPACTIONS_V2,
+
+                                                                      LEGACY_PEERS, LEGACY_PEER_EVENTS, LEGACY_TRANSFERRED_RANGES,
+                                                                      LEGACY_AVAILABLE_RANGES, LEGACY_SIZE_ESTIMATES, LEGACY_SSTABLE_ACTIVITY,
+                                                                      LEGACY_SCHEDULED_COMPACTIONS_CF);
+
+
     public static final TableMetadata Batches =
         parse(BATCHES,
               "batches awaiting replay",
