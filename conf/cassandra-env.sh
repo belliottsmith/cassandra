@@ -329,4 +329,4 @@ JVM_OPTS="$JVM_OPTS $MX4J_ADDRESS"
 JVM_OPTS="$JVM_OPTS $MX4J_PORT"
 JVM_OPTS="$JVM_OPTS $JVM_EXTRA_OPTS"
 # setting this here is safe since we never reach this if we are launched from WD-40 (we return above)
-JVM_OPTS="-Dcassandra.storagedir=$CASSANDRA_HOME/data"
+JVM_OPTS="$JVM_OPTS -Dcassandra.storagedir=$CASSANDRA_HOME/data"
