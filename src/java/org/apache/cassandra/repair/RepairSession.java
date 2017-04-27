@@ -95,7 +95,6 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
     /** Range to repair */
     public final Collection<Range<Token>> ranges;
     public final Set<InetAddress> endpoints;
-    public final long repairedAt;
     public final boolean isConsistent;
     public final boolean allReplicas;
 
@@ -120,7 +119,6 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
      * @param keyspace name of keyspace
      * @param parallelismDegree specifies the degree of parallelism when calculating the merkle trees
      * @param endpoints the data centers that should be part of the repair; null for all DCs
-     * @param repairedAt when the repair occurred (millis)
      * @param pullRepair true if the repair should be one way (from remote host to this host and only applicable between two hosts--see RepairOption)
      * @param force true if the repair should ignore dead endpoints (instead of failing)
      * @param cfnames names of columnfamilies
@@ -132,7 +130,6 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
                          RepairParallelism parallelismDegree,
                          boolean allReplicas,
                          Set<InetAddress> endpoints,
-                         long repairedAt,
                          boolean isConsistent,
                          boolean pullRepair,
                          boolean force,
@@ -165,14 +162,12 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
             {
                 // we shouldn't be promoting sstables to repaired if any replicas are excluded from the repair
                 forceSkippedReplicas = true;
-                repairedAt = ActiveRepairService.UNREPAIRED_SSTABLE;
                 endpoints = new HashSet<>(endpoints);
                 endpoints.removeAll(removeCandidates);
             }
         }
 
         this.endpoints = endpoints;
-        this.repairedAt = repairedAt;
         this.isConsistent = isConsistent;
         this.pullRepair = pullRepair;
         this.skippedReplicas = forceSkippedReplicas;

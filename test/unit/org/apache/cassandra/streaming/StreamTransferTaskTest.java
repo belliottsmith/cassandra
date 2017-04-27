@@ -73,7 +73,7 @@ public class StreamTransferTaskTest
     public void testScheduleTimeout() throws Exception
     {
         InetAddress peer = FBUtilities.getBroadcastAddress();
-        StreamSession session = new StreamSession(peer, peer, null, 0, true, false, null);
+        StreamSession session = new StreamSession(peer, peer, null, 0, true, null);
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD);
 
         // create two sstables
@@ -89,7 +89,7 @@ public class StreamTransferTaskTest
         {
             List<Range<Token>> ranges = new ArrayList<>();
             ranges.add(new Range<>(sstable.first.getToken(), sstable.last.getToken()));
-            task.addTransferFile(sstable.selfRef(), 1, sstable.getPositionsForRanges(ranges), 0);
+            task.addTransferFile(sstable.selfRef(), 1, sstable.getPositionsForRanges(ranges));
         }
         assertEquals(2, task.getTotalNumberOfFiles());
 
@@ -119,9 +119,9 @@ public class StreamTransferTaskTest
     public void testFailSessionDuringTransferShouldNotReleaseReferences() throws Exception
     {
         InetAddress peer = FBUtilities.getBroadcastAddress();
-        StreamCoordinator streamCoordinator = new StreamCoordinator(1, true, false, null, null);
+        StreamCoordinator streamCoordinator = new StreamCoordinator(1, true, null, null);
         StreamResultFuture future = StreamResultFuture.init(UUID.randomUUID(), "", Collections.<StreamEventHandler>emptyList(), streamCoordinator);
-        StreamSession session = new StreamSession(peer, peer, null, 0, true, false, null);
+        StreamSession session = new StreamSession(peer, peer, null, 0, true, null);
         session.init(future);
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD);
 
@@ -141,7 +141,7 @@ public class StreamTransferTaskTest
             ranges.add(new Range<>(sstable.first.getToken(), sstable.last.getToken()));
             Ref<SSTableReader> ref = sstable.selfRef();
             refs.add(ref);
-            task.addTransferFile(ref, 1, sstable.getPositionsForRanges(ranges), 0);
+            task.addTransferFile(ref, 1, sstable.getPositionsForRanges(ranges));
         }
         assertEquals(2, task.getTotalNumberOfFiles());
 

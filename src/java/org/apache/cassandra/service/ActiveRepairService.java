@@ -183,7 +183,6 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                              RepairParallelism parallelismDegree,
                                              boolean allReplicas,
                                              Set<InetAddress> endpoints,
-                                             long repairedAt,
                                              boolean isConsistent,
                                              boolean pullRepair,
                                              boolean force,
@@ -196,7 +195,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         if (cfnames.length == 0)
             return null;
 
-        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, allReplicas, endpoints, repairedAt, isConsistent, pullRepair, force, cfnames);
+        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, allReplicas, endpoints, isConsistent, pullRepair, force, cfnames);
 
         sessions.put(session.getId(), session);
         // register listeners

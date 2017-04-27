@@ -48,10 +48,9 @@ public class StreamInitMessage
     // true if this init message is to connect for outgoing message on receiving side
     public final boolean isForOutgoing;
     public final boolean keepSSTableLevel;
-    public final boolean isIncremental;
     public final UUID pendingRepair;
 
-    public StreamInitMessage(InetAddress from, int sessionIndex, UUID planId, String description, boolean isForOutgoing, boolean keepSSTableLevel, boolean isIncremental, UUID pendingRepair)
+    public StreamInitMessage(InetAddress from, int sessionIndex, UUID planId, String description, boolean isForOutgoing, boolean keepSSTableLevel, UUID pendingRepair)
     {
         this.from = from;
         this.sessionIndex = sessionIndex;
@@ -59,7 +58,6 @@ public class StreamInitMessage
         this.description = description;
         this.isForOutgoing = isForOutgoing;
         this.keepSSTableLevel = keepSSTableLevel;
-        this.isIncremental = isIncremental;
         this.pendingRepair = pendingRepair;
     }
 
@@ -116,26 +114,7 @@ public class StreamInitMessage
             out.writeBoolean(message.isForOutgoing);
             out.writeBoolean(message.keepSSTableLevel);
 
-            // hack to support transmitting pendingRepair values without breaking backwards compatibility.
-            // DataOutput writes 1 for true, 0 for false, DataInput evaluates any non-zero value as true
-            // The value 2 is written if both isIncremental and pendingRepair is set. This allows nodes supporting
-            // consistent repair to deserialize StreamInitMessages from nodes that don't. pendingRepair won't be
-            // set for streams where isIncremental is not also set.
-            // Since pendingRepair will only ever be set if all nodes involved in a repair support it, there isn't
-            // any danger of blowing up the receiving node's deserializer with unexpected pendingRepair bytes
-            if (message.isIncremental && message.pendingRepair != null)
-            {
-                out.writeByte(2);
-            }
-            else if (message.isIncremental)
-            {
-                out.writeByte(1);
-            }
-            else
-            {
-                out.writeByte(0);
-            }
-
+            out.writeBoolean(message.pendingRepair != null);
             if (message.pendingRepair != null)
             {
                 UUIDSerializer.serializer.serialize(message.pendingRepair, out, MessagingService.current_version);
@@ -151,24 +130,8 @@ public class StreamInitMessage
             boolean sentByInitiator = in.readBoolean();
             boolean keepSSTableLevel = in.readBoolean();
 
-            // see comment in serialize
-            boolean isIncremental;
-            UUID pendingRepair;
-            switch (in.readByte())
-            {
-                case 2:
-                    isIncremental = true;
-                    pendingRepair = UUIDSerializer.serializer.deserialize(in, version);
-                    break;
-                case 1:
-                    isIncremental = true;
-                    pendingRepair = null;
-                    break;
-                default:
-                    isIncremental = false;
-                    pendingRepair = null;
-            }
-            return new StreamInitMessage(from, sessionIndex, planId, description, sentByInitiator, keepSSTableLevel, isIncremental, pendingRepair);
+            UUID pendingRepair = in.readBoolean() ? UUIDSerializer.serializer.deserialize(in, version) : null;
+            return new StreamInitMessage(from, sessionIndex, planId, description, sentByInitiator, keepSSTableLevel, pendingRepair);
         }
 
         public long serializedSize(StreamInitMessage message, int version)
@@ -179,7 +142,7 @@ public class StreamInitMessage
             size += TypeSizes.sizeof(message.description);
             size += TypeSizes.sizeof(message.isForOutgoing);
             size += TypeSizes.sizeof(message.keepSSTableLevel);
-            size += TypeSizes.sizeof(message.isIncremental);
+            size += TypeSizes.sizeof(message.pendingRepair != null);
             if (message.pendingRepair != null)
             {
                 size += UUIDSerializer.serializer.serializedSize(message.pendingRepair, MessagingService.current_version);

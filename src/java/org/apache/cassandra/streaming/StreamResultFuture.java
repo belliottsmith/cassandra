@@ -70,9 +70,9 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
             set(getCurrentState());
     }
 
-    private StreamResultFuture(UUID planId, String description, boolean keepSSTableLevels, boolean isIncremental, UUID pendingRepair)
+    private StreamResultFuture(UUID planId, String description, boolean keepSSTableLevels, UUID pendingRepair)
     {
-        this(planId, description, new StreamCoordinator(0, keepSSTableLevels, isIncremental, new DefaultConnectionFactory(), pendingRepair));
+        this(planId, description, new StreamCoordinator(0, keepSSTableLevels, new DefaultConnectionFactory(), pendingRepair));
     }
 
     static StreamResultFuture init(UUID planId, String description, Collection<StreamEventHandler> listeners, StreamCoordinator coordinator)
@@ -104,7 +104,6 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
                                                                     boolean isForOutgoing,
                                                                     int version,
                                                                     boolean keepSSTableLevel,
-                                                                    boolean isIncremental,
                                                                     UUID pendingRepair) throws IOException
     {
         StreamResultFuture future = StreamManager.instance.getReceivingStream(planId);
@@ -113,7 +112,7 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
             logger.info("[Stream #{} ID#{}] Creating new streaming plan for {}", planId, sessionIndex, description);
 
             // The main reason we create a StreamResultFuture on the receiving side is for JMX exposure.
-            future = new StreamResultFuture(planId, description, keepSSTableLevel, isIncremental, pendingRepair);
+            future = new StreamResultFuture(planId, description, keepSSTableLevel, pendingRepair);
             StreamManager.instance.registerReceiving(future);
         }
         future.attachConnection(from, sessionIndex, connection, isForOutgoing, version);

@@ -78,8 +78,7 @@ public class CompressedStreamReader extends StreamReader
         }
 
         logger.debug("[Stream #{}] Start receiving file #{} from {}, repairedAt = {}, size = {}, ks = '{}', table = '{}', pendingRepair = '{}'.",
-                     session.planId(), fileSeqNum, session.peer, repairedAt, totalSize, cfs.keyspace.getName(), cfs.getColumnFamilyName(),
-                     session.getPendingRepair());
+                     session.planId(), fileSeqNum, session.peer, repairedAt, totalSize, cfs.keyspace.getName(), cfs.getColumnFamilyName(), pendingRepair);
 
         CompressedInputStream cis = new CompressedInputStream(Channels.newInputStream(channel), compressionInfo,
                                                               inputVersion.compressedChecksumType(), cfs::getCrcCheckChance);
@@ -90,7 +89,7 @@ public class CompressedStreamReader extends StreamReader
         SSTableMultiWriter writer = null;
         try
         {
-            writer = createWriter(cfs, totalSize, repairedAt, session.getPendingRepair(), format);
+            writer = createWriter(cfs, totalSize, repairedAt, pendingRepair, format);
             int sectionIdx = 0;
             for (Pair<Long, Long> section : sections)
             {

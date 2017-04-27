@@ -55,7 +55,7 @@ public class RepairSessionTest
         Range<Token> repairRange = new Range<>(p.getToken(ByteBufferUtil.bytes(0)), p.getToken(ByteBufferUtil.bytes(100)));
         Set<InetAddress> endpoints = Sets.newHashSet(remote);
         RepairSession session = new RepairSession(parentSessionId, sessionId, Arrays.asList(repairRange), "Keyspace1",
-                                                  RepairParallelism.SEQUENTIAL, true, endpoints, ActiveRepairService.UNREPAIRED_SSTABLE,
+                                                  RepairParallelism.SEQUENTIAL, true, endpoints,
                                                   false, false, false, "Standard1");
 
         // perform convict

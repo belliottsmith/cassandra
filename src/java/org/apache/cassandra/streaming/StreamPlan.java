@@ -35,7 +35,6 @@ public class StreamPlan
     private final UUID planId = UUIDGen.getTimeUUID();
     private final String description;
     private final List<StreamEventHandler> handlers = new ArrayList<>();
-    private final long repairedAt;
     private final StreamCoordinator coordinator;
 
     private boolean flushBeforeTransfer = true;
@@ -47,19 +46,18 @@ public class StreamPlan
      */
     public StreamPlan(String description)
     {
-        this(description, ActiveRepairService.UNREPAIRED_SSTABLE, 1, false, false, null);
+        this(description, 1, false, null);
     }
 
     public StreamPlan(String description, boolean keepSSTableLevels)
     {
-        this(description, ActiveRepairService.UNREPAIRED_SSTABLE, 1, keepSSTableLevels, false, null);
+        this(description, 1, keepSSTableLevels, null);
     }
 
-    public StreamPlan(String description, long repairedAt, int connectionsPerHost, boolean keepSSTableLevels, boolean isIncremental, UUID pendingRepair)
+    public StreamPlan(String description, int connectionsPerHost, boolean keepSSTableLevels, UUID pendingRepair)
     {
         this.description = description;
-        this.repairedAt = repairedAt;
-        this.coordinator = new StreamCoordinator(connectionsPerHost, keepSSTableLevels, isIncremental, new DefaultConnectionFactory(), pendingRepair);
+        this.coordinator = new StreamCoordinator(connectionsPerHost, keepSSTableLevels, new DefaultConnectionFactory(), pendingRepair);
     }
 
     /**
@@ -89,7 +87,7 @@ public class StreamPlan
     public StreamPlan requestRanges(InetAddress from, InetAddress connecting, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
     {
         StreamSession session = coordinator.getOrCreateNextSession(from, connecting);
-        session.addStreamRequest(keyspace, ranges, Arrays.asList(columnFamilies), repairedAt);
+        session.addStreamRequest(keyspace, ranges, Arrays.asList(columnFamilies));
         return this;
     }
 
@@ -130,7 +128,7 @@ public class StreamPlan
     public StreamPlan transferRanges(InetAddress to, InetAddress connecting, String keyspace, Collection<Range<Token>> ranges, String... columnFamilies)
     {
         StreamSession session = coordinator.getOrCreateNextSession(to, connecting);
-        session.addTransferRanges(keyspace, ranges, Arrays.asList(columnFamilies), flushBeforeTransfer, repairedAt);
+        session.addTransferRanges(keyspace, ranges, Arrays.asList(columnFamilies), flushBeforeTransfer);
         return this;
     }
 
@@ -200,9 +198,9 @@ public class StreamPlan
         return this;
     }
 
-    public long getRepairedAt()
+    public UUID getPendingRepair()
     {
-        return repairedAt;
+        return coordinator.getPendingRepair();
     }
 
     public boolean getFlushBeforeTransfer()

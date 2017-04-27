@@ -18,6 +18,7 @@
 package org.apache.cassandra.repair;
 
 import java.net.InetAddress;
+import java.util.UUID;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -44,37 +45,29 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
 
     private final RepairJobDesc desc;
     private final SyncRequest request;
-    private final long repairedAt;
-    private final boolean isConsistent;
+    private final UUID pendingRepair;
 
-    public StreamingRepairTask(RepairJobDesc desc, SyncRequest request, long repairedAt, boolean isConsistent)
+    public StreamingRepairTask(RepairJobDesc desc, SyncRequest request, UUID pendingRepair)
     {
         this.desc = desc;
         this.request = request;
-        this.repairedAt = repairedAt;
-        this.isConsistent = isConsistent;
+        this.pendingRepair = pendingRepair;
     }
 
     public void run()
     {
         InetAddress dest = request.dst;
         InetAddress preferred = SystemKeyspace.getPreferredIP(dest);
-        logger.info(String.format("[streaming task #%s] Performing streaming repair of %d ranges with %s", desc.sessionId, request.ranges.size(), request.dst));
-        boolean isIncremental = false;
-        if (desc.parentSessionId != null)
-        {
-            ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(desc.parentSessionId);
-            isIncremental = prs.isIncremental;
-        }
-        createStreamPlan(dest, preferred, isIncremental).execute();
+        logger.info("[streaming task #{}] Performing streaming repair of {} ranges with {}", desc.sessionId, request.ranges.size(), request.dst);
+        createStreamPlan(dest, preferred).execute();
     }
 
     @VisibleForTesting
-    StreamPlan createStreamPlan(InetAddress dest, InetAddress preferred, boolean isIncremental)
+    StreamPlan createStreamPlan(InetAddress dest, InetAddress preferred)
     {
-        return new StreamPlan(REPAIR_STREAM_PLAN_NAME, repairedAt, 1, false, isIncremental, isConsistent ? desc.parentSessionId : null)
+        return new StreamPlan(REPAIR_STREAM_PLAN_NAME, 1, false, pendingRepair)
                .listeners(this)
-               .flushBeforeTransfer(!isIncremental) // sstables are isolated at the beginning of an incremental repair session, so flushing isn't neccessary
+               .flushBeforeTransfer(pendingRepair == null) // sstables are isolated at the beginning of an incremental repair session, so flushing isn't neccessary
                .requestRanges(dest, preferred, desc.keyspace, request.ranges, desc.columnFamily) // request ranges from the remote node
                .transferRanges(dest, preferred, desc.keyspace, request.ranges, desc.columnFamily); // send ranges to the remote node
     }

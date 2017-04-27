@@ -23,6 +23,7 @@ import java.nio.channels.ReadableByteChannel;
 import java.util.Collection;
 import java.util.UUID;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.UnmodifiableIterator;
 
@@ -63,6 +64,7 @@ public class StreamReader
     protected final StreamSession session;
     protected final Version inputVersion;
     protected final long repairedAt;
+    protected final UUID pendingRepair;
     protected final SSTableFormat.Type format;
     protected final int sstableLevel;
     protected final SerializationHeader.Component header;
@@ -72,12 +74,19 @@ public class StreamReader
 
     public StreamReader(FileMessageHeader header, StreamSession session)
     {
+        if (session.getPendingRepair() != null)
+        {
+            // we should only ever be streaming pending repair
+            // sstables if the session has a pending repair id
+            assert session.getPendingRepair().equals(header.pendingRepair);
+        }
         this.session = session;
         this.cfId = header.cfId;
         this.estimatedKeys = header.estimatedKeys;
         this.sections = header.sections;
         this.inputVersion = header.version;
         this.repairedAt = header.repairedAt;
+        this.pendingRepair = header.pendingRepair;
         this.format = header.format;
         this.sstableLevel = header.sstableLevel;
         this.header = header.header;
@@ -107,7 +116,7 @@ public class StreamReader
 
         logger.debug("[Stream #{}] Start receiving file #{} from {}, repairedAt = {}, size = {}, ks = '{}', table = '{}', pendingRepair = '{}'.",
                      session.planId(), fileSeqNum, session.peer, repairedAt, totalSize, cfs.keyspace.getName(),
-                     cfs.getColumnFamilyName(), session.getPendingRepair());
+                     cfs.getColumnFamilyName(), pendingRepair);
 
         TrackedInputStream in = new TrackedInputStream(new LZFInputStream(Channels.newInputStream(channel)));
         StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, getHeader(cfs.metadata),
@@ -115,7 +124,7 @@ public class StreamReader
         SSTableMultiWriter writer = null;
         try
         {
-            writer = createWriter(cfs, totalSize, repairedAt, session.getPendingRepair(), format);
+            writer = createWriter(cfs, totalSize, repairedAt, pendingRepair, format);
             while (in.getBytesRead() < totalSize)
             {
                 writePartition(deserializer, writer);
