@@ -23,6 +23,7 @@ import java.util.Collection;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,6 +38,29 @@ import org.psjava.ds.graph.MutableCapacityGraph;
 import org.psjava.ds.math.Function;
 import org.psjava.ds.numbersystrem.IntegerNumberSystem;
 
+
+/**
+ * We model the graph like this:
+ * * Each range we are about to stream is a vertex in the graph
+ * * Each node that can provide a range is a vertex in the graph
+ * * We add an edge from each range to the node that can provide the range
+ * * Then, to be able to solve the maximum flow problem using Ford-Fulkerson we add a super source with edges to all range vertices
+ *   and a super sink with incoming edges from all the node vertices.
+ * * The capacity on the edges between the super source and the range-vertices is 1
+ * * The capacity on the edges between the range-vertices and the node vertices is infinite
+ * * The capacity on the edges between the nodes-vertices and the super sink is ceil(#range-vertices/#node-vertices)
+ *   - if we have more machines than ranges to stream the capacity will be 1 (each machine will stream at most 1 range)
+ * * Since the sum of the capacity on the edges from the super source to the range-vertices is less or equal to the sum
+ *   of the capacities between the node-vertices and super sink we know that to get maximum flow we will use all the
+ *   range-vertices. (Say we have x ranges, y machines to provide them, total supersource -> range-vertice capacity will be x,
+ *   total node-vertice -> supersink capacity will be (y * ceil(x / y)) which worst case is x if x==y). The capacity between
+ *   the range-vertices and node-vertices is infinite.
+ * * Then we try to solve the max-flow problem using psjava
+ * * If we can't find a solution where the total flow is = number of range-vertices, we bump the capacity between the node-vertices
+ *   and the super source and try again.
+ *
+ *
+ */
 public class RangeFetchMapCalculator
 {
     private static final Logger logger = LoggerFactory.getLogger(RangeFetchMapCalculator.class);
@@ -228,10 +252,9 @@ public class RangeFetchMapCalculator
                 sourceFound = addEndpoints(capacityGraph, rangeVertex, false);
             }
 
-            //We could not find any source for this range which passed the filters.
-            if (!sourceFound)
-                throw new IllegalStateException("unable to find sufficient sources for streaming range " + range + " in keyspace " + keyspace);
-
+            //We could not find any source for this range which passed the filters. Ignore if localhost is part of the endpoints for this range
+            if (!sourceFound && !rangesWithSources.get(range).contains(FBUtilities.getBroadcastAddress()))
+                throw new IllegalStateException("Unable to find sufficient sources for streaming range " + range + " in keyspace " + keyspace);
         }
 
         return capacityGraph;
@@ -281,6 +304,7 @@ public class RangeFetchMapCalculator
         }
 
         //Dont add localhost as a source
+
         if(endpoint.equals(FBUtilities.getBroadcastAddress()))
             return false;
 
