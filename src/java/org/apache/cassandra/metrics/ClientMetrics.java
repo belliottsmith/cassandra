@@ -168,7 +168,9 @@ public final class ClientMetrics
         Metrics.registerMBean(registeredGauge, factory.createMetricName(deprecated).getMBeanName());
     }
 
-    private Meter registerMeter(String name)
+    // CIE - made public so MemtableMetrics can register in the client space.  Memtable should have
+    // its own factory and namespace, but need to investigate impact on existing metrics in Hubble first.
+    public Meter registerMeter(String name)
     {
         return Metrics.meter(factory.createMetricName(name));
     }
