@@ -145,6 +145,8 @@ public class Config
     public Integer memtable_heap_space_in_mb;
     public Integer memtable_offheap_space_in_mb;
     public Float memtable_cleanup_threshold = null;
+    public Integer memtable_clock_shift = 17;
+    public Long memtable_excess_waste_bytes = 10 * 1024 * 1024L;
 
     public Integer storage_port = 7000;
     public Integer ssl_storage_port = 7001;

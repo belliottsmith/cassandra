@@ -1246,6 +1246,16 @@ public class DatabaseDescriptor
             return conf.memtable_flush_writers;
     }
 
+    public static int getMemtableClockShift()
+    {
+        return conf.memtable_clock_shift;
+    }
+
+    public static long getMemtableExcessWasteBytes()
+    {
+        return conf.memtable_excess_waste_bytes;
+    }
+
     public static int getConcurrentCompactors()
     {
         return conf.concurrent_compactors;
