@@ -516,6 +516,9 @@ public class Config
     public volatile long default_keyspace_quota_bytes = -1;
     public int keyspace_quota_refresh_time_in_sec = 120;
 
+    public Integer memtable_clock_shift = 17;
+    public Long memtable_excess_waste_bytes = 10 * 1024 * 1024L;
+
     public volatile Boolean enable_partition_blacklist = false;
 
     public volatile Boolean enable_blacklist_writes = true;

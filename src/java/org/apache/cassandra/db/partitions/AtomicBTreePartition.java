@@ -31,6 +31,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
+import org.apache.cassandra.metrics.MemtableMetrics;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
@@ -59,15 +60,53 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
 
     // The granularity with which we track wasted allocation/work; we round up
     private static final int ALLOCATION_GRANULARITY_BYTES = 1024;
-    // The number of bytes we have to waste in excess of our acceptable realtime rate of waste (defined below)
-    private static final long EXCESS_WASTE_BYTES = 10 * 1024 * 1024L;
-    private static final int EXCESS_WASTE_OFFSET = (int) (EXCESS_WASTE_BYTES / ALLOCATION_GRANULARITY_BYTES);
+
+    private volatile static ExcessWasteWrapper excessWasteWrapper = new ExcessWasteWrapper();
     // Note this is a shift, because dividing a long time and then picking the low 32 bits doesn't give correct rollover behavior
-    private static final int CLOCK_SHIFT = 17;
+    private volatile static int clockShift = DatabaseDescriptor.getMemtableClockShift();
     // CLOCK_GRANULARITY = 1^9ns >> CLOCK_SHIFT == 132us == (1/7.63)ms
 
     private static final AtomicIntegerFieldUpdater<AtomicBTreePartition> wasteTrackerUpdater = AtomicIntegerFieldUpdater.newUpdater(AtomicBTreePartition.class, "wasteTracker");
     private static final AtomicReferenceFieldUpdater<AtomicBTreePartition, Holder> refUpdater = AtomicReferenceFieldUpdater.newUpdater(AtomicBTreePartition.class, Holder.class, "ref");
+
+    public static void updateExcessWasteBytes(long excessWasteBytes)
+    {
+        excessWasteWrapper = new ExcessWasteWrapper(excessWasteBytes);
+    }
+
+    public static void updateClockShift(int clockShiftValue)
+    {
+        clockShift = clockShiftValue;
+    }
+
+    public static long getMemtableExcessWasteBytes()
+    {
+        return excessWasteWrapper.excessWasteBytes;
+    }
+
+    public static int getMemtableClockShift()
+    {
+        return clockShift;
+    }
+
+    private static class ExcessWasteWrapper
+    {
+        // The number of bytes we have to waste in excess of our acceptable realtime rate of waste (defined below)
+        private final long excessWasteBytes;
+
+        private final int excessWasteOffset;
+
+        public ExcessWasteWrapper(long excessWasteBytes)
+        {
+            this.excessWasteBytes = excessWasteBytes;
+            this.excessWasteOffset = (int) (this.excessWasteBytes / ALLOCATION_GRANULARITY_BYTES);
+        }
+
+        public ExcessWasteWrapper()
+        {
+            this(DatabaseDescriptor.getMemtableExcessWasteBytes());
+        }
+    }
 
     /**
      * (clock + allocation) granularity are combined to give us an acceptable (waste) allocation rate that is defined by
@@ -161,6 +200,7 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
     public long[] addAllWithSizeDelta(final PartitionUpdate update, OpOrder.Group writeOp, UpdateTransaction indexer)
     {
         RowUpdater updater = new RowUpdater(this, allocator, writeOp, indexer);
+        boolean contention = false;
         try
         {
             boolean shouldLock = shouldLock(writeOp);
@@ -172,6 +212,7 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
                 {
                     synchronized (this)
                     {
+                        MemtableMetrics.instance.lockedWrite();
                         long[] result = addAllWithSizeDeltaInternal(updater, update, indexer);
                         if (result != null)
                             return result;
@@ -185,11 +226,14 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
 
                     shouldLock = shouldLock(updater.heapSize, writeOp);
                 }
+                contention = true;
             }
         }
         finally
         {
             indexer.commit();
+            if (contention)
+                MemtableMetrics.instance.contendedWrite();
         }
     }
 
@@ -294,8 +338,9 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
      */
     private boolean updateWastedAllocationTracker(long wastedBytes)
     {
+        ExcessWasteWrapper wasteWrapper = excessWasteWrapper;
         // Early check for huge allocation that exceeds the limit
-        if (wastedBytes < EXCESS_WASTE_BYTES)
+        if (wastedBytes < wasteWrapper.excessWasteBytes)
         {
             // We round up to ensure work < granularity are still accounted for
             int wastedAllocation = ((int) (wastedBytes + ALLOCATION_GRANULARITY_BYTES - 1)) / ALLOCATION_GRANULARITY_BYTES;
@@ -304,10 +349,10 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
             while (TRACKER_PESSIMISTIC_LOCKING != (oldTrackerValue = wasteTracker))
             {
                 // Note this time value has an arbitrary offset, but is a constant rate 32 bit counter (that may wrap)
-                int time = (int) (System.nanoTime() >>> CLOCK_SHIFT);
+                int time = (int) (System.nanoTime() >>> clockShift);
                 int delta = oldTrackerValue - time;
-                if (oldTrackerValue == TRACKER_NEVER_WASTED || delta >= 0 || delta < -EXCESS_WASTE_OFFSET)
-                    delta = -EXCESS_WASTE_OFFSET;
+                if (oldTrackerValue == TRACKER_NEVER_WASTED || delta >= 0 || delta < -wasteWrapper.excessWasteOffset)
+                    delta = -wasteWrapper.excessWasteOffset;
                 delta += wastedAllocation;
                 if (delta >= 0)
                     break;
