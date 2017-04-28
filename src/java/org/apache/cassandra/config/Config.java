@@ -596,6 +596,9 @@ public class Config
     public volatile long default_keyspace_quota_bytes = -1;
     public int keyspace_quota_refresh_time_in_sec = 120;
 
+    public Integer memtable_clock_shift = 17;
+    public Long memtable_excess_waste_bytes = 10 * 1024 * 1024L;
+
     public volatile boolean enable_scheduled_compactions = false;
     public volatile int scheduled_compaction_range_splits = 100;
     public volatile String scheduled_compaction_cycle_time = "60d";
