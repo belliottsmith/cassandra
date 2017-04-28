@@ -107,6 +107,11 @@ public class MockSchema
         return sstable(generation, 0, keepRef, cfs);
     }
 
+    public static SSTableReader sstable(int generation, long first, long last, int minLocalDeletionTime, ColumnFamilyStore cfs)
+    {
+        return sstable(generation, 0, false, first, last, 0, minLocalDeletionTime, cfs);
+    }
+
     public static SSTableReader sstable(int generation, int size, ColumnFamilyStore cfs)
     {
         return sstable(generation, size, false, cfs);
@@ -138,7 +143,12 @@ public class MockSchema
 
     public static SSTableReader sstable(int generation, int size, boolean keepRef, long firstToken, long lastToken, int level, ColumnFamilyStore cfs)
     {
-        return sstable(generation, size, keepRef, firstToken, lastToken, level, Integer.MAX_VALUE, System.currentTimeMillis() * 1000, cfs);
+        return sstable(generation, size, keepRef, firstToken, lastToken, level, Integer.MAX_VALUE, cfs);
+    }
+
+    public static SSTableReader sstable(int generation, int size, boolean keepRef, long firstToken, long lastToken, int level, int minLocalDeletionTime, ColumnFamilyStore cfs)
+    {
+        return sstable(generation, size, keepRef, firstToken, lastToken, level, minLocalDeletionTime, System.currentTimeMillis() * 1000, cfs);
     }
 
     public static SSTableReader sstable(int generation, int size, boolean keepRef, long firstToken, long lastToken, int level, int minLocalDeletionTime, long timestamp, ColumnFamilyStore cfs)

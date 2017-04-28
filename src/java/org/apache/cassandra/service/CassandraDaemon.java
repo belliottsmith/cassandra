@@ -41,6 +41,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.addthis.metrics3.reporter.config.ReporterConfig;
+import com.apple.cie.db.virtual.CIEInternalSystemViewsKeyspace;
 import com.codahale.metrics.jvm.BufferPoolMetricSet;
 import com.codahale.metrics.jvm.FileDescriptorRatioGauge;
 import com.codahale.metrics.jvm.GarbageCollectorMetricSet;
@@ -368,6 +369,7 @@ public class CassandraDaemon
 
         ActiveRepairService.instance.start();
         StreamManager.instance.start();
+        loadLastSuccessfulRepairTimes();
 
         // Prepared statements
         QueryProcessor.instance.preloadPreparedStatements();
@@ -561,10 +563,32 @@ public class CassandraDaemon
         }
     }
 
+
+    /* CIE Xmas patch: Load last successful repair times for all keyspaces/tables
+     * When bootstrapping the last successful repair time will be requested once
+     * by a listener on the bootstrapper future.
+     */
+    @VisibleForTesting
+    public void loadLastSuccessfulRepairTimes()
+    {
+        for (Keyspace keyspace : Keyspace.all())
+        {
+            for (ColumnFamilyStore cfs : keyspace.getColumnFamilyStores())
+            {
+                for (final ColumnFamilyStore store : cfs.concatWithIndexes())
+                {
+                    store.loadLastSuccessfulRepair();
+                }
+            }
+        }
+    }
+
     public void setupVirtualKeyspaces()
     {
         VirtualKeyspaceRegistry.instance.register(VirtualSchemaKeyspace.instance);
         VirtualKeyspaceRegistry.instance.register(SystemViewsKeyspace.instance);
+        // Apple-internal virtual keyspaces
+        VirtualKeyspaceRegistry.instance.register(CIEInternalSystemViewsKeyspace.instance);
     }
 
     public synchronized void initializeClientTransports()

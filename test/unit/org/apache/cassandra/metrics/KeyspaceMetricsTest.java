@@ -30,6 +30,7 @@ import org.junit.Test;
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
 import org.apache.cassandra.ServerTestUtils;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.service.EmbeddedCassandraService;
@@ -46,6 +47,8 @@ public class KeyspaceMetricsTest
     @BeforeClass
     public static void setup() throws ConfigurationException, IOException
     {
+        CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
+
         cassandra = ServerTestUtils.startEmbeddedCassandraService();
 
         cluster = Cluster.builder().addContactPoint("127.0.0.1").withPort(DatabaseDescriptor.getNativeTransportPort()).build();

@@ -741,6 +741,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 PaxosState.startAutoRepairs();
 
                 CassandraDaemon.getInstanceForTesting().completeSetup();
+                CassandraDaemon.getInstanceForTesting().loadLastSuccessfulRepairTimes();
             }
             catch (Throwable t)
             {

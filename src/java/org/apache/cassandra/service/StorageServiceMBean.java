@@ -1059,8 +1059,25 @@ public interface StorageServiceMBean extends NotificationEmitter
     /** Sets the boolean representing whether or not alter table is enabled */
     public void setAlterTableEnabled(boolean alterTableEnabled);
 
+    public void stopFetchingRepairRanges();
+
+    public boolean isChistmasPatchEnabled();
+
+    public boolean isShadowChistmasPatchEnabled();
+
     public boolean isKeyspaceQuotaEnabled();
     public void setKeyspaceQuotaEnabled(boolean enabled);
     public long getDefaultKeyspaceQuotaBytes();
     public void setDefaultKeyspaceQuotaBytes(long quotaInBytes);
+
+    public void setMemtableExcessWasteBytes(long memtable_excess_waste_bytes);
+
+    public long getMemtableExcessWasteBytes();
+
+    public void setMemtableClockShift(int memtable_clock_shift);
+
+    public int getMemtableClockShift();
+
+    String getLastRepairTimeForKey(String keyspace, String table, String key);
+    String getLastRepairTimeForToken(String keyspace, String table, String token);
 }

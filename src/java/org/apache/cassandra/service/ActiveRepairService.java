@@ -22,6 +22,7 @@ import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -79,6 +80,8 @@ import org.apache.cassandra.gms.IFailureDetector;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.TokenMetadata;
+import org.apache.cassandra.net.IVerbHandler;
+import org.apache.cassandra.net.NoPayload;
 import org.apache.cassandra.metrics.RepairMetrics;
 import org.apache.cassandra.net.RequestCallback;
 import org.apache.cassandra.net.Verb;
@@ -102,6 +105,7 @@ import org.apache.cassandra.repair.messages.CleanupMessage;
 import org.apache.cassandra.repair.messages.PrepareMessage;
 import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.repair.messages.RepairOption;
+import org.apache.cassandra.repair.messages.RepairSuccess;
 import org.apache.cassandra.repair.messages.SyncResponse;
 import org.apache.cassandra.repair.messages.ValidationResponse;
 import org.apache.cassandra.schema.TableId;
@@ -183,6 +187,8 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
     {
         RepairMetrics.init();
     }
+
+    private static final Set<RepairSuccessListener> repairSuccessListeners = new CopyOnWriteArraySet<>();
 
     public static class RepairCommandExecutorHandle
     {
@@ -380,6 +386,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                              CommonRange range,
                                              String keyspace,
                                              RepairParallelism parallelismDegree,
+                                             boolean allReplicas,
                                              boolean isIncremental,
                                              boolean pullRepair,
                                              PreviewKind previewKind,
@@ -399,7 +406,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             return null;
 
         final RepairSession session = new RepairSession(parentRepairSession, range, keyspace,
-                                                        parallelismDegree, isIncremental, pullRepair,
+                                                        parallelismDegree, allReplicas, isIncremental, pullRepair,
                                                         previewKind, optimiseStreams, repairPaxos, paxosOnly, cfnames);
         repairs.getIfPresent(parentRepairSession).register(session.state);
 
@@ -408,12 +415,16 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         registerOnFdAndGossip(session);
 
         if (session.previewKind == PreviewKind.REPAIRED)
+        {
             LocalSessions.registerListener(session);
+            repairSuccessListeners.add(session);
+        }
 
         // remove session at completion
         session.addListener(() -> {
             sessions.remove(session.getId());
             LocalSessions.unregisterListener(session);
+            repairSuccessListeners.remove(session);
         });
         session.start(executor);
         return session;
@@ -473,17 +484,15 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
     }
 
     /**
-     * Return all of the neighbors with whom we share the provided range.
+     * Return all of the neighbors with whom we share the provided range without filtering on datacenter/hosts
      *
      * @param keyspaceName        keyspace to repair
      * @param keyspaceLocalRanges local-range for given keyspaceName
      * @param toRepair            token to repair
-     * @param dataCenters         the data centers to involve in the repair
      * @return neighbors with whom we share the provided range
      */
-    public static EndpointsForRange getNeighbors(String keyspaceName, Iterable<Range<Token>> keyspaceLocalRanges,
-                                                 Range<Token> toRepair, Collection<String> dataCenters,
-                                                 Collection<String> hosts)
+    public static EndpointsForRange getAllNeighbors(String keyspaceName, Iterable<Range<Token>> keyspaceLocalRanges,
+                                          Range<Token> toRepair)
     {
         StorageService ss = StorageService.instance;
         EndpointsByRange replicaSets = ss.getRangeToAddressMap(keyspaceName);
@@ -507,7 +516,15 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             return EndpointsForRange.empty(toRepair);
 
         EndpointsForRange neighbors = replicaSets.get(rangeSuperSet).withoutSelf();
+        return neighbors;
+    }
 
+    public static EndpointsForRange filterNeighbors(EndpointsForRange neighbors,
+                                                   Range<Token> toRepair,
+                                                   Collection<String> dataCenters,
+                                                   Collection<String> hosts)
+    {
+        StorageService ss = StorageService.instance;
         if (dataCenters != null && !dataCenters.isEmpty())
         {
             TokenMetadata.Topology topology = ss.getTokenMetadata().cloneOnlyTokenMap().getTopology();
@@ -548,6 +565,22 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         }
 
         return neighbors;
+    }
+
+    /**
+     * Return all of the neighbors with whom we share the provided range.
+     *
+     * @param keyspaceName keyspace to repair
+     * @param keyspaceLocalRanges local-range for given keyspaceName
+     * @param toRepair token to repair
+     * @param dataCenters         the data centers to involve in the repair
+     * @return neighbors with whom we share the provided range
+     */
+    public static EndpointsForRange getNeighbors(String keyspaceName, Iterable<Range<Token>> keyspaceLocalRanges,
+                                                        Range<Token> toRepair, Collection<String> dataCenters,
+                                                        Collection<String> hosts)
+    {
+        return filterNeighbors(getAllNeighbors(keyspaceName, keyspaceLocalRanges, toRepair), toRepair, dataCenters, hosts);
     }
 
     /**
@@ -1118,5 +1151,33 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                 return state;
         }
         return null;
+    }
+
+    public static class RepairSuccessVerbHandler implements IVerbHandler<RepairSuccess>
+    {
+        public static RepairSuccessVerbHandler instance = new RepairSuccessVerbHandler();
+
+        public void doVerb(Message<RepairSuccess> message)
+        {
+            RepairSuccess success = message.payload;
+            logger.info("Received repair success for {}/{}, {} at {}", new Object[]{success.keyspace, success.columnFamily, success.ranges, success.succeedAt});
+            ColumnFamilyStore cfs = Keyspace.open(success.keyspace).getColumnFamilyStore(success.columnFamily);
+
+            // we need to stop preview repair sessions when we receive a repair success since that could make us use
+            // different xmas-patch-repair times when validating on different replicas
+            for (RepairSuccessListener listener : repairSuccessListeners)
+                listener.onRepairSuccess(success);
+
+            CompactionManager.instance.stopConflictingPreviewValidations(cfs.metadata(), success.ranges, "RepairSuccess received");
+
+            for (Range<Token> range : success.ranges)
+                cfs.updateLastSuccessfulRepair(range, success.succeedAt);
+            MessagingService.instance().send(message.responseWith(NoPayload.noPayload), message.from());
+        }
+    }
+
+    public interface RepairSuccessListener
+    {
+        void onRepairSuccess(RepairSuccess message);
     }
 }

@@ -1807,6 +1807,10 @@ secondary_indexes_enabled: false
 #    excluded_keyspaces: # comma separated list of keyspaces to exclude from the check
 #    excluded_tables: # comma separated list of keyspace.table pairs to exclude from the check
 
+# Enable the Christmas Patch.
+# Enabling this will require rolling repairs or no tombstones will be reclaimed.
+# enable_christmas_patch: true
+
 # Enable to run scheduled compactions - this generates a lot of compaction on the node, so enable with care:
 # enable_scheduled_compactions: false
 # minimum number of sub ranges we should compact:
