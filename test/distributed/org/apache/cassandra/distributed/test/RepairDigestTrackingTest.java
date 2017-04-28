@@ -32,6 +32,7 @@ import java.util.stream.Stream;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.cassandra.concurrent.SEPExecutor;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.EndpointsForToken;
@@ -40,6 +41,7 @@ import org.apache.cassandra.locator.ReplicaLayout;
 import org.apache.cassandra.locator.ReplicaUtils;
 import org.apache.cassandra.utils.Throwables;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import net.bytebuddy.ByteBuddy;
@@ -57,6 +59,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.metadata.MetadataComponent;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.service.StorageProxy.LocalReadRunnable;
@@ -76,6 +79,12 @@ public class RepairDigestTrackingTest extends TestBaseImpl
 {
     private static final String TABLE = "tbl";
     private static final String KS_TABLE = KEYSPACE + '.' + TABLE;
+
+    @BeforeClass
+    public static void setup()
+    {
+        CassandraRelevantProperties.OVERRIDE_DISABLED_XMAS_PATCH_PROP.setBoolean(true);
+    }
 
     @SuppressWarnings("Convert2MethodRef")
     @Test
@@ -276,11 +285,14 @@ public class RepairDigestTrackingTest extends TestBaseImpl
 
             if (ccAfterPartitionRead != ccAfterRangeRead)
                 if (ccAfterPartitionRead != ccBefore)
-                    fail("Both range and partition reads reported data inconsistencies but none were expected");
+                    fail(String.format("Both range(%d) and partition(%d) reads reported data inconsistencies but none were expected",
+                                       ccAfterRangeRead - ccAfterPartitionRead, ccAfterPartitionRead - ccBefore));
                 else
-                    fail("Reported inconsistency during range read but none were expected");
+                    fail(String.format("Reported inconsistency(%d) during range read but none were expected",
+                                       ccAfterRangeRead - ccAfterPartitionRead));
             else if (ccAfterPartitionRead != ccBefore)
-                fail("Reported inconsistency during partition read but none were expected");
+                fail(String.format("Reported inconsistency during partition read(%d) but none were expected",
+                                   ccAfterPartitionRead - ccBefore));
         }
     }
 
@@ -357,17 +369,17 @@ public class RepairDigestTrackingTest extends TestBaseImpl
     }
 
     /**
-     * In CASSANDRA-16721, we discovered that if responses from remote replicas came back while the local runnable was 
+     * In CASSANDRA-16721, we discovered that if responses from remote replicas came back while the local runnable was
      * still executing, the fact that {@link ReadCommand} was mutable meant that the trackRepairedStatus flag on the
-     * command instance could move from false to true in executeLocally(), between setting the 
-     * RepairedDataInfo/gathering the sstables and calling extend(). When this happened, the RDI was still the 
+     * command instance could move from false to true in executeLocally(), between setting the
+     * RepairedDataInfo/gathering the sstables and calling extend(). When this happened, the RDI was still the
      * stand-in object NO_OP_REPAIRED_DATA_INFO, which has a null repairedDataCounter, and we hit the NPE.
-     * 
-     * Similarly, the trackRepairedStatus flag could be set after the point at which the RDI is set on the local 
+     *
+     * Similarly, the trackRepairedStatus flag could be set after the point at which the RDI is set on the local
      * read, assigned to the repairedDataInfo in {@link ReadCommand}, and improperly shared between initial local read
      * and the local read triggered by read repair.
-     * 
-     * These problems are sidestepped completely by CASSANDRA-16721, as an RDI instance is now created and destroyed 
+     *
+     * These problems are sidestepped completely by CASSANDRA-16721, as an RDI instance is now created and destroyed
      * entirely within the scope of single {@link LocalReadRunnable}, but this test still attempts to validate some
      * assumptions about the cleanliness of the logs and the correctness of queries made when initial local reads and
      * local reads triggered by read repair (after speculative reads) execute at roughly the same time.
@@ -399,7 +411,7 @@ public class RepairDigestTrackingTest extends TestBaseImpl
             long logPositionBeforeQuery = cluster.get(1).logs().mark();
             Object[][] rows = cluster.coordinator(1).execute("SELECT * FROM " + KS_TABLE + " WHERE id=0", ConsistencyLevel.QUORUM);
             assertEquals(1, rows.length);
-            
+
             // Given we didn't write at QUORUM, both 0 and 1 are acceptable values.
             assertTrue((int) rows[0][1] == 0 || (int) rows[0][1] == 1);
 
@@ -589,9 +601,14 @@ public class RepairDigestTrackingTest extends TestBaseImpl
         {
             // snapshots are taken asynchronously, this is crude but it gives it a chance to happen
             int attempts = 100;
-            ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
-
-            while (cfs.listSnapshots().isEmpty())
+            ColumnFamilyStore                       cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+            ColumnFamilyStore             repairHistory = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_CF);
+            ColumnFamilyStore repairHistoryInvalidation = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_INVALIDATION_CF);
+            while (cfs.listSnapshots().isEmpty()
+                   || repairHistory.listSnapshots().isEmpty()
+                   || repairHistoryInvalidation.listSnapshots().isEmpty())
             {
                 Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
                 if (attempts-- < 0)
@@ -604,8 +621,20 @@ public class RepairDigestTrackingTest extends TestBaseImpl
     {
         return () ->
         {
-            ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+            ColumnFamilyStore                       cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+            ColumnFamilyStore             repairHistory = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_CF);
+            ColumnFamilyStore repairHistoryInvalidation = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_INVALIDATION_CF);
             Assert.assertFalse(cfs.snapshotExists(snapshotName));
+            Assert.assertFalse(repairHistory.listSnapshots()
+                                            .keySet()
+                                            .stream()
+                                            .anyMatch(s -> s.startsWith(snapshotName)));
+            Assert.assertFalse(repairHistoryInvalidation.listSnapshots()
+                                                        .keySet()
+                                                        .stream()
+                                                        .anyMatch(s -> s.startsWith(snapshotName)));
         };
     }
 

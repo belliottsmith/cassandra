@@ -68,19 +68,19 @@ public class Hex
         return bytes;
     }
 
-    public static String bytesToHex(byte... bytes)
+    public static String bytesToHex(byte [] bytes)
     {
         return bytesToHex(bytes, 0, bytes.length);
     }
 
-    public static String bytesToHex(byte bytes[], int offset, int length)
+    public static String bytesToHex(byte [] bytes, int offset, int length)
     {
         char[] c = new char[length * 2];
-        for (int i = 0; i < length; i++)
+        for (int i = offset, outpos = 0; i < offset + length; i++, outpos += 2)
         {
-            int bint = bytes[i + offset];
-            c[i * 2] = byteToChar[(bint & 0xf0) >> 4];
-            c[1 + i * 2] = byteToChar[bint & 0x0f];
+            int bint = bytes[i];
+            c[outpos] = byteToChar[(bint & 0xf0) >> 4];
+            c[outpos + 1] = byteToChar[bint & 0x0f];
         }
 
         return wrapCharArray(c);

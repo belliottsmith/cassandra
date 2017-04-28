@@ -44,7 +44,7 @@ public class IncrementalRepairTask extends AbstractRepairTask
                                     RepairRunnable.NeighborsAndRanges neighborsAndRanges,
                                     String[] cfnames)
     {
-        super(options, keyspace, notifier);
+        super(options, keyspace, notifier, neighborsAndRanges.allReplicaMap);
         this.parentSession = parentSession;
         this.neighborsAndRanges = neighborsAndRanges;
         this.cfnames = cfnames;

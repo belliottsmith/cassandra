@@ -25,6 +25,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.After;
@@ -32,10 +36,10 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.config.Config;
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.Directories;
@@ -57,6 +61,9 @@ import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.schema.CompactionParams;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.utils.FBUtilities;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -746,6 +753,137 @@ public class CompactionsCQLTest extends CQLTester
      }
 
 
+    /**
+     * Christmaspatch test
+     *
+     * Makes sure we purge tombstones which got 'repaired' before the compaction started
+     */
+    @Test
+    public void dropTombstoneEarlyRepairXmas() throws Throwable
+    {
+        delayCompactionStartHelper(true, false);
+    }
+
+    /**
+     * Christmaspatch test
+     *
+     * Makes sure we don't purge tombstones which got 'repaired' after the compaction started
+     */
+    @Test
+    public void dontDropTombstoneLateRepairXmas() throws Throwable
+    {
+        delayCompactionStartHelper(false, false);
+    }
+
+    /**
+     * Christmaspatch test
+     *
+     * Makes sure we don't purge tombstones which got 'repaired' before the compaction started
+     * with christmaspatch disabled through the cfs
+     */
+    @Test
+    public void dropTombstoneEarlyRepairXmasTableLevel() throws Throwable
+    {
+        delayCompactionStartHelper(true, true);
+    }
+
+    /**
+     * Christmaspatch test
+     *
+     * Makes sure we don't purge tombstones which got 'repaired' after the compaction started
+     * with christmaspatch disabled through the cfs
+     */
+    @Test
+    public void dontDropTombstoneLateRepairXmasTableLevel() throws Throwable
+    {
+        delayCompactionStartHelper(false, true);
+    }
+
+    public void delayCompactionStartHelper(boolean earlyRepair, boolean tableLevelPatchDisable) throws Throwable
+    {
+        DatabaseDescriptor.setChristmasPatchEnabled(true);
+        execute("alter keyspace "+keyspace()+" with replication =  {'class': 'NetworkTopologyStrategy', 'datacenter1': '2'}");
+        createTable("CREATE TABLE %s (id int PRIMARY KEY, b text) with gc_grace_seconds=0");
+
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        if (tableLevelPatchDisable) cfs.setChristmasPatchDisabled(true);
+
+        Range<Token> fullRange = new Range<>(cfs.getPartitioner().getMinimumToken(), cfs.getPartitioner().getMinimumToken());
+
+        cfs.disableAutoCompaction();
+        execute("INSERT INTO %s (id, b) VALUES (1, 'abc')");
+        Util.flush(cfs);
+        execute("DELETE b FROM %s WHERE id=1");
+        Util.flush(cfs);
+        Thread.sleep(2000);
+        if (earlyRepair)
+            cfs.updateLastSuccessfulRepair(fullRange, System.currentTimeMillis());
+
+        ExecutorService es = Executors.newFixedThreadPool(1);
+        assertEquals(2, cfs.getLiveSSTables().size());
+        CompactionTask t = (CompactionTask)cfs.getCompactionStrategyManager().getUserDefinedTasks(cfs.getLiveSSTables(), cfs.gcBefore(FBUtilities.nowInSeconds())).iterator().next();
+        MockCompactionTask mock = new MockCompactionTask(t);
+        Future<?> f = es.submit(mock);
+        Thread.sleep(1000); // sleep to give the compaction task time to snapshot the repair history
+        if (!earlyRepair) // repair completion after compaction started - it should not drop any tombstones
+            cfs.updateLastSuccessfulRepair(fullRange, System.currentTimeMillis());
+        mock.latch.countDown();
+        FBUtilities.waitOnFuture(f);
+        assertFalse(execute("SELECT * FROM %s WHERE id = 1").one().has("b"));
+        assertEquals(1, cfs.getLiveSSTables().size());
+        SSTableReader sstable = cfs.getLiveSSTables().iterator().next();
+        boolean foundDeletedCell = false;
+        try(ISSTableScanner scanner = sstable.getScanner())
+        {
+            while (scanner.hasNext())
+            {
+                try (UnfilteredRowIterator iter = scanner.next())
+                {
+                    while (iter.hasNext())
+                    {
+                        Unfiltered unfiltered = iter.next();
+                        assertTrue(unfiltered instanceof Row);
+                        for (Cell c : ((Row)unfiltered).cells())
+                        {
+                            foundDeletedCell = c.isTombstone();
+                        }
+
+                    }
+                }
+            }
+        }
+        assertEquals(!(earlyRepair || tableLevelPatchDisable), foundDeletedCell);
+        if (tableLevelPatchDisable) cfs.setChristmasPatchDisabled(false);
+    }
+
+
+    private static class MockCompactionTask extends CompactionTask
+    {
+        private final CompactionTask task;
+        public final CountDownLatch latch = new CountDownLatch(1);
+        public MockCompactionTask(CompactionTask t)
+        {
+            super(t.cfs, t.transaction, t.gcBefore);
+            this.task = t;
+            setActiveCompactions(null);
+        }
+
+        @Override
+        protected CompactionController getCompactionController(Set<SSTableReader> sstables)
+        {
+            CompactionController controller = task.getCompactionController(sstables);
+            try
+            {
+                latch.await();
+            }
+            catch (InterruptedException e)
+            {
+                throw new RuntimeException(e);
+            }
+            return controller;
+        }
+    }
+
     public boolean verifyStrategies(CompactionStrategyManager manager, Class<? extends AbstractCompactionStrategy> expected)
     {
         boolean found = false;
@@ -764,6 +902,7 @@ public class CompactionsCQLTest extends CQLTester
         while (System.currentTimeMillis() - startTime < maxWaitTime)
         {
             UntypedResultSet res = execute("SELECT * FROM system.compaction_history");
+
             for (UntypedResultSet.Row r : res)
             {
                 if (r.getString("keyspace_name").equals(keyspace) && r.getString("columnfamily_name").equals(cf))

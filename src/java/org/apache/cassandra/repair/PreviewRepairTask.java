@@ -20,6 +20,7 @@ package org.apache.cassandra.repair;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import com.google.common.base.Preconditions;
@@ -43,9 +44,9 @@ public class PreviewRepairTask extends AbstractRepairTask
     private final String[] cfnames;
     private volatile String successMessage = name() + " completed successfully";
 
-    protected PreviewRepairTask(RepairOption options, String keyspace, RepairNotifier notifier, TimeUUID parentSession, List<CommonRange> commonRanges, String[] cfnames)
+    protected PreviewRepairTask(RepairOption options, String keyspace, RepairNotifier notifier, TimeUUID parentSession, Map<Set<InetAddressAndPort>, Boolean> allReplicaMap, List<CommonRange> commonRanges, String[] cfnames)
     {
-        super(options, keyspace, notifier);
+        super(options, keyspace, notifier, allReplicaMap);
         this.parentSession = parentSession;
         this.commonRanges = commonRanges;
         this.cfnames = cfnames;
@@ -83,10 +84,14 @@ public class PreviewRepairTask extends AbstractRepairTask
             }
             else
             {
-                message = (previewKind == PreviewKind.REPAIRED ? "Repaired data is inconsistent\n" : "Preview complete\n") + summary;
                 RepairMetrics.previewFailures.inc();
+                boolean isRepaired = previewKind == PreviewKind.REPAIRED;
+                String christmasPatchWarning = isRepaired ? summary.getChristmasPatchDisabledWarning() : "";
+                message = (isRepaired ? "Repaired data is inconsistent" : "Preview complete")
+                          + " for " + parentSession + christmasPatchWarning + '\n' + summary.toString(isRepaired);
+                logger.info(message);
                 if (previewKind == PreviewKind.REPAIRED)
-                    maybeSnapshotReplicas(parentSession, keyspace, result.results.get()); // we know its present as summary used it
+                    maybeSnapshotReplicas(parentSession, keyspace, result.results.orElse(Collections.emptyList()));
             }
             successMessage += "; " + message;
             notifier.notification(message);
