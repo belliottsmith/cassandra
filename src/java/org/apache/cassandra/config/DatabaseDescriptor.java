@@ -3411,6 +3411,16 @@ public class DatabaseDescriptor
         conf.keyspace_quota_refresh_time_in_sec = refreshTime;
     }
 
+    public static int getMemtableClockShift()
+    {
+        return conf.memtable_clock_shift;
+    }
+
+    public static long getMemtableExcessWasteBytes()
+    {
+        return conf.memtable_excess_waste_bytes;
+    }
+
     public static boolean enablePartitionBlacklist()
     {
         return conf.enable_partition_blacklist;
