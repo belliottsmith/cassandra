@@ -86,6 +86,7 @@ import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.Verifier;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.partitions.AtomicBTreePartition;
 import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.dht.Range;
@@ -1614,6 +1615,26 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             throw new IllegalArgumentException("Number of concurrent view builders should be greater than 0.");
         DatabaseDescriptor.setConcurrentViewBuilders(value);
         CompactionManager.instance.setConcurrentViewBuilders(DatabaseDescriptor.getConcurrentViewBuilders());
+    }
+
+    public void setMemtableExcessWasteBytes(long memtable_excess_waste_bytes)
+    {
+        AtomicBTreePartition.updateExcessWasteBytes(memtable_excess_waste_bytes);
+    }
+
+    public void setMemtableClockShift(int memtable_clock_shift)
+    {
+        AtomicBTreePartition.updateClockShift(memtable_clock_shift);
+    }
+
+    public long getMemtableExcessWasteBytes()
+    {
+        return AtomicBTreePartition.getMemtableExcessWasteBytes();
+    }
+
+    public int getMemtableClockShift()
+    {
+        return AtomicBTreePartition.getMemtableClockShift();
     }
 
     public boolean isIncrementalBackupsEnabled()
