@@ -26,6 +26,8 @@ import java.nio.channels.ServerSocketChannel;
 import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -42,6 +44,8 @@ import org.cliffc.high_scale_lib.NonBlockingHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.ExecutorLocals;
+import org.apache.cassandra.concurrent.JMXConfigurableThreadPoolExecutor;
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
@@ -1132,11 +1136,17 @@ public final class MessagingService implements MessagingServiceMBean
         private final ServerSocket server;
         @VisibleForTesting
         public final Set<Closeable> connections = Sets.newConcurrentHashSet();
+        private final ThreadPoolExecutor executor;
 
         SocketThread(ServerSocket server, String name)
         {
             super(name);
             this.server = server;
+            String cleanHostName = server.getInetAddress().toString().replace(':', '.');
+            String threadNamePrefix = "AcceptThread-" + cleanHostName + "-" + server.getLocalPort();
+            executor = new JMXConfigurableThreadPoolExecutor(8, 10, TimeUnit.SECONDS, new LinkedBlockingQueue<>(),
+                                                             new NamedThreadFactory(threadNamePrefix), "internal");
+            executor.allowCoreThreadTimeOut(true);
         }
 
         @SuppressWarnings("resource")
@@ -1144,15 +1154,49 @@ public final class MessagingService implements MessagingServiceMBean
         {
             while (!server.isClosed())
             {
-                Socket socket = null;
                 try
                 {
-                    socket = server.accept();
+                    executor.submit(new AcceptTask(server.accept()));
+                }
+                catch (AsynchronousCloseException e)
+                {
+                    // this happens when another thread calls close().
+                    logger.debug("Asynchronous close seen by server thread");
+                    break;
+                }
+                catch (ClosedChannelException e)
+                {
+                    logger.debug("MessagingService server thread already closed");
+                    break;
+                }
+                catch (IOException e)
+                {
+                    logger.debug("Exception on socket.accept()", e);
+                    break;
+                }
+            }
+            logger.info("MessagingService has terminated the accept() thread");
+        }
+
+        private class AcceptTask implements Runnable
+        {
+            private final Socket socket;
+
+            private AcceptTask(Socket socket)
+            {
+                this.socket = socket;
+            }
+
+            @Override
+            public void run()
+            {
+                try
+                {
                     if (!authenticate(socket))
                     {
                         logger.trace("remote failed to authenticate");
                         socket.close();
-                        continue;
+                        return;
                     }
 
                     socket.setKeepAlive(true);
@@ -1167,21 +1211,10 @@ public final class MessagingService implements MessagingServiceMBean
                     socket.setSoTimeout(0);
 
                     Thread thread = isStream
-                                  ? new IncomingStreamingConnection(version, socket, connections)
-                                  : new IncomingTcpConnection(version, MessagingService.getBits(header, 2, 1) == 1, socket, connections);
+                                    ? new IncomingStreamingConnection(version, socket, connections)
+                                    : new IncomingTcpConnection(version, MessagingService.getBits(header, 2, 1) == 1, socket, connections);
                     thread.start();
                     connections.add((Closeable) thread);
-                }
-                catch (AsynchronousCloseException e)
-                {
-                    // this happens when another thread calls close().
-                    logger.trace("Asynchronous close seen by server thread");
-                    break;
-                }
-                catch (ClosedChannelException e)
-                {
-                    logger.trace("MessagingService server thread already closed");
-                    break;
                 }
                 catch (SSLHandshakeException e)
                 {
@@ -1194,7 +1227,6 @@ public final class MessagingService implements MessagingServiceMBean
                     FileUtils.closeQuietly(socket);
                 }
             }
-            logger.info("MessagingService has terminated the accept() thread");
         }
 
         void close() throws IOException
@@ -1203,6 +1235,7 @@ public final class MessagingService implements MessagingServiceMBean
 
             try
             {
+                executor.shutdownNow();
                 server.close();
             }
             catch (IOException e)
