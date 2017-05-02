@@ -49,6 +49,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.SystemKeyspace;
@@ -450,9 +453,15 @@ public class LocalSessions
                                         "Invalid state transition %s -> %s",
                                         session.getState(), state);
             logger.debug("Setting LocalSession state from {} -> {} for {}", session.getState(), state, session.sessionID);
+            boolean wasCompleted = session.isCompleted();
             session.setState(state);
             session.setLastUpdate();
             save(session);
+
+            if (session.isCompleted() && !wasCompleted)
+            {
+                sessionCompleted(session);
+            }
         }
     }
 
@@ -577,6 +586,19 @@ public class LocalSessions
         {
             logger.error("error setting session to FINALIZE_PROMISED", e);
             failSession(sessionID);
+        }
+    }
+
+    @VisibleForTesting
+    protected void sessionCompleted(LocalSession session)
+    {
+        for (UUID cfId: session.cfIds)
+        {
+            ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreInstance(cfId);
+            if (cfs != null)
+            {
+                CompactionManager.instance.submitBackground(cfs);
+            }
         }
     }
 
