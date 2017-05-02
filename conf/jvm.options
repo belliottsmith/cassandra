@@ -8,6 +8,34 @@
 # - dynamic flags will be appended to these on cassandra-env              #
 ###########################################################################
 
+############################
+# OFF HEAP MEMORY SETTINGS #
+############################
+
+# Direct memory used for native-protocol network I/O is no longer
+# managed by the JVM. Instead, Netty allows three options to
+# manage it via the system property io.netty.maxDirectMemory:
+#     == 0  behavior as before, uses JVM to manage direct memory (slowest).
+#     < 0   manages direct memory directly, max direct memory as -XX:MaxDirectMemorySize.
+#     > 0   manages direct memory directly, max direct memory as specified.
+#           Note, that appreviations like 2g or 500m are NOT accepted.
+#-Dio.netty.maxDirectMemory=2147483648
+
+# The maximum amount of direct memory the VM is allowed to allocate.
+#
+# Please note, that the default for this setting is neither unbounded nor 64MB.
+# In fact, if -XX:MaxDirectMemorySize is omitted (or set to '-1'),
+# it will be the same as the max amount of heap (Runtime.getRuntime.maxMemory()).
+# Otherwise, it will used the given value in bytes.
+#
+# The value for this must be sufficient for off-heap memtable
+# and caches.
+#
+# Exceptions (off-heap memory on top of this setting):
+# - Netty I/O buffers (see system property io.netty.maxDirectMemory above)
+# - Memory used by the row cache using OHCProvider
+#-XX:MaxDirectMemorySize=
+
 #################
 # HEAP SETTINGS #
 #################

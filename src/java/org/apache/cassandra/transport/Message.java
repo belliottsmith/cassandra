@@ -305,6 +305,7 @@ public abstract class Message
             }
             catch (Throwable ex)
             {
+                JVMStabilityInspector.inspectThrowable(ex);
                 frame.release();
                 // Remember the streamId
                 throw ErrorMessage.wrap(ex, frame.header.streamId);
@@ -347,7 +348,9 @@ public abstract class Message
                             throw new ProtocolException("Must not send frame with CUSTOM_PAYLOAD flag for native protocol version < 4");
                         messageSize += CBUtil.sizeOfBytesMap(customPayload);
                     }
+
                     body = CBUtil.allocator.buffer(messageSize);
+
                     if (tracingId != null)
                     {
                         CBUtil.writeUUID(tracingId, body);
@@ -399,6 +402,7 @@ public abstract class Message
             }
             catch (Throwable e)
             {
+                JVMStabilityInspector.inspectThrowable(e);
                 throw ErrorMessage.wrap(e, message.getStreamId());
             }
         }
