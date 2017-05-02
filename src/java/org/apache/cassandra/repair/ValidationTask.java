@@ -18,16 +18,13 @@
 package org.apache.cassandra.repair;
 
 import java.net.InetAddress;
-import java.util.Map;
 
 import com.google.common.util.concurrent.AbstractFuture;
 
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.RepairException;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.ValidationRequest;
-import org.apache.cassandra.utils.MerkleTree;
+import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.utils.MerkleTrees;
 
 /**
@@ -39,12 +36,14 @@ public class ValidationTask extends AbstractFuture<TreeResponse> implements Runn
     private final RepairJobDesc desc;
     private final InetAddress endpoint;
     private final int gcBefore;
+    private final PreviewKind previewKind;
 
-    public ValidationTask(RepairJobDesc desc, InetAddress endpoint, int gcBefore)
+    public ValidationTask(RepairJobDesc desc, InetAddress endpoint, int gcBefore, PreviewKind previewKind)
     {
         this.desc = desc;
         this.endpoint = endpoint;
         this.gcBefore = gcBefore;
+        this.previewKind = previewKind;
     }
 
     /**
@@ -65,7 +64,7 @@ public class ValidationTask extends AbstractFuture<TreeResponse> implements Runn
     {
         if (trees == null)
         {
-            setException(new RepairException(desc, "Validation failed in " + endpoint));
+            setException(new RepairException(desc, previewKind, "Validation failed in " + endpoint));
         }
         else
         {

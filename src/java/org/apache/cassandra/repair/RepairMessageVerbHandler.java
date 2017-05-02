@@ -24,7 +24,6 @@ import com.google.common.base.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.Bounds;
@@ -35,6 +34,7 @@ import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.*;
 import org.apache.cassandra.service.ActiveRepairService;
+import org.apache.cassandra.streaming.PreviewKind;
 
 /**
  * Handles all repair related message.
@@ -48,6 +48,12 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
     private boolean isConsistent(UUID sessionID)
     {
         return ActiveRepairService.instance.consistent.local.isSessionInProgress(sessionID);
+    }
+
+    private PreviewKind previewKind(UUID sessionID)
+    {
+        ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(sessionID);
+        return prs != null ? prs.previewKind : PreviewKind.NONE;
     }
 
     public void doVerb(final MessageIn<RepairMessage> message, final int id)
@@ -79,7 +85,8 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                                                                              prepareMessage.ranges,
                                                                              prepareMessage.isIncremental,
                                                                              prepareMessage.timestamp,
-                                                                             prepareMessage.isGlobal);
+                                                                             prepareMessage.isGlobal,
+                                                                             prepareMessage.previewKind);
                     MessageOut msgOut = new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE);
                     MessagingService.instance().sendReply(msgOut, id, message.from);
                     break;
@@ -127,7 +134,8 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                     }
 
                     ActiveRepairService.instance.consistent.local.maybeSetRepairing(desc.parentSessionId);
-                    Validator validator = new Validator(desc, message.from, validationRequest.gcBefore, isConsistent(desc.parentSessionId));
+                    Validator validator = new Validator(desc, message.from, validationRequest.gcBefore,
+                                                        isConsistent(desc.parentSessionId), previewKind(desc.parentSessionId));
                     CompactionManager.instance.submitValidation(store, validator);
                     break;
 
@@ -135,7 +143,7 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                     // forwarded sync request
                     SyncRequest request = (SyncRequest) message.payload;
                     logger.debug("Syncing {}", request);
-                    StreamingRepairTask task = new StreamingRepairTask(desc, request, isConsistent(desc.parentSessionId) ? desc.parentSessionId : null);
+                    StreamingRepairTask task = new StreamingRepairTask(desc, request, isConsistent(desc.parentSessionId) ? desc.parentSessionId : null, request.previewKind);
                     task.run();
                     break;
 

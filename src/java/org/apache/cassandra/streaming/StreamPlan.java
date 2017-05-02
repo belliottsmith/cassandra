@@ -22,7 +22,6 @@ import java.util.*;
 
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.UUIDGen;
 
 /**
@@ -46,18 +45,18 @@ public class StreamPlan
      */
     public StreamPlan(String description)
     {
-        this(description, 1, false, null);
+        this(description, 1, false, null, PreviewKind.NONE);
     }
 
     public StreamPlan(String description, boolean keepSSTableLevels)
     {
-        this(description, 1, keepSSTableLevels, null);
+        this(description, 1, keepSSTableLevels, null, PreviewKind.NONE);
     }
 
-    public StreamPlan(String description, int connectionsPerHost, boolean keepSSTableLevels, UUID pendingRepair)
+    public StreamPlan(String description, int connectionsPerHost, boolean keepSSTableLevels, UUID pendingRepair, PreviewKind previewKind)
     {
         this.description = description;
-        this.coordinator = new StreamCoordinator(connectionsPerHost, keepSSTableLevels, new DefaultConnectionFactory(), pendingRepair);
+        this.coordinator = new StreamCoordinator(connectionsPerHost, keepSSTableLevels, new DefaultConnectionFactory(), pendingRepair, previewKind);
     }
 
     /**
