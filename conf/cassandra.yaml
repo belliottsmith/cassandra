@@ -188,13 +188,13 @@ roles_validity: 86400s
 # using roles_cache_active_update.
 # Defaults to the same value as roles_validity.
 # For a long-running cache, consider setting this to 60000 (1 hour) etc.
-# roles_update_interval: 2000ms
+roles_update_interval: 60s
 
 # If true, cache contents are actively updated by a background task at the
 # interval set by roles_update_interval. If false, cache entries
 # become eligible for refresh after their update interval. Upon next access,
 # an async reload is scheduled and the old value returned until it completes.
-# roles_cache_active_update: false
+roles_cache_active_update: true
 
 # Validity period for permissions cache (fetching permissions can be an
 # expensive operation depending on the authorizer, CassandraAuthorizer is
@@ -213,13 +213,13 @@ permissions_validity: 86400s
 # using permissions_cache_active_update.
 # Defaults to the same value as permissions_validity.
 # For a longer-running permissions cache, consider setting to update hourly (60000)
-# permissions_update_interval: 2000ms
+permissions_update_interval: 60s
 
 # If true, cache contents are actively updated by a background task at the
 # interval set by permissions_update_interval. If false, cache entries
 # become eligible for refresh after their update interval. Upon next access,
 # an async reload is scheduled and the old value returned until it completes.
-# permissions_cache_active_update: false
+permissions_cache_active_update: true
 
 # Validity period for credentials cache. This cache is tightly coupled to
 # the provided PasswordAuthenticator implementation of IAuthenticator. If
@@ -232,7 +232,7 @@ permissions_validity: 86400s
 # Defaults to 2000, set to 0 to disable credentials caching.
 # For a long-running cache using credentials_cache_active_update, consider
 # setting to something longer such as a daily validation: 86400000
-credentials_validity: 2000ms
+credentials_validity: 86400s
 
 # Refresh interval for credentials cache (if enabled).
 # After this interval, cache entries become eligible for refresh. Upon next
@@ -243,13 +243,13 @@ credentials_validity: 2000ms
 # using credentials_cache_active_update.
 # Defaults to the same value as credentials_validity.
 # For a longer-running permissions cache, consider setting to update hourly (60000)
-# credentials_update_interval: 2000ms
+credentials_update_interval: 60s
 
 # If true, cache contents are actively updated by a background task at the
 # interval set by credentials_update_interval. If false (default), cache entries
 # become eligible for refresh after their update interval. Upon next access,
 # an async reload is scheduled and the old value returned until it completes.
-# credentials_cache_active_update: false
+credentials_cache_active_update: true
 
 # The partitioner is responsible for distributing groups of rows (by
 # partition key) across nodes in the cluster. The partitioner can NOT be
