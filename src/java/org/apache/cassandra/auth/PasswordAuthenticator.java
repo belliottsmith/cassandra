@@ -56,6 +56,8 @@ public class PasswordAuthenticator implements IAuthenticator
 {
     private static final Logger logger = LoggerFactory.getLogger(PasswordAuthenticator.class);
 
+    private static final String NO_SUCH_CREDENTIAL = "";
+
     // name of the hash column.
     private static final String SALTED_HASH = "salted_hash";
 
@@ -91,6 +93,27 @@ public class PasswordAuthenticator implements IAuthenticator
     private AuthenticatedUser authenticate(String username, String password) throws AuthenticationException
     {
         String hash = cache.get(username);
+
+        // intentional use of object equality
+        if (hash == NO_SUCH_CREDENTIAL)
+        {
+            // The cache was unable to load credentials via queryHashedPassword, probably because the supplied
+            // rolename doesn't exist. If caching is enabled we will have now cached the sentinel value for that key
+            // so we should invalidate it otherwise the cache will continue to serve that until it expires which
+            // will be a problem if the role is added in the meantime.
+            //
+            // We can't just throw the AuthenticationException directly from queryHashedPassword (like in upstream)
+            // for a similar reason: if an existing role is dropped and active updates are enabled for the cache,
+            // the refresh in CacheRefresher::run will log and swallow the exception and keep serving the stale
+            // credentials until they eventually expire.
+            //
+            // So whenever we encounter the sentinal value, here and also in CacheRefresher (if active updates are
+            // enabled), we manually expunge the key from the cache. If caching is not enabled, AuthCache::invalidate
+            // is a safe no-op.
+            cache.invalidateCredentials(username);
+            throw new AuthenticationException(String.format("Provided username %s and/or password are incorrect", username));
+        }
+
         if (!checkpw(password, hash))
             throw new AuthenticationException(String.format("Provided username %s and/or password are incorrect", username));
 
@@ -108,14 +131,15 @@ public class PasswordAuthenticator implements IAuthenticator
                                             System.nanoTime());
 
             // If either a non-existent role name was supplied, or no credentials
-            // were found for that role we don't want to cache the result so we throw
-            // an exception.
+            // were found for that role, we don't want to cache the result so we
+            // return a sentinel value. On receiving the sentinel, the caller can
+            // invalidate the cache and throw an appropriate exception.
             if (rows.result.isEmpty())
-                throw new AuthenticationException(String.format("Provided username %s and/or password are incorrect", username));
+                return NO_SUCH_CREDENTIAL;
 
             UntypedResultSet result = UntypedResultSet.create(rows.result);
             if (!result.one().has(SALTED_HASH))
-                throw new AuthenticationException(String.format("Provided username %s and/or password are incorrect", username));
+                return NO_SUCH_CREDENTIAL;
 
             return result.one().getString(SALTED_HASH);
         }
@@ -248,8 +272,13 @@ public class PasswordAuthenticator implements IAuthenticator
                   DatabaseDescriptor::getCredentialsUpdateInterval,
                   DatabaseDescriptor::setCredentialsCacheMaxEntries,
                   DatabaseDescriptor::getCredentialsCacheMaxEntries,
+                  DatabaseDescriptor::setCredentialsCacheActiveUpdate,
+                  DatabaseDescriptor::getCredentialsCacheActiveUpdate,
                   authenticator::queryHashedPassword,
-                  () -> true);
+                  () -> true,
+                  (k,v) -> NO_SUCH_CREDENTIAL == v); // use a known object as a sentinel value. CacheRefresher will
+                                                     // invalidate the key if the sentinel is loaded during a refresh
+
         }
 
         public void invalidateCredentials(String roleName)
