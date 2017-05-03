@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -35,6 +36,7 @@ import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
 import com.google.common.util.concurrent.UncheckedExecutionException;
+import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -90,6 +92,11 @@ public class PasswordAuthenticator implements IAuthenticator
     private final ThreadPoolExecutor cacheRefreshExecutor = new DebuggableThreadPoolExecutor("AuthenticatorCacheRefresh",
             Thread.NORM_PRIORITY);
 
+    // sentinel value indicating that the password hash has been deleted
+    private static final String DELETED_HASH_SENTINEL = "";
+
+    private volatile ScheduledFuture cacheRefresher = null;
+
     private LoadingCache<String, String> initCache(int validityPeriod,
                                                    int updateInterval,
                                                    int maxEntries)
@@ -100,9 +107,16 @@ public class PasswordAuthenticator implements IAuthenticator
             return null;
         }
 
+        if (cacheRefresher != null)
+        {
+            cacheRefresher.cancel(false);
+            cacheRefresher = null;
+        }
 
-        return CacheBuilder.newBuilder()
-                .refreshAfterWrite(updateInterval, TimeUnit.MILLISECONDS)
+        boolean activeUpdate = DatabaseDescriptor.getAuthenticatorCacheActiveUpdate();
+
+        LoadingCache<String, String> newcache = CacheBuilder.newBuilder()
+                .refreshAfterWrite(activeUpdate ? validityPeriod : updateInterval, TimeUnit.MILLISECONDS)
                 .expireAfterWrite(validityPeriod, TimeUnit.MILLISECONDS)
                 .maximumSize(maxEntries)
                 .build(new CacheLoader<String, String>()
@@ -130,6 +144,10 @@ public class PasswordAuthenticator implements IAuthenticator
                                 {
                                     return getPasswordHash(username);
                                 }
+                                catch (AuthenticationException e)
+                                {
+                                    return DELETED_HASH_SENTINEL;
+                                }
                                 catch (Exception e)
                                 {
                                     logger.debug("Error performing async refresh of authenticator", e);
@@ -141,6 +159,16 @@ public class PasswordAuthenticator implements IAuthenticator
                         return task;
                     }
                 });
+
+        if (activeUpdate)
+        {
+            cacheRefresher = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(CacheRefresher.create("authenticator", newcache, DELETED_HASH_SENTINEL),
+                    updateInterval,
+                    updateInterval,
+                    TimeUnit.MILLISECONDS);
+        }
+
+        return newcache;
     }
 
     private String getPasswordHash(String username) throws AuthenticationException
@@ -207,6 +235,9 @@ public class PasswordAuthenticator implements IAuthenticator
                 }
             }
         }
+
+        if (storedPasswordHash == DELETED_HASH_SENTINEL)
+            cache.invalidate(username);
 
         if (storedPasswordHash == null || !BCrypt.checkpw(password, storedPasswordHash))
             throw new AuthenticationException("Username and/or password are incorrect");

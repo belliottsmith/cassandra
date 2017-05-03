@@ -26,6 +26,7 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
+import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +45,8 @@ public class RolesCache implements RolesCacheMBean
                                                                                              Thread.NORM_PRIORITY);
     private final IRoleManager roleManager;
     private volatile LoadingCache<RoleResource, Set<RoleResource>> cache;
+
+    private static volatile ScheduledFuture cacheRefresher = null;
 
     public RolesCache(IRoleManager roleManager)
     {
@@ -105,15 +108,25 @@ public class RolesCache implements RolesCacheMBean
 
     private LoadingCache<RoleResource, Set<RoleResource>> initCache(LoadingCache<RoleResource, Set<RoleResource>> existing)
     {
+        if (cacheRefresher != null)
+        {
+            cacheRefresher.cancel(false);
+            cacheRefresher = null;
+        }
+
         if (!DatabaseDescriptor.getAuthenticator().requireAuthentication())
             return null;
 
         if (DatabaseDescriptor.getRolesValidity() <= 0)
             return null;
 
+        int validityPeriod = DatabaseDescriptor.getRolesValidity();
+        int updateInterval = DatabaseDescriptor.getRolesUpdateInterval();
+        boolean activeUpdate = DatabaseDescriptor.getRolesCacheActiveUpdate();
+
         LoadingCache<RoleResource, Set<RoleResource>> newcache = CacheBuilder.newBuilder()
-                .refreshAfterWrite(DatabaseDescriptor.getRolesUpdateInterval(), TimeUnit.MILLISECONDS)
-                .expireAfterWrite(DatabaseDescriptor.getRolesValidity(), TimeUnit.MILLISECONDS)
+                .refreshAfterWrite(activeUpdate ? validityPeriod : updateInterval, TimeUnit.MILLISECONDS)
+                .expireAfterWrite(validityPeriod, TimeUnit.MILLISECONDS)
                 .maximumSize(DatabaseDescriptor.getRolesCacheMaxEntries())
                 .build(new CacheLoader<RoleResource, Set<RoleResource>>()
                 {
@@ -146,6 +159,15 @@ public class RolesCache implements RolesCacheMBean
                 });
         if (existing != null)
             newcache.putAll(existing.asMap());
+
+        if (activeUpdate)
+        {
+            cacheRefresher = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(CacheRefresher.create("roles", newcache),
+                                                                                  updateInterval,
+                                                                                  updateInterval,
+                                                                                  TimeUnit.MILLISECONDS);
+        }
+
         return newcache;
     }
 }

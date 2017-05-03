@@ -136,6 +136,12 @@ roles_validity_in_ms: 86400000
 # Defaults to the same value as roles_validity_in_ms.
 # roles_update_interval_in_ms: 1000
 
+# if true, cache contents are actively updated by a background task at the
+# interval set by roles_update_interval_in_ms. If false, cache entries
+# become eligible for refresh after their update interval. Upon next access,
+# an async reload is scheduled and the old value returned until it completes.
+roles_cache_active_update: false
+
 # Validity period for permissions cache (fetching permissions can be an
 # expensive operation depending on the authorizer, CassandraAuthorizer is
 # one example). Defaults to 2000, set to 0 to disable.
@@ -143,12 +149,16 @@ roles_validity_in_ms: 86400000
 permissions_validity_in_ms: 86400000
 
 # Refresh interval for permissions cache (if enabled).
-# After this interval, cache entries become eligible for refresh. Upon next
-# access, an async reload is scheduled and the old value returned until it
-# completes. If permissions_validity_in_ms is non-zero, then this must be
-# also.
+# Behavior is dictated by the value of permissions_cache_active_update
+# If permissions_validity_in_ms is non-zero, then this must be also.
 # Defaults to the same value as permissions_validity_in_ms.
 # permissions_update_interval_in_ms: 1000
+
+# if true, cache contents are actively updated by a background task at the
+# interval set by permissions_update_interval_in_ms. If false, cache entries
+# become eligible for refresh after their update interval. Upon next access,
+# an async reload is scheduled and the old value returned until it completes.
+permissions_cache_active_update: false
 
 # The partitioner is responsible for distributing groups of rows (by
 # partition key) across nodes in the cluster.  You should leave this

@@ -21,6 +21,7 @@ import java.lang.management.ManagementFactory;
 import java.util.Set;
 import java.util.concurrent.*;
 
+import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -46,6 +47,8 @@ public class PermissionsCache implements PermissionsCacheMBean
                                                                                              Thread.NORM_PRIORITY);
     private final IAuthorizer authorizer;
     private volatile LoadingCache<Pair<AuthenticatedUser, IResource>, Set<Permission>> cache;
+
+    private static volatile ScheduledFuture cacheRefresher = null;
 
     public PermissionsCache(IAuthorizer authorizer)
     {
@@ -99,6 +102,17 @@ public class PermissionsCache implements PermissionsCacheMBean
         cache = initCache(cache);
     }
 
+
+    public boolean getActiveUpdate()
+    {
+        return DatabaseDescriptor.getPermissionsCacheActiveUpdate();
+    }
+
+    public void setActiveUpdate(boolean update)
+    {
+        DatabaseDescriptor.setPermissionsCacheActiveUpdate(update);
+    }
+
     public int getUpdateInterval()
     {
         return DatabaseDescriptor.getPermissionsUpdateInterval();
@@ -113,9 +127,19 @@ public class PermissionsCache implements PermissionsCacheMBean
         if (DatabaseDescriptor.getPermissionsValidity() <= 0)
             return null;
 
+        if (cacheRefresher != null)
+        {
+            cacheRefresher.cancel(false);
+            cacheRefresher = null;
+        }
+
+        int validityPeriod = DatabaseDescriptor.getPermissionsValidity();
+        int updateInterval = DatabaseDescriptor.getPermissionsUpdateInterval();
+        boolean activeUpdate = DatabaseDescriptor.getPermissionsCacheActiveUpdate();
+
         LoadingCache<Pair<AuthenticatedUser, IResource>, Set<Permission>> newcache = CacheBuilder.newBuilder()
-                           .refreshAfterWrite(DatabaseDescriptor.getPermissionsUpdateInterval(), TimeUnit.MILLISECONDS)
-                           .expireAfterWrite(DatabaseDescriptor.getPermissionsValidity(), TimeUnit.MILLISECONDS)
+                           .refreshAfterWrite(activeUpdate ? validityPeriod : updateInterval, TimeUnit.MILLISECONDS)
+                           .expireAfterWrite(validityPeriod, TimeUnit.MILLISECONDS)
                            .maximumSize(DatabaseDescriptor.getPermissionsCacheMaxEntries())
                            .build(new CacheLoader<Pair<AuthenticatedUser, IResource>, Set<Permission>>()
                            {
@@ -148,6 +172,14 @@ public class PermissionsCache implements PermissionsCacheMBean
                            });
         if (existing != null)
             newcache.putAll(existing.asMap());
+
+        if (activeUpdate)
+        {
+            cacheRefresher = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(CacheRefresher.create("permissions", newcache),
+                                                                                  updateInterval,
+                                                                                  updateInterval,
+                                                                                  TimeUnit.MILLISECONDS);
+        }
         return newcache;
     }
 }

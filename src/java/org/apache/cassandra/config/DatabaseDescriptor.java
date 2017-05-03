@@ -808,6 +808,16 @@ public class DatabaseDescriptor
              : conf.permissions_update_interval_in_ms;
     }
 
+    public static boolean getPermissionsCacheActiveUpdate()
+    {
+        return conf.permissions_cache_active_update;
+    }
+
+    public static void setPermissionsCacheActiveUpdate(boolean update)
+    {
+        conf.permissions_cache_active_update = update;
+    }
+
     public static int getRolesValidity()
     {
         return conf.roles_validity_in_ms;
@@ -828,6 +838,11 @@ public class DatabaseDescriptor
         return conf.roles_update_interval_in_ms == -1
              ? conf.roles_validity_in_ms
              : conf.roles_update_interval_in_ms;
+    }
+
+    public static boolean getRolesCacheActiveUpdate()
+    {
+        return conf.roles_cache_active_update;
     }
 
     public static void setRolesUpdateInterval(int interval)
@@ -855,6 +870,11 @@ public class DatabaseDescriptor
         return conf.authenticator_update_interval_in_ms == -1
                 ? conf.authenticator_validity_in_ms
                 : conf.authenticator_update_interval_in_ms;
+    }
+
+    public static boolean getAuthenticatorCacheActiveUpdate()
+    {
+        return conf.authenticator_cache_active_update;
     }
 
     public static int getThriftFramedTransportSize()

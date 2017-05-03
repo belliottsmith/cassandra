@@ -28,4 +28,8 @@ public interface PermissionsCacheMBean
     public void setUpdateInterval(int updateInterval);
 
     public int getUpdateInterval();
+
+    public boolean getActiveUpdate();
+
+    public void setActiveUpdate(boolean update);
 }
