@@ -33,6 +33,8 @@ public class PermissionsCache extends AuthCache<Pair<AuthenticatedUser, IResourc
               DatabaseDescriptor::getPermissionsUpdateInterval,
               DatabaseDescriptor::setPermissionsCacheMaxEntries,
               DatabaseDescriptor::getPermissionsCacheMaxEntries,
+              DatabaseDescriptor::setPermissionsCacheActiveUpdate,
+              DatabaseDescriptor::getPermissionsCacheActiveUpdate,
               (p) -> authorizer.authorize(p.left, p.right),
               () -> DatabaseDescriptor.getAuthorizer().requireAuthorization());
     }
