@@ -18,8 +18,11 @@
 
 package org.apache.cassandra.auth;
 
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiPredicate;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
@@ -29,7 +32,9 @@ import org.slf4j.LoggerFactory;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.Policy;
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
+import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.utils.MBeanWrapper;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -40,21 +45,31 @@ public class AuthCache<K, V> implements AuthCacheMBean
 
     public static final String MBEAN_NAME_BASE = "org.apache.cassandra.auth:type=";
 
+    private volatile ScheduledFuture cacheRefresher = null;
+
     /**
      * Underlying cache. LoadingCache will call underlying load function on {@link #get} if key is not present
      */
     protected volatile LoadingCache<K, V> cache;
     private DebuggableThreadPoolExecutor cacheRefreshExecutor;
 
-    private String name;
-    private IntConsumer setValidityDelegate;
-    private IntSupplier getValidityDelegate;
-    private IntConsumer setUpdateIntervalDelegate;
-    private IntSupplier getUpdateIntervalDelegate;
-    private IntConsumer setMaxEntriesDelegate;
-    private IntSupplier getMaxEntriesDelegate;
-    private Function<K, V> loadFunction;
-    private BooleanSupplier enableCache;
+    private final String name;
+    private final IntConsumer setValidityDelegate;
+    private final IntSupplier getValidityDelegate;
+    private final IntConsumer setUpdateIntervalDelegate;
+    private final IntSupplier getUpdateIntervalDelegate;
+    private final IntConsumer setMaxEntriesDelegate;
+    private final IntSupplier getMaxEntriesDelegate;
+    private final Consumer<Boolean> setActiveUpdate;
+    private final BooleanSupplier getActiveUpdate;
+    private final Function<K, V> loadFunction;
+    private final BooleanSupplier enableCache;
+
+    // Determines whether the presence of a specific value should trigger the invalidation of
+    // the supplied key. Used by CredentialsCache & CacheRefresher to identify when the
+    // credentials for a role couldn't be loaded without throwing an exception or serving stale
+    // values until the natural expiry time.
+    private final BiPredicate<K, V> invalidateCondition;
 
     /**
      * @param name Used for MBean
@@ -64,6 +79,8 @@ public class AuthCache<K, V> implements AuthCacheMBean
      * @param getUpdateIntervalDelegate Getter for update interval
      * @param setMaxEntriesDelegate Used to set max # entries in cache. See {@link com.github.benmanes.caffeine.cache.Policy.Eviction#setMaximum(long)}
      * @param getMaxEntriesDelegate Getter for max entries.
+     * @param setActiveUpdate Actively update the cache before expiry
+     * @param getActiveUpdate Getter for active update
      * @param loadFunction Function to load the cache. Called on {@link #get(Object)}
      * @param cacheEnabledDelegate Used to determine if cache is enabled.
      */
@@ -74,8 +91,52 @@ public class AuthCache<K, V> implements AuthCacheMBean
                         IntSupplier getUpdateIntervalDelegate,
                         IntConsumer setMaxEntriesDelegate,
                         IntSupplier getMaxEntriesDelegate,
+                        Consumer<Boolean> setActiveUpdate,
+                        BooleanSupplier getActiveUpdate,
                         Function<K, V> loadFunction,
                         BooleanSupplier cacheEnabledDelegate)
+    {
+        this(name,
+             setValidityDelegate,
+             getValidityDelegate,
+             setUpdateIntervalDelegate,
+             getUpdateIntervalDelegate,
+             setMaxEntriesDelegate,
+             getMaxEntriesDelegate,
+             setActiveUpdate,
+             getActiveUpdate,
+             loadFunction,
+             cacheEnabledDelegate,
+             (k, v) -> false);
+    }
+
+    /**
+     * @param name Used for MBean
+     * @param setValidityDelegate Used to set cache validity period. See {@link Policy#expireAfterWrite()}
+     * @param getValidityDelegate Getter for validity period
+     * @param setUpdateIntervalDelegate Used to set cache update interval. See {@link Policy#refreshAfterWrite()}
+     * @param getUpdateIntervalDelegate Getter for update interval
+     * @param setMaxEntriesDelegate Used to set max # entries in cache. See {@link com.github.benmanes.caffeine.cache.Policy.Eviction#setMaximum(long)}
+     * @param getMaxEntriesDelegate Getter for max entries.
+     * @param setActiveUpdate Actively update the cache before expiry
+     * @param getActiveUpdate Getter for active update
+     * @param loadFunction Function to load the cache. Called on {@link #get(Object)}
+     * @param cacheEnabledDelegate Used to determine if cache is enabled.
+     * @param invalidationCondition Used during active updates to determine if a refreshed value indicates a missing
+     *                              entry in the underlying table. If satisfied, the key will be invalidated.
+     */
+    protected AuthCache(String name,
+                        IntConsumer setValidityDelegate,
+                        IntSupplier getValidityDelegate,
+                        IntConsumer setUpdateIntervalDelegate,
+                        IntSupplier getUpdateIntervalDelegate,
+                        IntConsumer setMaxEntriesDelegate,
+                        IntSupplier getMaxEntriesDelegate,
+                        Consumer<Boolean> setActiveUpdate,
+                        BooleanSupplier getActiveUpdate,
+                        Function<K, V> loadFunction,
+                        BooleanSupplier cacheEnabledDelegate,
+                        BiPredicate<K, V> invalidationCondition)
     {
         this.name = checkNotNull(name);
         this.setValidityDelegate = checkNotNull(setValidityDelegate);
@@ -84,8 +145,11 @@ public class AuthCache<K, V> implements AuthCacheMBean
         this.getUpdateIntervalDelegate = checkNotNull(getUpdateIntervalDelegate);
         this.setMaxEntriesDelegate = checkNotNull(setMaxEntriesDelegate);
         this.getMaxEntriesDelegate = checkNotNull(getMaxEntriesDelegate);
+        this.setActiveUpdate = checkNotNull(setActiveUpdate);
+        this.getActiveUpdate = checkNotNull(getActiveUpdate);
         this.loadFunction = checkNotNull(loadFunction);
         this.enableCache = checkNotNull(cacheEnabledDelegate);
+        this.invalidateCondition = checkNotNull(invalidationCondition);
         init();
     }
 
@@ -197,6 +261,20 @@ public class AuthCache<K, V> implements AuthCacheMBean
         return getMaxEntriesDelegate.getAsInt();
     }
 
+    public boolean getActiveUpdate()
+    {
+        return getActiveUpdate.getAsBoolean();
+    }
+
+    public void setActiveUpdate(boolean update)
+    {
+        if (Boolean.getBoolean("cassandra.disable_auth_caches_remote_configuration"))
+            throw new UnsupportedOperationException("Remote configuration of auth caches is disabled");
+
+        setActiveUpdate.accept(update);
+        cache = initCache(cache);
+    }
+
     /**
      * (Re-)initialise the underlying cache. Will update validity, max entries, and update interval if
      * any have changed. The underlying {@link LoadingCache} will be initiated based on the provided {@code loadFunction}.
@@ -212,25 +290,46 @@ public class AuthCache<K, V> implements AuthCacheMBean
         if (getValidity() <= 0)
             return null;
 
-        logger.info("(Re)initializing {} (validity period/update interval/max entries) ({}/{}/{})",
-                    name, getValidity(), getUpdateInterval(), getMaxEntries());
+        boolean activeUpdate = getActiveUpdate();
+        logger.info("(Re)initializing {} (validity period/update interval/max entries/active update) ({}/{}/{}/{})",
+                    name, getValidity(), getUpdateInterval(), getMaxEntries(), activeUpdate);
+        LoadingCache<K, V> updatedCache;
 
-        if (existing == null) {
-          return Caffeine.newBuilder()
-                         .refreshAfterWrite(getUpdateInterval(), TimeUnit.MILLISECONDS)
-                         .expireAfterWrite(getValidity(), TimeUnit.MILLISECONDS)
-                         .maximumSize(getMaxEntries())
-                         .executor(cacheRefreshExecutor)
-                         .build(loadFunction::apply);
+        if (existing == null)
+        {
+            updatedCache = Caffeine.newBuilder().refreshAfterWrite(activeUpdate ? getValidity() : getUpdateInterval(), TimeUnit.MILLISECONDS)
+                                                .expireAfterWrite(getValidity(), TimeUnit.MILLISECONDS)
+                                                .maximumSize(getMaxEntries())
+                                                .executor(cacheRefreshExecutor)
+                                                .build(loadFunction::apply);
+        }
+        else
+        {
+            updatedCache = cache;
+            // Always set as mandatory
+            cache.policy().refreshAfterWrite().ifPresent(policy ->
+                policy.setExpiresAfter(activeUpdate ? getValidity() : getUpdateInterval(), TimeUnit.MILLISECONDS));
+            cache.policy().expireAfterWrite().ifPresent(policy ->
+                policy.setExpiresAfter(getValidity(), TimeUnit.MILLISECONDS));
+            cache.policy().eviction().ifPresent(policy ->
+                                                policy.setMaximum(getMaxEntries()));
         }
 
-        // Always set as mandatory
-        cache.policy().refreshAfterWrite().ifPresent(policy ->
-            policy.setExpiresAfter(getUpdateInterval(), TimeUnit.MILLISECONDS));
-        cache.policy().expireAfterWrite().ifPresent(policy ->
-            policy.setExpiresAfter(getValidity(), TimeUnit.MILLISECONDS));
-        cache.policy().eviction().ifPresent(policy ->
-            policy.setMaximum(getMaxEntries()));
-        return cache;
+        if (cacheRefresher != null)
+        {
+            cacheRefresher.cancel(false); // permit the two refreshers to race until the old one dies, should be harmless.
+            cacheRefresher = null;
+        }
+
+        if (activeUpdate)
+        {
+            cacheRefresher = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(CacheRefresher.create(name,
+                                                                                                        updatedCache,
+                                                                                                        invalidateCondition),
+                                                                                  getUpdateInterval(),
+                                                                                  getUpdateInterval(),
+                                                                                  TimeUnit.MILLISECONDS);
+        }
+        return updatedCache;
     }
 }
