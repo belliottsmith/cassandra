@@ -224,6 +224,8 @@ public class AuthCacheTest
                   () -> 1000,
                   (maxEntries) -> {},
                   () -> 10,
+                  (updateActiveUpdate) -> {},
+                  () -> false,
                   loadFunction,
                   cacheEnabledDelegate);
         }
