@@ -52,6 +52,12 @@ public class CIEInternalKeyspace
             + "key blob,"
             + "PRIMARY KEY ((ks_name, cf_name), key))");
 
+    public static final CFMetaData KeyspaceQuotaCf = compile(KeyspaceQuota.KS_QUOTA_CF,
+            "Table containing keyspace quotas, for QA",
+            "CREATE TABLE %s ("
+            + "keyspace_name text PRIMARY KEY,"
+            + "max_ks_size_mb int)");
+
     private static CFMetaData compile(String name, String description, String schema)
     {
         return CFMetaData.compile(String.format(schema, name), NAME)
@@ -61,6 +67,6 @@ public class CIEInternalKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(Integer.getInteger("cie_internal_rf", 3)), Tables.of(SchemaDropLog, PartitionBlacklistCf));
+        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(Integer.getInteger("cie_internal_rf", 3)), Tables.of(SchemaDropLog, PartitionBlacklistCf, KeyspaceQuotaCf));
     }
 }
