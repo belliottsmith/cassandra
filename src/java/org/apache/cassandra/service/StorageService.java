@@ -58,6 +58,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.db.PartitionSizeVerbHandler;
 import org.apache.cassandra.db.RangeSliceVerbHandler;
 import org.apache.cassandra.db.ReadCommandVerbHandler;
+import org.apache.cassandra.db.partitions.AtomicBTreePartition;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
@@ -1285,6 +1286,26 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         DatabaseDescriptor.setCompactionThroughputMbPerSec(value);
         CompactionManager.instance.setRate(value);
+    }
+
+    public void setMemtableExcessWasteBytes(long memtable_excess_waste_bytes)
+    {
+        AtomicBTreePartition.updateExcessWasteBytes(memtable_excess_waste_bytes);
+    }
+
+    public void setMemtableClockShift(int memtable_clock_shift)
+    {
+        AtomicBTreePartition.updateClockShift(memtable_clock_shift);
+    }
+
+    public long getMemtableExcessWasteBytes()
+    {
+        return AtomicBTreePartition.getMemtableExcessWasteBytes();
+    }
+
+    public int getMemtableClockShift()
+    {
+        return AtomicBTreePartition.getMemtableClockShift();
     }
 
     public boolean isIncrementalBackupsEnabled()

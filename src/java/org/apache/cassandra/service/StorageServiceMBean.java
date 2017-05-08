@@ -644,5 +644,15 @@ public interface StorageServiceMBean extends NotificationEmitter
     public boolean isShadowChistmasPatchEnabled();
 
     public boolean isKeyspaceQuotaEnabled();
+
     public void setKeyspaceQuotaEnabled(boolean enabled);
+
+    public void setMemtableExcessWasteBytes(long memtable_excess_waste_bytes);
+
+    public long getMemtableExcessWasteBytes();
+
+    public void setMemtableClockShift(int memtable_clock_shift);
+
+    public int getMemtableClockShift();
+
 }
