@@ -32,6 +32,7 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.StreamSupport;
 
+import org.apache.cassandra.service.StorageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sun.nio.ch.DirectBuffer;
@@ -128,6 +129,9 @@ public final class FileUtils
         assert exists || !expect : "attempted to delete non-existing file " + file.getName();
         try
         {
+            if (!StorageService.instance.isSetupCompleted())
+                logger.info("Deleting file during startup: {}", file);
+
             if (exists)
                 Files.delete(file.toPath());
         }
@@ -366,6 +370,9 @@ public final class FileUtils
 
     public static boolean delete(String file)
     {
+        if (!StorageService.instance.isSetupCompleted())
+            logger.info("Deleting file during startup: {}", file);
+
         File f = new File(file);
         return f.delete();
     }
@@ -381,6 +388,9 @@ public final class FileUtils
 
         for ( File file : files )
         {
+            if (!StorageService.instance.isSetupCompleted())
+                logger.info("Deleting file during startup: {}", file);
+
             file.delete();
         }
     }
