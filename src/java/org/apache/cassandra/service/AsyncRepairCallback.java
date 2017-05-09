@@ -19,15 +19,22 @@ package org.apache.cassandra.service;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.db.ReadResponse;
+import org.apache.cassandra.exceptions.ReadTimeoutException;
+import org.apache.cassandra.metrics.ReadRepairMetrics;
 import org.apache.cassandra.net.IAsyncCallback;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.utils.WrappedRunnable;
 
 public class AsyncRepairCallback implements IAsyncCallback<ReadResponse>
 {
+    protected static final Logger logger = LoggerFactory.getLogger( AsyncRepairCallback.class );
+
     private final DataResolver repairResolver;
     private final int blockfor;
     protected final AtomicInteger received = new AtomicInteger(0);
@@ -47,7 +54,16 @@ public class AsyncRepairCallback implements IAsyncCallback<ReadResponse>
             {
                 protected void runMayThrow()
                 {
-                    repairResolver.compareResponses();
+                    try
+                    {
+                        repairResolver.compareResponses();
+                    }
+                    catch (ReadTimeoutException e)
+                    {
+                        ReadRepairMetrics.timedOut.mark();
+                        if (logger.isDebugEnabled() )
+                            logger.debug("Timed out merging read repair responses", e);
+                    }
                 }
             });
         }
