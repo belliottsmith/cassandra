@@ -2815,6 +2815,11 @@ public class StorageProxy implements StorageProxyMBean
         return ReadRepairMetrics.repairedBackground.getCount();
     }
 
+    public long getReadRepairRepairTimedOut()
+    {
+        return ReadRepairMetrics.timedOut.getCount();
+    }
+
     public int getNumberOfTables()
     {
         return Schema.instance.getNumberOfTables();
