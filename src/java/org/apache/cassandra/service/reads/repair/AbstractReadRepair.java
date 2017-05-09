@@ -25,6 +25,9 @@ import com.google.common.base.Preconditions;
 import com.codahale.metrics.Meter;
 import com.google.common.base.Predicates;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -51,6 +54,8 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 public abstract class AbstractReadRepair<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<E>>
         implements ReadRepair<E, P>
 {
+    protected static final Logger logger = LoggerFactory.getLogger(AbstractReadRepair.class );
+
     protected final ReadCommand command;
     protected final long queryStartNanoTime;
     protected final ReplicaPlan.Shared<E, P> replicaPlan;
@@ -146,7 +151,17 @@ public abstract class AbstractReadRepair<E extends Endpoints<E>, P extends Repli
         if (repair == null)
             return;
 
-        repair.readCallback.awaitResults();
+        try
+        {
+            repair.readCallback.awaitResults();
+        }
+        catch (ReadTimeoutException e)
+        {
+            ReadRepairMetrics.timedOut.mark();
+            if (logger.isDebugEnabled() )
+                logger.debug("Timed out merging read repair responses", e);
+            throw e;
+        }
         repair.resultConsumer.accept(digestRepair.dataResolver.resolve());
     }
 
