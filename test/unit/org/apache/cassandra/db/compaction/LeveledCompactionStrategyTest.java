@@ -491,17 +491,22 @@ public class LeveledCompactionStrategyTest
 
         assertEquals(2, cfs.getLiveSSTables().size());
 
+        final CompactionStrategyManager compactionStrategyManager = cfs.getCompactionStrategyManager();
+
         // Put the 2 sstables in level 1 and level 2, respectively
-        LeveledCompactionStrategy strategy = (LeveledCompactionStrategy) (cfs.getCompactionStrategyManager()).getStrategies().get(1);
         int level = 1;
         for (SSTableReader s : cfs.getLiveSSTables())
         {
-            strategy.manifest.remove(s);
             s.descriptor.getMetadataSerializer().mutateLevel(s.descriptor, level);
             s.reloadSSTableMetadata();
-            strategy.manifest.add(s);
             level++;
         }
+        // reload the compaction strategy
+        compactionStrategyManager.setNewLocalCompactionStrategy(compactionStrategyManager.getCompactionParams());
+
+        assertEquals(0, compactionStrategyManager.getSSTableCountPerLevel()[0]);
+        assertEquals(1, compactionStrategyManager.getSSTableCountPerLevel()[1]);
+        assertEquals(1, compactionStrategyManager.getSSTableCountPerLevel()[2]);
 
         // Since local deletion time is in seconds we need to wait for it to expire to make the tombstones gcable
         Thread.sleep(1000);
@@ -521,13 +526,13 @@ public class LeveledCompactionStrategyTest
             assertTrue(CompactionManager.instance.getEnableAggressiveGCCompaction());
 
             // We have tombstoneCompactionInterval high so it considers the sstables as too young to compact
-            strategy.tombstoneCompactionInterval = 3600;
+            compactionStrategyManager.setNewLocalCompactionStrategy(CompactionParams.lcs(Collections.singletonMap(AbstractCompactionStrategy.TOMBSTONE_COMPACTION_INTERVAL_OPTION, "3600")));
             // waits for pending compactions to complete
             cfs.enableAutoCompaction(true);
             assertEquals(2, cfs.getLiveSSTables().size());
 
             // Now set tombstoneCompactionInterval=0 so we should compact
-            strategy.tombstoneCompactionInterval = 0;
+            compactionStrategyManager.setNewLocalCompactionStrategy(CompactionParams.lcs(Collections.singletonMap(AbstractCompactionStrategy.TOMBSTONE_COMPACTION_INTERVAL_OPTION, "0")));
 
             // Set one to be repaired so check it doesn't compact them together
             Iterator<SSTableReader> it = cfs.getLiveSSTables().iterator();
@@ -536,6 +541,7 @@ public class LeveledCompactionStrategyTest
 
             sstable1.descriptor.getMetadataSerializer().mutateRepaired(sstable1.descriptor, System.currentTimeMillis(), NO_PENDING_REPAIR);
             sstable1.reloadSSTableMetadata();
+            compactionStrategyManager.setNewLocalCompactionStrategy(compactionStrategyManager.getCompactionParams());
 
             cfs.enableAutoCompaction(true);
             assertEquals(2, cfs.getLiveSSTables().size());
@@ -543,13 +549,15 @@ public class LeveledCompactionStrategyTest
             // Now set the other to be repaired and it should finally compact them
             sstable2.descriptor.getMetadataSerializer().mutateRepaired(sstable2.descriptor, System.currentTimeMillis(), NO_PENDING_REPAIR);
             sstable2.reloadSSTableMetadata();
+            compactionStrategyManager.setNewLocalCompactionStrategy(compactionStrategyManager.getCompactionParams());
 
             cfs.enableAutoCompaction(true);
             assertEquals(1, cfs.getLiveSSTables().size());
 
             // Check the resulting table is in level 1
-            int[] levels = strategy.manifest.getAllLevelSize();
-            assertEquals(1, levels[1]);
+            assertEquals(0, compactionStrategyManager.getSSTableCountPerLevel()[0]);
+            assertEquals(1, compactionStrategyManager.getSSTableCountPerLevel()[1]);
+            assertEquals(0, compactionStrategyManager.getSSTableCountPerLevel()[2]);
         }
         finally
         {
