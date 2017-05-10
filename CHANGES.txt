@@ -1,4 +1,29 @@
-3.0.13.3 (open)
+3.0.13.4 (open)
+
+3.0.13.3
+ * <rdar://problem/32015065> Backport CASSANDRA-13052 : Repair process is violating the start/end token limits for small ranges (#13052, not yet fixed) 
+ * <rdar://problem/31356522> Backport CASSANDRA-13236 : corrupt flag error after upgrade from 2.2 to 3.0.10 (#13236, fixed in 3.0.14)
+ * <rdar://problem/30103848> NPE in StorageService.excise() (#13163, fixed in 3.0.14)
+ * <rdar://problem/31827735> Backport CASSANDRA-12034 : Special handling for Netty's direct memory allocation failure (#12034, fixed in 3.8)
+ * <rdar://problem/30930843> Backport CASSANDRA-13373 : Add additional statistics for speculative retry. (#13373, fixed in 4.0)
+ * <rdar://problem/30941999> Backport CASSANDRA-13308 : Cancel hints in progress on decommission (#13308, fixed in 3.0.14)
+ * <rdar://problem/30962979> Backport CASSANDRA-12728 : Handle partially written hint files (#12728, fixed in 3.0.14)
+ * <rdar://problem/31788827> Backport CASSANDRA-13441 : handle schema changes on rolling upgrades (#13441, fixed in 3.0.14)
+ * <rdar://problem/31669923> Backport CASSANDRA-13454 - Start compaction when incremental repair finishes (#13454, fixed in 4.0)
+ * <rdar://problem/31614618> Backport CASSANDRA-13430 - Cleanup isIncremental/repairedAt usage (#13430, fixed in 4.0)
+ * <rdar://problem/31743356> Backport CASSANDRA-13257 - Add repair streaming preview (#13257, fixed in 4.0)
+ * <rdar://problem/31192072> (Apple Internal) Actively update auth caches in background into cie-cassandra 3.0 branch
+ * <rdar://problem/31996817> (Apple Internal) Cass: ERROR level logs for timeouts in ReadRepairStage on 3.0
+ * <rdar://problem/31564778> (Apple Internal) Cass: Add additional logging around FileUtils and compaction leftover cleanup
+ * <rdar://problem/27859992> (Apple Internal) Cass: still can't get repaired ranges if replica was forklifted
+ * <rdar://problem/30735785> (Apple Internal) Quota for keyspaces
+ * <rdar://problem/31658384> (Apple Internal) Startup checks should not inspect sstables from removed system columnfamilies
+ * <rdar://problem/31763460> (Apple Internal) Revert "<rdar://problem/30581803> Dont mix incremental and full repair"
+ * <rdar://problem/30982065> (Apple Internal) 4096 is a magic number
+ * <rdar://problem/31847727> (Apple Internal) Port Memtable locking threshold to 3.0 and OSS
+ * <rdar://problem/29525130> (Apple Internal) Cass: bounces in istfirecrash lead to unavailables
+ * <rdar://problem/31733748> (Apple Internal) Cass: IR: Add more info level logging for incremental repair
+ * <rdar://problem/30557344> (Apple Internal) Cass: address Marcus aggressive compaction concerns
 
 3.0.13.2
  * <rdar://problem/31669447> Zipkin plugin needs to support custom collector URI (Apple Internal)
