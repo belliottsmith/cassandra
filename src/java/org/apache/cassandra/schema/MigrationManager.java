@@ -22,6 +22,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.util.concurrent.Futures;
 import org.slf4j.Logger;
@@ -56,6 +57,15 @@ public class MigrationManager
 
     private static final int MIGRATION_TASK_WAIT_IN_SECONDS = Integer.parseInt(System.getProperty("cassandra.migration_task_wait_in_seconds", "1"));
 
+    private static final int MAX_MIGRATION_TASKS_IN_FLIGHT = Integer.parseInt(System.getProperty("cassandra.migration.max_tasks_in_flight", "30"));
+    // How long to wait to expire the current limit after the last migration task which was submitted
+    private static final long MIGRATION_TASK_LIMIT_EXPIRY_TIME = Long.getLong("cassandra.migration.task_limit_expiry_time_ms", TimeUnit.MILLISECONDS.convert(5 * 60, TimeUnit.SECONDS));
+
+    static volatile AtomicInteger numTasksInFlight = new AtomicInteger(0);
+
+    private static volatile long lastSubmitted = 0;
+
+
     private MigrationManager() {}
 
     public static void scheduleSchemaPull(InetAddressAndPort endpoint, EndpointState state)
@@ -63,6 +73,17 @@ public class MigrationManager
         UUID schemaVersion = state.getSchemaVersion();
         if (!endpoint.equals(FBUtilities.getBroadcastAddressAndPort()) && schemaVersion != null)
             maybeScheduleSchemaPull(schemaVersion, endpoint, state.getApplicationState(ApplicationState.RELEASE_VERSION).value);
+    }
+
+    private static boolean taskLimitReached()
+    {
+        int tasksInFlightNow = numTasksInFlight.get();
+        if (tasksInFlightNow >= MAX_MIGRATION_TASKS_IN_FLIGHT)
+        {
+            logger.debug("Not pulling schema because {} migration tasks in flight exceeds configured maximum of {}", tasksInFlightNow, MAX_MIGRATION_TASKS_IN_FLIGHT);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -100,6 +121,16 @@ public class MigrationManager
             return;
         }
 
+        long elapsed = System.currentTimeMillis() - lastSubmitted;
+        if (Math.max(0, elapsed) > MIGRATION_TASK_LIMIT_EXPIRY_TIME)
+        {
+            logger.debug("Resetting non zero counter from value {} {} ms after it was last modified", numTasksInFlight.get(), elapsed);
+            numTasksInFlight = new AtomicInteger(0);
+        }
+
+        if (taskLimitReached())
+            return;
+
         if (Schema.instance.isEmpty() || runtimeMXBean.getUptime() < MIGRATION_DELAY_IN_MS)
         {
             // If we think we may be bootstrapping or have recently started, submit MigrationTask immediately
@@ -108,7 +139,7 @@ public class MigrationManager
                          endpoint,
                          Schema.schemaVersionToString(Schema.instance.getVersion()),
                          Schema.schemaVersionToString(theirVersion));
-            submitMigrationTask(endpoint);
+            submitMigrationTask(endpoint, numTasksInFlight);
         }
         else
         {
@@ -128,23 +159,27 @@ public class MigrationManager
                     logger.debug("Not submitting migration task for {} because our versions match ({})", endpoint, epSchemaVersion);
                     return;
                 }
+
+                if (taskLimitReached())
+                    return;
+
                 logger.debug("Submitting migration task for {}, schema version mismatch: local={}, remote={}",
                              endpoint,
                              Schema.schemaVersionToString(Schema.instance.getVersion()),
                              Schema.schemaVersionToString(epSchemaVersion));
-                submitMigrationTask(endpoint);
+                submitMigrationTask(endpoint, numTasksInFlight);
             };
             ScheduledExecutors.nonPeriodicTasks.schedule(runnable, MIGRATION_DELAY_IN_MS, TimeUnit.MILLISECONDS);
         }
     }
 
-    private static Future<?> submitMigrationTask(InetAddressAndPort endpoint)
+    private static Future<?> submitMigrationTask(InetAddressAndPort endpoint, AtomicInteger numTasksInFlight)
     {
-        /*
-         * Do not de-ref the future because that causes distributed deadlock (CASSANDRA-3832) because we are
-         * running in the gossip stage.
-         */
-        return MIGRATION.submit(new MigrationTask(endpoint));
+        logger.debug("Submitting migration task for {}", endpoint);
+        numTasksInFlight.incrementAndGet();
+        lastSubmitted = System.currentTimeMillis();
+        // Put back in cache so we persist it longer
+        return MIGRATION.submit(new MigrationTask(endpoint, numTasksInFlight));
     }
 
     static boolean shouldPullSchemaFrom(InetAddressAndPort endpoint)
@@ -408,7 +443,7 @@ public class MigrationManager
             if (shouldPullSchemaFrom(node))
             {
                 logger.debug("Requesting schema from {}", node);
-                FBUtilities.waitOnFuture(submitMigrationTask(node));
+                FBUtilities.waitOnFuture(submitMigrationTask(node, numTasksInFlight));
                 break;
             }
         }
