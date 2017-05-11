@@ -29,6 +29,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.cassandra.io.FSError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,7 +62,15 @@ public class LogReplicaSet implements AutoCloseable
     {
         File folder = file.getParentFile();
         assert !replicasByFile.containsKey(folder);
-        replicasByFile.put(folder, LogReplica.open(file));
+        try
+        {
+            replicasByFile.put(folder, LogReplica.open(file));
+        }
+        catch(FSError e)
+        {
+            logger.error("Failed to open log replica {}", file, e);
+            FileUtils.handleFSErrorAndPropagate(e);
+        }
 
         if (logger.isTraceEnabled())
             logger.trace("Added log file replica {} ", file);
@@ -72,14 +81,21 @@ public class LogReplicaSet implements AutoCloseable
         if (replicasByFile.containsKey(folder))
             return;
 
-        @SuppressWarnings("resource")  // LogReplicas are closed in LogReplicaSet::close
-        final LogReplica replica = LogReplica.create(folder, fileName);
+        try
+        {
+            @SuppressWarnings("resource")  // LogReplicas are closed in LogReplicaSet::close
+            final LogReplica replica = LogReplica.create(folder, fileName);
+            records.forEach(replica::append);
+            replicasByFile.put(folder, replica);
 
-        records.forEach(replica::append);
-        replicasByFile.put(folder, replica);
-
-        if (logger.isTraceEnabled())
-            logger.trace("Created new file replica {}", replica);
+            if (logger.isTraceEnabled())
+                logger.trace("Created new file replica {}", replica);
+        }
+        catch(FSError e)
+        {
+            logger.error("Failed to create log replica {}/{}", folder,  fileName, e);
+            FileUtils.handleFSErrorAndPropagate(e);
+        }
     }
 
     Throwable syncFolder(Throwable accumulate)

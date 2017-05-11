@@ -27,7 +27,10 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.Runnables;
+
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.io.FSWriteError;
+import org.apache.cassandra.io.util.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -210,7 +213,7 @@ class LogTransaction extends Transactional.AbstractTransactional implements Tran
         catch (IOException e)
         {
             logger.error("Unable to delete {}", file, e);
-            throw new RuntimeException(e);
+            FileUtils.handleFSErrorAndPropagate(new FSWriteError(e, file));
         }
     }
 
@@ -244,8 +247,10 @@ class LogTransaction extends Transactional.AbstractTransactional implements Tran
             if (logger.isTraceEnabled())
                 logger.trace("Removing files for transaction {}", name());
 
+            // this happens if we forget to close a txn and the garbage collector closes it for us
+            // or if the transaction journal was never properly created in the first place
             if (!data.completed())
-            { // this happens if we forget to close a txn and the garbage collector closes it for us
+            {
                 logger.error("{} was not completed, trying to abort it now", data);
                 Throwable err = Throwables.perform((Throwable)null, data::abort);
                 if (err != null)
