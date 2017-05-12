@@ -138,11 +138,86 @@ public class RangeFetchMapCalculatorTest
         Assert.assertEquals(2, map.asMap().keySet().size());
 
         assertArrays(Arrays.asList(generateRange(1, 10), generateRange(11, 20), generateRange(21, 30), generateRange(31, 40)),
-                     map.asMap().get(InetAddress.getByName("127.0.0.3")));
+                map.asMap().get(InetAddress.getByName("127.0.0.3")));
         assertArrays(Arrays.asList(generateRange(41, 50)), map.asMap().get(InetAddress.getByName("127.0.0.2")));
     }
 
-    @Test(expected = IllegalStateException.class)
+    @Test
+    public void testForMultipleRoundsComputationWithLocalHost() throws Exception
+    {
+        Multimap<Range<Token>, InetAddress> rangesWithSources = HashMultimap.create();
+        addRangeAndSources(rangesWithSources, 1, 10, "127.0.0.1");
+        addRangeAndSources(rangesWithSources, 11, 20, "127.0.0.1");
+        addRangeAndSources(rangesWithSources, 21, 30, "127.0.0.1");
+        addRangeAndSources(rangesWithSources, 31, 40, "127.0.0.1");
+        addRangeAndSources(rangesWithSources, 41, 50, "127.0.0.1", "127.0.0.2");
+
+        RangeFetchMapCalculator calculator = new RangeFetchMapCalculator(rangesWithSources, new ArrayList<RangeStreamer.ISourceFilter>(), "Test");
+        Multimap<InetAddress, Range<Token>> map = calculator.getRangeFetchMap();
+        validateRange(rangesWithSources, map);
+
+        //We should validate that it streamed from only non local host and only one range
+        Assert.assertEquals(1, map.asMap().keySet().size());
+
+        assertArrays(Arrays.asList(generateRange(41, 50)), map.asMap().get(InetAddress.getByName("127.0.0.2")));
+    }
+
+    @Test
+    public void testForEmptyGraph() throws Exception
+    {
+        Multimap<Range<Token>, InetAddress> rangesWithSources = HashMultimap.create();
+        addRangeAndSources(rangesWithSources, 1, 10, "127.0.0.1");
+        addRangeAndSources(rangesWithSources, 11, 20, "127.0.0.1");
+        addRangeAndSources(rangesWithSources, 21, 30, "127.0.0.1");
+        addRangeAndSources(rangesWithSources, 31, 40, "127.0.0.1");
+        addRangeAndSources(rangesWithSources, 41, 50, "127.0.0.1");
+
+        RangeFetchMapCalculator calculator = new RangeFetchMapCalculator(rangesWithSources, new ArrayList<RangeStreamer.ISourceFilter>(), "Test");
+        Multimap<InetAddress, Range<Token>> map = calculator.getRangeFetchMap();
+        //All ranges map to local host so we will not stream anything.
+        Assert.assertTrue(map.isEmpty());
+    }
+
+    @Test
+    public void testWithNoSourceWithLocal() throws Exception
+    {
+        Multimap<Range<Token>, InetAddress> rangesWithSources = HashMultimap.create();
+        addRangeAndSources(rangesWithSources, 1, 10, "127.0.0.1", "127.0.0.5");
+        addRangeAndSources(rangesWithSources, 11, 20, "127.0.0.2");
+        addRangeAndSources(rangesWithSources, 21, 30, "127.0.0.3");
+
+        //Return false for all except 127.0.0.5
+        final RangeStreamer.ISourceFilter filter = new RangeStreamer.ISourceFilter()
+        {
+            public boolean shouldInclude(InetAddress endpoint)
+            {
+                try
+                {
+                    if (endpoint.equals(InetAddress.getByName("127.0.0.5")))
+                        return false;
+                    else
+                        return true;
+                }
+                catch (UnknownHostException e)
+                {
+                    return true;
+                }
+            }
+        };
+
+        RangeFetchMapCalculator calculator = new RangeFetchMapCalculator(rangesWithSources, Arrays.asList(filter), "Test");
+        Multimap<InetAddress, Range<Token>> map = calculator.getRangeFetchMap();
+
+        validateRange(rangesWithSources, map);
+
+        //We should validate that it streamed from only non local host and only one range
+        Assert.assertEquals(2, map.asMap().keySet().size());
+
+        assertArrays(Arrays.asList(generateRange(11, 20)), map.asMap().get(InetAddress.getByName("127.0.0.2")));
+        assertArrays(Arrays.asList(generateRange(21, 30)), map.asMap().get(InetAddress.getByName("127.0.0.3")));
+    }
+
+    @Test (expected = IllegalStateException.class)
     public void testWithNoLiveSource() throws Exception
     {
         Multimap<Range<Token>, InetAddress> rangesWithSources = HashMultimap.create();
@@ -162,26 +237,6 @@ public class RangeFetchMapCalculatorTest
         calculator.getRangeFetchMap();
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void testWithNoLiveSourceExceptSelf() throws Exception
-    {
-        Multimap<Range<Token>, InetAddress> rangesWithSources = HashMultimap.create();
-        addRangeAndSources(rangesWithSources, 1, 10,  String.valueOf(FBUtilities.getBroadcastAddress().getHostAddress()));
-        addRangeAndSources(rangesWithSources, 11, 20, "127.0.0.2");
-        addRangeAndSources(rangesWithSources, 21, 30, "127.0.0.3");
-
-        final RangeStreamer.ISourceFilter allDeadFilter = new RangeStreamer.ISourceFilter()
-        {
-            public boolean shouldInclude(InetAddress endpoint)
-            {
-                return endpoint.equals(FBUtilities.getBroadcastAddress());
-            }
-        };
-
-        RangeFetchMapCalculator calculator = new RangeFetchMapCalculator(rangesWithSources, Arrays.asList(allDeadFilter), "Test");
-        calculator.getRangeFetchMap();
-    }
-
     @Test
     public void testForLocalDC() throws Exception
     {
@@ -190,7 +245,7 @@ public class RangeFetchMapCalculatorTest
         addRangeAndSources(rangesWithSources, 11, 20, "127.0.0.1", "127.0.0.3", "127.0.0.57");
         addRangeAndSources(rangesWithSources, 21, 30, "127.0.0.2", "127.0.0.59", "127.0.0.61");
 
-        RangeFetchMapCalculator calculator = new RangeFetchMapCalculator(rangesWithSources, new ArrayList<RangeStreamer.ISourceFilter>(), "Test");
+        RangeFetchMapCalculator calculator = new RangeFetchMapCalculator(rangesWithSources, new ArrayList<>(), "Test");
         Multimap<InetAddress, Range<Token>> map = calculator.getRangeFetchMap();
         validateRange(rangesWithSources, map);
         Assert.assertEquals(2, map.asMap().size());
