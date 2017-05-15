@@ -19,7 +19,9 @@ package org.apache.cassandra.auth;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
+import org.apache.cassandra.db.CachedHashDecoratedKey;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.exceptions.RequestValidationException;
@@ -133,6 +135,24 @@ public interface IRoleManager
      * @throws RequestExecutionException
      */
     Set<RoleResource> getRoles(RoleResource grantee, boolean includeInherited) throws RequestValidationException, RequestExecutionException;
+
+    /**
+     * Used to retrieve detailed role info on the set of roles granted to a grantee.
+     * This method was not part of the initial IRoleManager API, so a default impl is supplied which uses the methods
+     * of the original API to retrieve the detailed role info for the grantee. This is essentially what users of this
+     * interface would have to have done in the first place. Implementations can provide optimized versions of this
+     * method where the details can be retrieved more efficiently.
+     *
+     * @param grantee identifies the role whose granted roles are retrieved
+     * @return A set of Role objects detailing the roles granted to the grantee, either directly or through inheritance.
+     */
+    default Set<Role> getGrantedRoles(RoleResource grantee)
+    {
+        return getRoles(grantee, true).stream()
+                                      .map(roleResource -> Roles.fromRoleResource(roleResource, this))
+                                      .collect(Collectors.toSet());
+
+    }
 
     /**
      * Called during the execution of an unqualified LIST ROLES query.

@@ -92,11 +92,21 @@ public class AuthenticatedUser
     /**
      * Get the roles that have been granted to the user via the IRoleManager
      *
-     * @return a list of roles that have been granted to the user
+     * @return a set of identifiers indicating which roles have been granted to the user
      */
     public Set<RoleResource> getRoles()
     {
         return Roles.getRoles(role);
+    }
+
+    /**
+     * Get the detailed info on roles granted to the user via IRoleManager
+     *
+     * @return a set of Role objects detailing the roles granted to the user
+     */
+    public Set<Role> getGrantedRoles()
+    {
+        return Roles.getGrantedRoles(role);
     }
 
     public Set<Permission> getPermissions(IResource resource)

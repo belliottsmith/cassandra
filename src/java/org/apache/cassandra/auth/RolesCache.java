@@ -21,9 +21,12 @@ import java.lang.management.ManagementFactory;
 import java.util.Set;
 import java.util.concurrent.*;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
@@ -44,14 +47,20 @@ public class RolesCache implements RolesCacheMBean
     private final ThreadPoolExecutor cacheRefreshExecutor = new DebuggableThreadPoolExecutor("RolesCacheRefresh",
                                                                                              Thread.NORM_PRIORITY);
     private final IRoleManager roleManager;
-    private volatile LoadingCache<RoleResource, Set<RoleResource>> cache;
+    private volatile LoadingCache<RoleResource, Set<Role>> cache;
 
     private static volatile ScheduledFuture cacheRefresher = null;
 
     public RolesCache(IRoleManager roleManager)
     {
+        this(roleManager, DatabaseDescriptor.getAuthenticator().requireAuthentication());
+    }
+
+    @VisibleForTesting
+    public RolesCache(IRoleManager roleManager, boolean enableCache)
+    {
         this.roleManager = roleManager;
-        this.cache = initCache(null);
+        this.cache = initCache(null, enableCache);
         try
         {
             MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
@@ -63,30 +72,29 @@ public class RolesCache implements RolesCacheMBean
         }
     }
 
-    public Set<RoleResource> getRoles(RoleResource role)
+    @VisibleForTesting
+    protected void unregisterMBean()
     {
-        if (cache == null)
-            return roleManager.getRoles(role, true);
-
         try
         {
-            return cache.get(role);
+            MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+            mbs.unregisterMBean(new ObjectName(MBEAN_NAME));
         }
-        catch (ExecutionException e)
+        catch (Exception e)
         {
-            throw new RuntimeException(e);
+            logger.warn("Error unregistering Roles Cache mbean", e);
         }
     }
 
     public void invalidate()
     {
-        cache = initCache(null);
+        cache = initCache(null, DatabaseDescriptor.getAuthenticator().requireAuthentication());
     }
 
     public void setValidity(int validityPeriod)
     {
         DatabaseDescriptor.setRolesValidity(validityPeriod);
-        cache = initCache(cache);
+        cache = initCache(cache, DatabaseDescriptor.getAuthenticator().requireAuthentication());
     }
 
     public int getValidity()
@@ -97,7 +105,7 @@ public class RolesCache implements RolesCacheMBean
     public void setUpdateInterval(int updateInterval)
     {
         DatabaseDescriptor.setRolesUpdateInterval(updateInterval);
-        cache = initCache(cache);
+        cache = initCache(cache, DatabaseDescriptor.getAuthenticator().requireAuthentication());
     }
 
     public int getUpdateInterval()
@@ -105,8 +113,51 @@ public class RolesCache implements RolesCacheMBean
         return DatabaseDescriptor.getRolesUpdateInterval();
     }
 
+    /**
+     * Read ir return from the cache the Set of the RoleResources identifying the roles granted to the primary resource
+     * @see Roles#getRoles(RoleResource)
+     * @param primaryRole identifier for the primary role
+     * @return the set of identifiers of all the roles granted to (directly or through inheritance) the primary role
+     */
+    Set<RoleResource> getRoleResources(RoleResource primaryRole)
+    {
+        if (cache == null)
+            return roleManager.getRoles(primaryRole, true);
 
-    private LoadingCache<RoleResource, Set<RoleResource>> initCache(LoadingCache<RoleResource, Set<RoleResource>> existing)
+        try
+        {
+            return Sets.newHashSet(Iterables.transform(cache.get(primaryRole), r -> r.resource));
+        }
+        catch (ExecutionException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Read or return from cache the set of Role objects representing the roles granted to the primary resource
+     * @see Roles#getGrantedRoles(RoleResource)
+     * @param primaryRole identifier for the primary role
+     * @return the set of Role objects containing info of all roles granted to (directly or through inheritance)
+     * the primary role.
+     */
+    Set<Role> getRoles(RoleResource primaryRole)
+    {
+        if (cache == null)
+            return roleManager.getGrantedRoles(primaryRole);
+
+        try
+        {
+            return cache.get(primaryRole);
+        }
+        catch (ExecutionException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private LoadingCache<RoleResource, Set<Role>> initCache(LoadingCache<RoleResource, Set<Role>> existing,
+                                                            boolean requireAuthentication)
     {
         if (cacheRefresher != null)
         {
@@ -114,7 +165,7 @@ public class RolesCache implements RolesCacheMBean
             cacheRefresher = null;
         }
 
-        if (!DatabaseDescriptor.getAuthenticator().requireAuthentication())
+        if (!requireAuthentication)
             return null;
 
         if (DatabaseDescriptor.getRolesValidity() <= 0)
@@ -124,28 +175,28 @@ public class RolesCache implements RolesCacheMBean
         int updateInterval = DatabaseDescriptor.getRolesUpdateInterval();
         boolean activeUpdate = DatabaseDescriptor.getRolesCacheActiveUpdate();
 
-        LoadingCache<RoleResource, Set<RoleResource>> newcache = CacheBuilder.newBuilder()
+        LoadingCache<RoleResource, Set<Role>> newcache = CacheBuilder.newBuilder()
                 .refreshAfterWrite(activeUpdate ? validityPeriod : updateInterval, TimeUnit.MILLISECONDS)
                 .expireAfterWrite(validityPeriod, TimeUnit.MILLISECONDS)
                 .maximumSize(DatabaseDescriptor.getRolesCacheMaxEntries())
-                .build(new CacheLoader<RoleResource, Set<RoleResource>>()
+                .build(new CacheLoader<RoleResource, Set<Role>>()
                 {
-                    public Set<RoleResource> load(RoleResource primaryRole)
+                    public Set<Role> load(RoleResource primaryRole)
                     {
-                        return roleManager.getRoles(primaryRole, true);
+                        return roleManager.getGrantedRoles(primaryRole);
                     }
 
-                    public ListenableFuture<Set<RoleResource>> reload(final RoleResource primaryRole,
-                                                                      final Set<RoleResource> oldValue)
+                    public ListenableFuture<Set<Role>> reload(final RoleResource primaryRole,
+                                                              final Set<Role> oldValue)
                     {
-                        ListenableFutureTask<Set<RoleResource>> task;
-                        task = ListenableFutureTask.create(new Callable<Set<RoleResource>>()
+                        ListenableFutureTask<Set<Role>> task;
+                        task = ListenableFutureTask.create(new Callable<Set<Role>>()
                         {
-                            public Set<RoleResource> call() throws Exception
+                            public Set<Role> call() throws Exception
                             {
                                 try
                                 {
-                                    return roleManager.getRoles(primaryRole, true);
+                                    return roleManager.getGrantedRoles(primaryRole);
                                 } catch (Exception e)
                                 {
                                     logger.trace("Error performing async refresh of user roles", e);
