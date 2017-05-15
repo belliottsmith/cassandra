@@ -66,6 +66,7 @@ import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.metrics.CompactionMetrics;
+import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.repair.Validator;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
@@ -465,7 +466,10 @@ public class CompactionManager implements CompactionManagerMBean
         {
             protected void runMayThrow() throws Exception
             {
-                performAnticompaction(cfs, ranges, sstables, txn, ActiveRepairService.UNREPAIRED_SSTABLE, pendingRepair, parentRepairSession);
+                try (TableMetrics.TableTimer.Context ctx = cfs.metric.anticompactionTime.time())
+                {
+                    performAnticompaction(cfs, ranges, sstables, txn, ActiveRepairService.UNREPAIRED_SSTABLE, pendingRepair, parentRepairSession);
+                }
             }
         };
 
@@ -558,6 +562,7 @@ public class CompactionManager implements CompactionManagerMBean
                     sstableIterator.remove();
                 }
             }
+            cfs.metric.bytesMutatedAnticompaction.inc(SSTableReader.getTotalBytes(mutatedRepairStatuses));
             cfs.getTracker().notifySSTableRepairedStatusChanged(mutatedRepairStatusToNotify);
             txn.cancel(Sets.union(nonAnticompacting, mutatedRepairStatuses));
             validatedForRepair.release(Sets.union(nonAnticompacting, mutatedRepairStatuses));
@@ -750,7 +755,7 @@ public class CompactionManager implements CompactionManagerMBean
         {
             public Object call() throws IOException
             {
-                try
+                try (TableMetrics.TableTimer.Context c = cfStore.metric.validationTime.time())
                 {
                     doValidationCompaction(cfStore, validator);
                 }
@@ -1151,6 +1156,7 @@ public class CompactionManager implements CompactionManagerMBean
             // We blindly assume that a partition is evenly distributed on all sstables for now.
             MerkleTrees tree = createMerkleTrees(sstables, validator.desc.ranges, cfs);
             long start = System.nanoTime();
+            long partitionCount = 0;
             try (AbstractCompactionStrategy.ScannerList scanners = cfs.getCompactionStrategyManager().getScanners(sstables, validator.desc.ranges);
                  ValidationCompactionController controller = new ValidationCompactionController(cfs, gcBefore);
                  CompactionIterator ci = new ValidationCompactionIterator(scanners.scanners, controller, nowInSec, metrics))
@@ -1164,6 +1170,7 @@ public class CompactionManager implements CompactionManagerMBean
                     try (UnfilteredRowIterator partition = ci.next())
                     {
                         validator.add(partition);
+                        partitionCount++;
                     }
                 }
                 validator.complete();
@@ -1176,12 +1183,21 @@ public class CompactionManager implements CompactionManagerMBean
                     // is done).
                     cfs.clearSnapshot(snapshotName);
                 }
+                cfs.metric.partitionsValidated.update(partitionCount);
             }
-
+            long estimatedTotalBytes = 0;
+            for (SSTableReader sstable : sstables)
+            {
+                for (Pair<Long, Long> positionsForRanges : sstable.getPositionsForRanges(validator.desc.ranges))
+                    estimatedTotalBytes += positionsForRanges.right - positionsForRanges.left;
+            }
+            cfs.metric.bytesValidated.update(estimatedTotalBytes);
             if (logger.isDebugEnabled())
             {
                 long duration = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
-                logger.debug("Validation finished in {} msec, for {}",
+                logger.debug("Validation of {} partitions (~{}) finished in {} msec, for {}",
+                             partitionCount,
+                             FBUtilities.prettyPrintMemory(estimatedTotalBytes),
                              duration,
                              validator.desc);
             }
@@ -1296,7 +1312,7 @@ public class CompactionManager implements CompactionManagerMBean
         // repairedAt values for these, we still avoid anti-compacting already repaired sstables, as we currently don't
         // make use of any actual repairedAt value and splitting up sstables just for that is not worth it at this point.
         Set<SSTableReader> unrepairedSSTables = sstables.stream().filter((s) -> !s.isRepaired()).collect(Collectors.toSet());
-
+        cfs.metric.bytesAnticompacted.inc(SSTableReader.getTotalBytes(unrepairedSSTables));
         Collection<Collection<SSTableReader>> groupedSSTables = cfs.getCompactionStrategyManager().groupSSTablesForAntiCompaction(unrepairedSSTables);
 
         // iterate over sstables to check if the repaired / unrepaired ranges intersect them.
