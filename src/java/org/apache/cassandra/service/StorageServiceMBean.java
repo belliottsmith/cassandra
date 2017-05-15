@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
-
+import javax.annotation.Nullable;
 import javax.management.NotificationEmitter;
 import javax.management.openmbean.TabularData;
 
@@ -360,6 +360,15 @@ public interface StorageServiceMBean extends NotificationEmitter
     public int forceRepairRangeAsync(String beginToken, String endToken, String keyspaceName, boolean isSequential, boolean isLocal, boolean fullRepair, String... tableNames);
 
     public void forceTerminateAllRepairSessions();
+
+    /**
+     * Get the status of a given parent repair session.
+     * @param cmd the int reference returned when issuing the repair
+     * @return status of parent repair from enum {@link org.apache.cassandra.repair.RepairRunnable.Status}
+     * followed by final message or messages of the session
+     */
+    @Nullable
+    public List<String> getParentRepairStatus(int cmd);
 
     /**
      * transfer this node's data to other machines and remove it from service.

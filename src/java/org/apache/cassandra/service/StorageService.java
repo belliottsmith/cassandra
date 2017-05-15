@@ -18,12 +18,6 @@
 package org.apache.cassandra.service;
 
 import java.io.*;
-import java.io.ByteArrayInputStream;
-import java.io.DataInput;
-import java.io.DataInputStream;
-import java.io.DataOutput;
-import java.io.File;
-import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -81,7 +75,6 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.config.ViewDefinition;
-import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.CounterMutationVerbHandler;
@@ -97,7 +90,6 @@ import org.apache.cassandra.db.SnapshotDetailsTabularData;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.TruncateVerbHandler;
 import org.apache.cassandra.db.TypeSizes;
-import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.dht.Range;
@@ -3428,6 +3420,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public void forceTerminateAllRepairSessions() {
         ActiveRepairService.instance.terminateSessions();
+    }
+
+
+    @Nullable
+    public List<String> getParentRepairStatus(int cmd)
+    {
+        Pair<ActiveRepairService.ParentRepairStatus, List<String>> pair = ActiveRepairService.instance.getRepairStatus(cmd);
+        return pair == null ? null :
+               ImmutableList.<String>builder().add(pair.left.name()).addAll(pair.right).build();
     }
 
     /* End of MBean interface methods */

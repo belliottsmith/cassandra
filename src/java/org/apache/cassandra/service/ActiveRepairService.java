@@ -30,13 +30,13 @@ import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
 import com.google.common.base.Predicate;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.AbstractFuture;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 
@@ -78,6 +78,7 @@ import org.apache.cassandra.repair.consistent.LocalSessions;
 import org.apache.cassandra.repair.messages.*;
 import org.apache.cassandra.utils.CassandraVersion;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
 
 /**
@@ -96,6 +97,12 @@ import org.apache.cassandra.utils.UUIDGen;
  */
 public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFailureDetectionEventListener, ActiveRepairServiceMBean
 {
+
+    public enum ParentRepairStatus
+    {
+        IN_PROGRESS, COMPLETED, FAILED
+    }
+
     /**
      * @deprecated this statuses are from the previous JMX notification service,
      * which will be deprecated on 4.0. For statuses of the new notification
@@ -135,11 +142,16 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
     private final IFailureDetector failureDetector;
     private final Gossiper gossiper;
+    private final Cache<Integer, Pair<ParentRepairStatus, List<String>>> repairStatusByCmd;
 
     public ActiveRepairService(IFailureDetector failureDetector, Gossiper gossiper)
     {
         this.failureDetector = failureDetector;
         this.gossiper = gossiper;
+        this.repairStatusByCmd = CacheBuilder.newBuilder()
+                                             .expireAfterWrite(
+                                             Long.getLong("cassandra.parent_repair_status_expiry_seconds",
+                                                          TimeUnit.SECONDS.convert(1, TimeUnit.DAYS)), TimeUnit.SECONDS).build();
 
         MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
         try
@@ -247,6 +259,17 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             session.forceShutdown(cause);
         }
         parentRepairSessions.clear();
+    }
+
+    public void recordRepairStatus(int cmd, ParentRepairStatus parentRepairStatus, List<String> messages)
+    {
+        repairStatusByCmd.put(cmd, Pair.create(parentRepairStatus, messages));
+    }
+
+
+    Pair<ParentRepairStatus, List<String>> getRepairStatus(Integer cmd)
+    {
+        return repairStatusByCmd.getIfPresent(cmd);
     }
 
     /**
