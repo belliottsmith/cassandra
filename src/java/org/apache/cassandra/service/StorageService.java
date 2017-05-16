@@ -4921,7 +4921,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      */
     public void loadNewSSTables(String ksName, String cfName)
     {
-        ColumnFamilyStore.loadNewSSTables(ksName, cfName);
+        ColumnFamilyStore.loadNewSSTables(ksName, cfName, null);
+    }
+
+    /**
+     * #{@inheritDoc}
+     */
+    public void loadNewSSTables(String ksName, String cfName, String dirPath)
+    {
+        ColumnFamilyStore.loadNewSSTables(ksName, cfName, dirPath);
     }
 
     /**

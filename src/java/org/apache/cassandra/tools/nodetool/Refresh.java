@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import io.airlift.command.Arguments;
 import io.airlift.command.Command;
 
+import io.airlift.command.Option;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,10 +34,15 @@ public class Refresh extends NodeToolCmd
     @Arguments(usage = "<keyspace> <table>", description = "The keyspace and table name")
     private List<String> args = new ArrayList<>();
 
+    @Option(title = "external_directory",
+            name = {"-d", "--directory"},
+            description = "Directory to load new SSTables from. SSTables are moved, so original copy is gone after refresh")
+    private String directory = null;
+
     @Override
     public void execute(NodeProbe probe)
     {
         checkArgument(args.size() == 2, "refresh requires ks and cf args");
-        probe.loadNewSSTables(args.get(0), args.get(1));
+        probe.loadNewSSTables(args.get(0), args.get(1), directory);
     }
 }
