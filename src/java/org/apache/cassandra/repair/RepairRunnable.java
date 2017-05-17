@@ -567,8 +567,8 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         private String repairComplete()
         {
             ActiveRepairService.instance.removeParentRepairSession(parentSession);
-            String duration = DurationFormatUtils.formatDurationWords(System.currentTimeMillis() - startTime,
-                                                                      true, true);
+            long durationMillis = System.currentTimeMillis() - startTime;
+            String duration = DurationFormatUtils.formatDurationWords(durationMillis, true, true);
             String message = String.format("Repair command #%d finished in %s", cmd, duration);
             fireProgressEvent(new ProgressEvent(ProgressEventType.COMPLETE, progress.get(), totalProgress, message));
             logger.info(message);
@@ -586,6 +586,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                 Tracing.instance.stopSession();
             }
             executor.shutdownNow();
+            Keyspace.open(keyspace).metric.repairTime.update(durationMillis, TimeUnit.MILLISECONDS);
             return message;
         }
     }
