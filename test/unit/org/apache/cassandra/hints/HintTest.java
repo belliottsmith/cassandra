@@ -323,7 +323,7 @@ public class HintTest
 
         // create a hint with mutation's gcgs.
         hint = Hint.create(mutation, nowInMillis);
-        assertEquals(nowInMillis + TimeUnit.SECONDS.toMillis(mutation.smallestGCGS()),
+        assertEquals(nowInMillis + TimeUnit.SECONDS.toMillis(Hint.maxHintTTL),
                      hint.expirationInMillis());
     }
 
