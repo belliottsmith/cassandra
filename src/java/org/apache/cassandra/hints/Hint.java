@@ -57,7 +57,7 @@ import static org.apache.cassandra.db.TypeSizes.sizeofUnsignedVInt;
 public final class Hint
 {
     public static final Serializer serializer = new Serializer();
-    static final int maxHintTTL = Integer.getInteger("cassandra.maxHintTTL", Integer.MAX_VALUE);
+    static final int maxHintTTL = Integer.getInteger("cassandra.maxHintTTL", (int)TimeUnit.DAYS.toSeconds(1));
 
     final Mutation mutation;
     final long creationTime;  // time of hint creation (in milliseconds)
