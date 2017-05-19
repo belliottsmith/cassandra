@@ -1,4 +1,17 @@
-3.0.13.4 (open)
+3.0.13.5 (open)
+
+3.0.13.4
+ * <rdar://problem/26630585> "nodetool refresh" should accept SSTables directory as param ability to load new SSTables from a separate directory (#6719, not yet fixed)
+ * <rdar://problem/31896828> Log time elapsed for each incremental repair phase (#13498, fixed in 4.0)
+ * <rdar://problem/30709783> Only allow a limited number of migration tasks in flight at once (#11748, not yet fixed)
+ * <rdar://problem/31664865> Forward-port Apple Internal Native Transport Checksum to 3.0 (#13304, not yet fixed)
+ * <rdar://problem/23912431> Cass: when the right lost notifications occur repair still hangs forever (#13480, not yet fixed)
+ * <rdar://problem/32132365> During upgrade to 3.0 reversed queries may drop results (#13236, fixed in 3.0.14)
+ * <rdar://problem/31733705> Cass: Add more repair metrics (#13531, fixed in 4.0)
+ * <rdar://problem/31508132> Better handle IO errors in 3.0 flat files (LogTransaction and Hints) (#13485, not yet fixed)
+ * <rdar://problem/32154536> Match upstream CASSANDRA-4650 in 3.0 (#4650, fixed in 4.0)
+ * <rdar://problem/32289573> (Apple Internal) nodetool scrub/cleanup/upgradesstables exit code
+ * <rdar://problem/31192097> (Apple Internal) Improve caching of auth role data
 
 3.0.13.3
  * <rdar://problem/32015065> Backport CASSANDRA-13052 : Repair process is violating the start/end token limits for small ranges (#13052, not yet fixed) 
