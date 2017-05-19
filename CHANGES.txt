@@ -10,6 +10,7 @@
  * <rdar://problem/31733705> Cass: Add more repair metrics (#13531, fixed in 4.0)
  * <rdar://problem/31508132> Better handle IO errors in 3.0 flat files (LogTransaction and Hints) (#13485, not yet fixed)
  * <rdar://problem/32154536> Match upstream CASSANDRA-4650 in 3.0 (#4650, fixed in 4.0)
+ * <rdar://problem/32298967> (Apple Internal) Cass: fix client request consistency level for 3.0
  * <rdar://problem/32289573> (Apple Internal) nodetool scrub/cleanup/upgradesstables exit code
  * <rdar://problem/31192097> (Apple Internal) Improve caching of auth role data
 
