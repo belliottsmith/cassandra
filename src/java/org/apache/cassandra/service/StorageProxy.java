@@ -2979,4 +2979,128 @@ public class StorageProxy implements StorageProxyMBean
     {
         return casWriteMetrics.contentionEstimatedHistogram.getBuckets(true);
     }
+
+    private long[] clientRequestReadConsistencyLevelMicros(ConsistencyLevel cl)
+    {
+        return readMetricsMap.get(cl).recentLatencyHistogram.getBuckets(true);
+    }
+
+    private long[] clientRequestWriteConsistencyLevelMicros(ConsistencyLevel cl)
+    {
+        return writeMetricsMap.get(cl).recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getRecentClientRequestReadConsistencyLevelOneMicrosV3()
+    {
+        return clientRequestReadConsistencyLevelMicros(ConsistencyLevel.ONE);
+    }
+
+    @Override
+    public long[] getRecentClientRequestWriteConsistencyLevelOneMicrosV3()
+    {
+        return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.ONE);
+    }
+
+    @Override
+    public long[] getRecentClientRequestReadConsistencyLevelTwoMicrosV3()
+    {
+        return clientRequestReadConsistencyLevelMicros(ConsistencyLevel.TWO);
+    }
+
+    @Override
+    public long[] getRecentClientRequestWriteConsistencyLevelTwoMicrosV3()
+    {
+        return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.TWO);
+    }
+
+    @Override
+    public long[] getRecentClientRequestReadConsistencyLevelThreeMicrosV3()
+    {
+        return clientRequestReadConsistencyLevelMicros(ConsistencyLevel.THREE);
+    }
+
+    @Override
+    public long[] getRecentClientRequestWriteConsistencyLevelThreeMicrosV3()
+    {
+        return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.THREE);
+    }
+
+    @Override
+    public long[] getRecentClientRequestReadConsistencyLevelQuorumMicrosV3()
+    {
+        return clientRequestReadConsistencyLevelMicros(ConsistencyLevel.QUORUM);
+    }
+
+    @Override
+    public long[] getRecentClientRequestWriteConsistencyLevelQuorumMicrosV3()
+    {
+        return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.QUORUM);
+    }
+
+    @Override
+    public long[] getRecentClientRequestReadConsistencyLevelLocalOneMicrosV3()
+    {
+        return clientRequestReadConsistencyLevelMicros(ConsistencyLevel.LOCAL_ONE);
+    }
+
+    @Override
+    public long[] getRecentClientRequestWriteConsistencyLevelLocalOneMicrosV3()
+    {
+        return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.LOCAL_ONE);
+    }
+
+    @Override
+    public long[] getRecentClientRequestReadConsistencyLevelLocalQuorumMicrosV3()
+    {
+        return clientRequestReadConsistencyLevelMicros(ConsistencyLevel.LOCAL_QUORUM);
+    }
+
+    @Override
+    public long[] getRecentClientRequestWriteConsistencyLevelLocalQuorumMicrosV3()
+    {
+        return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.LOCAL_QUORUM);
+    }
+
+    @Override
+    public long[] getRecentClientRequestReadConsistencyLevelEachQuorumMicrosV3()
+    {
+        return clientRequestReadConsistencyLevelMicros(ConsistencyLevel.EACH_QUORUM);
+    }
+
+    @Override
+    public long[] getRecentClientRequestWriteConsistencyLevelEachQuorumMicrosV3()
+    {
+        return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.EACH_QUORUM);
+    }
+
+    @Override
+    public long[] getRecentClientRequestReadConsistencyLevelSerialMicrosV3()
+    {
+        return clientRequestReadConsistencyLevelMicros(ConsistencyLevel.SERIAL);
+    }
+
+    @Override
+    public long[] getRecentClientRequestWriteConsistencyLevelSerialMicrosV3()
+    {
+        return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.SERIAL);
+    }
+
+    @Override
+    public long[] getRecentClientRequestReadConsistencyLevelLocalSerialMicrosV3()
+    {
+        return clientRequestReadConsistencyLevelMicros(ConsistencyLevel.LOCAL_SERIAL);
+    }
+
+    @Override
+    public long[] getRecentClientRequestWriteConsistencyLevelLocalSerialMicrosV3()
+    {
+        return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.LOCAL_SERIAL);
+    }
+
+    @Override
+    public long[] getRecentClientRequestWriteConsistencyLevelAnyMicrosV3()
+    {
+        return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.ANY);
+    }
 }
