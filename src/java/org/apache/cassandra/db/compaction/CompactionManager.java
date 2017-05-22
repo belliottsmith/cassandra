@@ -1668,7 +1668,7 @@ public class CompactionManager implements CompactionManagerMBean
     {
         public ValidationExecutor()
         {
-            super(1, Integer.MAX_VALUE, "ValidationExecutor", new SynchronousQueue<Runnable>());
+            super(1, DatabaseDescriptor.getConcurrentValidations(), "ValidationExecutor", new SynchronousQueue<Runnable>());
         }
     }
 
@@ -1755,6 +1755,12 @@ public class CompactionManager implements CompactionManagerMBean
             if (holderId != null && holderId.equals(UUID.fromString(compactionId)))
                 holder.stop();
         }
+    }
+
+    public void setConcurrentValidations(int value)
+    {
+        value = value > 0 ? value : Integer.MAX_VALUE;
+        validationExecutor.setMaximumPoolSize(value);
     }
 
     public int getCoreCompactorThreads()
