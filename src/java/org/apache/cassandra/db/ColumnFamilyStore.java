@@ -2738,4 +2738,19 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         return metric.estimatedColumnCountHistogram.getValue();
     }
+
+    @Override
+    public long[] getCasPrepareLatencyHistogram() {
+        return metric.casPrepare.recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getCasProposeLatencyHistogram() {
+        return metric.casPropose.recentLatencyHistogram.getBuckets(true);
+    }
+
+    @Override
+    public long[] getCasCommitLatencyHistogram() {
+        return metric.casCommit.recentLatencyHistogram.getBuckets(true);
+    }
 }

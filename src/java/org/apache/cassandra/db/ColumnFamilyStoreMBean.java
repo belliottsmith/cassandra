@@ -223,4 +223,18 @@ public interface ColumnFamilyStoreMBean
      * @see org.apache.cassandra.metrics.TableMetrics#estimatedColumnCountHistogram
      */
     public long[] getEstimatedColumnCountHistogram();
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#casPrepare
+     */
+    public long[] getCasPrepareLatencyHistogram();
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#casPropose
+     */
+    public long[] getCasProposeLatencyHistogram();
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#casCommit
+     */
+    public long[] getCasCommitLatencyHistogram();
+
+
 }
