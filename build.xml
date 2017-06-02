@@ -498,9 +498,9 @@
           <dependency groupId="org.antlr" artifactId="antlr-runtime" version="3.5.2">
             <exclusion groupId="org.antlr" artifactId="stringtemplate"/>
           </dependency>
-          <dependency groupId="org.slf4j" artifactId="slf4j-api" version="1.7.7"/>
-          <dependency groupId="org.slf4j" artifactId="log4j-over-slf4j" version="1.7.7"/>
-          <dependency groupId="org.slf4j" artifactId="jcl-over-slf4j" version="1.7.7" />
+          <dependency groupId="org.slf4j" artifactId="slf4j-api" version="1.7.25"/>
+          <dependency groupId="org.slf4j" artifactId="log4j-over-slf4j" version="1.7.25"/>
+          <dependency groupId="org.slf4j" artifactId="jcl-over-slf4j" version="1.7.25" />
           <dependency groupId="org.apache.logging.log4j" artifactId="log4j-slf4j-impl" version="2.5"/>
           <dependency groupId="org.apache.logging.log4j" artifactId="log4j-core" version="2.5"/>
           <dependency groupId="org.apache.logging.log4j" artifactId="log4j-api" version="2.5"/>
