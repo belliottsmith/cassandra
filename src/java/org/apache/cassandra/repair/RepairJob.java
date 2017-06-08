@@ -332,6 +332,12 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             return true;
         }
 
+        if (session.previewKind != PreviewKind.NONE)
+        {
+            logger.info("Not sending repair success since we are running preview repair");
+            return true;
+        }
+
         try
         {
             successResponses = new CountDownLatch(endpoints.size());
