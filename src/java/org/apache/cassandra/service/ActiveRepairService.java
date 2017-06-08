@@ -50,7 +50,10 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.dht.Bounds;
@@ -82,6 +85,8 @@ import org.apache.cassandra.utils.CassandraVersion;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
+
+import static org.apache.cassandra.config.Config.RepairCommandPoolFullStrategy.queue;
 
 /**
  * ActiveRepairService is the starting point for manual "active" repairs.
@@ -141,6 +146,25 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
     private final ConcurrentMap<UUID, RepairSession> sessions = new ConcurrentHashMap<>();
 
     private final ConcurrentMap<UUID, ParentRepairSession> parentRepairSessions = new ConcurrentHashMap<>();
+
+    public final static ExecutorService repairCommandExecutor;
+    static
+    {
+        Config.RepairCommandPoolFullStrategy strategy = DatabaseDescriptor.getRepairCommandPoolFullStrategy();
+        BlockingQueue<Runnable> queue;
+        if (strategy == Config.RepairCommandPoolFullStrategy.reject)
+            queue = new SynchronousQueue<>();
+        else
+            queue = new LinkedBlockingQueue<>();
+
+        repairCommandExecutor = new JMXEnabledThreadPoolExecutor(1,
+                                                                 DatabaseDescriptor.getRepairCommandPoolSize(),
+                                                                 1, TimeUnit.HOURS,
+                                                                 queue,
+                                                                 new NamedThreadFactory("Repair-Task"),
+                                                                 "internal",
+                                                                 new ThreadPoolExecutor.AbortPolicy());
+    }
 
     private final IFailureDetector failureDetector;
     private final Gossiper gossiper;

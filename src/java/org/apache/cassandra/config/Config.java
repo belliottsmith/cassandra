@@ -401,6 +401,9 @@ public class Config
         outboundBindAny = value;
     }
 
+    public RepairCommandPoolFullStrategy repair_command_pool_full_strategy = RepairCommandPoolFullStrategy.queue;
+    public int repair_command_pool_size = concurrent_validations;
+
     public static boolean isClientMode()
     {
         return isClientMode;
@@ -475,6 +478,12 @@ public class Config
     {
         ssd,
         spinning
+    }
+
+    public enum RepairCommandPoolFullStrategy
+    {
+        queue,
+        reject
     }
 
     private static final List<String> SENSITIVE_KEYS = new ArrayList<String>() {{

@@ -2319,4 +2319,14 @@ public class DatabaseDescriptor
     {
         conf.keyspace_quota_refresh_time_in_sec = refreshTime;
     }
+
+    public static int getRepairCommandPoolSize()
+    {
+        return conf.repair_command_pool_size;
+    }
+
+    public static Config.RepairCommandPoolFullStrategy getRepairCommandPoolFullStrategy()
+    {
+        return conf.repair_command_pool_full_strategy;
+    }
 }
