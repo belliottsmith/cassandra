@@ -71,8 +71,10 @@ public class PendingAntiCompaction
 
         void abort()
         {
-            txn.abort();
-            refs.release();
+            if (txn != null)
+                txn.abort();
+            if (refs != null)
+                refs.release();
         }
     }
 
