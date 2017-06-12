@@ -771,6 +771,7 @@ public class CompactionManager implements CompactionManagerMBean
                 {
                     // we need to inform the remote end of our failure, otherwise it will hang on repair forever
                     validator.fail();
+                    logger.error("Validation failed.", e);
                     throw e;
                 }
                 return this;
@@ -1158,6 +1159,12 @@ public class CompactionManager implements CompactionManagerMBean
                     gcBefore = validator.gcBefore;
                 else
                     gcBefore = getDefaultGcBefore(cfs, nowInSec);
+            }
+
+            logger.info("Performing validation compaction on {} sstables", sstables.size());
+            if (logger.isDebugEnabled())
+            {
+                logger.debug("Performing validation compaction on {}", sstables);
             }
 
             // Create Merkle trees suitable to hold estimated partitions for the given ranges.

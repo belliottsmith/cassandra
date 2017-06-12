@@ -411,9 +411,9 @@ class PendingRepairManager
 
         protected void runMayThrow() throws Exception
         {
+            logger.info("Setting repairedAt to {} on {} sstables for {}", repairedAt, transaction.originals(), sessionID);
             for (SSTableReader sstable : transaction.originals())
             {
-                logger.debug("Setting repairedAt to {} on {} for {}", repairedAt, sstable, sessionID);
                 sstable.descriptor.getMetadataSerializer().mutateRepaired(sstable.descriptor, repairedAt, ActiveRepairService.NO_PENDING_REPAIR);
                 sstable.reloadSSTableMetadata();
             }
