@@ -1,4 +1,14 @@
-3.0.13.5 (open)
+3.0.13.6 (open)
+
+3.0.13.5
+ * <rdar://problem/32493119> (Apple Internal) adding logging around sstable promotion and validation (#846)
+ * <rdar://problem/32577145> (Apple Internal) Don't bump last repair time in Christmas patch for preview repair
+ * <rdar://problem/32149498> (Apple Internal) Set default maxHintTTL to 86400 in Cassandra
+ * <rdar://problem/32590113> Backport CASSANDRA-13559 : avoid changing schema in 3.0.13
+ * <rdar://problem/32577370> Backport CASSANDRA-13585 : NPE in prepare phase for anticompaction
+ * <rdar://problem/32289573> Backport CASSANDRA-13542 : nodetool scrub/cleanup/upgradesstables exit code
+ * <rdar://problem/32084239> Backport CASSANDRA-13521 : bound validation executor threads
+ * <rdar://problem/32355911> Backport CASSANDRA-13570 : Allow sub range repairs for preview of repaired data
 
 3.0.13.4
  * <rdar://problem/26630585> "nodetool refresh" should accept SSTables directory as param ability to load new SSTables from a separate directory (#6719, not yet fixed)
