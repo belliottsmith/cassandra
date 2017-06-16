@@ -1,4 +1,13 @@
-3.0.13.6 (open)
+3.0.13.7 (open)
+
+3.0.13.6
+ * <rdar://problem/32773954> (Apple Internal) Cass: Invalid state transition PREPARED -> FINALIZED
+ * <rdar://problem/32756923> (Apple Internal) NullPoint Exception during Validation compaction
+ * <rdar://problem/32756870> (Apple Internal) unable to acquire sstables during repair
+ * <rdar://problem/32577103> (Apple Internal) don't raise exceptions when performing noop session state transition
+ * <rdar://problem/32799996> (Apple Internal) Repaired data is inconsistent
+ * <rdar://problem/32748059> (Apple Internal) Range serialization for repair history does not respect ByteBuffer bounds
+ * <rdar://problem/32810969> (Apple Internal) Don't skip sstables on startup with IOException
 
 3.0.13.5
  * <rdar://problem/32493119> (Apple Internal) adding logging around sstable promotion and validation (#846)
