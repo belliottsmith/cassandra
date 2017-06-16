@@ -459,7 +459,15 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         assert !descriptor.version.storeRows() || components.contains(Component.STATS) : "Stats component is missing for sstable " + descriptor;
 
         EnumSet<MetadataType> types = EnumSet.of(MetadataType.VALIDATION, MetadataType.STATS, MetadataType.HEADER);
-        Map<MetadataType, MetadataComponent> sstableMetadata = descriptor.getMetadataSerializer().deserialize(descriptor, types);
+        Map<MetadataType, MetadataComponent> sstableMetadata;
+        try
+        {
+            sstableMetadata = descriptor.getMetadataSerializer().deserialize(descriptor, types);
+        }
+        catch (IOException e)
+        {
+            throw new CorruptSSTableException(e, descriptor.filenameFor(Component.STATS));
+        }
         ValidationMetadata validationMetadata = (ValidationMetadata) sstableMetadata.get(MetadataType.VALIDATION);
         StatsMetadata statsMetadata = (StatsMetadata) sstableMetadata.get(MetadataType.STATS);
         SerializationHeader.Component header = (SerializationHeader.Component) sstableMetadata.get(MetadataType.HEADER);
@@ -500,6 +508,12 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
                 logger.trace("key cache contains {}/{} keys", sstable.getKeyCache().size(), sstable.getKeyCache().getCapacity());
 
             return sstable;
+        }
+        catch (Exception e)
+        {
+            // catching Exception instead of IOException here since sstable.validate() throws IllegalStateException
+            sstable.selfRef().release();
+            throw new CorruptSSTableException(e, sstable.getFilename());
         }
         catch (Throwable t)
         {
