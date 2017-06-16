@@ -1146,7 +1146,8 @@ public final class SystemKeyspace
     public static void updateLastSuccessfulRepair(String keyspace, String columnFamily, Range<Token> range, long timestamp)
     {
         String cql = "INSERT INTO system.%s (keyspace_name, columnfamily_name, range, succeed_at) VALUES ('%s', '%s', 0x%s, %s)";
-        executeInternal(String.format(cql, REPAIR_HISTORY_CF, keyspace, columnFamily, Hex.bytesToHex(rangeToBytes(range).array()), timestamp));
+        ByteBuffer bb = rangeToBytes(range);
+        executeInternal(String.format(cql, REPAIR_HISTORY_CF, keyspace, columnFamily, Hex.bytesToHex(bb.array(), bb.arrayOffset(), bb.remaining()), timestamp));
     }
 
     @VisibleForTesting

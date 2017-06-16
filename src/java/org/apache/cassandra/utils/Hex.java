@@ -68,10 +68,15 @@ public class Hex
         return bytes;
     }
 
-    public static String bytesToHex(byte... bytes)
+    public static String bytesToHex(byte [] bytes)
     {
-        char[] c = new char[bytes.length * 2];
-        for (int i = 0; i < bytes.length; i++)
+        return bytesToHex(bytes, 0, bytes.length);
+    }
+
+    public static String bytesToHex(byte [] bytes, int offset, int length)
+    {
+        char[] c = new char[length * 2];
+        for (int i = offset; i < offset + length; i++)
         {
             int bint = bytes[i];
             c[i * 2] = byteToChar[(bint & 0xf0) >> 4];
