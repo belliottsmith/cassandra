@@ -25,9 +25,9 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.schema.KeyspaceParams;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.service.StorageService;
 import static org.apache.cassandra.auth.RoleTestUtils.*;
 import static org.junit.Assert.assertEquals;
 
@@ -37,11 +37,12 @@ public class CassandraRoleManagerTest
     @BeforeClass
     public static void setupClass() throws Exception
     {
-        SchemaLoader.prepareServer();
-        // create the system_auth keyspace so the IRoleManager can function as normal
-        SchemaLoader.createKeyspace(AuthKeyspace.NAME,
-                                    KeyspaceParams.simple(1),
-                                    Iterables.toArray(AuthKeyspace.metadata().tables, CFMetaData.class));
+        SchemaLoader.loadSchema();
+        // We start StorageService because confirmFastRoleSetup confirms that CassandraRoleManager will
+        // take a faster path once the cluster is already setup, which includes checking MessagingService
+        // and issuing queries with QueryProcessor.process, which uses TokenMetadata
+        DatabaseDescriptor.setDaemonInitialized();
+        StorageService.instance.initServer(0);
     }
 
     @Test
@@ -84,4 +85,25 @@ public class CassandraRoleManagerTest
         long after = getReadCount();
         assertEquals(granted.size(), after - before);
     }
+
+    @Test
+    public void confirmFastRoleSetup() throws Exception
+    {
+        IRoleManager roleManager = new RoleTestUtils.LocalExecutionRoleManager();
+        roleManager.setup();
+        for (RoleResource r : ALL_ROLES)
+            roleManager.createRole(AuthenticatedUser.ANONYMOUS_USER, r, new RoleOptions());
+
+        CassandraRoleManager crm = new CassandraRoleManager();
+
+        assertEquals(CassandraRoleManager.hasExistingRoles(), true);
+        assertEquals(crm.isClusterReady(), false);
+
+        crm.setup();
+
+        // isClusterReady should toggle immediately, without waiting for the scheduled task
+        assertEquals(CassandraRoleManager.hasExistingRoles(), true);
+        assertEquals(crm.isClusterReady(), true);
+    }
+
 }

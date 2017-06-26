@@ -46,6 +46,7 @@ import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.mindrot.jbcrypt.BCrypt;
@@ -156,7 +157,25 @@ public class CassandraRoleManager implements IRoleManager
         loadRoleStatement = (SelectStatement) prepare("SELECT * from %s.%s WHERE role = ?",
                                                       AuthKeyspace.NAME,
                                                       AuthKeyspace.ROLES);
-        // If the old users table exists, we may need to migrate the legacy authn
+
+        try
+        {
+            // We don't want to wait 10s for the scheduleSetupTask to complete before
+            // we flip isClusterReady to true if we can be sure we're already setup
+            if (!StorageService.instance.getTokenMetadata().sortedTokens().isEmpty() &&
+                    MessagingService.instance().areAllNodesAtLeast22() &&
+                    hasExistingRoles())
+                isClusterReady = true;
+        }
+        catch (Exception e)
+        {
+            // Most likely means hasExistingRoles() failed, but the actual failure doesn't
+            // really matter - no matter what failed above, we'll still want to continue
+            // with the old style scheduled setup task
+
+        }
+
+        // If the old users table exists, we may need to migrate the legacy auth
         // data to the new table. We also need to prepare a statement to read from
         // it, so we can continue to use the old tables while the cluster is upgraded.
         // Otherwise, we may need to create a default superuser role to enable others
@@ -353,7 +372,7 @@ public class CassandraRoleManager implements IRoleManager
         }
     }
 
-    private static boolean hasExistingRoles() throws RequestExecutionException
+    static boolean hasExistingRoles() throws RequestExecutionException
     {
         // Try looking up the 'cassandra' default role first, to avoid the range query if possible.
         String defaultSUQuery = String.format("SELECT * FROM %s.%s WHERE role = '%s'", AuthKeyspace.NAME, AuthKeyspace.ROLES, DEFAULT_SUPERUSER_NAME);
@@ -361,6 +380,11 @@ public class CassandraRoleManager implements IRoleManager
         return !QueryProcessor.process(defaultSUQuery, ConsistencyLevel.ONE).isEmpty()
                || !QueryProcessor.process(defaultSUQuery, ConsistencyLevel.QUORUM).isEmpty()
                || !QueryProcessor.process(allUsersQuery, ConsistencyLevel.QUORUM).isEmpty();
+    }
+
+    boolean isClusterReady()
+    {
+        return isClusterReady;
     }
 
     protected void scheduleSetupTask(final Callable<Void> setupTask)
