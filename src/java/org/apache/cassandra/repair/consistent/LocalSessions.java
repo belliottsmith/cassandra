@@ -567,7 +567,8 @@ public class LocalSessions
                 {
                     logger.error("Prepare phase for incremental repair session {} failed", sessionID, t);
                 }
-                failSession(sessionID);
+                sendMessage(coordinator, new PrepareConsistentResponse(sessionID, getBroadcastAddress(), false));
+                failSession(sessionID, false);
                 executor.shutdown();
             }
         });
