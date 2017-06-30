@@ -155,10 +155,12 @@
         <fileset dir="${build.lib}">
           <include name="**/*.jar" />
           <exclude name="**/*-sources.jar"/>
+          <exclude name="**/ant-*.jar"/>
         </fileset>
         <fileset dir="${build.dir.lib}">
           <include name="**/*.jar" />
           <exclude name="**/*-sources.jar"/>
+          <exclude name="**/ant-*.jar"/>
         </fileset>
     </path>
 
@@ -272,7 +274,6 @@
 
       <!-- define the remote repositories we use -->
       <artifact:remoteRepository id="central"   url="${artifact.remoteRepository.central}"/>
-      <artifact:remoteRepository id="java.net2" url="${artifact.remoteRepository.java.net2}"/>
       <artifact:remoteRepository id="apache"    url="${artifact.remoteRepository.apache}"/>
 
       <macrodef name="install">
@@ -385,6 +386,7 @@
           <dependency groupId="org.jacoco" artifactId="org.jacoco.agent" version="${jacoco.version}"/>
           <dependency groupId="org.jacoco" artifactId="org.jacoco.ant" version="${jacoco.version}"/>
 
+          <dependency groupId="org.jboss.byteman" artifactId="byteman-install" version="${byteman.version}"/>
           <dependency groupId="org.jboss.byteman" artifactId="byteman" version="${byteman.version}"/>
           <dependency groupId="org.jboss.byteman" artifactId="byteman-submit" version="${byteman.version}"/>
           <dependency groupId="org.jboss.byteman" artifactId="byteman-bmunit" version="${byteman.version}"/>
@@ -396,13 +398,14 @@
           <dependency groupId="com.apple.cie.db.cassandra" artifactId="cassandra-all" version="${version}" />
           <dependency groupId="com.apple.cie.db.cassandra" artifactId="cassandra-thrift" version="${version}" />
           <dependency groupId="io.dropwizard.metrics" artifactId="metrics-core" version="3.1.0" />
+          <dependency groupId="io.dropwizard.metrics" artifactId="metrics-jvm" version="3.1.0" />
           <dependency groupId="com.addthis.metrics" artifactId="reporter-config3" version="3.0.0" />
           <dependency groupId="org.mindrot" artifactId="jbcrypt" version="0.3m" />
           <dependency groupId="io.airlift" artifactId="airline" version="0.6" />
-          <dependency groupId="io.netty" artifactId="netty-all" version="4.0.23.Final" />
+          <dependency groupId="io.netty" artifactId="netty-all" version="4.0.44.Final" />
           <dependency groupId="com.google.code.findbugs" artifactId="jsr305" version="2.0.2" />
           <dependency groupId="com.clearspring.analytics" artifactId="stream" version="2.5.2" />
-          <dependency groupId="com.datastax.cassandra" artifactId="cassandra-driver-core" version="3.0.0" classifier="shaded" />
+          <dependency groupId="com.datastax.cassandra" artifactId="cassandra-driver-core" version="3.0.1" classifier="shaded" />
           <dependency groupId="org.eclipse.jdt.core.compiler" artifactId="ecj" version="4.4.2" />
           <dependency groupId="org.caffinitas.ohc" artifactId="ohc-core" version="0.4.3" />
           <dependency groupId="org.caffinitas.ohc" artifactId="ohc-core-j8" version="0.4.3" />
@@ -413,34 +416,50 @@
           <dependency groupId="joda-time" artifactId="joda-time" version="2.4" />
 
         </dependencyManagement>
+        <developer id="adelapena" name="Andres de la Peña"/>
         <developer id="alakshman" name="Avinash Lakshman"/>
         <developer id="aleksey" name="Aleksey Yeschenko"/>
         <developer id="amorton" name="Aaron Morton"/>
+        <developer id="aweisberg" name="Ariel Weisberg"/>
+        <developer id="bdeggleston" name="Blake Eggleston"/>
         <developer id="benedict" name="Benedict Elliott Smith"/>
         <developer id="benjamin" name="Benjamin Lerer"/>
+        <developer id="blambov" name="Branimir Lambov"/>
         <developer id="brandonwilliams" name="Brandon Williams"/>
-        <developer id="dbrosius" name="David Brosius"/>
+        <developer id="carl" name="Carl Yeksigian"/>
+        <developer id="dbrosius" name="David Brosiusd"/>
+        <developer id="dikang" name="Dikang Gu"/>
         <developer id="eevans" name="Eric Evans"/>
         <developer id="gdusbabek" name="Gary Dusbabek"/>
         <developer id="goffinet" name="Chris Goffinet"/>
+        <developer id="ifesdjeen" name="Alex Petrov"/>
         <developer id="jaakko" name="Laine Jaakko Olavi"/>
         <developer id="jake" name="T Jake Luciani"/>
         <developer id="jasonbrown" name="Jason Brown"/>
         <developer id="jbellis" name="Jonathan Ellis"/>
+        <developer id="jfarrell" name="Jake Farrell"/>
+        <developer id="jjirsa" name="Jeff Jirsa"/>
+        <developer id="jkni" name="Joel Knighton"/>
         <developer id="jmckenzie" name="Josh McKenzie"/>
         <developer id="johan" name="Johan Oskarsson"/>
         <developer id="junrao" name="Jun Rao"/>
+        <developer id="kohlisankalp" name="Sankalp Kohli"/>
         <developer id="marcuse" name="Marcus Eriksson"/>
+        <developer id="mck" name="Michael Semb Wever"/>
         <developer id="mishail" name="Mikhail Stepura"/>
+        <developer id="mshuler" name="Michael Shuler"/>
+        <developer id="paulo" name="Paulo Motta"/>
         <developer id="pmalik" name="Prashant Malik"/>
-      	<developer id="rstupp" name="Robert Stupp"/>
+        <developer id="rstupp" name="Robert Stupp"/>
         <developer id="scode" name="Peter Schuller"/>
         <developer id="beobal" name="Sam Tunnicliffe"/>
         <developer id="slebresne" name="Sylvain Lebresne"/>
+        <developer id="stefania" name="Stefania Alborghetti"/>
         <developer id="tylerhobbs" name="Tyler Hobbs"/>
         <developer id="vijay" name="Vijay Parthasarathy"/>
         <developer id="xedin" name="Pavel Yaskevich"/>
         <developer id="yukim" name="Yuki Morishita"/>
+        <developer id="zznate" name="Nate McCall"/>
       </artifact:pom>
 
       <!-- each dependency set then defines the subset of the dependencies for that dependency set -->
@@ -489,6 +508,7 @@
                 version="${version}"/>
         <dependency groupId="org.jacoco" artifactId="org.jacoco.agent"/>
         <dependency groupId="org.jacoco" artifactId="org.jacoco.ant" />
+        <dependency groupId="org.jboss.byteman" artifactId="byteman-install"/>
         <dependency groupId="org.jboss.byteman" artifactId="byteman"/>
         <dependency groupId="org.jboss.byteman" artifactId="byteman-submit"/>
         <dependency groupId="org.jboss.byteman" artifactId="byteman-bmunit"/>
@@ -533,6 +553,7 @@
         <dependency groupId="org.yaml" artifactId="snakeyaml"/>
         <dependency groupId="org.mindrot" artifactId="jbcrypt"/>
         <dependency groupId="io.dropwizard.metrics" artifactId="metrics-core"/>
+        <dependency groupId="io.dropwizard.metrics" artifactId="metrics-jvm"/>
         <dependency groupId="com.addthis.metrics" artifactId="reporter-config3"/>
         <dependency groupId="com.thinkaurelius.thrift" artifactId="thrift-server"/>
         <dependency groupId="com.clearspring.analytics" artifactId="stream"/>
@@ -608,7 +629,6 @@
                              dependencyRefsBuildFile="${build.dir}/build-dependencies.xml">
           <remoteRepository refid="central"/>
           <remoteRepository refid="apache"/>
-          <remoteRepository refid="java.net2"/>
       </artifact:dependencies>
       <!-- retrieve -source.jar artifacts using the reference-pom with the artifacts that have these -->
       <artifact:dependencies pomRefId="build-deps-pom-sources"
@@ -617,7 +637,6 @@
                              dependencyRefsBuildFile="${build.dir}/build-dependencies-sources.xml">
           <remoteRepository refid="central"/>
           <remoteRepository refid="apache"/>
-          <remoteRepository refid="java.net2"/>
       </artifact:dependencies>
       <copy todir="${build.dir.lib}/jars">
           <fileset refid="build-dependency-jars"/>
@@ -653,7 +672,6 @@
                              dependencyRefsBuildFile="${build.dir}/test-dependencies.xml">
         <remoteRepository refid="apache"/>
         <remoteRepository refid="central"/>
-        <remoteRepository refid="oauth"/>
       </artifact:dependencies>
       <copy todir="${test.lib}/jars">
         <fileset refid="test-dependency-jars"/>
@@ -747,20 +765,20 @@
         <echo message="${ant.project.name}: ${ant.file}"/>
         <!-- Order matters! -->
         <javac fork="true"
-               debug="true" debuglevel="${debuglevel}"
+               debug="true" debuglevel="${debuglevel}" encoding="utf-8"
                destdir="${build.classes.thrift}" includeantruntime="false" source="${source.version}" target="${target.version}"
                memorymaximumsize="512M">
             <src path="${interface.thrift.dir}/gen-java"/>
             <classpath refid="cassandra.classpath"/>
         </javac>
         <javac fork="true"
-               debug="true" debuglevel="${debuglevel}"
+               debug="true" debuglevel="${debuglevel}" encoding="utf-8"
                destdir="${build.classes.main}" includeantruntime="false" source="${source.version}" target="${target.version}"
                memorymaximumsize="512M">
             <src path="${build.src.java}"/>
             <src path="${build.src.gen-java}"/>
-        	<compilerarg value="-XDignore.symbol.file"/>
-                <compilerarg value="-Xbootclasspath/p:${build.src.jdkoverride}"/>
+            <compilerarg value="-XDignore.symbol.file"/>
+            <compilerarg value="-Xbootclasspath/p:${build.src.jdkoverride}"/>
             <classpath refid="cassandra.classpath"/>
         </javac>
         <antcall target="createVersionPropFile"/>
@@ -780,7 +798,7 @@
     </path>
     <target name="stress-build" depends="build" description="build stress tool">
     	<mkdir dir="${stress.build.classes}" />
-        <javac debug="true" debuglevel="${debuglevel}" destdir="${stress.build.classes}" includeantruntime="true" source="${source.version}" target="${target.version}">
+        <javac debug="true" debuglevel="${debuglevel}" encoding="utf-8" destdir="${stress.build.classes}" includeantruntime="true" source="${source.version}" target="${target.version}">
             <src path="${stress.build.src}" />
             <classpath>
                 <path refid="cassandra.classes" />
@@ -868,6 +886,7 @@
           <include name="org/apache/cassandra/exceptions/*.class" />
           <include name="org/apache/cassandra/utils/CloseableIterator.class" />
           <include name="org/apache/cassandra/io/util/*.class" />
+          <include name="org/apache/cassandra/utils/SigarLibrary.class" />
         </fileset>
         <manifest>
           <attribute name="Implementation-Title" value="Cassandra"/>
@@ -1108,18 +1127,21 @@
       </rat:report>
     </target>
 
+    <!-- use https://github.com/krummas/jstackjunit to get thread dumps when unit tests time out -->
+  <taskdef name="junit" classname="org.krummas.junit.JStackJUnitTask" classpath="lib/jstackjunit-0.0.1.jar"/>
   <target name="build-test" depends="build" description="Compile test classes">
     <javac
      debug="true"
      debuglevel="${debuglevel}"
      destdir="${test.classes}"
-     includeantruntime="false"
+     includeantruntime="true"
      source="${source.version}" 
-     target="${target.version}">
+     target="${target.version}"
+     encoding="utf-8">
      <classpath>
         <path refid="cassandra.classpath"/>
      </classpath>
-	 <compilerarg value="-XDignore.symbol.file"/>
+     <compilerarg value="-XDignore.symbol.file"/>
      <src path="${test.unit.src}"/>
      <src path="${test.long.src}"/>
      <src path="${test.burn.src}"/>
@@ -1205,6 +1227,8 @@
   -->
   <target name="test-clientutil-jar" depends="build-test,jar" description="Test clientutil jar">
     <junit fork="on" forkmode="perTest" failureproperty="testfailed" maxmemory="1024m" timeout="${test.timeout}">
+      <!-- Note that the test pass without that next line, but it prints an ugly error message -->
+      <jvmarg value="-Djava.library.path=${build.lib}/sigar-bin"/>
       <test name="org.apache.cassandra.serializers.ClientUtilsTest" />
       <formatter type="brief" usefile="false" />
       <classpath>
@@ -1214,11 +1238,12 @@
         <pathelement location="${build.lib}/libthrift-0.9.0.jar" />
         <pathelement location="${build.lib}/slf4j-api-1.7.7.jar" />
         <pathelement location="${build.lib}/log4j-over-slf4j.jar" />
-        <pathelement location="${build.lib}/log4j-slf4j-impl-2.5.jar" />
-        <pathelement location="${build.lib}/log4j-core-2.5.jar" />
         <pathelement location="${build.lib}/log4j-api-2.5.jar" />
+        <pathelement location="${build.lib}/log4j-core-2.5.jar" />
+        <pathelement location="${build.lib}/log4j-slf4j-impl-2.5.jar" />
         <pathelement location="${build.lib}/jackson-core-asl-1.9.2.jar" />
         <pathelement location="${build.lib}/jackson-mapper-asl-1.9.2.jar" />
+        <pathelement location="${build.lib}/sigar-1.6.4.jar" />
         <fileset dir="${build.dir.lib}">
           <include name="**/junit*.jar" />
         </fileset>
@@ -1440,7 +1465,7 @@
   </target>
 
   <target name="test-all" 
-          depends="eclipse-warnings,test,long-test,test-compression,test-clientutil-jar" 
+          depends="eclipse-warnings,test,long-test,test-compression" 
           description="Run all tests except for those under test-burn" />
   
   <!-- Use JaCoCo ant extension without needing externally saved lib -->
