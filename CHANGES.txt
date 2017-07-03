@@ -1,4 +1,12 @@
-3.0.13.7 (open)
+3.0.13.8 (open)
+
+3.0.13.7
+* <rdar://problem/32937278> (Apple Internal) Problem with PartitionSize commands
+* <rdar://problem/32940441> (Apple Internal) IR: CoordinatorSession not sending commit message
+* <rdar://problem/33016886> (Apple Internal) IR: prepare phase errors is still causing nodetool to hang
+* <rdar://problem/32963157> (Apple Internal) IR: incremental repairs that fail due to inability to grab sstable refs seem to hang
+* <rdar://problem/32757225> (Apple Internal) Auth Error during 3.0 bounce - CassandraRoleManager rejects requests for 10s (Backport of #13618, not yet fixed)
+* <rdar://problem/33088243> (Apple Internal) Range deletes in a CAS batch are ignored entirely (Backport of #13655, not yet fixed)
 
 3.0.13.6
  * <rdar://problem/32773954> (Apple Internal) Cass: Invalid state transition PREPARED -> FINALIZED
