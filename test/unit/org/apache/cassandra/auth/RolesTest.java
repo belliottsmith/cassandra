@@ -21,6 +21,7 @@ package org.apache.cassandra.auth;
 import java.util.Set;
 
 import com.google.common.collect.Iterables;
+import org.apache.cassandra.service.StorageService;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -39,11 +40,7 @@ public class RolesTest
     public static void setupClass()
     {
         SchemaLoader.prepareServer();
-        // create the system_auth keyspace so the IRoleManager can function as normal
-        SchemaLoader.createKeyspace(AuthKeyspace.NAME,
-                                    KeyspaceParams.simple(1),
-                                    Iterables.toArray(AuthKeyspace.metadata().tables, CFMetaData.class));
-
+        StorageService.instance.initServer(0);
         IRoleManager roleManager = new RoleTestUtils.LocalExecutionRoleManager();
         roleManager.setup();
         Roles.initRolesCache(roleManager, true);

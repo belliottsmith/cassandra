@@ -549,7 +549,10 @@ public class CassandraRoleManager implements IRoleManager
     private Role getRoleFromTable(String name, SelectStatement statement, Function<UntypedResultSet.Row, Role> function)
     throws RequestExecutionException, RequestValidationException
     {
-        UntypedResultSet result = process(statement, name);
+        UntypedResultSet result = UntypedResultSet.create(
+                                                   statement.execute(QueryState.forInternalCalls(),
+                                                                     QueryOptions.forInternalCalls(consistencyForRoleForRead(),
+                                                                     Collections.singletonList(ByteBufferUtil.bytes(name)))).result);
         if (result.isEmpty())
             return Roles.nullRole();
 
@@ -659,16 +662,4 @@ public class CassandraRoleManager implements IRoleManager
         return QueryProcessor.process(query, consistencyLevel);
     }
 
-    protected UntypedResultSet process(SelectStatement statement, String role)
-    {
-        if (!isClusterReady)
-            throw new InvalidRequestException("Cannot process role related query as the role manager isn't yet setup. "
-                                              + "This is likely because some of nodes in the cluster are on version 2.1 or earlier. "
-                                              + "You need to upgrade all nodes to Cassandra 2.2 or more to use roles.");
-
-        return UntypedResultSet.create(
-        statement.execute(QueryState.forInternalCalls(),
-                          QueryOptions.forInternalCalls(consistencyForRoleForRead(),
-                                                        Collections.singletonList(ByteBufferUtil.bytes(role)))).result);
-    }
 }
