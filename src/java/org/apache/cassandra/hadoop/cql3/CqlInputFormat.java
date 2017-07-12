@@ -125,7 +125,8 @@ public class CqlInputFormat extends org.apache.hadoop.mapreduce.InputFormat<Long
         logger.trace("partitioner is {}", partitioner);
 
         // canonical ranges, split into pieces, fetching the splits in parallel
-        ExecutorService executor = new ThreadPoolExecutor(0, 128, 60L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>());
+        // pool needs initial size or it will never grow beyond 1 thread since the blocking queue never fills up to Integer.MAX_VALUE
+        ExecutorService executor = new ThreadPoolExecutor(48, 48, 60L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>());
         List<org.apache.hadoop.mapreduce.InputSplit> splits = new ArrayList<>();
 
         try (Cluster cluster = CqlConfigHelper.getInputCluster(ConfigHelper.getInputInitialAddress(conf).split(","), conf);

@@ -102,9 +102,13 @@ class LimitedLocalNodeFirstLocalBalancingPolicy implements LoadBalancingPolicy
         {
             return HostDistance.LOCAL;
         }
-        else
+        else if (replicaAddresses.contains(host.getAddress()))
         {
             return HostDistance.REMOTE;
+        }
+        else // only connect to hosts with our token range, otherwise a connection will be created to all nodes.
+        {
+            return HostDistance.IGNORED;
         }
     }
 
