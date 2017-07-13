@@ -33,6 +33,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.*;
 import com.google.common.util.concurrent.*;
+import org.apache.cassandra.dht.AbstractBounds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -671,8 +672,21 @@ public class CompactionManager implements CompactionManagerMBean
 
         for (Range<Token> tokenRange : tokenRangeCollection)
         {
-            Iterable<SSTableReader> ssTableReaders = view.sstablesInBounds(tokenRange.left.minKeyBound(), tokenRange.right.maxKeyBound(), intervalTree);
-            Iterables.addAll(sstables, ssTableReaders);
+            if (!AbstractBounds.strictlyWrapsAround(tokenRange.left, tokenRange.right))
+            {
+                Iterable<SSTableReader> ssTableReaders = view.sstablesInBounds(tokenRange.left.minKeyBound(), tokenRange.right.maxKeyBound(), intervalTree);
+                Iterables.addAll(sstables, ssTableReaders);
+            }
+            else
+            {
+                // Searching an interval tree will not return the correct results for a wrapping range
+                // so we have to unwrap it first
+                for (Range<Token> unwrappedRange : tokenRange.unwrap())
+                {
+                    Iterable<SSTableReader> ssTableReaders = view.sstablesInBounds(unwrappedRange.left.minKeyBound(), unwrappedRange.right.maxKeyBound(), intervalTree);
+                    Iterables.addAll(sstables, ssTableReaders);
+                }
+            }
         }
         return sstables;
     }
