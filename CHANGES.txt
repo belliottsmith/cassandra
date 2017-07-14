@@ -1,4 +1,8 @@
-3.0.13.9 (open)
+3.0.13.10 (open)
+
+3.0.13.9
+ * <rdar://problem/33241871> (Apple Internal, will backport)  Fix 2.1 <-- 3.0 encoding of counter cells and counter update cells
+ * <rdar://problem/33294888> (Apple Internal, will backport) Cass: AssertionError in force compact for wrapping token ranges
 
 3.0.13.8
  * <rdar://problem/33168042> (Apple Internal) Auth error during mixed 2.1/3.0 mode 
