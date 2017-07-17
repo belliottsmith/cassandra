@@ -1,4 +1,4 @@
-3.0.13.10 (open)
+3.0.14.1 (open)
 
 3.0.13.9
  * <rdar://problem/33241871> (Apple Internal, will backport)  Fix 2.1 <-- 3.0 encoding of counter cells and counter update cells
@@ -184,6 +184,32 @@
  * <rdar://problem/27729987> Port to 3.0 Adding restrictions while creating or altering keyspaces(Apple Internal)
  * <rdar://problem/26121375> Cass: disallow removal of a DC from system_auth replication settings(#13041. Not yet fixed)
 
+3.0.14
+ * Ensure int overflow doesn't occur when calculating large partition warning size (CASSANDRA-13172)
+ * Ensure consistent view of partition columns between coordinator and replica in ColumnFilter (CASSANDRA-13004)
+ * Failed unregistering mbean during drop keyspace (CASSANDRA-13346)
+ * nodetool scrub/cleanup/upgradesstables exit code is wrong (CASSANDRA-13542)
+ * Fix the reported number of sstable data files accessed per read (CASSANDRA-13120)
+ * Fix schema digest mismatch during rolling upgrades from versions before 3.0.12 (CASSANDRA-13559)
+ * Upgrade JNA version to 4.4.0 (CASSANDRA-13072)
+ * Interned ColumnIdentifiers should use minimal ByteBuffers (CASSANDRA-13533)
+ * ReverseIndexedReader may drop rows during 2.1 to 3.0 upgrade (CASSANDRA-13525)
+ * Fix repair process violating start/end token limits for small ranges (CASSANDRA-13052)
+ * Add storage port options to sstableloader (CASSANDRA-13518)
+ * Properly handle quoted index names in cqlsh DESCRIBE output (CASSANDRA-12847)
+ * Avoid reading static row twice from old format sstables (CASSANDRA-13236)
+ * Fix NPE in StorageService.excise() (CASSANDRA-13163)
+ * Expire OutboundTcpConnection messages by a single Thread (CASSANDRA-13265)
+ * Fail repair if insufficient responses received (CASSANDRA-13397)
+ * Fix SSTableLoader fail when the loaded table contains dropped columns (CASSANDRA-13276)
+ * Avoid name clashes in CassandraIndexTest (CASSANDRA-13427)
+ * Handling partially written hint files (CASSANDRA-12728)
+ * Interrupt replaying hints on decommission (CASSANDRA-13308)
+ * Fix schema version calculation for rolling upgrades (CASSANDRA-13441)
+Merged from 2.2:
+ * Nodes started with join_ring=False should be able to serve requests when authentication is enabled (CASSANDRA-11381)
+ * cqlsh COPY FROM: increment error count only for failures, not for attempts (CASSANDRA-13209)
+
 3.0.13
  * Make reading of range tombstones more reliable (CASSANDRA-12811)
  * Fix startup problems due to schema tables not completely flushed (CASSANDRA-12213)
@@ -206,6 +232,7 @@
  * Nodetool upgradesstables/scrub/compact ignores system tables (CASSANDRA-13410)
  * Fix NPE issue in StorageService (CASSANDRA-13060)
 Merged from 2.2:
+ * Avoid starting gossiper in RemoveTest (CASSANDRA-13407)
  * Fix weightedSize() for row-cache reported by JMX and NodeTool (CASSANDRA-13393)
  * Honor truststore-password parameter in cassandra-stress (CASSANDRA-12773)
  * Discard in-flight shadow round responses (CASSANDRA-12653)
@@ -217,6 +244,7 @@ Merged from 2.2:
 Merged from 2.1:
  * Fix 2ndary index queries on partition keys for tables with static columns CASSANDRA-13147
  * Fix ParseError unhashable type list in cqlsh copy from (CASSANDRA-13364)
+
 
 3.0.12
  * Prevent data loss on upgrade 2.1 - 3.0 by adding component separator to LogRecord absolute path (CASSANDRA-13294)

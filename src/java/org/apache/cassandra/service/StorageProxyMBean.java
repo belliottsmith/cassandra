@@ -70,6 +70,9 @@ public interface StorageProxyMBean
     public void setEnableBlacklistRangeReads(boolean enabled);
     public boolean blacklistKey(String keyspace, String cf, String keyAsString);
 
+    public int getOtcBacklogExpirationInterval();
+    public void setOtcBacklogExpirationInterval(int intervalInMillis);
+
     /** Returns each live node's schema version */
     public Map<String, List<String>> getSchemaVersions();
 

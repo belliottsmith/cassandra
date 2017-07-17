@@ -406,29 +406,32 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             }
             else
             {
-                if (!options.isForcedRepair())
-                {
-                    status.set(false);
-                    failedNodes.add(neighbour.getHostAddress());
-                }
-                prepareLatch.countDown();
+                // bailout early to avoid potentially waiting for a long time.
+                failRepair(parentRepairSession, "Endpoint not alive: " + neighbour);
             }
         }
+
         try
         {
-            prepareLatch.await(DatabaseDescriptor.getRpcTimeout(), TimeUnit.MILLISECONDS);
+            // Failed repair is expensive so we wait for longer time.
+            if (!prepareLatch.await(1, TimeUnit.HOURS)) {
+                failRepair(parentRepairSession, "Did not get replies from all endpoints.");
+            }
         }
         catch (InterruptedException e)
         {
-            removeParentRepairSession(parentRepairSession);
-            throw new RuntimeException("Did not get replies from all endpoints. List of failed endpoint(s): " + failedNodes.toString(), e);
+            failRepair(parentRepairSession, "Interrupted while waiting for prepare repair response.");
         }
 
         if (!status.get())
         {
-            removeParentRepairSession(parentRepairSession);
-            throw new RuntimeException("Did not get positive replies from all endpoints. List of failed endpoint(s): " + failedNodes.toString());
+            failRepair(parentRepairSession, "Got negative replies from endpoints " + failedNodes);
         }
+    }
+
+    private void failRepair(UUID parentRepairSession, String errorMsg) {
+        removeParentRepairSession(parentRepairSession);
+        throw new RuntimeException(errorMsg);
     }
 
     public void registerParentRepairSession(UUID parentRepairSession, InetAddress coordinator, List<ColumnFamilyStore> columnFamilyStores, Collection<Range<Token>> ranges, boolean isIncremental, long repairedAt, boolean isGlobal, PreviewKind previewKind)

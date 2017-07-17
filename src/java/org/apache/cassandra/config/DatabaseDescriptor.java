@@ -1274,7 +1274,7 @@ public class DatabaseDescriptor
         conf.compaction_throughput_mb_per_sec = value;
     }
 
-    public static int getCompactionLargePartitionWarningThreshold() { return conf.compaction_large_partition_warning_threshold_mb * 1024 * 1024; }
+    public static long getCompactionLargePartitionWarningThreshold() { return conf.compaction_large_partition_warning_threshold_mb * 1024L * 1024L; }
 
     public static int getConcurrentValidations()
     {
@@ -2146,6 +2146,16 @@ public class DatabaseDescriptor
         conf.otc_coalescing_enough_coalesced_messages = otc_coalescing_enough_coalesced_messages;
     }
 
+    public static int getOtcBacklogExpirationInterval()
+    {
+        return conf.otc_backlog_expiration_interval_ms;
+    }
+
+    public static void setOtcBacklogExpirationInterval(int intervalInMillis)
+    {
+        conf.otc_backlog_expiration_interval_ms = intervalInMillis;
+    }
+ 
     public static int getWindowsTimerInterval()
     {
         return conf.windows_timer_interval;

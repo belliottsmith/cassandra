@@ -235,6 +235,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private boolean initialized;
     private volatile boolean joined = false;
+    private final AtomicBoolean authSetupCalled = new AtomicBoolean(false);
 
     /* the probability for tracing any particular request, 0 disables tracing and 1 enables for all */
     private double traceProbability = 0.0;
@@ -725,6 +726,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 states.add(Pair.create(ApplicationState.STATUS, valueFactory.hibernate(true)));
                 Gossiper.instance.addLocalApplicationStates(states);
             }
+            doAuthSetup();
             logger.info("Not joining ring as requested. Use JMX (StorageService->joinRing()) to initiate ring joining");
         }
     }
@@ -1057,12 +1059,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private void doAuthSetup()
     {
-        maybeAddOrUpdateKeyspace(AuthKeyspace.metadata(), false);
+        if (!authSetupCalled.getAndSet(true))
+        {
+            maybeAddOrUpdateKeyspace(AuthKeyspace.metadata(), false);
 
-        DatabaseDescriptor.getRoleManager().setup();
-        DatabaseDescriptor.getAuthenticator().setup();
-        DatabaseDescriptor.getAuthorizer().setup();
-        MigrationManager.instance.register(new AuthMigrationListener());
+            DatabaseDescriptor.getRoleManager().setup();
+            DatabaseDescriptor.getAuthenticator().setup();
+            DatabaseDescriptor.getAuthorizer().setup();
+
+            MigrationManager.instance.register(new AuthMigrationListener());
+        }
     }
 
     private void maybeAddKeyspace(KeyspaceMetadata ksm, boolean useCurrentTime)

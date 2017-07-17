@@ -351,6 +351,9 @@ public class CassandraRoleManager implements IRoleManager
      */
     private static void setupDefaultRole()
     {
+        if (StorageService.instance.getTokenMetadata().sortedTokens().isEmpty())
+            throw new IllegalStateException("CassandraRoleManager skipped default role setup: no known tokens in ring");
+
         try
         {
             if (!hasExistingRoles())
