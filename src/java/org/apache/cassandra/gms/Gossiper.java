@@ -871,10 +871,12 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
              * than the version passed in. In this case we also send the old
              * heart beat and throw it away on the receiver if it is redundant.
             */
-            int localHbVersion = epState.getHeartBeatState().getHeartBeatVersion();
+            HeartBeatState heartBeatState = epState.getHeartBeatState();
+            int localHbGeneration = heartBeatState.getGeneration();
+            int localHbVersion = heartBeatState.getHeartBeatVersion();
             if (localHbVersion > version)
             {
-                reqdEndpointState = new EndpointState(epState.getHeartBeatState());
+                reqdEndpointState = new EndpointState(new HeartBeatState(localHbGeneration, localHbVersion));
                 if (logger.isTraceEnabled())
                     logger.trace("local heartbeat version {} greater than {} for {}", localHbVersion, version, forEndpoint);
             }
@@ -887,7 +889,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
                 {
                     if (reqdEndpointState == null)
                     {
-                        reqdEndpointState = new EndpointState(epState.getHeartBeatState());
+                        reqdEndpointState = new EndpointState(new HeartBeatState(localHbGeneration, localHbVersion));
                     }
                     final ApplicationState key = entry.getKey();
                     if (logger.isTraceEnabled())
