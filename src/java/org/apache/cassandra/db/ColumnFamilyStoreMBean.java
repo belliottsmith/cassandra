@@ -330,6 +330,8 @@ public interface ColumnFamilyStoreMBean
      * @see org.apache.cassandra.metrics.TableMetrics#casCommit
      */
     public long[] getCasCommitLatencyHistogram();
-
-
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#coordinatorScanLatency
+     */
+    public long[] getCoordinatorScanLatencyHistogram();
 }
