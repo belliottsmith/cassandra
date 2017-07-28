@@ -159,6 +159,8 @@ public class TableMetrics
     public final Timer coordinatorReadLatency;
     public final Timer coordinatorScanLatency;
 
+    public final LatencyMetrics coordinatorScanLatencyNanos;
+
     /** Time spent waiting for free memtable space, either on- or off-heap */
     public final Histogram waitingOnFreeMemtableSpace;
 
@@ -704,6 +706,7 @@ public class TableMetrics
         colUpdateTimeDeltaHistogram = createTableHistogram("ColUpdateTimeDeltaHistogram", cfs.keyspace.metric.colUpdateTimeDeltaHistogram, false);
         coordinatorReadLatency = Metrics.timer(factory.createMetricName("CoordinatorReadLatency"));
         coordinatorScanLatency = Metrics.timer(factory.createMetricName("CoordinatorScanLatency"));
+        coordinatorScanLatencyNanos = new LatencyMetrics(factory, "CoordinatorScanLatencyNanos");
         waitingOnFreeMemtableSpace = Metrics.histogram(factory.createMetricName("WaitingOnFreeMemtableSpace"), false);
 
         // We do not want to capture view mutation specific metrics for a view
@@ -778,6 +781,10 @@ public class TableMetrics
         readLatency.release();
         writeLatency.release();
         rangeLatency.release();
+        coordinatorScanLatencyNanos.release();
+        casCommit.release();
+        casPrepare.release();
+        casPropose.release();
         Metrics.remove(factory.createMetricName("EstimatedPartitionSizeHistogram"), aliasFactory.createMetricName("EstimatedRowSizeHistogram"));
         Metrics.remove(factory.createMetricName("EstimatedPartitionCount"), aliasFactory.createMetricName("EstimatedRowCount"));
         Metrics.remove(factory.createMetricName("EstimatedColumnCountHistogram"), aliasFactory.createMetricName("EstimatedColumnCountHistogram"));
