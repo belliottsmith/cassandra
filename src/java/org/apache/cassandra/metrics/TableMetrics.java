@@ -209,6 +209,8 @@ public class TableMetrics
     public final Timer coordinatorScanLatency;
     public final Timer coordinatorWriteLatency;
 
+    public final LatencyMetrics coordinatorScanLatencyNanos;
+
     /** Time spent waiting for free memtable space, either on- or off-heap */
     public final Histogram waitingOnFreeMemtableSpace;
 
@@ -846,6 +848,7 @@ public class TableMetrics
         colUpdateTimeDeltaHistogram = createTableHistogram("ColUpdateTimeDeltaHistogram", cfs.keyspace.metric.colUpdateTimeDeltaHistogram, false);
         coordinatorReadLatency = createTableTimer("CoordinatorReadLatency");
         coordinatorScanLatency = createTableTimer("CoordinatorScanLatency");
+        coordinatorScanLatencyNanos = createLatencyMetrics("CoordinatorScanLatencyNanos");
         coordinatorWriteLatency = createTableTimer("CoordinatorWriteLatency");
         waitingOnFreeMemtableSpace = createTableHistogram("WaitingOnFreeMemtableSpace", false);
 
