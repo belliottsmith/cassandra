@@ -265,6 +265,7 @@ public class RangeCommandIterator extends AbstractIterator<RowIterator> implemen
             long latency = System.nanoTime() - startTime;
             rangeMetrics.addNano(latency);
             Keyspace.openAndGetStore(command.metadata()).metric.coordinatorScanLatency.update(latency, TimeUnit.NANOSECONDS);
+            Keyspace.openAndGetStore(command.metadata()).metric.coordinatorScanLatencyNanos.addNano(latency);
         }
     }
 
