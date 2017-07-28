@@ -3392,4 +3392,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
     public long[] getCasCommitLatencyHistogram() {
         return metric.casCommit.recentLatencyHistogram.getBuckets(true);
     }
+
+    @Override
+    public long[] getCoordinatorScanLatencyHistogram()
+    {
+        return metric.coordinatorScanLatencyNanos.recentLatencyHistogram.getBuckets(true);
+    }
+
 }
