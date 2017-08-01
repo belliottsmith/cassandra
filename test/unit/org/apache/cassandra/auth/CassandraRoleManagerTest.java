@@ -18,18 +18,28 @@
 
 package org.apache.cassandra.auth;
 
+import java.util.Map;
 import java.util.Set;
 
-import com.google.common.collect.Iterables;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.cql3.UntypedResultSet;
+import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.Pair;
+
 import static org.apache.cassandra.auth.RoleTestUtils.*;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class CassandraRoleManagerTest
 {
@@ -43,6 +53,18 @@ public class CassandraRoleManagerTest
         // and issuing queries with QueryProcessor.process, which uses TokenMetadata
         DatabaseDescriptor.setDaemonInitialized();
         StorageService.instance.initServer(0);
+    }
+
+    @Before
+    public void setup() throws Exception
+    {
+        ColumnFamilyStore.getIfExists(AuthKeyspace.NAME, AuthKeyspace.ROLES).truncateBlocking();
+        ColumnFamilyStore.getIfExists(AuthKeyspace.NAME, AuthKeyspace.ROLE_MEMBERS).truncateBlocking();
+        Pair<String, String> usersKsAndCfs = Pair.create(AuthKeyspace.NAME, "users");
+        if (Schema.instance.hasCF(usersKsAndCfs))
+        {
+            Schema.instance.dropTable(usersKsAndCfs.left, usersKsAndCfs.right);
+        }
     }
 
     @Test
@@ -104,6 +126,94 @@ public class CassandraRoleManagerTest
         // isClusterReady should toggle immediately, without waiting for the scheduled task
         assertEquals(CassandraRoleManager.hasExistingRoles(), true);
         assertEquals(crm.isClusterReady(), true);
+    }
+
+    @Test
+    public void warmCacheLoadsAllEntries() throws Exception
+    {
+        IRoleManager roleManager = new RoleTestUtils.LocalExecutionRoleManager();
+        roleManager.setup();
+        for (RoleResource r : ALL_ROLES)
+            roleManager.createRole(AuthenticatedUser.ANONYMOUS_USER, r, new RoleOptions());
+        // multi level role hierarchy
+        grantRolesTo(roleManager, ROLE_B, ROLE_B_1, ROLE_B_2, ROLE_B_3);
+        grantRolesTo(roleManager, ROLE_C, ROLE_C_1, ROLE_C_2, ROLE_C_3);
+
+        // use CassandraRoleManager to get entries for pre-warming a cache, then verify those entries
+        CassandraRoleManager crm = new CassandraRoleManager();
+        Map<RoleResource, Set<Role>> cacheEntries = crm.getInitialEntriesForCache();
+
+        Set<Role> roleBRoles = cacheEntries.get(ROLE_B);
+        assertRoleSet(roleBRoles, ROLE_B, ROLE_B_1, ROLE_B_2, ROLE_B_3);
+
+        Set<Role> roleCRoles = cacheEntries.get(ROLE_C);
+        assertRoleSet(roleCRoles, ROLE_C, ROLE_C_1, ROLE_C_2, ROLE_C_3);
+
+        for (RoleResource r : ALL_ROLES)
+        {
+            // we already verified ROLE_B and ROLE_C
+            if (r.equals(ROLE_B) || r.equals(ROLE_C))
+                continue;
+
+            // check the cache entries for the roles without any further grants
+            assertRoleSet(cacheEntries.get(r), r);
+        }
+    }
+
+    @Test
+    public void warmCacheWithEmptyTable() throws Exception
+    {
+        CassandraRoleManager crm = new CassandraRoleManager();
+        Map<RoleResource, Set<Role>> cacheEntries = crm.getInitialEntriesForCache();
+        assertTrue(cacheEntries.isEmpty());
+    }
+
+    @Test
+    public void warmCacheFromLegacyTable() throws Exception
+    {
+        // recreate the legacy schema and insert a couple of users
+        QueryProcessor.process("CREATE TABLE system_auth.users ( " +
+                               "name text, " +
+                               "super boolean, " +
+                               "PRIMARY KEY(name))",
+                               ConsistencyLevel.ONE);
+        QueryProcessor.process(String.format("INSERT INTO system_auth.users (name, super) " +
+                                             "VALUES ('%s', false)",
+                                             ROLE_A.getRoleName()),
+                               ConsistencyLevel.ONE);
+        QueryProcessor.process(String.format("INSERT INTO system_auth.users (name, super) " +
+                                             "VALUES ('%s', true)",
+                                             ROLE_B.getRoleName()),
+                               ConsistencyLevel.ONE);
+
+        // no roles present in the new roles table
+        UntypedResultSet roles = QueryProcessor.process("SELECT * FROM system_auth.roles", ConsistencyLevel.ONE);
+        assertTrue(roles.isEmpty());
+
+        CassandraRoleManager crm = new CassandraRoleManager();
+        Map<RoleResource, Set<Role>> cacheEntries = crm.getInitialEntriesForCache();
+        assertEquals(2, cacheEntries.size());
+        Set<Role> roleSetA = cacheEntries.get(ROLE_A);
+        assertEquals(1, roleSetA.size());
+        Role roleA = roleSetA.iterator().next();
+        assertFalse(roleA.isSuper);
+        assertTrue(roleA.canLogin);
+        assertTrue(roleA.memberOf.isEmpty());
+
+        Set<Role> roleSetB = cacheEntries.get(ROLE_B);
+        assertEquals(1, roleSetB.size());
+        Role roleB = roleSetB.iterator().next();
+        assertTrue(roleB.isSuper);
+        assertTrue(roleB.canLogin);
+        assertTrue(roleB.memberOf.isEmpty());
+    }
+
+    private void assertRoleSet(Set<Role> actual, RoleResource...expected)
+    {
+        assertEquals(expected.length, actual.size());
+
+        for (RoleResource expectedRole : expected)
+            assertTrue(actual.stream().anyMatch(role -> role.resource.equals(expectedRole)));
     }
 
 }

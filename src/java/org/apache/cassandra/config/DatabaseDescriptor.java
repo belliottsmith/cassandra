@@ -880,6 +880,11 @@ public class DatabaseDescriptor
         return conf.authenticator_cache_active_update;
     }
 
+    public static boolean getAuthCacheWarmingEnabled()
+    {
+        return conf.auth_cache_warming_enabled;
+    }
+
     public static int getThriftFramedTransportSize()
     {
         return conf.thrift_framed_transport_size_in_mb * 1024 * 1024;

@@ -47,7 +47,6 @@ import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.mindrot.jbcrypt.BCrypt;
 
@@ -295,12 +294,12 @@ public class CassandraRoleManager implements IRoleManager
 
     public Set<RoleResource> getRoles(RoleResource grantee, boolean includeInherited) throws RequestValidationException, RequestExecutionException
     {
-        return collect(getRole(grantee.getRoleName()), includeInherited, new DistinctRoleFilter()).map(r -> r.resource).collect(Collectors.toSet());
+        return collect(getRole(grantee.getRoleName()), includeInherited, new DistinctRoleFilter(), this::getRole).map(r -> r.resource).collect(Collectors.toSet());
     }
 
     public Set<Role> getGrantedRoles(RoleResource grantee)
     {
-        return collect(getRole(grantee.getRoleName()), true, new DistinctRoleFilter()).collect(Collectors.toSet());
+        return collect(getRole(grantee.getRoleName()), true, new DistinctRoleFilter(), this::getRole).collect(Collectors.toSet());
     }
 
     public Set<RoleResource> getAllRoles() throws RequestValidationException, RequestExecutionException
@@ -492,21 +491,28 @@ public class CassandraRoleManager implements IRoleManager
         }
     }
 
-    private Stream<Role> collect(Role role, boolean includeInherited, DistinctRoleFilter distinctFilter)
+    private Stream<Role> collect(Role role, boolean includeInherited, DistinctRoleFilter distinctFilter, RoleLoader loaderFunction)
     {
           if (Roles.isNullRole(role))
               return Stream.empty();
 
           if (!includeInherited)
-              return Stream.concat(Stream.of(role), role.memberOf.stream().map(this::getRole));
+              return Stream.concat(Stream.of(role), role.memberOf.stream().map(loaderFunction));
 
 
           return Stream.concat(Stream.of(role),
                                role.memberOf.stream()
                                             .filter(distinctFilter)
-                                            .flatMap(r -> collect(getRole(r), true, distinctFilter)));
+                                            .flatMap(r -> collect(loaderFunction.apply(r), true, distinctFilter, loaderFunction)));
+
 
     }
+
+    // Used in collect to do the recursive fetching of granted roles when building a hierarchy.
+    // Making this a function allows us to read from the underlying tables during normal usage, and
+    // fetch from a prepopulated in memory structure when building an initial set of roles to warm
+    // the RolesCache at startup
+    private interface RoleLoader extends Function<String, Role> {}
 
     // Used as a stateful filtering function when recursively collecting granted roles
     private static class DistinctRoleFilter implements Predicate<String>
@@ -665,4 +671,35 @@ public class CassandraRoleManager implements IRoleManager
         return QueryProcessor.process(query, consistencyLevel);
     }
 
+
+    public Map<RoleResource, Set<Role>> getInitialEntriesForCache()
+    {
+        Map<RoleResource, Set<Role>> entries = new HashMap<>();
+
+        if (Schema.instance.getCFMetaData("system_auth", "users") != null)
+        {
+            logger.info("Warming roles cache from legacy users table");
+            UntypedResultSet results = QueryProcessor.process("SELECT * FROM system_auth.users",
+                                                              consistencyForRoleForRead());
+            results.forEach(row -> entries.put(RoleResource.role(row.getString("name")),
+                                               Collections.singleton(LEGACY_ROW_TO_ROLE.apply(row))));
+        }
+        else
+        {
+            logger.info("Warming roles cache from roles table");
+            UntypedResultSet results = QueryProcessor.process("SELECT * FROM system_auth.roles",
+                                                              consistencyForRoleForRead());
+
+            // Create flat temporary lookup of name -> role mappings
+            Map<String, Role> roles = new HashMap<>();
+            results.forEach(row -> roles.put(row.getString("role"), ROW_TO_ROLE.apply(row)));
+
+            // Iterate the flat structure and populate the fully hierarchical one
+            roles.forEach((key, value) ->
+                entries.put(RoleResource.role(key),
+                            collect(value, true, new DistinctRoleFilter(), roles::get).collect(Collectors.toSet()))
+            );
+        }
+        return entries;
+    }
 }

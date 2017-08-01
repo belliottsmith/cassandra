@@ -53,6 +53,10 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.auth.IAuthenticator;
+import org.apache.cassandra.auth.PasswordAuthenticator;
+import org.apache.cassandra.auth.Roles;
+import org.apache.cassandra.auth.RolesCache;
 import org.apache.cassandra.concurrent.*;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -400,6 +404,18 @@ public class CassandraDaemon
 
         KeyspaceQuota.scheduleQuotaCheck();
 
+        if (DatabaseDescriptor.getAuthCacheWarmingEnabled())
+        {
+            Roles.warmCache();
+            IAuthenticator authenticator = DatabaseDescriptor.getAuthenticator();
+            if (authenticator instanceof PasswordAuthenticator)
+                ((PasswordAuthenticator) authenticator).warmCache();
+        }
+        else
+        {
+            logger.info("Prewarming of auth caches is disabled");
+        }
+
         completeSetup();
     }
 
@@ -422,6 +438,7 @@ public class CassandraDaemon
     @VisibleForTesting
     public void completeSetup()
     {
+
         setupCompleted = true;
     }
 

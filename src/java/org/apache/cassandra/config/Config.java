@@ -70,6 +70,8 @@ public class Config
     public int authenticator_update_interval_in_ms = -1;
     public volatile boolean authenticator_cache_active_update = false;
 
+    public boolean auth_cache_warming_enabled = true;
+
     /* Hashing strategy Random or OPHF */
     public String partitioner;
 

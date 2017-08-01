@@ -44,6 +44,11 @@ public class Roles
         cache = new RolesCache(roleManager, enableCache);
     }
 
+    public static void warmCache()
+    {
+       cache.warm(DatabaseDescriptor.getRoleManager());
+    }
+
     /**
      * Identify all roles granted to the supplied Role, including both directly granted
      * and inherited roles.

@@ -21,7 +21,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import org.apache.cassandra.db.CachedHashDecoratedKey;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.exceptions.RequestValidationException;
@@ -32,7 +31,7 @@ import org.apache.cassandra.exceptions.RequestValidationException;
  * alteration and the granting and revoking of roles to other
  * roles.
  */
-public interface IRoleManager
+public interface IRoleManager extends Cacheable<RoleResource, Set<Role>>
 {
 
     /**

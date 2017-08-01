@@ -18,6 +18,7 @@
 package org.apache.cassandra.auth;
 
 import java.lang.management.ManagementFactory;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
 
@@ -29,6 +30,8 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
+import com.google.common.util.concurrent.Uninterruptibles;
+
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,11 +42,11 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
-public class RolesCache implements RolesCacheMBean
+public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, Set<Role>>
 {
     private static final Logger logger = LoggerFactory.getLogger(RolesCache.class);
 
-    private final String MBEAN_NAME = "org.apache.cassandra.auth:type=RolesCache";
+    private final static String MBEAN_NAME = "org.apache.cassandra.auth:type=RolesCache";
     private final ThreadPoolExecutor cacheRefreshExecutor = new DebuggableThreadPoolExecutor("RolesCacheRefresh",
                                                                                              Thread.NORM_PRIORITY);
     private final IRoleManager roleManager;
@@ -73,7 +76,7 @@ public class RolesCache implements RolesCacheMBean
     }
 
     @VisibleForTesting
-    protected void unregisterMBean()
+    protected static void unregisterMBean()
     {
         try
         {
@@ -114,7 +117,7 @@ public class RolesCache implements RolesCacheMBean
     }
 
     /**
-     * Read ir return from the cache the Set of the RoleResources identifying the roles granted to the primary resource
+     * Read or return from the cache the Set of the RoleResources identifying the roles granted to the primary resource
      * @see Roles#getRoles(RoleResource)
      * @param primaryRole identifier for the primary role
      * @return the set of identifiers of all the roles granted to (directly or through inheritance) the primary role
@@ -220,5 +223,33 @@ public class RolesCache implements RolesCacheMBean
         }
 
         return newcache;
+    }
+
+    public void warm(Cacheable<RoleResource, Set<Role>> entryProvider)
+    {
+        if (cache == null)
+        {
+            logger.info("Cache not enabled, skipping pre-warming");
+            return;
+        }
+
+        int retries = Integer.getInteger("cassandra.roles_cache.warming.max_retries", 10);
+        long retryInterval = Long.getLong("cassandra.roles_cache.warming.retry_interval_ms", 1000);
+
+        while (retries-- > 0)
+        {
+            try
+            {
+                Map<RoleResource, Set<Role>> entries = entryProvider.getInitialEntriesForCache();
+                logger.info("Populating cache with {} pre-computed entries", entries.size());
+                cache.putAll(entries);
+                break;
+            }
+            catch (Exception e)
+            {
+                logger.warn("Failed to pre-warm auth cache, retrying {} more times", retries, e);
+                Uninterruptibles.sleepUninterruptibly(retryInterval, TimeUnit.MILLISECONDS);
+            }
+        }
     }
 }

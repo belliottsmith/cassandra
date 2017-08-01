@@ -20,6 +20,7 @@ package org.apache.cassandra.auth;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -36,6 +37,8 @@ import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
 import com.google.common.util.concurrent.UncheckedExecutionException;
+import com.google.common.util.concurrent.Uninterruptibles;
+
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,7 +71,7 @@ import static org.apache.cassandra.auth.CassandraRoleManager.consistencyForRoleF
  * PasswordAuthenticator requires the use of CassandraRoleManager
  * for storage and retrieval of encrypted passwords.
  */
-public class PasswordAuthenticator implements IAuthenticator
+public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, String>
 {
     private static final Logger logger = LoggerFactory.getLogger(PasswordAuthenticator.class);
 
@@ -85,90 +88,46 @@ public class PasswordAuthenticator implements IAuthenticator
     public static final String LEGACY_CREDENTIALS_TABLE = "credentials";
     private SelectStatement legacyAuthenticateStatement;
 
-    private final LoadingCache<String, String> cache = initCache(DatabaseDescriptor.getAuthenticatorValidity(),
-                                                                 DatabaseDescriptor.getAuthenticatorUpdateInterval(),
-                                                                 DatabaseDescriptor.getAuthenticatorCacheMaxEntries());
-
     private final ThreadPoolExecutor cacheRefreshExecutor = new DebuggableThreadPoolExecutor("AuthenticatorCacheRefresh",
             Thread.NORM_PRIORITY);
+
+    private final CredentialsCache cache = new CredentialsCache();
 
     // sentinel value indicating that the password hash has been deleted
     private static final String DELETED_HASH_SENTINEL = "";
 
     private volatile ScheduledFuture cacheRefresher = null;
 
-    private LoadingCache<String, String> initCache(int validityPeriod,
-                                                   int updateInterval,
-                                                   int maxEntries)
+    public void warmCache()
     {
-        if (validityPeriod <= 0)
+        cache.warm(this);
+    }
+
+    @Override
+    public Map<String, String> getInitialEntriesForCache()
+    {
+        Map<String, String> entries = new HashMap<>();
+
+        if (Schema.instance.getCFMetaData(AuthKeyspace.NAME, LEGACY_CREDENTIALS_TABLE) != null)
         {
-            logger.info("Authenticator cache is disabled");
-            return null;
+            logger.info("Pre-warming credentials cache from legacy credentials table");
+            UntypedResultSet results = QueryProcessor.process("SELECT username, salted_hash FROM system_auth.credentials",
+                                                              consistencyForRoleForRead());
+            results.forEach(row -> entries.put(row.getString("username"), row.getString("salted_hash")));
         }
-
-        if (cacheRefresher != null)
+        else
         {
-            cacheRefresher.cancel(false);
-            cacheRefresher = null;
-        }
-
-        boolean activeUpdate = DatabaseDescriptor.getAuthenticatorCacheActiveUpdate();
-
-        LoadingCache<String, String> newcache = CacheBuilder.newBuilder()
-                .refreshAfterWrite(activeUpdate ? validityPeriod : updateInterval, TimeUnit.MILLISECONDS)
-                .expireAfterWrite(validityPeriod, TimeUnit.MILLISECONDS)
-                .maximumSize(maxEntries)
-                .build(new CacheLoader<String, String>()
+            logger.info("Pre-warming credentials cache from roles table");
+            UntypedResultSet results = QueryProcessor.process("SELECT role, salted_hash FROM system_auth.roles",
+                                                              consistencyForRoleForRead());
+            results.forEach(row -> {
+                if (row.has("salted_hash"))
                 {
-                    public String load(String username) throws Exception
-                    {
-                        try
-                        {
-                            return getPasswordHash(username);
-                        }
-                        catch (AuthenticationException e)
-                        {
-                            throw e;
-                        }
-                    }
-
-                    public ListenableFuture<String> reload(final String username,
-                                                                    final String oldValue)
-                    {
-                        ListenableFutureTask<String> task = ListenableFutureTask.create(new Callable<String>()
-                        {
-                            public String call() throws Exception
-                            {
-                                try
-                                {
-                                    return getPasswordHash(username);
-                                }
-                                catch (AuthenticationException e)
-                                {
-                                    return DELETED_HASH_SENTINEL;
-                                }
-                                catch (Exception e)
-                                {
-                                    logger.debug("Error performing async refresh of authenticator", e);
-                                    throw e;
-                                }
-                            }
-                        });
-                        cacheRefreshExecutor.execute(task);
-                        return task;
-                    }
-                });
-
-        if (activeUpdate)
-        {
-            cacheRefresher = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(CacheRefresher.create("authenticator", newcache, DELETED_HASH_SENTINEL),
-                    updateInterval,
-                    updateInterval,
-                    TimeUnit.MILLISECONDS);
+                    entries.put(row.getString("role"), row.getString("salted_hash"));
+                }
+            });
         }
-
-        return newcache;
+        return entries;
     }
 
     private String getPasswordHash(String username) throws AuthenticationException
@@ -212,37 +171,29 @@ public class PasswordAuthenticator implements IAuthenticator
 
     private AuthenticatedUser authenticate(String username, String password) throws AuthenticationException
     {
-        String storedPasswordHash;
-        if (cache == null)
+        try
         {
-            storedPasswordHash = getPasswordHash(username);
+            String storedPasswordHash = cache.get(username);
+
+            if (storedPasswordHash == DELETED_HASH_SENTINEL)
+                cache.invalidate(username);
+
+            if (storedPasswordHash == null || !BCrypt.checkpw(password, storedPasswordHash))
+                throw new AuthenticationException("Username and/or password are incorrect");
+
+            return new AuthenticatedUser(username);
         }
-        else
+        catch (UncheckedExecutionException | ExecutionException e)
         {
-            try
+            if (e.getCause() != null && e.getCause() instanceof AuthenticationException)
             {
-                storedPasswordHash = cache.get(username);
+                throw (AuthenticationException) e.getCause();
             }
-            catch (UncheckedExecutionException | ExecutionException e)
+            else
             {
-                if (e.getCause() != null && e.getCause() instanceof AuthenticationException)
-                {
-                    throw (AuthenticationException) e.getCause();
-                }
-                else
-                {
-                    throw new RuntimeException(e);
-                }
+                throw new RuntimeException(e);
             }
         }
-
-        if (storedPasswordHash == DELETED_HASH_SENTINEL)
-            cache.invalidate(username);
-
-        if (storedPasswordHash == null || !BCrypt.checkpw(password, storedPasswordHash))
-            throw new AuthenticationException("Username and/or password are incorrect");
-
-        return new AuthenticatedUser(username);
     }
 
     /**
@@ -382,6 +333,131 @@ public class PasswordAuthenticator implements IAuthenticator
 
 
             password = new String(pass, StandardCharsets.UTF_8);
+        }
+    }
+
+    // Not much more than a wrapper around Guava's loading cache. In upstream versions >= 3.4, this is properly
+    // generalized by CASSANDRA-7715. It's done here so we can make it a WarmableCache and prepopulate it at startup
+    private class CredentialsCache implements WarmableCache<String, String>
+    {
+        private final LoadingCache<String, String> cache = initCache(DatabaseDescriptor.getAuthenticatorValidity(),
+                                                                     DatabaseDescriptor.getAuthenticatorUpdateInterval(),
+                                                                     DatabaseDescriptor.getAuthenticatorCacheMaxEntries());
+
+        private String get(String username) throws ExecutionException
+        {
+            if (cache == null)
+                return getPasswordHash(username);
+
+            return cache.get(username);
+        }
+
+        private void invalidate(String username)
+        {
+            if (cache != null)
+                cache.invalidate(username);
+        }
+
+        private LoadingCache<String, String> initCache(int validityPeriod,
+                                                       int updateInterval,
+                                                       int maxEntries)
+        {
+            if (validityPeriod <= 0)
+            {
+                logger.info("Authenticator cache is disabled");
+                return null;
+            }
+
+            if (cacheRefresher != null)
+            {
+                cacheRefresher.cancel(false);
+                cacheRefresher = null;
+            }
+
+            boolean activeUpdate = DatabaseDescriptor.getAuthenticatorCacheActiveUpdate();
+
+            LoadingCache<String, String> newcache = CacheBuilder.newBuilder()
+                                                                .refreshAfterWrite(activeUpdate ? validityPeriod : updateInterval, TimeUnit.MILLISECONDS)
+                                                                .expireAfterWrite(validityPeriod, TimeUnit.MILLISECONDS)
+                                                                .maximumSize(maxEntries)
+                                                                .build(new CacheLoader<String, String>()
+                                                                {
+                                                                    public String load(String username) throws Exception
+                                                                    {
+                                                                        try
+                                                                        {
+                                                                            return getPasswordHash(username);
+                                                                        }
+                                                                        catch (AuthenticationException e)
+                                                                        {
+                                                                            throw e;
+                                                                        }
+                                                                    }
+
+                                                                    public ListenableFuture<String> reload(final String username,
+                                                                                                           final String oldValue)
+                                                                    {
+                                                                        ListenableFutureTask<String> task = ListenableFutureTask.create(new Callable<String>()
+                                                                        {
+                                                                            public String call() throws Exception
+                                                                            {
+                                                                                try
+                                                                                {
+                                                                                    return getPasswordHash(username);
+                                                                                }
+                                                                                catch (AuthenticationException e)
+                                                                                {
+                                                                                    return DELETED_HASH_SENTINEL;
+                                                                                }
+                                                                                catch (Exception e)
+                                                                                {
+                                                                                    logger.debug("Error performing async refresh of authenticator", e);
+                                                                                    throw e;
+                                                                                }
+                                                                            }
+                                                                        });
+                                                                        cacheRefreshExecutor.execute(task);
+                                                                        return task;
+                                                                    }
+                                                                });
+
+            if (activeUpdate)
+            {
+                cacheRefresher = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(CacheRefresher.create("authenticator", newcache, DELETED_HASH_SENTINEL),
+                                                                                      updateInterval,
+                                                                                      updateInterval,
+                                                                                      TimeUnit.MILLISECONDS);
+            }
+
+            return newcache;
+        }
+
+        public void warm(Cacheable<String, String> entryProvider)
+        {
+            if (cache == null)
+            {
+                logger.info("Cache not enabled, skipping pre-warming");
+                return ;
+            }
+
+            int retries = Integer.getInteger("cassandra.credentials_cache.warming.max_retries", 10);
+            long retryInterval = Long.getLong("cassandra.credentials_cache.warming.retry_interval_ms", 1000);
+
+            while (retries-- > 0)
+            {
+                try
+                {
+                    Map<String, String> entries = entryProvider.getInitialEntriesForCache();
+                    logger.info("Populating cache with {} pre-computed entries", entries.size());
+                    cache.putAll(entries);
+                    break;
+                }
+                catch (Exception e)
+                {
+                    logger.warn("Failed to pre-warm auth cache, retrying {} more times", retries, e);
+                    Uninterruptibles.sleepUninterruptibly(retryInterval, TimeUnit.MILLISECONDS);
+                }
+            }
         }
     }
 }
