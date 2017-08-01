@@ -1177,7 +1177,10 @@ public final class SystemKeyspace
             Range<Token> range = byteBufferToRange(row.getBytes("range"), cfs.getPartitioner());
             // store time stamp in seconds
             int succeedAt = (int) (DateType.instance.compose(row.getBytes("succeed_at")).getTime() / 1000);
-            results.put(range, succeedAt);
+            if (!results.containsKey(range) || results.get(range) < succeedAt)
+            {
+                results.put(range, succeedAt);
+            }
         }
         return results;
     }
