@@ -406,8 +406,15 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             }
             else
             {
-                // bailout early to avoid potentially waiting for a long time.
-                failRepair(parentRepairSession, "Endpoint not alive: " + neighbour);
+                if (options.isForcedRepair())
+                {
+                    prepareLatch.countDown();
+                }
+                else
+                {
+                    // bailout early to avoid potentially waiting for a long time.
+                    failRepair(parentRepairSession, "Endpoint not alive: " + neighbour);
+                }
             }
         }
 
