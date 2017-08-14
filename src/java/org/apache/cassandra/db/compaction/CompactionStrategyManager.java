@@ -22,7 +22,6 @@ package org.apache.cassandra.db.compaction;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import java.util.function.Supplier;
@@ -575,7 +574,7 @@ public class CompactionStrategyManager implements INotificationConsumer
      * @return
      */
     @SuppressWarnings("resource")
-    public AbstractCompactionStrategy.ScannerList getScanners(Collection<SSTableReader> sstables,  Collection<Range<Token>> ranges)
+    public AbstractCompactionStrategy.ScannerList maybeGetScanners(Collection<SSTableReader> sstables,  Collection<Range<Token>> ranges)
     {
         List<SSTableReader> pendingRepairSSTables = new ArrayList<>();
         List<SSTableReader> repairedSSTables = new ArrayList<>();
@@ -590,20 +589,39 @@ public class CompactionStrategyManager implements INotificationConsumer
                 unrepairedSSTables.add(sstable);
         }
 
+        Set<ISSTableScanner> scanners = new HashSet<>(sstables.size());
         readLock.lock();
         try
         {
-            Set<ISSTableScanner> scanners = new HashSet<>(sstables.size());
             AbstractCompactionStrategy.ScannerList repairedScanners = repaired.getScanners(repairedSSTables, ranges);
             AbstractCompactionStrategy.ScannerList unrepairedScanners = unrepaired.getScanners(unrepairedSSTables, ranges);
             scanners.addAll(repairedScanners.scanners);
             scanners.addAll(unrepairedScanners.scanners);
             scanners.addAll(pendingRepairs.getScanners(pendingRepairSSTables, ranges));
-            return new AbstractCompactionStrategy.ScannerList(new ArrayList<>(scanners));
+        }
+        catch (PendingRepairManager.IllegalSSTableArgumentException e)
+        {
+            ISSTableScanner.closeAllAndPropagate(scanners, new ConcurrentModificationException(e));
         }
         finally
         {
             readLock.unlock();
+        }
+        return new AbstractCompactionStrategy.ScannerList(new ArrayList<>(scanners));
+    }
+
+    public AbstractCompactionStrategy.ScannerList getScanners(Collection<SSTableReader> sstables,  Collection<Range<Token>> ranges)
+    {
+        while (true)
+        {
+            try
+            {
+                return maybeGetScanners(sstables, ranges);
+            }
+            catch (ConcurrentModificationException e)
+            {
+                logger.debug("SSTable repairedAt/pendingRepaired values changed while getting scanners");
+            }
         }
     }
 

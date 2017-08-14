@@ -210,4 +210,28 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
         List<AbstractCompactionTask> tasks = csm.getUserDefinedTasks(Lists.newArrayList(sstable, sstable2), 100);
         Assert.assertEquals(2, tasks.size());
     }
+
+    /**
+     * Tests that a IllegalSSTableArgumentException is thrown if we try to get
+     * scanners for an sstable that isn't pending repair
+     */
+    @Test(expected = PendingRepairManager.IllegalSSTableArgumentException.class)
+    public void getScannersInvalidSSTable() throws Exception
+    {
+        PendingRepairManager prm = csm.getPendingRepairManager();
+        SSTableReader sstable = makeSSTable(true);
+        prm.getScanners(Collections.singleton(sstable), Collections.singleton(RANGE1));
+    }
+
+    /**
+     * Tests that a IllegalSSTableArgumentException is thrown if we try to get
+     * scanners for an sstable that isn't pending repair
+     */
+    @Test(expected = PendingRepairManager.IllegalSSTableArgumentException.class)
+    public void getOrCreateInvalidSSTable() throws Exception
+    {
+        PendingRepairManager prm = csm.getPendingRepairManager();
+        SSTableReader sstable = makeSSTable(true);
+        prm.getOrCreate(sstable);
+    }
 }
