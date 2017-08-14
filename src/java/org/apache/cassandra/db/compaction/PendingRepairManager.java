@@ -139,7 +139,7 @@ class PendingRepairManager
 
     private synchronized void removeSession(UUID sessionID)
     {
-        if (!strategies.containsKey(sessionID))
+        if (!strategies.containsKey(sessionID) || !strategies.get(sessionID).getSSTables().isEmpty())
             return;
 
         logger.debug("Removing compaction strategy for pending repair {} on  {}.{}", sessionID, cfs.metadata.ksName, cfs.metadata.cfName);
@@ -437,14 +437,32 @@ class PendingRepairManager
 
         protected void runMayThrow() throws Exception
         {
-            logger.info("Setting repairedAt to {} on {} sstables for {}", repairedAt, transaction.originals(), sessionID);
-            for (SSTableReader sstable : transaction.originals())
+            boolean completed = false;
+            try
             {
-                sstable.descriptor.getMetadataSerializer().mutateRepaired(sstable.descriptor, repairedAt, ActiveRepairService.NO_PENDING_REPAIR);
-                sstable.reloadSSTableMetadata();
+                logger.info("Setting repairedAt to {} on {} for {}", repairedAt, transaction.originals(), sessionID);
+                for (SSTableReader sstable : transaction.originals())
+                {
+                    sstable.descriptor.getMetadataSerializer().mutateRepaired(sstable.descriptor, repairedAt, ActiveRepairService.NO_PENDING_REPAIR);
+                    sstable.reloadSSTableMetadata();
+                }
+                completed = true;
             }
-            cfs.getTracker().notifySSTableRepairedStatusChanged(transaction.originals());
-            transaction.abort();
+            finally
+            {
+                // even if we weren't able to rewrite all the sstable metedata, we should still move the ones that we
+                // *were* able to rewrite the metadata for
+                cfs.getTracker().notifySSTableRepairedStatusChanged(transaction.originals());
+
+                // we always abort because mutating metadata isn't guarded by LifecycleTransaction, so this won't roll
+                // anything back. Also, we don't want to obsolete the originals. We're only using it to prevent other
+                // compactions from marking these sstables compacting, and unmarking them when we're done
+                transaction.abort();
+                if (completed)
+                {
+                    removeSession(sessionID);
+                }
+            }
         }
 
         public CompactionAwareWriter getCompactionAwareWriter(ColumnFamilyStore cfs, Directories directories, LifecycleTransaction txn, Set<SSTableReader> nonExpiredSSTables)
@@ -456,18 +474,6 @@ class PendingRepairManager
         {
             run();
             return transaction.originals().size();
-        }
-
-        public int execute(CompactionManager.CompactionExecutorStatsCollector collector)
-        {
-            try
-            {
-                return super.execute(collector);
-            }
-            finally
-            {
-                removeSession(sessionID);
-            }
         }
     }
 

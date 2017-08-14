@@ -32,7 +32,6 @@ import java.util.concurrent.Executors;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -45,10 +44,9 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.compaction.OperationType;
-import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -342,5 +340,27 @@ public class PendingAntiCompactionTest
         Assert.assertEquals(1, cb.submittedCompactions.size());
         Assert.assertTrue(cb.submittedCompactions.contains(cfm.cfId));
         Assert.assertFalse(cb.submittedCompactions.contains(cfs2.metadata.cfId));
+    }
+
+
+    @Test
+    public void singleAnticompaction() throws Exception
+    {
+        cfs.disableAutoCompaction();
+        makeSSTables(2);
+
+        PendingAntiCompaction.AcquisitionCallable acquisitionCallable = new PendingAntiCompaction.AcquisitionCallable(cfs, FULL_RANGE, UUIDGen.getTimeUUID());
+        PendingAntiCompaction.AcquireResult result = acquisitionCallable.call();
+        UUID sessionID = UUIDGen.getTimeUUID();
+        ActiveRepairService.instance.registerParentRepairSession(sessionID,
+                                                                 InetAddress.getByName("127.0.0.1"),
+                                                                 Lists.newArrayList(cfs),
+                                                                 FULL_RANGE,
+                                                                 true,0,
+                                                                 true,
+                                                                 PreviewKind.NONE);
+        CompactionManager.instance.performAnticompaction(result.cfs, FULL_RANGE, result.refs, result.txn,
+                                                         ActiveRepairService.UNREPAIRED_SSTABLE, sessionID, sessionID);
+
     }
 }
