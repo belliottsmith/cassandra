@@ -331,6 +331,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         // use UNUSED_3 to handle repair success
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_REPAIR_SUCCESS, new ActiveRepairService.RepairSuccessVerbHandler());
+        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_QUERY_REPAIR_HISTORY, RepairHistorySyncTask.verbHandler);
         // use UNUSED_1 to handle repaired ranges requests
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_REPAIRED_RANGES, new BootStrapper.RepairedRangesHandler());
         //use UNUSED_2 to handle update repair ranges during move

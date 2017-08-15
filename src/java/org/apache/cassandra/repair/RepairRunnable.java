@@ -20,9 +20,11 @@ package org.apache.cassandra.repair;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -122,6 +124,45 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         String completionMessage = String.format("Repair command #%d finished with error", cmd);
         fireProgressEvent(new ProgressEvent(ProgressEventType.COMPLETE, progressCount, totalProgress, completionMessage));
         recordFailure(message, completionMessage);
+    }
+
+    protected static Map<InetAddress, Set<Range<Token>>> collectEndpointRanges(List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges)
+    {
+        Map<InetAddress, Set<Range<Token>>> endpointRanges = new HashMap<>();
+        for (Pair<Set<InetAddress>, ? extends Collection<Range<Token>>> commonRange: commonRanges)
+        {
+            for (InetAddress endpoint: commonRange.left)
+            {
+                if (!endpointRanges.containsKey(endpoint))
+                {
+                    endpointRanges.put(endpoint, new HashSet<>());
+                }
+                endpointRanges.get(endpoint).addAll(commonRange.right);
+            }
+        }
+        return ImmutableMap.copyOf(endpointRanges);
+    }
+
+    protected void syncRepairHistory(Iterable<ColumnFamilyStore> tables, List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges)
+    {
+        Map<InetAddress, Set<Range<Token>>> endpointRanges = collectEndpointRanges(commonRanges);
+        List<ListenableFuture<Object>> futures = new ArrayList<>();
+
+        for (ColumnFamilyStore cfs: tables)
+        {
+            RepairHistorySyncTask syncTask = new RepairHistorySyncTask(cfs, endpointRanges);
+            syncTask.execute();
+            futures.add(syncTask);
+        }
+
+        try
+        {
+            Futures.successfulAsList(futures).get(10, TimeUnit.MINUTES);
+        }
+        catch (InterruptedException | ExecutionException | TimeoutException e)
+        {
+            throw new RuntimeException(e);
+        }
     }
 
     protected void runMayThrow() throws Exception
@@ -246,6 +287,8 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             fireErrorAndComplete(progress.get(), totalProgress, t.getMessage());
             return;
         }
+
+        syncRepairHistory(columnFamilyStores, commonRanges);
 
         if (options.isPreview())
         {

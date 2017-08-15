@@ -713,6 +713,36 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         {
             return new MessageOut<RepairSuccess>(MessagingService.Verb.APPLE_REPAIR_SUCCESS, this, serializer);
         }
+
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            RepairSuccess that = (RepairSuccess) o;
+
+            if (succeedAt != that.succeedAt) return false;
+            if (!keyspace.equals(that.keyspace)) return false;
+            if (!columnFamily.equals(that.columnFamily)) return false;
+            return ranges.equals(that.ranges);
+        }
+
+        public int hashCode()
+        {
+            int result = keyspace.hashCode();
+            result = 31 * result + columnFamily.hashCode();
+            result = 31 * result + ranges.hashCode();
+            result = 31 * result + (int) (succeedAt ^ (succeedAt >>> 32));
+            return result;
+        }
+
+        public String toString()
+        {
+            return "RepairSuccess{" + keyspace + '.' + columnFamily +
+                   ", ranges=" + ranges +
+                   ", succeedAt=" + succeedAt +
+                   '}';
+        }
     }
 
         public static class RepairSuccessVerbHandler implements IVerbHandler<RepairSuccess>

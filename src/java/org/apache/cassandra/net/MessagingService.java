@@ -72,6 +72,7 @@ import org.apache.cassandra.locator.ILatencySubscriber;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.metrics.ConnectionMetrics;
 import org.apache.cassandra.metrics.DroppedMessageMetrics;
+import org.apache.cassandra.repair.RepairHistorySyncTask;
 import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.service.*;
@@ -157,10 +158,12 @@ public final class MessagingService implements MessagingServiceMBean
         UNUSED_3,
         UNUSED_4,
         UNUSED_5,
+
         // merge upstream enum values before the apple ones.
         APPLE_REPAIRED_RANGES(-1000),
         APPLE_UPDATE_REPAIRED_RANGES(-1001),
         APPLE_REPAIR_SUCCESS(-1002),
+        APPLE_QUERY_REPAIR_HISTORY(-1003),
         ;
         private int id;
         Verb()
@@ -235,6 +238,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.TREE_REQUEST, Stage.ANTI_ENTROPY);
         put(Verb.TREE_RESPONSE, Stage.ANTI_ENTROPY);
         put(Verb.APPLE_REPAIR_SUCCESS, Stage.MISC); // STREAM_INITIATE was used in 2.1
+        put(Verb.APPLE_QUERY_REPAIR_HISTORY, Stage.MISC); // STREAM_INITIATE was used in 2.1
         put(Verb.STREAMING_REPAIR_REQUEST, Stage.ANTI_ENTROPY);
         put(Verb.STREAMING_REPAIR_RESPONSE, Stage.ANTI_ENTROPY);
         put(Verb.REPAIR_MESSAGE, Stage.ANTI_ENTROPY);
@@ -287,6 +291,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.REPLICATION_FINISHED, null);
         put(Verb.COUNTER_MUTATION, CounterMutation.serializer);
         put(Verb.SNAPSHOT, SnapshotCommand.serializer);
+        put(Verb.APPLE_QUERY_REPAIR_HISTORY, RepairHistorySyncTask.requestSerializer);
         put(Verb.APPLE_REPAIR_SUCCESS, ActiveRepairService.RepairSuccess.serializer);
         put(Verb.APPLE_REPAIRED_RANGES, BootStrapper.RepairedRangesRequest.serializer);
         put(Verb.APPLE_UPDATE_REPAIRED_RANGES, BootStrapper.UpdateRepairedRanges.serializer);
@@ -320,6 +325,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.SCHEMA_CHECK, UUIDSerializer.serializer);
         put(Verb.BOOTSTRAP_TOKEN, BootStrapper.StringSerializer.instance);
         put(Verb.REPLICATION_FINISHED, null);
+        put(Verb.APPLE_QUERY_REPAIR_HISTORY, RepairHistorySyncTask.responseSerializer);
         put(Verb.APPLE_REPAIRED_RANGES, BootStrapper.UpdateRepairedRanges.serializer);
         put(Verb.APPLE_UPDATE_REPAIRED_RANGES, StorageService.UpdateRepairedRangesResponse.serializer);
 

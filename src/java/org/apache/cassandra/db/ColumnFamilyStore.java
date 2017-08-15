@@ -1679,6 +1679,21 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return lastRepairTime;
     }
 
+    public Map<Range<Token>, Integer> getRepairHistoryForRanges(Collection<Range<Token>> ranges)
+    {
+        Map<Range<Token>, Integer> history = new HashMap<>();
+
+        for (Pair<Range<Token>, Integer> lastRepairSuccess : lastSuccessfulRepair.get())
+        {
+            if (lastRepairSuccess.left.intersects(ranges))
+            {
+                history.put(lastRepairSuccess.left, lastRepairSuccess.right);
+            }
+        }
+
+        return history;
+    }
+
     public int gcBeforeForKey(DecoratedKey key, int fallbackGCBefore)
     {
         assert key != null;
