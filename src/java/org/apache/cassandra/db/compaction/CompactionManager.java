@@ -69,6 +69,7 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.metrics.CompactionMetrics;
 import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.repair.Validator;
+import org.apache.cassandra.repair.consistent.ConsistentSession;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.PreviewKind;
@@ -128,6 +129,38 @@ public class CompactionManager implements CompactionManagerMBean
     private final Multiset<ColumnFamilyStore> compactingCF = ConcurrentHashMultiset.create();
 
     private final RateLimiter compactionRateLimiter = RateLimiter.create(Double.MAX_VALUE);
+
+    private static class SessionData
+    {
+        public final UUID sessionID;
+        public final Collection<Range<Token>> ranges;
+
+        public SessionData(UUID sessionID, Collection<Range<Token>> ranges)
+        {
+            this.sessionID = sessionID;
+            this.ranges = ranges;
+        }
+
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            SessionData that = (SessionData) o;
+
+            if (!sessionID.equals(that.sessionID)) return false;
+            return ranges.equals(that.ranges);
+        }
+
+        public int hashCode()
+        {
+            int result = sessionID.hashCode();
+            result = 31 * result + ranges.hashCode();
+            return result;
+        }
+    }
+    // guarded by synchronized
+    private final Multimap<UUID, SessionData> activeValidationCompactions = HashMultimap.create();
 
     @VisibleForTesting
     CompactionMetrics getMetrics()
@@ -777,6 +810,31 @@ public class CompactionManager implements CompactionManagerMBean
         return null;
     }
 
+    @VisibleForTesting
+    public synchronized void markValidationActive(UUID cfid, UUID sessionID, Collection<Range<Token>> ranges)
+    {
+        activeValidationCompactions.put(cfid, new SessionData(sessionID, ranges));
+    }
+
+    @VisibleForTesting
+    public synchronized void markValidationComplete(UUID cfid, UUID sessionID, Collection<Range<Token>> ranges)
+    {
+        activeValidationCompactions.remove(cfid, new SessionData(sessionID, ranges));
+    }
+
+    public synchronized Set<UUID> getActiveValidationSessions(UUID cfid, Collection<Range<Token>> ranges)
+    {
+        Set<UUID> intersections = new HashSet<>();
+        for (SessionData sessionData: activeValidationCompactions.get(cfid))
+        {
+            if (Iterables.any(sessionData.ranges, r -> r.intersects(ranges)))
+            {
+                intersections.add(sessionData.sessionID);
+            }
+        }
+        return ImmutableSet.copyOf(intersections);
+    }
+
     /**
      * Does not mutate data, so is not scheduled.
      */
@@ -788,6 +846,7 @@ public class CompactionManager implements CompactionManagerMBean
             {
                 try (TableMetrics.TableTimer.Context c = cfStore.metric.validationTime.time())
                 {
+                    markValidationActive(cfStore.metadata.cfId, validator.desc.parentSessionId, validator.desc.ranges);
                     doValidationCompaction(cfStore, validator);
                 }
                 catch (Throwable e)
@@ -796,6 +855,10 @@ public class CompactionManager implements CompactionManagerMBean
                     validator.fail();
                     logger.error("Validation failed.", e);
                     throw e;
+                }
+                finally
+                {
+                    markValidationComplete(cfStore.metadata.cfId, validator.desc.parentSessionId, validator.desc.ranges);
                 }
                 return this;
             }
@@ -1269,7 +1332,7 @@ public class CompactionManager implements CompactionManagerMBean
     }
 
     @VisibleForTesting
-    synchronized Refs<SSTableReader> getSSTablesToValidate(ColumnFamilyStore cfs, Validator validator)
+    public synchronized Refs<SSTableReader> getSSTablesToValidate(ColumnFamilyStore cfs, Validator validator)
     {
         Refs<SSTableReader> sstables;
 
@@ -1310,6 +1373,50 @@ public class CompactionManager implements CompactionManagerMBean
             {
                 logger.error("Could not reference sstables");
                 throw new RuntimeException("Could not reference sstables");
+            }
+        }
+
+        /**
+         * If we're running a validation repair, and there are sstables pending repair that
+         * belong to the range we're validating, we should log a warning, and mark the parent
+         * repair session suspect
+         */
+        if (prs.previewKind == PreviewKind.REPAIRED)
+        {
+            boolean isSuspect = false;
+            try (ColumnFamilyStore.RefViewFragment sstableCandidates = cfs.selectAndReference(View.select(SSTableSet.CANONICAL, s -> s.isPendingRepair())))
+            {
+                for (SSTableReader sstable : sstableCandidates.sstables)
+                {
+                    if (new Bounds<>(sstable.first.getToken(), sstable.last.getToken()).intersects(validator.desc.ranges))
+                    {
+                        UUID pendingRepair = sstable.getPendingRepair();
+                        ConsistentSession.State state = ActiveRepairService.instance.consistent.local.getSessionState(pendingRepair);
+                        long repairedAt = -1;
+
+                        if (state == ConsistentSession.State.FINALIZED)
+                        {
+                            try
+                            {
+                                repairedAt = ActiveRepairService.instance.consistent.local.getFinalSessionRepairedAt(pendingRepair);
+                            }
+                            catch (Throwable t)
+                            {
+                                logger.error("Got error getting repairedAt for {}", pendingRepair, t);
+                            }
+                        }
+
+                        logger.warn("validation repair {} may yield a false positive, {} is marked pending repair for session {}, with state {} {}",
+                                    validator.desc.parentSessionId, sstable, sstable.getPendingRepair(), state,
+                                    state == ConsistentSession.State.FINALIZED ? " repairedAt: " + repairedAt : "");
+
+                        isSuspect = true;
+                    }
+                }
+            }
+            if (isSuspect)
+            {
+                prs.markSuspect(String.format("%s.%s: SSTables pending repair", cfs.keyspace.getName(), cfs.name));
             }
         }
 

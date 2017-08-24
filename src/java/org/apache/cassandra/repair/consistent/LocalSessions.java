@@ -743,4 +743,10 @@ public class LocalSessions
             throw new IllegalStateException("Cannot get final repaired at value for in progress session: " + session);
         }
     }
+
+    public ConsistentSession.State getSessionState(UUID sessionID)
+    {
+        LocalSession session = getSession(sessionID);
+        return session != null ? session.getState() : null;
+    }
 }

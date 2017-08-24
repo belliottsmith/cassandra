@@ -417,7 +417,29 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                     }
                     else
                     {
-                        message = (previewKind == PreviewKind.REPAIRED ? "Repaired data is inconsistent" : "Preview complete") + " for " + parentSession + '\n' + summary.toString();
+                        String suspectMessage = "";
+                        try
+                        {
+                            ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(parentSession);
+
+                            prs.markCounterTablesSuspect();
+
+                            if (prs.isSuspect())
+                            {
+                                StringBuilder sb = new StringBuilder();
+                                for (String reason: prs.suspectReasons())
+                                {
+                                    sb.append("*SUSPECT*: ").append(reason).append('\n');
+                                }
+                                suspectMessage = sb.toString();
+                            }
+                        }
+                        catch (Throwable t)
+                        {
+                            logger.error("No parent repair session found for {}", parentSession, t);
+                        }
+
+                        message = (previewKind == PreviewKind.REPAIRED ? "Repaired data is inconsistent" : "Preview complete") + " for " + parentSession + '\n' + suspectMessage + summary.toString();
                         logger.info(message);
                         fireProgressEvent(new ProgressEvent(ProgressEventType.NOTIFICATION, progress.get(), totalProgress, message));
                     }
