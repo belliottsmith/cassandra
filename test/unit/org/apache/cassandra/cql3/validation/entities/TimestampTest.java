@@ -181,4 +181,79 @@ public class TimestampTest extends CQLTester
                    row(2, 2, null, null),
                    row(3, 3, 3, 1L));
     }
+
+
+    @Test
+    public void testTimestampPrepared() throws Throwable
+    {
+
+        createTable("CREATE TABLE %s (k int , c int, i int, PRIMARY KEY (k, c))");
+        execute("INSERT INTO %s (k, c, i) VALUES (1, 1, 1) USING TIMESTAMP ?;", 1L);
+        execute("INSERT INTO %s (k, c) VALUES (1, 2) USING TIMESTAMP ? ;", 1L);
+        execute("INSERT INTO %s (k, c, i) VALUES (1, 3, 1) USING TIMESTAMP ?;", 1L);
+        execute("INSERT INTO %s (k, c) VALUES (2, 2) USING TIMESTAMP ?;", 2L);
+        execute("INSERT INTO %s (k, c, i) VALUES (3, 3, 3) USING TIMESTAMP ?;", 1L);
+        assertRows(execute("SELECT k, c, i, writetime(i) FROM %s "),
+                row(1, 1, 1, 1L),
+                row(1, 2, null, null),
+                row(1, 3, 1, 1L),
+                row(2, 2, null, null),
+                row(3, 3, 3, 1L));
+    }
+
+    @Test
+    public void testTTLPrepared() throws Throwable
+    {
+
+        createTable("CREATE TABLE %s (k int , c int, i int, PRIMARY KEY (k, c))");
+        execute("INSERT INTO %s (k, c, i) VALUES (1, 1, 1) USING TIMESTAMP ? AND TTL ?;", 1L,5);
+        execute("INSERT INTO %s (k, c) VALUES (1, 2) USING TIMESTAMP ? AND TTL ? ;", 1L, 5);
+        execute("INSERT INTO %s (k, c, i) VALUES (1, 3, 1) USING TIMESTAMP ? AND TTL ?;", 1L, 5);
+        execute("INSERT INTO %s (k, c) VALUES (2, 2) USING TIMESTAMP ? AND TTL ?;", 2L, 5);
+        execute("INSERT INTO %s (k, c, i) VALUES (3, 3, 3) USING TIMESTAMP ? AND TTL ?;", 1L, 5);
+        assertRows(execute("SELECT k, c, i, writetime(i) FROM %s "),
+                row(1, 1, 1, 1L),
+                row(1, 2, null, null),
+                row(1, 3, 1, 1L),
+                row(2, 2, null, null),
+                row(3, 3, 3, 1L));
+        Thread.sleep(6*1000);
+        assertEmpty(execute("SELECT k, c, i, writetime(i) FROM %s "));
+    }
+
+    @Test
+    public void testTimestampUpdatePrepared() throws Throwable
+    {
+
+        createTable("CREATE TABLE %s (k int , c int, i int, PRIMARY KEY (k, c))");
+        execute("UPDATE %s  USING TIMESTAMP ? SET i=1 WHERE k=1 AND c = 1 ;", 1L);
+        execute("UPDATE %s  USING TIMESTAMP ? SET i=1 WHERE k=1 AND c = 3 ;", 1L);
+        execute("UPDATE %s  USING TIMESTAMP ? SET i=3 WHERE k=2 AND c = 2 ;", 2L);
+        execute("UPDATE %s  USING TIMESTAMP ? SET i=3 WHERE k=3 AND c = 3 ;", 1L);
+        assertRows(execute("SELECT k, c, i, writetime(i) FROM %s "),
+                row(1, 1, 1, 1L),
+                row(1, 3, 1, 1L),
+                row(2, 2, 3, 2L),
+                row(3, 3, 3, 1L));
+    }
+
+    @Test
+    public void testTTLUpdatePrepared() throws Throwable
+    {
+
+        createTable("CREATE TABLE %s (k int , c int, i int, PRIMARY KEY (k, c))");
+        execute("UPDATE %s USING TIMESTAMP ? AND TTL ? SET i=1 WHERE k=1 AND c = 1  ;", 1L, 5);
+        execute("UPDATE %s USING TIMESTAMP ? AND TTL ? SET i=1 WHERE k=1 AND c = 3 ;", 1L, 5);
+        execute("UPDATE %s USING TIMESTAMP ? AND TTL ? SET i=1 WHERE k=2 AND c = 2 ;", 2L, 5);
+        execute("UPDATE %s USING TIMESTAMP ? AND TTL ? SET i=3 WHERE k=3 AND c = 3 ;", 1L, 5);
+        assertRows(execute("SELECT k, c, i, writetime(i) FROM %s "),
+                row(1, 1, 1, 1L),
+                row(1, 3, 1, 1L),
+                row(2, 2, 1, 2L),
+                row(3, 3, 3, 1L));
+        Thread.sleep(6*1000);
+        assertEmpty(execute("SELECT k, c, i, writetime(i) FROM %s "));
+    }
+
+
 }
