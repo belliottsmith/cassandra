@@ -1,4 +1,17 @@
-3.0.14.2 (open)
+3.0.14.2
+ * rdar://problem/33837923 (CASSANDRA-13750 / trunk) Fix digest calculation for counter cells
+ * rdar://problem/33832675 (CASSANDRA-13751 / trunk) Fix race / ref leak in PendingRepairManager
+ * rdar://problem/33215008 (CASSANDRA-13688 / trunk) Fix race / ref leak in anticompaction
+ * rdar://problem/33965258 (CASSANDRA-13769 / trunk) Fix pending repair manager index out of bounds check
+ * rdar://problem/33965655 (CASSANDRA-13758 / trunk) Don't delete incremental repair sessions if they still have sstables
+ * rdar://problem/33969958 (CASSANDRA-13774 / trunk) Add bytes repaired/unrepaired to nodetool tablestats
+ * rdar://problem/32985584 (CASSANDRA-13747 / 3.0.15) Backport 13747: assertion error in short read protect
+ * rdar://problem/33353203 Backport CASSANDRA-13583 : Don't add localhost to the graph when calculating where to stream from
+ * rdar://problem/33874672 Backport 13664: RangeFetchMapCalculator should not try to optimise 'trivial' ranges
+ * rdar://problem/33874269 Backport 13594: Use an ExecutorService for repair commands instead of new Thread(..).start()
+ * rdar://problem/33810719 (Apple Internal) IR: sync repair history
+ * rdar://problem/33940974 (Apple Internal) Log warning if RepairSuccess is received while a validation compaction is in progress
+ * rdar://problem/33700385 (Apple Internal) Repair force isn't removing down node on 3.0.14.1 (#899)
 
 3.0.14.1
  * <rdar://problem/33221747> Backport CASSANDRA-13684: Anticompaction can cause unnecessarily noisy log messages (#13684, Fixed in 4.0)
