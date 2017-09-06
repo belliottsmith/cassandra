@@ -1,3 +1,6 @@
+3.0.14.3 (open)
+ * 
+
 3.0.14.2
  * rdar://problem/33837923 (CASSANDRA-13750 / trunk) Fix digest calculation for counter cells
  * rdar://problem/33832675 (CASSANDRA-13751 / trunk) Fix race / ref leak in PendingRepairManager
