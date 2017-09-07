@@ -32,7 +32,6 @@ import javax.management.ObjectName;
 import com.google.common.base.Predicate;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
@@ -546,8 +545,6 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         public final InetAddress coordinator;
         public final PreviewKind previewKind;
 
-        public volatile List<String> suspectReason = new ArrayList<>();
-
         public ParentRepairSession(InetAddress coordinator, List<ColumnFamilyStore> columnFamilyStores, Collection<Range<Token>> ranges, boolean isIncremental, long repairedAt, boolean isGlobal, PreviewKind previewKind)
         {
             this.coordinator = coordinator;
@@ -560,29 +557,6 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             this.isIncremental = isIncremental;
             this.isGlobal = isGlobal;
             this.previewKind = previewKind;
-        }
-
-        public boolean isSuspect()
-        {
-            return !suspectReason.isEmpty();
-        }
-
-        public List<String> suspectReasons()
-        {
-            return ImmutableList.copyOf(suspectReason);
-        }
-
-        public void markSuspect(String reason)
-        {
-            suspectReason.add(reason);
-        }
-
-        public void markCounterTablesSuspect()
-        {
-            for (ColumnFamilyStore cfs: Iterables.filter(getColumnFamilyStores(), c -> c.metadata.isCounter()))
-            {
-                markSuspect(String.format("%s.%s: Counter Table", cfs.metadata.ksName, cfs.metadata.cfName));
-            }
         }
 
         public boolean isPreview()
@@ -805,21 +779,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
                 ColumnFamilyStore cfs = Keyspace.open(success.keyspace).getColumnFamilyStore(success.columnFamily);
 
-                for (UUID sessionID: CompactionManager.instance.getActiveValidationSessions(cfs.metadata.cfId, success.ranges))
-                {
-                    logger.warn("RepairSuccess received which conflicts with an ongoing validation compaction for parent repair session {} on {}.{}",
-                                sessionID, cfs.keyspace.getName(), cfs.name);
-
-                    try
-                    {
-                        ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(sessionID);
-                        prs.markSuspect(String.format("%s.%s: Repair Success Received", cfs.keyspace.getName(), cfs.name));
-                    }
-                    catch (Throwable t)
-                    {
-                        logger.error("no parent repair session for ongoing validation {}??", sessionID, t);
-                    }
-                }
+                CompactionManager.instance.stopConflictingPreviewValidations(cfs.metadata, success.ranges, "RepairSuccess received");
 
                 for (Range<Token> range : success.ranges)
                     cfs.updateLastSuccessfulRepair(range, success.succeedAt);

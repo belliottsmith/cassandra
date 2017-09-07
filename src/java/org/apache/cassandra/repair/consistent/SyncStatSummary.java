@@ -25,8 +25,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 
+import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.repair.RepairResult;
 import org.apache.cassandra.repair.RepairSessionResult;
 import org.apache.cassandra.repair.SyncStat;
@@ -138,12 +140,25 @@ public class SyncStatSummary
             }
             StringBuilder output = new StringBuilder();
 
-            output.append(String.format("%s.%s - %s ranges, %s sstables, %s bytes\n", keyspace, table, ranges, files, FBUtilities.prettyPrintMemory(bytes)));
+            output.append(String.format("%s.%s - %s ranges, %s sstables, %s bytes", keyspace, table, ranges, files, FBUtilities.prettyPrintMemory(bytes)));
+
+            maybeWarnOfCounter(keyspace, table, ranges, output);
+            output.append('\n');
+
             for (Session session: sessions.values())
             {
                 output.append("    ").append(session.toString()).append('\n');
             }
             return output.toString();
+        }
+    }
+
+    @VisibleForTesting
+    public static void maybeWarnOfCounter(String keyspace, String table, int ranges, StringBuilder sb)
+    {
+        if (ranges > 0 && Schema.instance.getCFMetaData(keyspace, table).isCounter())
+        {
+            sb.append(" **COUNTER**");
         }
     }
 

@@ -130,15 +130,35 @@ public class CompactionManager implements CompactionManagerMBean
 
     private final RateLimiter compactionRateLimiter = RateLimiter.create(Double.MAX_VALUE);
 
-    private static class SessionData
+    @VisibleForTesting
+    public static class SessionData
     {
-        public final UUID sessionID;
-        public final Collection<Range<Token>> ranges;
+        private final UUID sessionID;
+        private final Collection<Range<Token>> ranges;
+        private final PreviewKind previewKind;
+        private final CompactionInfo.Holder holder;
 
-        public SessionData(UUID sessionID, Collection<Range<Token>> ranges)
+        public SessionData(UUID sessionID, Collection<Range<Token>> ranges, PreviewKind previewKind, Holder holder)
         {
             this.sessionID = sessionID;
             this.ranges = ranges;
+            this.previewKind = previewKind;
+            this.holder = holder;
+        }
+
+        public void stop()
+        {
+            holder.stop();
+        }
+
+        public boolean isStopRequested()
+        {
+            return holder.isStopRequested();
+        }
+
+        public PreviewKind getPreviewKind()
+        {
+            return previewKind;
         }
 
         public boolean equals(Object o)
@@ -811,28 +831,29 @@ public class CompactionManager implements CompactionManagerMBean
     }
 
     @VisibleForTesting
-    public synchronized void markValidationActive(UUID cfid, UUID sessionID, Collection<Range<Token>> ranges)
+    public synchronized void markValidationActive(UUID cfid, SessionData sessionData)
     {
-        activeValidationCompactions.put(cfid, new SessionData(sessionID, ranges));
+        activeValidationCompactions.put(cfid, sessionData);
     }
 
     @VisibleForTesting
-    public synchronized void markValidationComplete(UUID cfid, UUID sessionID, Collection<Range<Token>> ranges)
+    public synchronized void markValidationComplete(UUID cfid, SessionData sessionData)
     {
-        activeValidationCompactions.remove(cfid, new SessionData(sessionID, ranges));
+        activeValidationCompactions.remove(cfid, sessionData);
     }
 
-    public synchronized Set<UUID> getActiveValidationSessions(UUID cfid, Collection<Range<Token>> ranges)
+    public synchronized void stopConflictingPreviewValidations(CFMetaData cfm, Collection<Range<Token>> ranges, String reason)
     {
-        Set<UUID> intersections = new HashSet<>();
-        for (SessionData sessionData: activeValidationCompactions.get(cfid))
+        for (SessionData sessionData: activeValidationCompactions.get(cfm.cfId))
         {
-            if (Iterables.any(sessionData.ranges, r -> r.intersects(ranges)))
+            if (sessionData.previewKind == PreviewKind.REPAIRED && Iterables.any(sessionData.ranges, r -> r.intersects(ranges)))
             {
-                intersections.add(sessionData.sessionID);
+                logger.warn("Stopping validation compaction for parent repair session {} on {}.{}: {}",
+                            sessionData.sessionID, cfm.ksName, cfm.cfName, reason);
+                sessionData.stop();
             }
         }
-        return ImmutableSet.copyOf(intersections);
+
     }
 
     /**
@@ -846,7 +867,6 @@ public class CompactionManager implements CompactionManagerMBean
             {
                 try (TableMetrics.TableTimer.Context c = cfStore.metric.validationTime.time())
                 {
-                    markValidationActive(cfStore.metadata.cfId, validator.desc.parentSessionId, validator.desc.ranges);
                     doValidationCompaction(cfStore, validator);
                 }
                 catch (Throwable e)
@@ -855,10 +875,6 @@ public class CompactionManager implements CompactionManagerMBean
                     validator.fail();
                     logger.error("Validation failed.", e);
                     throw e;
-                }
-                finally
-                {
-                    markValidationComplete(cfStore.metadata.cfId, validator.desc.parentSessionId, validator.desc.ranges);
                 }
                 return this;
             }
@@ -1249,19 +1265,32 @@ public class CompactionManager implements CompactionManagerMBean
                  ValidationCompactionController controller = new ValidationCompactionController(cfs, getDefaultGcBefore(cfs, validator.nowInSec));
                  CompactionIterator ci = new ValidationCompactionIterator(scanners.scanners, controller, validator.nowInSec, metrics))
             {
-                // validate the CF as we iterate over it
-                validator.prepare(cfs, tree);
-                while (ci.hasNext())
+                SessionData sessionData = new SessionData(validator.desc.parentSessionId, validator.desc.ranges, validator.getPreviewKind(), ci);
+                markValidationActive(cfs.metadata.cfId, sessionData);
+                try
                 {
+                    // validate the CF as we iterate over it
+                    validator.prepare(cfs, tree);
+                    while (ci.hasNext())
+                    {
+                        if (ci.isStopRequested())
+                            throw new CompactionInterruptedException(ci.getCompactionInfo());
+                        try (UnfilteredRowIterator partition = ci.next())
+                        {
+                            validator.add(partition);
+                            partitionCount++;
+                        }
+                    }
+                    // if a stop was requested while the final partition
+                    // was being checked, we should still fail
                     if (ci.isStopRequested())
                         throw new CompactionInterruptedException(ci.getCompactionInfo());
-                    try (UnfilteredRowIterator partition = ci.next())
-                    {
-                        validator.add(partition);
-                        partitionCount++;
-                    }
+                    validator.complete();
                 }
-                validator.complete();
+                finally
+                {
+                    markValidationComplete(cfs.metadata.cfId, sessionData);
+                }
             }
             finally
             {
@@ -1378,45 +1407,30 @@ public class CompactionManager implements CompactionManagerMBean
 
         /**
          * If we're running a validation repair, and there are sstables pending repair that
-         * belong to the range we're validating, we should log a warning, and mark the parent
-         * repair session suspect
+         * belong to the range we're validating, we should throw an exception so the preview
+         * doesn't result in a false positive
          */
         if (prs.previewKind == PreviewKind.REPAIRED)
         {
             boolean isSuspect = false;
+            StringBuilder sb = new StringBuilder();
             try (ColumnFamilyStore.RefViewFragment sstableCandidates = cfs.selectAndReference(View.select(SSTableSet.CANONICAL, s -> s.isPendingRepair())))
             {
                 for (SSTableReader sstable : sstableCandidates.sstables)
                 {
+
                     if (new Bounds<>(sstable.first.getToken(), sstable.last.getToken()).intersects(validator.desc.ranges))
                     {
-                        UUID pendingRepair = sstable.getPendingRepair();
-                        ConsistentSession.State state = ActiveRepairService.instance.consistent.local.getSessionState(pendingRepair);
-                        long repairedAt = -1;
-
-                        if (state == ConsistentSession.State.FINALIZED)
-                        {
-                            try
-                            {
-                                repairedAt = ActiveRepairService.instance.consistent.local.getFinalSessionRepairedAt(pendingRepair);
-                            }
-                            catch (Throwable t)
-                            {
-                                logger.error("Got error getting repairedAt for {}", pendingRepair, t);
-                            }
-                        }
-
-                        logger.warn("validation repair {} may yield a false positive, {} is marked pending repair for session {}, with state {} {}",
-                                    validator.desc.parentSessionId, sstable, sstable.getPendingRepair(), state,
-                                    state == ConsistentSession.State.FINALIZED ? " repairedAt: " + repairedAt : "");
-
+                        ConsistentSession.State state = ActiveRepairService.instance.consistent.local.getSessionState(sstable.getPendingRepair());
+                        sb.append(String.format("%s is marked pending repair for session %s, with state %s\n",
+                                                sstable, sstable.getPendingRepair(), state));
                         isSuspect = true;
                     }
                 }
             }
             if (isSuspect)
             {
-                prs.markSuspect(String.format("%s.%s: SSTables pending repair", cfs.keyspace.getName(), cfs.name));
+                throw new CompactionInterruptedException(sb.toString());
             }
         }
 
