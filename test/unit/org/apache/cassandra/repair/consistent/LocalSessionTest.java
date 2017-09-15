@@ -221,7 +221,6 @@ public class LocalSessionTest extends AbstractRepairTest
         assertValidationFailure(b -> b.withCoordinator(null));
         assertValidationFailure(b -> b.withCfIds(null));
         assertValidationFailure(b -> b.withCfIds(new HashSet<>()));
-        assertValidationFailure(b -> b.withRepairedAt(0));
         assertValidationFailure(b -> b.withRepairedAt(-1));
         assertValidationFailure(b -> b.withRanges(null));
         assertValidationFailure(b -> b.withRanges(new HashSet<>()));

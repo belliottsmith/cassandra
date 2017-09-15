@@ -28,18 +28,27 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.*;
 import org.apache.commons.lang3.time.DurationFormatUtils;
+import org.junit.internal.runners.statements.Fail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.codahale.metrics.Timer;
 import org.apache.cassandra.concurrent.JMXConfigurableThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
+import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.repair.consistent.SyncStatSummary;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.repair.consistent.SyncStatSummary;
 import org.apache.cassandra.cql3.QueryOptions;
@@ -126,29 +135,70 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         recordFailure(message, completionMessage);
     }
 
-    protected static Map<InetAddress, Set<Range<Token>>> collectEndpointRanges(List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges)
+    @VisibleForTesting
+    static class CommonRange
+    {
+        public final Set<InetAddress> endpoints;
+        public final Collection<Range<Token>> ranges;
+
+        public CommonRange(Set<InetAddress> endpoints, Collection<Range<Token>> ranges)
+        {
+            Preconditions.checkArgument(endpoints != null && !endpoints.isEmpty());
+            Preconditions.checkArgument(ranges != null && !ranges.isEmpty());
+            this.endpoints = endpoints;
+            this.ranges = ranges;
+        }
+
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            CommonRange that = (CommonRange) o;
+
+            if (!endpoints.equals(that.endpoints)) return false;
+            return ranges.equals(that.ranges);
+        }
+
+        public int hashCode()
+        {
+            int result = endpoints.hashCode();
+            result = 31 * result + ranges.hashCode();
+            return result;
+        }
+
+        public String toString()
+        {
+            return "CommonRange{" +
+                   "endpoints=" + endpoints +
+                   ", ranges=" + ranges +
+                   '}';
+        }
+    }
+
+    protected static Map<InetAddress, Set<Range<Token>>> collectEndpointRanges(List<CommonRange> commonRanges)
     {
         Map<InetAddress, Set<Range<Token>>> endpointRanges = new HashMap<>();
-        for (Pair<Set<InetAddress>, ? extends Collection<Range<Token>>> commonRange: commonRanges)
+        for (CommonRange commonRange: commonRanges)
         {
-            for (InetAddress endpoint: commonRange.left)
+            for (InetAddress endpoint: commonRange.endpoints)
             {
                 if (!endpointRanges.containsKey(endpoint))
                 {
                     endpointRanges.put(endpoint, new HashSet<>());
                 }
-                endpointRanges.get(endpoint).addAll(commonRange.right);
+                endpointRanges.get(endpoint).addAll(commonRange.ranges);
             }
         }
         return ImmutableMap.copyOf(endpointRanges);
     }
 
-    protected void syncRepairHistory(Iterable<ColumnFamilyStore> tables, List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges)
+    protected void syncRepairHistory(Iterable<ColumnFamilyStore> tables, List<CommonRange> commonRanges)
     {
         Map<InetAddress, Set<Range<Token>>> endpointRanges = collectEndpointRanges(commonRanges);
         List<ListenableFuture<Object>> futures = new ArrayList<>();
 
-        for (ColumnFamilyStore cfs: tables)
+        for (ColumnFamilyStore cfs : tables)
         {
             RepairHistorySyncTask syncTask = new RepairHistorySyncTask(cfs, endpointRanges);
             syncTask.execute();
@@ -215,7 +265,8 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         }
 
         final Set<InetAddress> allNeighbors = new HashSet<>();
-        List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges = new ArrayList<>();
+        List<CommonRange> commonRanges = new ArrayList<>();
+
         //pre-calculate output of getLocalRanges and pass it to getNeighbors to increase performance and prevent
         //calculation multiple times
         Collection<Range<Token>> keyspaceLocalRanges = storageService.getLocalRanges(keyspace);
@@ -271,11 +322,9 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             SystemDistributedKeyspace.startParentRepair(parentSession, keyspace, cfnames, options.getRanges());
         }
 
-        long repairedAt;
         try (Timer.Context ctx = Keyspace.open(keyspace).metric.repairPrepareTime.time())
         {
             ActiveRepairService.instance.prepareForRepair(parentSession, FBUtilities.getBroadcastAddress(), allNeighbors, options, columnFamilyStores);
-            repairedAt = ActiveRepairService.instance.getParentRepairSession(parentSession).getRepairedAt();
             progress.incrementAndGet();
         }
         catch (Throwable t)
@@ -292,24 +341,23 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
 
         if (options.isPreview())
         {
-            previewRepair(parentSession, repairedAt, startTime, traceState, allReplicaMap, commonRanges, cfnames);
+            previewRepair(parentSession, startTime, allReplicaMap, commonRanges, cfnames);
         }
         else if (options.isIncremental())
         {
-            consistentRepair(parentSession, repairedAt, startTime, traceState, allNeighbors, allReplicaMap, commonRanges, cfnames);
+            incrementalRepair(parentSession, startTime, options.isForcedRepair(), traceState, allNeighbors, allReplicaMap, commonRanges, cfnames);
         }
         else
         {
-            normalRepair(parentSession, startTime, traceState, allNeighbors, allReplicaMap, commonRanges, cfnames);
+            normalRepair(parentSession, startTime, traceState, allReplicaMap, commonRanges, cfnames);
         }
     }
 
     private void normalRepair(UUID parentSession,
                               long startTime,
                               TraceState traceState,
-                              Set<InetAddress> allNeighbors,
                               Map<Set<InetAddress>, Boolean> allReplicaMap,
-                              List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges,
+                              List<CommonRange> commonRanges,
                               String... cfnames)
     {
 
@@ -333,14 +381,10 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                     logger.debug("Repair result: {}", results);
                     if (sessionResult != null)
                     {
-                        // don't promote sstables for sessions we skipped replicas for
+                        // don't record successful repair if we had to skip ranges
                         if (!sessionResult.skippedReplicas)
                         {
                             successfulRanges.addAll(sessionResult.ranges);
-                        }
-                        else
-                        {
-                            logger.debug("Skipping anticompaction for {}", results);
                         }
                     }
                     else
@@ -354,28 +398,60 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         Futures.addCallback(repairResult, new RepairCompleteCallback(parentSession, successfulRanges, startTime, traceState, hasFailure, executor));
     }
 
-    private void consistentRepair(UUID parentSession,
-                                  long repairedAt,
-                                  long startTime,
-                                  TraceState traceState,
-                                  Set<InetAddress> allNeighbors,
-                                  Map<Set<InetAddress>, Boolean> allReplicaMap,
-                                  List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges,
-                                  String... cfnames)
+    /**
+     * removes dead nodes from common ranges, and exludes ranges left without any participants
+     */
+    @VisibleForTesting
+    static List<CommonRange> filterCommonRanges(List<CommonRange> commonRanges, Set<InetAddress> liveEndpoints, boolean force)
     {
-        // the local node also needs to be included in the set of
-        // participants, since coordinator sessions aren't persisted
-        Set<InetAddress> allParticipants = new HashSet<>(allNeighbors);
-        allParticipants.add(FBUtilities.getBroadcastAddress());
+        if (!force)
+        {
+            return commonRanges;
+        }
+        else
+        {
+            List<CommonRange> filtered = new ArrayList<>(commonRanges.size());
+
+            for (CommonRange commonRange: commonRanges)
+            {
+                Set<InetAddress> endpoints = ImmutableSet.copyOf(Iterables.filter(commonRange.endpoints, liveEndpoints::contains));
+
+                // this node is implicitly a participant in this repair, so a single endpoint is ok here
+                if (!endpoints.isEmpty())
+                {
+                    filtered.add(new CommonRange(endpoints, commonRange.ranges));
+                }
+            }
+            Preconditions.checkState(!filtered.isEmpty(), "Not enough live endpoints for a repair");
+            return filtered;
+        }
+    }
+
+    private void incrementalRepair(UUID parentSession,
+                                   long startTime,
+                                   boolean forceRepair,
+                                   TraceState traceState,
+                                   Set<InetAddress> allNeighbors,
+                                   Map<Set<InetAddress>, Boolean> allReplicaMap,
+                                   List<CommonRange> commonRanges,
+                                   String... cfnames)
+    {
+        // the local node also needs to be included in the set of participants, since coordinator sessions aren't persisted
+        Predicate<InetAddress> isAlive = FailureDetector.instance::isAlive;
+        Set<InetAddress> allParticipants = ImmutableSet.<InetAddress>builder()
+                                           .addAll(forceRepair ? Iterables.filter(allNeighbors, isAlive) : allNeighbors)
+                                           .add(FBUtilities.getBroadcastAddress())
+                                           .build();
+
+        List<CommonRange> allRanges = filterCommonRanges(commonRanges, allParticipants, forceRepair);
 
         CoordinatorSession coordinatorSession = ActiveRepairService.instance.consistent.coordinated.registerSession(parentSession, allParticipants);
         ListeningExecutorService executor = createExecutor();
         AtomicBoolean hasFailure = new AtomicBoolean(false);
-        ListenableFuture repairResult = coordinatorSession.execute(
-        () -> submitRepairSessions(parentSession, true, executor, allReplicaMap, commonRanges, cfnames),
+        ListenableFuture repairResult = coordinatorSession.execute(() -> submitRepairSessions(parentSession, true, executor, allReplicaMap, allRanges, cfnames),
                                                                    hasFailure);
         Collection<Range<Token>> ranges = new HashSet<>();
-        for (Collection<Range<Token>> range : Iterables.transform(commonRanges, cr -> cr.right))
+        for (Collection<Range<Token>> range : Iterables.transform(allRanges, cr -> cr.ranges))
         {
             ranges.addAll(range);
         }
@@ -383,11 +459,9 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
     }
 
     private void previewRepair(UUID parentSession,
-                               long repairedAt,
                                long startTime,
-                               TraceState traceState,
                                Map<Set<InetAddress>, Boolean> allReplicaMap,
-                               List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges,
+                               List<CommonRange> commonRanges,
                                String... cfnames)
     {
 
@@ -460,24 +534,29 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
     }
 
     private ListenableFuture<List<RepairSessionResult>> submitRepairSessions(UUID parentSession,
-                                                                             boolean isConsistent,
+                                                                             boolean isIncremental,
                                                                              ListeningExecutorService executor,
                                                                              Map<Set<InetAddress>, Boolean> allReplicaMap,
-                                                                             List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> commonRanges,
+                                                                             List<CommonRange> commonRanges,
                                                                              String... cfnames)
     {
         List<ListenableFuture<RepairSessionResult>> futures = new ArrayList<>(options.getRanges().size());
-        for (Pair<Set<InetAddress>, ? extends Collection<Range<Token>>> p : commonRanges)
+
+        // we do endpoint filtering at the start of an incremental repair,
+        // so repair sessions shouldn't also be checking liveness
+        boolean force = options.isForcedRepair() && !isIncremental;
+        for (CommonRange cr : commonRanges)
         {
+            logger.info("Starting RepairSession for {}", cr);
             RepairSession session = ActiveRepairService.instance.submitRepairSession(parentSession,
-                                                                                     p.right,
+                                                                                     cr.ranges,
                                                                                      keyspace,
                                                                                      options.getParallelism(),
-                                                                                     allReplicaMap.get(p.left),
-                                                                                     p.left,
-                                                                                     isConsistent,
+                                                                                     allReplicaMap.get(cr.endpoints),
+                                                                                     cr.endpoints,
+                                                                                     isIncremental,
                                                                                      options.isPullRepair(),
-                                                                                     options.isForcedRepair(),
+                                                                                     force,
                                                                                      options.getPreviewKind(),
                                                                                      executor,
                                                                                      cfnames);
@@ -642,22 +721,22 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                                                ImmutableList.of(failureMessage, completionMessage));
     }
 
-    private void addRangeToNeighbors(List<Pair<Set<InetAddress>, ? extends Collection<Range<Token>>>> neighborRangeList, Range<Token> range, Set<InetAddress> neighbors)
+    private void addRangeToNeighbors(List<CommonRange> neighborRangeList, Range<Token> range, Set<InetAddress> neighbors)
     {
         for (int i = 0; i < neighborRangeList.size(); i++)
         {
-            Pair<Set<InetAddress>, ? extends Collection<Range<Token>>> p = neighborRangeList.get(i);
+            CommonRange cr = neighborRangeList.get(i);
 
-            if (p.left.containsAll(neighbors))
+            if (cr.endpoints.containsAll(neighbors))
             {
-                p.right.add(range);
+                cr.ranges.add(range);
                 return;
             }
         }
 
         List<Range<Token>> ranges = new ArrayList<>();
         ranges.add(range);
-        neighborRangeList.add(Pair.create(neighbors, ranges));
+        neighborRangeList.add(new CommonRange(neighbors, ranges));
     }
 
     private Thread createQueryThread(final int cmd, final UUID sessionId)
