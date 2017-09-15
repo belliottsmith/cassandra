@@ -17,25 +17,29 @@
  */
 package org.apache.cassandra.db;
 
+import java.net.InetAddress;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.exceptions.RequestExecutionException;
-import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.utils.FBUtilities;
 
-public class CounterMutationVerbHandler implements IVerbHandler<CounterMutation>
+public class CounterMutationVerbHandler extends AbstractMutationVerbHandler<CounterMutation>
 {
     private static final Logger logger = LoggerFactory.getLogger(CounterMutationVerbHandler.class);
 
     public void doVerb(final MessageIn<CounterMutation> message, final int id)
     {
-        final CounterMutation cm = message.payload;
-        logger.trace("Applying forwarded {}", cm);
+        processMessage(message, id, message.from);
+    }
+
+    protected void applyMutation(int version, CounterMutation cm, int id, InetAddress replyTo)
+    {
+        logger.debug("Applying forwarded {}", cm);
 
         String localDataCenter = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddress());
         // We should not wait for the result of the write in this thread,
@@ -49,7 +53,7 @@ public class CounterMutationVerbHandler implements IVerbHandler<CounterMutation>
         {
             public void run()
             {
-                MessagingService.instance().sendReply(WriteResponse.createMessage(), id, message.from);
+                MessagingService.instance().sendReply(WriteResponse.createMessage(), id, replyTo);
             }
         });
     }

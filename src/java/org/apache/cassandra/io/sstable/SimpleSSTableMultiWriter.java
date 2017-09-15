@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.UUID;
 
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.RowIndexEntry;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
@@ -65,6 +66,16 @@ public class SimpleSSTableMultiWriter implements SSTableMultiWriter
     {
         writer.setOpenResult(openResult);
         return this;
+    }
+
+    public DecoratedKey getMinKey()
+    {
+        return writer.first;
+    }
+
+    public DecoratedKey getMaxKey()
+    {
+        return writer.last;
     }
 
     public String getFilename()

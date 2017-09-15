@@ -391,6 +391,18 @@ public class Config
     public volatile int initial_range_tombstone_allocation_size = 64;
     public volatile double range_tombstone_resize_factor = 2.0;
 
+    /*
+     * Toggles to turn on the logging or rejection of operations for token ranges that the node does not own,
+     * or is not about to acquire.
+     * <rdar://problem/33279387> Don't allow writes for token range instance don't own
+     * <rdar://problem/33279491> Don't accept reads for ranges which we dont own
+     * <rdar://problem/33280054> Don't accept incoming out outgoing stream for token instance dont own.
+     * <rdar://problem/33280066> Don't accept Merkle tree request for ranges instance dont own
+     * <rdar://problem/33299827> Don't accepts hints for data instance dont own
+     */
+    public volatile boolean log_out_of_token_range_requests = true;
+    public volatile boolean reject_out_of_token_range_requests = false;
+
     public static boolean getOutboundBindAny()
     {
         return outboundBindAny;

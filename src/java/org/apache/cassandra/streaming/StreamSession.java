@@ -30,11 +30,18 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.*;
 
+import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.SSTableIntervalTree;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
+import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.dht.OwnedRanges;
+import org.apache.cassandra.io.sstable.format.SSTableWriter;
+import org.apache.cassandra.metrics.StorageMetrics;
+import org.apache.cassandra.repair.StreamingRepairTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,8 +55,8 @@ import org.apache.cassandra.gms.*;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.metrics.StreamingMetrics;
-import org.apache.cassandra.repair.StreamingRepairTask;
 import org.apache.cassandra.service.ActiveRepairService;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.messages.*;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JVMStabilityInspector;
@@ -149,11 +156,21 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public final ConnectionHandler handler;
 
+    private final StreamReceiveTaskFactory receiverFactory;
+
+    private int retries;
+
     private AtomicBoolean isAborted = new AtomicBoolean(false);
     private final boolean keepSSTableLevel;
     private ScheduledFuture<?> keepAliveFuture = null;
     private final UUID pendingRepair;
     private final PreviewKind previewKind;
+
+    // Used to help in testing to inject stub receive tasks
+    interface StreamReceiveTaskFactory
+    {
+        StreamReceiveTask newTask(StreamSession session, UUID cfId, int totalFiles, long totalSize);
+    }
 
     public static enum State
     {
@@ -185,6 +202,30 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         this.keepSSTableLevel = keepSSTableLevel;
         this.pendingRepair = pendingRepair;
         this.previewKind = previewKind;
+        this.receiverFactory = StreamReceiveTask::new;
+    }
+
+    @VisibleForTesting
+    StreamSession(InetAddress peer,
+                  InetAddress connecting,
+                  StreamConnectionFactory factory,
+                  int index,
+                  boolean keepSSTableLevel,
+                  UUID pendingRepair,
+                  PreviewKind previewKind,
+                  ConnectionHandler handler,
+                  StreamReceiveTaskFactory receiverFactory)
+    {
+        this.peer = peer;
+        this.connecting = connecting;
+        this.index = index;
+        this.factory = factory;
+        this.handler = handler;
+        this.metrics = StreamingMetrics.get(connecting);
+        this.keepSSTableLevel = keepSSTableLevel;
+        this.pendingRepair = pendingRepair;
+        this.previewKind = previewKind;
+        this.receiverFactory = receiverFactory;
     }
 
     public UUID planId()
@@ -577,8 +618,9 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     {
         // prepare tasks
         state(State.PREPARING);
-        for (StreamRequest request : requests)
-            addTransferRanges(request.keyspace, request.ranges, request.columnFamilies, true); // always flush on stream request
+
+        processStreamRequests(requests);
+
         for (StreamSummary summary : summaries)
             prepareReceiving(summary);
 
@@ -600,6 +642,45 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         // if there are files to stream
         if (!maybeCompleted())
             startStreamingFiles();
+    }
+
+    private void processStreamRequests(Collection<StreamRequest> requests)
+    {
+        boolean outOfRangeTokenLogging = StorageService.instance.isOutOfTokenRangeRequestLoggingEnabled();
+        boolean outOfRangeTokenRejection = StorageService.instance.isOutOfTokenRangeRequestRejectionEnabled();
+
+        if (!outOfRangeTokenLogging && !outOfRangeTokenRejection)
+        {
+            requests.forEach(request ->
+            {
+                // always flush on stream request
+                addTransferRanges(request.keyspace, request.ranges, request.columnFamilies, true);
+            });
+
+            return;
+        }
+
+        List<StreamRequest> rejectedRequests = new ArrayList<>();
+
+        // group requests by keyspace
+        Multimap<String, StreamRequest> requestsByKeyspace = ArrayListMultimap.create();
+        requests.forEach(r -> requestsByKeyspace.put(r.keyspace, r));
+
+        requestsByKeyspace.asMap().forEach((ks, reqs) ->
+        {
+            OwnedRanges ownedRanges = StorageService.instance.getNormalizedLocalRanges(ks);
+
+            reqs.forEach(req ->
+            {
+                if (ownedRanges.validateRangeRequest(req.ranges, "Stream #" + planId(), "stream request", peer))
+                    addTransferRanges(ks, req.ranges, req.columnFamilies, true);
+                else
+                    rejectedRequests.add(req);
+            });
+        });
+
+        if (!rejectedRequests.isEmpty())
+            throw new StreamRequestOutOfTokenRangeException(rejectedRequests);
     }
 
     /**
@@ -632,12 +713,52 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             throw new RuntimeException("Cannot receive files for preview session");
         }
 
+        boolean outOfRangeTokenLogging = StorageService.instance.isOutOfTokenRangeRequestLoggingEnabled();
+        boolean outOfRangeTokenRejection = StorageService.instance.isOutOfTokenRangeRequestRejectionEnabled();
+
+        if (outOfRangeTokenLogging || outOfRangeTokenRejection)
+        {
+            String keyspace = Schema.instance.getCFMetaData(message.header.cfId).ksName;
+            List<Range<Token>> ownedRanges = Range.normalize(StorageService.instance.getLocalAndPendingRanges(keyspace));
+
+            SSTableMultiWriter sstable = message.sstable;
+            DecoratedKey min = sstable.getMinKey();
+            DecoratedKey max = sstable.getMaxKey();
+            if (!tokensContainedInSingleRange(min.getToken(), max.getToken(), ownedRanges))
+            {
+                StorageMetrics.totalOpsForInvalidToken.inc();
+
+                if (outOfRangeTokenLogging)
+                {
+                    logger.warn("[Stream #{}] Received streamed SSTable {} from {} containing range [{}, {}] outside valid ranges {}",
+                                planId(),
+                                sstable.getFilename(),
+                                peer,
+                                min.getToken(),
+                                max.getToken(),
+                                ownedRanges);
+                }
+
+                if (outOfRangeTokenRejection)
+                    throw new StreamReceivedOutOfTokenRangeException(ownedRanges, min, max, sstable.getFilename());
+            }
+        }
+
         long headerSize = message.header.size();
         StreamingMetrics.totalIncomingBytes.inc(headerSize);
         metrics.incomingBytes.inc(headerSize);
         // send back file received message
         handler.sendMessage(new ReceivedMessage(message.header.cfId, message.header.sequenceNumber));
         receivers.get(message.header.cfId).received(message.sstable);
+    }
+
+    private static boolean tokensContainedInSingleRange(Token first, Token second, Collection<Range<Token>> ranges)
+    {
+        for (Range<Token> range : ranges)
+            if (range.contains(first) && range.contains(second))
+                return true;
+
+        return false;
     }
 
     public void progress(Descriptor desc, ProgressInfo.Direction direction, long bytes, long total)
@@ -779,11 +900,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         FBUtilities.waitOnFutures(flushes);
     }
 
-    private synchronized void prepareReceiving(StreamSummary summary)
+    @VisibleForTesting
+    void prepareReceiving(StreamSummary summary)
     {
         failIfFinished();
         if (summary.files > 0)
-            receivers.put(summary.cfId, new StreamReceiveTask(this, summary.cfId, summary.files, summary.totalSize));
+            receivers.put(summary.cfId, receiverFactory.newTask(this, summary.cfId, summary.files, summary.totalSize));
     }
 
     private void startStreamingFiles()

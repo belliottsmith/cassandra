@@ -23,6 +23,9 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -43,6 +46,16 @@ public class StreamRequest
         this.keyspace = keyspace;
         this.ranges = ranges;
         this.columnFamilies.addAll(columnFamilies);
+    }
+
+    public String toString()
+    {
+        return MoreObjects.toStringHelper(this)
+                          .add("keyspace", keyspace)
+                          .add("tables", columnFamilies)
+                          .add("ranges", ranges)
+                          .omitNullValues()
+                          .toString();
     }
 
     public static class StreamRequestSerializer implements IVersionedSerializer<StreamRequest>

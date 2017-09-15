@@ -2329,4 +2329,24 @@ public class DatabaseDescriptor
     {
         return conf.repair_command_pool_full_strategy;
     }
+
+    public static boolean getLogOutOfTokenRangeRequests()
+    {
+        return conf.log_out_of_token_range_requests;
+    }
+
+    public static void setLogOutOfTokenRangeRequests(boolean enabled)
+    {
+        conf.log_out_of_token_range_requests = enabled;
+    }
+
+    public static boolean getRejectOutOfTokenRangeRequests()
+    {
+        return conf.reject_out_of_token_range_requests;
+    }
+
+    public static void setRejectOutOfTokenRangeRequests(boolean enabled)
+    {
+        conf.reject_out_of_token_range_requests = enabled;
+    }
 }

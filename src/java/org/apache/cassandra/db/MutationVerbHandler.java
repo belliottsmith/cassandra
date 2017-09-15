@@ -20,7 +20,6 @@ package org.apache.cassandra.db;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.util.function.Consumer;
 
 import org.apache.cassandra.batchlog.LegacyBatchlogMigrator;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
@@ -28,7 +27,7 @@ import org.apache.cassandra.io.util.FastByteArrayInputStream;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.tracing.Tracing;
 
-public class MutationVerbHandler implements IVerbHandler<Mutation>
+public class MutationVerbHandler extends AbstractMutationVerbHandler<Mutation>
 {
     private void reply(int id, InetAddress replyTo)
     {
@@ -60,20 +59,27 @@ public class MutationVerbHandler implements IVerbHandler<Mutation>
 
         try
         {
-            if (message.version < MessagingService.VERSION_30 && LegacyBatchlogMigrator.isLegacyBatchlogMutation(message.payload))
-            {
-                LegacyBatchlogMigrator.handleLegacyMutation(message.payload);
-                reply(id, replyTo);
-            }
-            else
-                message.payload.applyFuture().thenAccept(o -> reply(id, replyTo)).exceptionally(wto -> {
-                    failed();
-                    return null;
-                });
+            processMessage(message, id, replyTo);
         }
         catch (WriteTimeoutException wto)
         {
             failed();
+        }
+    }
+
+    protected void applyMutation(int version, Mutation mutation, int id, InetAddress replyTo)
+    {
+        if (version < MessagingService.VERSION_30 && LegacyBatchlogMigrator.isLegacyBatchlogMutation(mutation))
+        {
+            LegacyBatchlogMigrator.handleLegacyMutation(mutation);
+            reply(id, replyTo);
+        }
+        else
+        {
+            mutation.applyFuture().thenAccept(o -> reply(id, replyTo)).exceptionally(wto -> {
+                failed();
+                return null;
+            });
         }
     }
 

@@ -15,23 +15,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.db;
 
-import java.net.InetAddress;
+package org.apache.cassandra.streaming;
 
-import org.apache.cassandra.net.MessageIn;
-import org.apache.cassandra.net.MessagingService;
+import java.util.Collection;
 
-public class ReadRepairVerbHandler extends AbstractMutationVerbHandler<Mutation>
+public class StreamRequestOutOfTokenRangeException extends RuntimeException
 {
-    public void doVerb(MessageIn<Mutation> message, int id)
+    private final Collection<StreamRequest> requests;
+
+    public StreamRequestOutOfTokenRangeException(Collection<StreamRequest> requests)
     {
-        processMessage(message, id, message.from);
+        this.requests = requests;
     }
 
-    void applyMutation(int version, Mutation mutation, int id, InetAddress replyTo)
+    public String getMessage()
     {
-        mutation.apply();
-        MessagingService.instance().sendReply(WriteResponse.createMessage(), id, replyTo);
+        return String.format("Received stream requests containing ranges outside of owned ranges: %s", requests);
     }
 }

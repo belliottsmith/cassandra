@@ -27,9 +27,9 @@ import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.utils.BooleanSerializer;
 
-public class ProposeVerbHandler implements IVerbHandler<Commit>
+public class ProposeVerbHandler extends AbstractPaxosVerbHandler implements IVerbHandler<Commit>
 {
-    public void doVerb(MessageIn<Commit> message, int id)
+    void processMessage(MessageIn<Commit> message, int id)
     {
         Boolean response = PaxosState.propose(message.payload);
         MessageOut<Boolean> reply = new MessageOut<Boolean>(MessagingService.Verb.REQUEST_RESPONSE, response, BooleanSerializer.serializer);

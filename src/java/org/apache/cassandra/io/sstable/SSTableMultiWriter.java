@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.Throwables;
@@ -46,6 +47,9 @@ public interface SSTableMultiWriter extends Transactional
     String getFilename();
     long getFilePointer();
     UUID getCfId();
+
+    DecoratedKey getMinKey();
+    DecoratedKey getMaxKey();
 
     static void abortOrDie(SSTableMultiWriter writer)
     {

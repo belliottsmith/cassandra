@@ -164,6 +164,16 @@ public abstract class ReadCommand implements ReadQuery
     protected abstract long selectionSerializedSize(int version);
 
     /**
+     * Whether this is command is a single partition read
+     *
+     * @return true if the command is a single partition read, false otherwise
+     */
+    public boolean isSinglePartitionRead()
+    {
+        return kind == Kind.SINGLE_PARTITION;
+    }
+
+    /**
      * The metadata for the table queried.
      *
      * @return the metadata for the table queried.

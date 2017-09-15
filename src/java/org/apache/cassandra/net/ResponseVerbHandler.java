@@ -44,7 +44,14 @@ public class ResponseVerbHandler implements IVerbHandler
         IAsyncCallback cb = callbackInfo.callback;
         if (message.isFailureResponse())
         {
-            ((IAsyncCallbackWithFailure) cb).onFailure(message.from);
+            // Because of rdar://problem/33279387, writes (mutation, counter mutation, paxos prepare/propose/commit)
+            // may return failure responses. However, during upgrade an older coordinator may have registered an
+            // callback which doesn't implement IAsyncCallbackWithFailure, which would cause the cast here to fail
+            // so it's guarded by the assignment check
+            if (IAsyncCallbackWithFailure.class.isAssignableFrom(cb.getClass()))
+            {
+                ((IAsyncCallbackWithFailure) cb).onFailure(message.from);
+            }
         }
         else
         {

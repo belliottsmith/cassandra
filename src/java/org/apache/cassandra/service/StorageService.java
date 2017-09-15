@@ -98,9 +98,6 @@ import org.apache.cassandra.dht.Token.TokenFactory;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.hints.HintVerbHandler;
 import org.apache.cassandra.hints.HintsService;
-import org.apache.cassandra.dht.RangeStreamer;
-import org.apache.cassandra.dht.RingPosition;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.UnavailableException;
@@ -206,9 +203,24 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return isShutdown;
     }
 
+    public List<Range<Token>> getLocalAndPendingRanges(String ks)
+    {
+        InetAddress broadcastAddress = FBUtilities.getBroadcastAddress();
+        Keyspace keyspace = Keyspace.open(ks);
+        List<Range<Token>> ranges = new ArrayList<>();
+        ranges.addAll(keyspace.getReplicationStrategy().getAddressRanges().get(broadcastAddress));
+        ranges.addAll(getTokenMetadata().getPendingRanges(ks, broadcastAddress));
+        return Range.normalize(ranges);
+    }
+
     public Collection<Range<Token>> getLocalRanges(String keyspaceName)
     {
         return getRangesForEndpoint(keyspaceName, FBUtilities.getBroadcastAddress());
+    }
+
+    public OwnedRanges getNormalizedLocalRanges(String keyspaceName)
+    {
+        return new OwnedRanges(getLocalRanges(keyspaceName));
     }
 
     public Collection<Range<Token>> getPrimaryRanges(String keyspace)
@@ -3639,6 +3651,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return liveEps;
     }
 
+    public boolean isEndpointValidForWrite(String keyspace, Token token)
+    {
+        return Iterables.any(getNaturalAndPendingEndpoints(keyspace, token),
+                             FBUtilities.getBroadcastAddress()::equals);
+    }
+
     public void setLoggingLevel(String classQualifier, String rawLevel) throws Exception
     {
         final Class<?> logClass = this.getClass().getClassLoader().loadClass(classQualifier);
@@ -5157,5 +5175,35 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void setKeyspaceQuotaEnabled(boolean enabled)
     {
         DatabaseDescriptor.setKeyspaceQuotasEnabled(enabled);
+    }
+
+    public boolean isOutOfTokenRangeRequestLoggingEnabled()
+    {
+        return DatabaseDescriptor.getLogOutOfTokenRangeRequests();
+    }
+
+    public void setOutOfTokenRangeRequestLoggingEnabled(boolean enabled)
+    {
+        if (enabled)
+            logger.info("Enabling logging of requests on tokens outside owned ranges");
+        else
+            logger.info("Disabling logging of requests on tokens outside owned ranges");
+
+        DatabaseDescriptor.setLogOutOfTokenRangeRequests(enabled);
+    }
+
+    public boolean isOutOfTokenRangeRequestRejectionEnabled()
+    {
+        return DatabaseDescriptor.getRejectOutOfTokenRangeRequests();
+    }
+
+    public void setOutOfTokenRangeRequestRejectionEnabled(boolean enabled)
+    {
+        if (enabled)
+            logger.info("Enabling rejection of requests on tokens outside owned ranges");
+        else
+            logger.info("Disabling rejection of requests on tokens outside owned ranges");
+
+        DatabaseDescriptor.setRejectOutOfTokenRangeRequests(enabled);
     }
 }
