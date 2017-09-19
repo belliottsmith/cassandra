@@ -63,6 +63,9 @@ public class HintedHandoffMetrics
     /** Histogram of all hint delivery delays */
     private final Histogram globalDelayHistogram = Metrics.histogram(factory.createMetricName("Hint_delays"), false);
 
+    /** Counter of hints received whose mutations are for keys outside the owned and pending ranges for this node */
+    private final Counter hintsReceivedForUnownedRanges = Metrics.counter(factory.createMetricName("Hints_for_unowned_ranges"));
+
     /** Histograms per-endpoint of hint delivery delays, This is not a cache. */
     private final LoadingCache<InetAddress, Histogram> delayByEndpoint = CacheBuilder.newBuilder().build(new CacheLoader<InetAddress, Histogram>()
     {
@@ -92,6 +95,11 @@ public class HintedHandoffMetrics
     public void incrPastWindow(InetAddress address)
     {
         notStored.getUnchecked(address).mark();
+    }
+
+    public void incrHintsReceivedForUnownedRanges()
+    {
+        hintsReceivedForUnownedRanges.inc();
     }
 
     public void log()
