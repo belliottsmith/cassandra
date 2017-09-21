@@ -319,6 +319,13 @@ public class Config
 
     public Boolean disable_incremental_repair = true;
 
+    /**
+     * number of seconds to set nowInSec into the future when performing validation previews against repaired data
+     * this (attempts) to prevent a race where validations on different machines are started on different sides of
+     * a tombstone being compacted away
+     */
+    public volatile int validation_preview_purge_head_start_in_sec = 60 * 60;
+
     // TTL for different types of trace events.
     public int tracetype_query_ttl = (int) TimeUnit.DAYS.toSeconds(1);
     public int tracetype_repair_ttl = (int) TimeUnit.DAYS.toSeconds(7);

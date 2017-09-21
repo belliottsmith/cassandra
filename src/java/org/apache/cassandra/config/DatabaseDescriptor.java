@@ -2325,6 +2325,12 @@ public class DatabaseDescriptor
         return conf.repair_command_pool_size;
     }
 
+    public static int getValidationPreviewPurgeHeadStartInSec()
+    {
+        int seconds = conf.validation_preview_purge_head_start_in_sec;
+        return seconds > 0 ? seconds : 0;
+    }
+
     public static Config.RepairCommandPoolFullStrategy getRepairCommandPoolFullStrategy()
     {
         return conf.repair_command_pool_full_strategy;
