@@ -1421,6 +1421,7 @@ public class CompactionManager implements CompactionManagerMBean
             }
             if (isSuspect)
             {
+                sstables.release();
                 throw new CompactionInterruptedException(sb.toString());
             }
         }
