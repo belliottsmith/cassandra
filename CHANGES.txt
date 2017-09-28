@@ -226,6 +226,7 @@
 
 3.0.15
  * AssertionError prepending to a list (CASSANDRA-13149)
+ * Fix ISE thrown by UPI.Serializer.hasNext() for some SELECT queries (CASSANDRA-13911)
  * Fix support for SuperColumn tables (CASSANDRA-12373)
  * Handle limit correctly on tables with strict liveness (CASSANDRA-13883)
  * Fix missing original update in TriggerExecutor (CASSANDRA-13894)
