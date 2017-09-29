@@ -25,7 +25,7 @@
     <property name="debuglevel" value="source,lines,vars"/>
 
     <!-- default version and SCM information -->
-    <property name="base.version" value="3.0.14"/>
+    <property name="base.version" value="3.0.15"/>
     <property name="scm.connection" value="scm:git://git.apache.org/cassandra.git"/>
     <property name="scm.developerConnection" value="scm:git://git.apache.org/cassandra.git"/>
     <property name="scm.url" value="http://git-wip-us.apache.org/repos/asf?p=cassandra.git;a=tree"/>
@@ -59,7 +59,6 @@
     <property name="test.classlistfile" value="testlist.txt"/>
     <property name="benchmark.name" value=""/>
     <property name="test.methods" value=""/>
-    <property name="test.runners" value="1"/>
     <property name="test.unit.src" value="${test.dir}/unit"/>
     <property name="test.long.src" value="${test.dir}/long"/>
     <property name="test.burn.src" value="${test.dir}/burn"/>
@@ -383,7 +382,7 @@
           <dependency groupId="org.apache.hadoop" artifactId="hadoop-minicluster" version="1.0.3">
 		    <exclusion groupId="asm" artifactId="asm"/> <!-- this is the outdated version 3.1 -->
           </dependency>
-          <dependency groupId="net.java.dev.jna" artifactId="jna" version="4.4.0"/>
+          <dependency groupId="net.java.dev.jna" artifactId="jna" version="4.2.2"/>
 
           <dependency groupId="org.jacoco" artifactId="org.jacoco.agent" version="${jacoco.version}"/>
           <dependency groupId="org.jacoco" artifactId="org.jacoco.ant" version="${jacoco.version}"/>
@@ -1228,11 +1227,13 @@
     classpath which only contains what we expect users to need.
   -->
   <target name="test-clientutil-jar" depends="build-test,jar" description="Test clientutil jar">
+    <mkdir dir="${build.test.dir}/output"/>
     <junit fork="on" forkmode="perTest" failureproperty="testfailed" maxmemory="1024m" timeout="${test.timeout}">
       <!-- Note that the test pass without that next line, but it prints an ugly error message -->
       <jvmarg value="-Djava.library.path=${build.lib}/sigar-bin"/>
-      <test name="org.apache.cassandra.serializers.ClientUtilsTest" />
+      <test name="org.apache.cassandra.serializers.ClientUtilsTest" todir="${build.test.dir}/output"/>
       <formatter type="brief" usefile="false" />
+      <formatter type="xml" usefile="true"/>
       <classpath>
         <pathelement location="${test.classes}" />
         <pathelement location="${build.dir}/${ant.project.name}-clientutil-${version}.jar" />
@@ -1629,12 +1630,25 @@
   <scriptdef name="testparallelhelper" language="javascript">
     <attribute name="testdelegate"/>
     <![CDATA[
-        var Integer = java.lang.Integer;
         sep = project.getProperty("path.separator");
         all = project.getProperty("all-test-classes").split(sep);
-        dir = project.getProperty("test.unit.src");
+        runners = project.getProperty("test.runners")
+        cores = project.getProperty("cores.count")
+        mem = project.getProperty("mem.size")
 
-        numRunners = parseInt(project.getProperty("test.runners"));
+        numRunners = 1
+        if (runners != null) // there's test.runners override
+            numRunners = parseInt(runners) || 1;
+        else if (cores != null && mem != null) // only if cores and memory size is set
+            numRunners = Math.min(Math.floor(Math.sqrt(parseInt(cores) || 1)),
+                                  Math.floor((parseInt(mem) || 1)/(4*1024*1024*1024)));
+
+        if (numRunners < 1)
+            numRunners = 1
+
+        var echo = project.createTask("echo");
+        echo.setMessage("Number of test runners: " + numRunners);
+        echo.perform();
 
         var p = project.createTask('parallel');
         p.setThreadCount(numRunners);
@@ -1656,7 +1670,42 @@
     ]]>
   </scriptdef>
 
-  <target name="test" depends="build-test" description="Parallel Test Runner">
+  <target name="get-cores">
+    <property environment="env"/>
+    <!-- support for Windows -->
+    <condition property="cores.count" value="${env.NUMBER_OF_PROCESSORS}">
+      <os family="windows" />
+    </condition>
+    <!-- support for Linux and Solaris (package SUNWgnu-coreutils is required) -->
+    <exec executable="nproc" outputproperty="cores.count" os="Linux,SunOS,Solaris" failifexecutionfails="false">
+      <arg value="--all"/>
+    </exec>
+    <!-- support for Mac OS X -->
+    <exec executable="sysctl" outputproperty="cores.count" os="Mac,Mac OS X,Darwin" failifexecutionfails="false">
+      <arg value="-n"/>
+      <arg value="hw.ncpu"/>
+    </exec>
+    <echo message="Number of cores: ${cores.count}"/>
+  </target>
+
+  <target name="get-mem">
+    <condition property="mem.size" value="unknown">
+      <os family="windows" />
+    </condition>
+    <!-- support for Linux and Solaris (package SUNWgnu-coreutils is required) -->
+    <exec executable="bash" outputproperty="mem.size" os="Linux,SunOS,Solaris" failifexecutionfails="false">
+      <arg value="-c"/>
+      <arg value="free -b | grep Mem: | awk '{print $2}'"/>
+    </exec>
+    <!-- support for Mac OS X -->
+    <exec executable="sysctl" outputproperty="mem.size" os="Mac,Mac OS X,Darwin" failifexecutionfails="false">
+      <arg value="-n"/>
+      <arg value="hw.memsize"/>
+    </exec>
+    <echo message="Mem size : ${mem.size}"/>
+  </target>
+
+  <target name="test" depends="build-test,get-cores,get-mem" description="Parallel Test Runner">
     <path id="all-test-classes-path">
       <fileset dir="${test.unit.src}" includes="**/${test.name}.java" />
     </path>
@@ -1937,4 +1986,5 @@
             file="${build.dir}/${final.name}-javadoc.jar"
             classifier="javadoc"/>
   </target>
+
 </project>
