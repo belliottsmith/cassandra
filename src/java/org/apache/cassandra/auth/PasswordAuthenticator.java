@@ -169,6 +169,20 @@ public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, 
         return true;
     }
 
+    protected static boolean checkpw(String password, String hash)
+    {
+        try
+        {
+            return BCrypt.checkpw(password, hash);
+        }
+        catch (Exception e)
+        {
+            // Improperly formatted hashes may cause BCrypt.checkpw to throw, so trap any other exception as a failure
+            logger.warn("Error: invalid password hash encountered, rejecting user", e);
+            return false;
+        }
+    }
+
     private AuthenticatedUser authenticate(String username, String password) throws AuthenticationException
     {
         try
@@ -178,7 +192,7 @@ public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, 
             if (storedPasswordHash == DELETED_HASH_SENTINEL)
                 cache.invalidate(username);
 
-            if (storedPasswordHash == null || !BCrypt.checkpw(password, storedPasswordHash))
+            if (storedPasswordHash == null || !checkpw(password, storedPasswordHash))
                 throw new AuthenticationException("Username and/or password are incorrect");
 
             return new AuthenticatedUser(username);

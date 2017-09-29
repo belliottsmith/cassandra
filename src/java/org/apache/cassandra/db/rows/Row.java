@@ -103,8 +103,13 @@ public interface Row extends Unfiltered, Collection<ColumnData>
 
     /**
      * Whether the row has some live information (i.e. it's not just deletion informations).
+     * 
+     * @param nowInSec the current time to decide what is deleted and what isn't
+     * @param enforceStrictLiveness whether the row should be purged if there is no PK liveness info,
+     *                              normally retrieved from {@link CFMetaData#enforceStrictLiveness()}
+     * @return true if there is some live information
      */
-    public boolean hasLiveData(int nowInSec);
+    public boolean hasLiveData(int nowInSec, boolean enforceStrictLiveness);
 
     /**
      * Returns a cell for a simple column.
@@ -200,10 +205,20 @@ public interface Row extends Unfiltered, Collection<ColumnData>
      *
      * @param purger the {@code DeletionPurger} to use to decide what can be purged.
      * @param nowInSec the current time to decide what is deleted and what isn't (in the case of expired cells).
+     * @param enforceStrictLiveness whether the row should be purged if there is no PK liveness info,
+     *                              normally retrieved from {@link CFMetaData#enforceStrictLiveness()}
+     *
+     *        When enforceStrictLiveness is set, rows with empty PK liveness info
+     *        and no row deletion are purged.
+     *
+     *        Currently this is only used by views with normal base column as PK column
+     *        so updates to other base columns do not make the row live when the PK column
+     *        is not live. See CASSANDRA-11500.
+     *
      * @return this row but without any deletion info purged by {@code purger}. If the purged row is empty, returns
      * {@code null}.
      */
-    public Row purge(DeletionPurger purger, int nowInSec);
+    public Row purge(DeletionPurger purger, int nowInSec, boolean enforceStrictLiveness);
 
     /**
      * Returns a copy of this row where all counter cells have they "local" shard marked for clearing.
@@ -215,7 +230,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
      * timestamp by {@code newTimestamp - 1}.
      *
      * @param newTimestamp the timestamp to use for all live data in the returned row.
-     * @param a copy of this row with timestamp updated using {@code newTimestamp}. This can return {@code null} in the
+     * @return a copy of this row with timestamp updated using {@code newTimestamp}. This can return {@code null} in the
      * rare where the row only as a shadowable row deletion and the new timestamp supersedes it.
      *
      * @see Commit for why we need this.
@@ -277,6 +292,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
             return time.isLive() ? LIVE : new Deletion(time, false);
         }
 
+        @Deprecated
         public static Deletion shadowable(DeletionTime time)
         {
             return new Deletion(time, true);
@@ -601,8 +617,23 @@ public interface Row extends Unfiltered, Collection<ColumnData>
 
             public void reduce(int idx, ColumnData data)
             {
-                column = data.column();
+                if (useColumnDefinition(data.column()))
+                    column = data.column();
+
                 versions.add(data);
+            }
+
+            /**
+             * Determines it the {@code ColumnDefinition} is the one that should be used.
+             * @param dataColumn the {@code ColumnDefinition} to use.
+             * @return {@code true} if the {@code ColumnDefinition} is the one that should be used, {@code false} otherwise.
+             */
+            private boolean useColumnDefinition(ColumnDefinition dataColumn)
+            {
+                if (column == null)
+                    return true;
+
+                return AbstractTypeVersionComparator.INSTANCE.compare(column.type, dataColumn.type) < 0;
             }
 
             protected ColumnData getReduced()
@@ -654,6 +685,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
 
             protected void onKeyChange()
             {
+                column = null;
                 versions.clear();
             }
         }

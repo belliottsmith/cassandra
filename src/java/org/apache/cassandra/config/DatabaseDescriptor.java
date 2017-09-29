@@ -21,7 +21,6 @@ import java.io.File;
 import java.io.IOException;
 import java.net.*;
 import java.nio.file.FileStore;
-import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -57,6 +56,9 @@ import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.thrift.ThriftServer;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.memory.*;
+
+import static org.apache.cassandra.io.util.FileUtils.ONE_GB;
+import static org.apache.cassandra.io.util.FileUtils.ONE_MB;
 
 public class DatabaseDescriptor
 {
@@ -445,6 +447,9 @@ public class DatabaseDescriptor
 
         if (conf.native_transport_max_frame_size_in_mb <= 0)
             throw new ConfigurationException("native_transport_max_frame_size_in_mb must be positive, but was " + conf.native_transport_max_frame_size_in_mb, false);
+        else if (conf.native_transport_max_frame_size_in_mb >= 2048)
+            throw new ConfigurationException("native_transport_max_frame_size_in_mb must be smaller than 2048, but was "
+                    + conf.native_transport_max_frame_size_in_mb, false);
 
         // fail early instead of OOMing (see CASSANDRA-8116)
         if (ThriftServer.HSHA.equals(conf.rpc_server_type) && conf.rpc_max_threads == Integer.MAX_VALUE)
@@ -540,7 +545,7 @@ public class DatabaseDescriptor
             try
             {
                 // use 1/4 of available space.  See discussion on #10013 and #10199
-                minSize = Ints.checkedCast((guessFileStore(conf.commitlog_directory).getTotalSpace() / 1048576) / 4);
+                minSize = Ints.saturatedCast((guessFileStore(conf.commitlog_directory).getTotalSpace() / 1048576) / 4);
             }
             catch (IOException e)
             {
@@ -579,6 +584,8 @@ public class DatabaseDescriptor
         /* data file and commit log directories. they get created later, when they're needed. */
         for (String datadir : conf.data_file_directories)
         {
+            if (datadir == null)
+                throw new ConfigurationException("data_file_directories must not contain empty entry", false);
             if (datadir.equals(conf.commitlog_directory))
                 throw new ConfigurationException("commitlog_directory must not be the same as any data_file_directories", false);
             if (datadir.equals(conf.hints_directory))
@@ -588,7 +595,7 @@ public class DatabaseDescriptor
 
             try
             {
-                dataFreeBytes += guessFileStore(datadir).getUnallocatedSpace();
+                dataFreeBytes = saturatedSum(dataFreeBytes, guessFileStore(datadir).getUnallocatedSpace());
             }
             catch (IOException e)
             {
@@ -597,9 +604,9 @@ public class DatabaseDescriptor
                                                                datadir), e);
             }
         }
-        if (dataFreeBytes < 64L * 1024 * 1048576) // 64 GB
+        if (dataFreeBytes < 64 * ONE_GB)
             logger.warn("Only {} MB free across all data volumes. Consider adding more capacity to your cluster or removing obsolete snapshots",
-                        dataFreeBytes / 1048576);
+                        dataFreeBytes / ONE_MB);
 
 
         if (conf.commitlog_directory.equals(conf.saved_caches_directory))
@@ -724,6 +731,13 @@ public class DatabaseDescriptor
         if (conf.user_defined_function_fail_timeout < conf.user_defined_function_warn_timeout)
             throw new ConfigurationException("user_defined_function_warn_timeout must less than user_defined_function_fail_timeout", false);
 
+        if (conf.commitlog_segment_size_in_mb <= 0)
+            throw new ConfigurationException("commitlog_segment_size_in_mb must be positive, but was "
+                    + conf.commitlog_segment_size_in_mb, false);
+        else if (conf.commitlog_segment_size_in_mb >= 2048)
+            throw new ConfigurationException("commitlog_segment_size_in_mb must be smaller than 2048, but was "
+                    + conf.commitlog_segment_size_in_mb, false);
+
         if (conf.max_mutation_size_in_kb == null)
             conf.max_mutation_size_in_kb = conf.commitlog_segment_size_in_mb * 1024 / 2;
         else if (conf.commitlog_segment_size_in_mb * 1024 < 2 * conf.max_mutation_size_in_kb)
@@ -739,12 +753,29 @@ public class DatabaseDescriptor
 
         if (conf.max_value_size_in_mb == null || conf.max_value_size_in_mb <= 0)
             throw new ConfigurationException("max_value_size_in_mb must be positive", false);
+        else if (conf.max_value_size_in_mb >= 2048)
+            throw new ConfigurationException("max_value_size_in_mb must be smaller than 2048, but was "
+                    + conf.max_value_size_in_mb, false);
 
         if (conf.otc_coalescing_enough_coalesced_messages > 128)
             throw new ConfigurationException("otc_coalescing_enough_coalesced_messages must be smaller than 128", false);
 
         if (conf.otc_coalescing_enough_coalesced_messages <= 0)
             throw new ConfigurationException("otc_coalescing_enough_coalesced_messages must be positive", false);
+    }
+
+    /**
+     * Computes the sum of the 2 specified positive values returning {@code Long.MAX_VALUE} if the sum overflow.
+     *
+     * @param left the left operand
+     * @param right the right operand
+     * @return the sum of the 2 specified positive values of {@code Long.MAX_VALUE} if the sum overflow.
+     */
+    private static long saturatedSum(long left, long right)
+    {
+        assert left >= 0 && right >= 0;
+        long sum = left + right;
+        return sum < 0 ? Long.MAX_VALUE : sum;
     }
 
     private static FileStore guessFileStore(String dir) throws IOException
@@ -754,7 +785,7 @@ public class DatabaseDescriptor
         {
             try
             {
-                return Files.getFileStore(path);
+                return FileUtils.getFileStore(path);
             }
             catch (IOException e)
             {

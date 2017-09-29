@@ -20,6 +20,7 @@ package org.apache.cassandra.db.filter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.partitions.*;
@@ -46,19 +47,23 @@ public abstract class DataLimits
     public static final DataLimits NONE = new CQLLimits(NO_LIMIT)
     {
         @Override
-        public boolean hasEnoughLiveData(CachedPartition cached, int nowInSec)
+        public boolean hasEnoughLiveData(CachedPartition cached, int nowInSec, boolean countPartitionsWithOnlyStaticData, boolean enforceStrictLiveness)
         {
             return false;
         }
 
         @Override
-        public UnfilteredPartitionIterator filter(UnfilteredPartitionIterator iter, int nowInSec)
+        public UnfilteredPartitionIterator filter(UnfilteredPartitionIterator iter,
+                                                  int nowInSec,
+                                                  boolean countPartitionsWithOnlyStaticData)
         {
             return iter;
         }
 
         @Override
-        public UnfilteredRowIterator filter(UnfilteredRowIterator iter, int nowInSec)
+        public UnfilteredRowIterator filter(UnfilteredRowIterator iter,
+                                            int nowInSec,
+                                            boolean countPartitionsWithOnlyStaticData)
         {
             return iter;
         }
@@ -105,7 +110,10 @@ public abstract class DataLimits
 
     public abstract DataLimits forShortReadRetry(int toFetch);
 
-    public abstract boolean hasEnoughLiveData(CachedPartition cached, int nowInSec);
+    public abstract boolean hasEnoughLiveData(CachedPartition cached,
+                                              int nowInSec,
+                                              boolean countPartitionsWithOnlyStaticData,
+                                              boolean enforceStrictLiveness);
 
     /**
      * Returns a new {@code Counter} for this limits.
@@ -114,9 +122,16 @@ public abstract class DataLimits
      * @param assumeLiveData if true, the counter will assume that every row passed is live and won't
      * thus check for liveness, otherwise it will. This should be {@code true} when used on a
      * {@code RowIterator} (since it only returns live rows), false otherwise.
+     * @param countPartitionsWithOnlyStaticData if {@code true} the partitions with only static data should be counted
+     * as 1 valid row.
+     * @param enforceStrictLiveness whether the row should be purged if there is no PK liveness info,
+     *                              normally retrieved from {@link CFMetaData#enforceStrictLiveness()}
      * @return a new {@code Counter} for this limits.
      */
-    public abstract Counter newCounter(int nowInSec, boolean assumeLiveData);
+    public abstract Counter newCounter(int nowInSec,
+                                       boolean assumeLiveData,
+                                       boolean countPartitionsWithOnlyStaticData,
+                                       boolean enforceStrictLiveness);
 
     /**
      * The max number of results this limits enforces.
@@ -130,19 +145,31 @@ public abstract class DataLimits
 
     public abstract int perPartitionCount();
 
-    public UnfilteredPartitionIterator filter(UnfilteredPartitionIterator iter, int nowInSec)
+    public UnfilteredPartitionIterator filter(UnfilteredPartitionIterator iter,
+                                              int nowInSec,
+                                              boolean countPartitionsWithOnlyStaticData)
     {
-        return this.newCounter(nowInSec, false).applyTo(iter);
+        return this.newCounter(nowInSec,
+                               false,
+                               countPartitionsWithOnlyStaticData,
+                               iter.metadata().enforceStrictLiveness())
+                   .applyTo(iter);
     }
 
-    public UnfilteredRowIterator filter(UnfilteredRowIterator iter, int nowInSec)
+    public UnfilteredRowIterator filter(UnfilteredRowIterator iter,
+                                        int nowInSec,
+                                        boolean countPartitionsWithOnlyStaticData)
     {
-        return this.newCounter(nowInSec, false).applyTo(iter);
+        return this.newCounter(nowInSec,
+                               false,
+                               countPartitionsWithOnlyStaticData,
+                               iter.metadata().enforceStrictLiveness())
+                   .applyTo(iter);
     }
 
-    public PartitionIterator filter(PartitionIterator iter, int nowInSec)
+    public PartitionIterator filter(PartitionIterator iter, int nowInSec, boolean countPartitionsWithOnlyStaticData, boolean enforceStrictLiveness)
     {
-        return this.newCounter(nowInSec, true).applyTo(iter);
+        return this.newCounter(nowInSec, true, countPartitionsWithOnlyStaticData, enforceStrictLiveness).applyTo(iter);
     }
 
     /**
@@ -291,7 +318,7 @@ public abstract class DataLimits
             return new CQLLimits(toFetch, NO_LIMIT, isDistinct);
         }
 
-        public boolean hasEnoughLiveData(CachedPartition cached, int nowInSec)
+        public boolean hasEnoughLiveData(CachedPartition cached, int nowInSec, boolean countPartitionsWithOnlyStaticData, boolean enforceStrictLiveness)
         {
             // We want the number of row that are currently live. Getting that precise number forces
             // us to iterate the cached partition in general, but we can avoid that if:
@@ -306,7 +333,7 @@ public abstract class DataLimits
 
             // Otherwise, we need to re-count
 
-            DataLimits.Counter counter = newCounter(nowInSec, false);
+            DataLimits.Counter counter = newCounter(nowInSec, false, countPartitionsWithOnlyStaticData, enforceStrictLiveness);
             try (UnfilteredRowIterator cacheIter = cached.unfilteredIterator(ColumnFilter.selection(cached.columns()), Slices.ALL, false);
                  UnfilteredRowIterator iter = counter.applyTo(cacheIter))
             {
@@ -317,9 +344,12 @@ public abstract class DataLimits
             }
         }
 
-        public Counter newCounter(int nowInSec, boolean assumeLiveData)
+        public Counter newCounter(int nowInSec,
+                                  boolean assumeLiveData,
+                                  boolean countPartitionsWithOnlyStaticData,
+                                  boolean enforceStrictLiveness)
         {
-            return new CQLCounter(nowInSec, assumeLiveData);
+            return new CQLCounter(nowInSec, assumeLiveData, countPartitionsWithOnlyStaticData, enforceStrictLiveness);
         }
 
         public int count()
@@ -344,29 +374,36 @@ public abstract class DataLimits
         {
             protected final int nowInSec;
             protected final boolean assumeLiveData;
+            protected final boolean countPartitionsWithOnlyStaticData;
 
             protected int rowCounted;
             protected int rowInCurrentPartition;
 
             protected boolean hasLiveStaticRow;
+            private final boolean enforceStrictLiveness;
 
-            public CQLCounter(int nowInSec, boolean assumeLiveData)
+            public CQLCounter(int nowInSec,
+                              boolean assumeLiveData,
+                              boolean countPartitionsWithOnlyStaticData,
+                              boolean enforceStrictLiveness)
             {
                 this.nowInSec = nowInSec;
                 this.assumeLiveData = assumeLiveData;
+                this.countPartitionsWithOnlyStaticData = countPartitionsWithOnlyStaticData;
+                this.enforceStrictLiveness = enforceStrictLiveness;
             }
 
             @Override
             public void applyToPartition(DecoratedKey partitionKey, Row staticRow)
             {
                 rowInCurrentPartition = 0;
-                hasLiveStaticRow = !staticRow.isEmpty() && (assumeLiveData || staticRow.hasLiveData(nowInSec));
+                hasLiveStaticRow = !staticRow.isEmpty() && (assumeLiveData || staticRow.hasLiveData(nowInSec, enforceStrictLiveness));
             }
 
             @Override
             public Row applyToRow(Row row)
             {
-                if (assumeLiveData || row.hasLiveData(nowInSec))
+                if (assumeLiveData || row.hasLiveData(nowInSec, enforceStrictLiveness))
                     incrementRowCount();
                 return row;
             }
@@ -377,7 +414,7 @@ public abstract class DataLimits
                 // Normally, we don't count static rows as from a CQL point of view, it will be merge with other
                 // rows in the partition. However, if we only have the static row, it will be returned as one row
                 // so count it.
-                if (hasLiveStaticRow && rowInCurrentPartition == 0)
+                if (countPartitionsWithOnlyStaticData && hasLiveStaticRow && rowInCurrentPartition == 0)
                     incrementRowCount();
                 super.onPartitionClose();
             }
@@ -461,16 +498,19 @@ public abstract class DataLimits
         }
 
         @Override
-        public Counter newCounter(int nowInSec, boolean assumeLiveData)
+        public Counter newCounter(int nowInSec, boolean assumeLiveData, boolean countPartitionsWithOnlyStaticData, boolean enforceStrictLiveness)
         {
-            return new PagingAwareCounter(nowInSec, assumeLiveData);
+            return new PagingAwareCounter(nowInSec, assumeLiveData, countPartitionsWithOnlyStaticData, enforceStrictLiveness);
         }
 
         private class PagingAwareCounter extends CQLCounter
         {
-            private PagingAwareCounter(int nowInSec, boolean assumeLiveData)
+            private PagingAwareCounter(int nowInSec,
+                                       boolean assumeLiveData,
+                                       boolean countPartitionsWithOnlyStaticData,
+                                       boolean enforceStrictLiveness)
             {
-                super(nowInSec, assumeLiveData);
+                super(nowInSec, assumeLiveData, countPartitionsWithOnlyStaticData, enforceStrictLiveness);
             }
 
             @Override
@@ -544,7 +584,7 @@ public abstract class DataLimits
             return new ThriftLimits(1, toFetch);
         }
 
-        public boolean hasEnoughLiveData(CachedPartition cached, int nowInSec)
+        public boolean hasEnoughLiveData(CachedPartition cached, int nowInSec, boolean countPartitionsWithOnlyStaticData, boolean enforceStrictLiveness)
         {
             // We want the number of cells that are currently live. Getting that precise number forces
             // us to iterate the cached partition in general, but we can avoid that if:
@@ -558,7 +598,7 @@ public abstract class DataLimits
                 return false;
 
             // Otherwise, we need to re-count
-            DataLimits.Counter counter = newCounter(nowInSec, false);
+            DataLimits.Counter counter = newCounter(nowInSec, false, countPartitionsWithOnlyStaticData, enforceStrictLiveness);
             try (UnfilteredRowIterator cacheIter = cached.unfilteredIterator(ColumnFilter.selection(cached.columns()), Slices.ALL, false);
                  UnfilteredRowIterator iter = counter.applyTo(cacheIter))
             {
@@ -569,7 +609,7 @@ public abstract class DataLimits
             }
         }
 
-        public Counter newCounter(int nowInSec, boolean assumeLiveData)
+        public Counter newCounter(int nowInSec, boolean assumeLiveData, boolean countPartitionsWithOnlyStaticData, boolean enforceStrictLiveness)
         {
             return new ThriftCounter(nowInSec, assumeLiveData);
         }
@@ -698,23 +738,27 @@ public abstract class DataLimits
             return new SuperColumnCountingLimits(1, toFetch);
         }
 
-        public Counter newCounter(int nowInSec, boolean assumeLiveData)
+        @Override
+        public Counter newCounter(int nowInSec, boolean assumeLiveData, boolean countPartitionsWithOnlyStaticData, boolean enforceStrictLiveness)
         {
-            return new SuperColumnCountingCounter(nowInSec, assumeLiveData);
+            return new SuperColumnCountingCounter(nowInSec, assumeLiveData, enforceStrictLiveness);
         }
 
         protected class SuperColumnCountingCounter extends ThriftCounter
         {
-            public SuperColumnCountingCounter(int nowInSec, boolean assumeLiveData)
+            private final boolean enforceStrictLiveness;
+
+            public SuperColumnCountingCounter(int nowInSec, boolean assumeLiveData, boolean enforceStrictLiveness)
             {
                 super(nowInSec, assumeLiveData);
+                this.enforceStrictLiveness = enforceStrictLiveness;
             }
 
             @Override
             public Row applyToRow(Row row)
             {
                 // In the internal format, a row == a super column, so that's what we want to count.
-                if (assumeLiveData || row.hasLiveData(nowInSec))
+                if (assumeLiveData || row.hasLiveData(nowInSec, enforceStrictLiveness))
                 {
                     ++cellsCounted;
                     if (++cellsInCurrentPartition >= cellPerPartitionLimit)

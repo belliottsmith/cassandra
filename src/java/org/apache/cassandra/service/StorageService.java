@@ -1484,8 +1484,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 @Override
                 public void onFailure(Throwable e)
                 {
-                    String message = "Error during bootstrap: " + e.getCause().getMessage();
-                    logger.error(message, e.getCause());
+                    String message = "Error during bootstrap: ";
+                    if (e instanceof ExecutionException && e.getCause() != null)
+                    {
+                        message += e.getCause().getMessage();
+                    }
+                    else
+                    {
+                        message += e.getMessage();
+                    }
+                    logger.error(message, e);
                     progressSupport.progress("bootstrap", new ProgressEvent(ProgressEventType.ERROR, 1, 1, message));
                     progressSupport.progress("bootstrap", new ProgressEvent(ProgressEventType.COMPLETE, 1, 1, "Resume bootstrap complete"));
                 }
@@ -1894,23 +1902,24 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
             if (getTokenMetadata().isMember(endpoint))
             {
+                final ExecutorService executor = StageManager.getStage(Stage.MUTATION);
                 switch (state)
                 {
                     case RELEASE_VERSION:
-                        SystemKeyspace.updatePeerInfo(endpoint, "release_version", value.value);
+                        SystemKeyspace.updatePeerInfo(endpoint, "release_version", value.value, executor);
                         break;
                     case DC:
                         updateTopology(endpoint);
-                        SystemKeyspace.updatePeerInfo(endpoint, "data_center", value.value);
+                        SystemKeyspace.updatePeerInfo(endpoint, "data_center", value.value, executor);
                         break;
                     case RACK:
                         updateTopology(endpoint);
-                        SystemKeyspace.updatePeerInfo(endpoint, "rack", value.value);
+                        SystemKeyspace.updatePeerInfo(endpoint, "rack", value.value, executor);
                         break;
                     case RPC_ADDRESS:
                         try
                         {
-                            SystemKeyspace.updatePeerInfo(endpoint, "rpc_address", InetAddress.getByName(value.value));
+                            SystemKeyspace.updatePeerInfo(endpoint, "rpc_address", InetAddress.getByName(value.value), executor);
                         }
                         catch (UnknownHostException e)
                         {
@@ -1918,11 +1927,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         }
                         break;
                     case SCHEMA:
-                        SystemKeyspace.updatePeerInfo(endpoint, "schema_version", UUID.fromString(value.value));
+                        SystemKeyspace.updatePeerInfo(endpoint, "schema_version", UUID.fromString(value.value), executor);
                         MigrationManager.instance.scheduleSchemaPull(endpoint, epState);
                         break;
                     case HOST_ID:
-                        SystemKeyspace.updatePeerInfo(endpoint, "host_id", UUID.fromString(value.value));
+                        SystemKeyspace.updatePeerInfo(endpoint, "host_id", UUID.fromString(value.value), executor);
                         break;
                     case RPC_READY:
                         notifyRpcChange(endpoint, epState.isRpcReady());
@@ -1968,23 +1977,24 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private void updatePeerInfo(InetAddress endpoint)
     {
         EndpointState epState = Gossiper.instance.getEndpointStateForEndpoint(endpoint);
+        final ExecutorService executor = StageManager.getStage(Stage.MUTATION);
         for (Map.Entry<ApplicationState, VersionedValue> entry : epState.states())
         {
             switch (entry.getKey())
             {
                 case RELEASE_VERSION:
-                    SystemKeyspace.updatePeerInfo(endpoint, "release_version", entry.getValue().value);
+                    SystemKeyspace.updatePeerInfo(endpoint, "release_version", entry.getValue().value, executor);
                     break;
                 case DC:
-                    SystemKeyspace.updatePeerInfo(endpoint, "data_center", entry.getValue().value);
+                    SystemKeyspace.updatePeerInfo(endpoint, "data_center", entry.getValue().value, executor);
                     break;
                 case RACK:
-                    SystemKeyspace.updatePeerInfo(endpoint, "rack", entry.getValue().value);
+                    SystemKeyspace.updatePeerInfo(endpoint, "rack", entry.getValue().value, executor);
                     break;
                 case RPC_ADDRESS:
                     try
                     {
-                        SystemKeyspace.updatePeerInfo(endpoint, "rpc_address", InetAddress.getByName(entry.getValue().value));
+                        SystemKeyspace.updatePeerInfo(endpoint, "rpc_address", InetAddress.getByName(entry.getValue().value), executor);
                     }
                     catch (UnknownHostException e)
                     {
@@ -1992,10 +2002,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                     }
                     break;
                 case SCHEMA:
-                    SystemKeyspace.updatePeerInfo(endpoint, "schema_version", UUID.fromString(entry.getValue().value));
+                    SystemKeyspace.updatePeerInfo(endpoint, "schema_version", UUID.fromString(entry.getValue().value), executor);
                     break;
                 case HOST_ID:
-                    SystemKeyspace.updatePeerInfo(endpoint, "host_id", UUID.fromString(entry.getValue().value));
+                    SystemKeyspace.updatePeerInfo(endpoint, "host_id", UUID.fromString(entry.getValue().value), executor);
                     break;
             }
         }
@@ -2301,7 +2311,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 Gossiper.instance.replacementQuarantine(ep); // quarantine locally longer than normally; see CASSANDRA-8260
         }
         if (!tokensToUpdateInSystemKeyspace.isEmpty())
-            SystemKeyspace.updateTokens(endpoint, tokensToUpdateInSystemKeyspace);
+            SystemKeyspace.updateTokens(endpoint, tokensToUpdateInSystemKeyspace, StageManager.getStage(Stage.MUTATION));
 
         if (isMoving || operationMode == Mode.MOVING)
         {
@@ -3639,16 +3649,28 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public List<InetAddress> getLiveNaturalEndpoints(Keyspace keyspace, RingPosition pos)
     {
+        List<InetAddress> liveEps = new ArrayList<>();
+        getLiveNaturalEndpoints(keyspace, pos, liveEps);
+        return liveEps;
+    }
+
+    /**
+     * This method attempts to return N endpoints that are responsible for storing the
+     * specified key i.e for replication.
+     *
+     * @param keyspace keyspace name also known as keyspace
+     * @param pos position for which we need to find the endpoint
+     * @param liveEps the list of endpoints to mutate
+     */
+    public void getLiveNaturalEndpoints(Keyspace keyspace, RingPosition pos, List<InetAddress> liveEps)
+    {
         List<InetAddress> endpoints = keyspace.getReplicationStrategy().getNaturalEndpoints(pos);
-        List<InetAddress> liveEps = new ArrayList<>(endpoints.size());
 
         for (InetAddress endpoint : endpoints)
         {
             if (FailureDetector.instance.isAlive(endpoint))
                 liveEps.add(endpoint);
         }
-
-        return liveEps;
     }
 
     public boolean isEndpointValidForWrite(String keyspace, Token token)

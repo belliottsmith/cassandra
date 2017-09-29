@@ -206,7 +206,8 @@ public class ReadCommandVerbHandlerTest
                   RowFilter.NONE,
                   DataLimits.NONE,
                   cfm.decorateKey(ByteBufferUtil.bytes(key)),
-                  null);
+                  null,
+                    null);
 
             this.cfm = cfm;
         }
@@ -223,13 +224,16 @@ public class ReadCommandVerbHandlerTest
 
         StubRangeReadCommand(Range<Token> range, CFMetaData cfm)
         {
-            super(cfm,
+            super(false,
+                    0,
+                    false,
+                    cfm,
                   FBUtilities.nowInSeconds(),
                   ColumnFilter.all(cfm),
                   RowFilter.NONE,
                   DataLimits.NONE,
                   DataRange.forTokenRange(range),
-                  Optional.empty());
+                  null);
 
             this.cfm = cfm;
         }

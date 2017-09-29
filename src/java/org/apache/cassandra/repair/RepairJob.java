@@ -198,9 +198,6 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
                 setException(t);
             }
         }, taskExecutor);
-
-        // Wait for validation to complete
-        Futures.getUnchecked(validations);
     }
 
     /**

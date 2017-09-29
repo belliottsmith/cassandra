@@ -59,8 +59,10 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.index.SecondaryIndexManager;
 import org.apache.cassandra.index.internal.CassandraIndex;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
+import org.apache.cassandra.io.FSError;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.sstable.Component;
+import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.*;
@@ -738,7 +740,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             }
             catch (IOException e)
             {
-                SSTableReader.logOpenException(entry.getKey(), e);
+                FileUtils.handleCorruptSSTable(new CorruptSSTableException(e, entry.getKey().filenameFor(Component.STATS)));
+                logger.error("Cannot read sstable {}; other IO error, skipping table", entry, e);
                 continue;
             }
 
@@ -768,9 +771,22 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             {
                 reader = SSTableReader.open(newDescriptor, entry.getValue(), metadata);
             }
-            catch (IOException e)
+            catch (CorruptSSTableException ex)
             {
-                SSTableReader.logOpenException(entry.getKey(), e);
+                FileUtils.handleCorruptSSTable(ex);
+                logger.error("Corrupt sstable {}; skipping table", entry, ex);
+                continue;
+            }
+            catch (FSError ex)
+            {
+                FileUtils.handleFSError(ex);
+                logger.error("Cannot read sstable {}; file system error, skipping table", entry, ex);
+                continue;
+            }
+            catch (IOException ex)
+            {
+                FileUtils.handleCorruptSSTable(new CorruptSSTableException(ex, entry.getKey().filenameFor(Component.DATA)));
+                logger.error("Cannot read sstable {}; other IO error, skipping table", entry, ex);
                 continue;
             }
             newSSTables.add(reader);
@@ -875,7 +891,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             Flush flush = new Flush(false);
             flushExecutor.execute(flush);
             ListenableFutureTask<ReplayPosition> task = ListenableFutureTask.create(flush.postFlush);
-            postFlushExecutor.submit(task);
+            postFlushExecutor.execute(task);
             return task;
         }
     }
@@ -1529,7 +1545,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // is not in the cache. We can guarantee that if either the filter is a "head filter" and the cached
         // partition has more live rows that queried (where live rows refers to the rows that are live now),
         // or if we can prove that everything the filter selects is in the cached partition based on its content.
-        return (filter.isHeadFilter() && limits.hasEnoughLiveData(cached, nowInSec)) || filter.isFullyCoveredBy(cached);
+        return (filter.isHeadFilter() && limits.hasEnoughLiveData(cached,
+                                                                  nowInSec,
+                                                                  filter.selectsAllPartition(),
+                                                                  metadata.enforceStrictLiveness()))
+                || filter.isFullyCoveredBy(cached);
     }
 
     private boolean skipRFCheckForXmasPatch = false;
@@ -2656,7 +2676,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         long allColumns = 0;
         int localTime = (int)(System.currentTimeMillis()/1000);
 
-        for (SSTableReader sstable : getSSTables(SSTableSet.LIVE))
+        for (SSTableReader sstable : getSSTables(SSTableSet.CANONICAL))
         {
             allDroppable += sstable.getDroppableTombstonesBefore(localTime - sstable.metadata.params.gcGraceSeconds);
             allColumns += sstable.getEstimatedColumnCount().mean() * sstable.getEstimatedColumnCount().count();
@@ -2775,4 +2795,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return metric.coordinatorScanLatencyNanos.recentLatencyHistogram.getBuckets(true);
     }
 
+    public static TableMetrics metricsFor(UUID tableId)
+    {
+        return getIfExists(tableId).metric;
+    }
 }

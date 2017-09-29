@@ -87,7 +87,7 @@ public class CounterContext
      *
      * Important for handling counter writes and reads during rolling 2.1/2.2 -> 3.0 upgrades.
      */
-    private static final CounterId UPDATE_CLOCK_ID = CounterId.fromInt(0);
+    static final CounterId UPDATE_CLOCK_ID = CounterId.fromInt(0);
 
     private static final Logger logger = LoggerFactory.getLogger(CounterContext.class);
 

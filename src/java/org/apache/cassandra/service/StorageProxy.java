@@ -824,15 +824,16 @@ public class StorageProxy implements StorageProxyMBean
             else
             {
                 List<WriteResponseHandlerWrapper> wrappers = new ArrayList<>(mutations.size());
-                List<Mutation> nonPairedMutations = new LinkedList<>();
+                //non-local mutations rely on the base mutation commit-log entry for eventual consistency
+                Set<Mutation> nonLocalMutations = new HashSet<>(mutations);
                 Token baseToken = StorageService.instance.getTokenMetadata().partitioner.getToken(dataKey);
 
                 ConsistencyLevel consistencyLevel = ConsistencyLevel.ONE;
 
                 //Since the base -> view replication is 1:1 we only need to store the BL locally
                 final Collection<InetAddress> batchlogEndpoints = Collections.singleton(FBUtilities.getBroadcastAddress());
-                BatchlogResponseHandler.BatchlogCleanup cleanup = new BatchlogResponseHandler.BatchlogCleanup(mutations.size(),
-                                                                                                              () -> asyncRemoveFromBatchlog(batchlogEndpoints, batchUUID));
+                BatchlogResponseHandler.BatchlogCleanup cleanup = new BatchlogResponseHandler.BatchlogCleanup(mutations.size(), () -> asyncRemoveFromBatchlog(batchlogEndpoints, batchUUID));
+
                 // add a handler for each mutation - includes checking availability, but doesn't initiate any writes, yet
                 for (Mutation mutation : mutations)
                 {
@@ -841,61 +842,50 @@ public class StorageProxy implements StorageProxyMBean
                     Optional<InetAddress> pairedEndpoint = ViewUtils.getViewNaturalEndpoint(keyspaceName, baseToken, tk);
                     Collection<InetAddress> pendingEndpoints = StorageService.instance.getTokenMetadata().pendingEndpointsFor(tk, keyspaceName);
 
-                    if (pairedEndpoint.isPresent())
+                    // if there are no paired endpoints there are probably range movements going on, so we write to the local batchlog to replay later
+                    if (!pairedEndpoint.isPresent())
                     {
-                        // When local node is the endpoint and there are no pending nodes we can
-                        // Just apply the mutation locally.
-                        if (pairedEndpoint.get().equals(FBUtilities.getBroadcastAddress())
-                            && pendingEndpoints.isEmpty() && StorageService.instance.isJoined())
-                            try
-                            {
-                                mutation.apply(writeCommitLog);
-                            }
-                            catch (Exception exc)
-                            {
-                                logger.error("Error applying local view update to keyspace {}: {}", mutation.getKeyspaceName(), mutation);
-                                throw exc;
-                            }
-                        else
-                        {
-                            wrappers.add(wrapViewBatchResponseHandler(mutation,
-                                                                      consistencyLevel,
-                                                                      consistencyLevel,
-                                                                      Collections.singletonList(pairedEndpoint.get()),
-                                                                      baseComplete,
-                                                                      WriteType.BATCH,
-                                                                      cleanup));
-                        }
-                    }
-                    else
-                    {
-                        //if there are no paired endpoints there are probably range movements going on,
-                        //so we write to the local batchlog to replay later
                         if (pendingEndpoints.isEmpty())
                             logger.warn("Received base materialized view mutation for key {} that does not belong " +
                                         "to this node. There is probably a range movement happening (move or decommission)," +
                                         "but this node hasn't updated its ring metadata yet. Adding mutation to " +
                                         "local batchlog to be replayed later.",
                                         mutation.key());
-                        nonPairedMutations.add(mutation);
+                        continue;
+                    }
+
+                    // When local node is the paired endpoint just apply the mutation locally.
+                    if (pairedEndpoint.get().equals(FBUtilities.getBroadcastAddress()) && StorageService.instance.isJoined())
+                        try
+                        {
+                            mutation.apply(writeCommitLog);
+                            nonLocalMutations.remove(mutation);
+                            cleanup.ackMutation();
+                        }
+                        catch (Exception exc)
+                        {
+                            logger.error("Error applying local view update to keyspace {}: {}", mutation.getKeyspaceName(), mutation);
+                            throw exc;
+                        }
+                    else
+                    {
+                        wrappers.add(wrapViewBatchResponseHandler(mutation,
+                                                                  consistencyLevel,
+                                                                  consistencyLevel,
+                                                                  Collections.singletonList(pairedEndpoint.get()),
+                                                                  baseComplete,
+                                                                  WriteType.BATCH,
+                                                                  cleanup));
                     }
                 }
 
+                // Apply to local batchlog memtable in this thread
+                if (!nonLocalMutations.isEmpty())
+                    BatchlogManager.store(Batch.createLocal(batchUUID, FBUtilities.timestampMicros(), nonLocalMutations), writeCommitLog);
+
+                // Perform remote writes
                 if (!wrappers.isEmpty())
-                {
-                    // Apply to local batchlog memtable in this thread
-                    BatchlogManager.store(Batch.createLocal(batchUUID, FBUtilities.timestampMicros(), Lists.transform(wrappers, w -> w.mutation)),
-                                          writeCommitLog);
-
-                    // now actually perform the writes and wait for them to complete
                     asyncWriteBatchedMutations(wrappers, localDataCenter, Stage.VIEW_MUTATION);
-                }
-
-                if (!nonPairedMutations.isEmpty())
-                {
-                    BatchlogManager.store(Batch.createLocal(batchUUID, FBUtilities.timestampMicros(), nonPairedMutations),
-                                          writeCommitLog);
-                }
             }
         }
         finally
@@ -1544,27 +1534,34 @@ public class StorageProxy implements StorageProxyMBean
     {
         Keyspace keyspace = Keyspace.open(keyspaceName);
         IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
-        List<InetAddress> endpoints = StorageService.instance.getLiveNaturalEndpoints(keyspace, key);
+        List<InetAddress> endpoints = new ArrayList<>();
+        StorageService.instance.getLiveNaturalEndpoints(keyspace, key, endpoints);
+
+        // CASSANDRA-13043: filter out those endpoints not accepting clients yet, maybe because still bootstrapping
+        endpoints.removeIf(endpoint -> !StorageService.instance.isRpcReady(endpoint));
+
+        // TODO have a way to compute the consistency level
         if (endpoints.isEmpty())
-            // TODO have a way to compute the consistency level
             throw new UnavailableException(cl, cl.blockFor(keyspace), 0);
 
-        List<InetAddress> localEndpoints = new ArrayList<InetAddress>();
+        List<InetAddress> localEndpoints = new ArrayList<>(endpoints.size());
+
         for (InetAddress endpoint : endpoints)
-        {
             if (snitch.getDatacenter(endpoint).equals(localDataCenter))
                 localEndpoints.add(endpoint);
-        }
+
         if (localEndpoints.isEmpty())
         {
+            // If the consistency required is local then we should not involve other DCs
+            if (cl.isDatacenterLocal())
+                throw new UnavailableException(cl, cl.blockFor(keyspace), 0);
+
             // No endpoint in local DC, pick the closest endpoint according to the snitch
             snitch.sortByProximity(FBUtilities.getBroadcastAddress(), endpoints);
             return endpoints.get(0);
         }
-        else
-        {
-            return localEndpoints.get(ThreadLocalRandom.current().nextInt(localEndpoints.size()));
-        }
+
+        return localEndpoints.get(ThreadLocalRandom.current().nextInt(localEndpoints.size()));
     }
 
     // Must be called on a replica of the mutation. This replica becomes the
@@ -1755,10 +1752,13 @@ public class StorageProxy implements StorageProxyMBean
         try
         {
             PartitionIterator result = fetchRows(group.commands, consistencyLevel);
+            // Note that the only difference between the command in a group must be the partition key on which
+            // they applied.
+            boolean enforceStrictLiveness = group.commands.get(0).metadata().enforceStrictLiveness();
             // If we have more than one command, then despite each read command honoring the limit, the total result
             // might not honor it and so we should enforce it
             if (group.commands.size() > 1)
-                result = group.limits().filter(result, group.nowInSec());
+                result = group.limits().filter(result, group.nowInSec(), group.selectsFullPartition(), enforceStrictLiveness);
             return result;
         }
         catch (UnavailableException e)
@@ -2212,6 +2212,7 @@ public class StorageProxy implements StorageProxyMBean
         private final PartitionRangeReadCommand command;
         private final Keyspace keyspace;
         private final ConsistencyLevel consistency;
+        private final boolean enforceStrictLiveness;
 
         private final long startTime;
         private DataLimits.Counter counter;
@@ -2232,6 +2233,7 @@ public class StorageProxy implements StorageProxyMBean
             this.totalRangeCount = ranges.rangeCount();
             this.consistency = consistency;
             this.keyspace = keyspace;
+            this.enforceStrictLiveness = command.metadata().enforceStrictLiveness();
         }
 
         public RowIterator computeNext()
@@ -2336,7 +2338,7 @@ public class StorageProxy implements StorageProxyMBean
             Tracing.trace("Submitted {} concurrent range requests", concurrentQueries.size());
             // We want to count the results for the sake of updating the concurrency factor (see updateConcurrencyFactor) but we don't want to
             // enforce any particular limit at this point (this could break code than rely on postReconciliationProcessing), hence the DataLimits.NONE.
-            counter = DataLimits.NONE.newCounter(command.nowInSec(), true);
+            counter = DataLimits.NONE.newCounter(command.nowInSec(), true, command.selectsFullPartition(), enforceStrictLiveness);
             return counter.applyTo(PartitionIterators.concat(concurrentQueries));
         }
 
@@ -2395,7 +2397,10 @@ public class StorageProxy implements StorageProxyMBean
 
         // Note that in general, a RangeCommandIterator will honor the command limit for each range, but will not enforce it globally.
 
-        return command.limits().filter(command.postReconciliationProcessing(new RangeCommandIterator(ranges, command, concurrencyFactor, keyspace, consistencyLevel)), command.nowInSec());
+        return command.limits().filter(command.postReconciliationProcessing(new RangeCommandIterator(ranges, command, concurrencyFactor, keyspace, consistencyLevel)),
+                                       command.nowInSec(),
+                                       command.selectsFullPartition(),
+                                       command.metadata().enforceStrictLiveness());
     }
 
     public Map<String, List<String>> getSchemaVersions()

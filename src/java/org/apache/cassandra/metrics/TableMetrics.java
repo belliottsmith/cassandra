@@ -234,8 +234,6 @@ public class TableMetrics
         }
     });
 
-    public final Meter shortReadProtectionRequests;
-
     public static final Gauge<Long> globalBytesRepaired = Metrics.register(globalFactory.createMetricName("BytesRepaired"),
                                                                            new Gauge<Long>()
     {
@@ -262,6 +260,8 @@ public class TableMetrics
             return totalNonSystemTablesSize(SSTableReader::isPendingRepair).left;
         }
     });
+
+    public final Meter shortReadProtectionRequests;
 
     public final Map<Sampler, TopKSampler<ByteBuffer>> samplers;
     /**

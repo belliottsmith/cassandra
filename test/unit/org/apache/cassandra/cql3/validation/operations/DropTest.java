@@ -33,7 +33,7 @@ public class DropTest extends CQLTester
         assertInvalidMessage("Cannot drop table in unknown keyspace", "DROP TABLE keyspace_does_not_exist.table_does_not_exist");
 
         execute("DROP TABLE IF EXISTS " + KEYSPACE + ".table_does_not_exist");
-        execute("DROP TABLE IF EXISTS keyspace_does_nyouot_exist.table_does_not_exist");
+        execute("DROP TABLE IF EXISTS keyspace_does_not_exist.table_does_not_exist");
     }
 
     @Test
@@ -41,6 +41,19 @@ public class DropTest extends CQLTester
     {
             assertInvalidMessage("system keyspace is not user-modifiable", "DROP KEYSPACE " + SystemKeyspace.NAME);
             assertInvalidMessage("Keyspace " + AuthKeyspace.NAME + " can not be dropped by a user", "DROP KEYSPACE " + AuthKeyspace.NAME);
-        }
+    }
 
+    @Test
+    public void testDropTableWithDroppedColumns() throws Throwable
+    {
+        // CASSANDRA-13730: entry should be removed from dropped_columns table when table is dropped
+        String cf = createTable("CREATE TABLE %s (k1 int, c1 int , v1 int, v2 int, PRIMARY KEY (k1, c1))");
+
+        execute("ALTER TABLE %s DROP v2");
+        execute("DROP TABLE %s");
+
+        assertRowsIgnoringOrder(execute("select * from system_schema.dropped_columns where keyspace_name = '"
+                + keyspace()
+                + "' and table_name = '" + cf + "'"));
+    }
 }

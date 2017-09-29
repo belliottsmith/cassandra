@@ -40,6 +40,7 @@ import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.*;
 import com.datastax.driver.core.ResultSet;
+
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
@@ -426,7 +427,8 @@ public abstract class CQLTester
     public void disableCompaction(String keyspace)
     {
         ColumnFamilyStore store = getCurrentColumnFamilyStore(keyspace);
-        store.disableAutoCompaction();
+        if (store != null)
+            store.disableAutoCompaction();
     }
 
     public void flush(boolean forceFlush)
@@ -465,6 +467,23 @@ public abstract class CQLTester
         {
             throw new RuntimeException(e);
         }
+    }
+
+    public void disableCompaction()
+    {
+        disableCompaction(KEYSPACE);
+    }
+
+    public void enableCompaction(String keyspace)
+    {
+        ColumnFamilyStore store = getCurrentColumnFamilyStore(keyspace);
+        if (store != null)
+            store.enableAutoCompaction();
+    }
+
+    public void enableCompaction()
+    {
+        enableCompaction(KEYSPACE);
     }
 
     public void cleanupCache()
@@ -749,6 +768,11 @@ public abstract class CQLTester
         return sessionNet(protocolVersion).execute(formatQuery(query), values);
     }
 
+    protected com.datastax.driver.core.ResultSet executeNetWithPaging(String query, int pageSize) throws Throwable
+    {
+        return sessionNet().execute(new SimpleStatement(formatQuery(query)).setFetchSize(pageSize));
+    }
+
     protected Session sessionNet()
     {
         return sessionNet(PROTOCOL_VERSIONS.get(PROTOCOL_VERSIONS.size() - 1));
@@ -880,6 +904,11 @@ public abstract class CQLTester
                                         rows.length>i ? "less" : "more", rows.length, i, protocolVersion), i == rows.length);
     }
 
+    protected void assertRowsNet(ResultSet result, Object[]... rows)
+    {
+        assertRowsNet(PROTOCOL_VERSIONS.get(PROTOCOL_VERSIONS.size() - 1), result, rows);
+    }
+
     public static void assertRows(UntypedResultSet result, Object[]... rows)
     {
         if (result == null)
@@ -1007,7 +1036,7 @@ public abstract class CQLTester
         assert ignoreExtra || expectedRows.size() == actualRows.size();
     }
 
-    private static List<String> makeRowStrings(UntypedResultSet resultSet)
+    protected static List<String> makeRowStrings(UntypedResultSet resultSet)
     {
         List<List<ByteBuffer>> rows = new ArrayList<>();
         for (UntypedResultSet.Row row : resultSet)

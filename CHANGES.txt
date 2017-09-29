@@ -1,5 +1,18 @@
-3.0.14.3 (open)
- * 
+3.0.15.1 (open)
+ 
+3.0.15.0
+ * <rdar://problem/33089516> (CASSANDRA-13846 / 4.0) Add unit tests for unique CK queries
+ * <rdar://problem/34395531> (CASSANDRA-13786 / 4.0) Rework CSM.getScanners synchronization
+ * <rdar://problem/34398713> (CASSANDRA-13818 / 4.0) Add incremental repair support for --hosts, --force, and subrange repair 
+ * <rdar://problem/33299827> (Apple Internal) Don't accepts hints for data instance don't own
+ * <rdar://problem/33279387> (Apple Internal) Don't allow writes for token range instance don't own
+ * <rdar://problem/33279491> (Apple Internal) Don't accept reads for ranges which we dont own
+ * <rdar://problem/33280054> (Apple Internal) Don't accept incoming out outgoing stream for token instance dont own.
+ * <rdar://problem/33280066> (Apple Internal) Don't accept Merkle tree request for ranges instance dont own 
+ * <rdar://problem/34065418> (Apple Internal) fail preview repair validation if sstables are pending repair / or repair success is received during preview validation
+ * <rdar://problem/34551446> (Apple Internal) Ref leak in CM.getSSTablesToValidate 
+ * <rdar://problem/34533116> (Apple Internal) Add options to forward date nowInSec for validation repairs 
+ * <rdar://problem/34533172> (Apple Internal) Add support for optionally dumping streams and merkle trees for validation preview failures 
 
 3.0.14.2
  * rdar://problem/33837923 (CASSANDRA-13750 / trunk) Fix digest calculation for counter cells
@@ -210,6 +223,75 @@
  * <rdar://problem/27729987> Port to 3.0 Adding restrictions while creating or altering keyspaces(Apple Internal)
  * <rdar://problem/26121375> Cass: disallow removal of a DC from system_auth replication settings(#13041. Not yet fixed)
 
+
+3.0.15
+ * AssertionError prepending to a list (CASSANDRA-13149)
+ * Fix support for SuperColumn tables (CASSANDRA-12373)
+ * Handle limit correctly on tables with strict liveness (CASSANDRA-13883)
+ * Fix missing original update in TriggerExecutor (CASSANDRA-13894)
+ * Remove non-rpc-ready nodes from counter leader candidates (CASSANDRA-13043)
+ * Improve short read protection performance (CASSANDRA-13794)
+ * Fix sstable reader to support range-tombstone-marker for multi-slices (CASSANDRA-13787)
+ * Fix short read protection for tables with no clustering columns (CASSANDRA-13880)
+ * Make isBuilt volatile in PartitionUpdate (CASSANDRA-13619)
+ * Prevent integer overflow of timestamps in CellTest and RowsTest (CASSANDRA-13866)
+ * Fix counter application order in short read protection (CASSANDRA-12872)
+ * Don't block RepairJob execution on validation futures (CASSANDRA-13797)
+ * Wait for all management tasks to complete before shutting down CLSM (CASSANDRA-13123)
+ * INSERT statement fails when Tuple type is used as clustering column with default DESC order (CASSANDRA-13717)
+ * Fix pending view mutations handling and cleanup batchlog when there are local and remote paired mutations (CASSANDRA-13069)
+ * Improve config validation and documentation on overflow and NPE (CASSANDRA-13622)
+ * Range deletes in a CAS batch are ignored (CASSANDRA-13655)
+ * Change repair midpoint logging for tiny ranges (CASSANDRA-13603)
+ * Better handle corrupt final commitlog segment (CASSANDRA-11995)
+ * StreamingHistogram is not thread safe (CASSANDRA-13756)
+ * Fix MV timestamp issues (CASSANDRA-11500)
+ * Better tolerate improperly formatted bcrypt hashes (CASSANDRA-13626) 
+ * Fix race condition in read command serialization (CASSANDRA-13363)
+ * Enable segement creation before recovering commitlogs (CASSANDRA-13587)
+ * Fix AssertionError in short read protection (CASSANDRA-13747)
+ * Don't skip corrupted sstables on startup (CASSANDRA-13620)
+ * Fix the merging of cells with different user type versions (CASSANDRA-13776)
+ * Copy session properties on cqlsh.py do_login (CASSANDRA-13640)
+ * Potential AssertionError during ReadRepair of range tombstone and partition deletions (CASSANDRA-13719)
+ * Don't let stress write warmup data if n=0 (CASSANDRA-13773)
+ * Gossip thread slows down when using batch commit log (CASSANDRA-12966)
+ * Randomize batchlog endpoint selection with only 1 or 2 racks (CASSANDRA-12884)
+ * Fix digest calculation for counter cells (CASSANDRA-13750)
+ * Fix ColumnDefinition.cellValueType() for non-frozen collection and change SSTabledump to use type.toJSONString() (CASSANDRA-13573)
+ * Skip materialized view addition if the base table doesn't exist (CASSANDRA-13737)
+ * Drop table should remove corresponding entries in dropped_columns table (CASSANDRA-13730)
+ * Log warn message until legacy auth tables have been migrated (CASSANDRA-13371)
+ * Fix incorrect [2.1 <- 3.0] serialization of counter cells created in 2.0 (CASSANDRA-13691)
+ * Fix invalid writetime for null cells (CASSANDRA-13711)
+ * Fix ALTER TABLE statement to atomically propagate changes to the table and its MVs (CASSANDRA-12952)
+ * Fixed ambiguous output of nodetool tablestats command (CASSANDRA-13722)
+ * JMXEnabledThreadPoolExecutor with corePoolSize equal to maxPoolSize (Backport CASSANDRA-13329)
+ * Fix Digest mismatch Exception if hints file has UnknownColumnFamily (CASSANDRA-13696)
+ * Purge tombstones created by expired cells (CASSANDRA-13643)
+ * Make concat work with iterators that have different subsets of columns (CASSANDRA-13482)
+ * Set test.runners based on cores and memory size (CASSANDRA-13078)
+ * Allow different NUMACTL_ARGS to be passed in (CASSANDRA-13557)
+ * Allow native function calls in CQLSSTableWriter (CASSANDRA-12606)
+ * Fix secondary index queries on COMPACT tables (CASSANDRA-13627)
+ * Nodetool listsnapshots output is missing a newline, if there are no snapshots (CASSANDRA-13568)
+ * sstabledump reports incorrect usage for argument order (CASSANDRA-13532)
+Merged from 2.2:
+ * Safely handle empty buffers when outputting to JSON (CASSANDRA-13868)
+ * Copy session properties on cqlsh.py do_login (CASSANDRA-13847)
+ * Fix load over calculated issue in IndexSummaryRedistribution (CASSANDRA-13738)
+ * Fix compaction and flush exception not captured (CASSANDRA-13833)
+ * Uncaught exceptions in Netty pipeline (CASSANDRA-13649)
+ * Prevent integer overflow on exabyte filesystems (CASSANDRA-13067)
+ * Fix queries with LIMIT and filtering on clustering columns (CASSANDRA-11223)
+ * Fix potential NPE when resume bootstrap fails (CASSANDRA-13272)
+ * Fix toJSONString for the UDT, tuple and collection types (CASSANDRA-13592)
+ * Fix nested Tuples/UDTs validation (CASSANDRA-13646)
+Merged from 2.1:
+ * Remove stress-test target in CircleCI as it's not existing (CASSANDRA-13775)
+ * Clone HeartBeatState when building gossip messages. Make its generation/version volatile (CASSANDRA-13700)
+
+
 3.0.14
  * Ensure int overflow doesn't occur when calculating large partition warning size (CASSANDRA-13172)
  * Ensure consistent view of partition columns between coordinator and replica in ColumnFilter (CASSANDRA-13004)
@@ -236,6 +318,7 @@ Merged from 2.2:
  * Nodes started with join_ring=False should be able to serve requests when authentication is enabled (CASSANDRA-11381)
  * cqlsh COPY FROM: increment error count only for failures, not for attempts (CASSANDRA-13209)
 
+
 3.0.13
  * Make reading of range tombstones more reliable (CASSANDRA-12811)
  * Fix startup problems due to schema tables not completely flushed (CASSANDRA-12213)
@@ -257,6 +340,7 @@ Merged from 2.2:
  * Legacy caching options can prevent 3.0 upgrade (CASSANDRA-13384)
  * Nodetool upgradesstables/scrub/compact ignores system tables (CASSANDRA-13410)
  * Fix NPE issue in StorageService (CASSANDRA-13060)
+ * Avoid assertion error when IndexSummary > 2G (CASSANDRA-12014)
 Merged from 2.2:
  * Avoid starting gossiper in RemoveTest (CASSANDRA-13407)
  * Fix weightedSize() for row-cache reported by JMX and NodeTool (CASSANDRA-13393)
@@ -361,7 +445,7 @@ Merged from 2.1:
  * cqlsh copy-from: sort user type fields in csv (CASSANDRA-12959)
 
 
- 3.0.10
+3.0.10
  * Disallow offheap_buffers memtable allocation (CASSANDRA-11039)
  * Fix CommitLogSegmentManagerTest (CASSANDRA-12283)
  * Pass root cause to CorruptBlockException when uncompression failed (CASSANDRA-12889)

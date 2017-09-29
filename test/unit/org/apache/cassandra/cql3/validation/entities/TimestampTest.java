@@ -255,5 +255,4 @@ public class TimestampTest extends CQLTester
         assertEmpty(execute("SELECT k, c, i, writetime(i) FROM %s "));
     }
 
-
 }

@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -727,19 +728,13 @@ public final class SystemKeyspace
     /**
      * Record tokens being used by another node
      */
-    public static Future<?> updateTokens(final InetAddress ep, final Collection<Token> tokens)
+    public static Future<?> updateTokens(final InetAddress ep, final Collection<Token> tokens, ExecutorService executorService)
     {
         if (ep.equals(FBUtilities.getBroadcastAddress()))
             return Futures.immediateFuture(null);
 
-        return StageManager.getStage(Stage.MUTATION).submit(new Runnable()
-        {
-            public void run()
-            {
-                String req = "INSERT INTO system.%s (peer, tokens) VALUES (?, ?)";
-                executeInternal(String.format(req, PEERS), ep, tokensAsSet(tokens));
-            }
-        });
+        String req = "INSERT INTO system.%s (peer, tokens) VALUES (?, ?)";
+        return executorService.submit((Runnable) () -> executeInternal(String.format(req, PEERS), ep, tokensAsSet(tokens)));
     }
 
     public static void updatePreferredIP(InetAddress ep, InetAddress preferred_ip)
@@ -749,19 +744,13 @@ public final class SystemKeyspace
         forceBlockingFlush(PEERS);
     }
 
-    public static Future<?> updatePeerInfo(final InetAddress ep, final String columnName, final Object value)
+    public static Future<?> updatePeerInfo(final InetAddress ep, final String columnName, final Object value, ExecutorService executorService)
     {
         if (ep.equals(FBUtilities.getBroadcastAddress()))
             return Futures.immediateFuture(null);
 
-        return StageManager.getStage(Stage.MUTATION).submit(new Runnable()
-        {
-            public void run()
-            {
-                String req = "INSERT INTO system.%s (peer, %s) VALUES (?, ?)";
-                executeInternal(String.format(req, PEERS, columnName), ep, value);
-            }
-        });
+        String req = "INSERT INTO system.%s (peer, %s) VALUES (?, ?)";
+        return executorService.submit((Runnable) () -> executeInternal(String.format(req, PEERS, columnName), ep, value));
     }
 
     public static synchronized void updateHintsDropped(InetAddress ep, UUID timePeriod, int value)

@@ -65,7 +65,7 @@ public class PartitionUpdate extends AbstractBTreePartition
     // happens when the update is read. Further writing is then rejected though a manual call
     // to allowNewUpdates() allow new writes. We could make that more implicit but only triggers
     // really requires that so we keep it simple for now).
-    private boolean isBuilt;
+    private volatile boolean isBuilt;
     private boolean canReOpen = true;
 
     private Holder holder;
@@ -297,6 +297,15 @@ public class PartitionUpdate extends AbstractBTreePartition
         int nowInSecs = FBUtilities.nowInSeconds();
         List<UnfilteredRowIterator> asIterators = Lists.transform(updates, AbstractBTreePartition::unfilteredIterator);
         return fromIterator(UnfilteredRowIterators.merge(asIterators, nowInSecs));
+    }
+
+    // We override this, because the version in the super-class calls holder(), which build the update preventing
+    // further updates, but that's not necessary here and being able to check at least the partition deletion without
+    // "locking" the update is nice (and used in DataResolver.RepairMergeListener.MergeListener).
+    @Override
+    public DeletionInfo deletionInfo()
+    {
+        return deletionInfo;
     }
 
     /**

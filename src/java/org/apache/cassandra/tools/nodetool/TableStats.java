@@ -197,7 +197,7 @@ public class TableStats extends NodeToolCmd
                 {
                     estimatedPartitionCount = 0L;
                 }
-                System.out.println("\t\tNumber of keys (estimate): " + estimatedPartitionCount);
+                System.out.println("\t\tNumber of partitions (estimate): " + estimatedPartitionCount);
                 if (percentRepaired != null)
                 {
                     System.out.println("\t\tPercent repaired: " + (Math.round(100 * percentRepaired) / 100.0));
