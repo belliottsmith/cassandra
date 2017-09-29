@@ -2231,6 +2231,16 @@ public class DatabaseDescriptor
         return conf.disable_incremental_repair;
     }
 
+    public static boolean getDebugValidationPreviewEnabled()
+    {
+        return conf.debug_validation_preview;
+    }
+
+    public static void setDebugValidationPreviewEnabled(boolean enabled)
+    {
+        conf.debug_validation_preview = enabled;
+    }
+
     public static int getInitialRangeTombstoneAllocationSize()
     {
         return conf.initial_range_tombstone_allocation_size;

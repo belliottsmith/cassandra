@@ -326,6 +326,12 @@ public class Config
      */
     public volatile int validation_preview_purge_head_start_in_sec = 60 * 60;
 
+    /**
+     * If true, streams and merkle trees will be dumped for validation previews
+     * that detected differences in repaired data sets
+     */
+    public volatile boolean debug_validation_preview = false;
+
     // TTL for different types of trace events.
     public int tracetype_query_ttl = (int) TimeUnit.DAYS.toSeconds(1);
     public int tracetype_repair_ttl = (int) TimeUnit.DAYS.toSeconds(7);

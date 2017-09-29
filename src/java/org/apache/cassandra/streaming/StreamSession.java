@@ -17,6 +17,8 @@
  */
 package org.apache.cassandra.streaming;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
@@ -26,12 +28,15 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.*;
 
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.SSTableIntervalTree;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
@@ -39,7 +44,6 @@ import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.dht.OwnedRanges;
-import org.apache.cassandra.io.sstable.format.SSTableWriter;
 import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.repair.StreamingRepairTask;
 import org.slf4j.Logger;
@@ -54,7 +58,10 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.*;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
+import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.io.util.WrappedDataOutputStreamPlus;
 import org.apache.cassandra.metrics.StreamingMetrics;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.messages.*;
@@ -763,6 +770,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public void progress(Descriptor desc, ProgressInfo.Direction direction, long bytes, long total)
     {
+        if (previewKind.isPreview())
+            return;
         ProgressInfo progress = new ProgressInfo(peer, index, desc.filenameFor(Component.DATA), direction, bytes, total);
         streamResult.handleProgress(progress);
     }
@@ -846,10 +855,53 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         closeSession(State.FAILED);
     }
 
+    private synchronized void maybeDumpPreviewedTables() throws IOException
+    {
+        Preconditions.checkState(previewKind.isPreview());
+        if (!DatabaseDescriptor.getDebugValidationPreviewEnabled() || previewKind != PreviewKind.REPAIRED)
+        {
+            return;
+        }
+
+        // make containing directories
+        File dataDirectory = Directories.dataDirectories[0].location.getParentFile();
+        File previewDir = new File(dataDirectory, "/previews/" + planId().toString());
+        FileUtils.createDirectory(previewDir);
+
+        logger.info("Dumping preview to {}", previewDir.getCanonicalPath());
+
+        for (StreamTransferTask task: transfers.values())
+        {
+            CFMetaData cfm = Schema.instance.getCFMetaData(task.cfId);
+            File msgDir = new File(previewDir, String.format("/%s/%s", cfm.ksName, cfm.cfName));
+            FileUtils.createDirectory(msgDir);
+            int msgNum = 0;
+            for (OutgoingFileMessage message: task.getFileMessages())
+            {
+                File file = new File(msgDir, Integer.toString(msgNum) + ".bin");
+                Preconditions.checkState(!file.exists());
+                try (FileOutputStream ostr = new FileOutputStream(file);
+                     WrappedDataOutputStreamPlus out = new WrappedDataOutputStreamPlus(ostr))
+                {
+                    message.serialize(out, MessagingService.current_version, this);
+                }
+                msgNum++;
+            }
+        }
+    }
+
     private void completePreview()
     {
         try
         {
+            try
+            {
+                maybeDumpPreviewedTables();
+            }
+            catch (IOException e)
+            {
+                logger.error("Error dumping preview diffs", e);
+            }
             state(State.WAIT_COMPLETE);
             closeSession(State.COMPLETE);
         }

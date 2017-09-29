@@ -47,9 +47,11 @@ import org.slf4j.LoggerFactory;
 import com.codahale.metrics.Timer;
 import org.apache.cassandra.concurrent.JMXConfigurableThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.repair.consistent.SyncStatSummary;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.repair.consistent.SyncStatSummary;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
@@ -488,6 +490,12 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                         message = (previewKind == PreviewKind.REPAIRED ? "Repaired data is in sync" : "Previewed data was in sync") + " for " + parentSession;
                         logger.info(message);
                         fireProgressEvent(new ProgressEvent(ProgressEventType.NOTIFICATION, progress.get(), totalProgress, message));
+
+                        // no need to keep the merkle trees around if everything was ok
+                        if (DatabaseDescriptor.getDebugValidationPreviewEnabled() && previewKind == PreviewKind.REPAIRED)
+                        {
+                            FileUtils.deleteRecursive(RepairSession.merkleTreeDir(parentSession));
+                        }
                     }
                     else
                     {

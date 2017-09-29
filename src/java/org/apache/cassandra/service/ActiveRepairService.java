@@ -210,6 +210,16 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         consistent.local.cancelSession(sessionID, force);
     }
 
+    public boolean getDebugValidationPreviewEnabled()
+    {
+        return DatabaseDescriptor.getDebugValidationPreviewEnabled();
+    }
+
+    public void setDebugValidationPreviewEnabled(boolean enabled)
+    {
+        DatabaseDescriptor.setDebugValidationPreviewEnabled(enabled);
+    }
+
     /**
      * Requests repairs for the given keyspace and column families.
      *

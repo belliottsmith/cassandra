@@ -17,12 +17,15 @@
  */
 package org.apache.cassandra.repair;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.*;
@@ -31,9 +34,14 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.*;
+import org.apache.cassandra.io.FSWriteError;
+import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.io.util.WrappedDataOutputStreamPlus;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.streaming.SessionSummary;
 import org.apache.cassandra.tracing.Tracing;
@@ -199,6 +207,46 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         syncingTasks.put(key, task);
     }
 
+    public static File merkleTreeDir(UUID sessionID)
+    {
+        File dataDirectory = Directories.dataDirectories[0].location.getParentFile();
+        return new File(dataDirectory, "/merkleTrees/" + sessionID.toString());
+    }
+
+    private synchronized void maybeDumpMerkleTrees(RepairJobDesc desc, InetAddress endpoint, MerkleTrees trees)
+    {
+        if (!DatabaseDescriptor.getDebugValidationPreviewEnabled() || previewKind != PreviewKind.REPAIRED)
+        {
+            return;
+        }
+
+        // make containing directories
+        String dstDirName = String.format("/%s/%s", desc.keyspace, desc.columnFamily);
+
+        File dumpDir = new File(merkleTreeDir(parentRepairSession), dstDirName);
+
+        try
+        {
+            FileUtils.createDirectory(dumpDir);
+        }
+        catch (FSWriteError e)
+        {
+            FileUtils.handleFSErrorAndPropagate(e);
+        }
+
+        String fname = Pattern.compile("/").matcher(endpoint.toString()).replaceAll("") + ".mtr";
+        File dst = new File(dumpDir, fname);
+        try (FileOutputStream ostr = new FileOutputStream(dst);
+             WrappedDataOutputStreamPlus out = new WrappedDataOutputStreamPlus(ostr))
+        {
+            MerkleTrees.serializer.serialize(trees, out, MessagingService.current_version);
+        }
+        catch (Throwable t)
+        {
+            logger.warn("error dumping merkle trees", t);
+        }
+    }
+
     /**
      * Receive merkle tree response or failed response from {@code endpoint} for current repair job.
      *
@@ -219,6 +267,8 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         logger.info("{} {}", previewKind.logPrefix(getId()), message);
         Tracing.traceRepair(message);
         task.treesReceived(trees);
+
+        maybeDumpMerkleTrees(desc, endpoint, trees);
     }
 
     /**

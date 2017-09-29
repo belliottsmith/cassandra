@@ -59,6 +59,11 @@ public class StreamPlan
         this.coordinator = new StreamCoordinator(connectionsPerHost, keepSSTableLevels, new DefaultConnectionFactory(), pendingRepair, previewKind);
     }
 
+    public UUID getPlanId()
+    {
+        return planId;
+    }
+
     /**
      * Request data in {@code keyspace} and {@code ranges} from specific node.
      *

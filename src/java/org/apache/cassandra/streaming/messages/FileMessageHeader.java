@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.TypeSizes;
@@ -189,7 +191,8 @@ public class FileMessageHeader
         return result;
     }
 
-    static class FileMessageHeaderSerializer
+    @VisibleForTesting
+    public static class FileMessageHeaderSerializer
     {
         public CompressionInfo serialize(FileMessageHeader header, DataOutputPlus out, int version) throws IOException
         {

@@ -62,7 +62,9 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
         InetAddress dest = request.dst;
         InetAddress preferred = SystemKeyspace.getPreferredIP(dest);
         logger.info("[streaming task #{}] Performing streaming repair of {} ranges with {}", desc.sessionId, request.ranges.size(), request.dst);
-        createStreamPlan(dest, preferred).execute();
+        StreamPlan plan = createStreamPlan(dest, preferred);
+        logger.info("{} executing StreamPlan {}", previewKind.logPrefix(desc.parentSessionId), plan.getPlanId());
+        plan.execute();
     }
 
     @VisibleForTesting

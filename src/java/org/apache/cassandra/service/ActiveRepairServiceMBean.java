@@ -27,4 +27,7 @@ public interface ActiveRepairServiceMBean
 
     public List<Map<String, String>> getSessions(boolean all);
     public void failSession(String session, boolean force);
+
+    public boolean getDebugValidationPreviewEnabled();
+    public void setDebugValidationPreviewEnabled(boolean enabled);
 }

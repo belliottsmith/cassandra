@@ -22,6 +22,7 @@ import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.AbstractFuture;
 import com.google.common.util.concurrent.Futures;
 import org.slf4j.Logger;
@@ -70,7 +71,8 @@ public final class StreamResultFuture extends AbstractFuture<StreamState>
             set(getCurrentState());
     }
 
-    private StreamResultFuture(UUID planId, String description, boolean keepSSTableLevels, UUID pendingRepair, PreviewKind previewKind)
+    @VisibleForTesting
+    public StreamResultFuture(UUID planId, String description, boolean keepSSTableLevels, UUID pendingRepair, PreviewKind previewKind)
     {
         this(planId, description, new StreamCoordinator(0, keepSSTableLevels, new DefaultConnectionFactory(), pendingRepair, previewKind));
     }
