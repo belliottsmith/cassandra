@@ -136,6 +136,14 @@ public class TableMetrics
     public final Counter rowCacheHit;
     /** Number of row cache misses */
     public final Counter rowCacheMiss;
+    /**
+     * Number of tombstone read failures
+     */
+    public final Counter tombstoneFailures;
+    /**
+     * Number of tombstone read warnings
+     */
+    public final Counter tombstoneWarnings;
     /** CAS Prepare metrics */
     public final LatencyMetrics casPrepare;
     /** CAS Propose metrics */
@@ -820,7 +828,8 @@ public class TableMetrics
         rowCacheHitOutOfRange = createTableCounter("RowCacheHitOutOfRange");
         rowCacheHit = createTableCounter("RowCacheHit");
         rowCacheMiss = createTableCounter("RowCacheMiss");
-
+        tombstoneFailures = createTableCounter("TombstoneFailures");
+        tombstoneWarnings = createTableCounter("TombstoneWarnings");
         casPrepare = new LatencyMetrics(factory, "CasPrepare", cfs.keyspace.metric.casPrepare);
         casPropose = new LatencyMetrics(factory, "CasPropose", cfs.keyspace.metric.casPropose);
         casCommit = new LatencyMetrics(factory, "CasCommit", cfs.keyspace.metric.casCommit);
