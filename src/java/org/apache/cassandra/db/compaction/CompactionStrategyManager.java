@@ -80,6 +80,7 @@ public class CompactionStrategyManager implements INotificationConsumer
     private volatile CompactionParams schemaCompactionParams;
 
     private final PendingRepairManager pendingRepairs;
+    private boolean shouldDefragment;
 
     public CompactionStrategyManager(ColumnFamilyStore cfs)
     {
@@ -193,6 +194,7 @@ public class CompactionStrategyManager implements INotificationConsumer
             repaired.startup();
             unrepaired.startup();
             pendingRepairs.startup();
+            shouldDefragment = unrepaired.shouldDefragment();
         }
         finally
         {
@@ -376,16 +378,7 @@ public class CompactionStrategyManager implements INotificationConsumer
 
     public boolean shouldDefragment()
     {
-        readLock.lock();
-        try
-        {
-            assert repaired.getClass().equals(unrepaired.getClass());
-            return repaired.shouldDefragment();
-        }
-        finally
-        {
-            readLock.unlock();
-        }
+        return shouldDefragment;
     }
 
     public Directories getDirectories()
