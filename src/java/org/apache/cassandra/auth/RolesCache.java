@@ -159,6 +159,20 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
         }
     }
 
+    Set<RoleResource> getAllRoles()
+    {
+        // this method seems kind of unnecessary as it is only called from Roles::getAllRoles,
+        // but we are able to inject the RoleManager to this class, making testing possible. If
+        // we lose this method and did everything in Roles, we'd be dependent on the IRM impl
+        // supplied by DatabaseDescriptor
+        return roleManager.getAllRoles();
+    }
+
+    public long size()
+    {
+        return cache == null ? 0L : cache.size();
+    }
+
     private LoadingCache<RoleResource, Set<Role>> initCache(LoadingCache<RoleResource, Set<Role>> existing,
                                                             boolean requireAuthentication)
     {

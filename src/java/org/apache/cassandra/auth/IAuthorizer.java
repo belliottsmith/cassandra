@@ -22,11 +22,12 @@ import java.util.Set;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.exceptions.RequestValidationException;
+import org.apache.cassandra.utils.Pair;
 
 /**
  * Primary Cassandra authorization interface.
  */
-public interface IAuthorizer
+public interface IAuthorizer extends Cacheable<Pair<AuthenticatedUser, IResource>, Set<Permission>>
 {
     /**
      * Returns a set of permissions of a user on a resource.

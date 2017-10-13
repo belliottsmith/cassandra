@@ -81,6 +81,16 @@ public class Roles
     }
 
     /**
+     * Enumerate all the roles in the system, preferably these will be fetched from the cache, which in turn
+     * may have been warmed during startup.
+     */
+    public static Set<RoleResource> getAllRoles()
+    {
+        return cache.getAllRoles();
+    }
+
+
+    /**
      * Returns true if the supplied role or any other role granted to it
      * (directly or indirectly) has superuser status.
      *
