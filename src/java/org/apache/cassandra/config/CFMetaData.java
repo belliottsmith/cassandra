@@ -125,6 +125,8 @@ public final class CFMetaData
     // for those tables in practice).
     private volatile ColumnDefinition compactValueColumn;
 
+    private volatile Set<ColumnDefinition> hiddenColumns;
+
     /**
      * These two columns are "virtual" (e.g. not persisted together with schema).
      *
@@ -396,6 +398,24 @@ public final class CFMetaData
             this.comparator = new ClusteringComparator(extractTypes(clusteringColumns));
 
         this.allColumnFilter = ColumnFilter.all(this);
+
+        Set<ColumnDefinition> hiddenColumns;
+        if (isCompactTable() && isDense && CompactTables.hasEmptyCompactValue(this))
+        {
+            hiddenColumns = Collections.singleton(compactValueColumn);
+        }
+        else if (isCompactTable() && !isDense && !isSuper)
+        {
+            hiddenColumns = Sets.newHashSetWithExpectedSize(clusteringColumns.size() + 1);
+            hiddenColumns.add(compactValueColumn);
+            hiddenColumns.addAll(clusteringColumns);
+
+        }
+        else
+        {
+            hiddenColumns = Collections.emptySet();
+        }
+        this.hiddenColumns = hiddenColumns;
     }
 
     public Indexes getIndexes()
@@ -784,6 +804,11 @@ public final class CFMetaData
         return compactValueColumn;
     }
 
+    private boolean isHiddenColumn(ColumnDefinition def)
+    {
+        return hiddenColumns.contains(def);
+    }
+
     public ClusteringComparator getKeyValidatorAsClusteringComparator()
     {
         boolean isCompound = keyValidator instanceof CompositeType;
@@ -993,7 +1018,10 @@ public final class CFMetaData
     // for instance) so...
     public ColumnDefinition getColumnDefinition(ByteBuffer name)
     {
-        return columnMetadata.get(name);
+        ColumnDefinition cd = columnMetadata.get(name);
+        if (cd == null || isHiddenColumn(cd))
+            return null;
+        return cd;
     }
 
     public static boolean isNameValid(String name)
