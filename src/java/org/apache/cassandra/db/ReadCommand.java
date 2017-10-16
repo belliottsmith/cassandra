@@ -567,7 +567,8 @@ public abstract class ReadCommand implements ReadQuery
                       cfs.gcBefore(nowInSec()),
                       oldestUnrepairedTombstone(),
                       cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones(),
-                      cfs.metadata.enforceStrictLiveness());
+                      cfs.metadata.enforceStrictLiveness(),
+                      cfs.getRepairTimeSnapshot());
             }
 
             protected Predicate<Long> getPurgeEvaluator()

@@ -60,6 +60,7 @@ public class CompactionController implements AutoCloseable
     private Refs<SSTableReader> overlappingSSTables;
     private OverlapIterator<PartitionPosition, SSTableReader> overlapIterator;
     private final Iterable<SSTableReader> compacting;
+    private final ColumnFamilyStore.SuccessfulRepairTimeHolder repairTimeSnapshot;
 
     public final int gcBefore;
 
@@ -75,9 +76,15 @@ public class CompactionController implements AutoCloseable
         this.gcBefore = gcBefore;
         this.compacting = compacting;
         compactingRepaired = compacting != null && compacting.stream().allMatch(SSTableReader::isRepaired);
+        repairTimeSnapshot = cfs.getRepairTimeSnapshot();
         refreshOverlaps();
         if (NEVER_PURGE_TOMBSTONES)
             logger.warn("You are running with -Dcassandra.never_purge_tombstones=true, this is dangerous!");
+    }
+
+    public ColumnFamilyStore.SuccessfulRepairTimeHolder getRepairTimeSnapshot()
+    {
+        return repairTimeSnapshot;
     }
 
     public void maybeRefreshOverlaps()
@@ -115,7 +122,7 @@ public class CompactionController implements AutoCloseable
 
     public Set<SSTableReader> getFullyExpiredSSTables()
     {
-        return getFullyExpiredSSTables(cfs, compacting, overlappingSSTables, gcBefore);
+        return getFullyExpiredSSTables(cfs, compacting, overlappingSSTables, gcBefore, repairTimeSnapshot);
     }
 
     /**
@@ -134,7 +141,7 @@ public class CompactionController implements AutoCloseable
      * @param gcBefore
      * @return
      */
-    public static Set<SSTableReader> getFullyExpiredSSTables(ColumnFamilyStore cfStore, Iterable<SSTableReader> compacting, Iterable<SSTableReader> overlapping, int gcBefore)
+    public static Set<SSTableReader> getFullyExpiredSSTables(ColumnFamilyStore cfStore, Iterable<SSTableReader> compacting, Iterable<SSTableReader> overlapping, int gcBefore, ColumnFamilyStore.SuccessfulRepairTimeHolder repairTimeHolder)
     {
         logger.trace("Checking droppable sstables in {}", cfStore);
 
@@ -157,7 +164,6 @@ public class CompactionController implements AutoCloseable
         }
 
         // Check last successful repair for adjusted gcBefore for SSTable
-        Map<Range<Token>, Integer> lastSuccessfulRepair = SystemKeyspace.getLastSuccessfulRepair(cfStore.keyspace.getName(), cfStore.getColumnFamilyName());
         for (SSTableReader candidate : compacting)
         {
             int lastRepairTime = Integer.MIN_VALUE;
@@ -169,11 +175,11 @@ public class CompactionController implements AutoCloseable
             }
             else
             {
-                for (Range<Token> range : lastSuccessfulRepair.keySet())
+                for (Range<Token> range : repairTimeHolder.allRanges())
                 {
                     if (range.contains(candidate.first.getToken()) && range.contains(candidate.last.getToken()))
                     {
-                        lastRepairTime = lastSuccessfulRepair.get(range);
+                        lastRepairTime = repairTimeHolder.getLastSuccessfulRepairTimeFor(candidate.first.getToken());
                         break;
                     }
                 }
@@ -220,33 +226,6 @@ public class CompactionController implements AutoCloseable
     public String getColumnFamily()
     {
         return cfs.name;
-    }
-
-
-    /**
-     * Returns timestamp in seconds that, compaction can purge tombstones *before* this timestamp.
-     * If given Token {@code t} is found in the range of last successful repair, this returns
-     * Min("Actual GC timestamp", "Last successful repair timestamp for t").
-     * If Token {@code t} is not found in any ranges of last successful repair, then this returns
-     * Integer.MIN_VALUE so that not repaired partition won't drop tombstones.
-     *
-     * @param t Token of partition key
-     * @return timestamp for gc
-     */
-    public int gcBefore(Token t)
-    {
-        if (!DatabaseDescriptor.enableChristmasPatch())
-            return gcBefore;
-
-        // special case non-replicated keyspaces since they won't get repaired
-        if (Schema.instance.getKeyspaceInstance(cfs.metadata.ksName).getReplicationStrategy().getReplicationFactor() <= 1)
-        {
-            logger.debug("Falling back to default gcBefore {} for non-replicated KS {}", gcBefore, cfs.metadata.ksName);
-            return gcBefore;
-        }
-
-        return Math.min(cfs.getLastSuccessfulRepairTimeFor(t), gcBefore);
-
     }
 
     /**

@@ -559,7 +559,7 @@ public class ColumnFamilyStoreTest
         Map<Range<Token>, Integer> storedSuccessfulRepairs = new HashMap<>();
         storedSuccessfulRepairs.put(new Range<Token>(new Murmur3Partitioner.LongToken(10), new Murmur3Partitioner.LongToken(20)), 42);
         cfs.setLastSuccessfulRepairs(storedSuccessfulRepairs);
-        ImmutableList<Pair<Range<Token>, Integer>> lastSuccessfulRepairs = cfs.getLastSuccessfulRepairs();
+        ImmutableList<Pair<Range<Token>, Integer>> lastSuccessfulRepairs = cfs.getRepairTimeSnapshot().successfulRepairs;
         Assert.assertEquals(storedSuccessfulRepairs.size(), lastSuccessfulRepairs.size());
 
         for (Pair<Range<Token>, Integer> entry : lastSuccessfulRepairs)
@@ -603,14 +603,14 @@ public class ColumnFamilyStoreTest
                                                   10000);
 
         cfs.loadLastSuccessfulRepair();
-        assertEquals(Integer.MIN_VALUE, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(0)));
-        assertEquals(5000/1000, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(20)));
-        assertEquals(5000/1000, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(50)));
-        assertEquals(10000/1000, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(51)));
-        assertEquals(10000/1000, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(150)));
-        assertEquals(Integer.MIN_VALUE, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(151)));
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(0)));
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(20)));
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(50)));
+        assertEquals(10000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(51)));
+        assertEquals(10000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(150)));
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(151)));
 
-        assertEquals(Integer.MIN_VALUE,  cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(200)));
+        assertEquals(Integer.MIN_VALUE,  cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(200)));
     }
 
     @Test
@@ -634,14 +634,14 @@ public class ColumnFamilyStoreTest
                                                   10000);
 
         cfs.loadLastSuccessfulRepair();
-        assertEquals(Integer.MIN_VALUE, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(0)));
-        assertEquals(5000/1000, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(20)));
-        assertEquals(10000/1000, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(50)));
-        assertEquals(10000/1000, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(51)));
-        assertEquals(10000/1000, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(75)));
-        assertEquals(5000/1000, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(76)));
-        assertEquals(5000/1000, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(100)));
-        assertEquals(Integer.MIN_VALUE, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(101)));
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(0)));
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(20)));
+        assertEquals(10000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(50)));
+        assertEquals(10000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(51)));
+        assertEquals(10000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(75)));
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(76)));
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(100)));
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(101)));
     }
 
     /**
@@ -682,6 +682,6 @@ public class ColumnFamilyStoreTest
         QueryProcessor.executeInternal(insert);
 
         cfs.loadLastSuccessfulRepair();
-        assertEquals(5000/1000, cfs.getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(20)));
+        assertEquals(5000/1000, cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(new Murmur3Partitioner.LongToken(20)));
     }
 }

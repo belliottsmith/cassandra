@@ -1716,6 +1716,11 @@ public class DatabaseDescriptor
         conf.hinted_handoff_disabled_datacenters.add(dc);
     }
 
+    public static void setChristmasPatchEnabled(boolean enabled)
+    {
+        conf.enable_christmas_patch = enabled;
+    }
+
     public static boolean enablePartitionBlacklist()
     {
         return conf.enable_partition_blacklist;

@@ -40,14 +40,15 @@ public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator
                          int gcBefore,
                          int oldestUnrepairedTombstone,
                          boolean onlyPurgeRepairedTombstones,
-                         boolean enforceStrictLiveness)
+                         boolean enforceStrictLiveness,
+                         ColumnFamilyStore.SuccessfulRepairTimeHolder repairTimeHolder)
     {
         this.isForThrift = isForThrift;
         this.nowInSec = nowInSec;
         this.cfs = cfs;
         this.purger = (timestamp, localDeletionTime) ->
                       !(onlyPurgeRepairedTombstones && localDeletionTime >= oldestUnrepairedTombstone)
-                      && localDeletionTime < this.cfs.gcBeforeForKey(currentKey, gcBefore)
+                      && localDeletionTime < repairTimeHolder.gcBeforeForKey(this.cfs, currentKey, gcBefore)
                       && getPurgeEvaluator().test(timestamp);
         this.enforceStrictLiveness = enforceStrictLiveness;
     }

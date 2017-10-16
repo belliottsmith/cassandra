@@ -364,14 +364,15 @@ public abstract class AbstractCompactionStrategy
         //sstable range overlap check is disabled. See CASSANDRA-6563.
         if (uncheckedTombstoneCompaction)
             return true;
-
+        ColumnFamilyStore.SuccessfulRepairTimeHolder repairTimeHolder = cfs.getRepairTimeSnapshot();
         Collection<SSTableReader> overlaps = cfs.getOverlappingLiveSSTables(Collections.singleton(sstable));
+
         if (overlaps.isEmpty())
         {
             // there is no overlap, tombstones are safely droppable
             return true;
         }
-        else if (CompactionController.getFullyExpiredSSTables(cfs, Collections.singleton(sstable), overlaps, gcBefore).size() > 0)
+        else if (CompactionController.getFullyExpiredSSTables(cfs, Collections.singleton(sstable), overlaps, gcBefore, repairTimeHolder).size() > 0)
         {
             return true;
         }

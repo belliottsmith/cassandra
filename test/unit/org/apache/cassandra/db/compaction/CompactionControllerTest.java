@@ -167,14 +167,14 @@ public class CompactionControllerTest extends SchemaLoader
 
         // the first sstable should be expired because the overlapping sstable is newer and the gc period is later
         int gcBefore = (int) (System.currentTimeMillis() / 1000) + 5;
-        Set<SSTableReader> expired = CompactionController.getFullyExpiredSSTables(cfs, compacting, overlapping, gcBefore);
+        Set<SSTableReader> expired = CompactionController.getFullyExpiredSSTables(cfs, compacting, overlapping, gcBefore, ColumnFamilyStore.SuccessfulRepairTimeHolder.EMPTY);
         assertNotNull(expired);
         assertEquals(1, expired.size());
         assertEquals(compacting.iterator().next(), expired.iterator().next());
 
         // however if we add an older mutation to the memtable then the sstable should not be expired
         applyMutation(cfs.metadata, key, timestamp3);
-        expired = CompactionController.getFullyExpiredSSTables(cfs, compacting, overlapping, gcBefore);
+        expired = CompactionController.getFullyExpiredSSTables(cfs, compacting, overlapping, gcBefore, ColumnFamilyStore.SuccessfulRepairTimeHolder.EMPTY);
         assertNotNull(expired);
         assertEquals(0, expired.size());
     }

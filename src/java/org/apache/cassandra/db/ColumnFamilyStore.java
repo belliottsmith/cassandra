@@ -245,7 +245,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * A list to store ranges and the time they were last repaired. The list is
      * reverse-sorted based on the timestamp (see {@link ColumnFamilyStore#lastRepairTimeComparator}).
      */
-    private AtomicReference<List<Pair<Range<Token>, Integer>>> lastSuccessfulRepair = new AtomicReference<>(Collections.<Pair<Range<Token>, Integer>>emptyList());
+    private final AtomicReference<SuccessfulRepairTimeHolder> lastSuccessfulRepair = new AtomicReference<>(SuccessfulRepairTimeHolder.EMPTY);
 
     public static void shutdownPostFlushExecutor() throws InterruptedException
     {
@@ -1585,25 +1585,21 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     @VisibleForTesting
     void setLastSuccessfulRepairs(Map<Range<Token>, Integer> storedSuccessfulRepairs)
     {
-        List<Pair<Range<Token>, Integer>> current, next;
+        SuccessfulRepairTimeHolder current, next;
         do
         {
             current = lastSuccessfulRepair.get();
-            if (!current.isEmpty())
+            if (!current.successfulRepairs.isEmpty())
                 throw new IllegalStateException("Last Successful repair should be empty. " + lastSuccessfulRepair);
 
-            next = new ArrayList<>(storedSuccessfulRepairs.size());
+            List<Pair<Range<Token>, Integer>> nextBuilder = new ArrayList<>(storedSuccessfulRepairs.size());
+
             for (Map.Entry<Range<Token>, Integer> entry : storedSuccessfulRepairs.entrySet())
-                next.add(Pair.create(entry.getKey(), entry.getValue()));
-            Collections.sort(next, lastRepairTimeComparator);
+                nextBuilder.add(Pair.create(entry.getKey(), entry.getValue()));
+            Collections.sort(nextBuilder, lastRepairTimeComparator);
+            next = new SuccessfulRepairTimeHolder(ImmutableList.copyOf(nextBuilder));
         } while (!lastSuccessfulRepair.compareAndSet(current, next));
 
-    }
-
-    @VisibleForTesting
-    public ImmutableList<Pair<Range<Token>, Integer>> getLastSuccessfulRepairs()
-    {
-        return ImmutableList.<Pair<Range<Token>, Integer>>builder().addAll(lastSuccessfulRepair.get().iterator()).build();
     }
 
     /**
@@ -1612,8 +1608,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     @VisibleForTesting
     public void clearLastSucessfulRepairUnsafe()
     {
-        List<Pair<Range<Token>, Integer>> current;
-        List<Pair<Range<Token>, Integer>> empty = new ArrayList<>(0);
+        SuccessfulRepairTimeHolder current;
+        SuccessfulRepairTimeHolder empty = SuccessfulRepairTimeHolder.EMPTY;
         do
         {
             current = lastSuccessfulRepair.get();
@@ -1627,7 +1623,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         if (!DatabaseDescriptor.enableShadowChristmasPatch())
             return;
-        List<Pair<Range<Token>, Integer>> current, next;
+        SuccessfulRepairTimeHolder current, next;
         int gcableTime = (int) (succeedAt / 1000);
         do
         {
@@ -1650,9 +1646,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @return Updated list with new value, else null if the time is in the past.
      */
     @VisibleForTesting
-    public static List<Pair<Range<Token>, Integer>> updateLastSuccessfulRepair(Range<Token> range, int gcableTime, List<Pair<Range<Token>, Integer>> currentRepairs)
+    public static SuccessfulRepairTimeHolder updateLastSuccessfulRepair(Range<Token> range, int gcableTime, SuccessfulRepairTimeHolder currentRepairs)
     {
-        final List<Pair<Range<Token>, Integer>> lastSuccessfulRepairArr = new ArrayList<>(currentRepairs);
+        final List<Pair<Range<Token>, Integer>> lastSuccessfulRepairArr = new ArrayList<>(currentRepairs.successfulRepairs);
         Iterator<Pair<Range<Token>, Integer>> iter = lastSuccessfulRepairArr.iterator();
         int newPosition = 0;
         Pair<Range<Token>, Integer> elem = Pair.create(range, gcableTime);
@@ -1681,29 +1677,75 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             }
         }
         lastSuccessfulRepairArr.add(newPosition, elem);
-        return lastSuccessfulRepairArr;
+        return new SuccessfulRepairTimeHolder(ImmutableList.copyOf(lastSuccessfulRepairArr));
     }
 
-    public int getLastSuccessfulRepairTimeFor(Token t)
+    public SuccessfulRepairTimeHolder getRepairTimeSnapshot()
     {
-        assert t != null;
-        int lastRepairTime = Integer.MIN_VALUE;
-        for (Pair<Range<Token>, Integer> lastRepairSuccess : lastSuccessfulRepair.get())
+        return lastSuccessfulRepair.get();
+    }
+
+    /**
+     * Holds an immutable list of successfully repaired ranges, sorted by newest repair
+     *
+     * We 'snapshot' the list when we start compaction to make sure we don't drop any tombstones
+     * that were marked repaired after the compaction started (because we might not include the newly streamed-in
+     * sstables in the overlap calculation)
+     */
+    public static class SuccessfulRepairTimeHolder
+    {
+        @VisibleForTesting
+        final ImmutableList<Pair<Range<Token>, Integer>> successfulRepairs;
+        public static final SuccessfulRepairTimeHolder EMPTY = new SuccessfulRepairTimeHolder(ImmutableList.of());
+
+        public SuccessfulRepairTimeHolder(ImmutableList<Pair<Range<Token>, Integer>> successfulRepairs)
         {
-            if (lastRepairSuccess.left.contains(t))
-            {
-                lastRepairTime = lastRepairSuccess.right;
-                break;
-            }
+            // we don't need to copy here - the list is never updated, it is swapped out
+            this.successfulRepairs = successfulRepairs;
         }
-        return lastRepairTime;
+
+        // todo: there is a possible compaction performance improvment here - we could sort the successfulRepairs by
+        // range instead and binary search or use the fact that the tokens sent in to this method are increasing - we would
+        // have to make sure the successfulRepairs are non-overlapping for this
+        public int getLastSuccessfulRepairTimeFor(Token t)
+        {
+            assert t != null;
+            int lastRepairTime = Integer.MIN_VALUE;
+            // successfulRepairs are sorted by last repair time - this means that if we find a range that contains the
+            // token, it is guaranteed to be the newest repair for that token
+            for (Pair<Range<Token>, Integer> lastRepairSuccess : successfulRepairs)
+            {
+                if (lastRepairSuccess.left.contains(t))
+                {
+                    lastRepairTime = lastRepairSuccess.right;
+                    break;
+                }
+            }
+            return lastRepairTime;
+        }
+
+        public int gcBeforeForKey(ColumnFamilyStore cfs, DecoratedKey key, int fallbackGCBefore)
+        {
+            if (!DatabaseDescriptor.enableChristmasPatch() || !cfs.useRepairHistory())
+                return fallbackGCBefore;
+
+            return Math.min(getLastSuccessfulRepairTimeFor(key.getToken()), cfs.gcBefore(fallbackGCBefore));
+        }
+
+        public ImmutableList<Range<Token>> allRanges()
+        {
+            ImmutableList.Builder<Range<Token>> builder = ImmutableList.builder();
+            for (Pair<Range<Token>, Integer> p : successfulRepairs)
+                builder.add(p.left);
+            return builder.build();
+        }
     }
 
     public Map<Range<Token>, Integer> getRepairHistoryForRanges(Collection<Range<Token>> ranges)
     {
         Map<Range<Token>, Integer> history = new HashMap<>();
 
-        for (Pair<Range<Token>, Integer> lastRepairSuccess : lastSuccessfulRepair.get())
+        for (Pair<Range<Token>, Integer> lastRepairSuccess : lastSuccessfulRepair.get().successfulRepairs)
         {
             if (lastRepairSuccess.left.intersects(ranges))
             {
@@ -1713,16 +1755,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         return history;
     }
-
-    public int gcBeforeForKey(DecoratedKey key, int fallbackGCBefore)
-    {
-        assert key != null;
-        if (!DatabaseDescriptor.enableChristmasPatch() || !useRepairHistory())
-            return fallbackGCBefore;
-
-        return Math.min(getLastSuccessfulRepairTimeFor(key.getToken()), fallbackGCBefore);
-    }
-
 
     public int gcBefore(int nowInSec)
     {
