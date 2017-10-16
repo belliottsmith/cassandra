@@ -18,16 +18,20 @@
 package org.apache.cassandra.auth;
 
 import java.lang.management.ManagementFactory;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
 
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
+
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,11 +41,11 @@ import org.apache.cassandra.utils.Pair;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
-public class PermissionsCache implements PermissionsCacheMBean
+public class PermissionsCache implements PermissionsCacheMBean, WarmableCache<Pair<AuthenticatedUser, IResource>, Set<Permission>>
 {
     private static final Logger logger = LoggerFactory.getLogger(PermissionsCache.class);
 
-    private final String MBEAN_NAME = "org.apache.cassandra.auth:type=PermissionsCache";
+    private final static String MBEAN_NAME = "org.apache.cassandra.auth:type=PermissionsCache";
 
     private final ThreadPoolExecutor cacheRefreshExecutor = new DebuggableThreadPoolExecutor("PermissionsCacheRefresh",
                                                                                              Thread.NORM_PRIORITY);
@@ -65,6 +69,20 @@ public class PermissionsCache implements PermissionsCacheMBean
         }
     }
 
+    @VisibleForTesting
+    protected static void unregisterMBean()
+    {
+        try
+        {
+            MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+            mbs.unregisterMBean(new ObjectName(MBEAN_NAME));
+        }
+        catch (Exception e)
+        {
+            logger.warn("Error unregistering Permissions Cache mbean", e);
+        }
+    }
+
     public Set<Permission> getPermissions(AuthenticatedUser user, IResource resource)
     {
         if (cache == null)
@@ -78,6 +96,11 @@ public class PermissionsCache implements PermissionsCacheMBean
         {
             throw new RuntimeException(e);
         }
+    }
+
+    public long size()
+    {
+        return cache == null ? 0L : cache.size();
     }
 
     public void invalidate()
@@ -181,5 +204,34 @@ public class PermissionsCache implements PermissionsCacheMBean
                                                                                   TimeUnit.MILLISECONDS);
         }
         return newcache;
+    }
+
+    public void warm(Cacheable<Pair<AuthenticatedUser, IResource>, Set<Permission>> entryProvider)
+    {
+        if (cache == null)
+        {
+            logger.info("Cache not enabled, skipping pre-warming");
+            return;
+        }
+
+        int retries = Integer.getInteger("cassandra.permissions_cache.warming.max_retries", 10);
+        long retryInterval = Long.getLong("cassandra.permissions_cache.warming.retry_interval_ms", 1000);
+
+        while (retries-- > 0)
+        {
+            try
+            {
+                Map<Pair<AuthenticatedUser, IResource>, Set<Permission>> entries = entryProvider.getInitialEntriesForCache();
+                logger.info("Populating cache with {} pre-computed entries", entries.size());
+
+                cache.putAll(entries);
+                break;
+            }
+            catch (Exception e)
+            {
+                logger.warn("Failed to pre-warm auth cache, retrying {} more times", retries, e);
+                Uninterruptibles.sleepUninterruptibly(retryInterval, TimeUnit.MILLISECONDS);
+            }
+        }
     }
 }

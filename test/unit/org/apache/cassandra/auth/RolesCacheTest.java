@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.auth;
 
-import java.lang.management.ManagementFactory;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -71,6 +70,7 @@ public class RolesCacheTest
         };
         RolesCache cache = new RolesCache(new RoleTestUtils.LocalExecutionRoleManager(), true);
         cache.warm(entryProvider);
+        assertEquals(1, cache.size());
         assertTrue(provided.get());
     }
 
@@ -85,9 +85,9 @@ public class RolesCacheTest
             }
         };
 
-        RolesCache cache = new RolesCache(new RoleTestUtils.LocalExecutionRoleManager(), true);
+        RolesCache cache = new RolesCache(new RoleTestUtils.LocalExecutionRoleManager(), false);
         cache.warm(entryProvider);
-        assertEquals(testRoles, cache.getRoles(testResource));
+        assertEquals(0, cache.size());
     }
 
     @Test
@@ -109,6 +109,7 @@ public class RolesCacheTest
 
         RolesCache cache = new RolesCache(new RoleTestUtils.LocalExecutionRoleManager(), true);
         cache.warm(entryProvider);
+        assertEquals(maxEntries, cache.size());
     }
 
     @Test

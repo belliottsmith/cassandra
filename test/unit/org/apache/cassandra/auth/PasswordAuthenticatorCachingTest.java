@@ -113,8 +113,7 @@ public class PasswordAuthenticatorCachingTest
         Map<String, String> cacheEntries = authenticator.getInitialEntriesForCache();
         assertEquals(2, cacheEntries.size());
         assertEquals("fake_hash_1", cacheEntries.get("user1"));
-        assertEquals(2, cacheEntries.size());
-        assertEquals("fake_hash_1", cacheEntries.get("user1"));
+        assertEquals("fake_hash_2", cacheEntries.get("user2"));
     }
 
 }

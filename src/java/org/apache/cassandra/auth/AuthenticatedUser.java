@@ -40,6 +40,11 @@ public class AuthenticatedUser
     // User-level permissions cache.
     private static final PermissionsCache permissionsCache = new PermissionsCache(DatabaseDescriptor.getAuthorizer());
 
+    public static void warmPermissionsCache()
+    {
+        permissionsCache.warm(DatabaseDescriptor.getAuthorizer());
+    }
+
     private final String name;
     // primary Role of the logged in user
     private final RoleResource role;

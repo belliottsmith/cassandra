@@ -676,11 +676,13 @@ public class CassandraRoleManager implements IRoleManager
     {
         Map<RoleResource, Set<Role>> entries = new HashMap<>();
 
-        if (Schema.instance.getCFMetaData("system_auth", "users") != null)
+        String cqlTemplate = "SELECT * FROM %s.%s";
+        if (Schema.instance.getCFMetaData(AuthKeyspace.NAME, LEGACY_USERS_TABLE) != null)
         {
             logger.info("Warming roles cache from legacy users table");
-            UntypedResultSet results = QueryProcessor.process("SELECT * FROM system_auth.users",
-                                                              consistencyForRoleForRead());
+            UntypedResultSet results =
+                QueryProcessor.process(String.format(cqlTemplate, AuthKeyspace.NAME, LEGACY_USERS_TABLE),
+                                       consistencyForRoleForRead());
             results.forEach(row -> entries.put(RoleResource.role(row.getString("name")),
                                                Collections.singleton(LEGACY_ROW_TO_ROLE.apply(row))));
         }
