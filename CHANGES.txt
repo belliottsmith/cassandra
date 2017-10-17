@@ -1,4 +1,11 @@
-3.0.15.1 (open)
+3.0.15.2 (open)
+
+3.0.15.1
+ * <rdar://problem/28899529> (CASSANDRA-13771 / 4.0) Emit a KPI every time we hit tombstone failure
+ * <rdar://problem/34917457> (CASSANDRA-13939 / 3.0.16) Mishandling of cells for removed/dropped columns when reading legacy files
+ * <rdar://problem/34976976> (CASSANDRA-13930 / 4.0) Backport CASSANDRA-13930 - avoid grabbing read lock
+ * <rdar://problem/34894619> (Apple Internal) Pre-warm permissions cache  
+ * <rdar://problem/34942194> (Apple Internal) Compaction could resurrect data if it's racing with a repair with christmas patch enabled
  
 3.0.15.0
  * <rdar://problem/33089516> (CASSANDRA-13846 / 4.0) Add unit tests for unique CK queries
