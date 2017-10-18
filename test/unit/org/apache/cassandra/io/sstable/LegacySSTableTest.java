@@ -72,7 +72,7 @@ public class LegacySSTableTest
      * See {@link #testGenerateSstables()} to generate sstables.
      * Take care on commit as you need to add the sstable files using {@code git add -f}
      */
-    public static final String[] legacyVersions = {"mc", "mb", "ma", "la", "ka", "kb", "jb"};
+    public static final String[] legacyVersions = {"me", "md", "mc", "mb", "ma", "la", "kb", "ka", "jb"};
 
     // 1200 chars
     static final String longString = "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789" +
@@ -117,11 +117,14 @@ public class LegacySSTableTest
     /**
      * Get a descriptor for the legacy sstable at the given version.
      */
-    protected Descriptor getDescriptor(String legacyVersion, String table)
+    private Descriptor getDescriptor(String legacyVersion, String table)
     {
-        return new Descriptor(legacyVersion, getTableDir(legacyVersion, table), "legacy_tables", table, 1,
-                              BigFormat.instance.getVersion(legacyVersion).hasNewFileName() ?
-                              SSTableFormat.Type.BIG :SSTableFormat.Type.LEGACY);
+        return new Descriptor(legacyVersion,
+                              getTableDir(legacyVersion, table),
+                              "legacy_tables",
+                              table,
+                              1,
+                              legacyVersion.compareTo("la") >= 0 ? SSTableFormat.Type.BIG : SSTableFormat.Type.LEGACY);
     }
 
     @Test
