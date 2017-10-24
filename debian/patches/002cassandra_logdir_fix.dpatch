@@ -11,7 +11,7 @@ diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' 
 @@ -139,7 +139,7 @@
      props="$3"
      class="$4"
-     cassandra_parms="-Dlogback.configurationFile=logback.xml"
+     cassandra_parms="-Dlog4j.configurationFile=log4j2.xml"
 -    cassandra_parms="$cassandra_parms -Dcassandra.logdir=$CASSANDRA_HOME/logs"
 +    cassandra_parms="$cassandra_parms -Dcassandra.logdir=/var/log/cassandra"
      cassandra_parms="$cassandra_parms -Dcassandra.storagedir=$cassandra_storagedir"
