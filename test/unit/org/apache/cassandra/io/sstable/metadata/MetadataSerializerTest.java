@@ -92,14 +92,31 @@ public class MetadataSerializerTest
 
         String partitioner = RandomPartitioner.class.getCanonicalName();
         double bfFpChance = 0.1;
-        Map<MetadataType, MetadataComponent> originalMetadata = collector.finalizeMetadata(partitioner, bfFpChance, 0, null, SerializationHeader.make(cfm, Collections.emptyList()));
-        return originalMetadata;
+        return collector.finalizeMetadata(partitioner, bfFpChance, 0, null, SerializationHeader.make(cfm, Collections.emptyList()));
+    }
+
+    @Test
+    public void testLaReadLa() throws IOException
+    {
+        testOldReadsNew("la", "la");
     }
 
     @Test
     public void testLaReadLb() throws IOException
     {
         testOldReadsNew("la", "lb");
+    }
+
+    @Test
+    public void testLbReadLb() throws IOException
+    {
+        testOldReadsNew("lb", "lb");
+    }
+
+    @Test
+    public void testMaReadMa() throws IOException
+    {
+        testOldReadsNew("ma", "ma");
     }
 
     @Test
@@ -115,15 +132,75 @@ public class MetadataSerializerTest
     }
 
     @Test
+    public void testMaReadMd() throws IOException
+    {
+        testOldReadsNew("ma", "md");
+    }
+
+    @Test
+    public void testMaReadMe() throws IOException
+    {
+        testOldReadsNew("ma", "me");
+    }
+
+    @Test
+    public void testMbReadMb() throws IOException
+    {
+        testOldReadsNew("mb", "mb");
+    }
+
+    @Test
     public void testMbReadMc() throws IOException
     {
         testOldReadsNew("mb", "mc");
     }
 
     @Test
-    public void testMdReadMc() throws IOException
+    public void testMbReadMd() throws IOException
+    {
+        testOldReadsNew("mb", "md");
+    }
+
+    @Test
+    public void testMbReadMe() throws IOException
+    {
+        testOldReadsNew("mb", "me");
+    }
+
+    @Test
+    public void testMcReadMc() throws IOException
+    {
+        testOldReadsNew("mc", "mc");
+    }
+
+    @Test
+    public void testMcReadMd() throws IOException
     {
         testOldReadsNew("mc", "md");
+    }
+
+    @Test
+    public void testMcReadMe() throws IOException
+    {
+        testOldReadsNew("mc", "me");
+    }
+
+    @Test
+    public void testMdReadMd() throws IOException
+    {
+        testOldReadsNew("md", "md");
+    }
+
+    @Test
+    public void testMdReadMe() throws IOException
+    {
+        testOldReadsNew("md", "me");
+    }
+
+    @Test
+    public void testMeReadMe() throws IOException
+    {
+        testOldReadsNew("me", "me");
     }
 
     public void testOldReadsNew(String oldV, String newV) throws IOException
@@ -145,11 +222,9 @@ public class MetadataSerializerTest
             for (MetadataType type : MetadataType.values())
             {
                 assertEquals(deserializedLa.get(type), deserializedLb.get(type));
-                if (!originalMetadata.get(type).equals(deserializedLb.get(type)))
-                {
-                    // Currently only STATS can be different. Change if no longer the case
-                    assertEquals(MetadataType.STATS, type);
-                }
+
+                if (MetadataType.STATS != type)
+                    assertEquals(originalMetadata.get(type), deserializedLb.get(type));
             }
         }
     }
@@ -161,5 +236,7 @@ public class MetadataSerializerTest
         assertFalse(mc.hasPendingRepair());
         Version md = BigFormat.instance.getVersion("md");
         assertTrue(md.hasPendingRepair());
+        Version me = BigFormat.instance.getVersion("me");
+        assertTrue(me.hasPendingRepair());
     }
 }

@@ -76,6 +76,8 @@ public abstract class Version
 
     public abstract boolean hasPendingRepair();
 
+    public abstract boolean hasMetadataChecksum();
+
     public String getVersion()
     {
         return version;
