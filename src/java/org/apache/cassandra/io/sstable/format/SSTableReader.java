@@ -1491,8 +1491,26 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
             return;
 
         KeyCacheKey cacheKey = new KeyCacheKey(metadata.ksAndCFName, descriptor, key.getKey());
-        logger.trace("Adding cache entry for {} -> {}", cacheKey, info);
-        keyCache.put(cacheKey, info);
+
+        // only add the entry to the cache if the thing being added itself isn't
+        // greater than or equal to the entire configured size of the cache. This
+        // prevents us from adding an object to the heap just to need to have
+        // the periodic scheduled logic in the cache get scheduled to turn around
+        // and evict the object we just put in as it's already too big
+        long cacheKeySize = info.unsharedHeapSize();
+        long totalKeyCacheSizeBytes = DatabaseDescriptor.getKeyCacheSizeInMB() * 1024 * 1024;
+        if (cacheKeySize <= totalKeyCacheSizeBytes)
+        {
+            logger.trace("Adding cache entry for {} -> {} with RowIndexEntry size {} (of KeyCache total {})", cacheKey,
+                        info, FileUtils.stringifyFileSize(cacheKeySize), FileUtils.stringifyFileSize(totalKeyCacheSizeBytes));
+            keyCache.put(cacheKey, info);
+        }
+        else
+        {
+            logger.trace("Not adding cache entry for {} -> {} as key size {} is greater than or equal to the " +
+                         "total configured KeyCache size {}", cacheKey, info, FileUtils.stringifyFileSize(cacheKeySize),
+                         FileUtils.stringifyFileSize(totalKeyCacheSizeBytes));
+        }
     }
 
     public RowIndexEntry getCachedPosition(DecoratedKey key, boolean updateStats)
