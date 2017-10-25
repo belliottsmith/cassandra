@@ -547,8 +547,6 @@ public class KeyCacheCqlTest extends CQLTester
             }
         }
 
-        Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).forceBlockingFlush();
-
         // generate our "large" mutations that will have IndexInfo entries
         for (int i = 10; i < 20; i++)
         {
@@ -568,15 +566,23 @@ public class KeyCacheCqlTest extends CQLTester
                         colText, colInt, colLong);
             }
 
-            // explicitly flush after every "large" key we write here so we ensure each key ends up in
-            // exactly 1 sstable. If we don't we might flush at random intervals and the keys might
-            // go into 1 or more sstables, meaning when we read we wouldn't have a 1:1 mapping of cql reads
-            // to key cache requests (as the KeyCacheKey that we use to put stuff into the cache is a "decorated"
-            // instance of the key + keyspace, cf, and sstable descriptor).
+            // explicitly flush after each "large-ish" key we write out simply to keep things
+            // more sane in the memtable and flushes... we'll do a major compaction at the end
+            // anyways making sure we always get a consistent single sstable regardless of
+            // how things decide to compact and flush and hopefully totall removing any chance
+            // of this unit test being flaky!
             Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).forceBlockingFlush();
         }
 
         Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).forceBlockingFlush();
+
+        // we explicitly issue a major compaction at the end so that everything ends up
+        // in one giant sstable... this ensures that we can guarentee the assumption the
+        // tests make that all reads for keys will have their data contained in exactly 1
+        // sstable. if the key ends up in multiple sstables, we'll see more cache requests
+        // than read requests we actually made as we do a key cache lookup for each
+        // KeyCacheKey, which is a combination of the key + the key's keyspace and cf, and sstable descriptor.
+        Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).forceMajorCompaction();
     }
 
     // Inserts 100 partitions split over 10 sstables (flush after 10 partitions).
