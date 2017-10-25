@@ -30,9 +30,9 @@ public final class Resources
      * @param resource The staring point.
      * @return list of resource in the chain form start to the root.
      */
-    public static List<? extends IResource> chain(IResource resource)
+    public static List<IResource> chain(IResource resource)
     {
-        List<IResource> chain = new ArrayList<IResource>();
+        List<IResource> chain = new ArrayList<>();
         while (true)
         {
            chain.add(resource);
