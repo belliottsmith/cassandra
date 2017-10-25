@@ -1501,15 +1501,21 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         long cacheKeySize = info.unsharedHeapSize();
         if (cacheKeySize <= totalKeyCacheSizeBytes)
         {
-            logger.trace("Adding cache entry for {} -> {} with RowIndexEntry size {} (of KeyCache total {})", cacheKey,
-                        info, FileUtils.stringifyFileSize(cacheKeySize), FileUtils.stringifyFileSize(totalKeyCacheSizeBytes));
+            if (logger.isTraceEnabled())
+            {
+                logger.trace("Adding cache entry for {} -> {} with RowIndexEntry size {} (of KeyCache total {})", cacheKey,
+                             info, FileUtils.stringifyFileSize(cacheKeySize), FileUtils.stringifyFileSize(totalKeyCacheSizeBytes));
+            }
             keyCache.put(cacheKey, info);
         }
         else
         {
-            logger.trace("Not adding cache entry for {} -> {} as key size {} is greater than or equal to the " +
-                         "total configured KeyCache size {}", cacheKey, info, FileUtils.stringifyFileSize(cacheKeySize),
-                         FileUtils.stringifyFileSize(totalKeyCacheSizeBytes));
+            if (logger.isTraceEnabled())
+            {
+                logger.trace("Not adding cache entry for {} -> {} as key size {} is greater than or equal to the " +
+                             "total configured KeyCache size {}", cacheKey, info, FileUtils.stringifyFileSize(cacheKeySize),
+                             FileUtils.stringifyFileSize(totalKeyCacheSizeBytes));
+            }
         }
     }
 
