@@ -18,7 +18,10 @@
 
 package org.apache.cassandra.auth;
 
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.function.Supplier;
 
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
@@ -57,6 +60,17 @@ public class AuthTestUtils
      */
     public static class LocalCassandraRoleManager extends CassandraRoleManager
     {
+        Supplier<Map<RoleResource, Set<Role>>> localBulkLoader;
+
+        public LocalCassandraRoleManager()
+        {
+            this.localBulkLoader = super.bulkLoader();
+        }
+        public LocalCassandraRoleManager(Supplier<Map<RoleResource, Set<Role>>> bulkLoader)
+        {
+            this.localBulkLoader = bulkLoader;
+        }
+
         ResultMessage.Rows select(SelectStatement statement, QueryOptions options)
         {
             return statement.executeLocally(QueryState.forInternalCalls(), options);
@@ -70,6 +84,11 @@ public class AuthTestUtils
         protected void scheduleSetupTask(final Callable<Void> setupTask)
         {
             // skip data migration or setting up default role for tests
+        }
+
+        public Supplier<Map<RoleResource, Set<Role>>> bulkLoader()
+        {
+            return localBulkLoader;
         }
     }
 
