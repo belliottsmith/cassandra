@@ -484,10 +484,10 @@ public class KeyCacheCqlTest extends CQLTester
         assertEquals(10 + 10, requests);
 
         // select the big entries we inserted.. these shouldn't be cached as they are all too big
-        // the actual size reported of these entries should be 85.28 MB
+        // the actual size reported of these entries should be 30.18 MB
         for (int i = 10; i < 20; i++)
         {
-            assertEquals(2000, execute("SELECT col_text FROM %s WHERE part_key_a = ? AND part_key_b = ?", i, Integer.toOctalString(i)).size());
+            assertEquals(1500, execute("SELECT col_text FROM %s WHERE part_key_a = ? AND part_key_b = ?", i, Integer.toOctalString(i)).size());
             hits = metrics.hits.getCount();
             assertEquals(10, hits);
         }
@@ -502,7 +502,7 @@ public class KeyCacheCqlTest extends CQLTester
         // we're issuing
         for (int i = 10; i < 20; i++)
         {
-            assertEquals(2000, execute("SELECT col_text FROM %s WHERE part_key_a = ? AND part_key_b = ?", i, Integer.toOctalString(i)).size());
+            assertEquals(1500, execute("SELECT col_text FROM %s WHERE part_key_a = ? AND part_key_b = ?", i, Integer.toOctalString(i)).size());
             hits = metrics.hits.getCount();
             assertEquals(10, hits);
         }
@@ -552,11 +552,11 @@ public class KeyCacheCqlTest extends CQLTester
         {
             int partKeyA = i;
             String partKeyB = Integer.toOctalString(i);
-            for (int c = 0; c < 2000; c++)
+            for (int c = 0; c < 1500; c++)
             {
                 int clustKeyA = c;
                 String clustKeyB = Integer.toOctalString(c);
-                List<String> clustKeyC = makeList(clustKeyB, 2000);
+                List<String> clustKeyC = makeList(clustKeyB, 1000);
                 String colText = String.valueOf(i) + '-' + String.valueOf(c);
                 int colInt = i % 10;
                 long colLong = c;
