@@ -58,6 +58,12 @@ public class Roles
     }
 
     @VisibleForTesting
+    public static void initRolesCache(RolesCache cache)
+    {
+        Roles.cache = cache;
+    }
+
+    @VisibleForTesting
     public static void clearCache()
     {
         cache.invalidate();
