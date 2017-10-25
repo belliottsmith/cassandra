@@ -186,6 +186,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     protected final RowIndexEntry.IndexSerializer rowIndexEntrySerializer;
 
     protected InstrumentingCache<KeyCacheKey, RowIndexEntry> keyCache;
+    private final long totalKeyCacheSizeBytes = DatabaseDescriptor.getKeyCacheSizeInMB() * 1024 * 1024;
 
     protected final BloomFilterTracker bloomFilterTracker = new BloomFilterTracker();
 
@@ -1498,7 +1499,6 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         // the periodic scheduled logic in the cache get scheduled to turn around
         // and evict the object we just put in as it's already too big
         long cacheKeySize = info.unsharedHeapSize();
-        long totalKeyCacheSizeBytes = DatabaseDescriptor.getKeyCacheSizeInMB() * 1024 * 1024;
         if (cacheKeySize <= totalKeyCacheSizeBytes)
         {
             logger.trace("Adding cache entry for {} -> {} with RowIndexEntry size {} (of KeyCache total {})", cacheKey,
