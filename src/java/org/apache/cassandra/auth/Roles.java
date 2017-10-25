@@ -38,10 +38,9 @@ public class Roles
     private static RolesCache cache = new RolesCache(DatabaseDescriptor.getRoleManager());
 
     @VisibleForTesting
-    public static void initRolesCache(IRoleManager roleManager, boolean enableCache)
+    public static void initRolesCache(RolesCache cache)
     {
-        cache.unregisterMBean();
-        cache = new RolesCache(roleManager, enableCache);
+        Roles.cache = cache;
     }
 
     public static void warmCache()

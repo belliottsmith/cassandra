@@ -47,12 +47,12 @@ import static org.junit.Assert.assertTrue;
 
 public class PermissionsCacheTest
 {
-
     private final AuthenticatedUser testUser = new AuthenticatedUser("user");
     private final IResource testResource = DataResource.table("test_ks", "test_table");
     private final Map<Pair<AuthenticatedUser, IResource>, Set<Permission>> singleTestPermission =
         Collections.singletonMap(Pair.create(testUser, testResource), Permission.ALL);
 
+    private int restoreValidity;
 
     @BeforeClass
     public static void setupClass() throws Exception
@@ -75,6 +75,18 @@ public class PermissionsCacheTest
         {
             Schema.instance.dropTable(legacyPermissionsKsAndCfs.left, legacyPermissionsKsAndCfs.right);
         }
+
+        // Initialize the role manager, this is necessary because CassandraAuthorizer checks
+        // for superuser status early in the authz process.
+        IRoleManager roleManager = new RoleTestUtils.LocalExecutionRoleManager();
+        roleManager.setup();
+        Roles.initRolesCache(new RolesCache(roleManager, true));
+
+        for (RoleResource role : ALL_ROLES)
+            roleManager.createRole(AuthenticatedUser.ANONYMOUS_USER, role, new RoleOptions());
+
+        // grab the current setting for permissions validity to restore when a test modifies it
+        restoreValidity = DatabaseDescriptor.getPermissionsValidity();
     }
 
     @After
@@ -82,6 +94,8 @@ public class PermissionsCacheTest
     {
         System.clearProperty("cassandra.permissions_cache.warming.max_retries");
         System.clearProperty("cassandra.permissions_cache.warming.retry_interval_ms");
+
+        DatabaseDescriptor.setPermissionsValidity(restoreValidity);
     }
 
     @Test
@@ -113,14 +127,12 @@ public class PermissionsCacheTest
             }
         };
 
-        int restoreValidity = DatabaseDescriptor.getPermissionsValidity();
         DatabaseDescriptor.setPermissionsValidity(0); // Set validity to 0 to disable cache
         PermissionsCache cache = new PermissionsCache(new CassandraAuthorizer());
         cache.warm(entryProvider);
         assertEquals(0, cache.size());
         assertEquals(Permission.NONE, cache.getPermissions(testUser, testResource));
         assertEquals(0, cache.size()); // Verify cache is still disabled and empty
-        DatabaseDescriptor.setPermissionsValidity(restoreValidity);
     }
 
     @Test
@@ -179,12 +191,8 @@ public class PermissionsCacheTest
 
         // setup a hierarchy of roles. ROLE_B is granted LOGIN privs, ROLE_B_1 and ROLE_B_2.
         // ROLE_C is granted LOGIN along with ROLE_C_1 & ROLE_C_2
-        IRoleManager roleManager = new RoleTestUtils.LocalExecutionRoleManager();
+        IRoleManager roleManager = new LocalExecutionRoleManager();
         roleManager.setup();
-        Roles.initRolesCache(roleManager, true);
-
-        for (RoleResource role : ALL_ROLES)
-            roleManager.createRole(AuthenticatedUser.ANONYMOUS_USER, role, new RoleOptions());
 
         RoleOptions withLogin = new RoleOptions();
         withLogin.setOption(IRoleManager.Option.LOGIN, Boolean.TRUE);
@@ -231,9 +239,6 @@ public class PermissionsCacheTest
     @Test
     public void warmCacheWithEmptyTable() throws Exception
     {
-        IRoleManager roleManager = new RoleTestUtils.LocalExecutionRoleManager();
-        Roles.initRolesCache(roleManager, true);
-
         CassandraAuthorizer authorizer = new CassandraAuthorizer();
         Map<Pair<AuthenticatedUser, IResource>, Set<Permission>> cacheEntries = authorizer.getInitialEntriesForCache();
         assertTrue(cacheEntries.isEmpty());

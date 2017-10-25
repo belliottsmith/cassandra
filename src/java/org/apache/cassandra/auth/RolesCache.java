@@ -57,13 +57,6 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
     public RolesCache(IRoleManager roleManager)
     {
         this(roleManager, DatabaseDescriptor.getAuthenticator().requireAuthentication());
-    }
-
-    @VisibleForTesting
-    public RolesCache(IRoleManager roleManager, boolean enableCache)
-    {
-        this.roleManager = roleManager;
-        this.cache = initCache(null, enableCache);
         try
         {
             MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
@@ -73,6 +66,13 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
         {
             throw new RuntimeException(e);
         }
+    }
+
+    @VisibleForTesting
+    public RolesCache(IRoleManager roleManager, boolean enableCache)
+    {
+        this.roleManager = roleManager;
+        this.cache = initCache(null, enableCache);
     }
 
     @VisibleForTesting

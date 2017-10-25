@@ -43,7 +43,7 @@ public class RolesTest
         StorageService.instance.initServer(0);
         IRoleManager roleManager = new RoleTestUtils.LocalExecutionRoleManager();
         roleManager.setup();
-        Roles.initRolesCache(roleManager, true);
+        Roles.initRolesCache(new RolesCache(roleManager, true));
         for (RoleResource role : ALL_ROLES)
             roleManager.createRole(AuthenticatedUser.ANONYMOUS_USER, role, new RoleOptions());
         grantRolesTo(roleManager, ROLE_A, ROLE_B, ROLE_C);
