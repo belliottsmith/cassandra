@@ -194,7 +194,7 @@ public class Config
     public boolean listen_on_broadcast_address = false;
     public String internode_authenticator;
 
-    public boolean traverse_auth_from_root = false;
+    public boolean traverse_auth_from_root = true; // ACI changes to default
 
     /*
      * RPC address and interface refer to the address/interface used for the native protocol used to communicate with
