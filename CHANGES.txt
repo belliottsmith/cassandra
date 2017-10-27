@@ -1,4 +1,9 @@
-3.0.15.2 (open)
+3.0.15.3 (open)
+
+3.0.15.2
+ * <rdar://problem/35057289> (CASSANDRA-13321, CASSANDRA-13953 / 4.0) Backport sstable metadata checksum patches
+ * <rdar://problem/35009258> (CASSANDRA-13975, Not Yet Fixed) Properly handle oversized read repair mutations
+ * <rdar://problem/35097544> (Apple Internal) Reverse iteration order of resources during permissions checking
 
 3.0.15.1
  * <rdar://problem/28899529> (CASSANDRA-13771 / 4.0) Emit a KPI every time we hit tombstone failure
