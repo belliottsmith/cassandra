@@ -212,7 +212,9 @@ fi
 
 # enable assertions.  disabling this in production will give a modest
 # performance benefit (around 5%).
-JVM_OPTS="$JVM_OPTS -ea"
+# disable assertions for net.openhft.** because it runs out of memory by design
+# if enabled and run for more than just brief testing
+JVM_OPTS="$JVM_OPTS -ea -da:net.openhft..."
 
 # Per-thread stack size.
 JVM_OPTS="$JVM_OPTS -Xss256k"

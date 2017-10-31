@@ -444,6 +444,8 @@ public class Config
 
     public volatile boolean alter_table_enabled = false;
 
+    public String full_query_log_dir = null;
+
     public enum CommitLogSync
     {
         periodic,

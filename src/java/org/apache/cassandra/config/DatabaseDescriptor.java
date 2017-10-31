@@ -122,6 +122,11 @@ public class DatabaseDescriptor
 
     private static volatile boolean aggressiveGC = Boolean.getBoolean("cassandra.aggressivegcls.enabled");
 
+    public static String getFullQueryLogPath()
+    {
+        return  conf.full_query_log_dir;
+    }
+
     static
     {
         // In client mode, we use a default configuration. Note that the fields of this class will be
