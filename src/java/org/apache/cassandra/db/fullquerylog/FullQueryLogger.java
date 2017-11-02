@@ -75,7 +75,7 @@ public class FullQueryLogger
 
     private static final Logger logger = LoggerFactory.getLogger(FullQueryLogger.class);
     private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 1, TimeUnit.MINUTES);
-    private static final NoSpamLogger.NoSpamLogStatement droppedSamplesStatement = noSpamLogger.getStatement("Dropped %d binary log samples", 1, TimeUnit.MINUTES);
+    private static final NoSpamLogger.NoSpamLogStatement droppedSamplesStatement = noSpamLogger.getStatement("Dropped {} binary log samples", 1, TimeUnit.MINUTES);
 
     public static final FullQueryLogger instance = new FullQueryLogger();
 
@@ -211,7 +211,7 @@ public class FullQueryLogger
     private void logDroppedSample()
     {
         droppedSamplesSinceLastLog.incrementAndGet();
-        if (droppedSamplesStatement.warn(new Object[] {droppedSamplesStatement.get()}))
+        if (droppedSamplesStatement.warn(new Object[] {droppedSamplesSinceLastLog.get()}))
         {
             droppedSamplesSinceLastLog.set(0);
         }
