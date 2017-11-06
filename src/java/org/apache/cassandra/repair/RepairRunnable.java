@@ -339,7 +339,10 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             return;
         }
 
-        syncRepairHistory(columnFamilyStores, commonRanges);
+        if (options.isGlobal() && !options.isForcedRepair())
+        {
+            syncRepairHistory(columnFamilyStores, commonRanges);
+        }
 
         if (options.isPreview())
         {
