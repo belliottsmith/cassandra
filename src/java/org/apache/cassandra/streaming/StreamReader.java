@@ -21,9 +21,14 @@ import java.io.*;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
 import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
+import java.util.ListIterator;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Preconditions;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.collect.UnmodifiableIterator;
 
@@ -36,6 +41,8 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.SSTableSimpleIterator;
@@ -43,11 +50,14 @@ import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.Version;
 import org.apache.cassandra.io.util.RewindableDataInputStreamPlus;
 import org.apache.cassandra.io.util.DataInputPlus;
+import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.messages.FileMessageHeader;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.io.util.TrackedInputStream;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.Pair;
 
 import static org.apache.cassandra.utils.Throwables.extractIOExceptionCause;
@@ -58,6 +68,7 @@ import static org.apache.cassandra.utils.Throwables.extractIOExceptionCause;
 public class StreamReader
 {
     private static final Logger logger = LoggerFactory.getLogger(StreamReader.class);
+    private static final String logMessageTemplate = "[Stream #{}] Received streamed SSTable {} from {} containing key outside valid ranges {}";
     protected final UUID cfId;
     protected final long estimatedKeys;
     protected final Collection<Pair<Long, Long>> sections;
@@ -107,7 +118,6 @@ public class StreamReader
         ColumnFamilyStore cfs = null;
         if (kscf != null)
             cfs = Keyspace.open(kscf.left).getColumnFamilyStore(kscf.right);
-
         if (kscf == null || cfs == null)
         {
             // schema was dropped during streaming
@@ -119,15 +129,16 @@ public class StreamReader
                      cfs.getColumnFamilyName(), pendingRepair);
 
         TrackedInputStream in = new TrackedInputStream(new LZFInputStream(Channels.newInputStream(channel)));
-        StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, getHeader(cfs.metadata),
-                                                                 totalSize, session.planId());
+        StreamDeserializer deserializer = getDeserializer(cfs.metadata, in, inputVersion, totalSize, session, desc);
         SSTableMultiWriter writer = null;
+
         try
         {
             writer = createWriter(cfs, totalSize, repairedAt, pendingRepair, format);
             while (in.getBytesRead() < totalSize)
             {
                 writePartition(deserializer, writer);
+
                 // TODO move this to BytesReadTracker
                 session.progress(desc, ProgressInfo.Direction.IN, in.getBytesRead(), totalSize);
             }
@@ -151,6 +162,16 @@ public class StreamReader
             if (deserializer != null)
                 deserializer.cleanup();
         }
+    }
+
+    protected StreamDeserializer getDeserializer(CFMetaData metadata,
+                                                 TrackedInputStream in,
+                                                 Version inputVersion,
+                                                 long totalSize,
+                                                 StreamSession session,
+                                                 Descriptor desc) throws IOException
+    {
+        return new StreamDeserializer(metadata, in, inputVersion, getHeader(metadata), totalSize, session, desc);
     }
 
     protected SerializationHeader getHeader(CFMetaData metadata)
@@ -196,14 +217,21 @@ public class StreamReader
         private final SerializationHeader header;
         private final SerializationHelper helper;
 
-        private DecoratedKey key;
-        private DeletionTime partitionLevelDeletion;
-        private SSTableSimpleIterator iterator;
-        private Row staticRow;
+        private final List<Range<Token>> ownedRanges;
+        private final boolean outOfRangeTokenLogging;
+        private final boolean outOfRangeTokenRejection;
+        private final StreamSession session;
+        private final Descriptor desc;
+
+        private int lastCheckedRangeIndex;
+        protected DecoratedKey key;
+        protected DeletionTime partitionLevelDeletion;
+        protected Iterator<Unfiltered> iterator;
+        protected Row staticRow;
         private IOException exception;
 
         public StreamDeserializer(CFMetaData metadata, InputStream in, Version version, SerializationHeader header,
-                                  long totalSize, UUID sessionId) throws IOException
+                                  long totalSize, StreamSession session, Descriptor desc ) throws IOException
         {
             this.metadata = metadata;
             // streaming pre-3.0 sstables require mark/reset support from source stream
@@ -212,21 +240,47 @@ public class StreamReader
                 logger.trace("Initializing rewindable input stream for reading legacy sstable with {} bytes with following " +
                              "parameters: initial_mem_buffer_size={}, max_mem_buffer_size={}, max_spill_file_size={}.",
                              totalSize, INITIAL_MEM_BUFFER_SIZE, MAX_MEM_BUFFER_SIZE, MAX_SPILL_FILE_SIZE);
-                File bufferFile = getTempBufferFile(metadata, totalSize, sessionId);
+                File bufferFile = getTempBufferFile(metadata, totalSize, session.planId());
                 this.in = new RewindableDataInputStreamPlus(in, INITIAL_MEM_BUFFER_SIZE, MAX_MEM_BUFFER_SIZE, bufferFile, MAX_SPILL_FILE_SIZE);
             } else
                 this.in = new DataInputPlus.DataInputStreamPlus(in);
             this.helper = new SerializationHelper(metadata, version.correspondingMessagingVersion(), SerializationHelper.Flag.PRESERVE_SIZE);
             this.header = header;
+            this.session = session;
+            this.desc = desc;
+
+            ownedRanges = Range.normalize(StorageService.instance.getLocalAndPendingRanges(metadata.ksName));
+            lastCheckedRangeIndex = 0;
+            outOfRangeTokenLogging = StorageService.instance.isOutOfTokenRangeRequestLoggingEnabled();
+            outOfRangeTokenRejection = StorageService.instance.isOutOfTokenRangeRequestRejectionEnabled();
         }
 
-        public StreamDeserializer newPartition() throws IOException
+        public UnfilteredRowIterator newPartition() throws IOException
+        {
+            readKey();
+            readPartition();
+            return this;
+        }
+
+        protected void readKey() throws IOException
         {
             key = metadata.decorateKey(ByteBufferUtil.readWithShortLength(in));
+            if (outOfRangeTokenLogging || outOfRangeTokenRejection)
+            {
+                lastCheckedRangeIndex = verifyKeyInOwnedRanges(key,
+                                                               ownedRanges,
+                                                               lastCheckedRangeIndex,
+                                                               outOfRangeTokenLogging,
+                                                               outOfRangeTokenRejection);
+            }
+        }
+
+        protected void readPartition() throws IOException
+        {
             partitionLevelDeletion = DeletionTime.serializer.deserialize(in);
-            iterator = SSTableSimpleIterator.create(metadata, in, header, helper, partitionLevelDeletion);
-            staticRow = iterator.readStaticRow();
-            return this;
+            SSTableSimpleIterator sstableIter = SSTableSimpleIterator.create(metadata, in, header, helper, partitionLevelDeletion);
+            staticRow = sstableIter.readStaticRow();
+            iterator = sstableIter;
         }
 
         public CFMetaData metadata()
@@ -343,5 +397,36 @@ public class StreamReader
                                                          "Required disk space: %s.", FBUtilities.prettyPrintMemory(maxSize)));
             return new File(tmpDir, String.format("%s-%s.%s", BUFFER_FILE_PREFIX, sessionId, BUFFER_FILE_SUFFIX));
         }
+
+        private int verifyKeyInOwnedRanges(final DecoratedKey key,
+                                           List<Range<Token>> ownedRanges,
+                                           int lastCheckedRangeIndex,
+                                           boolean outOfRangeTokenLogging,
+                                           boolean outOfRangeTokenRejection)
+        {
+            if (lastCheckedRangeIndex < ownedRanges.size())
+            {
+                ListIterator<Range<Token>> rangesToCheck = ownedRanges.listIterator(lastCheckedRangeIndex);
+                while (rangesToCheck.hasNext())
+                {
+                    Range<Token> range = rangesToCheck.next();
+                    if (range.contains(key.getToken()))
+                        return lastCheckedRangeIndex;
+
+                    lastCheckedRangeIndex++;
+                }
+            }
+
+            StorageMetrics.totalOpsForInvalidToken.inc();
+
+            if (outOfRangeTokenLogging)
+                NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.SECONDS, logMessageTemplate, session.planId(), desc, session.peer, ownedRanges);
+
+            if (outOfRangeTokenRejection)
+                throw new StreamReceivedOutOfTokenRangeException(ownedRanges, key, desc);
+
+            return lastCheckedRangeIndex;
+        }
     }
+
 }

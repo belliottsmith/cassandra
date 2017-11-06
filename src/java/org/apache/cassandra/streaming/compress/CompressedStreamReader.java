@@ -84,8 +84,7 @@ public class CompressedStreamReader extends StreamReader
                                                               inputVersion.compressedChecksumType(), cfs::getCrcCheckChance);
         TrackedInputStream in = new TrackedInputStream(cis);
 
-        StreamDeserializer deserializer = new StreamDeserializer(cfs.metadata, in, inputVersion, getHeader(cfs.metadata),
-                                                                 totalSize, session.planId());
+        StreamDeserializer deserializer = getDeserializer(cfs.metadata, in, inputVersion, totalSize, session, desc);
         SSTableMultiWriter writer = null;
         try
         {

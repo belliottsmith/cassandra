@@ -28,27 +28,23 @@ import org.apache.cassandra.io.sstable.Descriptor;
 public class StreamReceivedOutOfTokenRangeException extends RuntimeException
 {
     private final Collection<Range<Token>> ownedRanges;
-    private final DecoratedKey firstKey;
-    private final DecoratedKey lastKey;
-    private final String fileName;
+    private final DecoratedKey key;
+    private final Descriptor descriptor;
 
     public StreamReceivedOutOfTokenRangeException(Collection<Range<Token>> ownedRanges,
-                                                  DecoratedKey firstKey,
-                                                  DecoratedKey lastKey,
-                                                  String fileName)
+                                                  DecoratedKey key,
+                                                  Descriptor descriptor)
     {
         this.ownedRanges = ownedRanges;
-        this.firstKey = firstKey;
-        this.lastKey = lastKey;
-        this.fileName = fileName;
+        this.key = key;
+        this.descriptor = descriptor;
     }
 
     public String getMessage()
     {
-        return String.format("Received stream containing sstable %s (min: %s, max: %s) with range outside of owned ranges %s ",
-                             fileName,
-                             firstKey,
-                             lastKey,
+        return String.format("Received stream for sstable %s containing key %s outside of owned ranges %s ",
+                             descriptor,
+                             key,
                              ownedRanges);
     }
 }
