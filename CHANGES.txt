@@ -1,4 +1,8 @@
-3.0.15.3 (open)
+3.0.15.4 (open)
+
+3.0.15.3
+ * <rdar://problem/34140814> (CASSANDRA-13983 / 4.0) Implement binary full query log in Cassandra
+ * <rdar://problem/35296443> (Apple Internal) During streaming validate each key read is in owned ranges
 
 3.0.15.2
  * <rdar://problem/35057289> (CASSANDRA-13321, CASSANDRA-13953 / 4.0) Backport sstable metadata checksum patches
