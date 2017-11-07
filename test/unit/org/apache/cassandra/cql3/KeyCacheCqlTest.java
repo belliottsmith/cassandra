@@ -449,6 +449,142 @@ public class KeyCacheCqlTest extends CQLTester
         assertEquals(120 + 5500, requests);
     }
 
+    @Test
+    public void testRowsLargerThanEntireCacheArentCached() throws Throwable
+    {
+        String table = createTable("CREATE TABLE %s ("
+                                   + commonColumnsDef
+                                   + "PRIMARY KEY ((part_key_a, part_key_b),clust_key_a,clust_key_b,clust_key_c))");
+        insertDataWithWideRows(table);
+        clearCache();
+
+        // 10 queries, from our first 10 small queries.. these should all get put into the cache
+        // these don't exceed the > 64 kb index threshold, so they won't be indexed and should be the
+        // EMPTY_SIZE of a RowIndexEntry, which is currently 24 bytes
+        for (int i = 0; i < 10; i++)
+        {
+            assertEquals(1, execute("SELECT col_text FROM %s WHERE part_key_a = ? AND part_key_b = ?", i, Integer.toOctalString(i)).size());
+        }
+
+        CacheMetrics metrics = CacheService.instance.keyCache.getMetrics();
+        long hits = metrics.hits.getCount();
+        long requests = metrics.requests.getCount();
+        assertEquals(0, hits);
+        assertEquals(10, requests);
+
+        // do the same 10 queries for our same 10 small queries... we should have a 100% cache hit rate for all these
+        for (int i = 0; i < 10; i++)
+        {
+            assertEquals(1, execute("SELECT col_text FROM %s WHERE part_key_a = ? AND part_key_b = ?", i, Integer.toOctalString(i)).size());
+        }
+
+        hits = metrics.hits.getCount();
+        requests = metrics.requests.getCount();
+        assertEquals(10, hits);
+        assertEquals(10 + 10, requests);
+
+        // select the big entries we inserted.. these shouldn't be cached as they are all too big
+        // the actual size reported of these entries should be 30.18 MB
+        for (int i = 10; i < 20; i++)
+        {
+            assertEquals(1500, execute("SELECT col_text FROM %s WHERE part_key_a = ? AND part_key_b = ?", i, Integer.toOctalString(i)).size());
+            hits = metrics.hits.getCount();
+            assertEquals(10, hits);
+        }
+
+        hits = metrics.hits.getCount();
+        requests = metrics.requests.getCount();
+        assertEquals(10, hits);
+        assertEquals(10 + 10 + 10, requests);
+
+        // select the same big entries we inserted.. our cache hit rate should be the same (unchanged) but
+        // our request rate should again increase by another 10 requests, as that's the number of requests
+        // we're issuing
+        for (int i = 10; i < 20; i++)
+        {
+            assertEquals(1500, execute("SELECT col_text FROM %s WHERE part_key_a = ? AND part_key_b = ?", i, Integer.toOctalString(i)).size());
+            hits = metrics.hits.getCount();
+            assertEquals(10, hits);
+        }
+
+        hits = metrics.hits.getCount();
+        requests = metrics.requests.getCount();
+        assertEquals(10, hits);
+        assertEquals(10 + 10 + 10 + 10, requests);
+    }
+
+    /**
+     * Inserts a few rows for testing. 1) Rows 0-9 are tiny so they will be
+     * cached (should be below indexed threshold) and then 2) Rows 10-19 which
+     * are large and shouldn't be cached as each individual entry has an
+     * RowIndexEntry that's greater than the enture configured Key Cache size.
+     * @param table table name to insert generated test data into
+     * @throws Throwable something unexpected occured while we were inserting the test data
+     */
+    private void insertDataWithWideRows(String table) throws Throwable
+    {
+        schemaChange(String.format("ALTER KEYSPACE %s with durable_writes = false", KEYSPACE_PER_TEST));
+
+        prepareTable(table);
+
+        // insert our "small" mutations that will be cached and won't have IndexInfo entries
+        for (int i = 0; i < 10; i++)
+        {
+            int partKeyA = i;
+            String partKeyB = Integer.toOctalString(i);
+            for (int c = 0; c < 1; c++)
+            {
+                int clustKeyA = c;
+                String clustKeyB = Integer.toOctalString(c);
+                List<String> clustKeyC = makeList(clustKeyB, 50);
+                String colText = String.valueOf(i) + '-' + String.valueOf(c);
+                int colInt = i % 10;
+                long colLong = c;
+                execute("INSERT INTO %s (" + commonColumns + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        partKeyA, partKeyB,
+                        clustKeyA, clustKeyB, clustKeyC,
+                        colText, colInt, colLong);
+            }
+        }
+
+        // generate our "large" mutations that will have IndexInfo entries
+        for (int i = 10; i < 20; i++)
+        {
+            int partKeyA = i;
+            String partKeyB = Integer.toOctalString(i);
+            for (int c = 0; c < 1500; c++)
+            {
+                int clustKeyA = c;
+                String clustKeyB = Integer.toOctalString(c);
+                List<String> clustKeyC = makeList(clustKeyB, 1000);
+                String colText = String.valueOf(i) + '-' + String.valueOf(c);
+                int colInt = i % 10;
+                long colLong = c;
+                execute("INSERT INTO %s (" + commonColumns + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        partKeyA, partKeyB,
+                        clustKeyA, clustKeyB, clustKeyC,
+                        colText, colInt, colLong);
+            }
+
+            // explicitly flush after each "large-ish" key we write out simply to keep things
+            // more sane in the memtable and flushes... we'll do a major compaction at the end
+            // anyways making sure we always get a consistent single sstable regardless of
+            // how things decide to compact and flush and hopefully totall removing any chance
+            // of this unit test being flaky!
+            Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).forceBlockingFlush();
+        }
+
+        Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).forceBlockingFlush();
+
+        // we explicitly issue a major compaction at the end so that everything ends up
+        // in one giant sstable... this ensures that we can guarentee the assumption the
+        // tests make that all reads for keys will have their data contained in exactly 1
+        // sstable. if the key ends up in multiple sstables, we'll see more cache requests
+        // than read requests we actually made as we do a key cache lookup for each
+        // KeyCacheKey, which is a combination of the key + the key's keyspace and cf, and sstable descriptor.
+        Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).forceMajorCompaction();
+    }
+
     // Inserts 100 partitions split over 10 sstables (flush after 10 partitions).
     // Clustered tables receive 50 CQL rows per partition.
     private void insertData(String table, String index, boolean withClustering) throws Throwable
@@ -468,7 +604,7 @@ public class KeyCacheCqlTest extends CQLTester
             {
                 int clustKeyA = c;
                 String clustKeyB = Integer.toOctalString(c);
-                List<String> clustKeyC = makeList(clustKeyB);
+                List<String> clustKeyC = makeList(clustKeyB, 50);
                 String colText = String.valueOf(i) + '-' + String.valueOf(c);
                 int colInt = i % 10;
                 long colLong = c;
@@ -494,10 +630,10 @@ public class KeyCacheCqlTest extends CQLTester
         Keyspace.open(KEYSPACE_PER_TEST).getColumnFamilyStore(table).truncateBlocking();
     }
 
-    private static List<String> makeList(String value)
+    private static List<String> makeList(String value, int capacity)
     {
-        List<String> list = new ArrayList<>(50);
-        for (int i = 0; i < 50; i++)
+        List<String> list = new ArrayList<>(capacity);
+        for (int i = 0; i < capacity; i++)
         {
             list.add(value + i);
         }
