@@ -201,31 +201,15 @@ public class PermissionsCacheTest
         grantRolesTo(roleManager, ROLE_B, ROLE_B_1, ROLE_B_2);
         grantRolesTo(roleManager, ROLE_C, ROLE_C_1, ROLE_C_2);
 
+        CassandraAuthorizer authorizer = new CassandraAuthorizer();
         // Granted on ks1.t1: B1 -> {SELECT, MODIFY}, B2 -> {AUTHORIZE}, so B -> {SELECT, MODIFY, AUTHORIZE}
-        QueryProcessor.process(String.format("INSERT INTO system_auth.role_permissions (role, resource, permissions) " +
-                                             "VALUES ('%s','%s', {'SELECT','MODIFY'})",
-                                             ROLE_B_1.getName(),
-                                             table1.getName()),
-                               ConsistencyLevel.ONE);
-        QueryProcessor.process(String.format("INSERT INTO system_auth.role_permissions (role, resource, permissions) " +
-                                             "VALUES ('%s','%s', {'AUTHORIZE'})",
-                                             ROLE_B_2.getName(),
-                                             table1.getName()),
-                               ConsistencyLevel.ONE);
+        authorizer.grant(AuthenticatedUser.SYSTEM_USER, EnumSet.of(Permission.SELECT, Permission.MODIFY), table1, ROLE_B_1);
+        authorizer.grant(AuthenticatedUser.SYSTEM_USER, EnumSet.of(Permission.AUTHORIZE), table1, ROLE_B_2);
 
         // Granted on ks2.t2: C1 -> {SELECT, MODIFY}, C2 -> {AUTHORIZE}, so C -> {SELECT, MODIFY, AUTHORIZE}
-        QueryProcessor.process(String.format("INSERT INTO system_auth.role_permissions (role, resource, permissions) " +
-                                             "VALUES ('%s','%s', {'SELECT','MODIFY'})",
-                                             ROLE_C_1.getName(),
-                                             table2.getName()),
-                               ConsistencyLevel.ONE);
-        QueryProcessor.process(String.format("INSERT INTO system_auth.role_permissions (role, resource, permissions) " +
-                                             "VALUES ('%s','%s', {'AUTHORIZE'})",
-                                             ROLE_C_2.getName(),
-                                             table2.getName()),
-                               ConsistencyLevel.ONE);
+        authorizer.grant(AuthenticatedUser.SYSTEM_USER, EnumSet.of(Permission.SELECT, Permission.MODIFY), table2, ROLE_C_1);
+        authorizer.grant(AuthenticatedUser.SYSTEM_USER, EnumSet.of(Permission.AUTHORIZE), table2, ROLE_C_2);
 
-        CassandraAuthorizer authorizer = new CassandraAuthorizer();
         Map<Pair<AuthenticatedUser, IResource>, Set<Permission>> cacheEntries = authorizer.getInitialEntriesForCache();
 
         // only ROLE_B and ROLE_C have LOGIN privs, so we only they should be in the cached

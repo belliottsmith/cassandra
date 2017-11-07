@@ -512,11 +512,12 @@ public class CassandraAuthorizer implements IAuthorizer
                                        consistencyForRoleForRead());
 
             // build a temporary flat structure to map individual roles to permissions on a resource
-            Table<RoleResource, IResource, Set<Permission>> individualRolePermissions = HashBasedTable.create();
+            // role_name -> (resource, permissions)
+            Table<String, IResource, Set<Permission>> individualRolePermissions = HashBasedTable.create();
             results.forEach(row -> {
                 if (row.has(PERMISSIONS))
                 {
-                    individualRolePermissions.put(RoleResource.fromName(row.getString(ROLE)),
+                    individualRolePermissions.put(row.getString(ROLE),
                                                   Resources.fromName(row.getString(RESOURCE)),
                                                   permissions(row.getSet(PERMISSIONS, UTF8Type.instance)));
                 }
@@ -538,7 +539,7 @@ public class CassandraAuthorizer implements IAuthorizer
                     // granted to them (e.g. superusers or roles with no direct perms)
                     Roles.getGrantedRoles(roleResource)
                          .forEach(grantedRole -> individualRolePermissions.rowMap()
-                                                                          .getOrDefault(grantedRole.resource, Collections.emptyMap())
+                                                                          .getOrDefault(grantedRole.resource.getRoleName(), Collections.emptyMap())
                                                                           .forEach(accumulator));
 
                     // having iterated all the roles granted to this user, finalize the transitive permissions

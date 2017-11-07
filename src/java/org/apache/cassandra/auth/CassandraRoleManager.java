@@ -491,7 +491,10 @@ public class CassandraRoleManager implements IRoleManager
         }
     }
 
-    private Stream<Role> collect(Role role, boolean includeInherited, DistinctRoleFilter distinctFilter, RoleLoader loaderFunction)
+    // Providing a function to fetch the details of granted roles allows us to read from the underlying tables during
+    // normal usage and fetch from a prepopulated in memory structure when building an initial set of roles to warm
+    // the RolesCache at startup
+    private Stream<Role> collect(Role role, boolean includeInherited, DistinctRoleFilter distinctFilter, Function<String, Role> loaderFunction)
     {
           if (Roles.isNullRole(role))
               return Stream.empty();
@@ -507,12 +510,6 @@ public class CassandraRoleManager implements IRoleManager
 
 
     }
-
-    // Used in collect to do the recursive fetching of granted roles when building a hierarchy.
-    // Making this a function allows us to read from the underlying tables during normal usage, and
-    // fetch from a prepopulated in memory structure when building an initial set of roles to warm
-    // the RolesCache at startup
-    private interface RoleLoader extends Function<String, Role> {}
 
     // Used as a stateful filtering function when recursively collecting granted roles
     private static class DistinctRoleFilter implements Predicate<String>
