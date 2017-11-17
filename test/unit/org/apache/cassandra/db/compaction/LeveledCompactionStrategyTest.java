@@ -17,18 +17,22 @@
  */
 package org.apache.cassandra.db.compaction;
 
+import java.io.File;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -36,6 +40,23 @@ import org.junit.Assert;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
+import com.google.common.io.ByteStreams;
+
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.cql3.UntypedResultSet;
+import org.apache.cassandra.db.Directories;
+import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.db.SystemKeyspaceMigrator40;
+import org.apache.cassandra.db.lifecycle.SSTableSet;
+import org.apache.cassandra.dht.Bounds;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.junit.Test;
 
 import org.slf4j.Logger;
@@ -48,22 +69,28 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.RowUpdateBuilder;
+import org.apache.cassandra.dht.Murmur3Partitioner.LongToken;
+import org.apache.cassandra.dht.RandomPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.notifications.SSTableAddedNotification;
 import org.apache.cassandra.notifications.SSTableRepairStatusChanged;
 import org.apache.cassandra.repair.ValidationManager;
 import org.apache.cassandra.schema.MockSchema;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.repair.RepairJobDesc;
 import org.apache.cassandra.repair.Validator;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.ActiveRepairService;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 
 import static java.util.Collections.singleton;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -78,8 +105,11 @@ public class LeveledCompactionStrategyTest
     private static final String KEYSPACE1 = "LeveledCompactionStrategyTest";
     private static final String CF_STANDARDDLEVELED = "StandardLeveled";
     private static final String CF_STANDARDDLEVELED_GCGS0 = "StandardLeveledGCGS0";
+    private static final String CF_STANDARDDLEVELED_SCHEDULED = "StandardLeveledScheduled";
+
     private Keyspace keyspace;
     private ColumnFamilyStore cfs;
+    private ColumnFamilyStore cfsScheduled;
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
@@ -88,11 +118,15 @@ public class LeveledCompactionStrategyTest
         System.setProperty("cassandra.streaminghistogram.roundseconds", "1");
 
         SchemaLoader.prepareServer();
-
+        Map<String, String> scheduledOpts = new HashMap<>();
+        scheduledOpts.put("sstable_size_in_mb", "1");
+        scheduledOpts.put("scheduled_compactions", "true");
         SchemaLoader.createKeyspace(KEYSPACE1,
                                     KeyspaceParams.simple(1),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED)
                                                 .compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1"))),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED_SCHEDULED)
+                                                .compaction(CompactionParams.lcs(scheduledOpts)),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED_GCGS0)
                                                 .compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1")))
                                                 .gcGraceSeconds(0));
@@ -104,15 +138,18 @@ public class LeveledCompactionStrategyTest
         keyspace = Keyspace.open(KEYSPACE1);
         cfs = keyspace.getColumnFamilyStore(CF_STANDARDDLEVELED);
         cfs.enableAutoCompaction();
+        cfsScheduled = keyspace.getColumnFamilyStore(CF_STANDARDDLEVELED_SCHEDULED);
+        cfsScheduled.enableAutoCompaction();
     }
 
     /**
-     * Since we use StandardLeveled CF for every test, we want to clean up after the test.
+     * clean up after the test.
      */
     @After
     public void truncateSTandardLeveled()
     {
         cfs.truncateBlocking();
+        cfsScheduled.truncateBlocking();
     }
 
     /**
@@ -1010,7 +1047,417 @@ public class LeveledCompactionStrategyTest
             // disable so we don't infect other tests
             CompactionManager.instance.setEnableAggressiveGCCompaction(false);
         }
-
         assertFalse(CompactionManager.instance.getEnableAggressiveGCCompaction());
+    }
+
+    @Test
+    public void splitRangeTest()
+    {
+        List<Range<Token>> toSplit = new ArrayList<>();
+        Range<Token> r = new Range<>(new LongToken(0), new LongToken(1000000));
+        toSplit.add(r);
+        List<Range<Token>> splitRanges = LeveledCompactionStrategy.splitRanges(new Murmur3Partitioner(), toSplit, 100);
+        List<Range<Token>> normalizedSplit = Range.normalize(splitRanges);
+        assertEquals(1 ,normalizedSplit.size());
+        assertEquals(normalizedSplit.iterator().next(), r);
+    }
+
+    @Test
+    public void splitManyRangesTest()
+    {
+        List<Range<Token>> toSplit = new ArrayList<>();
+        Random rand = new Random(0);
+        List<Token> tokens = new ArrayList<>();
+        for (int i = 0; i < 200; i++)
+            tokens.add(new LongToken(rand.nextLong()));
+
+        tokens.sort(new Comparator<Token>()
+        {
+            public int compare(Token o1, Token o2)
+            {
+                return o1.compareTo(o2);
+            }
+        });
+
+        for (int i = 0; i < tokens.size() - 1; i+=2)
+        {
+            toSplit.add(new Range<>(tokens.get(i), tokens.get(i+1)));
+        }
+        List<Range<Token>> splitRanges = LeveledCompactionStrategy.splitRanges(new Murmur3Partitioner(), toSplit, 200);
+        assertEquals(200, splitRanges.size());
+    }
+
+    @Test
+    public void splitTooNarrow()
+    {
+        Range<Token> tooNarrow = new Range<>(new LongToken(0), new LongToken(10));
+        assertEquals(0, LeveledCompactionStrategy.splitRanges(new Murmur3Partitioner(), Collections.singletonList(tooNarrow), 20).size());
+    }
+
+    @Test
+    public void unSplittableRange()
+    {
+        List<Range<Token>> toSplit = new ArrayList<>();
+        Range<Token> r = new Range<>(new LongToken(0), new LongToken(1)); // we can't split this range - it should be kept as-is
+        toSplit.add(r);
+        toSplit.add(new Range<>(new LongToken(10), new LongToken(2000)));
+        List<Range<Token>> split = LeveledCompactionStrategy.splitRanges(new Murmur3Partitioner(), toSplit, 20);
+        assertTrue(split.contains(r));
+    }
+    @Test
+    public void testGetScheduledCompactionFewSplits() throws Exception
+    {
+        testGetScheduledCompactionOP(2);
+    }
+    @Test
+    public void testGetScheduledCompactionNormalSplits() throws Exception
+    {
+        testGetScheduledCompactionOP(100);
+    }
+
+    @Test
+    public void testGetScheduledCompactionManySplits() throws Exception
+    {
+        testGetScheduledCompactionOP(1000);
+    }
+
+    private void testGetScheduledCompactionOP(int splits) throws Exception
+    {
+        Token t = cfsScheduled.getPartitioner().getRandomToken();
+        StorageService.instance.getTokenMetadata().updateNormalTokens(Collections.singleton(t), FBUtilities.getBroadcastAddressAndPort());
+        testGetScheduledCompaction(splits, cfsScheduled);
+    }
+
+    public static void testGetScheduledCompaction(int splits, ColumnFamilyStore cfsScheduled) throws Exception
+    {
+        DatabaseDescriptor.setEnableScheduledCompactions(true);
+        // hard to create leveling where there are non-single-sstable compactions to do after the first round
+        DatabaseDescriptor.setSkipSingleSSTableScheduledCompactions(false);
+        DatabaseDescriptor.setScheduledCompactionRangeSplits(splits);
+
+        populateCfsScheduled(cfsScheduled);
+
+        Token sstableMaxToken = null;
+        Token sstableMinToken = null;
+        for (SSTableReader sstable : cfsScheduled.getSSTables(SSTableSet.LIVE))
+        {
+            if (sstableMinToken == null || sstableMinToken.compareTo(sstable.first.getToken()) > 0)
+                sstableMinToken = sstable.first.getToken();
+            if (sstableMaxToken == null || sstableMaxToken.compareTo(sstable.last.getToken()) < 0)
+                sstableMaxToken = sstable.last.getToken();
+        }
+
+        CompactionStrategyManager strategy = cfsScheduled.getCompactionStrategyManager();
+        // Checking we're not completely bad at math
+        assertTrue(strategy.getSSTableCountPerLevel()[1] > 0);
+        assertTrue(strategy.getSSTableCountPerLevel()[2] > 0);
+        final List<List<AbstractCompactionStrategy>> strategies = strategy.getStrategies();
+        LeveledCompactionStrategy lcs = (LeveledCompactionStrategy) strategies.get(1).get(0);
+        int gcBefore = cfsScheduled.gcBefore((int) (System.currentTimeMillis() / 1000));
+        List<Range<Token>> compactedRanges = new ArrayList<>();
+        Iterable<SSTableReader> originalSSTables = cfsScheduled.getSSTables(SSTableSet.LIVE);
+
+        Set<SSTableReader> compactedSSTables = new HashSet<>();
+        while (true)
+        {
+            LeveledCompactionStrategy.ScheduledLeveledCompactionTask task = lcs.getNextScheduledCompactionTask(gcBefore, false, "/tmp/something");
+            if (task != null)
+            {
+                task.execute(new ActiveCompactionsTracker()
+                {
+                    public void beginCompaction(CompactionInfo.Holder ci) {}
+                    public void finishCompaction(CompactionInfo.Holder ci) {}
+                });
+
+                // this means we have wrapped around and can stop compacting
+                if (compactedRanges.contains(task.compactedRange))
+                    break;
+                compactedSSTables.addAll(task.transaction.originals());
+                compactedRanges.add(task.compactedRange);
+            }
+            Thread.sleep(10);
+        }
+        // all original sstables should have been compacted:
+        assertTrue(compactedSSTables.containsAll(Sets.newHashSet(originalSSTables)));
+        // make sure all ssstables are intersecting one of the compacted ranges
+        for (SSTableReader sstable : cfsScheduled.getSSTables(SSTableSet.LIVE))
+        {
+            Bounds<Token> sstableRange = new Bounds<>(sstable.first.getToken(), sstable.last.getToken());
+            boolean intersected = false;
+            for (Range<Token> compactedRange : compactedRanges)
+            {
+                if (compactedRange.intersects(sstableRange))
+                    intersected = true;
+            }
+            assertTrue(intersected);
+        }
+
+        // everything is dropped in L1 - other levels should be empty since we have covered the whole range above
+        assertTrue(lcs.manifest.getLevel(0).size() == 0);
+        assertTrue(lcs.manifest.getLevel(1).size() > 0);
+
+        StorageService.instance.getTokenMetadata().clearUnsafe();
+    }
+
+    @Test
+    public void testScheduledCompactionTimeWrap() throws Exception
+    {
+        CompactionStrategyManager strategy = cfsScheduled.getCompactionStrategyManager();
+        LeveledCompactionStrategy lcs = (LeveledCompactionStrategy) strategy.getStrategies().get(1).get(0);
+        lcs.resetSubrangeCompactionInfo();
+        // disable to not get any scheduled compactions before we actually want them
+        DatabaseDescriptor.setEnableScheduledCompactions(false);
+        // hard to create leveling where there are non-single-sstable compactions to do after the first round
+        DatabaseDescriptor.setSkipSingleSSTableScheduledCompactions(false);
+        DatabaseDescriptor.setScheduledCompactionRangeSplits(4);
+        DatabaseDescriptor.setScheduledCompactionCycleTime("4s");
+
+        Token t = cfsScheduled.getPartitioner().getRandomToken();
+        StorageService.instance.getTokenMetadata().updateNormalTokens(Collections.singleton(t), FBUtilities.getBroadcastAddressAndPort());
+        populateCfsScheduled(cfsScheduled);
+        DatabaseDescriptor.setEnableScheduledCompactions(true);
+
+        int scheduledCount = 0;
+        List<Range<Token>> compactedRanges = new ArrayList<>();
+        while (scheduledCount < 4)
+        {
+            long start = System.currentTimeMillis();
+            AbstractCompactionTask task = lcs.getNextBackgroundTask(0);
+            boolean isScheduled = task != null && task instanceof LeveledCompactionStrategy.ScheduledLeveledCompactionTask;
+            // before we execute the task it is always time for a scheduled compaction:
+            if (isScheduled)
+                assertTrue(lcs.timeForScheduledCompaction(false, "/tmp/something"));
+            if (task != null)
+            {
+                task.execute(new ActiveCompactionsTracker()
+                {
+                    public void beginCompaction(CompactionInfo.Holder ci) {}
+                    public void finishCompaction(CompactionInfo.Holder ci) {}
+                });
+                // after executing the scheduled compaction it should not be time for a new one (in this setup where we are not backlogged on compactions)
+                if (isScheduled)
+                {
+                    scheduledCount++;
+                    // if the compaction is slow it might take > 1s (4 splits, 4s cycle time) to compact, don't assert if so (+a bit of margin)
+                    if(System.currentTimeMillis() - start < 800)
+                        assertFalse(lcs.timeForScheduledCompaction(false, "/tmp/something"));
+                    compactedRanges.add(((LeveledCompactionStrategy.ScheduledLeveledCompactionTask) task).compactedRange);
+                }
+            }
+            Thread.sleep(1);
+        }
+        // make sure we are repeating ourselves:
+        assertTrue(compactedRanges.size() > new HashSet<>(compactedRanges).size());
+        lcs.resetSubrangeCompactionInfo();
+    }
+
+    @Test
+    public void testStoreSuccessfulScheduledCompaction() throws Exception
+    {
+        long beforeFirst = System.currentTimeMillis();
+        testGetScheduledCompactionOP(100);
+        Pair<Token, Long> lastSuccessPair = SystemKeyspace.getLastSuccessfulScheduledCompaction(KEYSPACE1, CF_STANDARDDLEVELED_SCHEDULED, false, "/tmp/something");
+
+        long lastSuccessTime = lastSuccessPair.right;
+        assertTrue(lastSuccessTime > beforeFirst);
+        assertTrue(lastSuccessPair.left != null);
+    }
+
+    @Test
+    public void testConfigValue()
+    {
+        DatabaseDescriptor.setScheduledCompactionCycleTime("1d");
+        assertEquals(TimeUnit.DAYS.toSeconds(1), DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds());
+
+        DatabaseDescriptor.setScheduledCompactionCycleTime("1h");
+        assertEquals(TimeUnit.HOURS.toSeconds(1), DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds());
+
+        DatabaseDescriptor.setScheduledCompactionCycleTime("55s");
+        assertEquals(55, DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds());
+
+        boolean gotException = false;
+        try
+        {
+            DatabaseDescriptor.setScheduledCompactionCycleTime("99");
+        }
+        catch (Throwable t)
+        {
+            gotException = true;
+        }
+        assertTrue(gotException);
+        // and value should stay the same:
+        assertEquals(55, DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds());
+
+        gotException = false;
+        try
+        {
+            DatabaseDescriptor.setScheduledCompactionCycleTime("99x");
+        }
+        catch (Throwable t)
+        {
+            gotException = true;
+        }
+        assertTrue(gotException);
+        // and value should stay the same:
+        assertEquals(55, DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds());
+
+        DatabaseDescriptor.setScheduledCompactionCycleTime("  102H  ");
+        assertEquals(TimeUnit.HOURS.toSeconds(102), DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds());
+    }
+
+    @Test
+    public void testOverlapWithMin()
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        Set<SSTableReader> sstables = new HashSet<>();
+        sstables.add(sstable(cfs, 1, 10L, 100L));
+        sstables.add(sstable(cfs, 2, 90L, 150L));
+        sstables.add(sstable(cfs, 3, 150L, 200L));
+        sstables.add(sstable(cfs, 4, 199L, 300L));
+        sstables.add(sstable(cfs, 5, 310L, 400L));
+
+        // from 0 -> 10 includes a single sstable, generation 1:
+        assertEquals(1, Iterables.getOnlyElement(LeveledManifest.overlappingWithMin(cfs.getPartitioner(), t(0), t(10), sstables)).descriptor.generation);
+
+        // 90 -> 100 includes 2 sstables, gen 1 and 2
+        Set<SSTableReader> overlapping = LeveledManifest.overlappingWithMin(cfs.getPartitioner(), t(90), t(100), sstables);
+        assertEquals(2, overlapping.size());
+        assertEquals(Sets.newHashSet(1, 2), overlapping.stream().map(s -> s.descriptor.generation).collect(Collectors.toSet()));
+
+        // 50 -> 90 includes 2 sstables, gen 1 and 2
+        overlapping = LeveledManifest.overlappingWithMin(cfs.getPartitioner(), t(50), t(90), sstables);
+        assertEquals(2, overlapping.size());
+        assertEquals(Sets.newHashSet(1, 2), overlapping.stream().map(s -> s.descriptor.generation).collect(Collectors.toSet()));
+
+        // 290 -> partitioner min token -> 2 sstables, gen 4 and 5
+        overlapping = LeveledManifest.overlappingWithMin(cfs.getPartitioner(), t(290), cfs.getPartitioner().getMinimumToken(), sstables);
+        assertEquals(2, overlapping.size());
+        assertEquals(Sets.newHashSet(4, 5), overlapping.stream().map(s -> s.descriptor.generation).collect(Collectors.toSet()));
+
+        // testing a wrapping range (1000, 100] -> normalized = [(-9223372036854775808,100], (1000,-9223372036854775808]]
+        // this means that the first range should contain 2 sstables (gen 1 and 2), and the second should include none
+        Range<Token> wrapping = new Range<>(t(1000), t(100));
+        overlapping.clear();
+        for (Range<Token> r : Range.normalize(Collections.singleton(wrapping)))
+        {
+            overlapping.addAll(LeveledManifest.overlappingWithMin(cfs.getPartitioner(), r.left, r.right, sstables));
+        }
+        assertEquals(2, overlapping.size());
+        assertEquals(Sets.newHashSet(1, 2), overlapping.stream().map(s -> s.descriptor.generation).collect(Collectors.toSet()));
+
+        // (350, 0] -> normalized = [(-9223372036854775808,0], (350,-9223372036854775808]]
+        // => first range should give 0 sstables, second a single one, generation 5
+        wrapping = new Range<>(t(350), t(0));
+        overlapping.clear();
+        for (Range<Token> r : Range.normalize(Collections.singleton(wrapping)))
+            overlapping.addAll(LeveledManifest.overlappingWithMin(cfs.getPartitioner(), r.left, r.right, sstables));
+        assertEquals(1, overlapping.size());
+        assertEquals(Sets.newHashSet(5), overlapping.stream().map(s -> s.descriptor.generation).collect(Collectors.toSet()));
+    }
+
+    @Test
+    public void testMigrateScheduledCompactions() throws IOException
+    {
+        Directories.DataDirectories fakeDatadirs = new Directories.DataDirectories(new String[] { "../tmp/a", "../tmp/b", "/tmp/c", "/tmp/d", "/tmp/e"},
+                                                                                   new String[] {});
+        Set<String> expectedAbsoluteDatadirs = fakeDatadirs.getAllDirectories().stream().map(dd -> dd.location.absolutePath()).collect(Collectors.toSet());
+        IPartitioner part = DatabaseDescriptor.getPartitioner();
+        try
+        {
+            DatabaseDescriptor.setPartitionerUnsafe(Murmur3Partitioner.instance);
+            for (int i = 0; i < 10; i++)
+            {
+                ByteBuffer bbToken = ByteBuffer.wrap(SystemKeyspace.tokenToBytes(new LongToken(i)));
+                for (boolean b : new boolean[] { true, false })
+                {
+                    QueryProcessor.executeInternal("insert into system.scheduled_compactions (keyspace_name, columnfamily_name, repaired, end_token, start_time) VALUES (?, ?, ?, ?, ?)",
+                                                   "ks" + i, "tbl" + i, b, bbToken, (long)i);
+                }
+            }
+            SystemKeyspaceMigrator40.migrateScheduledCompactions(fakeDatadirs);
+
+            for (int i = 0; i < 10; i++)
+            {
+                UntypedResultSet res = QueryProcessor.executeInternal("select * from system.scheduled_compactions_v2 where keyspace_name = ? and table_name = ?", "ks" + i, "tbl" + i);
+                assertEquals(2 * fakeDatadirs.getAllDirectories().size(), res.size()); // repaired + unrepaired in 5 datadirs
+                Set<String> seenUnrepairedDatadirs = new HashSet<>();
+                Set<String> seenRepairedDatadirs = new HashSet<>();
+                for (UntypedResultSet.Row row : res)
+                {
+                    Token token = Token.serializer.deserialize(ByteStreams.newDataInput(ByteBufferUtil.getArray(row.getBytes("end_token"))), DatabaseDescriptor.getPartitioner(), MessagingService.current_version);
+                    assertEquals(new LongToken(i), token);
+                    assertEquals(i, row.getLong("start_time"));
+                    String ddir = row.getString("data_directory");
+                    if (row.getBoolean("repaired"))
+                        seenRepairedDatadirs.add(ddir);
+                    else
+                        seenUnrepairedDatadirs.add(ddir);
+                }
+                assertEquals(seenRepairedDatadirs, expectedAbsoluteDatadirs);
+                assertEquals(seenUnrepairedDatadirs, expectedAbsoluteDatadirs);
+            }
+            assertEquals(0, QueryProcessor.executeInternal("select * from system.scheduled_compactions").size());
+        }
+        finally
+        {
+            DatabaseDescriptor.setPartitionerUnsafe(part);
+        }
+    }
+
+
+    @Test
+    public void testRPSplit()
+    {
+        // RandomPartitioner has a weird behaviour where midpoint for (min token, 0) gives the midpoint for the
+        // full token range
+        Range<Token> wrapRP = new Range<>(new RandomPartitioner.BigIntegerToken(new BigInteger("10000")),
+                                          new RandomPartitioner.BigIntegerToken(BigInteger.ONE));
+        List<Range<Token>> normalized = Range.normalize(Collections.singleton(wrapRP));
+        List<Range<Token>> splitRanges = LeveledCompactionStrategy.splitRanges(RandomPartitioner.instance, normalized, 100);
+        Token prev = null;
+        for (Range<Token> r : splitRanges)
+        {
+            assertTrue(prev == null || r.right.compareTo(prev) > 0 || r.right.equals(RandomPartitioner.instance.getMinimumToken()));
+            prev = r.right;
+        }
+    }
+
+    private static SSTableReader sstable(ColumnFamilyStore cfs, int generation, long startToken, long endToken)
+    {
+        return MockSchema.sstable(generation, 0, false, startToken, endToken, cfs);
+    }
+    private static Token t(long t)
+    {
+        return new LongToken(t);
+    }
+
+    static void populateCfsScheduled(ColumnFamilyStore cfs) throws InterruptedException
+    {
+        byte [] b = new byte[100 * 1024];
+        new Random().nextBytes(b);
+        ByteBuffer value = ByteBuffer.wrap(b); // 100 KB value, make it easy to have multiple files
+
+        // Enough data to have a level 1 and 2
+        int rows = 20;
+        int columns = 10;
+
+        // Adds enough data to trigger multiple sstable per level
+        for (int r = 0; r < rows; r++)
+        {
+            UpdateBuilder update = UpdateBuilder.create(cfs.metadata(), String.valueOf(r));
+            for (int c = 0; c < columns; c++)
+                update.newRow("column" + c).add("val", value);
+            update.applyUnsafe();
+            cfs.forceBlockingFlush();
+        }
+        waitForLeveling(cfs);
+        cfs.disableAutoCompaction();
+
+        while (!cfs.getTracker().getCompacting().isEmpty())
+        {
+            System.out.println("waiting for compacting: "+cfs.getTracker().getCompacting());
+            Thread.sleep(100);
+        }
+        System.out.println("SIZE="+cfs.getLiveSSTables().size());
     }
 }
