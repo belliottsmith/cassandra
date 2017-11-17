@@ -28,6 +28,7 @@ import com.google.common.collect.Sets;
 import com.google.common.primitives.Ints;
 
 import org.apache.cassandra.db.PartitionPosition;
+import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.slf4j.Logger;
@@ -293,20 +294,18 @@ public class LeveledManifest
         return new CompactionCandidate(candidates, getNextLevel(candidates), maxSSTableSizeInBytes);
     }
 
-    public synchronized CompactionCandidate getAggressiveCompactionCandidates(SSTableReader sstable, long maxSSTableSizeL0)
+    public synchronized CompactionCandidate getAggressiveCompactionCandidates(Range<Token> range, long maxSSTableSizeL0)
     {
         final Set<SSTableReader> overlaps = new HashSet<>();
-        final Collection<SSTableReader> singleSSTable = Collections.singleton(sstable);
         for (int i = generations.levelCount() - 1; i >= 0; i--)
         {
             if (!generations.get(i).isEmpty())
             {
-                overlaps.addAll(overlapping(singleSSTable, getLevel(i)));
+                // overlappingWithMin handles the wrap-around case - if range.right == partitioner min token, all sstables
+                // with end token larger than start will get included
+                overlaps.addAll(overlappingWithMin(cfs.getPartitioner(), range.left, range.right, generations.get(i)));
             }
         }
-
-        // overlaps should include the original sstable
-        assert overlaps.contains(sstable);
         final Set<SSTableReader> toCompact = new HashSet<>(overlaps);
 
         // exclude files in L0 that are too large
@@ -314,23 +313,28 @@ public class LeveledManifest
         {
             if (overlappingSSTable.getSSTableLevel() == 0 && overlappingSSTable.onDiskLength() > maxSSTableSizeL0)
             {
-                logger.debug("Removing SSTable {} from tombstone compaction since it's too large", overlappingSSTable);
+                logger.info("Removing SSTable {} from tombstone/scheduled compaction since it's too large", overlappingSSTable);
                 toCompact.remove(overlappingSSTable);
             }
         }
 
-        // shouldn't be empty because we at least have the original sstable
-        assert !toCompact.isEmpty();
+        if (toCompact.isEmpty()) // we now use this method with a range argument, there is a chance that the given range is empty
+            return null;
 
         // if just one SSTable then we don't need to do any aggressive compaction
         if (toCompact.size() == 1)
         {
-            return new CompactionCandidate(singleSSTable, sstable.getSSTableLevel(),
+            SSTableReader sstable = toCompact.iterator().next();
+            return new CompactionCandidate(toCompact, sstable.getSSTableLevel(),
                                            cfs.getCompactionStrategyManager().getMaxSSTableBytes());
         }
 
-        // add all overlapping in level 1 so we can put the result there
-        if (!getLevel(1).isEmpty())
+        // In the loop over generations above we add all sstables overlapping the range given
+        // but since we drop everything in L1, we need to add all sstables overlapping the result of that method.
+        // For example, we might have an sstable covering the full partitioner range in L2, but tiny (range-wise) sstables in L1
+        // Then toCompact would currently contain the big L2 sstable, but not all L1 sstables. Here we add everything
+        // that overlaps anything in L1 to make sure we can actually drop the result in L1 without causing overlap.
+        if (!generations.get(1).isEmpty())
         {
             toCompact.addAll(overlapping(toCompact, generations.get(1)));
         }
@@ -505,6 +509,27 @@ public class LeveledManifest
         {
             if (pair.getValue().intersects(promotedBounds))
                 overlapped.add(pair.getKey());
+        }
+        return overlapped;
+    }
+
+    /**
+     * special case for getting overlapping sstables - if end is partitioner.getMinToken() we return all sstables
+     * which have an end token larger than start - meaning this grabs everything from start to the end of the full
+     * partitioner range.
+     */
+    @VisibleForTesting
+    static Set<SSTableReader> overlappingWithMin(IPartitioner partitioner, Token start, Token end, Iterable<SSTableReader> sstables)
+    {
+        if (start.compareTo(end) <= 0)
+            return overlapping(start, end, sstables);
+
+        assert end.equals(partitioner.getMinimumToken()) : "If start > end, end must be equal to partitioner min token";
+        Set<SSTableReader> overlapped = new HashSet<>();
+        for (SSTableReader candidate : sstables)
+        {
+            if (candidate.last.getToken().compareTo(start) > 0)
+                overlapped.add(candidate);
         }
         return overlapped;
     }
@@ -719,6 +744,34 @@ public class LeveledManifest
     synchronized List<SSTableReader> getLevelSorted(int level, Comparator<SSTableReader> comparator)
     {
         return ImmutableList.sortedCopyOf(comparator, generations.get(level));
+    }
+
+    /**
+     * Checks the sstables if we are compacting repaired, unrepaired or pending sstables, and which data directory we are responsible for
+     *
+     * if there are no sstables or the sstables are pending, we return null
+     *
+     * @return a pair where .left is true if this strategy instance handles repaired sstables, false if not
+     *                  and .right contains the data directory for the sstables in this strategy
+     *        or null if we have no sstables or if we are handling pending sstables
+     *
+     */
+    synchronized Pair<Boolean, String> getStrategyInformation()
+    {
+        for (int i = 0, maxLevel = getLevelCount() - 1; i <= maxLevel; i++)
+        {
+            Set<SSTableReader> sstables = generations.get(i);
+            for (SSTableReader sstable : sstables)
+            {
+                if (sstable.isPendingRepair())
+                {
+                    logger.debug("SSTables pending repair, not running scheduled compactions for {}.{}", cfs.keyspace.getName(), cfs.getTableName());
+                    return null;
+                }
+                return Pair.create(sstable.isRepaired(), cfs.getDirectories().getDataDirectoryForFile(sstable.descriptor).location.getAbsolutePath());
+            }
+        }
+        return null;
     }
 
     synchronized void newLevel(SSTableReader sstable, int oldLevel)
