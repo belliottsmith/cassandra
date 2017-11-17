@@ -64,7 +64,6 @@ public final class ServerTestUtils
 
         // CIE: Relax restrictions to run OSS tests
         System.setProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
-        System.setProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION, "true");
         System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
 
         // Register an EndpointSnitch which returns fixed values for test.

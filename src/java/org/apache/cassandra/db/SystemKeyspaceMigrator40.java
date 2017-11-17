@@ -18,15 +18,20 @@
 
 package org.apache.cassandra.db;
 
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.io.ByteStreams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
@@ -34,6 +39,9 @@ import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.marshal.UUIDType;
+import org.apache.cassandra.utils.ByteBufferUtil;
+
+import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
 
 /**
  * Migrate 3.0 versions of some tables to 4.0. In this case it's just extra columns and some keys
@@ -64,6 +72,7 @@ public class SystemKeyspaceMigrator40
         migratePeerEvents();
         migrateTransferredRanges();
         migrateAvailableRanges();
+        migrateScheduledCompactions();
     }
 
     private static void migratePeers()
@@ -226,4 +235,67 @@ public class SystemKeyspaceMigrator40
         logger.info("Migrated {} rows from legacy {} to {}", transferred, legacyAvailableRangesName, availableRangesName);
     }
 
+    /**
+     * Migrates legacy scheduled compactions to new per-datadirectory format
+     *
+     * In 3.0 2 compaction strategy instances were running scheduled compactions (repaired and unrepaired)
+     *
+     * In 4.0 we have 2 strategies per data directory running scheduled compactions. Here we migrate the existing
+     * compacted tokens to all current data directories since in 3.0 we know everything up to the token has been
+     * compacted, no matter what the data directory.
+     */
+    public static void migrateScheduledCompactions()
+    {
+        migrateScheduledCompactions(Directories.dataDirectories);
+    }
+
+    @VisibleForTesting
+    public static void migrateScheduledCompactions(Directories.DataDirectories dataDirectories)
+    {
+        String cql = String.format("SELECT * FROM %s.%s", SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.LEGACY_SCHEDULED_COMPACTIONS_CF);
+        UntypedResultSet results;
+        try
+        {
+            results = executeInternal(cql);
+        }
+        catch (Exception e)
+        {
+            logger.error("Could not read legacy scheduled compactions", e);
+            return;
+        }
+
+        if (results.isEmpty())
+            return;
+
+        for (UntypedResultSet.Row row : results)
+        {
+            try
+            {
+                ByteBuffer tokenBytes = row.getBytes("end_token");
+                String keyspace = row.getString("keyspace_name");
+                String table = row.getString("columnfamily_name");
+                boolean repaired = row.getBoolean("repaired");
+                Token token = Token.serializer.deserialize(ByteStreams.newDataInput(ByteBufferUtil.getArray(tokenBytes)), DatabaseDescriptor.getPartitioner(), MessagingService.VERSION_3014);
+                for (Directories.DataDirectory dataDirectory : dataDirectories)
+                {
+                    logger.info("Migrating scheduled compactions for {}.{} ({} in {})",
+                                keyspace, table, repaired ? "repaired" : "unrepaired", dataDirectory.location);
+                    SystemKeyspace.successfulScheduledCompaction(keyspace,
+                                                                 table,
+                                                                 repaired,
+                                                                 dataDirectory.location.getAbsolutePath(), // absolute path, see LeveledCompactionStrategy#getStrategyInformation
+                                                                 token,
+                                                                 row.getLong("start_time"));
+                }
+                executeInternal(String.format("DELETE FROM %s.%s WHERE keyspace_name = ? and columnfamily_name = ? and repaired = ?",
+                                              SchemaConstants.SYSTEM_KEYSPACE_NAME,
+                                              SystemKeyspace.LEGACY_SCHEDULED_COMPACTIONS_CF),
+                                keyspace, table, repaired);
+            }
+            catch (Exception e)
+            {
+                logger.error("Could not migrate scheduled compaction: {}", row.toString(), e);
+            }
+        }
+    }
 }
