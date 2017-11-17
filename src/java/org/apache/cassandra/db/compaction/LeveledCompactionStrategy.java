@@ -18,52 +18,72 @@
 package org.apache.cassandra.db.compaction;
 
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.concurrent.TimeUnit;
 
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.*;
 import com.google.common.primitives.Doubles;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.LocalPartitioner;
+import org.apache.cassandra.io.sstable.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
+import org.apache.cassandra.locator.RangesAtEndpoint;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
-import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.NoSpamLogger;
+import org.apache.cassandra.utils.Pair;
 
 public class LeveledCompactionStrategy extends AbstractCompactionStrategy
 {
     private static final Logger logger = LoggerFactory.getLogger(LeveledCompactionStrategy.class);
+    private static final NoSpamLogger noSpam1m = NoSpamLogger.getLogger(logger, 1, TimeUnit.MINUTES);
     private static final String SSTABLE_SIZE_OPTION = "sstable_size_in_mb";
     private static final boolean tolerateSstableSize = Boolean.getBoolean(Config.PROPERTY_PREFIX + "tolerate_sstable_size");
     private static final String LEVEL_FANOUT_SIZE_OPTION = "fanout_size";
     private static final String SINGLE_SSTABLE_UPLEVEL_OPTION = "single_sstable_uplevel";
     public static final int DEFAULT_LEVEL_FANOUT_SIZE = 10;
+    private static final String SCHEDULED_COMPACTION_OPTION = "scheduled_compactions";
 
     private final long maxGCSSTableSize;
     private final int maxGCSSTables;
+
+    /**
+     * This is calculated as scheduledCompactionCycleTime / #subranges
+     */
+    private long millisUntilNextScheduledCompaction = 0;
+    /**
+     * lastScheduledCompactionTime is set once a compaction completes successfully (or if there is no compaction
+     * to run for the given sub range). It is set to lastScheduledCompactionTime + millisUntilNextScheduledCompaction.
+     */
+    private long lastScheduledCompactionTime = -1;
+    private Token lastScheduleCompactionToken = null;
 
     @VisibleForTesting
     final LeveledManifest manifest;
     private final int maxSSTableSizeInMB;
     private final int levelFanoutSize;
     private final boolean singleSSTableUplevel;
+    private final boolean enableScheduledCompactions;
 
     public LeveledCompactionStrategy(ColumnFamilyStore cfs, Map<String, String> options)
     {
@@ -71,6 +91,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         int configuredMaxSSTableSize = 160;
         int configuredLevelFanoutSize = DEFAULT_LEVEL_FANOUT_SIZE;
         boolean configuredSingleSSTableUplevel = false;
+        boolean configuredEnableScheduledCompactions = false;
         SizeTieredCompactionStrategyOptions localOptions = new SizeTieredCompactionStrategyOptions(options);
         if (options != null)
         {
@@ -97,7 +118,13 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             {
                 configuredSingleSSTableUplevel = Boolean.parseBoolean(options.get(SINGLE_SSTABLE_UPLEVEL_OPTION));
             }
+
+            if (options.containsKey(SCHEDULED_COMPACTION_OPTION))
+            {
+                configuredEnableScheduledCompactions = Boolean.parseBoolean(options.get(SCHEDULED_COMPACTION_OPTION));
+            }
         }
+        enableScheduledCompactions = configuredEnableScheduledCompactions;
         maxSSTableSizeInMB = configuredMaxSSTableSize;
         levelFanoutSize = configuredLevelFanoutSize;
         singleSSTableUplevel = configuredSingleSSTableUplevel;
@@ -140,6 +167,15 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             LeveledManifest.CompactionCandidate candidate = manifest.getCompactionCandidates();
             if (candidate == null)
             {
+                Pair<Boolean, String> repaired = manifest.getStrategyInformation(); // returns null if there are no sstables or if we are handling pending sstables
+                if (runScheduledCompactions() && repaired != null && timeForScheduledCompaction(repaired.left, repaired.right))
+                {
+                    logger.info("No standard compactions to do, checking if there is a scheduled compaction to run for {}.{} (repaired = {}, data directory = {})",
+                                cfs.keyspace.getName(), cfs.getTableName(), repaired.left, repaired.right);
+                    ScheduledLeveledCompactionTask task = getNextScheduledCompactionTask(gcBefore, repaired.left, repaired.right);
+                    if (task != null)
+                        return task;
+                }
                 // if there is no sstable to compact in standard way, try compacting based on droppable tombstone ratio
                 candidate = getTombstoneCompactionTask(gcBefore, DatabaseDescriptor.getEnableAggressiveGCCompaction());
                 if (candidate == null)
@@ -178,6 +214,186 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             }
             previousCandidate = candidate.sstables;
         }
+    }
+
+    private boolean runScheduledCompactions()
+    {
+        // local partitioner does not support midpoint() which we need to split the ranges
+        return !(cfs.getPartitioner() instanceof LocalPartitioner) &&
+               enableScheduledCompactions &&
+               DatabaseDescriptor.getEnableScheduledCompactions();
+    }
+
+    @VisibleForTesting
+    boolean timeForScheduledCompaction(boolean repaired, String dataDirectory)
+    {
+        logger.debug("Checking if it is time for a scheduled compaction for {}.{} (repaired = {}, data directory={}) ({} > {} + {} ? {})",
+                    cfs.keyspace.getName(),
+                    cfs.getTableName(),
+                    repaired,
+                    dataDirectory,
+                    System.currentTimeMillis(),
+                    lastScheduledCompactionTime,
+                    millisUntilNextScheduledCompaction,
+                    System.currentTimeMillis()  > lastScheduledCompactionTime + millisUntilNextScheduledCompaction);
+        if (lastScheduledCompactionTime == -1)
+        {
+            Pair<Token, Long> lastScheduledCompaction = SystemKeyspace.getLastSuccessfulScheduledCompaction(cfs.keyspace.getName(), cfs.getTableName(), repaired, dataDirectory);
+            lastScheduleCompactionToken = lastScheduledCompaction == null ? null : lastScheduledCompaction.left;
+            lastScheduledCompactionTime = lastScheduledCompaction == null ? System.currentTimeMillis() : lastScheduledCompaction.right;
+            logger.info("Loaded last successful subrange compaction time = {} token = {} for {}.{}", lastScheduledCompactionTime, lastScheduleCompactionToken, cfs.keyspace.getName(), cfs.getTableName());
+        }
+
+        // this means we didn't run a scheduled compaction in the previous window:
+        if (System.currentTimeMillis() > lastScheduledCompactionTime + millisUntilNextScheduledCompaction * 2)
+            noSpam1m.warn("Could not run a scheduled sub range compaction over the last {}ms", millisUntilNextScheduledCompaction);
+        return System.currentTimeMillis() > lastScheduledCompactionTime + millisUntilNextScheduledCompaction;
+    }
+
+    @VisibleForTesting
+    @SuppressWarnings("resource") // transaction is closed by AbstractCompactionTask::execute
+    ScheduledLeveledCompactionTask getNextScheduledCompactionTask(int gcBefore, boolean repaired, String dataDirectory)
+    {
+        Range<Token> nextBounds = getNextBounds();
+        if (nextBounds == null)
+            return null;
+
+        logger.info("Getting scheduled compaction candidates for {} {}.{}", nextBounds, cfs.keyspace.getName(), cfs.getTableName());
+        // note that getAggressiveCompactionCandidates uses the *tokens* in nextBounds, which means that even though nextBounds is (start, end], we will find
+        // sstables overlapping [start, end] - this means that if an sstable ends exactly on a boundary start, we might unnescessarily include that sstable
+        // in the next scheduled compaction. This should be rare and only causes us to do some extra work.
+        LeveledManifest.CompactionCandidate candidate = manifest.getAggressiveCompactionCandidates(nextBounds, DatabaseDescriptor.getMaxScheduledCompactionSSTableSizeBytes());
+        Collection<SSTableReader> toCompact = candidate != null ? candidate.sstables : Collections.emptySet();
+        logger.info("Got {} sstables for scheduled compaction for {}.{}: {}", toCompact.size(), cfs.keyspace.getName(), cfs.getTableName(), toCompact);
+        if (candidate == null)
+        {
+            logger.debug("No sstables for {} in {}.{} ({}, {})", nextBounds, cfs.keyspace.getName(), cfs.getTableName(), repaired, dataDirectory);
+            // there were no sstables in the given range, move on to the next one!
+            successfulSubrangeCompaction(nextBounds.right, lastScheduledCompactionTime + millisUntilNextScheduledCompaction, repaired, dataDirectory);
+        }
+        else if (candidate.sstables.size() == 1 && DatabaseDescriptor.getSkipSingleSSTableScheduledCompactions())
+        {
+            logger.info("Skipping single sstable scheduled compaction for {}.{}", cfs.keyspace.getName(), cfs.getTableName());
+            successfulSubrangeCompaction(nextBounds.right, lastScheduledCompactionTime + millisUntilNextScheduledCompaction, repaired, dataDirectory);
+        }
+        else if (candidate.sstables.size() <= DatabaseDescriptor.getMaxScheduledCompactionSSTableCount())
+        {
+            LifecycleTransaction txn = cfs.getTracker().tryModify(candidate.sstables, OperationType.TOMBSTONE_COMPACTION);
+            if (txn != null)
+            {
+                logger.info("Creating scheduled compaction task for sstables {} into level {} for {}.{}",
+                            candidate.sstables, candidate.level, cfs.keyspace.getName(), cfs.getTableName());
+                // note that we don't set startTime to currentTime since we might need to run several scheduled compactions to
+                // keep 'pace' with the windows - say we are down for 1 day, then, as we come back, we might need to run several
+                // compactions quickly to make sure we cover the whole range in getScheduledCompactionCycleTimeDays
+                ScheduledLeveledCompactionTask task = new ScheduledLeveledCompactionTask(cfs,
+                                                                                         txn,
+                                                                                         candidate.level,
+                                                                                         gcBefore,
+                                                                                         candidate.maxSSTableBytes,
+                                                                                         nextBounds,
+                                                                                         lastScheduledCompactionTime + millisUntilNextScheduledCompaction,
+                                                                                         repaired,
+                                                                                         dataDirectory);
+                task.setCompactionType(OperationType.TOMBSTONE_COMPACTION);
+                return task;
+            }
+            else
+            {
+                logger.debug("Could not mark compacting: {} ", candidate.sstables);
+            }
+        }
+        else if (candidate.sstables.size() > DatabaseDescriptor.getMaxScheduledCompactionSSTableCount())
+        {
+            logger.info("Too many sstables for scheduled compaction for {}.{}: {}", cfs.keyspace.getName(), cfs.getTableName(), candidate.sstables.size());
+        }
+        return null;
+    }
+
+    /**
+     * Figures out the next boundaries we should run a scheduled compaction on
+     *
+     * Gets the local ranges, splits them until there are at least DatabaseDescriptor.getScheduledCompactionRangeSplits()
+     * subranges.
+     *
+     * Bounds are calculated as "last compacted token" -> "next boundary"
+     */
+    private Range<Token> getNextBounds()
+    {
+        RangesAtEndpoint localRanges = StorageService.instance.getLocalReplicas(cfs.keyspace.getName());
+        if (localRanges == null || localRanges.size() == 0)
+        {
+            // this can happen during startup for example - before token metadata has been populated
+            logger.warn("No local ranges - can't do scheduled compactions");
+            return null;
+        }
+        List<Range<Token>> splitRanges = splitRanges(cfs.getPartitioner(), Range.normalize(localRanges.ranges()), DatabaseDescriptor.getScheduledCompactionRangeSplits());
+        if (splitRanges.isEmpty()) // if the ranges we own are unsplittable (we only own single-token ranges for example) splitRanges(..) returns an empty list
+            return null;
+        List<Token> bounds = new ArrayList<>();
+        for (Range<Token> r : splitRanges)
+            bounds.add(r.right);
+        logger.debug("Got boundaries: {}", bounds);
+
+        millisUntilNextScheduledCompaction = TimeUnit.SECONDS.toMillis(DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds()) / bounds.size();
+        if (lastScheduleCompactionToken == null)
+        {
+            logger.debug("no old successful subrange compactions, starting from beginning {} -> {}", bounds.get(0), bounds.get(1));
+            return new Range<>(bounds.get(0), bounds.get(1));
+        }
+
+        for (Token t : bounds)
+        {
+            // Note that we need to special handle the partitioner min token - having that in the bounds means that we are about to wrap around
+            // and we need to create a special range where the right bound is min token. This is then handled in LeveledManifest#overlappingWithMin.
+            // The reason bounds might contain the min token is that when calling Range.normalize on a wrapping range it becomes:
+            // Range.normalize( (x, x] ) = [(minToken, minToken]]
+            if (t.compareTo(lastScheduleCompactionToken) > 0 || t.equals(cfs.getPartitioner().getMinimumToken()))
+                return new Range<>(lastScheduleCompactionToken, t);
+        }
+        // the last successful compaction token is beyond the last boundary - start over
+        logger.debug("Wrapped around finding next bound, starting from beginning {} -> {} for {}.{}", bounds.get(0), bounds.get(1), cfs.keyspace.getName(), cfs.getTableName());
+        return new Range<>(bounds.get(0), bounds.get(1));
+
+    }
+
+    /**
+     * Splits the given ranges until there is *at least* minSplits ranges
+     *
+     * If the number of input ranges is less than minSplits each input range is split in two parts. This is repeated until
+     * there are at least minSplits subranges. This means that we can end up with at more than minSplits ranges.
+     *
+     * Note that if it is not possible to split the given ranges in minSplits parts, this method returns an empty list.
+     *
+     * A range is not split if the partitioner mid point is equal to either the right or left token of the given range.
+     */
+    @VisibleForTesting
+    static List<Range<Token>> splitRanges(IPartitioner partitioner, List<Range<Token>> ranges, int minSplits)
+    {
+        List<Range<Token>> splitRanges = Lists.newArrayList(ranges);
+        while (splitRanges.size() < Math.max(2, minSplits))
+        {
+            List<Range<Token>> newSplitRanges = new ArrayList<>(splitRanges.size() * 2);
+            for (Range<Token> r : splitRanges)
+            {
+                Token midPoint = partitioner.midpoint(r.left, r.right);
+                if (!midPoint.equals(r.left) && !midPoint.equals(r.right))
+                {
+                    newSplitRanges.add(new Range<>(r.left, midPoint));
+                    newSplitRanges.add(new Range<>(midPoint, r.right));
+                }
+                else
+                {
+                    logger.info("Not splitting range {} - too narrow, minSplits = {}, ranges = {}", r, minSplits, ranges);
+                    newSplitRanges.add(r);
+                }
+            }
+            if (newSplitRanges.size() == splitRanges.size())
+                return Collections.emptyList();
+            splitRanges = newSplitRanges;
+        }
+        splitRanges.sort(Comparator.comparing(r -> r.left));
+        return splitRanges;
     }
 
     @SuppressWarnings("resource") // transaction is closed by AbstractCompactionTask::execute
@@ -576,7 +792,9 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
                         continue;
                     }
 
-                    final LeveledManifest.CompactionCandidate candidate = manifest.getAggressiveCompactionCandidates(sstable, maxGCSSTableSize);
+                    final LeveledManifest.CompactionCandidate candidate = manifest.getAggressiveCompactionCandidates(new Range<>(sstable.first.getToken(), sstable.last.getToken()), maxGCSSTableSize);
+                    assert candidate != null; // we can only return null if there are no sstables in the given range, but here we know that at least sstable exists
+                    assert candidate.sstables.contains(sstable);
                     final Collection<SSTableReader> toCompact = candidate.sstables;
 
                     // With just one file let's do the full original check
@@ -686,6 +904,9 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         }
 
         uncheckedOptions.remove(SSTABLE_SIZE_OPTION);
+        // note that Boolean.parseBoolean (which we use to get SCHEDULED_COMPACTION_OPTION)
+        // is friendly, returns false if it can't parse (instead of NFE like above)
+        uncheckedOptions.remove(SCHEDULED_COMPACTION_OPTION);
 
         // Validate the fanout_size option
         String levelFanoutSize = options.containsKey(LEVEL_FANOUT_SIZE_OPTION) ? options.get(LEVEL_FANOUT_SIZE_OPTION) : String.valueOf(DEFAULT_LEVEL_FANOUT_SIZE);
@@ -711,5 +932,55 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         uncheckedOptions = SizeTieredCompactionStrategyOptions.validateOptions(options, uncheckedOptions);
 
         return uncheckedOptions;
+    }
+
+    @VisibleForTesting
+    static class ScheduledLeveledCompactionTask extends LeveledCompactionTask
+    {
+        @VisibleForTesting
+        final Range<Token> compactedRange;
+        private final long startTime;
+        private final boolean repaired;
+        private final String dataDirectory;
+
+        public ScheduledLeveledCompactionTask(ColumnFamilyStore cfs, LifecycleTransaction txn, int level, int gcBefore, long maxSSTableBytes, Range<Token> compactingRange, long startTime, boolean repaired, String dataDirectory)
+        {
+            super(cfs, txn, level, gcBefore, maxSSTableBytes, false);
+            this.compactedRange = compactingRange;
+            this.startTime = startTime;
+            this.repaired = repaired;
+            this.dataDirectory = dataDirectory;
+        }
+
+        @Override
+        public void runMayThrow() throws Exception
+        {
+            super.runMayThrow();
+            CompactionStrategyManager csm = cfs.getCompactionStrategyManager();
+            SSTableReader firstSSTable = transaction.originals().iterator().next();
+            AbstractCompactionStrategy strategy = csm.getCompactionStrategyFor(firstSSTable);
+            if (strategy instanceof LeveledCompactionStrategy)
+            {
+                ((LeveledCompactionStrategy)strategy).successfulSubrangeCompaction(compactedRange.right, startTime, repaired, dataDirectory);
+            }
+        }
+    }
+
+    @VisibleForTesting
+    void successfulSubrangeCompaction(Token token, long startTime, boolean repaired, String dataDirectory)
+    {
+        lastScheduleCompactionToken = token;
+        lastScheduledCompactionTime = startTime;
+        SystemKeyspace.successfulScheduledCompaction(cfs.keyspace.getName(), cfs.getTableName(), repaired, dataDirectory, token, startTime);
+        logger.info("Successfully ran a scheduled compaction for {}.{} (repaired = {}) (last token = {}, startTime = {})", cfs.keyspace.getName(), cfs.getTableName(), repaired, token, startTime);
+    }
+
+    @VisibleForTesting
+    void resetSubrangeCompactionInfo()
+    {
+        lastScheduledCompactionTime = -1;
+        lastScheduleCompactionToken = null;
+        millisUntilNextScheduledCompaction = 0;
+        SystemKeyspace.resetScheduledCompactions(cfs.keyspace.getName(), cfs.getTableName());
     }
 }
