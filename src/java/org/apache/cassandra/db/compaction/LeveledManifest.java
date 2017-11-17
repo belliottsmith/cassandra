@@ -407,20 +407,16 @@ public class LeveledManifest
         return new CompactionCandidate(candidates, getNextLevel(candidates), cfs.getCompactionStrategyManager().getMaxSSTableBytes());
     }
 
-    public synchronized CompactionCandidate getAggressiveCompactionCandidates(SSTableReader sstable, long maxSSTableSizeL0)
+    public synchronized CompactionCandidate getAggressiveCompactionCandidates(Range<Token> range, long maxSSTableSizeL0)
     {
         final Set<SSTableReader> overlaps = new HashSet<>();
-        final Collection<SSTableReader> singleSSTable = Collections.singleton(sstable);
         for (int i = generations.length - 1; i >= 0; i--)
         {
             if (!getLevel(i).isEmpty())
             {
-                overlaps.addAll(overlapping(singleSSTable, getLevel(i)));
+                overlaps.addAll(overlappingWithMin(range.left, range.right, getLevel(i)));
             }
         }
-
-        // overlaps should include the original sstable
-        assert overlaps.contains(sstable);
         final Set<SSTableReader> toCompact = new HashSet<>(overlaps);
 
         // exclude files in L0 that are too large
@@ -433,13 +429,14 @@ public class LeveledManifest
             }
         }
 
-        // shouldn't be empty because we at least have the original sstable
-        assert !toCompact.isEmpty();
+        if (toCompact.isEmpty()) // we now use this method with a range argument, there is a chance that the given range is empty
+            return null;
 
         // if just one SSTable then we don't need to do any aggressive compaction
         if (toCompact.size() == 1)
         {
-            return new CompactionCandidate(singleSSTable, sstable.getSSTableLevel(),
+            SSTableReader sstable = toCompact.iterator().next();
+            return new CompactionCandidate(toCompact, sstable.getSSTableLevel(),
                                            cfs.getCompactionStrategyManager().getMaxSSTableBytes());
         }
 
@@ -638,6 +635,29 @@ public class LeveledManifest
         {
             Bounds<Token> candidateBounds = new Bounds<Token>(candidate.first.getToken(), candidate.last.getToken());
             if (candidateBounds.intersects(promotedBounds))
+                overlapped.add(candidate);
+        }
+        return overlapped;
+    }
+
+    /**
+     * special case for getting overlapping sstables - if end is partitioner.getMinToken() we return all sstables
+     * which have an end token larger than start - meaning this grabs everything from start to the end of the full
+     * partitioner range.
+     *
+     * @param start
+     * @param end
+     * @param sstables
+     * @return
+     */
+    private static Set<SSTableReader> overlappingWithMin(Token start, Token end, Iterable<SSTableReader> sstables)
+    {
+        if (start.compareTo(end) <= 0)
+            return overlapping(start, end, sstables);
+        Set<SSTableReader> overlapped = new HashSet<SSTableReader>();
+        for (SSTableReader candidate : sstables)
+        {
+            if (candidate.last.getToken().compareTo(start) > 0)
                 overlapped.add(candidate);
         }
         return overlapped;

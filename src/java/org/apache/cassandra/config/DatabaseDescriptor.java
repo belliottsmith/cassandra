@@ -19,12 +19,25 @@ package org.apache.cassandra.config;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.*;
 import java.nio.file.FileStore;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.net.Inet4Address;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -120,6 +133,7 @@ public class DatabaseDescriptor
     public static void forceStaticInitialization() {}
 
     private static volatile boolean aggressiveGC = Boolean.getBoolean("cassandra.aggressivegcls.enabled");
+    private static volatile long scheduledCompactionCycleTimeSeconds;
 
     public static String getFullQueryLogPath()
     {
@@ -754,6 +768,7 @@ public class DatabaseDescriptor
         {
             throw new ConfigurationException("Encryption must be enabled in client_encryption_options for native_transport_port_ssl", false);
         }
+        scheduledCompactionCycleTimeSeconds = parseScheduledCycleTimeSeconds(conf.scheduled_compaction_cycle_time);
 
         if (conf.max_value_size_in_mb == null || conf.max_value_size_in_mb <= 0)
             throw new ConfigurationException("max_value_size_in_mb must be positive", false);
@@ -2438,5 +2453,72 @@ public class DatabaseDescriptor
     public static void setRejectOutOfTokenRangeRequests(boolean enabled)
     {
         conf.reject_out_of_token_range_requests = enabled;
+    }
+
+    public static boolean getEnableScheduledCompactions()
+    {
+        return conf.enable_scheduled_compactions;
+    }
+
+    public static void setEnableScheduledCompactions(boolean enable)
+    {
+        conf.enable_scheduled_compactions = enable;
+    }
+
+    public static int getScheduledCompactionRangeSplits()
+    {
+        return conf.scheduled_compaction_range_splits;
+    }
+
+    public static void setScheduledCompactionRangeSplits(int val)
+    {
+        conf.scheduled_compaction_range_splits = val;
+    }
+
+    public static long getScheduledCompactionCycleTimeSeconds()
+    {
+        return scheduledCompactionCycleTimeSeconds;
+    }
+
+    public static void setScheduledCompactionCycleTime(String time)
+    {
+        try
+        {
+            scheduledCompactionCycleTimeSeconds = parseScheduledCycleTimeSeconds(time);
+        }
+        catch (ConfigurationException e)
+        {
+            throw new RuntimeException("Could not set "+time+" as scheduled compaction cycle time");
+        }
+    }
+
+    private static long parseScheduledCycleTimeSeconds(String rawValue) throws ConfigurationException
+    {
+        char unitCharacter = rawValue.charAt(rawValue.length() - 1);
+        int value;
+        try
+        {
+            value = Integer.valueOf(rawValue.substring(0, rawValue.length() - 1));
+        }
+        catch (NumberFormatException e)
+        {
+            throw new ConfigurationException(rawValue + " is invalid configuration for scheduled_compaction_cycle_time");
+        }
+        TimeUnit timeUnit;
+        switch (unitCharacter)
+        {
+            case 's':
+                timeUnit = TimeUnit.SECONDS;
+                break;
+            case 'h':
+                timeUnit = TimeUnit.HOURS;
+                break;
+            case 'd':
+                timeUnit = TimeUnit.DAYS;
+                break;
+            default:
+                throw new ConfigurationException("Could only supported time units are: s, h, d, got: "+unitCharacter);
+        }
+        return timeUnit.toSeconds(value);
     }
 }

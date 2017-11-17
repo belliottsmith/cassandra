@@ -421,6 +421,10 @@ public class Config
     public volatile boolean log_out_of_token_range_requests = true;
     public volatile boolean reject_out_of_token_range_requests = true;
 
+    public volatile boolean enable_scheduled_compactions = false;
+    public volatile int scheduled_compaction_range_splits = 100;
+    public volatile String scheduled_compaction_cycle_time = "60d";
+
     public static boolean getOutboundBindAny()
     {
         return outboundBindAny;

@@ -1989,6 +1989,42 @@ public class CompactionManager implements CompactionManagerMBean
         DatabaseDescriptor.setColumnIndexMaxCount(count);
     }
 
+    public void setEnableScheduledCompactions(boolean enable)
+    {
+        if (enable)
+            logger.info("Enabling scheduled compactions");
+        else
+            logger.info("Disabling scheduled compactions");
+        DatabaseDescriptor.setEnableScheduledCompactions(enable);
+    }
+
+    public boolean getEnableScheduledCompactions()
+    {
+        return DatabaseDescriptor.getEnableScheduledCompactions();
+    }
+
+    public void setScheduledCompactionRangeSplits(int value)
+    {
+        logger.info("Setting scheduled compaction range splits to {}", value);
+        DatabaseDescriptor.setScheduledCompactionRangeSplits(value);
+    }
+
+    public int getScheduledCompactionRangeSplits()
+    {
+        return DatabaseDescriptor.getScheduledCompactionRangeSplits();
+    }
+
+    public void setScheduledCompactionCycleTime(String time)
+    {
+        logger.info("Setting scheduled compaction cycle time to {}", time);
+        DatabaseDescriptor.setScheduledCompactionCycleTime(time);
+    }
+
+    public long getScheduledCompactionCycleTimeSeconds()
+    {
+        return DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds();
+    }
+
 
     /**
      * Try to stop all of the compactions for given ColumnFamilies.
