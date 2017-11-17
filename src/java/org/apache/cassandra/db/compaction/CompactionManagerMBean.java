@@ -169,4 +169,23 @@ public interface CompactionManagerMBean
     /** Configures aggresive GC compaction mode of LCS **/
     public void setEnableAggressiveGCCompaction(boolean enable);
     public boolean getEnableAggressiveGCCompaction();
+
+    public void setEnableScheduledCompactions(boolean enable);
+    public boolean getEnableScheduledCompactions();
+    public void setScheduledCompactionRangeSplits(int value);
+    public int getScheduledCompactionRangeSplits();
+
+    /**
+     * sets the cycle time for scheduled compactions
+     *
+     * format is for example "60d" for 60 days, "5h" for 5 hours or "60s" for 60 seconds
+     */
+    public void setScheduledCompactionCycleTime(String time);
+    public long getScheduledCompactionCycleTimeSeconds();
+    public boolean getSkipSingleSSTableScheduledCompactions();
+    public void setSkipSingleSSTableScheduledCompactions(boolean val);
+    public long getMaxScheduledCompactionSSTableSizeBytes();
+    public void setMaxScheduledCompactionSSTableSizeBytes(long size);
+    public int getMaxScheduledCompactionSSTableCount();
+    public void setMaxScheduledCompactionSSTableCount(int count);
 }
