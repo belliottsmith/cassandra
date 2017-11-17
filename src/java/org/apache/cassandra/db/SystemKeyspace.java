@@ -112,6 +112,7 @@ public final class SystemKeyspace
     public static final String BUILT_VIEWS = "built_views";
     public static final String PREPARED_STATEMENTS = "prepared_statements";
     public static final String REPAIRS = "repairs";
+    public static final String SCHEDULED_COMPACTIONS_V2 = "scheduled_compactions_v2";
 
     /**
      * By default the system keyspace tables should be stored in a single data directory to allow the server
@@ -129,7 +130,7 @@ public final class SystemKeyspace
     @Deprecated public static final String LEGACY_TRANSFERRED_RANGES = "transferred_ranges";
     @Deprecated public static final String LEGACY_AVAILABLE_RANGES = "available_ranges";
     @Deprecated public static final String LEGACY_SIZE_ESTIMATES = "size_estimates";
-
+    @Deprecated public static final String LEGACY_SCHEDULED_COMPACTIONS_CF = "scheduled_compactions";
 
     public static final TableMetadata Batches =
         parse(BATCHES,
@@ -354,6 +355,30 @@ public final class SystemKeyspace
           + "cfids set<uuid>, "
           + "PRIMARY KEY (parent_id))").build();
 
+    private static final TableMetadata ScheduledCompactionsV2 =
+        parse(SCHEDULED_COMPACTIONS_V2,
+              "Keeps track of where scheduled compactions should start on node restart",
+              "CREATE TABLE  %s ("
+              + "keyspace_name text,"
+              + "table_name text,"
+              + "repaired boolean,"
+              + "data_directory text,"
+              + "end_token blob,"
+              + "start_time bigint,"
+              + "PRIMARY KEY (keyspace_name, table_name, repaired, data_directory))").build();
+
+    @Deprecated
+    private static final TableMetadata LegacyScheduledCompactionsCf =
+        parse(LEGACY_SCHEDULED_COMPACTIONS_CF,
+            "Keeps track of where scheduled compactions should start on node restart",
+            "CREATE TABLE  %s ("
+            + "keyspace_name text,"
+            + "columnfamily_name text,"
+            + "repaired boolean,"
+            + "end_token blob,"
+            + "start_time bigint,"
+            + "PRIMARY KEY (keyspace_name, columnfamily_name, repaired))").build();
+
     @Deprecated
     private static final TableMetadata LegacyPeers =
         parse(LEGACY_PEERS,
@@ -438,7 +463,9 @@ public final class SystemKeyspace
                          ViewBuildsInProgress,
                          BuiltViews,
                          PreparedStatements,
-                         Repairs);
+                         Repairs,
+                         ScheduledCompactionsV2,
+                         LegacyScheduledCompactionsCf);
     }
 
     private static Functions functions()
@@ -1590,5 +1617,55 @@ public final class SystemKeyspace
             r.add(Pair.create(row.has("logged_keyspace") ? row.getString("logged_keyspace") : null,
                               row.getString("query_string")));
         return r;
+    }
+
+    @VisibleForTesting
+    public static byte[] tokenToBytes(Token token)
+    {
+        try (DataOutputBuffer dob = new DataOutputBuffer();)
+        {
+            Token.serializer.serialize(token, dob, MessagingService.current_version);
+            return dob.toByteArray();
+        }
+        catch (IOException e)
+        {
+            logger.error("Could not serialize token {}", token, e);
+            throw new RuntimeException("Could not serialize token", e);
+        }
+    }
+
+    public static void successfulScheduledCompaction(String keyspaceName, String columnFamilyName, boolean repaired, String dataDirectory, Token token, long startTime)
+    {
+        String cql = String.format("INSERT INTO %s.%s (keyspace_name, table_name, repaired, data_directory, end_token, start_time) values (?, ?, ?, ?, ?, ?)",
+                                   SchemaConstants.SYSTEM_KEYSPACE_NAME,
+                                   SCHEDULED_COMPACTIONS_V2);
+        executeInternal(cql, keyspaceName, columnFamilyName, repaired, dataDirectory, ByteBuffer.wrap(tokenToBytes(token)), startTime);
+    }
+
+    public static Pair<Token, Long> getLastSuccessfulScheduledCompaction(String keyspaceName, String tableName, boolean repaired, String dataDirectory)
+    {
+        String cql = String.format("SELECT * FROM %s.%s WHERE keyspace_name = ? and table_name = ? and repaired = ? and data_directory = ?", SchemaConstants.SYSTEM_KEYSPACE_NAME, SCHEDULED_COMPACTIONS_V2);
+        UntypedResultSet results = executeInternal(cql, keyspaceName, tableName, repaired, dataDirectory);
+        if (results.isEmpty())
+            return null;
+        UntypedResultSet.Row row = results.one();
+        ByteBuffer tokenBytes = row.getBytes("end_token");
+        Token token;
+        try
+        {
+            ColumnFamilyStore cfs = Keyspace.open(keyspaceName).getColumnFamilyStore(tableName);
+            token = Token.serializer.deserialize(ByteStreams.newDataInput(ByteBufferUtil.getArray(tokenBytes)), cfs.getPartitioner(), MessagingService.current_version);
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
+        }
+
+        return Pair.create(token, row.getLong("start_time"));
+    }
+
+    public static void resetScheduledCompactions(String keyspaceName, String columnFamilyName)
+    {
+        executeInternal(String.format("DELETE FROM %s.%s WHERE keyspace_name = ? and table_name = ?", SchemaConstants.SYSTEM_KEYSPACE_NAME, SCHEDULED_COMPACTIONS_V2), keyspaceName, columnFamilyName);
     }
 }
