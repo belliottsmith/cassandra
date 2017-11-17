@@ -1685,6 +1685,13 @@ drop_compact_storage_enabled: false
 #  rack:
 #    enabled: true # (overriden by cassandra.ignore_rack system property)
 
+# Enable to run scheduled compactions - this generates a lot of compaction on the node, so enable with care:
+# enable_scheduled_compactions: false
+# minimum number of sub ranges we should compact:
+# scheduled_compaction_range_splits: 100
+# number of days it should take to compact everything, format is Xd for X days, Xh for X hours and Xs for X seconds:
+# scheduled_compaction_cycle_time: 60d
+
 # Enable or disable the ability to create secondary indexes.  This configuration will not have any
 # affect on tables which already have secondary indexes, but will reject new ones from being created.
 #secondary_index_enabled: false
