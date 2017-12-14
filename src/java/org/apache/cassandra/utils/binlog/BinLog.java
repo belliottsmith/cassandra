@@ -26,6 +26,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,9 +57,10 @@ public class BinLog implements Runnable, StoreFileListener
 {
     private static final Logger logger = LoggerFactory.getLogger(BinLog.class);
 
-    private final ChronicleQueue queue;
-    private final ExcerptAppender appender;
-    final Thread binLogThread = new NamedThreadFactory("Binary Log thread").newThread(this);
+    private ChronicleQueue queue;
+    private ExcerptAppender appender;
+    @VisibleForTesting
+    Thread binLogThread = new NamedThreadFactory("Binary Log thread").newThread(this);
     final WeightedQueue<ReleaseableWriteMarshallable> sampleQueue;
     private final long maxLogSize;
 
@@ -121,6 +123,8 @@ public class BinLog implements Runnable, StoreFileListener
         shouldContinue = false;
         sampleQueue.put(NO_OP);
         binLogThread.join();
+        appender = null;
+        queue = null;
     }
 
     public boolean offer(ReleaseableWriteMarshallable record)

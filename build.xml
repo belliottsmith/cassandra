@@ -114,12 +114,12 @@
 
     <property name="ecj.version" value="4.4.2"/>
 
-    <!-- https://mvnrepository.com/artifact/net.openhft/chronicle-bom/1.13.59 -->
-    <property name="chronicle-queue.version" value="4.5.27" />
-    <property name="chronicle-core.version" value="1.7.16" />
-    <property name="chronicle-bytes.version" value="1.7.36" />
-    <property name="chronicle-wire.version" value="1.7.32" />
-    <property name="chronicle-threads.version" value="1.7.7" />
+    <!-- https://mvnrepository.com/artifact/net.openhft/chronicle-bom/1.15.6 -->
+    <property name="chronicle-queue.version" value="4.6.55" />
+    <property name="chronicle-core.version" value="1.9.21" />
+    <property name="chronicle-bytes.version" value="1.10.1" />
+    <property name="chronicle-wire.version" value="1.10.1" />
+    <property name="chronicle-threads.version" value="1.9.1" />
 
     <condition property="maven-ant-tasks.jar.exists">
       <available file="${build.dir}/maven-ant-tasks-${maven-ant-tasks.version}.jar" />

@@ -197,9 +197,9 @@ public class FullQueryLoggerTest
     public void testCleansDirectory() throws Exception
     {
         assertTrue(new File(tempDir.toFile(), "foobar").createNewFile());
-        assertTrue(tempDir.toFile().listFiles().length > 0);
         configureFQL();
-        assertEquals(tempDir.toFile().listFiles().length, 0);
+        assertEquals(tempDir.toFile().listFiles().length, 1);
+        assertEquals("directory-listing.cq4t", tempDir.toFile().listFiles()[0].getName());
     }
 
     @Test
@@ -523,7 +523,8 @@ public class FullQueryLoggerTest
     @Test(expected = NullPointerException.class)
     public void testLogBatchNullQueriesQuery() throws Exception
     {
-        FullQueryLogger.instance.logBatch("", Arrays.asList(null), new ArrayList<>(), QueryOptions.DEFAULT, 1);
+        configureFQL();
+        FullQueryLogger.instance.logBatch("", Arrays.asList((String)null), new ArrayList<>(), QueryOptions.DEFAULT, 1);
     }
 
     @Test(expected = NullPointerException.class)
@@ -535,7 +536,7 @@ public class FullQueryLoggerTest
     @Test(expected = NullPointerException.class)
     public void testLogBatchNullValuesValue() throws Exception
     {
-        FullQueryLogger.instance.logBatch("", new ArrayList<>(), Arrays.asList(null), null, 1);
+        FullQueryLogger.instance.logBatch("", new ArrayList<>(), Arrays.asList((List<ByteBuffer>)null), null, 1);
     }
 
     @Test(expected = NullPointerException.class)
