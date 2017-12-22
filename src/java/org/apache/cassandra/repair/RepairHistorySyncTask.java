@@ -590,13 +590,13 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
         {
             public void onSuccess(@Nullable Object result)
             {
-                logger.info("Completed repair history sync for {}", this);
+                logger.info("Completed repair history sync for {}", RepairHistorySyncTask.this);
                 RepairHistorySyncTask.this.set(result);
             }
 
             public void onFailure(Throwable t)
             {
-                logger.error("Repair history sync failed for for {}", this, t);
+                logger.error("Repair history sync failed for for {}", RepairHistorySyncTask.this, t);
                 RepairHistorySyncTask.this.setException(t);
             }
         });
