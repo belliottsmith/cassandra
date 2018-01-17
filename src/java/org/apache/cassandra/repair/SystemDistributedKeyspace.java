@@ -75,7 +75,12 @@ public final class SystemDistributedKeyspace
                      + "status text,"
                      + "started_at timestamp,"
                      + "finished_at timestamp,"
-                     + "PRIMARY KEY ((keyspace_name, columnfamily_name), id))");
+                     + "PRIMARY KEY ((keyspace_name, columnfamily_name), id))"
+                + " WITH compaction = {"
+                     + "'class':'org.apache.cassandra.db.compaction.TimeWindowCompactionStrategy',"
+                     + "'compaction_window_unit':'DAYS',"
+                     + "'compaction_window_size':'1'}"
+                 + " AND default_time_to_live = 2592000");
 
     private static final CFMetaData ParentRepairHistory =
         compile(PARENT_REPAIR_HISTORY,
@@ -90,7 +95,11 @@ public final class SystemDistributedKeyspace
                      + "exception_stacktrace text,"
                      + "requested_ranges set<text>,"
                      + "successful_ranges set<text>,"
-                     + "PRIMARY KEY (parent_id))");
+                     + "PRIMARY KEY (parent_id))"
+                + " WITH compaction = {'class':'org.apache.cassandra.db.compaction.TimeWindowCompactionStrategy',"
+                     + "'compaction_window_unit':'DAYS',"
+                     + "'compaction_window_size':'1'}"
+                + " AND default_time_to_live = 2592000");
 
     private static CFMetaData compile(String name, String description, String schema)
     {
