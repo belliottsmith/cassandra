@@ -28,6 +28,7 @@ import com.google.common.base.Splitter;
 
 import org.apache.cassandra.auth.PasswordAuthenticator;
 import org.apache.cassandra.config.Config;
+import org.apache.cassandra.config.EncryptionOptions;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.marshal.Int32Type;
@@ -37,13 +38,11 @@ import org.apache.cassandra.utils.Hex;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.MD5Digest;
 
-import static org.apache.cassandra.config.EncryptionOptions.ClientEncryptionOptions;
-
 public class Client extends SimpleClient
 {
     private final SimpleEventHandler eventHandler = new SimpleEventHandler();
 
-    public Client(String host, int port, int version, ClientEncryptionOptions encryptionOptions)
+    public Client(String host, int port, int version, EncryptionOptions encryptionOptions)
     {
         super(host, port, version, encryptionOptions);
         setEventHandler(eventHandler);
@@ -252,7 +251,7 @@ public class Client extends SimpleClient
         int port = Integer.parseInt(args[1]);
         int version = args.length == 3 ? Integer.parseInt(args[2]) : Server.CURRENT_VERSION;
 
-        ClientEncryptionOptions encryptionOptions = new ClientEncryptionOptions();
+        EncryptionOptions encryptionOptions = new EncryptionOptions();
         System.out.println("CQL binary protocol console " + host + "@" + port + " using native protocol version " + version);
 
         new Client(host, port, version, encryptionOptions).run();

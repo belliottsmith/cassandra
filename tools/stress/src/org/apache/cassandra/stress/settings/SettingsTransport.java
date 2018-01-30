@@ -98,9 +98,9 @@ public class SettingsTransport implements Serializable
         return factory;
     }
 
-    public EncryptionOptions.ClientEncryptionOptions getEncryptionOptions()
+    public EncryptionOptions getEncryptionOptions()
     {
-        EncryptionOptions.ClientEncryptionOptions encOptions = new EncryptionOptions.ClientEncryptionOptions();
+        EncryptionOptions encOptions = new EncryptionOptions();
         if (options.trustStore.present())
         {
             encOptions.enabled = true;

@@ -598,11 +598,12 @@ public final class MessagingService implements MessagingServiceMBean
     private List<ServerSocket> getServerSockets(InetAddress localEp) throws ConfigurationException
     {
         final List<ServerSocket> ss = new ArrayList<ServerSocket>(2);
-        if (DatabaseDescriptor.getServerEncryptionOptions().internode_encryption != ServerEncryptionOptions.InternodeEncryption.none)
+        ServerEncryptionOptions encryptionOptions = DatabaseDescriptor.getServerEncryptionOptions();
+        if (encryptionOptions.enabled)
         {
             try
             {
-                ss.add(SSLFactory.getServerSocket(DatabaseDescriptor.getServerEncryptionOptions(), localEp, DatabaseDescriptor.getSSLStoragePort()));
+                ss.add(SSLFactory.getServerSocket(encryptionOptions, localEp, DatabaseDescriptor.getSSLStoragePort()));
             }
             catch (IOException e)
             {
@@ -612,7 +613,7 @@ public final class MessagingService implements MessagingServiceMBean
             logger.info("Starting Encrypted Messaging Service on SSL port {}", DatabaseDescriptor.getSSLStoragePort());
         }
 
-        if (DatabaseDescriptor.getServerEncryptionOptions().internode_encryption != ServerEncryptionOptions.InternodeEncryption.all)
+        if (!encryptionOptions.enabled || encryptionOptions.optional)
         {
             ServerSocketChannel serverChannel = null;
             try

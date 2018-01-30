@@ -33,7 +33,6 @@ import org.apache.cassandra.db.ConsistencyLevel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.config.EncryptionOptions.ClientEncryptionOptions;
 import org.apache.cassandra.config.EncryptionOptions.ServerEncryptionOptions;
 import org.apache.cassandra.db.ConsistencyLevel;
 
@@ -249,7 +248,7 @@ public class Config
     public RequestSchedulerOptions request_scheduler_options;
 
     public ServerEncryptionOptions server_encryption_options = new ServerEncryptionOptions();
-    public ClientEncryptionOptions client_encryption_options = new ClientEncryptionOptions();
+    public EncryptionOptions client_encryption_options = new EncryptionOptions();
     // this encOptions is for backward compatibility (a warning is logged by DatabaseDescriptor)
     public ServerEncryptionOptions encryption_options;
 

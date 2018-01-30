@@ -48,7 +48,7 @@ public class JavaDriverClient
     public final int connectionsPerHost;
 
     private final ProtocolVersion protocolVersion;
-    private final EncryptionOptions.ClientEncryptionOptions encryptionOptions;
+    private final EncryptionOptions encryptionOptions;
     private Cluster cluster;
     private Session session;
     private final WhiteListPolicy whitelist;
@@ -57,10 +57,10 @@ public class JavaDriverClient
 
     public JavaDriverClient(StressSettings settings, String host, int port)
     {
-        this(settings, host, port, new EncryptionOptions.ClientEncryptionOptions());
+        this(settings, host, port, new EncryptionOptions());
     }
 
-    public JavaDriverClient(StressSettings settings, String host, int port, EncryptionOptions.ClientEncryptionOptions encryptionOptions)
+    public JavaDriverClient(StressSettings settings, String host, int port, EncryptionOptions encryptionOptions)
     {
         this.protocolVersion = settings.mode.protocolVersion;
         this.host = host;

@@ -42,7 +42,7 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
-import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.EncryptionOptions;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.security.SSLFactory;
@@ -60,7 +60,6 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.ssl.SslHandler;
-import static org.apache.cassandra.config.EncryptionOptions.ClientEncryptionOptions;
 
 public class SimpleClient implements Closeable
 {
@@ -72,7 +71,7 @@ public class SimpleClient implements Closeable
     private static final Logger logger = LoggerFactory.getLogger(SimpleClient.class);
     public final String host;
     public final int port;
-    private final ClientEncryptionOptions encryptionOptions;
+    private final EncryptionOptions encryptionOptions;
 
     protected final ResponseHandler responseHandler = new ResponseHandler();
     protected final Connection.Tracker tracker = new ConnectionTracker();
@@ -91,7 +90,7 @@ public class SimpleClient implements Closeable
         }
     };
 
-    public SimpleClient(String host, int port, int version, ClientEncryptionOptions encryptionOptions)
+    public SimpleClient(String host, int port, int version, EncryptionOptions encryptionOptions)
     {
         this.host = host;
         this.port = port;
@@ -99,19 +98,19 @@ public class SimpleClient implements Closeable
         this.encryptionOptions = encryptionOptions;
     }
 
-    public SimpleClient(String host, int port, ClientEncryptionOptions encryptionOptions)
+    public SimpleClient(String host, int port, EncryptionOptions encryptionOptions)
     {
         this(host, port, Server.CURRENT_VERSION, encryptionOptions);
     }
 
     public SimpleClient(String host, int port, int version)
     {
-        this(host, port, version, new ClientEncryptionOptions());
+        this(host, port, version, new EncryptionOptions());
     }
 
     public SimpleClient(String host, int port)
     {
-        this(host, port, new ClientEncryptionOptions());
+        this(host, port, new EncryptionOptions());
     }
 
     public void connect(boolean useCompression) throws IOException

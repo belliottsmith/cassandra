@@ -39,7 +39,6 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.auth.*;
 import org.apache.cassandra.config.Config.CommitLogSync;
 import org.apache.cassandra.config.Config.RequestSchedulerId;
-import org.apache.cassandra.config.EncryptionOptions.ClientEncryptionOptions;
 import org.apache.cassandra.config.EncryptionOptions.ServerEncryptionOptions;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.SystemKeyspace;
@@ -1872,7 +1871,7 @@ public class DatabaseDescriptor
         return conf.server_encryption_options;
     }
 
-    public static ClientEncryptionOptions getClientEncryptionOptions()
+    public static EncryptionOptions getClientEncryptionOptions()
     {
         return conf.client_encryption_options;
     }

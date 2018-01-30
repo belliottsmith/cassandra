@@ -34,7 +34,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.config.EncryptionOptions.ClientEncryptionOptions;
+import org.apache.cassandra.config.EncryptionOptions;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.security.SSLFactory;
 import org.apache.thrift.TException;
@@ -242,7 +242,7 @@ public class CustomTThreadPoolServer extends TServer
             TServerTransport serverTransport;
             try
             {
-                final ClientEncryptionOptions clientEnc = DatabaseDescriptor.getClientEncryptionOptions();
+                final EncryptionOptions clientEnc = DatabaseDescriptor.getClientEncryptionOptions();
                 if (clientEnc.enabled)
                 {
                     logger.info("enabling encrypted thrift connections between client and server");

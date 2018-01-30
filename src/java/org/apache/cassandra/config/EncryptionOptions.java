@@ -17,7 +17,7 @@
  */
 package org.apache.cassandra.config;
 
-public abstract class EncryptionOptions
+public class EncryptionOptions
 {
     public String keystore = "conf/.keystore";
     public String keystore_password = "cassandra";
@@ -33,12 +33,8 @@ public abstract class EncryptionOptions
     public String store_type = "JKS";
     public boolean require_client_auth = false;
     public String accepted_protocols[] = {};
-
-    public static class ClientEncryptionOptions extends EncryptionOptions
-    {
-        public boolean enabled = false;
-        public boolean optional = false;
-    }
+    public boolean enabled = false;
+    public boolean optional = false;
 
     public static class ServerEncryptionOptions extends EncryptionOptions
     {

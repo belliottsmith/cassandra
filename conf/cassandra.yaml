@@ -901,6 +901,11 @@ request_scheduler: org.apache.cassandra.scheduler.NoScheduler
 # http://download.oracle.com/javase/6/docs/technotes/guides/security/jsse/JSSERefGuide.html#CreateKeystore
 #
 server_encryption_options:
+    # set to true for allowing secure incoming connections
+    enabled: false
+    # If enabled and optional are both set to true, incoming encrypted and unencrypted connections are allowed on their respective ports
+    optional: false
+    # on outbound connections, determine which type of peers to securely connect to. 'enabled' must be set to true.
     internode_encryption: none
     keystore: conf/.keystore
     keystore_password: cassandra

@@ -259,7 +259,7 @@ public class BulkLoader
         }
     }
 
-    private static SSLOptions buildSSLOptions(EncryptionOptions.ClientEncryptionOptions clientEncryptionOptions)
+    private static SSLOptions buildSSLOptions(EncryptionOptions clientEncryptionOptions)
     {
 
         if (!clientEncryptionOptions.enabled)
@@ -324,7 +324,7 @@ public class BulkLoader
         public int interDcThrottle = 0;
         public int storagePort;
         public int sslStoragePort;
-        public EncryptionOptions.ClientEncryptionOptions clientEncOptions = new EncryptionOptions.ClientEncryptionOptions();
+        public EncryptionOptions clientEncOptions = new EncryptionOptions();
         public int connectionsPerHost = 1;
         public EncryptionOptions.ServerEncryptionOptions serverEncOptions = new EncryptionOptions.ServerEncryptionOptions();
 
