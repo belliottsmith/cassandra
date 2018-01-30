@@ -355,14 +355,12 @@ public class CreateTest extends CQLTester
             System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false");
 
             assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
-
-            // clean-up for other tests.
-            System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
         }
         finally
         {
             // clean-up
             execute("DROP KEYSPACE IF EXISTS testABC");
+            System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
         }
     }
 
@@ -376,13 +374,14 @@ public class CreateTest extends CQLTester
 
             assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 1 }");
 
-            // clean-up for other tests.
-            System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
+            // Create system keyspace with replication less than minimum allowed replication factor succeeds
+            execute("CREATE KEYSPACE system_traces WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DEFAULT_DC + "' : 1 }");
         }
         finally
         {
             // clean-up
             execute("DROP KEYSPACE IF EXISTS testABC");
+            System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
         }
     }
 

@@ -28,10 +28,11 @@ import com.google.common.collect.Multimap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.WriteType;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.RingPosition;
@@ -379,7 +380,8 @@ public abstract class AbstractReplicationStrategy
                 final int minimumAllowedReplicationFactor = Integer.parseInt(
                 System.getProperty(SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, DEFAULT_MINIMUM_REPLICATION_FACTOR));
                 final int replication_factor = getReplicationFactor();
-                if (replication_factor < minimumAllowedReplicationFactor && !keyspaceName.equals(AuthKeyspace.NAME))
+                if (replication_factor < minimumAllowedReplicationFactor && !Schema.SYSTEM_KEYSPACE_NAMES.contains(keyspaceName)
+                        && !Schema.REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName))
                 {
                     throw new ConfigurationException("Error while creating keyspace " + keyspaceName + " : \"replication_factor\" must be greater than or equal to "
                                                      + minimumAllowedReplicationFactor + " over all data centers; found " + replication_factor);
