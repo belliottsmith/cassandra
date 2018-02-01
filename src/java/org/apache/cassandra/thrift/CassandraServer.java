@@ -2499,7 +2499,7 @@ public class CassandraServer implements Cassandra.Iface
 
     private void registerMetrics()
     {
-        ClientMetrics.instance.addCounter("connectedThriftClients", new Callable<Integer>()
+        ClientMetrics.instance.addGauge("connectedThriftClients", new Callable<Integer>()
         {
             @Override
             public Integer call() throws Exception

@@ -1,4 +1,5 @@
 3.0.17.0
+ * <rdar://problem/39666510> CASSANDRA-13665: Backport `nodetool clientlist` to 3.0
  * Deprecate background repair and probablistic read_repair_chance table options
    (CASSANDRA-13910)
  * Add missed CQL keywords to documentation (CASSANDRA-14359)
@@ -4920,7 +4921,7 @@ Merged from 0.8:
    (CASSANDRA-2444)
  * validate CQL create keyspace options (CASSANDRA-2525)
  * fix nodetool setcompactionthroughput (CASSANDRA-2550)
- * move	gossip heartbeat back to its own thread (CASSANDRA-2554)
+ * move gossip heartbeat back to its own thread (CASSANDRA-2554)
  * validate cql TRUNCATE columnfamily before truncating (CASSANDRA-2570)
  * fix batch_mutate for mixed standard-counter mutations (CASSANDRA-2457)
  * disallow making schema changes to system keyspace (CASSANDRA-2563)
