@@ -26,8 +26,10 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 
 import org.slf4j.Logger;
@@ -38,6 +40,7 @@ import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.Tables;
@@ -75,7 +78,10 @@ public final class SystemDistributedKeyspace
                      + "status text,"
                      + "started_at timestamp,"
                      + "finished_at timestamp,"
-                     + "PRIMARY KEY ((keyspace_name, columnfamily_name), id))");
+                     + "PRIMARY KEY ((keyspace_name, columnfamily_name), id))")
+        .defaultTimeToLive((int) TimeUnit.DAYS.toSeconds(30))
+        .compaction(CompactionParams.twcs(ImmutableMap.of("compaction_window_unit","DAYS",
+                                                          "compaction_window_size","1")));
 
     private static final CFMetaData ParentRepairHistory =
         compile(PARENT_REPAIR_HISTORY,
@@ -90,7 +96,10 @@ public final class SystemDistributedKeyspace
                      + "exception_stacktrace text,"
                      + "requested_ranges set<text>,"
                      + "successful_ranges set<text>,"
-                     + "PRIMARY KEY (parent_id))");
+                     + "PRIMARY KEY (parent_id))")
+        .defaultTimeToLive((int) TimeUnit.DAYS.toSeconds(30))
+        .compaction(CompactionParams.twcs(ImmutableMap.of("compaction_window_unit","DAYS",
+                                                          "compaction_window_size","1")));
 
     private static CFMetaData compile(String name, String description, String schema)
     {
