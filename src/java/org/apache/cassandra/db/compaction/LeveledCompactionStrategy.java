@@ -61,7 +61,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         int configuredMaxSSTableSize = 160;
         SizeTieredCompactionStrategyOptions localOptions = new SizeTieredCompactionStrategyOptions(options);
         if (options != null)
-        {             
+        {
             if (options.containsKey(SSTABLE_SIZE_OPTION))             
             {                 
                 configuredMaxSSTableSize = Integer.parseInt(options.get(SSTABLE_SIZE_OPTION));                 
@@ -109,6 +109,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
     @SuppressWarnings("resource")
     public AbstractCompactionTask getNextBackgroundTask(int gcBefore)
     {
+        Collection<SSTableReader> previousCandidate = null;
         while (true)
         {
             OperationType op;
@@ -129,6 +130,16 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
                 op = OperationType.COMPACTION;
             }
 
+            // Already tried acquiring references without success. It means there is a race with
+            // the tracker but candidate SSTables were not yet replaced in the compaction strategy manager
+            if (candidate.sstables.equals(previousCandidate))
+            {
+                logger.warn("Could not acquire references for compacting SSTables {} which is not a problem per se," +
+                            "unless it happens frequently, in which case it must be reported. Will retry later.",
+                            candidate.sstables);
+                return null;
+            }
+
             LifecycleTransaction txn = cfs.getTracker().tryModify(candidate.sstables, OperationType.COMPACTION);
             if (txn != null)
             {
@@ -136,6 +147,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
                 newTask.setCompactionType(op);
                 return newTask;
             }
+            previousCandidate = candidate.sstables;
         }
     }
 
