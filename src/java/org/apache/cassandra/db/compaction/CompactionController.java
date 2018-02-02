@@ -95,6 +95,12 @@ public class CompactionController implements AutoCloseable
             return;
         }
 
+        if (cfs.getNeverPurgeTombstones())
+        {
+            logger.debug("not refreshing overlaps for {}.{} - neverPurgeTombstones is enabled", cfs.keyspace.getName(), cfs.getTableName());
+            return;
+        }
+
         for (SSTableReader reader : overlappingSSTables)
         {
             if (reader.isMarkedCompacted())
@@ -107,7 +113,7 @@ public class CompactionController implements AutoCloseable
 
     private void refreshOverlaps()
     {
-        if (NEVER_PURGE_TOMBSTONES)
+        if (NEVER_PURGE_TOMBSTONES || cfs.getNeverPurgeTombstones())
             return;
 
         if (this.overlappingSSTables != null)
@@ -145,7 +151,7 @@ public class CompactionController implements AutoCloseable
     {
         logger.trace("Checking droppable sstables in {}", cfStore);
 
-        if (compacting == null || NEVER_PURGE_TOMBSTONES)
+        if (compacting == null || NEVER_PURGE_TOMBSTONES || cfStore.getNeverPurgeTombstones())
             return Collections.<SSTableReader>emptySet();
 
         if (cfStore.getCompactionStrategyManager().onlyPurgeRepairedTombstones() && !Iterables.all(compacting, SSTableReader::isRepaired))
@@ -237,7 +243,7 @@ public class CompactionController implements AutoCloseable
      */
     public Predicate<Long> getPurgeEvaluator(DecoratedKey key)
     {
-        if (!compactingRepaired() || NEVER_PURGE_TOMBSTONES)
+        if (!compactingRepaired() || NEVER_PURGE_TOMBSTONES || cfs.getNeverPurgeTombstones())
             return time -> false;
 
         overlapIterator.update(key);
