@@ -456,7 +456,7 @@ public final class SystemKeyspace
                 + "id uuid PRIMARY KEY,"
                 + "keyspace_name text,"
                 + "columnfamily_name text,"
-                + "inputs set<int> )");
+                + "inputs set<int> )").compaction(CompactionParams.scts(singletonMap("max_threshold", "1024")));
 
     private static CFMetaData compile(String name, String description, String schema)
     {
