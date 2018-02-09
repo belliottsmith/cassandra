@@ -441,7 +441,7 @@ public class Config
     public ConsistencyLevel auth_read_consistency_level = ConsistencyLevel.LOCAL_QUORUM;
     public ConsistencyLevel auth_write_consistency_level = ConsistencyLevel.EACH_QUORUM;
 
-    public volatile boolean alter_table_enabled = false;
+    public volatile boolean alter_table_enabled = true;
 
     public String full_query_log_dir = null;
 
