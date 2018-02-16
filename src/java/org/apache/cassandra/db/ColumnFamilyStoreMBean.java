@@ -132,11 +132,19 @@ public interface ColumnFamilyStoreMBean
     public List<String> getSSTablesForKey(String key);
 
     /**
-     * Scan through Keyspace/ColumnFamily's data directory
-     * determine which SSTables should be loaded and load them
+     * Load new sstables from the given directory
+     *
+     * @param srcPath the path to the new sstables - if it is null, the data directories will be scanned
+     * @param resetLevel if the level should be reset to 0 on the new sstables
+     * @param clearRepaired if repaired info should be wiped from the new sstables
+     * @param verifySSTables if the new sstables should be verified that they are not corrupt
+     * @param verifyTokens if the tokens in the new sstables should be verified that they are owned by the current node
+     * @param invalidateCaches if row cache should be invalidated for the keys in the new sstables
      */
-    public void loadNewSSTables(String dirPath);
+    public void loadNewSSTables(String srcPath, boolean resetLevel, boolean clearRepaired, boolean verifySSTables, boolean verifyTokens, boolean invalidateCaches);
 
+    @Deprecated
+    public void loadNewSSTables();
     /**
      * @return the number of SSTables in L0.  Always return 0 if Leveled compaction is not enabled.
      */

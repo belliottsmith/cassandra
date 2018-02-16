@@ -88,6 +88,7 @@ public class NodeTool
                 GetEndpoints.class,
                 GetSSTables.class,
                 GossipInfo.class,
+                Import.class,
                 InvalidateKeyCache.class,
                 InvalidateRowCache.class,
                 InvalidateCounterCache.class,

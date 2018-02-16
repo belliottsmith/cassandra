@@ -624,7 +624,7 @@ public class VerifyTest
         return cinStream.getChecksum().getValue();
     }
 
-    protected void writeChecksum(long checksum, String filePath)
+    public static void writeChecksum(long checksum, String filePath)
     {
         File outFile = new File(filePath);
         BufferedWriter out = null;
