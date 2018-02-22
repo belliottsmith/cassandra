@@ -1751,36 +1751,34 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     @VisibleForTesting
     public static SuccessfulRepairTimeHolder updateLastSuccessfulRepair(Range<Token> range, int gcableTime, SuccessfulRepairTimeHolder currentRepairs)
     {
-        final List<Pair<Range<Token>, Integer>> lastSuccessfulRepairArr = new ArrayList<>(currentRepairs.successfulRepairs);
-        Iterator<Pair<Range<Token>, Integer>> iter = lastSuccessfulRepairArr.iterator();
-        int newPosition = 0;
-        Pair<Range<Token>, Integer> elem = Pair.create(range, gcableTime);
-        while (iter.hasNext())
+        List<Pair<Range<Token>, Integer>> previousTimes = currentRepairs.successfulRepairs;
+        Map<Range<Token>, Integer> rangeTimes = new HashMap<>(previousTimes.size() + 1);
+        for (Pair<Range<Token>, Integer> p: previousTimes)
         {
-            Pair<Range<Token>, Integer> current = iter.next();
-            if (current.left.equals(range))
+            if (!rangeTimes.containsKey(p.left) || rangeTimes.get(p.left) < p.right)
             {
-                if(current.right > gcableTime)
-                {
-                    logger.error("Last repair time is in the past. Ignoring. " + range);
-                    return null;
-                }
-                // found duplicate
-                iter.remove();
-                break;
-            }
-            else if (lastRepairTimeComparator.compare(current, elem) < 0)
-            {
-                // if current is smaller then move to the next
-                newPosition++;
-            }
-            else
-            {
-                break;
+                rangeTimes.put(p.left, p.right);
             }
         }
-        lastSuccessfulRepairArr.add(newPosition, elem);
-        return new SuccessfulRepairTimeHolder(ImmutableList.copyOf(lastSuccessfulRepairArr));
+
+        if (!rangeTimes.containsKey(range) || rangeTimes.get(range) < gcableTime)
+        {
+            rangeTimes.put(range, gcableTime);
+        }
+        else
+        {
+            logger.error(String.format("Last repair time is in the past. Ignoring. %s %s", range, gcableTime));
+            return null;
+        }
+
+        List<Pair<Range<Token>, Integer>> nextTimes = new ArrayList<>(rangeTimes.size());
+        for (Map.Entry<Range<Token>, Integer> entry: rangeTimes.entrySet())
+        {
+            nextTimes.add(Pair.create(entry.getKey(), entry.getValue()));
+        }
+
+        nextTimes.sort(lastRepairTimeComparator);
+        return new SuccessfulRepairTimeHolder(ImmutableList.copyOf(nextTimes));
     }
 
     public SuccessfulRepairTimeHolder getRepairTimeSnapshot()
