@@ -35,7 +35,7 @@ import org.apache.cassandra.utils.NoSpamLogger;
 public abstract class AbstractMutationVerbHandler<T extends IMutation> implements IVerbHandler<T>
 {
     private static final Logger logger = LoggerFactory.getLogger(AbstractMutationVerbHandler.class);
-    private static final String logMessageTemplate = "Received mutation from {} for token {} outside valid range";
+    private static final String logMessageTemplate = "Received mutation from {} for {} outside valid range for keyspace {}";
 
     public void processMessage(MessageIn<T> message, int id, InetAddress replyTo)
     {
@@ -46,11 +46,12 @@ public abstract class AbstractMutationVerbHandler<T extends IMutation> implement
         if ((outOfRangeTokenLogging || outOfRangeTokenRejection)
             && isOutOfRangeMutation(message.payload.getKeyspaceName(), key))
         {
-            StorageMetrics.totalOpsForInvalidToken.inc();
+            StorageService.instance.incOutOfRangeOperationCount();
+            Keyspace.open(message.payload.getKeyspaceName()).metric.outOfRangeTokenWrites.inc();
 
             // Log at most 1 message per second
             if (outOfRangeTokenLogging)
-                NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.SECONDS, logMessageTemplate, replyTo, key.getToken());
+                NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.SECONDS, logMessageTemplate, replyTo, key, message.payload.getKeyspaceName());
 
             if (outOfRangeTokenRejection)
                 sendFailureResponse(id, replyTo);

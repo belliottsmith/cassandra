@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.db;
 
-import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -55,8 +54,9 @@ public class ReadCommandVerbHandlerTest
     private static final String TABLE = "table1";
 
     private ReadCommandVerbHandler handler;
-    private CFMetaData cfm;
-    private long startingMetricCount;
+    private ColumnFamilyStore cfs;
+    private long startingTotalMetricCount;
+    private long startingKeyspaceMetricCount;
 
     @BeforeClass
     public static void init() throws Exception
@@ -78,9 +78,10 @@ public class ReadCommandVerbHandlerTest
 
         MessagingService.instance().clearMessageSinks();
 
-        cfm = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE).metadata;
+        cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+        startingKeyspaceMetricCount = keyspaceMetricValue(cfs);
+        startingTotalMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
         handler = new ReadCommandVerbHandler();
-        startingMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
     }
 
     @Test
@@ -145,7 +146,7 @@ public class ReadCommandVerbHandlerTest
         ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
         int messageId = randomInt();
         Range<Token> range = new Range<>(token(150), token(160));
-        ReadCommand command = new StubRangeReadCommand(range, cfm);
+        ReadCommand command = new StubRangeReadCommand(range, cfs.metadata);
         handler.doVerb(MessageIn.create(node1,
                                         command,
                                         EMPTY_PARAMS,
@@ -160,7 +161,8 @@ public class ReadCommandVerbHandlerTest
                                       boolean isOutOfRange,
                                       boolean expectFailure) throws InterruptedException, ExecutionException, TimeoutException
     {
-        assertEquals(startingMetricCount + (isOutOfRange ? 1 : 0), StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingTotalMetricCount + (isOutOfRange ? 1 : 0), StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingKeyspaceMetricCount + (isOutOfRange ? 1 : 0), keyspaceMetricValue(cfs));
         if (expectFailure)
         {
             try
@@ -186,9 +188,14 @@ public class ReadCommandVerbHandlerTest
         }
     }
 
+    private static long keyspaceMetricValue(ColumnFamilyStore cfs)
+    {
+        return cfs.keyspace.metric.outOfRangeTokenReads.getCount();
+    }
+
     private ReadCommand command(int key)
     {
-        return new StubReadCommand(key, cfm);
+        return new StubReadCommand(key, cfs.metadata);
     }
 
     private static class StubReadCommand extends SinglePartitionReadCommand

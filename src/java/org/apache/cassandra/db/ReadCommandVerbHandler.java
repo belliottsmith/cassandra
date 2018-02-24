@@ -37,7 +37,7 @@ import org.apache.cassandra.utils.NoSpamLogger;
 public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
 {
     private static final Logger logger = LoggerFactory.getLogger( ReadCommandVerbHandler.class );
-    private static final String logMessageTemplate = "Received read request from {} for token {} outside valid range";
+    private static final String logMessageTemplate = "Received read request from {} for {} outside valid range for keyspace {}";
 
     protected IVersionedSerializer<ReadResponse> serializer()
     {
@@ -62,11 +62,12 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
             DecoratedKey key = ((SinglePartitionReadCommand)command).partitionKey();
             if ((outOfRangeTokenLogging || outOfRangeTokenRejection) && isOutOfRangeRead(command.metadata().ksName, key))
             {
-                StorageMetrics.totalOpsForInvalidToken.inc();
+                StorageService.instance.incOutOfRangeOperationCount();
+                Keyspace.open(command.metadata().ksName).metric.outOfRangeTokenReads.inc();
 
                 // Log at most 1 message per second
                 if (outOfRangeTokenLogging)
-                    NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.SECONDS, logMessageTemplate, message.from, key.getToken());
+                    NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.SECONDS, logMessageTemplate, message.from, key, command.metadata().ksName);
 
                 if (outOfRangeTokenRejection)
                     // no need to respond, just drop the request

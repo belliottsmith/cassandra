@@ -36,6 +36,8 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.metrics.StorageMetrics;
@@ -60,7 +62,8 @@ public class PaxosVerbHandlerTest
     private static final String KEYSPACE = TEST_NAME + "cql_keyspace";
     private static final String TABLE = "table1";
 
-    private long startingMetricCount;
+    private long startingTotalMetricCount;
+    private long startingKeyspaceMetricCount;
 
     @BeforeClass
     public static void init() throws Exception
@@ -81,7 +84,8 @@ public class PaxosVerbHandlerTest
         StorageService.instance.getTokenMetadata().updateNormalToken(bytesToken(100), broadcastAddress);
 
         MessagingService.instance().clearMessageSinks();
-        startingMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
+        startingTotalMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
+        startingKeyspaceMetricCount = keyspaceMetricValue();
     }
 
     @Test
@@ -235,7 +239,8 @@ public class PaxosVerbHandlerTest
         assertEquals(expectFailure, response.message.parameters.containsKey(MessagingService.FAILURE_RESPONSE_PARAM));
         assertEquals(messageId, response.id);
         Assert.assertEquals(node1, response.to);
-        assertEquals(startingMetricCount + (isOutOfRange ? 1 : 0), StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingTotalMetricCount + (isOutOfRange ? 1 : 0), StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingKeyspaceMetricCount + (isOutOfRange ? 1 : 0), keyspaceMetricValue());
     }
 
     private static Commit commit(int key)
@@ -243,5 +248,10 @@ public class PaxosVerbHandlerTest
         CFMetaData cfm = Schema.instance.getCFMetaData(KEYSPACE, TABLE);
         UUID ballot = UUIDGen.getRandomTimeUUIDFromMicros(FBUtilities.timestampMicros());
         return Commit.newPrepare(cfm.decorateKey(ByteBufferUtil.bytes(key)), cfm, ballot);
+    }
+
+    private static long keyspaceMetricValue()
+    {
+        return Keyspace.open(KEYSPACE).metric.outOfRangeTokenPaxosRequests.getCount();
     }
 }

@@ -19,12 +19,14 @@
 package org.apache.cassandra.service.paxos;
 
 import java.net.InetAddress;
+import java.security.Key;
 import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.WriteResponse;
 import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.net.IVerbHandler;
@@ -37,7 +39,7 @@ import org.apache.cassandra.utils.NoSpamLogger;
 public abstract class AbstractPaxosVerbHandler implements IVerbHandler<Commit>
 {
     private static final Logger logger = LoggerFactory.getLogger(AbstractPaxosVerbHandler.class);
-    private static final String logMessageTemplate = "Received paxos request from {} for token {} outside valid range";
+    private static final String logMessageTemplate = "Received paxos request from {} for {} outside valid range for keyspace {}";
 
     public void doVerb(MessageIn<Commit> message, int id)
     {
@@ -48,11 +50,12 @@ public abstract class AbstractPaxosVerbHandler implements IVerbHandler<Commit>
         DecoratedKey key = commit.update.partitionKey();
         if ((outOfRangeTokenLogging || outOfRangeTokenRejection) && isOutOfRangeCommit(commit.update.metadata().ksName, key))
         {
-            StorageMetrics.totalOpsForInvalidToken.inc();
+            StorageService.instance.incOutOfRangeOperationCount();
+            Keyspace.open(commit.update.metadata().ksName).metric.outOfRangeTokenPaxosRequests.inc();
 
             // Log at most 1 message per second
             if (outOfRangeTokenLogging)
-                NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.SECONDS, logMessageTemplate, message.from, key.getToken());
+                NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.SECONDS, logMessageTemplate, message.from, key, commit.update.metadata().ksName);
 
             if (outOfRangeTokenRejection)
                 sendFailureResponse(id, message.from);

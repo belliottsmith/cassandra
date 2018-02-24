@@ -116,6 +116,12 @@ public class KeyspaceMetrics
     public final Histogram bytesValidated;
     /** histogram over the number of partitions we have validated */
     public final Histogram partitionsValidated;
+    /** Lifetime count of reads for keys outside the node's owned token ranges for this keyspace **/
+    public final Counter outOfRangeTokenReads;
+    /** Lifetime count of writes for keys outside the node's owned token ranges for this keyspace **/
+    public final Counter outOfRangeTokenWrites;
+    /** Lifetime count of paxos requests for keys outside the node's owned token ranges for this keyspace **/
+    public final Counter outOfRangeTokenPaxosRequests;
 
     public final MetricNameFactory factory;
     private Keyspace keyspace;
@@ -292,6 +298,10 @@ public class KeyspaceMetrics
         repairSyncTime = Metrics.timer(factory.createMetricName("RepairSyncTime"));
         partitionsValidated = Metrics.histogram(factory.createMetricName("PartitionsValidated"), false);
         bytesValidated = Metrics.histogram(factory.createMetricName("BytesValidated"), false);
+
+        outOfRangeTokenReads = createKeyspaceCounter("ReadOutOfRangeToken");
+        outOfRangeTokenWrites = createKeyspaceCounter("WriteOutOfRangeToken");
+        outOfRangeTokenPaxosRequests = createKeyspaceCounter("PaxosOutOfRangeToken");
     }
 
     /**
@@ -368,6 +378,12 @@ public class KeyspaceMetrics
                 return sum;
             }
         });
+    }
+
+    private Counter createKeyspaceCounter(String name)
+    {
+        allMetrics.add(name);
+        return Metrics.counter(factory.createMetricName(name));
     }
 
     static class KeyspaceMetricNameFactory implements MetricNameFactory

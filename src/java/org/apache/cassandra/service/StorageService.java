@@ -36,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.MatchResult;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import javax.management.*;
 import javax.management.openmbean.TabularData;
@@ -192,6 +193,35 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private volatile boolean isShutdown = false;
 
     public static final StorageService instance = new StorageService();
+
+    private final java.util.function.Predicate<Keyspace> anyOutOfRangeOpsRecorded
+            = keyspace -> keyspace.metric.outOfRangeTokenReads.getCount() > 0
+                          || keyspace.metric.outOfRangeTokenWrites.getCount() > 0
+                          || keyspace.metric.outOfRangeTokenPaxosRequests.getCount() > 0;
+
+    private long[] countsForKeyspace(Keyspace keyspace)
+    {
+        return new long[]
+        {
+               keyspace.metric.outOfRangeTokenReads.getCount(),
+               keyspace.metric.outOfRangeTokenWrites.getCount(),
+               keyspace.metric.outOfRangeTokenPaxosRequests.getCount()
+        };
+    }
+
+    public Map<String, long[]> getOutOfRangeOperationCounts()
+    {
+        return Schema.instance.getKeyspaces()
+                              .stream()
+                              .map(Keyspace::open)
+                              .filter(anyOutOfRangeOpsRecorded)
+                              .collect(Collectors.toMap(Keyspace::getName, this::countsForKeyspace));
+    }
+
+    public void incOutOfRangeOperationCount()
+    {
+        (isStarting() ? StorageMetrics.startupOpsForInvalidToken : StorageMetrics.totalOpsForInvalidToken).inc();
+    }
 
     @Deprecated
     public boolean isInShutdownHook()

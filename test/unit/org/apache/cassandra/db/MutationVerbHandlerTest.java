@@ -62,7 +62,8 @@ public class MutationVerbHandlerTest
     private static final String TABLE = "table1";
 
     private ColumnFamilyStore cfs;
-    private long startingMetricCount;
+    private long startingTotalMetricCount;
+    private long startingKeyspaceMetricCount;
 
     @BeforeClass
     public static void init() throws Exception
@@ -86,7 +87,8 @@ public class MutationVerbHandlerTest
         MessagingService.instance().clearMessageSinks();
 
         cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
-        startingMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
+        startingKeyspaceMetricCount = keyspaceMetricValue(cfs);
+        startingTotalMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
     }
 
     @Test
@@ -222,13 +224,19 @@ public class MutationVerbHandlerTest
         assertEquals(expectFailure, response.message.parameters.containsKey(MessagingService.FAILURE_RESPONSE_PARAM));
         assertEquals(messageId, response.id);
         assertEquals(node1, response.to);
-        assertEquals(startingMetricCount + (isOutOfRange ? 1 : 0), StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingTotalMetricCount + (isOutOfRange ? 1 : 0), StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingKeyspaceMetricCount + (isOutOfRange ? 1 : 0), keyspaceMetricValue(cfs));
         if (!expectFailure)
         {
             ReadCommand read = Util.cmd(cfs, bytes(key)).build();
             ColumnDefinition col = cfs.metadata.getColumnDefinition(bytes("v1"));
             assertEquals(value, toInt(Util.getOnlyRow(read).getCell(col).value()));
         }
+    }
+
+    private static long keyspaceMetricValue(ColumnFamilyStore cfs)
+    {
+        return cfs.keyspace.metric.outOfRangeTokenWrites.getCount();
     }
 
     private Mutation mutation(int key, int columnValue)

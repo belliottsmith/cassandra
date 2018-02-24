@@ -62,7 +62,8 @@ public class CounterMutationVerbHandlerTest
 
     private CounterMutationVerbHandler handler;
     private ColumnFamilyStore cfs;
-    private long startingMetricCount;
+    private long startingTotalMetricCount;
+    private long startingKeyspaceMetricCount;
 
     @BeforeClass
     public static void init() throws Exception
@@ -85,11 +86,13 @@ public class CounterMutationVerbHandlerTest
         StorageService.instance.getTokenMetadata().updateNormalToken(bytesToken(100), broadcastAddress);
 
         MessagingService.instance().clearMessageSinks();
-        startingMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
 
-        handler = new CounterMutationVerbHandler();
         cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
         cfs.truncateBlocking();
+        startingKeyspaceMetricCount = keyspaceMetricValue();
+        startingTotalMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
+
+        handler = new CounterMutationVerbHandler();
     }
 
     @Test
@@ -112,7 +115,8 @@ public class CounterMutationVerbHandlerTest
         // that the mutation was actually applied locally. When a counter mutation is rejected by the verb
         // handler we *can* verify the failure response message is sent.
         verifyWrite(key, value);
-        assertEquals(startingMetricCount, StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingTotalMetricCount, StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingKeyspaceMetricCount, keyspaceMetricValue());
     }
 
     @Test
@@ -135,7 +139,8 @@ public class CounterMutationVerbHandlerTest
                                         MessagingService.current_version),
                        messageId);
         verifyWrite(key, value);
-        assertEquals(startingMetricCount, StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingTotalMetricCount, StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingKeyspaceMetricCount, keyspaceMetricValue());
     }
 
     @Test
@@ -154,7 +159,8 @@ public class CounterMutationVerbHandlerTest
                                         MessagingService.current_version),
                        messageId);
         verifyFailureResponse(messageSink, messageId);
-        assertEquals(startingMetricCount + 1, StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingTotalMetricCount + 1, StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingKeyspaceMetricCount + 1, keyspaceMetricValue());
     }
 
     @Test
@@ -176,7 +182,8 @@ public class CounterMutationVerbHandlerTest
                        messageId);
 
         verifyWrite(key, value);
-        assertEquals(startingMetricCount + 1, StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingTotalMetricCount + 1, StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertEquals(startingKeyspaceMetricCount + 1, keyspaceMetricValue());
     }
 
     private void verifyWrite(int key, int value)
@@ -207,5 +214,10 @@ public class CounterMutationVerbHandlerTest
         Row row = BTreeRow.singleCellRow(cfs.metadata.comparator.make("clustering_1"), counterCell);
         PartitionUpdate update = PartitionUpdate.singleRowUpdate(cfm, dk, row);
         return new CounterMutation(new Mutation(update), ConsistencyLevel.ANY);
+    }
+
+    private long keyspaceMetricValue()
+    {
+        return cfs.keyspace.metric.outOfRangeTokenWrites.getCount();
     }
 }
