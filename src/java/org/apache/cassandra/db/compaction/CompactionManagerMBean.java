@@ -110,4 +110,13 @@ public interface CompactionManagerMBean
     /** Configures aggresive GC compaction mode of LCS **/
     public void setEnableAggressiveGCCompaction(boolean enable);
     public boolean getEnableAggressiveGCCompaction();
+
+    /**
+     *
+     * Column Index Tuning
+     */
+    public int getColumnIndexMaxSizeInKB();
+    public void setColumnIndexMaxSizeInKB(int size);
+    public int getColumnIndexMaxCount();
+    public void setColumnIndexMaxCount(int count);
 }

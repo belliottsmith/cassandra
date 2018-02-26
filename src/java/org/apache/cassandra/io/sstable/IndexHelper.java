@@ -94,17 +94,17 @@ public final class IndexHelper
         // see <rdar://problem/27205556> Cass: Composite abstraction in 2.1 creates significant GC pressure (especially on wide rows)
         // for details on why we're doing all this ClusteringPrefix -> ByteBuffer -> ByteBuffer[] -> ClusteringPrefix stuff
         private final long offset;
-        private final long width;
+        private long width;
         private final ByteBuffer firstName;
-        private final ByteBuffer lastName;
+        private ByteBuffer lastName;
         private final ClusteringPrefix.Kind firstNameKind;
-        private final ClusteringPrefix.Kind lastNameKind;
-        private final ClusteringPrefix clusteringName;
+        private ClusteringPrefix.Kind lastNameKind;
+        private ClusteringPrefix clusteringName; // Lazily populated, becomes null on merge
         private final ClusteringComparator comparator;
 
         // If at the end of the index block there is an open range tombstone marker, this marker
         // deletion infos. null otherwise.
-        public final DeletionTime endOpenMarker;
+        public DeletionTime endOpenMarker;
 
         public IndexInfo(ClusteringPrefix firstName,
                          ClusteringPrefix lastName,
@@ -240,16 +240,6 @@ public final class IndexHelper
                    : new RangeTombstone.Bound(lastNameKind, splitSegments);
         }
 
-        public ByteBuffer getFirstNameAsByteBuffer()
-        {
-            return (firstName == null) ? ByteBufferUtil.merge(clusteringName.getRawValues()) : firstName.duplicate();
-        }
-
-        public ByteBuffer getLastNameAsByteBuffer()
-        {
-            return (lastName == null) ? ByteBufferUtil.merge(clusteringName.getRawValues()) : lastName.duplicate();
-        }
-
         public long getOffset()
         {
             return offset;
@@ -258,6 +248,26 @@ public final class IndexHelper
         public long getWidth()
         {
             return width;
+        }
+
+        /**
+         * Merge an IndexInfo object with a different IndexInfo element later in the index
+         * The mergeEnd element SHOULD BE DISCARDED to avoid tampering with the underlying objects bytebuffer
+         *
+         * @param mergeEnd The previous IndexInfo element in the index, to be merged and removed
+         */
+        public void expandInPlace(IndexInfo mergeEnd)
+        {
+            // We always merge with an item in the list further down the list.
+            // The only exception is where size % mergefactor == 1, when we'll
+            // be left with a single element that we merge with itself.
+            assert this.offset <= mergeEnd.offset;
+            this.clusteringName = null;
+            this.width = ((mergeEnd.offset - this.offset) + mergeEnd.width);
+            // Copy these as-is, so we don't have to split and merge the bytebuffers
+            this.lastName = mergeEnd.lastName;
+            this.lastNameKind = mergeEnd.lastNameKind;
+            this.endOpenMarker = mergeEnd.endOpenMarker;
         }
     }
 }

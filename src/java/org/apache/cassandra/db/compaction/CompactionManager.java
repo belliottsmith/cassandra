@@ -1949,6 +1949,31 @@ public class CompactionManager implements CompactionManagerMBean
         return DatabaseDescriptor.getEnableAggressiveGCCompaction();
     }
 
+    /*
+     * Column Index Tuning
+     */
+    public int getColumnIndexMaxSizeInKB()
+    {
+        return DatabaseDescriptor.getColumnIndexMaxSizeInBytes() / 1024;
+    }
+
+    public void setColumnIndexMaxSizeInKB(int size)
+    {
+        Preconditions.checkArgument(size <= Integer.MAX_VALUE / 1024, "Invalid column index max size - must be less than 2097152kb", size);
+        DatabaseDescriptor.setColumnIndexMaxSizeInBytes(size * 1024);
+    }
+
+    public int getColumnIndexMaxCount()
+    {
+        return DatabaseDescriptor.getColumnIndexMaxCount();
+    }
+
+    public void setColumnIndexMaxCount(int count)
+    {
+        DatabaseDescriptor.setColumnIndexMaxCount(count);
+    }
+
+
     /**
      * Try to stop all of the compactions for given ColumnFamilies.
      *

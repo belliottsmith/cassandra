@@ -33,4 +33,5 @@ public class StorageMetrics
     public static final Counter totalHintsInProgress  = Metrics.counter(factory.createMetricName("TotalHintsInProgress"));
     public static final Counter totalHints = Metrics.counter(factory.createMetricName("TotalHints"));
     public static final Counter totalOpsForInvalidToken = Metrics.counter(factory.createMetricName("TotalOpsForInvalidToken"));
+    public static final Counter columnIndexDownsamples = Metrics.counter(factory.createMetricName("ColumnIndexDownsamples"));
 }
