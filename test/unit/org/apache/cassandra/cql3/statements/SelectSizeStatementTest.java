@@ -36,6 +36,7 @@ import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.SyntaxException;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class SelectSizeStatementTest
@@ -55,8 +56,8 @@ public class SelectSizeStatementTest
     @Test
     public void successCase() throws Exception
     {
-        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=1").prepare();
-        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl2 WHERE k1=1 AND k2=2").prepare();
+        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=1").prepare(ClientState.forInternalCalls());
+        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl2 WHERE k1=1 AND k2=2").prepare(ClientState.forInternalCalls());
     }
 
     /**
@@ -69,14 +70,14 @@ public class SelectSizeStatementTest
         PartitionSizeCommand command;
 
         // parameterized
-        statement = (SelectSizeStatement) QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=?").prepare().statement;
+        statement = (SelectSizeStatement) QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=?").prepare(ClientState.forInternalCalls()).statement;
         command = statement.createCommand(QueryOptions.forInternalCalls(ConsistencyLevel.QUORUM, Lists.newArrayList(ByteBufferUtil.bytes(1))));
         Assert.assertEquals("ks", command.keyspace);
         Assert.assertEquals("tbl", command.table);
         Assert.assertEquals(ByteBufferUtil.bytes(1), command.key);
 
         // not parameterized
-        statement = (SelectSizeStatement) QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=1").prepare().statement;
+        statement = (SelectSizeStatement) QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=1").prepare(ClientState.forInternalCalls()).statement;
         command = statement.createCommand(QueryOptions.forInternalCalls(ConsistencyLevel.QUORUM, Lists.newArrayList()));
         Assert.assertEquals("ks", command.keyspace);
         Assert.assertEquals("tbl", command.table);
@@ -89,7 +90,7 @@ public class SelectSizeStatementTest
     @Test(expected = InvalidRequestException.class)
     public void nonEqOp() throws Exception
     {
-        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k>1").prepare();
+        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k>1").prepare(ClientState.forInternalCalls());
     }
 
     /**
@@ -98,19 +99,19 @@ public class SelectSizeStatementTest
     @Test(expected = InvalidRequestException.class)
     public void incompletePartitionKey() throws Exception
     {
-        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl2 WHERE k1=1").prepare();
+        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl2 WHERE k1=1").prepare(ClientState.forInternalCalls());
     }
 
     @Test(expected = InvalidRequestException.class)
     public void nonExistantTable() throws Exception
     {
-        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.notable WHERE k1=1").prepare();
+        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.notable WHERE k1=1").prepare(ClientState.forInternalCalls());
     }
 
     @Test(expected = SyntaxException.class)
     public void noWhereClause() throws Exception
     {
-        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl").prepare();
+        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl").prepare(ClientState.forInternalCalls());
     }
 
     /**
@@ -119,13 +120,13 @@ public class SelectSizeStatementTest
     @Test(expected = InvalidRequestException.class)
     public void nonPartitionKeyWhere() throws Exception
     {
-        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=1 AND v=1").prepare();
+        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=1 AND v=1").prepare(ClientState.forInternalCalls());
     }
 
     @Test(expected = InvalidRequestException.class)
     public void repeatedColumns() throws Exception
     {
-        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=1 AND k=2").prepare();
+        QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=1 AND k=2").prepare(ClientState.forInternalCalls());
     }
 
     /**
@@ -134,7 +135,7 @@ public class SelectSizeStatementTest
     @Test(expected = InvalidRequestException.class)
     public void serialConsistency() throws Exception
     {
-        ParsedStatement.Prepared prepared = QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=1").prepare();
+        ParsedStatement.Prepared prepared = QueryProcessor.parseStatement("SELECT_SIZE FROM ks.tbl WHERE k=1").prepare(ClientState.forInternalCalls());
         Assert.assertSame(SelectSizeStatement.class, prepared.statement.getClass());
         CQLStatement stmt = prepared.statement;
         stmt.execute(QueryState.forInternalCalls(), QueryOptions.forInternalCalls(ConsistencyLevel.SERIAL, Collections.emptyList()));
