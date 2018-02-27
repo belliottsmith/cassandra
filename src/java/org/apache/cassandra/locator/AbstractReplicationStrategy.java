@@ -380,7 +380,7 @@ public abstract class AbstractReplicationStrategy
                 final int minimumAllowedReplicationFactor = Integer.parseInt(
                 System.getProperty(SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, DEFAULT_MINIMUM_REPLICATION_FACTOR));
                 final int replication_factor = getReplicationFactor();
-                if (replication_factor < minimumAllowedReplicationFactor && !Schema.SYSTEM_KEYSPACE_NAMES.contains(keyspaceName)
+                if (replication_factor < minimumAllowedReplicationFactor && !Schema.LOCAL_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName)
                         && !Schema.REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName))
                 {
                     throw new ConfigurationException("Error while creating keyspace " + keyspaceName + " : \"replication_factor\" must be greater than or equal to "

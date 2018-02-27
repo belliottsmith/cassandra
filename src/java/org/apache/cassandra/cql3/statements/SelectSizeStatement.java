@@ -165,7 +165,7 @@ public class SelectSizeStatement implements CQLStatement
             this.whereClause = whereClause;
         }
 
-        public Prepared prepare() throws RequestValidationException
+        public Prepared prepare(ClientState clientState) throws RequestValidationException
         {
             CFMetaData cfm = ThriftValidation.validateColumnFamily(keyspace(), columnFamily());
             VariableSpecifications boundNames = getBoundVariables();

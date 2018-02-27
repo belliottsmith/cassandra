@@ -120,7 +120,7 @@ public class Schema
      */
     public static boolean isInternalKeyspace(String keyspaceName)
     {
-        return SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase()) || REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase())
+        return LOCAL_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase()) || REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase())
         || APPLE_INTERNAL_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase());
     }
 
