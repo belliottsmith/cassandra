@@ -199,7 +199,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                           || keyspace.metric.outOfRangeTokenWrites.getCount() > 0
                           || keyspace.metric.outOfRangeTokenPaxosRequests.getCount() > 0;
 
-    private long[] countsForKeyspace(Keyspace keyspace)
+    private long[] getOutOfRangeOperationCounts(Keyspace keyspace)
     {
         return new long[]
         {
@@ -215,7 +215,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                               .stream()
                               .map(Keyspace::open)
                               .filter(anyOutOfRangeOpsRecorded)
-                              .collect(Collectors.toMap(Keyspace::getName, this::countsForKeyspace));
+                              .collect(Collectors.toMap(Keyspace::getName, this::getOutOfRangeOperationCounts));
     }
 
     public void incOutOfRangeOperationCount()
