@@ -270,7 +270,10 @@ public interface StorageServiceMBean extends NotificationEmitter
     public int scrub(boolean disableSnapshot, boolean skipCorrupted, String keyspaceName, String... tableNames) throws IOException, ExecutionException, InterruptedException;
     @Deprecated
     public int scrub(boolean disableSnapshot, boolean skipCorrupted, boolean checkData, String keyspaceName, String... tableNames) throws IOException, ExecutionException, InterruptedException;
+    @Deprecated
     public int scrub(boolean disableSnapshot, boolean skipCorrupted, boolean checkData, int jobs, String keyspaceName, String... columnFamilies) throws IOException, ExecutionException, InterruptedException;
+
+    public int scrub(boolean disableSnapshot, boolean skipCorrupted, boolean checkData, boolean reinsertOverflowedTTL, int jobs, String keyspaceName, String... columnFamilies) throws IOException, ExecutionException, InterruptedException;
 
     /**
      * Verify (checksums of) the given keyspace.
@@ -583,6 +586,8 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void rebuildSecondaryIndex(String ksName, String cfName, String... idxNames);
 
     public void resetLocalSchema() throws IOException;
+
+    public void reloadLocalSchema();
 
     /**
      * Enables/Disables tracing for the whole system. Only thrift requests can start tracing currently.

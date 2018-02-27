@@ -390,6 +390,13 @@ public class AlterTest extends CQLTester
         execute("alter table %s add v int");
     }
 
+    @Test(expected = SyntaxException.class)
+    public void renameToEmptyTest() throws Throwable
+    {
+        createTable("CREATE TABLE %s (k int, c1 int, v int, PRIMARY KEY (k, c1))");
+        execute("ALTER TABLE %s RENAME c1 TO \"\"");
+    }
+
     @Test
     // tests CASSANDRA-9565
     public void testDoubleWith() throws Throwable

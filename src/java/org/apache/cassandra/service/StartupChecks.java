@@ -20,6 +20,8 @@ package org.apache.cassandra.service;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.RuntimeMXBean;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
@@ -189,6 +191,49 @@ public class StartupChecks
             {
                 logger.warn("Non-Oracle JVM detected.  Some features, such as immediate unmap of compacted SSTables, may not work as intended");
             }
+            else
+            {
+                checkOutOfMemoryHandling();
+            }
+        }
+
+        /**
+         * Checks that the JVM is configured to handle OutOfMemoryError
+         */
+        private void checkOutOfMemoryHandling()
+        {
+            if (JavaUtils.supportExitOnOutOfMemory(System.getProperty("java.version")))
+            {
+                if (!jvmOptionsContainsOneOf("-XX:OnOutOfMemoryError=", "-XX:+ExitOnOutOfMemoryError", "-XX:+CrashOnOutOfMemoryError"))
+                    logger.warn("The JVM is not configured to stop on OutOfMemoryError which can cause data corruption."
+                                + " Use one of the following JVM options to configure the behavior on OutOfMemoryError: "
+                                + " -XX:+ExitOnOutOfMemoryError, -XX:+CrashOnOutOfMemoryError, or -XX:OnOutOfMemoryError=\"<cmd args>;<cmd args>\"");
+            }
+            else
+            {
+                if (!jvmOptionsContainsOneOf("-XX:OnOutOfMemoryError="))
+                    logger.warn("The JVM is not configured to stop on OutOfMemoryError which can cause data corruption."
+                            + " Either upgrade your JRE to a version greater or equal to 8u92 and use -XX:+ExitOnOutOfMemoryError/-XX:+CrashOnOutOfMemoryError"
+                            + " or use -XX:OnOutOfMemoryError=\"<cmd args>;<cmd args>\" on your current JRE.");
+            }
+        }
+
+        /**
+         * Checks if one of the specified options is being used.
+         * @param optionNames The name of the options to check
+         * @return {@code true} if one of the specified options is being used, {@code false} otherwise.
+         */
+        private boolean jvmOptionsContainsOneOf(String... optionNames)
+        {
+            RuntimeMXBean runtimeMxBean = ManagementFactory.getRuntimeMXBean();
+            List<String> inputArguments = runtimeMxBean.getInputArguments();
+            for (String argument : inputArguments)
+            {
+                for (String optionName : optionNames)
+                    if (argument.startsWith(optionName))
+                        return true;
+            }
+            return false;
         }
     };
 

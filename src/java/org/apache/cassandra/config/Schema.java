@@ -57,12 +57,12 @@ public class Schema
     public static final Schema instance = new Schema();
 
     /* system keyspace names (the ones with LocalStrategy replication strategy) */
-    public static final Set<String> SYSTEM_KEYSPACE_NAMES = ImmutableSet.of(SystemKeyspace.NAME, SchemaKeyspace.NAME);
+    public static final Set<String> LOCAL_SYSTEM_KEYSPACE_NAMES =
+        ImmutableSet.of(SystemKeyspace.NAME, SchemaKeyspace.NAME);
 
     /* replicate system keyspace names (the ones with a "true" replication strategy) */
-    public static final Set<String> REPLICATED_SYSTEM_KEYSPACE_NAMES = ImmutableSet.of(TraceKeyspace.NAME,
-                                                                                       AuthKeyspace.NAME,
-                                                                                       SystemDistributedKeyspace.NAME);
+    public static final Set<String> REPLICATED_SYSTEM_KEYSPACE_NAMES =
+        ImmutableSet.of(TraceKeyspace.NAME, AuthKeyspace.NAME, SystemDistributedKeyspace.NAME);
 
     /* Apple internal keyspaces */
     public static final Set<String> APPLE_INTERNAL_SYSTEM_KEYSPACE_NAMES = ImmutableSet.of(CIEInternalKeyspace.NAME,
@@ -127,9 +127,17 @@ public class Schema
     /**
      * @return whether or not the keyspace is a really system one (w/ LocalStrategy, unmodifiable, hardcoded)
      */
-    public static boolean isSystemKeyspace(String keyspaceName)
+    public static boolean isLocalSystemKeyspace(String keyspaceName)
     {
-        return SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase());
+        return LOCAL_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase());
+    }
+
+    /**
+     * @return whether or not the keyspace is a replicated system keyspace (trace, auth, sys-ditributed)
+     */
+    public static boolean isReplicatedSystemKeyspace(String keyspaceName)
+    {
+        return REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase());
     }
 
     /**
@@ -356,7 +364,7 @@ public class Schema
 
     private Set<String> getNonSystemKeyspacesSet()
     {
-        return Sets.difference(keyspaces.keySet(), SYSTEM_KEYSPACE_NAMES);
+        return Sets.difference(keyspaces.keySet(), LOCAL_SYSTEM_KEYSPACE_NAMES);
     }
 
     /**
@@ -386,6 +394,18 @@ public class Schema
     public List<String> getUserKeyspaces()
     {
         return ImmutableList.copyOf(Sets.difference(getNonSystemKeyspacesSet(), REPLICATED_SYSTEM_KEYSPACE_NAMES));
+    }
+
+    public Keyspaces getReplicatedKeyspaces()
+    {
+        Keyspaces.Builder builder = Keyspaces.builder();
+
+        keyspaces.values()
+                 .stream()
+                 .filter(k -> !Schema.isLocalSystemKeyspace(k.name))
+                 .forEach(builder::add);
+
+        return builder.build();
     }
 
     /**

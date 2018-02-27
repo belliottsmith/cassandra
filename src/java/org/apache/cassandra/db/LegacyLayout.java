@@ -25,6 +25,7 @@ import java.security.MessageDigest;
 import java.util.*;
 
 import org.apache.cassandra.cql3.SuperColumnCompatibility;
+import org.apache.cassandra.thrift.Column;
 import org.apache.cassandra.utils.AbstractIterator;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
@@ -1277,56 +1278,85 @@ public abstract class LegacyLayout
             return true;
         }
 
-        public boolean addRangeTombstone(LegacyRangeTombstone tombstone)
+        private boolean addRangeTombstone(LegacyRangeTombstone tombstone)
         {
             if (tombstone.isRowDeletion(metadata))
-            {
-                if (clustering != null)
-                {
-                    // If we're already in the row, there might be a chance that there were two range tombstones
-                    // written, as 2.x storage format does not guarantee just one range tombstone, unlike 3.x.
-                    // We have to make sure that clustering matches, which would mean that tombstone is for the
-                    // same row.
-                    if (rowDeletion != null && clustering.equals(tombstone.start.getAsClustering(metadata)))
-                    {
-                        // If the tombstone superceeds the previous delete, we discard the previous one
-                        if (tombstone.deletionTime.supersedes(rowDeletion.deletionTime))
-                        {
-                            builder.addRowDeletion(Row.Deletion.regular(tombstone.deletionTime));
-                            rowDeletion = tombstone;
-                        }
-                        return true;
-                    }
+                return addRowTombstone(tombstone);
+            else if (tombstone.isCollectionTombstone())
+                return addCollectionTombstone(tombstone);
+            else
+                return addGenericRangeTombstone(tombstone);
+        }
 
-                    // If we're already within a row and there was no delete written before that one, it can't be the same one
-                    return false;
+        private boolean addRowTombstone(LegacyRangeTombstone tombstone)
+        {
+            if (clustering != null)
+            {
+                // If we're already in the row, there might be a chance that there were two range tombstones
+                // written, as 2.x storage format does not guarantee just one range tombstone, unlike 3.x.
+                // We have to make sure that clustering matches, which would mean that tombstone is for the
+                // same row.
+                if (rowDeletion != null && clustering.equals(tombstone.start.getAsClustering(metadata)))
+                {
+                    // If the tombstone superceeds the previous delete, we discard the previous one
+                    if (tombstone.deletionTime.supersedes(rowDeletion.deletionTime))
+                    {
+                        builder.addRowDeletion(Row.Deletion.regular(tombstone.deletionTime));
+                        rowDeletion = tombstone;
+                    }
+                    return true;
                 }
 
+                // If we're already within a row and there was no delete written before that one, it can't be the same one
+                return false;
+            }
+
+            clustering = tombstone.start.getAsClustering(metadata);
+            builder.newRow(clustering);
+            builder.addRowDeletion(Row.Deletion.regular(tombstone.deletionTime));
+            rowDeletion = tombstone;
+
+            return true;
+        }
+
+        private boolean addCollectionTombstone(LegacyRangeTombstone tombstone)
+        {
+            if (!helper.includes(tombstone.start.collectionName))
+                return false; // see CASSANDRA-13109
+
+            if (clustering == null)
+            {
                 clustering = tombstone.start.getAsClustering(metadata);
                 builder.newRow(clustering);
-                builder.addRowDeletion(Row.Deletion.regular(tombstone.deletionTime));
-                rowDeletion = tombstone;
-                return true;
             }
-
-            if (tombstone.isCollectionTombstone() && helper.includes(tombstone.start.collectionName))
+            else if (!clustering.equals(tombstone.start.getAsClustering(metadata)))
             {
-                if (clustering == null)
-                {
-                    clustering = tombstone.start.getAsClustering(metadata);
-                    builder.newRow(clustering);
-                }
-                else if (!clustering.equals(tombstone.start.getAsClustering(metadata)))
-                {
-                    return false;
-                }
-
-                builder.addComplexDeletion(tombstone.start.collectionName, tombstone.deletionTime);
-                if (rowDeletion == null || tombstone.deletionTime.supersedes(rowDeletion.deletionTime))
-                    collectionDeletion = tombstone;
-                return true;
+                return false;
             }
-            return false;
+
+            builder.addComplexDeletion(tombstone.start.collectionName, tombstone.deletionTime);
+            if (rowDeletion == null || tombstone.deletionTime.supersedes(rowDeletion.deletionTime))
+                collectionDeletion = tombstone;
+
+            return true;
+        }
+
+        private boolean addGenericRangeTombstone(LegacyRangeTombstone tombstone)
+        {
+            /*
+             * We can see a non-collection, non-row deletion in two scenarios:
+             *
+             * 1. Most commonly, the tombstone's start bound is bigger than current row's clustering, which means that
+             *    the current row is over, and we should move on to the next row or RT;
+             *
+             * 2. Less commonly, the tombstone's start bound is smaller than current row's clustering, which means that
+             *    we've crossed an index boundary and are seeing a non-closed RT from the previous block, repeated;
+             *    we should ignore it and stay in the current row.
+             *
+             *  In either case, clustering should be non-null, or we shouldn't have gotten to this method at all
+             *  However, to be absolutely SURE we're in case two above, we check here.
+             */
+            return clustering != null && metadata.comparator.compare(clustering, tombstone.start.bound.clustering()) > 0;
         }
 
         public Row getRow()
@@ -1516,7 +1546,11 @@ public abstract class LegacyLayout
         public static LegacyCell expiring(CFMetaData metadata, ByteBuffer superColumnName, ByteBuffer name, ByteBuffer value, long timestamp, int ttl, int nowInSec)
         throws UnknownColumnException
         {
-            return new LegacyCell(Kind.EXPIRING, decodeCellName(metadata, superColumnName, name), value, timestamp, nowInSec + ttl, ttl);
+            /*
+             * CASSANDRA-14092: Max expiration date capping is maybe performed here, expiration overflow policy application
+             * is done at {@link org.apache.cassandra.thrift.ThriftValidation#validateTtl(CFMetaData, Column)}
+             */
+            return new LegacyCell(Kind.EXPIRING, decodeCellName(metadata, superColumnName, name), value, timestamp, ExpirationDateOverflowHandling.computeLocalExpirationTime(nowInSec, ttl), ttl);
         }
 
         public static LegacyCell tombstone(CFMetaData metadata, ByteBuffer superColumnName, ByteBuffer name, long timestamp, int nowInSec)

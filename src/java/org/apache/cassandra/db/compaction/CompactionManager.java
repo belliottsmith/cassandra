@@ -126,7 +126,8 @@ public class CompactionManager implements CompactionManagerMBean
     private final static CompactionExecutor cacheCleanupExecutor = new CacheCleanupExecutor();
 
     private final CompactionMetrics metrics = new CompactionMetrics(executor, validationExecutor);
-    private final Multiset<ColumnFamilyStore> compactingCF = ConcurrentHashMultiset.create();
+    @VisibleForTesting
+    final Multiset<ColumnFamilyStore> compactingCF = ConcurrentHashMultiset.create();
 
     private final RateLimiter compactionRateLimiter = RateLimiter.create(Double.MAX_VALUE);
 
@@ -228,6 +229,12 @@ public class CompactionManager implements CompactionManagerMBean
             return Collections.emptyList();
         }
 
+        /**
+         * If a CF is currently being compacted, and there are no idle threads, submitBackground should be a no-op;
+         * we can wait for the current compaction to finish and re-submit when more information is available.
+         * Otherwise, we should submit at least one task to prevent starvation by busier CFs, and more if there
+         * are idle threads stil. (CASSANDRA-4310)
+         */
         int count = compactingCF.count(cfs);
         if (count > 0 && executor.getActiveCount() >= executor.getMaximumPoolSize())
         {
@@ -244,10 +251,9 @@ public class CompactionManager implements CompactionManagerMBean
         List<Future<?>> futures = new ArrayList<>(1);
         Future<?> fut = executor.submitIfRunning(new BackgroundCompactionCandidate(cfs), "background task");
         if (!fut.isCancelled())
-        {
-            compactingCF.add(cfs);
             futures.add(fut);
-        }
+        else
+            compactingCF.remove(cfs);
         return futures;
     }
 
@@ -306,6 +312,7 @@ public class CompactionManager implements CompactionManagerMBean
 
         BackgroundCompactionCandidate(ColumnFamilyStore cfs)
         {
+            compactingCF.add(cfs);
             this.cfs = cfs;
         }
 
@@ -422,7 +429,15 @@ public class CompactionManager implements CompactionManagerMBean
         }
     }
 
-    public AllSSTableOpStatus performScrub(final ColumnFamilyStore cfs, final boolean skipCorrupted, final boolean checkData, int jobs)
+    public AllSSTableOpStatus performScrub(final ColumnFamilyStore cfs, final boolean skipCorrupted, final boolean checkData,
+                                           int jobs)
+    throws InterruptedException, ExecutionException
+    {
+        return performScrub(cfs, skipCorrupted, checkData, false, jobs);
+    }
+
+    public AllSSTableOpStatus performScrub(final ColumnFamilyStore cfs, final boolean skipCorrupted, final boolean checkData,
+                                           final boolean reinsertOverflowedTTL, int jobs)
     throws InterruptedException, ExecutionException
     {
         return parallelAllSSTableOperation(cfs, new OneSSTableOperation()
@@ -436,7 +451,7 @@ public class CompactionManager implements CompactionManagerMBean
             @Override
             public void execute(LifecycleTransaction input) throws IOException
             {
-                scrubOne(cfs, input, skipCorrupted, checkData);
+                scrubOne(cfs, input, skipCorrupted, checkData, reinsertOverflowedTTL);
             }
         }, jobs, OperationType.SCRUB);
     }
@@ -501,12 +516,8 @@ public class CompactionManager implements CompactionManagerMBean
             logger.info("Cleanup cannot run before a node has joined the ring");
             return AllSSTableOpStatus.ABORTED;
         }
+        // if local ranges is empty, it means no data should remain
         final Collection<Range<Token>> ranges = StorageService.instance.getLocalRanges(keyspace.getName());
-        if (ranges.isEmpty())
-        {
-            logger.info("Node owns no data for keyspace {}", keyspace.getName());
-            return AllSSTableOpStatus.SUCCESSFUL;
-        }
         final boolean hasIndexes = cfStore.indexManager.hasIndexes();
 
         return parallelAllSSTableOperation(cfStore, new OneSSTableOperation()
@@ -884,11 +895,11 @@ public class CompactionManager implements CompactionManagerMBean
         }
     }
 
-    private void scrubOne(ColumnFamilyStore cfs, LifecycleTransaction modifier, boolean skipCorrupted, boolean checkData) throws IOException
+    private void scrubOne(ColumnFamilyStore cfs, LifecycleTransaction modifier, boolean skipCorrupted, boolean checkData, boolean reinsertOverflowedTTL) throws IOException
     {
         CompactionInfo.Holder scrubInfo = null;
 
-        try (Scrubber scrubber = new Scrubber(cfs, modifier, skipCorrupted, checkData))
+        try (Scrubber scrubber = new Scrubber(cfs, modifier, skipCorrupted, checkData, reinsertOverflowedTTL))
         {
             scrubInfo = scrubber.getScrubInfo();
             metrics.beginCompaction(scrubInfo);
@@ -925,7 +936,10 @@ public class CompactionManager implements CompactionManagerMBean
     @VisibleForTesting
     public static boolean needsCleanup(SSTableReader sstable, Collection<Range<Token>> ownedRanges)
     {
-        assert !ownedRanges.isEmpty(); // cleanup checks for this
+        if (ownedRanges.isEmpty())
+        {
+            return true; // all data will be cleaned
+        }
 
         // unwrap and sort the ranges by LHS token
         List<Range<Token>> sortedRanges = Range.normalize(ownedRanges);
@@ -984,6 +998,7 @@ public class CompactionManager implements CompactionManagerMBean
 
         SSTableReader sstable = txn.onlyOne();
 
+        // if ranges is empty and no index, entire sstable is discarded
         if (!hasIndexes && !new Bounds<>(sstable.first.getToken(), sstable.last.getToken()).intersects(ranges))
         {
             txn.obsoleteOriginals();
@@ -1016,6 +1031,7 @@ public class CompactionManager implements CompactionManagerMBean
         try (SSTableRewriter writer = SSTableRewriter.construct(cfs, txn, false, sstable.maxDataAge, false);
              ISSTableScanner scanner = cleanupStrategy.getScanner(sstable, getRateLimiter());
              CompactionController controller = new CompactionController(cfs, txn.originals(), getDefaultGcBefore(cfs, nowInSec));
+             Refs<SSTableReader> refs = Refs.ref(Collections.singleton(sstable));
              CompactionIterator ci = new CompactionIterator(OperationType.CLEANUP, Collections.singletonList(scanner), controller, nowInSec, UUIDGen.getTimeUUID(), metrics))
         {
             StatsMetadata metadata = sstable.getSSTableMetadata();

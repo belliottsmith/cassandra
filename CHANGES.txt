@@ -1,4 +1,53 @@
-3.0.16.0 (open)
+3.0.16.1
+ * <rdar://problem/37709781> (Apple Internal) repair history sync sending out of date values
+ * <rdar://problem/36309603> (Apple Internal) Bump compactions_in_progress max_threshold to 1024
+ * <rdar://problem/36192169> Backport CASSANDRA-13861 - Use compaction threshold for STCS in L0
+ * <rdar://problem/37105379> Add TTL and TWCS to repair history tables (CASSANDRA-12701)
+ * <rdar://problem/32052104> (Apple Internal) Support both SSL and non-SSL for node-to-node encryption
+ * <rdar://problem/30829891> (CASSANDRA-13313 / Not Fixed yet) Compaction leftovers not removed on upgrade
+ * <rdar://problem/35861234> (CASSANDRA-13983 4.0 continued)  Cass: Backport latest OSS FQL changes
+ * <rdar://problem/35373465> Backport https://issues.apache.org/jira/browse/CASSANDRA-13123
+ * <rdar://problem/35510388> (Apple Internal) Cass: FQL doesn't handle log space reclamation correctly
+ * <rdar://problem/35368138> (Apple Internal) Cass: auth cache warming bug in dailydev30
+ * <rdar://problem/36057821> (Apple Internal) repairhistorytask logger incorrectly prints anonymous inner class 
+ * <rdar://problem/36779190> (Apple Internal) Error while creating keyspace system_traces : "replication_factor" must be greater than or equal to 3 over all data centers; found 2
+ * <rdar://problem/37029434> (Apple Internal) Backport CASSANDRA-14079 
+ * <rdar://problem/37369311> (Apple Internal) don't block adding columns by default
+ * <rdar://problem/35142062> (Apple Internal) Transitional large-partition patch that dynamically downsamples column index
+ * Fix unit test failures in ViewComplexTest (CASSANDRA-14219)
+ * Add MinGW uname check to start scripts (CASSANDRA-12940)
+ * Protect against overflow of local expiration time (CASSANDRA-14092)
+ * Use the correct digest file and reload sstable metadata in nodetool verify (CASSANDRA-14217)
+ * Handle failure when mutating repaired status in Verifier (CASSANDRA-13933)
+ * Close socket on error during connect on OutboundTcpConnection (CASSANDRA-9630)
+ * Set encoding for javadoc generation (CASSANDRA-14154)
+ * Fix index target computation for dense composite tables with dropped compact storage (CASSANDRA-14104)
+ * Improve commit log chain marker updating (CASSANDRA-14108)
+ * Extra range tombstone bound creates double rows (CASSANDRA-14008)
+ * Fix SStable ordering by max timestamp in SinglePartitionReadCommand (CASSANDRA-14010)
+ * Accept role names containing forward-slash (CASSANDRA-14088)
+ * Optimize CRC check chance probability calculations (CASSANDRA-14094)
+ * Fix cleanup on keyspace with no replicas (CASSANDRA-13526)
+ * Fix updating base table rows with TTL not removing materialized view entries (CASSANDRA-14071)
+ * Reduce garbage created by DynamicSnitch (CASSANDRA-14091)
+ * More frequent commitlog chained markers (CASSANDRA-13987)
+ * Fix serialized size of DataLimits (CASSANDRA-14057)
+ * Add flag to allow dropping oversized read repair mutations (CASSANDRA-13975)
+ * Fix SSTableLoader logger message (CASSANDRA-14003)
+ * Fix repair race that caused gossip to block (CASSANDRA-13849)
+ * Tracing interferes with digest requests when using RandomPartitioner (CASSANDRA-13964)
+ * Add flag to disable materialized views, and warnings on creation (CASSANDRA-13959)
+ * Don't let user drop or generally break tables in system_distributed (CASSANDRA-13813)
+ * Provide a JMX call to sync schema with local storage (CASSANDRA-13954)
+ * Mishandling of cells for removed/dropped columns when reading legacy files (CASSANDRA-13939)
+ * Deserialise sstable metadata in nodetool verify (CASSANDRA-13922)
+Merged from 2.2:
+ * Fix the inspectJvmOptions startup check (CASSANDRA-14112)
+ * Fix race that prevents submitting compaction for a table when executor is full (CASSANDRA-13801)
+ * Rely on the JVM to handle OutOfMemoryErrors (CASSANDRA-13006)
+Merged from 2.1:
+ * More PEP8 compliance for cqlsh (CASSANDRA-14021)
+ * RPM package spec: fix permissions for installed jars and config files (CASSANDRA-14181)
 
 3.0.15.6
  * <rdar://problem/36318690> (Apple Internal) Better handle truncated hints

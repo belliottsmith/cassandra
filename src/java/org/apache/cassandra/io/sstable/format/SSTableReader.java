@@ -141,7 +141,8 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     }
     private static final RateLimiter meterSyncThrottle = RateLimiter.create(100.0);
 
-    public static final Comparator<SSTableReader> maxTimestampComparator = (o1, o2) -> Long.compare(o1.getMaxTimestamp(), o2.getMaxTimestamp());
+    // Descending order
+    public static final Comparator<SSTableReader> maxTimestampComparator = (o1, o2) -> Long.compare(o2.getMaxTimestamp(), o1.getMaxTimestamp());
 
     // it's just an object, which we use regular Object equality on; we introduce a special class just for easy recognition
     public static final class UniqueIdentifier {}
@@ -2278,7 +2279,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
 
             // Don't track read rates for tables in the system keyspace and don't bother trying to load or persist
             // the read meter when in client mode.
-            if (Schema.isSystemKeyspace(desc.ksname) || !DatabaseDescriptor.isDaemonInitialized())
+            if (Schema.isLocalSystemKeyspace(desc.ksname) || !DatabaseDescriptor.isDaemonInitialized())
             {
                 readMeter = null;
                 readMeterSyncFuture = NULL;

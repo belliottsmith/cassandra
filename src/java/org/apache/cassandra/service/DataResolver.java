@@ -474,10 +474,8 @@ public class DataResolver extends ResponseResolver
                     MessageOut<Mutation> message = mutation.createMessage(MessagingService.Verb.READ_REPAIR);
                     repairResults.add(MessagingService.instance().sendRR(message, destination));
                     ColumnFamilyStore.metricsFor(command.metadata().cfId).readRepairRequests.mark();
-                    return;
                 }
-
-                if (DROP_OVERSIZED_READ_REPAIR_MUTATIONS)
+                else if (DROP_OVERSIZED_READ_REPAIR_MUTATIONS)
                 {
                     logger.debug("Encountered an oversized ({}/{}) read repair mutation for table {}.{}, key {}, node {}",
                                  mutationSize,

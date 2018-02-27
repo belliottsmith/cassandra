@@ -130,6 +130,7 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.ResponseVerbHandler;
 import org.apache.cassandra.repair.RepairMessageVerbHandler;
 import org.apache.cassandra.repair.RepairParallelism;
+import org.apache.cassandra.schema.SchemaKeyspace;
 import org.apache.cassandra.service.paxos.CommitVerbHandler;
 import org.apache.cassandra.service.paxos.PrepareVerbHandler;
 import org.apache.cassandra.service.paxos.ProposeVerbHandler;
@@ -1089,6 +1090,19 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     {
         try
         {
+            /*
+             * MJK (2/26/18): Leaving comment below as is from OSS while merging. Our branch has useCurrentTime
+             * to enable "to stop drop and recreate of tables". Comment for why "0" still applies though.
+             *
+             * We use timestamp of 0, intentionally, so that varying timestamps wouldn't cause schema mismatches on
+             * newly added nodes.
+             *
+             * Having the initial/default timestamp as 0 also allows users to make and persist changes to replication
+             * of our replicated system keyspaces.
+             *
+             * In case that we need to make incompatible changes to those kesypaces/tables, we'd need to bump the timestamp
+             * on per-keyspace/per-table basis. So far we've never needed to.
+             */
             MigrationManager.announceNewKeyspace(ksm, useCurrentTime? FBUtilities.timestampMicros() : 0, false);
         }
         catch (AlreadyExistsException e)
@@ -2872,7 +2886,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public int forceKeyspaceCleanup(int jobs, String keyspaceName, String... tables) throws IOException, ExecutionException, InterruptedException
     {
-        if (Schema.isSystemKeyspace(keyspaceName))
+        if (Schema.isLocalSystemKeyspace(keyspaceName))
             throw new RuntimeException("Cleanup of the system keyspace is neither necessary nor wise");
 
         CompactionManager.AllSSTableOpStatus status = CompactionManager.AllSSTableOpStatus.SUCCESSFUL;
@@ -2897,10 +2911,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public int scrub(boolean disableSnapshot, boolean skipCorrupted, boolean checkData, int jobs, String keyspaceName, String... tables) throws IOException, ExecutionException, InterruptedException
     {
+        return scrub(disableSnapshot, skipCorrupted, checkData, false, jobs, keyspaceName, tables);
+    }
+
+    public int scrub(boolean disableSnapshot, boolean skipCorrupted, boolean checkData, boolean reinsertOverflowedTTL, int jobs, String keyspaceName, String... tables) throws IOException, ExecutionException, InterruptedException
+    {
         CompactionManager.AllSSTableOpStatus status = CompactionManager.AllSSTableOpStatus.SUCCESSFUL;
         for (ColumnFamilyStore cfStore : getValidColumnFamilies(true, false, keyspaceName, tables))
         {
-            CompactionManager.AllSSTableOpStatus oneStatus = cfStore.scrub(disableSnapshot, skipCorrupted, checkData, jobs);
+            CompactionManager.AllSSTableOpStatus oneStatus = cfStore.scrub(disableSnapshot, skipCorrupted, reinsertOverflowedTTL, checkData, jobs);
             if (oneStatus != CompactionManager.AllSSTableOpStatus.SUCCESSFUL)
                 status = oneStatus;
         }
@@ -3127,7 +3146,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         Map<String, TabularData> snapshotMap = new HashMap<>();
         for (Keyspace keyspace : Keyspace.all())
         {
-            if (Schema.isSystemKeyspace(keyspace.getName()))
+            if (Schema.isLocalSystemKeyspace(keyspace.getName()))
                 continue;
 
             for (ColumnFamilyStore cfStore : keyspace.getColumnFamilyStores())
@@ -3153,7 +3172,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         long total = 0;
         for (Keyspace keyspace : Keyspace.all())
         {
-            if (Schema.isSystemKeyspace(keyspace.getName()))
+            if (Schema.isLocalSystemKeyspace(keyspace.getName()))
                 continue;
 
             for (ColumnFamilyStore cfStore : keyspace.getColumnFamilyStores())
@@ -5039,6 +5058,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void resetLocalSchema() throws IOException
     {
         MigrationManager.resetLocalSchema();
+    }
+
+    public void reloadLocalSchema()
+    {
+        SchemaKeyspace.reloadSchemaAndAnnounceVersion();
     }
 
     public void setTraceProbability(double probability)
