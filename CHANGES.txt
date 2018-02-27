@@ -1,3 +1,6 @@
+3.0.16.2 (Open)
+ *
+
 3.0.16.1
  * <rdar://problem/37709781> (Apple Internal) repair history sync sending out of date values
  * <rdar://problem/36309603> (Apple Internal) Bump compactions_in_progress max_threshold to 1024
