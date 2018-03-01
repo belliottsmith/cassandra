@@ -33,7 +33,6 @@ import org.apache.cassandra.io.FSError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.Throwables;
 
 /**
@@ -60,47 +59,31 @@ public class LogReplicaSet implements AutoCloseable
 
     void addReplica(File file)
     {
-        File folder = file.getParentFile();
-        assert !replicasByFile.containsKey(folder);
-        try
-        {
-            replicasByFile.put(folder, LogReplica.open(file));
-        }
-        catch(FSError e)
-        {
-            logger.error("Failed to open log replica {}", file, e);
-            FileUtils.handleFSErrorAndPropagate(e);
-        }
+        File directory = file.getParentFile();
+        assert !replicasByFile.containsKey(directory);
+        replicasByFile.put(directory, LogReplica.open(file));
 
         if (logger.isTraceEnabled())
             logger.trace("Added log file replica {} ", file);
     }
 
-    void maybeCreateReplica(File folder, String fileName, Set<LogRecord> records)
+    void maybeCreateReplica(File directory, String fileName, Set<LogRecord> records)
     {
-        if (replicasByFile.containsKey(folder))
+        if (replicasByFile.containsKey(directory))
             return;
 
-        try
-        {
-            @SuppressWarnings("resource")  // LogReplicas are closed in LogReplicaSet::close
-            final LogReplica replica = LogReplica.create(folder, fileName);
-            records.forEach(replica::append);
-            replicasByFile.put(folder, replica);
+        final LogReplica replica = LogReplica.create(directory, fileName);
 
-            if (logger.isTraceEnabled())
-                logger.trace("Created new file replica {}", replica);
-        }
-        catch(FSError e)
-        {
-            logger.error("Failed to create log replica {}/{}", folder,  fileName, e);
-            FileUtils.handleFSErrorAndPropagate(e);
-        }
+        records.forEach(replica::append);
+        replicasByFile.put(directory, replica);
+
+        if (logger.isTraceEnabled())
+            logger.trace("Created new file replica {}", replica);
     }
 
-    Throwable syncFolder(Throwable accumulate)
+    Throwable syncDirectory(Throwable accumulate)
     {
-        return Throwables.perform(accumulate, replicas().stream().map(s -> s::syncFolder));
+        return Throwables.perform(accumulate, replicas().stream().map(s -> s::syncDirectory));
     }
 
     Throwable delete(Throwable accumulate)
@@ -117,15 +100,18 @@ public class LogReplicaSet implements AutoCloseable
 
     boolean readRecords(Set<LogRecord> records)
     {
-        Map<File, List<String>> linesByReplica = replicas().stream()
-                                                           .map(LogReplica::file)
-                                                           .collect(Collectors.toMap(Function.<File>identity(), FileUtils::readLines));
+        Map<LogReplica, List<String>> linesByReplica = replicas().stream()
+                                                                 .collect(Collectors.toMap(Function.<LogReplica>identity(),
+                                                                                           LogReplica::readLines,
+                                                                                           (k, v) -> {throw new IllegalStateException("Duplicated key: " + k);},
+                                                                                           LinkedHashMap::new));
+
         int maxNumLines = linesByReplica.values().stream().map(List::size).reduce(0, Integer::max);
         for (int i = 0; i < maxNumLines; i++)
         {
             String firstLine = null;
             boolean partial = false;
-            for (Map.Entry<File, List<String>> entry : linesByReplica.entrySet())
+            for (Map.Entry<LogReplica, List<String>> entry : linesByReplica.entrySet())
             {
                 List<String> currentLines = entry.getValue();
                 if (i >= currentLines.size())
@@ -141,9 +127,10 @@ public class LogReplicaSet implements AutoCloseable
                 if (!isPrefixMatch(firstLine, currentLine))
                 { // not a prefix match
                     logger.error("Mismatched line in file {}: got '{}' expected '{}', giving up",
-                                 entry.getKey().getName(),
+                                 entry.getKey().getFileName(),
                                  currentLine,
                                  firstLine);
+                    entry.getKey().setError(currentLine, String.format("Does not match <%s> in first replica file", firstLine));
                     return false;
                 }
 
@@ -152,7 +139,7 @@ public class LogReplicaSet implements AutoCloseable
                     if (i == currentLines.size() - 1)
                     { // last record, just set record as invalid and move on
                         logger.warn("Mismatched last line in file {}: '{}' not the same as '{}'",
-                                    entry.getKey().getName(),
+                                    entry.getKey().getFileName(),
                                     currentLine,
                                     firstLine);
 
@@ -164,9 +151,10 @@ public class LogReplicaSet implements AutoCloseable
                     else
                     {   // mismatched entry file has more lines, giving up
                         logger.error("Mismatched line in file {}: got '{}' expected '{}', giving up",
-                                     entry.getKey().getName(),
+                                     entry.getKey().getFileName(),
                                      currentLine,
                                      firstLine);
+                        entry.getKey().setError(currentLine, String.format("Does not match <%s> in first replica file", firstLine));
                         return false;
                     }
                 }
@@ -176,6 +164,7 @@ public class LogReplicaSet implements AutoCloseable
             if (records.contains(record))
             { // duplicate records
                 logger.error("Found duplicate record {} for {}, giving up", record, record.fileName());
+                setError(record, "Duplicated record");
                 return false;
             }
 
@@ -187,11 +176,28 @@ public class LogReplicaSet implements AutoCloseable
             if (record.isFinal() && i != (maxNumLines - 1))
             { // too many final records
                 logger.error("Found too many lines for {}, giving up", record.fileName());
+                setError(record, "This record should have been the last one in all replicas");
                 return false;
             }
         }
 
         return true;
+    }
+
+    void setError(LogRecord record, String error)
+    {
+        record.setError(error);
+        setErrorInReplicas(record);
+    }
+
+    void setErrorInReplicas(LogRecord record)
+    {
+        replicas().forEach(r -> r.setError(record.raw, record.error()));
+    }
+
+    void printContentsWithAnyErrors(StringBuilder str)
+    {
+        replicas().forEach(r -> r.printContentsWithAnyErrors(str));
     }
 
     /**
@@ -230,6 +236,11 @@ public class LogReplicaSet implements AutoCloseable
         return ret.isPresent() ?
                ret.get()
                : "[-]";
+    }
+
+    String getDirectories()
+    {
+        return String.join(", ", replicas().stream().map(LogReplica::getDirectory).collect(Collectors.toList()));
     }
 
     @VisibleForTesting

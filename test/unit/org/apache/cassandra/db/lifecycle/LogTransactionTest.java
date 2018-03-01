@@ -520,7 +520,7 @@ public class LogTransactionTest extends AbstractTransactionalTest
                             getTemporaryFiles(dataFolder2));
 
         // normally called at startup
-        LogTransaction.removeUnfinishedLeftovers(Arrays.asList(dataFolder1, dataFolder2));
+        assertTrue(LogTransaction.removeUnfinishedLeftovers(Arrays.asList(dataFolder1, dataFolder2)));
 
         // new tables should be only table left
         assertFiles(dataFolder1.getPath(), new HashSet<>(sstables[1].getAllFilePaths()));
@@ -571,7 +571,7 @@ public class LogTransactionTest extends AbstractTransactionalTest
                             getTemporaryFiles(dataFolder2));
 
         // normally called at startup
-        LogTransaction.removeUnfinishedLeftovers(Arrays.asList(dataFolder1, dataFolder2));
+        assertTrue(LogTransaction.removeUnfinishedLeftovers(Arrays.asList(dataFolder1, dataFolder2)));
 
         // old tables should be only table left
         assertFiles(dataFolder1.getPath(), new HashSet<>(sstables[0].getAllFilePaths()));
@@ -736,7 +736,8 @@ public class LogTransactionTest extends AbstractTransactionalTest
 
         Arrays.stream(sstables).forEach(s -> s.selfRef().release());
 
-        LogTransaction.removeUnfinishedLeftovers(Arrays.asList(dataFolder1, dataFolder2));
+        // if shouldCommit is true then it should remove the leftovers and return true, false otherwise
+        assertEquals(shouldCommit, LogTransaction.removeUnfinishedLeftovers(Arrays.asList(dataFolder1, dataFolder2)));
         LogTransaction.waitForDeletions();
 
         if (shouldCommit)
@@ -929,7 +930,7 @@ public class LogTransactionTest extends AbstractTransactionalTest
                                   if (filePath.endsWith("Data.db"))
                                   {
                                       assertTrue(FileUtils.delete(filePath));
-                                      assertNull(t.txnFile().syncFolder(null));
+                                      assertNull(t.txnFile().syncDirectory(null));
                                       break;
                                   }
                               }
@@ -1010,7 +1011,7 @@ public class LogTransactionTest extends AbstractTransactionalTest
 
         // Sync the folder to make sure that later on removeUnfinishedLeftovers picks up
         // any changes to the txn files done by the modifier
-        assertNull(log.txnFile().syncFolder(null));
+        assertNull(log.txnFile().syncDirectory(null));
 
         assertNull(log.complete(null));
 
