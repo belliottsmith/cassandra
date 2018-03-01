@@ -419,7 +419,7 @@ public class Config
      * <rdar://problem/33299827> Don't accepts hints for data instance dont own
      */
     public volatile boolean log_out_of_token_range_requests = true;
-    public volatile boolean reject_out_of_token_range_requests = false;
+    public volatile boolean reject_out_of_token_range_requests = true;
 
     public static boolean getOutboundBindAny()
     {

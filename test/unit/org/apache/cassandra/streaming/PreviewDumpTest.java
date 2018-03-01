@@ -55,6 +55,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.KeyspaceParams;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.compress.CompressedStreamReader;
 import org.apache.cassandra.streaming.messages.FileMessageHeader;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -88,6 +89,9 @@ public class PreviewDumpTest
         SSTableReader sstable = cfs.getLiveSSTables().iterator().next();
         sstable.descriptor.getMetadataSerializer().mutateRepaired(sstable.descriptor, FBUtilities.nowInSeconds(), null);
         sstable.reloadSSTableMetadata();
+
+        // Turn off out of range token rejection so we don't need to set up token metadata
+        StorageService.instance.setOutOfTokenRangeRequestRejectionEnabled(false);
     }
 
     private static Token tk(int key)
