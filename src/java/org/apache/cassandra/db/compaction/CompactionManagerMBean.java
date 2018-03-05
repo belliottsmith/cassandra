@@ -131,4 +131,10 @@ public interface CompactionManagerMBean
      */
     public void setScheduledCompactionCycleTime(String time);
     public long getScheduledCompactionCycleTimeSeconds();
+    public boolean getSkipSingleSSTableScheduledCompactions();
+    public void setSkipSingleSSTableScheduledCompactions(boolean val);
+    public long getMaxScheduledCompactionSSTableSizeBytes();
+    public void setMaxScheduledCompactionSSTableSizeBytes(long size);
+    public int getMaxScheduledCompactionSSTableCount();
+    public void setMaxScheduledCompactionSSTableCount(int count);
 }

@@ -2025,6 +2025,38 @@ public class CompactionManager implements CompactionManagerMBean
         return DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds();
     }
 
+    public boolean getSkipSingleSSTableScheduledCompactions()
+    {
+        return DatabaseDescriptor.getSkipSingleSSTableScheduledCompactions();
+    }
+
+    public void setSkipSingleSSTableScheduledCompactions(boolean val)
+    {
+        logger.info("Setting skip single sstable scheduled compactions to {}", val);
+        DatabaseDescriptor.setSkipSingleSSTableScheduledCompactions(val);
+    }
+
+    public long getMaxScheduledCompactionSSTableSizeBytes()
+    {
+        return DatabaseDescriptor.getMaxScheduledCompactionSSTableSizeBytes();
+    }
+
+    public void setMaxScheduledCompactionSSTableSizeBytes(long size)
+    {
+        logger.info("Setting max scheduled compaction sstable size to {}", size);
+        DatabaseDescriptor.setMaxScheduledCompactionSSTableSizeBytes(size);
+    }
+
+    public int getMaxScheduledCompactionSSTableCount()
+    {
+        return DatabaseDescriptor.getMaxScheduledCompactionSSTableCount();
+    }
+
+    public void setMaxScheduledCompactionSSTableCount(int count)
+    {
+        logger.info("Setting max scheduled compaction sstables to {}", count);
+        DatabaseDescriptor.setMaxScheduledCompactionSSTableCount(count);
+    }
 
     /**
      * Try to stop all of the compactions for given ColumnFamilies.

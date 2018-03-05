@@ -424,7 +424,7 @@ public class LeveledManifest
         {
             if (overlappingSSTable.getSSTableLevel() == 0 && overlappingSSTable.onDiskLength() > maxSSTableSizeL0)
             {
-                logger.debug("Removing SSTable {} from tombstone compaction since it's too large", overlappingSSTable);
+                logger.info("Removing SSTable {} from tombstone compaction since it's too large", overlappingSSTable);
                 toCompact.remove(overlappingSSTable);
             }
         }

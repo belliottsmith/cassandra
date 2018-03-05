@@ -23,9 +23,11 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
@@ -89,8 +91,11 @@ public class LeveledCompactionStrategyTest
     private static final String KEYSPACE1 = "LeveledCompactionStrategyTest";
     private static final String CF_STANDARDDLEVELED = "StandardLeveled";
     private static final String CF_STANDARDDLEVELED_GCGS0 = "StandardLeveledGCGS0";
+    private static final String CF_STANDARDDLEVELED_SCHEDULED = "StandardLeveledScheduled";
+
     private Keyspace keyspace;
     private ColumnFamilyStore cfs;
+    private ColumnFamilyStore cfsScheduled;
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
@@ -99,11 +104,15 @@ public class LeveledCompactionStrategyTest
         System.setProperty("cassandra.streaminghistogram.roundseconds", "1");
 
         SchemaLoader.prepareServer();
-
+        Map<String, String> scheduledOpts = new HashMap<>();
+        scheduledOpts.put("sstable_size_in_mb", "1");
+        scheduledOpts.put("scheduled_compactions", "true");
         SchemaLoader.createKeyspace(KEYSPACE1,
                                     KeyspaceParams.simple(1),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED)
                                                 .compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1"))),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED_SCHEDULED)
+                                                .compaction(CompactionParams.lcs(scheduledOpts)),
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED_GCGS0)
                                                 .compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1")))
                                                 .gcGraceSeconds(0));
@@ -115,15 +124,18 @@ public class LeveledCompactionStrategyTest
         keyspace = Keyspace.open(KEYSPACE1);
         cfs = keyspace.getColumnFamilyStore(CF_STANDARDDLEVELED);
         cfs.enableAutoCompaction();
+        cfsScheduled = keyspace.getColumnFamilyStore(CF_STANDARDDLEVELED_SCHEDULED);
+        cfsScheduled.enableAutoCompaction();
     }
 
     /**
-     * Since we use StandardLeveled CF for every test, we want to clean up after the test.
+     * clean up after the test.
      */
     @After
     public void truncateSTandardLeveled()
     {
         cfs.truncateBlocking();
+        cfsScheduled.truncateBlocking();
     }
 
     /**
@@ -710,15 +722,17 @@ public class LeveledCompactionStrategyTest
     public void testGetScheduledCompaction(int splits) throws Exception
     {
         DatabaseDescriptor.setEnableScheduledCompactions(true);
+        // hard to create leveling where there are non-single-sstable compactions to do after the first round
+        DatabaseDescriptor.setSkipSingleSSTableScheduledCompactions(false);
         DatabaseDescriptor.setScheduledCompactionRangeSplits(splits);
-        Token t = cfs.getPartitioner().getRandomToken();
+        Token t = cfsScheduled.getPartitioner().getRandomToken();
         StorageService.instance.getTokenMetadata().updateNormalTokens(Collections.singleton(t), FBUtilities.getBroadcastAddress());
 
-        populateCfs();
+        populateCfsScheduled(cfsScheduled);
 
         Token sstableMaxToken = null;
         Token sstableMinToken = null;
-        for (SSTableReader sstable : cfs.getSSTables(SSTableSet.LIVE))
+        for (SSTableReader sstable : cfsScheduled.getSSTables(SSTableSet.LIVE))
         {
             if (sstableMinToken == null || sstableMinToken.compareTo(sstable.first.getToken()) > 0)
                 sstableMinToken = sstable.first.getToken();
@@ -726,14 +740,15 @@ public class LeveledCompactionStrategyTest
                 sstableMaxToken = sstable.last.getToken();
         }
 
-        CompactionStrategyManager strategy = cfs.getCompactionStrategyManager();
+        CompactionStrategyManager strategy = cfsScheduled.getCompactionStrategyManager();
         // Checking we're not completely bad at math
         assertTrue(strategy.getSSTableCountPerLevel()[1] > 0);
         assertTrue(strategy.getSSTableCountPerLevel()[2] > 0);
         LeveledCompactionStrategy lcs = (LeveledCompactionStrategy) strategy.getStrategies().get(1);
-        int gcBefore = keyspace.getColumnFamilyStore(CF_STANDARDDLEVELED).gcBefore((int) (System.currentTimeMillis() / 1000));
+        int gcBefore = cfsScheduled.gcBefore((int) (System.currentTimeMillis() / 1000));
         List<Range<Token>> compactedRanges = new ArrayList<>();
-        Iterable<SSTableReader> originalSSTables = cfs.getSSTables(SSTableSet.LIVE);
+        Iterable<SSTableReader> originalSSTables = cfsScheduled.getSSTables(SSTableSet.LIVE);
+
         Set<SSTableReader> compactedSSTables = new HashSet<>();
         while (true)
         {
@@ -757,7 +772,7 @@ public class LeveledCompactionStrategyTest
         // all original sstables should have been compacted:
         assertTrue(compactedSSTables.containsAll(Sets.newHashSet(originalSSTables)));
         // make sure all ssstables are intersecting one of the compacted ranges
-        for (SSTableReader sstable : cfs.getSSTables(SSTableSet.LIVE))
+        for (SSTableReader sstable : cfsScheduled.getSSTables(SSTableSet.LIVE))
         {
             Bounds<Token> sstableRange = new Bounds<>(sstable.first.getToken(), sstable.last.getToken());
             boolean intersected = false;
@@ -781,17 +796,19 @@ public class LeveledCompactionStrategyTest
     @Test
     public void testScheduledCompactionTimeWrap() throws Exception
     {
-        CompactionStrategyManager strategy = cfs.getCompactionStrategyManager();
+        CompactionStrategyManager strategy = cfsScheduled.getCompactionStrategyManager();
         LeveledCompactionStrategy lcs = (LeveledCompactionStrategy) strategy.getStrategies().get(1);
         lcs.resetSubrangeCompactionInfo();
         // disable to not get any scheduled compactions before we actually want them
         DatabaseDescriptor.setEnableScheduledCompactions(false);
+        // hard to create leveling where there are non-single-sstable compactions to do after the first round
+        DatabaseDescriptor.setSkipSingleSSTableScheduledCompactions(false);
         DatabaseDescriptor.setScheduledCompactionRangeSplits(4);
         DatabaseDescriptor.setScheduledCompactionCycleTime("4s");
 
-        Token t = cfs.getPartitioner().getRandomToken();
+        Token t = cfsScheduled.getPartitioner().getRandomToken();
         StorageService.instance.getTokenMetadata().updateNormalTokens(Collections.singleton(t), FBUtilities.getBroadcastAddress());
-        populateCfs();
+        populateCfsScheduled(cfsScheduled);
         DatabaseDescriptor.setEnableScheduledCompactions(true);
 
         int scheduledCount = 0;
@@ -830,7 +847,7 @@ public class LeveledCompactionStrategyTest
     {
         long beforeFirst = System.currentTimeMillis();
         testGetScheduledCompaction(100);
-        Pair<Token, Long> lastSuccessPair = SystemKeyspace.getLastSuccessfulScheduledCompaction(KEYSPACE1, CF_STANDARDDLEVELED, false);
+        Pair<Token, Long> lastSuccessPair = SystemKeyspace.getLastSuccessfulScheduledCompaction(KEYSPACE1, CF_STANDARDDLEVELED_SCHEDULED, false);
 
         long lastSuccessTime = lastSuccessPair.right;
         assertTrue(lastSuccessTime > beforeFirst);
@@ -876,7 +893,7 @@ public class LeveledCompactionStrategyTest
         assertEquals(55, DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds());
     }
 
-    private void populateCfs() throws InterruptedException
+    private void populateCfsScheduled(ColumnFamilyStore cfs) throws InterruptedException
     {
         byte [] b = new byte[100 * 1024];
         new Random().nextBytes(b);

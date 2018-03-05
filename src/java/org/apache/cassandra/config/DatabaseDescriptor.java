@@ -2472,12 +2472,24 @@ public class DatabaseDescriptor
 
     public static void setScheduledCompactionRangeSplits(int val)
     {
+        if (val <= 0)
+            throw new RuntimeException("Range splits must be > 0");
         conf.scheduled_compaction_range_splits = val;
     }
 
     public static long getScheduledCompactionCycleTimeSeconds()
     {
         return scheduledCompactionCycleTimeSeconds;
+    }
+
+    public static boolean getSkipSingleSSTableScheduledCompactions()
+    {
+        return conf.skip_single_sstable_scheduled_compactions;
+    }
+
+    public static void setSkipSingleSSTableScheduledCompactions(boolean val)
+    {
+        conf.skip_single_sstable_scheduled_compactions = val;
     }
 
     public static void setScheduledCompactionCycleTime(String time)
@@ -2490,6 +2502,30 @@ public class DatabaseDescriptor
         {
             throw new RuntimeException("Could not set "+time+" as scheduled compaction cycle time");
         }
+    }
+
+    public static long getMaxScheduledCompactionSSTableSizeBytes()
+    {
+        return conf.max_scheduled_compaction_sstable_size_bytes;
+    }
+
+    public static void setMaxScheduledCompactionSSTableSizeBytes(long size)
+    {
+        if (size <= 0)
+            throw new RuntimeException("Max sstable size must be > 0");
+        conf.max_scheduled_compaction_sstable_size_bytes = size;
+    }
+
+    public static int getMaxScheduledCompactionSSTableCount()
+    {
+        return conf.max_scheduled_compaction_sstable_count;
+    }
+
+    public static void setMaxScheduledCompactionSSTableCount(int count)
+    {
+        if (count <= 1)
+            throw new RuntimeException("Max sstable count must be > 1");
+        conf.max_scheduled_compaction_sstable_count = count;
     }
 
     private static long parseScheduledCycleTimeSeconds(String rawValue) throws ConfigurationException
