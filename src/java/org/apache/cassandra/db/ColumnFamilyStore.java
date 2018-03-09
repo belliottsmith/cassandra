@@ -1836,7 +1836,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             if (!DatabaseDescriptor.enableChristmasPatch() || !cfs.useRepairHistory())
                 return fallbackGCBefore;
 
-            return Math.min(getLastSuccessfulRepairTimeFor(key.getToken()), cfs.gcBefore(fallbackGCBefore));
+            return Math.min(getLastSuccessfulRepairTimeFor(key.getToken()), fallbackGCBefore);
         }
 
         public ImmutableList<Range<Token>> allRanges()

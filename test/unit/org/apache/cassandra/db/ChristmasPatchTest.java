@@ -25,15 +25,19 @@ import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.db.ColumnFamilyStore.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
 import static org.apache.cassandra.db.ColumnFamilyStore.updateLastSuccessfulRepair;
 
-public class ChristmasPatchTest
+public class ChristmasPatchTest extends CQLTester
 {
     SuccessfulRepairTimeHolder holder = new SuccessfulRepairTimeHolder(ImmutableList.of());
 
@@ -87,6 +91,22 @@ public class ChristmasPatchTest
         update(0, 100, 100);
         SuccessfulRepairTimeHolder newHolder = updateLastSuccessfulRepair(range(0, 100), 99, holder);
         Assert.assertNull(newHolder);
+    }
+
+    @Test
+    public void testGCGS()
+    {
+        createTable("CREATE TABLE %s (id int primary key, t text) WITH gc_grace_seconds=100");
+        DatabaseDescriptor.setChristmasPatchEnabled();
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        cfs.skipRFCheckForXmasPatch();
+        int gcBefore = cfs.gcBefore(FBUtilities.nowInSeconds());
+        DecoratedKey dk = new BufferDecoratedKey(cfs.getPartitioner().getRandomToken(), ByteBufferUtil.EMPTY_BYTE_BUFFER);
+
+        Assert.assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk, gcBefore));
+        Token min = cfs.getPartitioner().getMinimumToken();
+        cfs.updateLastSuccessfulRepair(new Range<>(min, min), System.currentTimeMillis());
+        Assert.assertEquals(gcBefore, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk, gcBefore));
     }
 }
 
