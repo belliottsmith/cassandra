@@ -331,8 +331,9 @@ public class DataResolver extends ResponseResolver
                     // The following can be pretty verbose, but it's really only triggered if a bug happen, so we'd
                     // rather get more info to debug than not.
                     CFMetaData table = command.metadata();
-                    String details = String.format("Error merging RTs on %s.%s: merged=%s, versions=%s, sources={%s}, responses:%n %s",
+                    String details = String.format("Error merging RTs on %s.%s: reversed=%b, merged=%s, versions=%s, sources={%s}, responses:%n %s",
                                                    table.ksName, table.cfName,
+                                                   isReversed,
                                                    merged == null ? "null" : merged.toString(table),
                                                    '[' + Joiner.on(", ").join(Iterables.transform(Arrays.asList(versions), rt -> rt == null ? "null" : rt.toString(table))) + ']',
                                                    Arrays.toString(sources),
