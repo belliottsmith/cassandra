@@ -44,6 +44,7 @@ import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.locator.ReplicaCollection;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.service.reads.repair.ReadRepair;
 import org.apache.cassandra.service.StorageProxy.LocalReadRunnable;
 import org.apache.cassandra.tracing.TraceState;
@@ -363,10 +364,15 @@ public abstract class AbstractReadExecutor
         this.result = DuplicateRowChecker.duringRead(result, this.replicaPlan.get().candidates().endpointList());
     }
 
+    public void awaitResponses() throws ReadTimeoutException
+    {
+        awaitResponses(false);
+    }
+
     /**
      * Wait for the CL to be satisfied by responses
      */
-    public void awaitResponses() throws ReadTimeoutException
+    public void awaitResponses(boolean logBlockingReadRepairAttempt) throws ReadTimeoutException
     {
         try
         {
@@ -394,6 +400,16 @@ public abstract class AbstractReadExecutor
         {
             Tracing.trace("Digest mismatch: Mismatch for key {}", getKey());
             readRepair.startRepair(digestResolver, this::setResult);
+            /*
+             * See <rdar://problem/38370262> Allow logging blocking RR attempts in detail when enabled via JMX for a period of time
+             */
+            if (logBlockingReadRepairAttempt)
+            {
+                logger.info("Blocking Read Repair triggered for query [{}] at CL.{} with endpoints {}",
+                            command.toCQLString(),
+                            replicaPlan().consistencyLevel(),
+                            replicaPlan().contacts());
+            }
         }
     }
 
