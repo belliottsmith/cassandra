@@ -101,6 +101,8 @@ public interface StorageProxyMBean
      */
     public void stopFullQueryLogger();
 
+    public void logBlockingReadRepairAttemptsForNSeconds(int seconds);
+
     public long[] getRecentReadLatencyHistogramMicrosV3();
     public long[] getRecentWriteLatencyHistogramMicrosV3();
     public long[] getRecentRangeLatencyHistogramMicrosV3();

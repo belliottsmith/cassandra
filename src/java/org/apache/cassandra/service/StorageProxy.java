@@ -114,6 +114,8 @@ public class StorageProxy implements StorageProxyMBean
 
     private static final PartitionBlacklist partitionBlacklist = new PartitionBlacklist();
 
+    private volatile long logBlockingReadRepairAttemptsUntil = Long.MIN_VALUE;
+
     @Override
     public void loadPartitionBlacklist()
     {
@@ -1935,6 +1937,8 @@ public class StorageProxy implements StorageProxyMBean
 
                 ReadRepairMetrics.repairedBlocking.mark();
 
+                maybeLogBlockingReadRepairAttempt();
+
                 // Do a full data read to resolve the correct response (and repair node that need be)
                 Keyspace keyspace = Keyspace.open(command.metadata().ksName);
                 DataResolver resolver = new DataResolver(keyspace, command, ConsistencyLevel.ALL, executor.handler.endpoints.size());
@@ -1951,6 +1955,20 @@ public class StorageProxy implements StorageProxyMBean
                     Tracing.trace("Enqueuing full data read to {}", endpoint);
                     MessagingService.instance().sendRRWithFailure(message, endpoint, repairHandler);
                 }
+            }
+        }
+
+        /*
+         * See <rdar://problem/38370262> Allow logging blocking RR attempts in detail when enabled via JMX for a period of time
+         */
+        private void maybeLogBlockingReadRepairAttempt()
+        {
+            if (System.currentTimeMillis() <= StorageProxy.instance.logBlockingReadRepairAttemptsUntil)
+            {
+                logger.info("Blocking Read Repair triggered for query [{}] at CL.{} with endpoints {}",
+                            command.toCQLString(),
+                            consistency,
+                            executor.getContactedReplicas());
             }
         }
 
@@ -2957,6 +2975,12 @@ public class StorageProxy implements StorageProxyMBean
     public void stopFullQueryLogger()
     {
         FullQueryLogger.instance.stop();
+    }
+
+    @Override
+    public void logBlockingReadRepairAttemptsForNSeconds(int seconds)
+    {
+        logBlockingReadRepairAttemptsUntil = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(seconds);
     }
 
     @Override
