@@ -5060,7 +5060,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      */
     public void loadNewSSTables(String ksName, String cfName)
     {
-        ColumnFamilyStore.loadNewSSTables(ksName, cfName, null);
+        loadNewSSTables(ksName, cfName, null);
     }
 
     /**
@@ -5068,6 +5068,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      */
     public void loadNewSSTables(String ksName, String cfName, String dirPath)
     {
+        if (!isInitialized())
+            throw new RuntimeException("Not yet initialized, can't load new sstables");
         ColumnFamilyStore.loadNewSSTables(ksName, cfName, dirPath);
     }
 
