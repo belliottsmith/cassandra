@@ -49,6 +49,7 @@ import org.apache.cassandra.concurrent.JMXConfigurableThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.metrics.RepairMetrics;
 import org.apache.cassandra.repair.consistent.SyncStatSummary;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.io.util.FileUtils;
@@ -500,6 +501,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                         {
                             FileUtils.deleteRecursive(RepairSession.merkleTreeDir(parentSession));
                         }
+                        RepairMetrics.previewFailures.inc();
                     }
                     else
                     {

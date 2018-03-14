@@ -28,6 +28,7 @@ import java.util.Objects;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.repair.RepairResult;
 import org.apache.cassandra.repair.RepairSessionResult;
@@ -132,6 +133,12 @@ public class SyncStatSummary
             totalsCalculated = true;
         }
 
+        boolean isCounter()
+        {
+            CFMetaData cfm = Schema.instance.getCFMetaData(keyspace, table);
+            return cfm != null && cfm.isCounter();
+        }
+
         public String toString()
         {
             if (!totalsCalculated)
@@ -207,6 +214,10 @@ public class SyncStatSummary
         summaries.values().forEach(Table::calculateTotals);
         for (Table table: summaries.values())
         {
+            if (table.isCounter())
+            {
+                continue;
+            }
             table.calculateTotals();
             files += table.files;
             bytes += table.bytes;

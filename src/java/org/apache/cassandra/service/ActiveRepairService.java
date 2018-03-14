@@ -68,6 +68,7 @@ import org.apache.cassandra.gms.IFailureDetectionEventListener;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.TokenMetadata;
+import org.apache.cassandra.metrics.RepairMetrics;
 import org.apache.cassandra.net.IAsyncCallbackWithFailure;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
@@ -84,8 +85,6 @@ import org.apache.cassandra.utils.CassandraVersion;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
-
-import static org.apache.cassandra.config.Config.RepairCommandPoolFullStrategy.queue;
 
 /**
  * ActiveRepairService is the starting point for manual "active" repairs.
@@ -163,6 +162,8 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                                                  new NamedThreadFactory("Repair-Task"),
                                                                  "internal",
                                                                  new ThreadPoolExecutor.AbortPolicy());
+
+        RepairMetrics.init();
     }
 
     private final IFailureDetector failureDetector;
