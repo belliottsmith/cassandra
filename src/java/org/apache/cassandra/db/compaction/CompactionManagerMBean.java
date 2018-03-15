@@ -137,4 +137,24 @@ public interface CompactionManagerMBean
     public void setMaxScheduledCompactionSSTableSizeBytes(long size);
     public int getMaxScheduledCompactionSSTableCount();
     public void setMaxScheduledCompactionSSTableCount(int count);
+    /**
+     * Get automatic sstable upgrade enabled
+     */
+    public boolean getAutomaticSSTableUpgradeEnabled();
+    /**
+     * Set if automatic sstable upgrade should be enabled
+     */
+    public void setAutomaticSSTableUpgradeEnabled(boolean enabled);
+
+    /**
+     * Get the number of concurrent sstable upgrade tasks we should run
+     * when automatic sstable upgrades are enabled
+     */
+    public int getMaxConcurrentAutoUpgradeTasks();
+
+    /**
+     * Set the number of concurrent sstable upgrade tasks we should run
+     * when automatic sstable upgrades are enabled
+     */
+    public void setMaxConcurrentAutoUpgradeTasks(int value);
 }

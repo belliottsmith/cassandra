@@ -440,6 +440,8 @@ public class Config
     {
         outboundBindAny = value;
     }
+    public volatile boolean automatic_sstable_upgrade = false;
+    public volatile int max_concurrent_automatic_sstable_upgrades = 1;
 
     public RepairCommandPoolFullStrategy repair_command_pool_full_strategy = RepairCommandPoolFullStrategy.queue;
     public int repair_command_pool_size = concurrent_validations;

@@ -137,6 +137,7 @@ public class TableStats extends NodeToolCmd
                     System.out.println("\t\tTable: " + tableName);
 
                 System.out.println("\t\tSSTable count: " + probe.getColumnFamilyMetric(keyspaceName, tableName, "LiveSSTableCount"));
+                System.out.println("\t\tOld SSTable count: " + probe.getColumnFamilyMetric(keyspaceName, tableName, "OldVersionSSTableCount"));
 
                 int[] leveledSStables = table.getSSTableCountPerLevel();
                 if (leveledSStables != null)
