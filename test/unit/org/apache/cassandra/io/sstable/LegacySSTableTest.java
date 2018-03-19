@@ -57,6 +57,8 @@ import org.apache.cassandra.streaming.StreamSession;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
+import static org.junit.Assert.fail;
+
 /**
  * Tests backwards compatibility for SSTables
  */
@@ -214,17 +216,34 @@ public class LegacySSTableTest
     }
 
     @Test
-    public void verifyOldSSTables() throws Exception
+    public void testVerifyOldSSTables() throws IOException
     {
         for (String legacyVersion : legacyVersions)
         {
-            loadLegacyTables(legacyVersion);
             ColumnFamilyStore cfs = Keyspace.open("legacy_tables").getColumnFamilyStore(String.format("legacy_%s_simple", legacyVersion));
+            loadLegacyTable("legacy_%s_simple", legacyVersion, "");
+
             for (SSTableReader sstable : cfs.getLiveSSTables())
             {
-                try (Verifier verifier = new Verifier(cfs, sstable, false))
+                try (Verifier verifier = new Verifier(cfs, sstable, false, Verifier.options().checkVersion(true).build()))
                 {
-                    verifier.verify(true);
+                    verifier.verify();
+                    if (!sstable.descriptor.version.isLatestVersion())
+                        fail("Verify should throw RuntimeException for old sstables "+sstable);
+                }
+                catch (RuntimeException e)
+                {}
+            }
+            // make sure we don't throw any exception if not checking version:
+            for (SSTableReader sstable : cfs.getLiveSSTables())
+            {
+                try (Verifier verifier = new Verifier(cfs, sstable, false, Verifier.options().checkVersion(false).build()))
+                {
+                    verifier.verify();
+                }
+                catch (Throwable e)
+                {
+                    fail("Verify should not throw RuntimeException for old sstables when checkVersion is false"+sstable);
                 }
             }
         }
