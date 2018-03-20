@@ -92,9 +92,9 @@ public class CoordinatorSessionsTest extends AbstractRepairTest
             return (InstrumentedCoordinatorSession) super.getSession(sessionId);
         }
 
-        public InstrumentedCoordinatorSession registerSession(UUID sessionId, Set<InetAddress> peers)
+        public InstrumentedCoordinatorSession registerSession(UUID sessionId, Set<InetAddress> peers, boolean isForced)
         {
-            return (InstrumentedCoordinatorSession) super.registerSession(sessionId, peers);
+            return (InstrumentedCoordinatorSession) super.registerSession(sessionId, peers, isForced);
         }
     }
 
@@ -117,7 +117,7 @@ public class CoordinatorSessionsTest extends AbstractRepairTest
     {
         CoordinatorSessions sessions = new CoordinatorSessions();
         UUID sessionID = registerSession();
-        CoordinatorSession session = sessions.registerSession(sessionID, PARTICIPANTS);
+        CoordinatorSession session = sessions.registerSession(sessionID, PARTICIPANTS, false);
 
         Assert.assertEquals(ConsistentSession.State.PREPARING, session.getState());
         Assert.assertEquals(sessionID, session.sessionID);
@@ -138,7 +138,7 @@ public class CoordinatorSessionsTest extends AbstractRepairTest
         InstrumentedCoordinatorSessions sessions = new InstrumentedCoordinatorSessions();
         UUID sessionID = registerSession();
 
-        InstrumentedCoordinatorSession session = sessions.registerSession(sessionID, PARTICIPANTS);
+        InstrumentedCoordinatorSession session = sessions.registerSession(sessionID, PARTICIPANTS, false);
         Assert.assertEquals(0, session.prepareResponseCalls);
 
         sessions.handlePrepareResponse(new PrepareConsistentResponse(sessionID, PARTICIPANT1, true));
@@ -163,7 +163,7 @@ public class CoordinatorSessionsTest extends AbstractRepairTest
         InstrumentedCoordinatorSessions sessions = new InstrumentedCoordinatorSessions();
         UUID sessionID = registerSession();
 
-        InstrumentedCoordinatorSession session = sessions.registerSession(sessionID, PARTICIPANTS);
+        InstrumentedCoordinatorSession session = sessions.registerSession(sessionID, PARTICIPANTS, false);
         Assert.assertEquals(0, session.finalizePromiseCalls);
 
         sessions.handleFinalizePromiseMessage(new FinalizePromise(sessionID, PARTICIPANT1, true));
@@ -188,7 +188,7 @@ public class CoordinatorSessionsTest extends AbstractRepairTest
         InstrumentedCoordinatorSessions sessions = new InstrumentedCoordinatorSessions();
         UUID sessionID = registerSession();
 
-        InstrumentedCoordinatorSession session = sessions.registerSession(sessionID, PARTICIPANTS);
+        InstrumentedCoordinatorSession session = sessions.registerSession(sessionID, PARTICIPANTS, false);
         Assert.assertEquals(0, session.failCalls);
 
         sessions.handleFailSessionMessage(new FailSession(sessionID));

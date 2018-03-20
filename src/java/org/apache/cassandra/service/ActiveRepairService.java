@@ -405,11 +405,12 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
      * incremental repairs, forced incremental repairs, and full repairs, the UNREPAIRED_SSTABLE value will prevent
      * sstables from being promoted to repaired or preserve the repairedAt/pendingRepair values, respectively.
      */
-    static long getRepairedAt(RepairOption options)
+    static long getRepairedAt(RepairOption options, boolean force)
     {
-        // we only want to set repairedAt for incremental repairs including all replicas for a token range. For non-global incremental repairs, forced incremental repairs, and
-        // full repairs, the UNREPAIRED_SSTABLE value will prevent sstables from being promoted to repaired or preserve the repairedAt/pendingRepair values, respectively.
-        if (options.isIncremental() && options.isGlobal() && !options.isForcedRepair())
+        // we only want to set repairedAt for incremental repairs including all replicas for a token range. For non-global incremental repairs, full repairs, the UNREPAIRED_SSTABLE value will prevent
+        // sstables from being promoted to repaired or preserve the repairedAt/pendingRepair values, respectively. For forced repairs, repairedAt time is only set to UNREPAIRED_SSTABLE if we actually
+        // end up skipping replicas
+        if (options.isIncremental() && options.isGlobal() && ! force)
         {
             return System.currentTimeMillis();
         }
@@ -419,10 +420,10 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         }
     }
 
-    public void prepareForRepair(UUID parentRepairSession, InetAddress coordinator, Set<InetAddress> endpoints, RepairOption options, List<ColumnFamilyStore> columnFamilyStores)
+    public void prepareForRepair(UUID parentRepairSession, InetAddress coordinator, Set<InetAddress> endpoints, RepairOption options, boolean isForcedRepair, List<ColumnFamilyStore> columnFamilyStores)
     {
         // we only want repairedAt for incremental repairs, for non incremental repairs, UNREPAIRED_SSTABLE will preserve repairedAt on streamed sstables
-        long repairedAt = getRepairedAt(options);
+        long repairedAt = getRepairedAt(options, isForcedRepair);
         registerParentRepairSession(parentRepairSession, coordinator, columnFamilyStores, options.getRanges(), options.isIncremental(), repairedAt, options.isGlobal(), options.getPreviewKind());
         final CountDownLatch prepareLatch = new CountDownLatch(endpoints.size());
         final AtomicBoolean status = new AtomicBoolean(true);
@@ -461,7 +462,9 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             }
             else
             {
-                if (options.isForcedRepair())
+                // we pre-filter the endpoints we want to repair for forced incremental repairs. So if any of the
+                // remaining ones go down, we still want to fail so we don't create repair sessions that can't complete
+                if (isForcedRepair && !options.isIncremental())
                 {
                     prepareLatch.countDown();
                 }

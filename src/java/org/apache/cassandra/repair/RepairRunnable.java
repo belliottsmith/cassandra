@@ -268,7 +268,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             traceState = null;
         }
 
-        final Set<InetAddress> allNeighbors = new HashSet<>();
+        Set<InetAddress> allNeighbors = new HashSet<>();
         List<CommonRange> commonRanges = new ArrayList<>();
 
         //pre-calculate output of getLocalRanges and pass it to getNeighbors to increase performance and prevent
@@ -326,9 +326,18 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             SystemDistributedKeyspace.startParentRepair(parentSession, keyspace, cfnames, options.getRanges());
         }
 
+        boolean force = options.isForcedRepair();
+
+        if (force && options.isIncremental())
+        {
+            Set<InetAddress> actualNeighbors = Sets.newHashSet(Iterables.filter(allNeighbors, FailureDetector.instance::isAlive));
+            force = !allNeighbors.equals(actualNeighbors);
+            allNeighbors = actualNeighbors;
+        }
+
         try (Timer.Context ctx = Keyspace.open(keyspace).metric.repairPrepareTime.time())
         {
-            ActiveRepairService.instance.prepareForRepair(parentSession, FBUtilities.getBroadcastAddress(), allNeighbors, options, columnFamilyStores);
+            ActiveRepairService.instance.prepareForRepair(parentSession, FBUtilities.getBroadcastAddress(), allNeighbors, options, force, columnFamilyStores);
             progress.incrementAndGet();
         }
         catch (Throwable t)
@@ -352,7 +361,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         }
         else if (options.isIncremental())
         {
-            incrementalRepair(parentSession, startTime, options.isForcedRepair(), traceState, allNeighbors, allReplicaMap, commonRanges, cfnames);
+            incrementalRepair(parentSession, startTime, force, traceState, allNeighbors, allReplicaMap, commonRanges, cfnames);
         }
         else
         {
@@ -444,15 +453,14 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                                    String... cfnames)
     {
         // the local node also needs to be included in the set of participants, since coordinator sessions aren't persisted
-        Predicate<InetAddress> isAlive = FailureDetector.instance::isAlive;
         Set<InetAddress> allParticipants = ImmutableSet.<InetAddress>builder()
-                                           .addAll(forceRepair ? Iterables.filter(allNeighbors, isAlive) : allNeighbors)
+                                           .addAll(allNeighbors)
                                            .add(FBUtilities.getBroadcastAddress())
                                            .build();
 
         List<CommonRange> allRanges = filterCommonRanges(commonRanges, allParticipants, forceRepair);
 
-        CoordinatorSession coordinatorSession = ActiveRepairService.instance.consistent.coordinated.registerSession(parentSession, allParticipants);
+        CoordinatorSession coordinatorSession = ActiveRepairService.instance.consistent.coordinated.registerSession(parentSession, allParticipants, forceRepair);
         ListeningExecutorService executor = createExecutor();
         AtomicBoolean hasFailure = new AtomicBoolean(false);
         ListenableFuture repairResult = coordinatorSession.execute(() -> submitRepairSessions(parentSession, true, executor, allReplicaMap, allRanges, cfnames),
