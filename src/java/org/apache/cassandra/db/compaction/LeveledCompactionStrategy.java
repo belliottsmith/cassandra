@@ -303,11 +303,12 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         Collection<Range<Token>> localRanges = StorageService.instance.getLocalRanges(cfs.keyspace.getName());
         if (localRanges == null || localRanges.size() == 0)
         {
+            // this can happen during startup for example - before token metadata has been populated
             logger.warn("No local ranges - can't do scheduled compactions");
             return null;
         }
         List<Range<Token>> splitRanges = splitRanges(cfs.getPartitioner(), Range.normalize(localRanges), DatabaseDescriptor.getScheduledCompactionRangeSplits());
-        if (splitRanges.isEmpty())
+        if (splitRanges.isEmpty()) // if the ranges we own are unsplittable (we only own single-token ranges for example) splitRanges(..) returns an empty list
             return null;
         List<Token> bounds = new ArrayList<>();
         for (Range<Token> r : splitRanges)
@@ -323,9 +324,9 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
 
         for (Token t : bounds)
         {
-            // note that we need to special handle the partitioner min token - having that in the bounds means that we are about to wrap around
-            // and we need to create a special range where the right bound is min token. This is then handled in LeveledManifest#overlappingWithMin
-            // reason bounds contains the min token is that when doing Range.normalize on a wrapping range, it becomes:
+            // Note that we need to special handle the partitioner min token - having that in the bounds means that we are about to wrap around
+            // and we need to create a special range where the right bound is min token. This is then handled in LeveledManifest#overlappingWithMin.
+            // The reason bounds might contain the min token is that when calling Range.normalize on a wrapping range it becomes:
             // Range.normalize( (x, x] ) = [(minToken, minToken]]
             if (t.compareTo(lastScheduleCompactionToken) > 0 || t.equals(cfs.getPartitioner().getMinimumToken()))
                 return new Range<>(lastScheduleCompactionToken, t);
@@ -363,7 +364,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
                 }
                 else
                 {
-                    logger.info("Not splitting range {} - too narrow", r);
+                    logger.info("Not splitting range {} - too narrow, minSplits = {}, ranges = {}", r, minSplits, ranges);
                     newSplitRanges.add(r);
                 }
             }
