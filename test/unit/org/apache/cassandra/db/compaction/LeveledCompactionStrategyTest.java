@@ -822,6 +822,7 @@ public class LeveledCompactionStrategyTest
         List<Range<Token>> compactedRanges = new ArrayList<>();
         while (scheduledCount < 4)
         {
+            long start = System.currentTimeMillis();
             AbstractCompactionTask task = lcs.getNextBackgroundTask(0);
             boolean isScheduled = task != null && task instanceof LeveledCompactionStrategy.ScheduledLeveledCompactionTask;
             // before we execute the task it is always time for a scheduled compaction:
@@ -838,7 +839,9 @@ public class LeveledCompactionStrategyTest
                 if (isScheduled)
                 {
                     scheduledCount++;
-                    assertFalse(lcs.timeForScheduledCompaction(false));
+                    // if the compaction is slow it might take > 1s (4 splits, 4s cycle time) to compact, don't assert if so (+a bit of margin)
+                    if(System.currentTimeMillis() - start < 800)
+                        assertFalse(lcs.timeForScheduledCompaction(false));
                     compactedRanges.add(((LeveledCompactionStrategy.ScheduledLeveledCompactionTask) task).compactedRange);
                 }
             }
