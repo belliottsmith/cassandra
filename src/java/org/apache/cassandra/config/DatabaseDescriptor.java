@@ -19,24 +19,12 @@ package org.apache.cassandra.config;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.*;
 import java.nio.file.FileStore;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.net.Inet4Address;
-import java.net.Inet6Address;
-import java.net.InetAddress;
-import java.net.NetworkInterface;
-import java.net.SocketException;
-import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.Enumeration;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -2530,11 +2518,12 @@ public class DatabaseDescriptor
 
     private static long parseScheduledCycleTimeSeconds(String rawValue) throws ConfigurationException
     {
-        char unitCharacter = rawValue.charAt(rawValue.length() - 1);
+        String trimmed = rawValue.trim().toLowerCase();
+        char unitCharacter = trimmed.charAt(trimmed.length() - 1);
         int value;
         try
         {
-            value = Integer.valueOf(rawValue.substring(0, rawValue.length() - 1));
+            value = Integer.valueOf(trimmed.substring(0, trimmed.length() - 1));
         }
         catch (NumberFormatException e)
         {

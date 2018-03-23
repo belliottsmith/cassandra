@@ -77,6 +77,7 @@ import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
+import org.hsqldb.Database;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -891,6 +892,9 @@ public class LeveledCompactionStrategyTest
         assertTrue(gotException);
         // and value should stay the same:
         assertEquals(55, DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds());
+
+        DatabaseDescriptor.setScheduledCompactionCycleTime("  102H  ");
+        assertEquals(TimeUnit.HOURS.toSeconds(102), DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds());
     }
 
     private void populateCfsScheduled(ColumnFamilyStore cfs) throws InterruptedException
