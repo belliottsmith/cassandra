@@ -309,7 +309,7 @@ public final class SystemKeyspace
 
     private static final CFMetaData ScheduledCompactionsCf =
         compile(SCHEDULED_COMPACTIONS_CF,
-                "scheduled compactions",
+                "Keeps track of where scheduled compactions should start on node restart",
                 "CREATE TABLE  %s ("
                 + "keyspace_name text,"
                 + "columnfamily_name text,"
