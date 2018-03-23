@@ -38,10 +38,14 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 
+import org.apache.cassandra.MockSchema;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.BufferDecoratedKey;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.dht.Bounds;
@@ -75,6 +79,7 @@ import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.hsqldb.Database;
@@ -788,8 +793,9 @@ public class LeveledCompactionStrategyTest
         // everything is dropped in L1 - other levels should be empty since we have covered the whole range above
         assertTrue(lcs.manifest.getLevel(0).size() == 0);
         assertTrue(lcs.manifest.getLevel(1).size() > 0);
-        // NOTE; if the aggressive compaction only gets a single sstable in L2, it will remain there, this assert works because we create
-        // the sstables so that more than one sstable will get picked by the scheduled compaction for a single range
+        // NOTE; If aggressive compaction only compacts a single sstable (ie, the the boundaries only contain a single sstable)
+        // the sstable will stay in its current level (because it can do so without causing overlap).
+        // In this case we create the sstables so that we never get a single sstable in L2, that is why we can make this assertion:
         assertTrue(lcs.manifest.getLevel(2).size() == 0);
         StorageService.instance.getTokenMetadata().clearUnsafe();
     }
@@ -895,6 +901,69 @@ public class LeveledCompactionStrategyTest
 
         DatabaseDescriptor.setScheduledCompactionCycleTime("  102H  ");
         assertEquals(TimeUnit.HOURS.toSeconds(102), DatabaseDescriptor.getScheduledCompactionCycleTimeSeconds());
+    }
+
+    @Test
+    public void testOverlapWithMin()
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        Set<SSTableReader> sstables = new HashSet<>();
+        sstables.add(sstable(cfs, 1, 10L, 100L));
+        sstables.add(sstable(cfs, 2, 90L, 150L));
+        sstables.add(sstable(cfs, 3, 150L, 200L));
+        sstables.add(sstable(cfs, 4, 199L, 300L));
+        sstables.add(sstable(cfs, 5, 310L, 400L));
+
+        // from 0 -> 10 includes a single sstable, generation 1:
+        assertEquals(1, Iterables.getOnlyElement(LeveledManifest.overlappingWithMin(cfs.getPartitioner(), t(0), t(10), sstables)).descriptor.generation);
+
+        // 90 -> 100 includes 2 sstables, gen 1 and 2
+        Set<SSTableReader> overlapping = LeveledManifest.overlappingWithMin(cfs.getPartitioner(), t(90), t(100), sstables);
+        assertEquals(2, overlapping.size());
+        assertEquals(Sets.newHashSet(1, 2), overlapping.stream().map(s -> s.descriptor.generation).collect(Collectors.toSet()));
+
+        // 50 -> 90 includes 2 sstables, gen 1 and 2
+        overlapping = LeveledManifest.overlappingWithMin(cfs.getPartitioner(), t(50), t(90), sstables);
+        assertEquals(2, overlapping.size());
+        assertEquals(Sets.newHashSet(1, 2), overlapping.stream().map(s -> s.descriptor.generation).collect(Collectors.toSet()));
+
+        // 290 -> partitioner min token -> 2 sstables, gen 4 and 5
+        overlapping = LeveledManifest.overlappingWithMin(cfs.getPartitioner(), t(290), cfs.getPartitioner().getMinimumToken(), sstables);
+        assertEquals(2, overlapping.size());
+        assertEquals(Sets.newHashSet(4, 5), overlapping.stream().map(s -> s.descriptor.generation).collect(Collectors.toSet()));
+
+        // testing a wrapping range (1000, 100] -> normalized = [(-9223372036854775808,100], (1000,-9223372036854775808]]
+        // this means that the first range should contain 2 sstables (gen 1 and 2), and the second should include none
+        Range<Token> wrapping = new Range<>(t(1000), t(100));
+        overlapping.clear();
+        for (Range<Token> r : Range.normalize(Collections.singleton(wrapping)))
+        {
+            overlapping.addAll(LeveledManifest.overlappingWithMin(cfs.getPartitioner(), r.left, r.right, sstables));
+        }
+        assertEquals(2, overlapping.size());
+        assertEquals(Sets.newHashSet(1, 2), overlapping.stream().map(s -> s.descriptor.generation).collect(Collectors.toSet()));
+
+        // (350, 0] -> normalized = [(-9223372036854775808,0], (350,-9223372036854775808]]
+        // => first range should give 0 sstables, second a single one, generation 5
+        wrapping = new Range<>(t(350), t(0));
+        overlapping.clear();
+        for (Range<Token> r : Range.normalize(Collections.singleton(wrapping)))
+            overlapping.addAll(LeveledManifest.overlappingWithMin(cfs.getPartitioner(), r.left, r.right, sstables));
+        assertEquals(1, overlapping.size());
+        assertEquals(Sets.newHashSet(5), overlapping.stream().map(s -> s.descriptor.generation).collect(Collectors.toSet()));
+
+
+    }
+
+    private static SSTableReader sstable(ColumnFamilyStore cfs, int generation, long startToken, long endToken)
+    {
+        DecoratedKey first = new BufferDecoratedKey(new LongToken(startToken), ByteBufferUtil.EMPTY_BYTE_BUFFER);
+        DecoratedKey last = new BufferDecoratedKey(new LongToken(endToken), ByteBufferUtil.EMPTY_BYTE_BUFFER);
+        return MockSchema.sstable(generation, 0, false, cfs, first, last);
+    }
+    private static Token t(long t)
+    {
+        return new LongToken(t);
     }
 
     private void populateCfsScheduled(ColumnFamilyStore cfs) throws InterruptedException

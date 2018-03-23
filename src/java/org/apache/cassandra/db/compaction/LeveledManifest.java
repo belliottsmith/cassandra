@@ -31,6 +31,7 @@ import com.google.common.collect.Sets;
 import com.google.common.primitives.Ints;
 
 import org.apache.cassandra.db.PartitionPosition;
+import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.slf4j.Logger;
@@ -414,7 +415,9 @@ public class LeveledManifest
         {
             if (!getLevel(i).isEmpty())
             {
-                overlaps.addAll(overlappingWithMin(range.left, range.right, getLevel(i)));
+                // overlappingWithMin handles the wrap-around case - if range.right == partitioner min token, all sstables
+                // with end token larger than start will get included
+                overlaps.addAll(overlappingWithMin(cfs.getPartitioner(), range.left, range.right, getLevel(i)));
             }
         }
         final Set<SSTableReader> toCompact = new HashSet<>(overlaps);
@@ -424,7 +427,7 @@ public class LeveledManifest
         {
             if (overlappingSSTable.getSSTableLevel() == 0 && overlappingSSTable.onDiskLength() > maxSSTableSizeL0)
             {
-                logger.info("Removing SSTable {} from tombstone compaction since it's too large", overlappingSSTable);
+                logger.info("Removing SSTable {} from tombstone/scheduled compaction since it's too large", overlappingSSTable);
                 toCompact.remove(overlappingSSTable);
             }
         }
@@ -440,7 +443,11 @@ public class LeveledManifest
                                            cfs.getCompactionStrategyManager().getMaxSSTableBytes());
         }
 
-        // add all overlapping in level 1 so we can put the result there
+        // In the loop over generations above we add all sstables overlapping the range given
+        // but since we drop everything in L1, we need to add all sstables overlapping the result of that method.
+        // For example, we might have an sstable covering the full partitioner range in L2, but tiny (range-wise) sstables in L1
+        // Then toCompact would currently contain the big L2 sstable, but not all L1 sstables. Here we add everything
+        // that overlaps anything in L1 to make sure we can actually drop the result in L1 without causing overlap.
         if (!getLevel(1).isEmpty())
         {
             toCompact.addAll(overlapping(toCompact, getLevel(1)));
@@ -644,17 +651,15 @@ public class LeveledManifest
      * special case for getting overlapping sstables - if end is partitioner.getMinToken() we return all sstables
      * which have an end token larger than start - meaning this grabs everything from start to the end of the full
      * partitioner range.
-     *
-     * @param start
-     * @param end
-     * @param sstables
-     * @return
      */
-    private static Set<SSTableReader> overlappingWithMin(Token start, Token end, Iterable<SSTableReader> sstables)
+    @VisibleForTesting
+    static Set<SSTableReader> overlappingWithMin(IPartitioner partitioner, Token start, Token end, Iterable<SSTableReader> sstables)
     {
         if (start.compareTo(end) <= 0)
             return overlapping(start, end, sstables);
-        Set<SSTableReader> overlapped = new HashSet<SSTableReader>();
+
+        assert end.equals(partitioner.getMinimumToken()) : "If start > end, end must be equal to partitioner min token";
+        Set<SSTableReader> overlapped = new HashSet<>();
         for (SSTableReader candidate : sstables)
         {
             if (candidate.last.getToken().compareTo(start) > 0)

@@ -225,7 +225,10 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         if (nextBounds == null)
             return null;
 
-        logger.info("Getting aggressive compaction candidates for {} {}.{}", nextBounds, cfs.keyspace.getName(), cfs.getColumnFamilyName());
+        logger.info("Getting scheduled compaction candidates for {} {}.{}", nextBounds, cfs.keyspace.getName(), cfs.getColumnFamilyName());
+        // note that getAggressiveCompactionCandidates uses the *tokens* in nextBounds, which means that even though nextBounds is (start, end], we will find
+        // sstables overlapping [start, end] - this means that if an sstable ends exactly on a boundary start, we might unnescessarily include that sstable
+        // in the next scheduled compaction. This should be rare and only causes us to do some extra work.
         LeveledManifest.CompactionCandidate candidate = manifest.getAggressiveCompactionCandidates(nextBounds, DatabaseDescriptor.getMaxScheduledCompactionSSTableSizeBytes());
         Collection<SSTableReader> toCompact = candidate != null ? candidate.sstables : Collections.emptySet();
         logger.info("Got {} sstables for scheduled compaction for {}.{}: {}", toCompact.size(), cfs.keyspace.getName(), cfs.getTableName(), toCompact);

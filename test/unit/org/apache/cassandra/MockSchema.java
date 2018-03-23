@@ -86,6 +86,11 @@ public class MockSchema
 
     public static SSTableReader sstable(int generation, int size, boolean keepRef, ColumnFamilyStore cfs)
     {
+        return sstable(generation, size, keepRef, cfs, readerBounds(generation), readerBounds(generation));
+    }
+
+    public static SSTableReader sstable(int generation, int size, boolean keepRef, ColumnFamilyStore cfs, DecoratedKey first, DecoratedKey last)
+    {
         Descriptor descriptor = new Descriptor(cfs.getDirectories().getDirectoryForNewSSTables(),
                                                cfs.keyspace.getName(),
                                                cfs.getColumnFamilyName(),
@@ -124,7 +129,8 @@ public class MockSchema
         SSTableReader reader = SSTableReader.internalOpen(descriptor, components, cfs.metadata,
                                                           segmentedFile.sharedCopy(), segmentedFile.sharedCopy(), indexSummary.sharedCopy(),
                                                           new AlwaysPresentFilter(), 1L, metadata, SSTableReader.OpenReason.NORMAL, header);
-        reader.first = reader.last = readerBounds(generation);
+        reader.first = first;
+        reader.last = last;
         if (!keepRef)
             reader.selfRef().release();
         return reader;
