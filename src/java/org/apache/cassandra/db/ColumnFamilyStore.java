@@ -246,6 +246,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     private volatile boolean compactionSpaceCheck = true;
 
+    private volatile boolean neverPurgeTombstones = false;
+
     /**
      * A list to store ranges and the time they were last repaired. The list is
      * reverse-sorted based on the timestamp (see {@link ColumnFamilyStore#lastRepairTimeComparator}).
@@ -2927,5 +2929,22 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public static TableMetrics metricsFor(UUID tableId)
     {
         return getIfExists(tableId).metric;
+    }
+
+    @Override
+    public void setNeverPurgeTombstones(boolean value)
+    {
+        if (neverPurgeTombstones != value)
+            logger.info("Changing neverPurgeTombstones for {}.{} from {} to {}", keyspace.getName(), getTableName(), neverPurgeTombstones, value);
+        else
+            logger.info("Not changing neverPurgeTombstones for {}.{}, it is {}", keyspace.getName(), getTableName(), neverPurgeTombstones);
+
+        neverPurgeTombstones = value;
+    }
+
+    @Override
+    public boolean getNeverPurgeTombstones()
+    {
+        return neverPurgeTombstones;
     }
 }

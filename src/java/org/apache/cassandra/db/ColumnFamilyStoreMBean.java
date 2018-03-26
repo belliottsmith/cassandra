@@ -239,4 +239,8 @@ public interface ColumnFamilyStoreMBean
      * @see org.apache.cassandra.metrics.TableMetrics#coordinatorScanLatency
      */
     public long[] getCoordinatorScanLatencyHistogram();
+
+    public void setNeverPurgeTombstones(boolean value);
+
+    public boolean getNeverPurgeTombstones();
 }
