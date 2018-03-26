@@ -41,6 +41,7 @@ import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.OpOrder;
@@ -481,7 +482,7 @@ public final class LegacySchemaMigrator
             params.defaultTimeToLive(row.getInt("default_time_to_live"));
 
         if (row.has("speculative_retry"))
-            params.speculativeRetry(SpeculativeRetryParam.fromString(row.getString("speculative_retry")));
+            params.speculativeRetry(SpeculativeRetryPolicy.fromString(row.getString("speculative_retry")));
 
         Map<String, String> compressionParameters = fromJsonMap(row.getString("compression_parameters"));
         String crcCheckChance = compressionParameters.remove("crc_check_chance");

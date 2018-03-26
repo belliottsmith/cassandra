@@ -40,6 +40,7 @@ import org.apache.cassandra.io.compress.ICompressor;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.LocalStrategy;
 import org.apache.cassandra.schema.*;
+import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
@@ -321,7 +322,7 @@ public class ThriftConversion
             if (cf_def.isSetMax_index_interval())
                 newCFMD.maxIndexInterval(cf_def.max_index_interval);
             if (cf_def.isSetSpeculative_retry())
-                newCFMD.speculativeRetry(SpeculativeRetryParam.fromString(cf_def.speculative_retry));
+                newCFMD.speculativeRetry(SpeculativeRetryPolicy.fromString(cf_def.speculative_retry));
             if (cf_def.isSetTriggers())
                 newCFMD.triggers(triggerDefinitionsFromThrift(cf_def.triggers));
             if (cf_def.isSetComment())

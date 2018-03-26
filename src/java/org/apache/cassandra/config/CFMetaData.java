@@ -56,6 +56,7 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.repair.SystemDistributedKeyspace;
 import org.apache.cassandra.schema.*;
+import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
 import org.apache.cassandra.tracing.TraceKeyspace;
 import org.apache.cassandra.utils.*;
 import org.github.jamm.Unmetered;
@@ -238,7 +239,7 @@ public final class CFMetaData
         return this;
     }
 
-    public CFMetaData speculativeRetry(SpeculativeRetryParam prop)
+    public CFMetaData speculativeRetry(SpeculativeRetryPolicy prop)
     {
         params = TableParams.builder(params).speculativeRetry(prop).build();
         return this;

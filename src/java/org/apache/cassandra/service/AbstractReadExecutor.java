@@ -41,7 +41,9 @@ import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.metrics.ReadRepairMetrics;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.schema.SpeculativeRetryParam;
+import org.apache.cassandra.service.reads.AlwaysSpeculativeRetryPolicy;
+import org.apache.cassandra.service.reads.NeverSpeculativeRetryPolicy;
+import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
 import org.apache.cassandra.service.StorageProxy.LocalReadRunnable;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
@@ -184,11 +186,11 @@ public abstract class AbstractReadExecutor
         }
 
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(command.metadata().cfId);
-        SpeculativeRetryParam retry = cfs.metadata.params.speculativeRetry;
+        SpeculativeRetryPolicy retry = cfs.metadata.params.speculativeRetry;
 
         // Speculative retry is disabled *OR*
         // 11980: Disable speculative retry if using EACH_QUORUM in order to prevent miscounting DC responses
-        if (retry.equals(SpeculativeRetryParam.NONE)
+        if (retry.equals(NeverSpeculativeRetryPolicy.INSTANCE)
             | consistencyLevel == ConsistencyLevel.EACH_QUORUM)
             return new NeverSpeculatingReadExecutor(keyspace, cfs, command, consistencyLevel, targetReplicas, false);
 
@@ -222,7 +224,7 @@ public abstract class AbstractReadExecutor
         }
         targetReplicas.add(extraReplica);
 
-        if (retry.equals(SpeculativeRetryParam.ALWAYS))
+        if (retry.equals(AlwaysSpeculativeRetryPolicy.INSTANCE))
             return new AlwaysSpeculatingReadExecutor(keyspace, cfs, command, consistencyLevel, targetReplicas);
         else // PERCENTILE or CUSTOM.
             return new SpeculatingReadExecutor(keyspace, cfs, command, consistencyLevel, targetReplicas);
