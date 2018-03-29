@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.schema;
+package org.apache.cassandra.service.reads;
 
 import java.util.Arrays;
 import java.util.Collection;
