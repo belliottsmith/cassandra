@@ -35,15 +35,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
-import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.service.StorageService;
@@ -143,10 +140,10 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             LeveledManifest.CompactionCandidate candidate = manifest.getCompactionCandidates();
             if (candidate == null)
             {
-                Boolean repaired = handlingRepaired(); // returns null if there are no sstables
+                Boolean repaired = handlingRepaired(); // returns null if there are no sstables or if we are handling pending sstables
                 if (runScheduledCompactions() && repaired != null && timeForScheduledCompaction(repaired))
                 {
-                    logger.info("No standard compactions to do, checking if there is a scheduled compaction to run for {}.{} (repaired = {})", cfs.keyspace.getName(), cfs.getColumnFamilyName(), repaired);
+                    logger.info("No standard compactions to do, checking if there is a scheduled compaction to run for {}.{} (repaired = {})", cfs.keyspace.getName(), cfs.getTableName(), repaired);
                     ScheduledLeveledCompactionTask task = getNextScheduledCompactionTask(gcBefore, repaired);
                     if (task != null)
                         return task;
@@ -207,9 +204,9 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
                     System.currentTimeMillis()  > lastScheduledCompactionTime + millisUntilNextScheduledCompaction);
         if (lastScheduledCompactionTime == -1)
         {
-            Pair<Token, Long> lastRepair = SystemKeyspace.getLastSuccessfulScheduledCompaction(cfs.keyspace.getName(), cfs.getColumnFamilyName(), repaired);
-            lastScheduleCompactionToken = lastRepair == null ? null : lastRepair.left;
-            lastScheduledCompactionTime = lastRepair == null ? System.currentTimeMillis() : lastRepair.right;
+            Pair<Token, Long> lastScheduledCompaction = SystemKeyspace.getLastSuccessfulScheduledCompaction(cfs.keyspace.getName(), cfs.getColumnFamilyName(), repaired);
+            lastScheduleCompactionToken = lastScheduledCompaction == null ? null : lastScheduledCompaction.left;
+            lastScheduledCompactionTime = lastScheduledCompaction == null ? System.currentTimeMillis() : lastScheduledCompaction.right;
             logger.info("Loaded last successful subrange compaction time = {} token = {} for {}.{}", lastScheduledCompactionTime, lastScheduleCompactionToken, cfs.keyspace.getName(), cfs.getColumnFamilyName());
         }
 
@@ -277,18 +274,25 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
     }
 
     /**
-     * Checks the sstables if we are compacting repaired or unrepaired
+     * Checks the sstables if we are compacting repaired, unrepaired or pending sstables
      *
-     * if there are no sstables, we can't know and instead return null
+     * if there are no sstables or the sstables are pending, we return null
      *
-     * @return true if this strategy instance handles repaired sstables, false if not, and null if there are no sstables
+     * @return true if this strategy instance handles repaired sstables, false if not, and null if there are no sstables or if they are pending
      */
     private Boolean handlingRepaired()
     {
         for (List<SSTableReader> sstables : manifest.generations)
         {
             for (SSTableReader sstable : sstables)
+            {
+                if (sstable.isPendingRepair())
+                {
+                    logger.debug("SSTables pending repair, not running scheduled compactions for {}.{}", cfs.keyspace.getName(), cfs.getTableName());
+                    return null;
+                }
                 return sstable.isRepaired();
+            }
         }
         return null;
     }
@@ -858,13 +862,11 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         {
             super.runMayThrow();
             CompactionStrategyManager csm = cfs.getCompactionStrategyManager();
-// TODO: pending repair:
-            if (csm.getStrategies().get(0) instanceof LeveledCompactionStrategy)
+            SSTableReader firstSSTable = transaction.originals().iterator().next();
+            AbstractCompactionStrategy strategy = firstSSTable.isRepaired() ? csm.getRepaired() : csm.getUnrepaired();
+            if (strategy instanceof LeveledCompactionStrategy)
             {
-                int idx = 0;
-                if (!transaction.originals().iterator().next().isRepaired())
-                    idx = 1;
-                ((LeveledCompactionStrategy)csm.getStrategies().get(idx)).successfulSubrangeCompaction(compactedRange.right, startTime, repaired);
+                ((LeveledCompactionStrategy)strategy).successfulSubrangeCompaction(compactedRange.right, startTime, repaired);
             }
         }
     }
