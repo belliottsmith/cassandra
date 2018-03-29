@@ -1444,6 +1444,11 @@ public class NodeProbe implements AutoCloseable
     {
         return arsProxy;
     }
+
+    public void reloadSslCerts()
+    {
+        msProxy.reloadSslCertificates();
+    }
 }
 
 class ColumnFamilyStoreMBeanIterator implements Iterator<Map.Entry<String, ColumnFamilyStoreMBean>>
