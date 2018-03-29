@@ -136,12 +136,26 @@ public class DataResolverTest
      */
     private void assertRepairFuture(DataResolver resolver, int expectedRepairs)
     {
-        assertEquals(expectedRepairs, resolver.repairResults.size());
-
-        // Signal all future. We pass a completely fake response message, but it doesn't matter as we just want
-        // AsyncOneResponse to signal success, and it only cares about a non-null MessageIn (it collects the payload).
-        for (AsyncOneResponse<?> future : resolver.repairResults)
-            future.response(MessageIn.create(null, null, null, null, -1));
+        int numRepairs = 0;
+        for (ReadRepairHandler handler: resolver.repairResults)
+        {
+            int repairs = handler.numUnackedRepairs();
+            for (int i=0; i<repairs; i++)
+            {
+                try
+                {
+                    // Signal all future. We pass a completely fake response message, but it doesn't matter as we just want
+                    // AsyncOneResponse to signal success, and it only cares about a non-null MessageIn (it collects the payload).
+                    handler.ack(InetAddress.getByName(String.format("127.0.0.%s", i + 1)));
+                }
+                catch (UnknownHostException e)
+                {
+                    throw new AssertionError(e);
+                }
+            }
+            numRepairs += repairs;
+        }
+        assertEquals(expectedRepairs, numRepairs);
     }
 
     @Test

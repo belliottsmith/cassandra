@@ -927,6 +927,16 @@ public class DatabaseDescriptor
         return conf.auth_cache_warming_enabled;
     }
 
+    public static boolean getSpeculativeReadRepairEnabled()
+    {
+        return conf.enable_speculative_read_repair;
+    }
+
+    public static void setSpeculativeReadRepairEnabled(boolean enabled)
+    {
+        conf.enable_speculative_read_repair = enabled;
+    }
+
     public static int getThriftFramedTransportSize()
     {
         return conf.thrift_framed_transport_size_in_mb * 1024 * 1024;

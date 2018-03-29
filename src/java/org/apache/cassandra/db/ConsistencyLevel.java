@@ -36,6 +36,7 @@ import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.NetworkTopologyStrategy;
 import org.apache.cassandra.transport.ProtocolException;
+import org.apache.cassandra.utils.FBUtilities;
 
 public enum ConsistencyLevel
 {
@@ -140,12 +141,20 @@ public enum ConsistencyLevel
         }
     }
 
+    /**
+     * Determine if this consistency level meets or exceeds the consistency requirements of the given cl for the given keyspace
+     */
+    public boolean satisfies(ConsistencyLevel other, Keyspace keyspace)
+    {
+        return blockFor(keyspace) >= other.blockFor(keyspace);
+    }
+
     public boolean isDatacenterLocal()
     {
         return isDCLocal;
     }
 
-    public boolean isLocal(InetAddress endpoint)
+    public static boolean isLocal(InetAddress endpoint)
     {
         return DatabaseDescriptor.getLocalDataCenter().equals(DatabaseDescriptor.getEndpointSnitch().getDatacenter(endpoint));
     }

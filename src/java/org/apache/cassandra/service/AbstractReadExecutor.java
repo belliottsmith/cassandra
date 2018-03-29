@@ -22,15 +22,18 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.ReadRepairDecision;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.Keyspace;
@@ -65,6 +68,9 @@ public abstract class AbstractReadExecutor
     protected final ReadCallback handler;
     protected final TraceState traceState;
     protected final ColumnFamilyStore cfs;
+    protected final Keyspace keyspace;
+    protected final ConsistencyLevel consistency;
+    protected final int blockFor;
 
     AbstractReadExecutor(Keyspace keyspace, ColumnFamilyStore cfs, ReadCommand command, ConsistencyLevel consistencyLevel, List<InetAddress> targetReplicas)
     {
@@ -73,6 +79,9 @@ public abstract class AbstractReadExecutor
         this.handler = new ReadCallback(new DigestResolver(keyspace, command, consistencyLevel, targetReplicas.size()), consistencyLevel, command, targetReplicas);
         this.cfs = cfs;
         this.traceState = Tracing.instance.get();
+        this.keyspace = cfs.keyspace;
+        this.consistency = consistencyLevel;
+        this.blockFor = consistencyLevel.blockFor(keyspace);
 
         // Set the digest version (if we request some digests). This is the smallest version amongst all our target replicas since new nodes
         // knows how to produce older digest but the reverse is not true.
@@ -82,6 +91,11 @@ public abstract class AbstractReadExecutor
         for (InetAddress replica : targetReplicas)
             digestVersion = Math.min(digestVersion, MessagingService.instance().getVersion(replica));
         command.setDigestVersion(digestVersion);
+    }
+
+    public int getBlockFor()
+    {
+        return blockFor;
     }
 
     protected void makeDataRequests(Iterable<InetAddress> endpoints)
@@ -163,6 +177,13 @@ public abstract class AbstractReadExecutor
         }
     }
 
+    public DecoratedKey key()
+    {
+        Preconditions.checkState(command instanceof SinglePartitionReadCommand,
+                                 "Can only get keys for SinglePartitionReadCommand");
+        return ((SinglePartitionReadCommand) command).partitionKey();
+    }
+
     /**
      * @return an executor appropriate for the configured speculative read policy
      */
@@ -241,6 +262,20 @@ public abstract class AbstractReadExecutor
             return false;
 
         return !handler.await(cfs.sampleLatencyNanos, TimeUnit.NANOSECONDS);
+    }
+
+    public boolean shouldSpeculateReadRepair()
+    {
+        ConsistencyLevel speculativeCL = consistency.isDatacenterLocal() ? ConsistencyLevel.LOCAL_QUORUM : ConsistencyLevel.QUORUM;
+        return DatabaseDescriptor.getSpeculativeReadRepairEnabled()
+               && consistency != ConsistencyLevel.EACH_QUORUM
+               && consistency.satisfies(speculativeCL, keyspace)
+               && cfs.sampleLatencyNanos <= TimeUnit.MILLISECONDS.toNanos(command.getTimeout());
+    }
+
+    long speculateWaitNanos()
+    {
+        return cfs.sampleLatencyNanos;
     }
 
     void onReadTimeout() {}

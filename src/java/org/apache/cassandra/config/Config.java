@@ -108,6 +108,8 @@ public class Config
 
     public Boolean enable_shadow_christmas_patch = false;
 
+    public volatile boolean enable_speculative_read_repair = true;
+
     /* initial token in the ring */
     public String initial_token;
     public Integer num_tokens = 1;

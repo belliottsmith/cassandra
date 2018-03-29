@@ -433,7 +433,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
          * <p>
          * This should always be the first call for a given row.
          *
-         * @param clustering the clustering for the new row.
+         * @param clustering the clustering for the new row
          */
         public void newRow(Clustering clustering);
 
