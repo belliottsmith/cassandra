@@ -25,6 +25,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -121,6 +122,7 @@ public class DatabaseDescriptor
     public static void forceStaticInitialization() {}
 
     private static volatile boolean aggressiveGC = Boolean.getBoolean("cassandra.aggressivegcls.enabled");
+    private static volatile long scheduledCompactionCycleTimeSeconds;
 
     public static String getFullQueryLogPath()
     {
@@ -762,6 +764,7 @@ public class DatabaseDescriptor
         {
             throw new ConfigurationException("Encryption must be enabled in client_encryption_options for native_transport_port_ssl", false);
         }
+        scheduledCompactionCycleTimeSeconds = parseScheduledCycleTimeSeconds(conf.scheduled_compaction_cycle_time);
 
         if (conf.max_value_size_in_mb == null || conf.max_value_size_in_mb <= 0)
             throw new ConfigurationException("max_value_size_in_mb must be positive", false);
@@ -2456,5 +2459,109 @@ public class DatabaseDescriptor
     public static void setRejectOutOfTokenRangeRequests(boolean enabled)
     {
         conf.reject_out_of_token_range_requests = enabled;
+    }
+
+    public static boolean getEnableScheduledCompactions()
+    {
+        return conf.enable_scheduled_compactions;
+    }
+
+    public static void setEnableScheduledCompactions(boolean enable)
+    {
+        conf.enable_scheduled_compactions = enable;
+    }
+
+    public static int getScheduledCompactionRangeSplits()
+    {
+        return conf.scheduled_compaction_range_splits;
+    }
+
+    public static void setScheduledCompactionRangeSplits(int val)
+    {
+        if (val <= 0)
+            throw new RuntimeException("Range splits must be > 0");
+        conf.scheduled_compaction_range_splits = val;
+    }
+
+    public static long getScheduledCompactionCycleTimeSeconds()
+    {
+        return scheduledCompactionCycleTimeSeconds;
+    }
+
+    public static boolean getSkipSingleSSTableScheduledCompactions()
+    {
+        return conf.skip_single_sstable_scheduled_compactions;
+    }
+
+    public static void setSkipSingleSSTableScheduledCompactions(boolean val)
+    {
+        conf.skip_single_sstable_scheduled_compactions = val;
+    }
+
+    public static void setScheduledCompactionCycleTime(String time)
+    {
+        try
+        {
+            scheduledCompactionCycleTimeSeconds = parseScheduledCycleTimeSeconds(time);
+        }
+        catch (ConfigurationException e)
+        {
+            throw new RuntimeException("Could not set "+time+" as scheduled compaction cycle time");
+        }
+    }
+
+    public static long getMaxScheduledCompactionSSTableSizeBytes()
+    {
+        return conf.max_scheduled_compaction_sstable_size_bytes;
+    }
+
+    public static void setMaxScheduledCompactionSSTableSizeBytes(long size)
+    {
+        if (size <= 0)
+            throw new RuntimeException("Max sstable size must be > 0");
+        conf.max_scheduled_compaction_sstable_size_bytes = size;
+    }
+
+    public static int getMaxScheduledCompactionSSTableCount()
+    {
+        return conf.max_scheduled_compaction_sstable_count;
+    }
+
+    public static void setMaxScheduledCompactionSSTableCount(int count)
+    {
+        if (count <= 1)
+            throw new RuntimeException("Max sstable count must be > 1");
+        conf.max_scheduled_compaction_sstable_count = count;
+    }
+
+    private static long parseScheduledCycleTimeSeconds(String rawValue) throws ConfigurationException
+    {
+        String trimmed = rawValue.trim().toLowerCase();
+        char unitCharacter = trimmed.charAt(trimmed.length() - 1);
+        int value;
+        try
+        {
+            value = Integer.valueOf(trimmed.substring(0, trimmed.length() - 1));
+        }
+        catch (NumberFormatException e)
+        {
+            throw new ConfigurationException(rawValue + " is invalid configuration for scheduled_compaction_cycle_time");
+        }
+        TimeUnit timeUnit;
+        switch (unitCharacter)
+        {
+            case 's':
+                timeUnit = TimeUnit.SECONDS;
+                break;
+            case 'h':
+                timeUnit = TimeUnit.HOURS;
+                break;
+            case 'd':
+                timeUnit = TimeUnit.DAYS;
+                break;
+            default:
+                throw new ConfigurationException("Could only supported time units are: s, h, d, got: "+unitCharacter);
+        }
+        return timeUnit.toSeconds(value);
     }
 }
