@@ -1,26 +1,28 @@
 3.0.16.3 (Open)
 
 3.0.16.2
-* <rdar://problem/35792234> 3.0: Scheduled rolling sub range compactions
-* <rdar://problem/36646877> Backport CASSANDRA-14202: handle throwable during startup
-* <rdar://problem/37121607> Backport CASSANDRA-14214: Make never purge tombstones a hotprop
-* <rdar://problem/37818459> Speculative Retry Policy Should Support MIN/MAX of 2 Parameters
-* <rdar://problem/38239175> Backport CASSANDRA-14330: Handle repeat open bound from SRP in read repair
-* <rdar://problem/38792008> Fallback GC Before is not now
-* <rdar://problem/38616839> Backport CASSANDRA-14201
-* <rdar://problem/38217300> BACKPORT 14194 and 14292 to cie-cassandra 3.0
-* <rdar://problem/38370262> (Apple Internal) Allow logging blocking RR attempts in detail when enabled via JMX for a period of time
-* <rdar://problem/38356651> (Apple Internal) ReadResponse#toDebugString() should output contents in the iterator order
-* <rdar://problem/38356543> (Apple Internal) Include the original ReadCommand in read repair assertion
-* <rdar://problem/38341198> (Apple Internal) Improve logging in RR and for RTs in general to simplify investigations
-* <rdar://problem/34811616> (Apple Internal) Turn on rejection of out of token range requests by default
-* <rdar://problem/37406618> (Apple Internal) Log the keyspace, table name and potentially set of partition keys for mutations outside valid range.
-* <rdar://problem/38028382> Backport CASSANDRA-10112: Refuse to start and print txn log information in case of disk corruption
-* <rdar://problem/37798973> Backport CASSANDRA-14302: Log when deleting sstable
-* <rdar://problem/38263863> (Apple Internal) (emit metric on preview repair failure)
-* <rdar://problem/38109215> Backport CASSANDRA-14294 - Forced incremental repairs should promote sstables if they can
-* <rdar://problem/38144144> (Apple Internal) (Cass: remove -XX:+PerfDisableSharedMem from 3.0 clusters)
-* <rdar://problem/38562917> (Apple Internal) (Speculate on read repair - 3.0)
+ * <rdar://problem/38172455> Scheduled compaction improvements
+ * <rdar://problem/37134393> Backport CASSANDRA-14222
+ * <rdar://problem/35792234> 3.0: Scheduled rolling sub range compactions
+ * <rdar://problem/36646877> Backport CASSANDRA-14202: handle throwable during startup
+ * <rdar://problem/37121607> Backport CASSANDRA-14214: Make never purge tombstones a hotprop
+ * <rdar://problem/37818459> Speculative Retry Policy Should Support MIN/MAX of 2 Parameters
+ * <rdar://problem/38239175> Backport CASSANDRA-14330: Handle repeat open bound from SRP in read repair
+ * <rdar://problem/38792008> Fallback GC Before is not now
+ * <rdar://problem/38616839> Backport CASSANDRA-14201
+ * <rdar://problem/38217300> BACKPORT 14194 and 14292 to cie-cassandra 3.0
+ * <rdar://problem/38370262> (Apple Internal) Allow logging blocking RR attempts in detail when enabled via JMX for a period of time
+ * <rdar://problem/38356651> (Apple Internal) ReadResponse#toDebugString() should output contents in the iterator order
+ * <rdar://problem/38356543> (Apple Internal) Include the original ReadCommand in read repair assertion
+ * <rdar://problem/38341198> (Apple Internal) Improve logging in RR and for RTs in general to simplify investigations
+ * <rdar://problem/34811616> (Apple Internal) Turn on rejection of out of token range requests by default
+ * <rdar://problem/37406618> (Apple Internal) Log the keyspace, table name and potentially set of partition keys for mutations outside valid range.
+ * <rdar://problem/38028382> Backport CASSANDRA-10112: Refuse to start and print txn log information in case of disk corruption
+ * <rdar://problem/37798973> Backport CASSANDRA-14302: Log when deleting sstable
+ * <rdar://problem/38263863> (Apple Internal) (emit metric on preview repair failure)
+ * <rdar://problem/38109215> Backport CASSANDRA-14294 - Forced incremental repairs should promote sstables if they can
+ * <rdar://problem/38144144> (Apple Internal) (Cass: remove -XX:+PerfDisableSharedMem from 3.0 clusters)
+ * <rdar://problem/38562917> (Apple Internal) (Speculate on read repair - 3.0)
 
 3.0.16.1
  * <rdar://problem/37709781> (Apple Internal) repair history sync sending out of date values
