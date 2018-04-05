@@ -27,6 +27,7 @@ import java.util.concurrent.Semaphore;
 import com.google.common.collect.ImmutableMap;
 
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -50,6 +51,7 @@ import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
 /**
  * Since this test depends on byteman rules being setup during initialization, you shouldn't add tests to this class
  */
+@Ignore
 @RunWith(BMUnitRunner.class)
 public class CommitLogSegmentBackpressureTest
 {
