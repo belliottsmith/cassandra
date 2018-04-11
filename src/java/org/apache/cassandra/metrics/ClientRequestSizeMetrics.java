@@ -22,6 +22,7 @@ import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.Histogram;
+import org.apache.cassandra.utils.EstimatedHistogram;
 
 /**
  * Metrics to track the size of incoming and outgoing bytes at Cassandra server.
@@ -33,4 +34,6 @@ public class ClientRequestSizeMetrics
     public static final Counter totalBytesWritten = Metrics.counter(DefaultNameFactory.createMetricName(TYPE, "OutgoingBytes", null));
     public static final Histogram bytesReadPerQueryHistogram = Metrics.histogram(DefaultNameFactory.createMetricName(TYPE, "BytesReadPerQuery", null), true);
     public static final Histogram bytesWrittenPerQueryHistogram = Metrics.histogram(DefaultNameFactory.createMetricName(TYPE, "BytesWrittenPerQuery", null), true);
+    public static final EstimatedHistogram bytesReadPerQueryEstimatedHistogram = new EstimatedHistogram();
+    public static final EstimatedHistogram bytesWrittenPerQueryEstimatedHistogram = new EstimatedHistogram();
 }

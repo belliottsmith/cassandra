@@ -3222,6 +3222,15 @@ public class StorageProxy implements StorageProxyMBean
     {
         return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.ANY);
     }
+
+    @Override
+    public long[] getBytesReadPerQueryEstimatedHistogram() {
+        return ClientRequestSizeMetrics.bytesReadPerQueryEstimatedHistogram.getBuckets(true);
+    }
+
+    public long[] getBytesWrittenPerQueryEstimatedHistogram() {
+        return ClientRequestSizeMetrics.bytesWrittenPerQueryEstimatedHistogram.getBuckets(true);
+    }
     
     public int getOtcBacklogExpirationInterval() {
         return DatabaseDescriptor.getOtcBacklogExpirationInterval();

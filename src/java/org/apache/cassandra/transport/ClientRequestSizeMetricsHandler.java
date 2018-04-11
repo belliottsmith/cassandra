@@ -35,6 +35,7 @@ public class ClientRequestSizeMetricsHandler extends MessageToMessageCodec<ByteB
         final long messageSize = buf.writerIndex() - buf.readerIndex();
         ClientRequestSizeMetrics.totalBytesRead.inc(messageSize);
         ClientRequestSizeMetrics.bytesReadPerQueryHistogram.update(messageSize);
+        ClientRequestSizeMetrics.bytesReadPerQueryEstimatedHistogram.add(messageSize);
         buf.retain();
         results.add(buf);
     }
@@ -45,6 +46,7 @@ public class ClientRequestSizeMetricsHandler extends MessageToMessageCodec<ByteB
         final long messageSize = buf.writerIndex() - buf.readerIndex();
         ClientRequestSizeMetrics.totalBytesWritten.inc(messageSize);
         ClientRequestSizeMetrics.bytesWrittenPerQueryHistogram.update(messageSize);
+        ClientRequestSizeMetrics.bytesWrittenPerQueryEstimatedHistogram.add(messageSize);
         buf.retain();
         results.add(buf);
     }
