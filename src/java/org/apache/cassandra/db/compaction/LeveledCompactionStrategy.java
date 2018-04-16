@@ -43,6 +43,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.NoSpamLogger;
@@ -54,6 +55,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
     private static final NoSpamLogger noSpam1m = NoSpamLogger.getLogger(logger, 1, TimeUnit.MINUTES);
     private static final String SSTABLE_SIZE_OPTION = "sstable_size_in_mb";
     private static final String SCHEDULED_COMPACTION_OPTION = "scheduled_compactions";
+    private static final String SINGLE_SSTABLE_UPLEVEL_OPTION = "single_sstable_uplevel";
 
     private final long maxGCSSTableSize;
     private final int maxGCSSTables;
@@ -73,6 +75,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
     final LeveledManifest manifest;
     private final int maxSSTableSizeInMB;
     private final boolean enableScheduledCompactions;
+    private final boolean singleSSTableUplevel;
 
     public LeveledCompactionStrategy(ColumnFamilyStore cfs, Map<String, String> options)
     {
@@ -80,6 +83,8 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         int configuredMaxSSTableSize = 160;
         boolean configuredEnableScheduledCompactions = false;
         SizeTieredCompactionStrategyOptions localOptions = new SizeTieredCompactionStrategyOptions(options);
+        boolean configuredSingleSSTableUplevel = false;
+
         if (options != null)
         {
             if (options.containsKey(SSTABLE_SIZE_OPTION))             
@@ -99,9 +104,16 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             {
                 configuredEnableScheduledCompactions = Boolean.parseBoolean(options.get(SCHEDULED_COMPACTION_OPTION));
             }
+
+            if (options.containsKey(SINGLE_SSTABLE_UPLEVEL_OPTION))
+            {
+                configuredSingleSSTableUplevel = Boolean.parseBoolean(options.get(SINGLE_SSTABLE_UPLEVEL_OPTION));
+            }
         }
+
         enableScheduledCompactions = configuredEnableScheduledCompactions;
         maxSSTableSizeInMB = configuredMaxSSTableSize;
+        singleSSTableUplevel = configuredSingleSSTableUplevel;
 
         maxGCSSTableSize = Integer.getInteger("cassandra.aggressivegcls.max_sstable_size_mb", 10240) * 1024l * 1024l;
         maxGCSSTables = Integer.getInteger("cassandra.aggressivegcls.max_sstables", 20);
@@ -176,8 +188,13 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             LifecycleTransaction txn = cfs.getTracker().tryModify(candidate.sstables, OperationType.COMPACTION);
             if (txn != null)
             {
-                LeveledCompactionTask newTask = new LeveledCompactionTask(cfs, txn, candidate.level, gcBefore, candidate.maxSSTableBytes, false);
+                AbstractCompactionTask newTask;
+                if (!singleSSTableUplevel || op == OperationType.TOMBSTONE_COMPACTION || txn.originals().size() > 1)
+                    newTask = new LeveledCompactionTask(cfs, txn, candidate.level, gcBefore, candidate.maxSSTableBytes, false);
+                else
+                    newTask = new SingleSSTableLCSTask(cfs, txn, candidate.level);
                 newTask.setCompactionType(op);
+
                 return newTask;
             }
             previousCandidate = candidate.sstables;
@@ -548,6 +565,13 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
     }
 
     @Override
+    public void metadataChanged(StatsMetadata oldMetadata, SSTableReader sstable)
+    {
+        if (sstable.getSSTableLevel() != oldMetadata.sstableLevel)
+            manifest.newLevel(sstable, oldMetadata.sstableLevel);
+    }
+
+    @Override
     public void addSSTable(SSTableReader added)
     {
         manifest.add(added);
@@ -837,6 +861,8 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         // note that Boolean.parseBoolean (which we use to get SCHEDULED_COMPACTION_OPTION)
         // is friendly, returns false if it can't parse (instead of NFE like above)
         uncheckedOptions.remove(SCHEDULED_COMPACTION_OPTION);
+
+        uncheckedOptions.remove(SINGLE_SSTABLE_UPLEVEL_OPTION);
 
         uncheckedOptions.remove(CompactionParams.Option.MIN_THRESHOLD.toString());
         uncheckedOptions.remove(CompactionParams.Option.MAX_THRESHOLD.toString());

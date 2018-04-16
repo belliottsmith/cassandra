@@ -17,35 +17,40 @@
  */
 package org.apache.cassandra.db.compaction;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.RateLimiter;
-
-import org.apache.cassandra.db.Directories;
-import org.apache.cassandra.db.SerializationHeader;
-import org.apache.cassandra.db.lifecycle.SSTableSet;
-import org.apache.cassandra.io.sstable.Descriptor;
-import org.apache.cassandra.io.sstable.SSTableMultiWriter;
-import org.apache.cassandra.io.sstable.SimpleSSTableMultiWriter;
-import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.Memtable;
+import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.Component;
+import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
+import org.apache.cassandra.io.sstable.SSTableMultiWriter;
+import org.apache.cassandra.io.sstable.SimpleSSTableMultiWriter;
+import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
-import org.apache.cassandra.utils.JVMStabilityInspector;
+import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 
 /**
  * Pluggable compaction strategy determines how SSTables get merged.
@@ -319,6 +324,19 @@ public abstract class AbstractCompactionStrategy
      */
     @VisibleForTesting
     protected abstract Set<SSTableReader> getSSTables();
+
+    /**
+     * Called when the metadata has changed for an sstable - for example if the level changed
+     *
+     * Not called when repair status changes (which is also metadata), because this results in the
+     * sstable getting removed from the compaction strategy instance.
+     *
+     * @param oldMetadata
+     * @param sstable
+     */
+    public void metadataChanged(StatsMetadata oldMetadata, SSTableReader sstable)
+    {
+    }
 
     public static class ScannerList implements AutoCloseable
     {

@@ -51,6 +51,7 @@ import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
+import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.notifications.*;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -559,6 +560,17 @@ public class CompactionStrategyManager implements INotificationConsumer
                 writeLock.unlock();
             }
         }
+        else if (notification instanceof SSTableMetadataChanged)
+        {
+            SSTableMetadataChanged lcNotification = (SSTableMetadataChanged) notification;
+            handleMetadataChangedNotification(lcNotification.sstable, lcNotification.oldMetadata);
+        }
+    }
+
+    private void handleMetadataChangedNotification(SSTableReader sstable, StatsMetadata oldMetadata)
+    {
+        AbstractCompactionStrategy acs = getCompactionStrategyFor(sstable);
+        acs.metadataChanged(oldMetadata, sstable);
     }
 
     public void enable()

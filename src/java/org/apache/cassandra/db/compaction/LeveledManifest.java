@@ -951,6 +951,15 @@ public class LeveledManifest
         return sstables;
     }
 
+    public synchronized void newLevel(SSTableReader sstable, int oldLevel)
+    {
+        boolean removed = generations[oldLevel].remove(sstable);
+        if (!removed)
+            throw new IllegalStateException("Could not remove " + sstable + " from " + oldLevel);
+        add(sstable);
+        lastCompactedKeys[oldLevel] = sstable.last;
+    }
+
     public static class CompactionCandidate
     {
         public final Collection<SSTableReader> sstables;
