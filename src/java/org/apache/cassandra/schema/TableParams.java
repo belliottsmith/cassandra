@@ -26,14 +26,13 @@ import com.google.common.collect.ImmutableMap;
 
 import org.apache.cassandra.cql3.Attributes;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.service.reads.PercentileSpeculativeRetryPolicy;
 import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
 import org.apache.cassandra.utils.BloomCalculations;
 import static java.lang.String.format;
 
 public final class TableParams
 {
-    public static final TableParams DEFAULT = TableParams.builder().build();
-
     public enum Option
     {
         BLOOM_FILTER_FP_CHANCE,
@@ -68,6 +67,9 @@ public final class TableParams
     public static final int DEFAULT_MIN_INDEX_INTERVAL = 128;
     public static final int DEFAULT_MAX_INDEX_INTERVAL = 2048;
     public static final double DEFAULT_CRC_CHECK_CHANCE = 1.0;
+    public static final SpeculativeRetryPolicy DEFAULT_SPECULATIVE_RETRY = new PercentileSpeculativeRetryPolicy(99.0);
+
+    public static final TableParams DEFAULT = TableParams.builder().build();
 
     public final String comment;
     public final double readRepairChance;
@@ -277,7 +279,7 @@ public final class TableParams
         private int memtableFlushPeriodInMs = DEFAULT_MEMTABLE_FLUSH_PERIOD_IN_MS;
         private int minIndexInterval = DEFAULT_MIN_INDEX_INTERVAL;
         private int maxIndexInterval = DEFAULT_MAX_INDEX_INTERVAL;
-        private SpeculativeRetryPolicy speculativeRetry = SpeculativeRetryPolicy.DEFAULT;
+        private SpeculativeRetryPolicy speculativeRetry = DEFAULT_SPECULATIVE_RETRY;
         private CachingParams caching = CachingParams.DEFAULT;
         private CompactionParams compaction = CompactionParams.DEFAULT;
         private CompressionParams compression = CompressionParams.DEFAULT;
