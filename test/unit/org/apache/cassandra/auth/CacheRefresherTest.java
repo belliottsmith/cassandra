@@ -20,6 +20,8 @@ package org.apache.cassandra.auth;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -41,8 +43,11 @@ public class CacheRefresherTest
             }
         };
         LoadingCache<String, String> cache = CacheBuilder.newBuilder().build(loader);
-        CacheRefresher<String, String> refresher = CacheRefresher.create("test", cache);
 
+        AtomicBoolean skipRefresh = new AtomicBoolean(false);
+        BooleanSupplier skipCondition = skipRefresh::get;
+
+        CacheRefresher<String, String> refresher = CacheRefresher.create("test", cache, null, skipCondition);
         src.put("some", "thing");
         Assert.assertEquals("thing", cache.get("some"));
 
@@ -53,5 +58,15 @@ public class CacheRefresherTest
         // ... but refresher should update it
         refresher.run();
         Assert.assertEquals("one", cache.get("some"));
+
+        // if the skip condition returns true, don't refresh
+        skipRefresh.set(true);
+        src.put("some", "body");
+        refresher.run();
+        Assert.assertEquals("one", cache.get("some"));
+        // change the skip condition back to false and refresh
+        skipRefresh.set(false);
+        refresher.run();
+        Assert.assertEquals("body", cache.get("some"));
     }
 }

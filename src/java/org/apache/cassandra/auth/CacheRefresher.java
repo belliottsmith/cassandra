@@ -19,9 +19,14 @@
 package org.apache.cassandra.auth;
 
 
+import java.util.function.BooleanSupplier;
+
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.LoadingCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.cassandra.service.StorageService;
 
 public class CacheRefresher<K, V> implements Runnable
 {
@@ -30,12 +35,14 @@ public class CacheRefresher<K, V> implements Runnable
     private final String name;
     private final LoadingCache<K, V> cache;
     private final Object deleteSentinel;
+    private final BooleanSupplier skipCondition;
 
-    private CacheRefresher(String name, LoadingCache<K, V> cache, Object deleteSentinel)
+    private CacheRefresher(String name, LoadingCache<K, V> cache, Object deleteSentinel, BooleanSupplier skipCondition)
     {
         this.name = name;
         this.cache = cache;
         this.deleteSentinel = deleteSentinel;
+        this.skipCondition = skipCondition;
     }
 
     public void run()
@@ -45,6 +52,12 @@ public class CacheRefresher<K, V> implements Runnable
             logger.debug("Refreshing {} cache", name);
             for (K key : cache.asMap().keySet()) 
             {
+                if (skipCondition.getAsBoolean())
+                {
+                    logger.debug("Skipping {} cache refresh", name);
+                    return;
+                }
+
                 cache.refresh(key);
                 if (deleteSentinel != null && cache.getIfPresent(key) == deleteSentinel) 
                 {
@@ -58,10 +71,17 @@ public class CacheRefresher<K, V> implements Runnable
         }
     }
 
-    public static <K, V> CacheRefresher<K, V> create(String name, LoadingCache<K, V> cache, Object deleteSentinel)
+    @VisibleForTesting
+    public static <K, V> CacheRefresher<K, V> create(String name, LoadingCache<K, V> cache, Object deleteSentinel, BooleanSupplier skipCondition)
     {
         logger.info("Creating CacheRefresher for {}", name);
-        return new CacheRefresher<>(name, cache, deleteSentinel);
+        return new CacheRefresher<>(name, cache, deleteSentinel, skipCondition);
+    }
+
+    public static <K, V> CacheRefresher<K, V> create(String name, LoadingCache<K, V> cache, Object deleteSentinel)
+    {
+        // by default we skip cache refreshes if the node has been decommed
+        return create(name, cache, deleteSentinel, StorageService.instance::isDecommissioned);
     }
 
     public static <K, V> CacheRefresher<K, V> create(String name, LoadingCache<K, V> cache)
