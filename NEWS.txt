@@ -52,6 +52,10 @@ Upgrading
       propagated to all replicas.
     - Changes to bloom_filter_fp_chance will no longer take effect on existing sstables when the node is restarted. Only
       compactions/upgradesstables regenerates bloom filters and Summaries sstable components. See CASSANDRA-11163
+    - LCS now respects the max_threshold parameter when compacting - this was hard coded to 32 before, but now it is possible
+      to do bigger compactions when compacting from L0 to L1.  This also applies to STCS-compactions in L0 - if there are
+      more than 32 sstables in L0 we will compact at most max_threshold sstables in an L0 STCS compaction. See
+      CASSANDRA-14388 for more information.
 
 Deprecation
 -----------
