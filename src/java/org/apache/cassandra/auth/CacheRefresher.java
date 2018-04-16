@@ -18,12 +18,17 @@
 
 package org.apache.cassandra.auth;
 
-
+import java.util.Set;
 import java.util.function.BiPredicate;
+import java.util.function.BooleanSupplier;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.google.common.annotations.VisibleForTesting;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.cassandra.service.StorageService;
 
 public class CacheRefresher<K, V> implements Runnable
 {
@@ -32,12 +37,14 @@ public class CacheRefresher<K, V> implements Runnable
     private final String name;
     private final LoadingCache<K, V> cache;
     private final BiPredicate<K, V> invalidationCondition;
+    private final BooleanSupplier skipCondition;
 
-    private CacheRefresher(String name, LoadingCache<K, V> cache,  BiPredicate<K, V> invalidationCondition)
+    private CacheRefresher(String name, LoadingCache<K, V> cache,  BiPredicate<K, V> invalidationCondition, BooleanSupplier skipCondition)
     {
         this.name = name;
         this.cache = cache;
         this.invalidationCondition = invalidationCondition;
+        this.skipCondition = skipCondition;
     }
 
     public void run()
@@ -45,8 +52,15 @@ public class CacheRefresher<K, V> implements Runnable
         try
         {
             logger.debug("Refreshing {} cache", name);
-            for (K key : cache.asMap().keySet()) 
+            Set<K> ks = cache.asMap().keySet();
+            for (K key : ks)
             {
+                if (skipCondition.getAsBoolean())
+                {
+                    logger.debug("Skipping {} cache refresh", name);
+                    return;
+                }
+
                 cache.refresh(key);
                 V value = cache.getIfPresent(key);
                 if (invalidationCondition.test(key, value))
@@ -62,11 +76,34 @@ public class CacheRefresher<K, V> implements Runnable
         }
     }
 
+    @VisibleForTesting
     public static <K, V> CacheRefresher<K, V> create(String name,
                                                      LoadingCache<K, V> cache,
-                                                     BiPredicate<K, V> invalidationCondition)
+                                                     BiPredicate<K, V> invalidationCondition,
+                                                     BooleanSupplier skipCondition)
     {
         logger.info("Creating CacheRefresher for {}", name);
-        return new CacheRefresher<>(name, cache, invalidationCondition);
+        return new CacheRefresher<>(name, cache, invalidationCondition, skipCondition);
     }
+
+    public static <K, V> CacheRefresher<K, V> create(String name, LoadingCache<K, V> cache, BiPredicate<K, V> invalidationCondition)
+    {
+        // by default we skip cache refreshes if the node has been decommed
+        return create(name, cache, invalidationCondition, StorageService.instance::isDecommissioned);
+    }
+
+/*
+
+    public static <K, V> CacheRefresher<K, V> create(String name, LoadingCache<K, V> cache, Object deleteSentinel)
+    {
+        // by default we skip cache refreshes if the node has been decommed
+        return create(name, cache, deleteSentinel, StorageService.instance::isDecommissioned);
+    }
+
+    public static <K, V> CacheRefresher<K, V> create(String name, LoadingCache<K, V> cache)
+    {
+        return create(name, cache, null);
+    }
+
+ */
 }
