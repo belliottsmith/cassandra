@@ -20,6 +20,8 @@ package org.apache.cassandra.auth;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 
 import com.google.common.util.concurrent.MoreExecutors;
 
@@ -42,12 +44,16 @@ public class CacheRefresherTest
                 return src.get(key);
             }
         };
-        // Use directExecutor for async reloads as per AuthCache
+        // Supply the directExecutor so the refresh() call executes
+        // within the refresher task like AuthCache (rather than async)
         LoadingCache<String, String> cache = Caffeine.newBuilder()
                                                      .executor(MoreExecutors.directExecutor())
                                                      .build(loader);
-        CacheRefresher<String, String> refresher = CacheRefresher.create("test", cache, (k, v) -> v.equals("removed"));
 
+        AtomicBoolean skipRefresh = new AtomicBoolean(false);
+        BooleanSupplier skipCondition = skipRefresh::get;
+
+        CacheRefresher<String, String> refresher = CacheRefresher.create("test", cache, (k, v) -> v.equals("removed"), skipCondition);
         src.put("some", "thing");
         Assert.assertEquals("thing", cache.get("some"));
 
@@ -71,5 +77,17 @@ public class CacheRefresherTest
         src.remove("some");
         // remove from src
         Assert.assertNull(cache.get("some"));
+
+        // if the skip condition returns true, don't refresh
+        src.put("some", "one");
+        Assert.assertEquals("one", cache.get("some"));
+        skipRefresh.set(true);
+        src.put("some", "body");
+        refresher.run();
+        Assert.assertEquals("one", cache.get("some"));
+        // change the skip condition back to false and refresh
+        skipRefresh.set(false);
+        refresher.run();
+        Assert.assertEquals("body", cache.get("some"));
     }
 }
