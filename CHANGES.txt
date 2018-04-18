@@ -1,4 +1,8 @@
-3.0.16.3 (Open)
+3.0.16.3
+ * <rdar://problem/39324903> Backport CASSANDRA-14352: Clean up parsing speculative retry params from string
+ * <rdar://problem/38175046> Backport CASSANDRA-14310: Deadlock on startup if nodetool refresh is called before the cfs is initialized
+ * <rdar://problem/38810468> (Apple Internal) Skip auth cache refreshes once a node has been decommissioned
+ * <rdar://problem/37834697> (Apple Internal) Negative "Reads and Writes Per Query" metrics after 3.0 in hubble
 
 3.0.16.2
  * <rdar://problem/38172455> Scheduled compaction improvements
