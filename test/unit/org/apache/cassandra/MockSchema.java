@@ -74,6 +74,11 @@ public class MockSchema
         return sstable(generation, false, cfs);
     }
 
+    public static SSTableReader sstable(int generation, long first, long last, ColumnFamilyStore cfs)
+    {
+        return sstable(generation, 0, false, cfs, readerBounds(first), readerBounds(last));
+    }
+
     public static SSTableReader sstable(int generation, boolean keepRef, ColumnFamilyStore cfs)
     {
         return sstable(generation, 0, keepRef, cfs);
@@ -83,7 +88,6 @@ public class MockSchema
     {
         return sstable(generation, size, false, cfs);
     }
-
     public static SSTableReader sstable(int generation, int size, boolean keepRef, ColumnFamilyStore cfs)
     {
         return sstable(generation, size, keepRef, cfs, readerBounds(generation), readerBounds(generation));
@@ -161,7 +165,7 @@ public class MockSchema
         return metadata;
     }
 
-    public static BufferDecoratedKey readerBounds(int generation)
+    public static BufferDecoratedKey readerBounds(long generation)
     {
         return new BufferDecoratedKey(new Murmur3Partitioner.LongToken(generation), ByteBufferUtil.EMPTY_BYTE_BUFFER);
     }
