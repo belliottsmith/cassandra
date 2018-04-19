@@ -5064,26 +5064,17 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     @Deprecated
     public void loadNewSSTables(String ksName, String cfName)
     {
-        loadNewSSTables(ksName, cfName, null, true, false, false, false, false);
+        loadNewSSTables(ksName, cfName, null);
     }
 
     /**
      * #{@inheritDoc}
      */
-    public void importNewSSTables(String ksName, String cfName, String srcPath, boolean resetLevel, boolean clearRepaired, boolean verifySSTables, boolean verifyTokens, boolean invalidateCaches)
-    {
-        loadNewSSTables(ksName, cfName, srcPath, resetLevel, clearRepaired, verifySSTables, verifyTokens, invalidateCaches);
-    }
-
-    /**
-     * #{@inheritDoc}
-     */
-    public void loadNewSSTables(String ksName, String cfName, String srcPath, boolean resetLevel, boolean clearRepaired, boolean verifySSTables, boolean verifyTokens, boolean invalidateCaches)
+    public void loadNewSSTables(String ksName, String cfName, String dirPath)
     {
         if (!isInitialized())
             throw new RuntimeException("Not yet initialized, can't load new sstables");
-
-        ColumnFamilyStore.loadNewSSTables(ksName, cfName, srcPath, resetLevel, clearRepaired, verifySSTables, verifyTokens, invalidateCaches);
+        ColumnFamilyStore.loadNewSSTables(ksName, cfName, dirPath);
     }
 
     /**

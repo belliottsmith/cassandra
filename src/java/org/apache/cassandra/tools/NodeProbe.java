@@ -1037,12 +1037,12 @@ public class NodeProbe implements AutoCloseable
     @Deprecated
     public void loadNewSSTables(String ksName, String cfName, String dirPath)
     {
-        ssProxy.loadNewSSTables(ksName, cfName, dirPath, true, false, true, true, false);
+        ssProxy.loadNewSSTables(ksName, cfName, dirPath);
     }
 
-    public void importNewSSTables(String ksName, String cfName, String srcPath, boolean resetLevel, boolean clearRepaired, boolean verifySSTables, boolean verifyTokens, boolean invalidateCaches)
+    public void importNewSSTables(String ksName, String cfName, String srcPath, boolean resetLevel, boolean clearRepaired, boolean verifySSTables, boolean verifyTokens, boolean invalidateCaches, boolean extendedVerify)
     {
-        ssProxy.importNewSSTables(ksName, cfName, srcPath, resetLevel, clearRepaired, verifySSTables, verifyTokens, invalidateCaches);
+        getCfsProxy(ksName, cfName).importNewSSTables(srcPath, resetLevel, clearRepaired, verifySSTables, verifyTokens, invalidateCaches, extendedVerify);
     }
 
     public void rebuildIndex(String ksName, String cfName, String... idxNames)

@@ -141,10 +141,17 @@ public interface ColumnFamilyStoreMBean
      * @param verifyTokens if the tokens in the new sstables should be verified that they are owned by the current node
      * @param invalidateCaches if row cache should be invalidated for the keys in the new sstables
      */
-    public void loadNewSSTables(String srcPath, boolean resetLevel, boolean clearRepaired, boolean verifySSTables, boolean verifyTokens, boolean invalidateCaches);
+    public void importNewSSTables(String srcPath,
+                                  boolean resetLevel,
+                                  boolean clearRepaired,
+                                  boolean verifySSTables,
+                                  boolean verifyTokens,
+                                  boolean invalidateCaches,
+                                  boolean extendedVerify);
 
     @Deprecated
-    public void loadNewSSTables();
+    public void loadNewSSTables(String dirPath);
+
     /**
      * @return the number of SSTables in L0.  Always return 0 if Leveled compaction is not enabled.
      */
