@@ -128,6 +128,16 @@ role_manager: CassandraRoleManager
 # Will be disabled automatically for AllowAllAuthenticator.
 roles_validity_in_ms: 86400000
 
+# Network authorization backend, implementing INetworkAuthorizer; used to restrict user
+# access to certain DCs
+# Out of the box, Cassandra provides org.apache.cassandra.auth.{AllowAllNetworkAuthorizer,
+# CassandraNetworkAuthorizer}.
+#
+# - AllowAllNetworkAuthorizer allows access to any DC to any user - set it to disable authorization.
+# - CassandraNetworkAuthorizer stores permissions in system_auth.network_permissions table. Please
+#   increase system_auth keyspace replication factor if you use this authorizer.
+network_authorizer: AllowAllNetworkAuthorizer
+
 # Refresh interval for roles cache (if enabled).
 # After this interval, cache entries become eligible for refresh. Upon next
 # access, an async reload is scheduled and the old value returned until it

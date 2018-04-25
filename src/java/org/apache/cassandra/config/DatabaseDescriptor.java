@@ -38,6 +38,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.auth.*;
+import org.apache.cassandra.auth.AllowAllInternodeAuthenticator;
+import org.apache.cassandra.auth.IAuthenticator;
+import org.apache.cassandra.auth.IAuthorizer;
+import org.apache.cassandra.auth.IInternodeAuthenticator;
+import org.apache.cassandra.auth.INetworkAuthorizer;
+import org.apache.cassandra.auth.IRoleManager;
 import org.apache.cassandra.config.Config.CommitLogSync;
 import org.apache.cassandra.config.Config.RequestSchedulerId;
 import org.apache.cassandra.config.EncryptionOptions.ServerEncryptionOptions;
@@ -91,6 +97,8 @@ public class DatabaseDescriptor
 
     private static IAuthenticator authenticator = new AllowAllAuthenticator();
     private static IAuthorizer authorizer = new AllowAllAuthorizer();
+    private static INetworkAuthorizer networkAuthorizer;
+
     // Don't initialize the role manager until applying config. The options supported by CassandraRoleManager
     // depend on the configured IAuthenticator, so defer creating it until that's been set.
     private static IRoleManager roleManager;
@@ -376,9 +384,18 @@ public class DatabaseDescriptor
         else
             internodeAuthenticator = new AllowAllInternodeAuthenticator();
 
+        // network authorizer
+        networkAuthorizer = FBUtilities.newNetworkAuthorizer(conf.network_authorizer);
+        DatabaseDescriptor.setNetworkAuthorizer(networkAuthorizer);
+        if (networkAuthorizer.requireAuthorization() && !authenticator.requireAuthentication())
+        {
+            throw new ConfigurationException(conf.network_authorizer + " can't be used with " + conf.authenticator, false);
+        }
+
         authenticator.validateConfiguration();
         authorizer.validateConfiguration();
         roleManager.validateConfiguration();
+        networkAuthorizer.validateConfiguration();
         internodeAuthenticator.validateConfiguration();
 
         /* Hashing strategy */
@@ -827,14 +844,39 @@ public class DatabaseDescriptor
         return conf.dynamic_snitch ? new DynamicEndpointSnitch(snitch) : snitch;
     }
 
+    public static void setAuthenticator(IAuthenticator authenticator)
+    {
+        DatabaseDescriptor.authenticator = authenticator;
+    }
+
     public static IAuthenticator getAuthenticator()
     {
         return authenticator;
     }
 
+    public static void setAuthorizer(IAuthorizer authorizer)
+    {
+        DatabaseDescriptor.authorizer = authorizer;
+    }
+
     public static IAuthorizer getAuthorizer()
     {
         return authorizer;
+    }
+
+    public static INetworkAuthorizer getNetworkAuthorizer()
+    {
+        return networkAuthorizer;
+    }
+
+    public static void setNetworkAuthorizer(INetworkAuthorizer networkAuthorizer)
+    {
+        DatabaseDescriptor.networkAuthorizer = networkAuthorizer;
+    }
+
+    public static void setRoleManager(IRoleManager roleManager)
+    {
+        DatabaseDescriptor.roleManager = roleManager;
     }
 
     public static IRoleManager getRoleManager()

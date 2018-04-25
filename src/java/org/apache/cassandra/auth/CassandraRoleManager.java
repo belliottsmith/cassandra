@@ -29,6 +29,8 @@ import java.util.stream.StreamSupport;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import org.apache.commons.lang3.StringUtils;
@@ -48,6 +50,7 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.mindrot.jbcrypt.BCrypt;
 
@@ -119,9 +122,6 @@ public class CassandraRoleManager implements IRoleManager
     private static final String GENSALT_LOG2_ROUNDS_PROPERTY = Config.PROPERTY_PREFIX + "auth_bcrypt_gensalt_log2_rounds";
     private static final int GENSALT_LOG2_ROUNDS = getGensaltLogRounds();
 
-    static final AuthProperties authProperties = new AuthProperties(DatabaseDescriptor.getAuthWriteConsistencyLevel(),
-                                                                     DatabaseDescriptor.getAuthReadConsistencyLevel(),
-                                                                     true);
 
     static int getGensaltLogRounds()
     {
@@ -522,6 +522,12 @@ public class CassandraRoleManager implements IRoleManager
         }
     }
 
+    @VisibleForTesting
+    ResultMessage.Rows select(SelectStatement statement, QueryOptions options)
+    {
+        return statement.execute(QueryState.forInternalCalls(), options);
+    }
+
     /*
      * Get a single Role instance given the role name. This never returns null, instead it
      * uses the null object NULL_ROLE when a role with the given name cannot be found. So
@@ -556,10 +562,9 @@ public class CassandraRoleManager implements IRoleManager
     private Role getRoleFromTable(String name, SelectStatement statement, Function<UntypedResultSet.Row, Role> function)
     throws RequestExecutionException, RequestValidationException
     {
-        UntypedResultSet result = UntypedResultSet.create(
-                                                   statement.execute(QueryState.forInternalCalls(),
-                                                                     QueryOptions.forInternalCalls(consistencyForRoleForRead(),
-                                                                     Collections.singletonList(ByteBufferUtil.bytes(name)))).result);
+        UntypedResultSet result = UntypedResultSet.create(select(statement,
+                                                                 QueryOptions.forInternalCalls(consistencyForRoleForRead(),
+                                                                                               Collections.singletonList(ByteBufferUtil.bytes(name)))).result);
         if (result.isEmpty())
             return Roles.nullRole();
 
@@ -635,12 +640,12 @@ public class CassandraRoleManager implements IRoleManager
 
     protected static ConsistencyLevel consistencyForRoleForRead()
     {
-        return authProperties.getReadConsistencyLevel();
+        return AuthProperties.instance.getReadConsistencyLevel();
     }
 
     protected static ConsistencyLevel consistencyForRoleForWrite()
     {
-        return authProperties.getWriteConsistencyLevel();
+        return AuthProperties.instance.getWriteConsistencyLevel();
     }
 
     private static String hashpw(String password)
@@ -658,7 +663,8 @@ public class CassandraRoleManager implements IRoleManager
      * This shouldn't be used during setup as this will directly return an error if the manager is not setup yet. Setup tasks
      * should use QueryProcessor.process directly.
      */
-    protected UntypedResultSet process(String query, ConsistencyLevel consistencyLevel)
+     @VisibleForTesting
+    UntypedResultSet process(String query, ConsistencyLevel consistencyLevel)
     throws RequestValidationException, RequestExecutionException
     {
         if (!isClusterReady)

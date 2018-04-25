@@ -37,6 +37,7 @@ import org.apache.cassandra.cql3.QueryHandler;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.functions.Function;
 import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.dht.Datacenters;
 import org.apache.cassandra.exceptions.AuthenticationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.UnauthorizedException;
@@ -400,7 +401,13 @@ public class ClientState
     public void validateLogin() throws UnauthorizedException
     {
         if (user == null)
+        {
             throw new UnauthorizedException("You have not logged in");
+        }
+        else if (!user.hasLocalAccess())
+        {
+            throw new UnauthorizedException(String.format("You do not have access to this datacenter (%s)", Datacenters.thisDatacenter()));
+        }
     }
 
     public void ensureNotAnonymous() throws UnauthorizedException

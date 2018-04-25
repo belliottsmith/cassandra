@@ -28,12 +28,14 @@ public class CreateRoleStatement extends AuthenticationStatement
 {
     private final RoleResource role;
     private final RoleOptions opts;
+    final DCPermissions dcPermissions;
     private final boolean ifNotExists;
 
-    public CreateRoleStatement(RoleName name, RoleOptions options, boolean ifNotExists)
+    public CreateRoleStatement(RoleName name, RoleOptions options, DCPermissions dcPermissions, boolean ifNotExists)
     {
         this.role = RoleResource.role(name.getName());
         this.opts = options;
+        this.dcPermissions = dcPermissions;
         this.ifNotExists = ifNotExists;
     }
 
@@ -50,6 +52,7 @@ public class CreateRoleStatement extends AuthenticationStatement
     public void validate(ClientState state) throws RequestValidationException
     {
         opts.validate();
+        dcPermissions.validate();
 
         if (role.getRoleName().isEmpty())
             throw new InvalidRequestException("Role name can't be an empty string");
@@ -68,6 +71,11 @@ public class CreateRoleStatement extends AuthenticationStatement
             return null;
 
         DatabaseDescriptor.getRoleManager().createRole(state.getUser(), role, opts);
+
+        if (DatabaseDescriptor.getNetworkAuthorizer().requireAuthorization())
+        {
+            DatabaseDescriptor.getNetworkAuthorizer().setRoleDatacenters(role, dcPermissions);
+        }
         grantPermissionsToCreator(state);
         return null;
     }

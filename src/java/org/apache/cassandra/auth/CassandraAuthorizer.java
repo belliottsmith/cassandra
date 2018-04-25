@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableSet;
@@ -207,10 +208,8 @@ public class CassandraAuthorizer implements IAuthorizer
                                                   BatchStatement.Type.LOGGED,
                                                   Lists.newArrayList(Iterables.filter(statements, ModificationStatement.class)),
                                                   Attributes.none());
-        QueryProcessor.instance.processBatch(batch,
-                                             QueryState.forInternalCalls(),
-                                             BatchQueryOptions.withoutPerStatementVariables(QueryOptions.DEFAULT));
 
+        processBatch(batch);
     }
 
     // Add every permission on the resource granted to the role
@@ -234,7 +233,8 @@ public class CassandraAuthorizer implements IAuthorizer
             statement = legacyAuthorizeRoleStatement;
         }
 
-        ResultMessage.Rows rows = statement.execute(QueryState.forInternalCalls(), options) ;
+        ResultMessage.Rows rows = select(statement, options);
+
         UntypedResultSet result = UntypedResultSet.create(rows.result);
 
         if (!result.isEmpty() && result.one().has(PERMISSIONS))
@@ -472,7 +472,8 @@ public class CassandraAuthorizer implements IAuthorizer
         return StringUtils.replace(name, "'", "''");
     }
 
-    private UntypedResultSet process(String query, ConsistencyLevel cl) throws RequestExecutionException
+    @VisibleForTesting
+    UntypedResultSet process(String query, ConsistencyLevel cl) throws RequestExecutionException
     {
         return QueryProcessor.process(query, cl);
     }
@@ -573,5 +574,17 @@ public class CassandraAuthorizer implements IAuthorizer
     private static Pair<AuthenticatedUser, IResource> cacheKey(String roleName, IResource resource)
     {
         return Pair.create(new AuthenticatedUser(roleName), resource);
+    }
+
+    ResultMessage.Rows select(SelectStatement statement, QueryOptions options)
+    {
+        return statement.execute(QueryState.forInternalCalls(), options);
+    }
+
+    void processBatch(BatchStatement statement)
+    {
+        QueryProcessor.instance.processBatch(statement,
+                                             QueryState.forInternalCalls(),
+                                             BatchQueryOptions.withoutPerStatementVariables(QueryOptions.DEFAULT));
     }
 }

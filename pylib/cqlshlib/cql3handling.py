@@ -1374,6 +1374,8 @@ syntax_rules += r'''
                  | "OPTIONS" "=" <mapLiteral>
                  | "SUPERUSER" "=" <boolean>
                  | "LOGIN" "=" <boolean>
+                 | "ACCESS" "TO" "DATACENTERS" <setLiteral>
+                 | "ACCESS" "TO" "ALL" "DATACENTERS"
                  ;
 
 <dropRoleStatement> ::= "DROP" "ROLE" <rolename>

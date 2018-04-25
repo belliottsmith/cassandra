@@ -22,6 +22,7 @@ import java.util.Set;
 import com.google.common.base.Objects;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.dht.Datacenters;
 
 /**
  * Returned from IAuthenticator#authenticate(), represents an authenticated user everywhere internally.
@@ -39,10 +40,12 @@ public class AuthenticatedUser
 
     // User-level permissions cache.
     private static final PermissionsCache permissionsCache = new PermissionsCache(DatabaseDescriptor.getAuthorizer());
+    private static final NetworkAuthCache networkAuthCache = new NetworkAuthCache(DatabaseDescriptor.getNetworkAuthorizer());
 
     public static void warmPermissionsCache()
     {
         permissionsCache.warm(DatabaseDescriptor.getAuthorizer());
+        networkAuthCache.warm(DatabaseDescriptor.getNetworkAuthorizer());
     }
 
     private final String name;
@@ -117,6 +120,11 @@ public class AuthenticatedUser
     public Set<Permission> getPermissions(IResource resource)
     {
         return permissionsCache.getPermissions(this, resource);
+    }
+
+    public boolean hasLocalAccess()
+    {
+        return networkAuthCache.getPermissions(this.getPrimaryRole()).canAccess(Datacenters.thisDatacenter());
     }
 
     @Override

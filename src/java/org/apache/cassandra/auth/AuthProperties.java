@@ -23,19 +23,24 @@ import java.lang.management.ManagementFactory;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
 
 public class AuthProperties implements AuthPropertiesMXBean
 {
+
+    static final AuthProperties instance = new AuthProperties(DatabaseDescriptor.getAuthWriteConsistencyLevel(),
+                                                              DatabaseDescriptor.getAuthReadConsistencyLevel(),
+                                                              true);
     private ConsistencyLevel readConsistencyLevel;
     private ConsistencyLevel writeConsistencyLevel;
 
-    public AuthProperties(ConsistencyLevel writeConsistencyLevel, ConsistencyLevel readConsistencyLevel, boolean reigisterMBean)
+    public AuthProperties(ConsistencyLevel writeConsistencyLevel, ConsistencyLevel readConsistencyLevel, boolean registerMBean)
     {
         this.writeConsistencyLevel = writeConsistencyLevel;
         this.readConsistencyLevel = readConsistencyLevel;
 
-        if (reigisterMBean)
+        if (registerMBean)
         {
             try
             {

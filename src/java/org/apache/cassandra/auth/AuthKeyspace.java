@@ -36,6 +36,7 @@ public final class AuthKeyspace
     public static final String ROLE_MEMBERS = "role_members";
     public static final String ROLE_PERMISSIONS = "role_permissions";
     public static final String RESOURCE_ROLE_INDEX = "resource_role_permissons_index";
+    public static final String NETWORK_PERMISSIONS = "network_permissions";
 
     public static final long SUPERUSER_SETUP_DELAY = Long.getLong("cassandra.superuser_setup_delay_ms", 10000);
 
@@ -75,6 +76,13 @@ public final class AuthKeyspace
                 + "role text,"
                 + "PRIMARY KEY(resource, role))");
 
+    private static final CFMetaData NetworkPermissions =
+        compile(NETWORK_PERMISSIONS,
+              "user network permissions",
+              "CREATE TABLE %s ("
+              + "role text, "
+              + "dcs frozen<set<text>>, "
+              + "PRIMARY KEY(role))");
 
     private static CFMetaData compile(String name, String description, String schema)
     {
@@ -86,6 +94,10 @@ public final class AuthKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(1), Tables.of(Roles, RoleMembers, RolePermissions, ResourceRoleIndex));
+        return KeyspaceMetadata.create(NAME, KeyspaceParams.simple(1), Tables.of(Roles,
+                                                                                 RoleMembers,
+                                                                                 RolePermissions,
+                                                                                 ResourceRoleIndex,
+                                                                                 NetworkPermissions));
     }
 }

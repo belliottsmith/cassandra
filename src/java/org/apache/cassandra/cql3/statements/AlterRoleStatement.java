@@ -29,18 +29,30 @@ public class AlterRoleStatement extends AuthenticationStatement
 {
     private final RoleResource role;
     private final RoleOptions opts;
+    final DCPermissions dcPermissions;
 
     public AlterRoleStatement(RoleName name, RoleOptions opts)
     {
+        this(name, opts, null);
+    }
+
+    public AlterRoleStatement(RoleName name, RoleOptions opts, DCPermissions dcPermissions)
+    {
         this.role = RoleResource.role(name.getName());
         this.opts = opts;
+        this.dcPermissions = dcPermissions;
     }
 
     public void validate(ClientState state) throws RequestValidationException
     {
         opts.validate();
 
-        if (opts.isEmpty())
+        if (dcPermissions != null)
+        {
+            dcPermissions.validate();
+        }
+
+        if (opts.isEmpty() && dcPermissions == null)
             throw new InvalidRequestException("ALTER [ROLE|USER] can't be empty");
 
         // validate login here before checkAccess to avoid leaking user existence to anonymous users.
@@ -85,6 +97,8 @@ public class AlterRoleStatement extends AuthenticationStatement
     {
         if (!opts.isEmpty())
             DatabaseDescriptor.getRoleManager().alterRole(state.getUser(), role, opts);
+        if (dcPermissions != null)
+            DatabaseDescriptor.getNetworkAuthorizer().setRoleDatacenters(role, dcPermissions);
         return null;
     }
 }

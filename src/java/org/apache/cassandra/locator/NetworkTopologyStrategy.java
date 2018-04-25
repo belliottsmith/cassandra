@@ -26,10 +26,10 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.dht.Datacenters;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.TokenMetadata.Topology;
-import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 
 import com.google.common.collect.Multimap;
@@ -197,32 +197,10 @@ public class NetworkTopologyStrategy extends AbstractReplicationStrategy
         }
     }
 
-    /*
-     * (non-javadoc) Method to generate list of valid data center names to be used to validate the replication parameters during CREATE / ALTER keyspace operations.
-     * All peers of current node are fetched from {@link TokenMetadata} and then a set is build by fetching DC name of each peer.
-     * @return a set of valid DC names
-     */
-    private static Set<String> buildValidDataCentersSet()
-    {
-        final Set<String> validDataCenters = new HashSet<>();
-        final IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
-
-        // Add data center of localhost.
-        validDataCenters.add(snitch.getDatacenter(FBUtilities.getBroadcastAddress()));
-        // Fetch and add DCs of all peers.
-        for (final InetAddress peer : StorageService.instance.getTokenMetadata().getAllEndpoints())
-        {
-            validDataCenters.add(snitch.getDatacenter(peer));
-        }
-
-        return validDataCenters;
-    }
-
-
     public Collection<String> recognizedOptions()
     {
         // only valid options are valid DC names.
-        return buildValidDataCentersSet();
+        return Datacenters.getValidDatacenters();
     }
 
     protected void validateExpectedOptions() throws ConfigurationException
