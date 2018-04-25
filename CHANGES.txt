@@ -1,3 +1,7 @@
+3.0.16.4
+ * rdar://problem/39558215 Backport CASSANDRA-14411: Use Bounds instead of Range when checking if repaired ranges intersect with sstable
+ * rdar://39544944 (backport CASSANDRA-13985 to 3.0): Add network authz
+
 3.0.16.3
  * <rdar://problem/39324903> Backport CASSANDRA-14352: Clean up parsing speculative retry params from string
  * <rdar://problem/38175046> Backport CASSANDRA-14310: Deadlock on startup if nodetool refresh is called before the cfs is initialized
