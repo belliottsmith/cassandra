@@ -7,8 +7,8 @@ notificationRecipients:
 - jasobrown@apple.com
 - cie-db-ci@group.apple.com
 builds:
-- name: base-docker-3.0.16
-  branchName: cie-cassandra-3.0.16
+- name: base-docker-3.0.17
+  branchName: cie-cassandra-3.0.17
   build:
     template: dockerfile:v1:publish
     buildFilePath: rio/
@@ -20,8 +20,8 @@ builds:
       registry: registry.is.apple.com
       tag: latest
   timeout: 30
-- name: ghprb-3.0.16
-  branchName: cie-cassandra-3.0.16
+- name: ghprb-3.0.17
+  branchName: cie-cassandra-3.0.17
   build:
     template: freestyle:v2:prb
     steps:
@@ -33,8 +33,8 @@ builds:
     reports:
       junit: true
   timeout: 60
-- name: build-3.0.16
-  branchName: cie-cassandra-3.0.16
+- name: build-3.0.17
+  branchName: cie-cassandra-3.0.17
   build:
     template: freestyle:v2:build
     steps:
@@ -48,13 +48,13 @@ builds:
   timeout: 60
   finally:
     buildChain:
-    - cie-cassandra-snapshot-3.0.16
-- name: snapshot-3.0.16
-  branchName: cie-cassandra-3.0.16
+    - cie-cassandra-snapshot-3.0.17
+- name: snapshot-3.0.17
+  branchName: cie-cassandra-3.0.17
   build:
     template: freestyle:v2:snapshot
     steps:
-        - ./rio/release.sh 3.0.16-SNAPSHOT
+        - ./rio/release.sh 3.0.17-SNAPSHOT
   machine:
     docker:
       baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
@@ -67,15 +67,15 @@ builds:
     tag:
       enabled: false
     buildChain:
-        - cie-cassandra-snapshot-carnival-3.0.16
+        - cie-cassandra-snapshot-carnival-3.0.17
   trigger:
     gitPush: false
-- name: snapshot-carnival-3.0.16
-  branchName: cie-cassandra-3.0.16
+- name: snapshot-carnival-3.0.17
+  branchName: cie-cassandra-3.0.17
   build:
     template: freestyle:v2:carnival
     steps:
-    - ./rio/carnival.sh 3.0.16
+    - ./rio/carnival.sh 3.0.17
   machine:
     docker:
       baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
@@ -84,22 +84,22 @@ builds:
       junit: false
     carnival:
       packageName: CIEDb
-      packageSuffix: three-zero-sixteen-snapshot
+      packageSuffix: three-zero-seventeen-snapshot
       packagePath: CIEDb/Updates/
     releaseTrain: 1BUILD
   trigger:
     gitPush: false
   finally:
     tag:
-      expression: cie-cassandra-3.0.16-$RIO_BUILD_NUMBER.$CODE_VERSION
+      expression: cie-cassandra-3.0.17-$RIO_BUILD_NUMBER.$CODE_VERSION
     radar:
       annotate: true
-- name: release-3.0.16
-  branchName: cie-cassandra-3.0.16
+- name: release-3.0.17
+  branchName: cie-cassandra-3.0.17
   build:
     template: freestyle:v2:release
     steps:
-    - ./rio/release.sh 3.0.16.4
+    - ./rio/release.sh 3.0.17.0
   machine:
     docker:
       baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
@@ -112,15 +112,15 @@ builds:
     tag:
       enabled: false
     buildChain:
-    - cie-cassandra-carnival-3.0.16
+    - cie-cassandra-carnival-3.0.17
   trigger:
     gitPush: false
-- name: carnival-3.0.16
-  branchName: cie-cassandra-3.0.16
+- name: carnival-3.0.17
+  branchName: cie-cassandra-3.0.17
   build:
     template: freestyle:v2:carnival
     steps:
-    - ./rio/carnival.sh 3.0.16.4
+    - ./rio/carnival.sh 3.0.17.0
   machine:
     docker:
       baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
@@ -129,18 +129,18 @@ builds:
       junit: false
     carnival:
       packageName: CIEDb
-      packageSuffix: three-zero-sixteen-four
+      packageSuffix: three-zero-seventeen-zero
       packagePath: CIEDb/Updates/
     releaseTrain: 1BUILD
   finally:
     tag:
-      expression: cie-cassandra-3.0.16.4
+      expression: cie-cassandra-3.0.17.0
     radar:
       annotate: true
   trigger:
     gitPush: false
-- name: dtest-3.0.16
-  branchName: cie-cassandra-3.0.16
+- name: dtest-3.0.17
+  branchName: cie-cassandra-3.0.17
   build:
     template: freestyle:v2:build
     steps:
@@ -156,8 +156,8 @@ builds:
   timeout: 600
   trigger:
     gitPush: true
-- name: dtest-3.0.16-fast
-  branchName: cie-cassandra-3.0.16
+- name: dtest-3.0.17-fast
+  branchName: cie-cassandra-3.0.17
   build:
     template: freestyle:v2:build
     steps:
@@ -175,9 +175,9 @@ builds:
   timeout: 480
   trigger:
     gitPush: true
-- name: ghprb-dtest-3.0.16
+- name: ghprb-dtest-3.0.17
   disabled: true
-  branchName: cie-cassandra-3.0.16
+  branchName: cie-cassandra-3.0.17
   build:
     template: freestyle:v2:prb
     steps:
