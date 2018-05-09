@@ -24,13 +24,13 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.tracing.Tracing;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NoSpamLogger;
 
@@ -75,13 +75,32 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
             }
         }
 
+        // If tracking of repaired data is requested by the coordinator (see comment below),
+        // then mark that on the command before it's executed
+        if (message.parameters.containsKey(ReadCommand.TRACK_REPAIRED_DATA))
+            command.trackRepairedStatus();
+
         ReadResponse response;
         try (ReadOrderGroup opGroup = command.startOrderGroup(); UnfilteredPartitionIterator iterator = command.executeLocally(opGroup))
         {
             response = command.createResponse(iterator);
         }
 
+        // From 3.0.17.x, a coordinator may request additional info about the repaired data that
+        // makes up the response, namely a digest generated from the repaired data and a
+        // flag indicating our level of confidence in that digest. The digest may be considered
+        // inconclusive if it may have been affected by some unrepaired data during read.
+        // e.g. some sstables read during this read were involved in pending but not yet
+        // committed repair sessions or an unrepaired partition tombstone meant that not all
+        // repaired sstables were read (but they might be on other replicas).
         MessageOut<ReadResponse> reply = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, response, serializer());
+        if (command.isTrackingRepairedStatus())
+        {
+            String paramName = command.isRepairedDataDigestConclusive()
+                               ? ReadCommand.CONCLUSIVE_REPAIRED_DATA_DIGEST
+                               : ReadCommand.INCONCLUSIVE_REPAIRED_DATA_DIGEST;
+            reply = reply.withParameter(paramName, ByteBufferUtil.getArray(command.getRepairedDataDigest()));
+        }
 
         Tracing.trace("Enqueuing response to {}", message.from);
         MessagingService.instance().sendReply(reply, id, message.from);

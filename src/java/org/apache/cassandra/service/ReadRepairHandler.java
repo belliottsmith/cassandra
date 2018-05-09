@@ -48,6 +48,7 @@ import org.apache.cassandra.tracing.Tracing;
 
 public class ReadRepairHandler implements IAsyncCallback
 {
+
     private final Keyspace keyspace;
     private final DecoratedKey key;
     private final ConsistencyLevel consistency;

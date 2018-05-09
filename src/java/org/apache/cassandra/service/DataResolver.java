@@ -18,6 +18,7 @@
 package org.apache.cassandra.service;
 
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
@@ -42,6 +43,8 @@ import org.apache.cassandra.dht.ExcludingBounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.net.*;
+import org.apache.cassandra.service.reads.RepairedDataTracker;
+import org.apache.cassandra.service.reads.RepairedDataVerifier;
 import org.apache.cassandra.tracing.Tracing;
 
 public class DataResolver extends ResponseResolver
@@ -127,11 +130,38 @@ public class DataResolver extends ResponseResolver
         int count = responses.size();
         List<UnfilteredPartitionIterator> iters = new ArrayList<>(count);
         InetAddress[] sources = new InetAddress[count];
+
+
+        // If requested, inspect each response for a digest of the replica's repaired data set
+        RepairedDataTracker repairedDataTracker = command.isTrackingRepairedStatus()
+                                                  ? new RepairedDataTracker(getRepairedDataVerifier(command))
+                                                  : null;
+
         for (int i = 0; i < count; i++)
         {
             MessageIn<ReadResponse> msg = responses.get(i);
             iters.add(msg.payload.makeIterator(command));
             sources[i] = msg.from;
+
+            // The repaired data digest may be marked conclusive or inconclusive depending on whether any
+            // of the repaired sstables on the replica were involved in pending, but locally committed
+            // repair sessions at the time of the query. A response message may contain either a conclusive
+            // or inconclusive digest, but not both.
+            if (repairedDataTracker != null)
+            {
+                if (msg.parameters.containsKey(ReadCommand.CONCLUSIVE_REPAIRED_DATA_DIGEST))
+                {
+                    repairedDataTracker.recordDigest(msg.from,
+                                                     ByteBuffer.wrap(msg.parameters.get(ReadCommand.CONCLUSIVE_REPAIRED_DATA_DIGEST)),
+                                                     true);
+                }
+                else if (msg.parameters.containsKey(ReadCommand.INCONCLUSIVE_REPAIRED_DATA_DIGEST))
+                {
+                    repairedDataTracker.recordDigest(msg.from,
+                                                     ByteBuffer.wrap(msg.parameters.get(ReadCommand.INCONCLUSIVE_REPAIRED_DATA_DIGEST)),
+                                                     false);
+                }
+            }
         }
 
         /*
@@ -151,7 +181,7 @@ public class DataResolver extends ResponseResolver
         DataLimits.Counter mergedResultCounter =
             command.limits().newCounter(command.nowInSec(), true, command.selectsFullPartition(), enforceStrictLiveness);
 
-        UnfilteredPartitionIterator merged = mergeWithShortReadProtection(iters, sources, mergedResultCounter);
+        UnfilteredPartitionIterator merged = mergeWithShortReadProtection(iters, sources, mergedResultCounter, repairedDataTracker);
         FilteredPartitions filtered =
             FilteredPartitions.filter(merged, new Filter(command.nowInSec(), command.metadata().enforceStrictLiveness()));
         PartitionIterator counted = Transformation.apply(filtered, mergedResultCounter);
@@ -161,11 +191,18 @@ public class DataResolver extends ResponseResolver
              : Transformation.apply(counted, new EmptyPartitionsDiscarder());
     }
 
+    protected RepairedDataVerifier getRepairedDataVerifier(ReadCommand command)
+    {
+        return RepairedDataVerifier.simple(command);
+    }
+
     private UnfilteredPartitionIterator mergeWithShortReadProtection(List<UnfilteredPartitionIterator> results,
                                                                      InetAddress[] sources,
-                                                                     DataLimits.Counter mergedResultCounter)
+                                                                     DataLimits.Counter mergedResultCounter,
+                                                                     RepairedDataTracker repairedDataTracker)
     {
-        // If we have only one results, there is no read repair to do and we can't get short reads
+        // If we have only one results, there is no read repair to do and we can't get short
+        // reads and we can't make a comparison between repaired data sets
         if (results.size() == 1)
             return results.get(0);
 
@@ -177,16 +214,18 @@ public class DataResolver extends ResponseResolver
             for (int i = 0; i < results.size(); i++)
                 results.set(i, extendWithShortReadProtection(results.get(i), sources[i], mergedResultCounter));
 
-        return UnfilteredPartitionIterators.merge(results, command.nowInSec(), new RepairMergeListener(sources));
+        return UnfilteredPartitionIterators.merge(results, command.nowInSec(), new RepairMergeListener(sources, repairedDataTracker));
     }
 
     private class RepairMergeListener implements UnfilteredPartitionIterators.MergeListener
     {
         private final InetAddress[] sources;
+        private final RepairedDataTracker repairedDataTracker;
 
-        private RepairMergeListener(InetAddress[] sources)
+        private RepairMergeListener(InetAddress[] sources, RepairedDataTracker repairedDataTracker)
         {
             this.sources = sources;
+            this.repairedDataTracker = repairedDataTracker;
         }
 
         public UnfilteredRowIterators.MergeListener getRowMergeListener(DecoratedKey partitionKey, List<UnfilteredRowIterator> versions)
@@ -227,6 +266,8 @@ public class DataResolver extends ResponseResolver
 
         public void close()
         {
+            if (repairedDataTracker != null)
+                repairedDataTracker.verify();
         }
 
         private class MergeListener implements UnfilteredRowIterators.MergeListener

@@ -234,7 +234,11 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
                     logger.debug("Digest mismatch:", e);
                 
                 ReadRepairMetrics.repairedBackground.mark();
-                
+
+                // if enabled, request additional info about repaired data from replicas
+                if (DatabaseDescriptor.getRepairedDataTrackingForPartitionReadsEnabled())
+                    command.trackRepairedStatus();
+
                 final DataResolver repairResolver = new DataResolver(keyspace, command, consistencyLevel, endpoints.size());
                 AsyncRepairCallback repairHandler = new AsyncRepairCallback(repairResolver, endpoints.size());
 

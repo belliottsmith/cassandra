@@ -18,10 +18,16 @@
 
 package org.apache.cassandra.db;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListenableFuture;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -30,6 +36,9 @@ import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.filter.ClusteringIndexFilter;
+import org.apache.cassandra.db.filter.ClusteringIndexNamesFilter;
+import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.RowFilter;
@@ -40,11 +49,15 @@ import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.UUIDGen;
 
 import static org.apache.cassandra.utils.TokenRangeTestUtil.*;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class ReadCommandVerbHandlerTest
@@ -156,6 +169,133 @@ public class ReadCommandVerbHandlerTest
         getAndVerifyResponse(messageSink, messageId, false, false);
     }
 
+    @Test
+    public void setRepairedDataTrackingFlagIfHeaderPresent()
+    {
+        DatabaseDescriptor.setRejectOutOfTokenRangeRequests(false);
+        ReadCommand command = command(cfs.metadata);
+        assertFalse(command.isTrackingRepairedStatus());
+        Map<String, byte[]> params = ImmutableMap.of(ReadCommand.TRACK_REPAIRED_DATA,
+                                                            MessagingService.ONE_BYTE);
+        handler.doVerb(MessageIn.create(peer(),
+                                        command,
+                                        params,
+                                        MessagingService.Verb.READ,
+                                        MessagingService.current_version),
+                       randomInt());
+        assertTrue(command.isTrackingRepairedStatus());
+    }
+
+    @Test
+    public void dontSetRepairedDataTrackingFlagUnlessHeaderPresent()
+    {
+        DatabaseDescriptor.setRejectOutOfTokenRangeRequests(false);
+        ReadCommand command = command(cfs.metadata);
+        assertFalse(command.isTrackingRepairedStatus());
+        Map<String, byte[]> params = ImmutableMap.of(Tracing.TRACE_HEADER,
+                                                     UUIDGen.decompose(UUID.randomUUID()));
+        handler.doVerb(MessageIn.create(peer(),
+                                        command,
+                                        params,
+                                        MessagingService.Verb.READ,
+                                        MessagingService.current_version),
+                       randomInt());
+        assertFalse(command.isTrackingRepairedStatus());
+    }
+
+    @Test
+    public void dontSetRepairedDataTrackingFlagIfHeadersEmpty()
+    {
+        DatabaseDescriptor.setRejectOutOfTokenRangeRequests(false);
+        ReadCommand command = command(cfs.metadata);
+        assertFalse(command.isTrackingRepairedStatus());
+        handler.doVerb(MessageIn.create(peer(),
+                                        command,
+                                        ImmutableMap.of(),
+                                        MessagingService.Verb.READ,
+                                        MessagingService.current_version),
+                       randomInt());
+        assertFalse(command.isTrackingRepairedStatus());
+    }
+
+    @Test
+    public void setResponseHeadersWithConclusiveDigest() throws Exception
+    {
+        DatabaseDescriptor.setRejectOutOfTokenRangeRequests(false);
+        ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
+        // Commands with key >= 0 will have a conclusive digest, those with a key < 0 an inconclusive digest
+        ReadCommand command = command(1);
+        assertFalse(command.isTrackingRepairedStatus());
+
+        Map<String, byte[]> params = ImmutableMap.of(ReadCommand.TRACK_REPAIRED_DATA,
+                                                     MessagingService.ONE_BYTE);
+        handler.doVerb(MessageIn.create(peer(),
+                                        command,
+                                        params,
+                                        MessagingService.Verb.READ,
+                                        MessagingService.current_version),
+                       randomInt());
+
+        assertTrue(command.isTrackingRepairedStatus());
+        MessageDelivery response = messageSink.get(10, TimeUnit.MILLISECONDS);
+        assertEquals(0, ByteBufferUtil.compare((byte[]) response.message.parameters.get(ReadCommand.CONCLUSIVE_REPAIRED_DATA_DIGEST),
+                                               StubReadCommand.REPAIRED_DIGEST));
+        assertFalse(response.message.parameters.containsKey(ReadCommand.INCONCLUSIVE_REPAIRED_DATA_DIGEST));
+    }
+
+    @Test
+    public void setResponseHeadersWithInconclusiveDigest() throws Exception
+    {
+        DatabaseDescriptor.setRejectOutOfTokenRangeRequests(false);
+        ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
+        // Commands with key >= 0 will have a conclusive digest, those with a key < 0 an inconclusive digest
+        ReadCommand command = command(-1);
+        assertFalse(command.isTrackingRepairedStatus());
+        Map<String, byte[]> params = ImmutableMap.of(ReadCommand.TRACK_REPAIRED_DATA,
+                                                     MessagingService.ONE_BYTE);
+        handler.doVerb(MessageIn.create(peer(),
+                                        command,
+                                        params,
+                                        MessagingService.Verb.READ,
+                                        MessagingService.current_version),
+                       randomInt());
+        assertTrue(command.isTrackingRepairedStatus());
+        MessageDelivery response = messageSink.get(10, TimeUnit.MILLISECONDS);
+        assertEquals(0, ByteBufferUtil.compare((byte[])response.message.parameters.get(ReadCommand.INCONCLUSIVE_REPAIRED_DATA_DIGEST),
+                                                StubReadCommand.REPAIRED_DIGEST));
+        assertFalse(response.message.parameters.containsKey(ReadCommand.CONCLUSIVE_REPAIRED_DATA_DIGEST));
+    }
+
+    @Test
+    public void dontSetResponseHeadersIfNotTrackingRepairedData() throws Exception
+    {
+        DatabaseDescriptor.setRejectOutOfTokenRangeRequests(false);
+        ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
+        ReadCommand command = command(0);
+        assertFalse(command.isTrackingRepairedStatus());
+        handler.doVerb(MessageIn.create(peer(),
+                                        command,
+                                        ImmutableMap.of(),
+                                        MessagingService.Verb.READ,
+                                        MessagingService.current_version),
+                       randomInt());
+        assertFalse(command.isTrackingRepairedStatus());
+        MessageDelivery response = messageSink.get(10, TimeUnit.MILLISECONDS);
+        assertTrue(response.message.parameters.isEmpty());
+    }
+
+    private static InetAddress peer()
+    {
+        try
+        {
+            return InetAddress.getByAddress(new byte[]{ 127, 0, 0, 9});
+        }
+        catch (UnknownHostException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
     private void getAndVerifyResponse(ListenableFuture<MessageDelivery> messageSink,
                                       int messageId,
                                       boolean isOutOfRange,
@@ -188,6 +328,7 @@ public class ReadCommandVerbHandlerTest
         }
     }
 
+
     private static long keyspaceMetricValue(ColumnFamilyStore cfs)
     {
         return cfs.keyspace.metric.outOfRangeTokenReads.getCount();
@@ -198,9 +339,26 @@ public class ReadCommandVerbHandlerTest
         return new StubReadCommand(key, cfs.metadata);
     }
 
+    private static ReadCommand command(CFMetaData metadata)
+    {
+        return new SinglePartitionReadCommand(false,
+                                              0,
+                                              false,
+                                              metadata,
+                                              FBUtilities.nowInSeconds(),
+                                              ColumnFilter.all(metadata),
+                                              RowFilter.NONE,
+                                              DataLimits.NONE,
+                                              metadata.partitioner.decorateKey(ByteBufferUtil.bytes(randomInt())),
+                                              new ClusteringIndexSliceFilter(Slices.ALL, false),
+                                              null);
+    }
+
     private static class StubReadCommand extends SinglePartitionReadCommand
     {
         private final CFMetaData cfm;
+        private static final ByteBuffer REPAIRED_DIGEST = ByteBufferUtil.bytes(UUID.randomUUID());
+        private final boolean isRepairedDigestConclusive;
 
         StubReadCommand(int key, CFMetaData cfm)
         {
@@ -213,15 +371,26 @@ public class ReadCommandVerbHandlerTest
                   RowFilter.NONE,
                   DataLimits.NONE,
                   cfm.decorateKey(ByteBufferUtil.bytes(key)),
-                  null,
-                    null);
+                  new ClusteringIndexSliceFilter(Slices.ALL, false),
+                  null);
 
             this.cfm = cfm;
+            isRepairedDigestConclusive = key >= 0;
         }
 
         public UnfilteredPartitionIterator executeLocally(ReadOrderGroup orderGroup)
         {
             return EmptyIterators.unfilteredPartition(cfm, false);
+        }
+
+        public ByteBuffer getRepairedDataDigest()
+        {
+            return REPAIRED_DIGEST;
+        }
+
+        public boolean isRepairedDataDigestConclusive()
+        {
+            return isRepairedDigestConclusive;
         }
     }
 

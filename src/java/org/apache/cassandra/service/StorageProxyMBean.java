@@ -135,4 +135,19 @@ public interface StorageProxyMBean
     public long[] getRecentClientRequestWriteConsistencyLevelAnyMicrosV3();
     public long[] getBytesReadPerQueryEstimatedHistogram();
     public long[] getBytesWrittenPerQueryEstimatedHistogram();
+
+    /**
+     * Tracking and reporting of variances in the repaired data set across replicas at read time
+     */
+    void enableRepairedDataTrackingForRangeReads();
+    void disableRepairedDataTrackingForRangeReads();
+    boolean getRepairedDataTrackingEnabledForRangeReads();
+
+    void enableRepairedDataTrackingForPartitionReads();
+    void disableRepairedDataTrackingForPartitionReads();
+    boolean getRepairedDataTrackingEnabledForPartitionReads();
+
+    void enableReportingUnconfirmedRepairedDataMismatches();
+    void disableReportingUnconfirmedRepairedDataMismatches();
+    boolean getReportingUnconfirmedRepairedDataMismatchesEnabled();
 }

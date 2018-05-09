@@ -1970,6 +1970,10 @@ public class StorageProxy implements StorageProxyMBean
                 maybeLogBlockingReadRepairAttempt();
 
                 // Do a full data read to resolve the correct response (and repair node that need be)
+                // if enabled, request additional info about repaired data from replicas
+                if (DatabaseDescriptor.getRepairedDataTrackingForPartitionReadsEnabled())
+                    command.trackRepairedStatus();
+
                 Keyspace keyspace = Keyspace.open(command.metadata().ksName);
                 dataResolver = new DataResolver(keyspace, command, consistency, executor.handler.endpoints.size());
                 repairHandler = new ReadCallback(dataResolver,
@@ -1982,6 +1986,9 @@ public class StorageProxy implements StorageProxyMBean
                 for (InetAddress endpoint : executor.getContactedReplicas())
                 {
                     MessageOut<ReadCommand> message = command.createMessage(MessagingService.instance().getVersion(endpoint));
+                    if (command.isTrackingRepairedStatus())
+                        message = message.withParameter(ReadCommand.TRACK_REPAIRED_DATA, MessagingService.ONE_BYTE);
+
                     Tracing.trace("Enqueuing full data read to {}", endpoint);
                     MessagingService.instance().sendRRWithFailure(message, endpoint, repairHandler);
                 }
@@ -2387,6 +2394,11 @@ public class StorageProxy implements StorageProxyMBean
 
             handler.assureSufficientLiveNodes();
 
+            // If enabled, request repaired data tracking info from full replicas but
+            // only if there are multiple full replicas to compare results from
+            if (DatabaseDescriptor.getRepairedDataTrackingForPartitionReadsEnabled())
+                command.trackRepairedStatus();
+
             if (toQuery.filteredEndpoints.size() == 1 && canDoLocalRequest(toQuery.filteredEndpoints.get(0)))
             {
                 StageManager.getStage(Stage.READ).execute(new LocalReadRunnable(rangeCommand, handler));
@@ -2395,8 +2407,10 @@ public class StorageProxy implements StorageProxyMBean
             {
                 for (InetAddress endpoint : toQuery.filteredEndpoints)
                 {
-                    MessageOut<ReadCommand> message = rangeCommand.createMessage(MessagingService.instance().getVersion(endpoint));
                     Tracing.trace("Enqueuing request to {}", endpoint);
+                    MessageOut<ReadCommand> message = rangeCommand.createMessage(MessagingService.instance().getVersion(endpoint));
+                    if (command.isTrackingRepairedStatus())
+                        message =  message.withParameter(ReadCommand.TRACK_REPAIRED_DATA, MessagingService.ONE_BYTE);
                     MessagingService.instance().sendRRWithFailure(message, endpoint, handler);
                 }
             }
@@ -3236,5 +3250,59 @@ public class StorageProxy implements StorageProxyMBean
 
     public void setOtcBacklogExpirationInterval(int intervalInMillis) {
         DatabaseDescriptor.setOtcBacklogExpirationInterval(intervalInMillis);
+    }
+
+    @Override
+    public void enableRepairedDataTrackingForRangeReads()
+    {
+        DatabaseDescriptor.setRepairedDataTrackingForRangeReadsEnabled(true);
+    }
+
+    @Override
+    public void disableRepairedDataTrackingForRangeReads()
+    {
+        DatabaseDescriptor.setRepairedDataTrackingForRangeReadsEnabled(false);
+    }
+
+    @Override
+    public boolean getRepairedDataTrackingEnabledForRangeReads()
+    {
+        return DatabaseDescriptor.getRepairedDataTrackingForRangeReadsEnabled();
+    }
+
+    @Override
+    public void enableRepairedDataTrackingForPartitionReads()
+    {
+        DatabaseDescriptor.setRepairedDataTrackingForPartitionReadsEnabled(true);
+    }
+
+    @Override
+    public void disableRepairedDataTrackingForPartitionReads()
+    {
+        DatabaseDescriptor.setRepairedDataTrackingForPartitionReadsEnabled(false);
+    }
+
+    @Override
+    public boolean getRepairedDataTrackingEnabledForPartitionReads()
+    {
+        return DatabaseDescriptor.getRepairedDataTrackingForPartitionReadsEnabled();
+    }
+
+    @Override
+    public void enableReportingUnconfirmedRepairedDataMismatches()
+    {
+        DatabaseDescriptor.reportUnconfirmedRepairedDataMismatches(true);
+    }
+
+    @Override
+    public void disableReportingUnconfirmedRepairedDataMismatches()
+    {
+        DatabaseDescriptor.reportUnconfirmedRepairedDataMismatches(false);
+    }
+
+    @Override
+    public boolean getReportingUnconfirmedRepairedDataMismatchesEnabled()
+    {
+        return DatabaseDescriptor.reportUnconfirmedRepairedDataMismatches();
     }
 }
