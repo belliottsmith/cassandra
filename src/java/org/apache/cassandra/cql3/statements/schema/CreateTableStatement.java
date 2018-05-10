@@ -119,6 +119,11 @@ public final class CreateTableStatement extends AlterSchemaStatement
             throw ire("read_repair must be set to 'NONE' for transiently replicated keyspaces");
         }
 
+        if (!table.params.compression.isEnabled() && !Boolean.getBoolean(SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION))
+        {
+            throw ire(String.format("Error while creating %s.%s: sstable compression cannot be disabled",
+                                    table.keyspace, table.name));
+        }
         return schema.withAddedOrUpdated(keyspace.withSwapped(keyspace.tables.with(table)));
     }
 
