@@ -71,6 +71,7 @@ public class TestBaseImpl extends DistributedTestBase
         System.setProperty("cassandra.test.logConfigPath", "test/conf/log4j2-dtest.xml");
         // makes easier to share OSS tests without replication strategy limits
         CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
+        CassandraRelevantProperties.ALLOW_DISABLED_COMPRESSION.setBoolean(true);
         ICluster.setup();
     }
 

@@ -276,6 +276,9 @@ public enum CassandraRelevantProperties
     // CIE-specific property
     ALLOW_SIMPLE_STRATEGY("cassandra.allow_simplestrategy", "false"),
 
+    // CIE-specific property
+    ALLOW_DISABLED_COMPRESSION("cassandra.allow_disabled_compression", "false"),
+
     ;
 
 

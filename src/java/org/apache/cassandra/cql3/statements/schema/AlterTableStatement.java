@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.audit.AuditLogContext;
 import org.apache.cassandra.audit.AuditLogEntryType;
 import org.apache.cassandra.auth.Permission;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQL3Type;
 import org.apache.cassandra.cql3.CQLStatement;
@@ -478,6 +479,12 @@ public abstract class AlterTableStatement extends AlterSchemaStatement
                 && params.readRepair != ReadRepairStrategy.NONE)
             {
                 throw ire("read_repair must be set to 'NONE' for transiently replicated keyspaces");
+            }
+
+            if (!params.compression.isEnabled() && !CassandraRelevantProperties.ALLOW_DISABLED_COMPRESSION.getBoolean())
+            {
+                throw ire(String.format("Error while altering %s.%s: sstable compression cannot be disabled",
+                                        table.keyspace, table.name));
             }
 
             return keyspace.withSwapped(keyspace.tables.withSwapped(table.withSwapped(params)));
