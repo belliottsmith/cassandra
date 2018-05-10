@@ -41,6 +41,7 @@ import org.apache.cassandra.transport.messages.ResultMessage;
 abstract public class AlterSchemaStatement implements CQLStatement, SchemaTransformation
 {
     public static final String SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY = "cassandra.allow_simplestrategy";
+    public static final String SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION = "cassandra.allow_disabled_compression";
     protected final String keyspaceName; // name of the keyspace affected by the statement
 
     protected AlterSchemaStatement(String keyspaceName)
