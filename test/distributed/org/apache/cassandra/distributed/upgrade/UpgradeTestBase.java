@@ -74,6 +74,7 @@ public class UpgradeTestBase extends DistributedTestBase
         CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
         CassandraRelevantProperties.MINIMUM_ALLOWED_REPLICATION_FACTOR.setInt(-1);
         CassandraRelevantProperties.DEFAULT_REPLICATION_FACTOR.setInt(1);
+        CassandraRelevantProperties.ALLOW_DISABLED_COMPRESSION.setBoolean(true);
         ICluster.setup();
     }
 

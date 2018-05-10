@@ -110,6 +110,7 @@ import org.awaitility.Awaitility;
 
 import static com.datastax.driver.core.SocketOptions.DEFAULT_CONNECT_TIMEOUT_MILLIS;
 import static com.datastax.driver.core.SocketOptions.DEFAULT_READ_TIMEOUT_MILLIS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_DISABLED_COMPRESSION;
 import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS;
 import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY;
 import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
@@ -192,6 +193,7 @@ public abstract class CQLTester
         checkProtocolVersion();
 
         ALLOW_SIMPLE_STRATEGY.setBoolean(true);
+        ALLOW_DISABLED_COMPRESSION.setBoolean(true);
         ALLOW_MATERIALIZEDVIEWS.setBoolean(true);
 
         nativeAddr = InetAddress.getLoopbackAddress();
