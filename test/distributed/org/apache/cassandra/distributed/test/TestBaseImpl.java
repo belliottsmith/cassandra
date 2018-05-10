@@ -36,6 +36,8 @@ import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.impl.AbstractCluster;
 import org.apache.cassandra.distributed.shared.DistributedTestBase;
 
+import static org.apache.cassandra.cql3.statements.schema.AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION;
+
 public class TestBaseImpl extends DistributedTestBase
 {
     @After
@@ -52,6 +54,7 @@ public class TestBaseImpl extends DistributedTestBase
         System.setProperty("cassandra.test.logConfigPath", "test/conf/log4j2-dtest.xml");
         System.setProperty("cassandra.allow_simplestrategy", "true"); // makes easier to share OSS tests without RF limits
         System.setProperty("cassandra.minimum_replication_factor", "0"); // makes easier to share OSS tests without RF limits
+        System.setProperty(SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION, "true");
         ICluster.setup();
     }
 
