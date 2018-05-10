@@ -427,6 +427,12 @@ public abstract class AlterTableStatement extends AlterSchemaStatement
                 throw ire("read_repair must be set to 'NONE' for transiently replicated keyspaces");
             }
 
+            if (!params.compression.isEnabled() && !Boolean.getBoolean(SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION))
+            {
+                throw ire(String.format("Error while altering %s.%s: sstable compression cannot be disabled",
+                                        table.keyspace, table.name));
+            }
+
             return keyspace.withSwapped(keyspace.tables.withSwapped(table.withSwapped(params)));
         }
     }
