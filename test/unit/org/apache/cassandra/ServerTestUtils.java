@@ -63,6 +63,7 @@ public final class ServerTestUtils
 
         // CIE: Relax restrictions to run OSS tests
         CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
+        CassandraRelevantProperties.ALLOW_DISABLED_COMPRESSION.setBoolean(true);
 
         // Register an EndpointSnitch which returns fixed values for test.
         DatabaseDescriptor.setEndpointSnitch(new AbstractEndpointSnitch()
