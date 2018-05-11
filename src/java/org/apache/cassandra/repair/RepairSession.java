@@ -184,7 +184,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         this.previewKind = previewKind;
         this.pullRepair = pullRepair;
         this.skippedReplicas = forceSkippedReplicas;
-        this.allReplicas = allReplicas;
+        this.allReplicas = allReplicas && !forceSkippedReplicas;
     }
 
     public UUID getId()
