@@ -574,7 +574,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                                                                                      cr.ranges,
                                                                                      keyspace,
                                                                                      options.getParallelism(),
-                                                                                     allReplicaMap.get(cr.endpoints),
+                                                                                     allReplicaMap.getOrDefault(cr.endpoints, false),
                                                                                      cr.endpoints,
                                                                                      isIncremental,
                                                                                      options.isPullRepair(),
