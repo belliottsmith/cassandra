@@ -52,7 +52,7 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
     private final IRoleManager roleManager;
     private volatile LoadingCache<RoleResource, Set<Role>> cache;
 
-    private static volatile ScheduledFuture cacheRefresher = null;
+    private volatile ScheduledFuture cacheRefresher = null;
 
     public RolesCache(IRoleManager roleManager)
     {
@@ -92,12 +92,14 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
     public void invalidate()
     {
         cache = initCache(null, DatabaseDescriptor.getAuthenticator().requireAuthentication());
+        startActiveUpdate();
     }
 
     public void setValidity(int validityPeriod)
     {
         DatabaseDescriptor.setRolesValidity(validityPeriod);
         cache = initCache(cache, DatabaseDescriptor.getAuthenticator().requireAuthentication());
+        startActiveUpdate();
     }
 
     public int getValidity()
@@ -109,11 +111,17 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
     {
         DatabaseDescriptor.setRolesUpdateInterval(updateInterval);
         cache = initCache(cache, DatabaseDescriptor.getAuthenticator().requireAuthentication());
+        startActiveUpdate();
     }
 
     public int getUpdateInterval()
     {
         return DatabaseDescriptor.getRolesUpdateInterval();
+    }
+
+    public boolean getActiveUpdate()
+    {
+        return DatabaseDescriptor.getRolesCacheActiveUpdate();
     }
 
     /**
@@ -176,11 +184,7 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
     private LoadingCache<RoleResource, Set<Role>> initCache(LoadingCache<RoleResource, Set<Role>> existing,
                                                             boolean requireAuthentication)
     {
-        if (cacheRefresher != null)
-        {
-            cacheRefresher.cancel(false);
-            cacheRefresher = null;
-        }
+        stopActiveUpdate();
 
         if (!requireAuthentication)
             return null;
@@ -228,19 +232,44 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
         if (existing != null)
             newcache.putAll(existing.asMap());
 
-        if (activeUpdate)
+        return newcache;
+    }
+
+    public void startActiveUpdate()
+    {
+        if (cache == null)
         {
-            cacheRefresher = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(CacheRefresher.create("roles", newcache),
-                                                                                  updateInterval,
-                                                                                  updateInterval,
-                                                                                  TimeUnit.MILLISECONDS);
+            logger.info("Roles cache not enabled, not starting active updates");
+            return;
         }
 
-        return newcache;
+        if (getActiveUpdate())
+        {
+            stopActiveUpdate();
+            cacheRefresher = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(CacheRefresher.create("roles", cache),
+                                                                                  getUpdateInterval(),
+                                                                                  getUpdateInterval(),
+                                                                                  TimeUnit.MILLISECONDS);
+        }
+    }
+
+    public void stopActiveUpdate()
+    {
+        if (cacheRefresher != null)
+        {
+            cacheRefresher.cancel(false);
+            cacheRefresher = null;
+        }
     }
 
     public void warm(Cacheable<RoleResource, Set<Role>> entryProvider)
     {
+        if (!DatabaseDescriptor.getAuthCacheWarmingEnabled())
+        {
+            logger.info("Prewarming of auth caches is disabled");
+            return;
+        }
+
         if (cache == null)
         {
             logger.info("Cache not enabled, skipping pre-warming");
@@ -261,7 +290,8 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
             }
             catch (Exception e)
             {
-                logger.warn("Failed to pre-warm auth cache, retrying {} more times", retries, e);
+                logger.info("Failed to pre-warm roles cache, retrying {} more times", retries);
+                logger.debug("Failed to pre-warm roles cache", e);
                 Uninterruptibles.sleepUninterruptibly(retryInterval, TimeUnit.MILLISECONDS);
             }
         }

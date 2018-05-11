@@ -439,19 +439,18 @@ public class CassandraDaemon
 
         KeyspaceQuota.scheduleQuotaCheck();
 
-        if (DatabaseDescriptor.getAuthCacheWarmingEnabled())
-        {
-            Roles.warmCache();
-            IAuthenticator authenticator = DatabaseDescriptor.getAuthenticator();
-            if (authenticator instanceof PasswordAuthenticator)
-                ((PasswordAuthenticator) authenticator).warmCache();
+        Roles.warmCache();
+        Roles.startCacheActiveUpdate();
 
-            AuthenticatedUser.warmPermissionsCache();
-        }
-        else
+        IAuthenticator authenticator = DatabaseDescriptor.getAuthenticator();
+        if (authenticator instanceof PasswordAuthenticator)
         {
-            logger.info("Prewarming of auth caches is disabled");
+            ((PasswordAuthenticator) authenticator).warmCache();
+            ((PasswordAuthenticator) authenticator).startCacheActiveUpdate();
         }
+
+        AuthenticatedUser.warmPermissionsCaches();
+        AuthenticatedUser.startCacheActiveUpdate();
 
         completeSetup();
     }

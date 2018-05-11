@@ -42,10 +42,16 @@ public class AuthenticatedUser
     private static final PermissionsCache permissionsCache = new PermissionsCache(DatabaseDescriptor.getAuthorizer());
     private static final NetworkAuthCache networkAuthCache = new NetworkAuthCache(DatabaseDescriptor.getNetworkAuthorizer());
 
-    public static void warmPermissionsCache()
+    public static void warmPermissionsCaches()
     {
         permissionsCache.warm(DatabaseDescriptor.getAuthorizer());
         networkAuthCache.warm(DatabaseDescriptor.getNetworkAuthorizer());
+    }
+
+    public static void startCacheActiveUpdate()
+    {
+        permissionsCache.startActiveUpdate();
+        networkAuthCache.startActiveUpdate();
     }
 
     private final String name;
