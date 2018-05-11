@@ -330,7 +330,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             return true;
         }
 
-        if(!session.allReplicas)
+        if (session.skippedReplicas || !session.allReplicas)
         {
             logger.info("Not sending repair success since all replicas were not repaired");
             return true;
