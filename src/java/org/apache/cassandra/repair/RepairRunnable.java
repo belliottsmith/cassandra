@@ -133,7 +133,8 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
 
     protected void fireErrorAndComplete(int progressCount, int totalProgress, String message)
     {
-        fireProgressEvent(new ProgressEvent(ProgressEventType.ERROR, progressCount, totalProgress, message));
+        String errorMessage = String.format("Repair command #%d failed with error %s", cmd, message);
+        fireProgressEvent(new ProgressEvent(ProgressEventType.ERROR, progressCount, totalProgress, errorMessage));
         String completionMessage = String.format("Repair command #%d finished with error", cmd);
         fireProgressEvent(new ProgressEvent(ProgressEventType.COMPLETE, progressCount, totalProgress, completionMessage));
         recordFailure(message, completionMessage);
