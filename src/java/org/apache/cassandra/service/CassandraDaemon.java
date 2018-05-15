@@ -369,7 +369,6 @@ public class CassandraDaemon
 
         ScheduledExecutors.optionalTasks.schedule(viewRebuild, StorageService.RING_DELAY, TimeUnit.MILLISECONDS);
 
-
         SystemKeyspace.finishStartup();
         ActiveRepairService.instance.start();
 
@@ -755,6 +754,11 @@ public class CassandraDaemon
         instance.activate();
     }
 
+    public void clearConnectionHistory()
+    {
+        nativeTransportService.clearConnectionHistory();
+    }
+
     private void exitOrFail(int code, String message) {
         exitOrFail(code, message, null);
     }
@@ -804,5 +808,10 @@ public class CassandraDaemon
          * Returns whether the server is currently running.
          */
         public boolean isRunning();
+
+        /**
+         * Clears the tracked connection history.
+         */
+        public void clearConnectionHistory();
     }
 }

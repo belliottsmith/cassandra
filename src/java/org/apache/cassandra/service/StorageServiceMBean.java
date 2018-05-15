@@ -703,4 +703,7 @@ public interface StorageServiceMBean extends NotificationEmitter
      * e.g. keyspace_name -> [reads, writes, paxos].
      */
     Map<String, long[]> getOutOfRangeOperationCounts();
+
+    /** Clears the history of clients that have connected in the past **/
+    void clearConnectionHistory();
 }

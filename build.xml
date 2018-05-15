@@ -111,6 +111,7 @@
     <property name="jacoco.version" value="0.7.5.201505241946"/>
 
     <property name="byteman.version" value="3.0.3"/>
+    <property name="caffeine.version" value="2.3.5" />
 
     <property name="ecj.version" value="4.4.2"/>
 
@@ -398,8 +399,6 @@
           <dependency groupId="org.jboss.byteman" artifactId="byteman" version="${byteman.version}"/>
           <dependency groupId="org.jboss.byteman" artifactId="byteman-submit" version="${byteman.version}"/>
           <dependency groupId="org.jboss.byteman" artifactId="byteman-bmunit" version="${byteman.version}"/>
-
-
           <dependency groupId="org.openjdk.jmh" artifactId="jmh-core" version="1.1.1"/>
           <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess" version="1.1.1"/>
 
@@ -497,6 +496,7 @@
         <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess"/>
         <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations"/>
         <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.4" />
+        <dependency groupId="com.github.ben-manes.caffeine" artifactId="caffeine" version="${caffeine.version}" />
       </artifact:pom>
       <!-- this build-deps-pom-sources "artifact" is the same as build-deps-pom but only with those
            artifacts that have "-source.jar" files -->
