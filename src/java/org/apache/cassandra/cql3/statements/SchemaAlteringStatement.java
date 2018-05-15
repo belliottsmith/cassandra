@@ -40,6 +40,7 @@ public abstract class SchemaAlteringStatement extends CFStatement implements CQL
 {
     public static final String SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY = "cassandra.allow_simplestrategy";
     public static final String SYSTEM_PROPERTY_ALLOW_MATERIALIZED_VIEWS = "cassandra.allow_materializedviews";
+    public static final String SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION = "cassandra.allow_disabled_compression";
     private final boolean isColumnFamilyLevel;
 
     protected SchemaAlteringStatement()

@@ -96,11 +96,15 @@ public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, 
     // sentinel value indicating that the password hash has been deleted
     private static final String DELETED_HASH_SENTINEL = "";
 
-    private volatile ScheduledFuture cacheRefresher = null;
 
     public void warmCache()
     {
         cache.warm(this);
+    }
+
+    public void startCacheActiveUpdate()
+    {
+        cache.startActiveUpdate();
     }
 
     @Override
@@ -354,6 +358,7 @@ public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, 
     // generalized by CASSANDRA-7715. It's done here so we can make it a WarmableCache and prepopulate it at startup
     private class CredentialsCache implements WarmableCache<String, String>
     {
+        private volatile ScheduledFuture cacheRefresher = null;
         private final LoadingCache<String, String> cache = initCache(DatabaseDescriptor.getAuthenticatorValidity(),
                                                                      DatabaseDescriptor.getAuthenticatorUpdateInterval(),
                                                                      DatabaseDescriptor.getAuthenticatorCacheMaxEntries());
@@ -380,12 +385,6 @@ public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, 
             {
                 logger.info("Authenticator cache is disabled");
                 return null;
-            }
-
-            if (cacheRefresher != null)
-            {
-                cacheRefresher.cancel(false);
-                cacheRefresher = null;
             }
 
             boolean activeUpdate = DatabaseDescriptor.getAuthenticatorCacheActiveUpdate();
@@ -434,20 +433,44 @@ public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, 
                                                                         return task;
                                                                     }
                                                                 });
+            return newcache;
+        }
 
-            if (activeUpdate)
+        public void startActiveUpdate()
+        {
+            if (cache == null)
             {
-                cacheRefresher = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(CacheRefresher.create("authenticator", newcache, DELETED_HASH_SENTINEL),
-                                                                                      updateInterval,
-                                                                                      updateInterval,
-                                                                                      TimeUnit.MILLISECONDS);
+                logger.info("Credentials cache not enabled, not starting active updates");
+                return;
             }
 
-            return newcache;
+            if (DatabaseDescriptor.getAuthenticatorCacheActiveUpdate())
+            {
+                stopActiveUpdate();
+                cacheRefresher = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(CacheRefresher.create("authenticator", cache, DELETED_HASH_SENTINEL),
+                                                                                      DatabaseDescriptor.getAuthenticatorUpdateInterval(),
+                                                                                      DatabaseDescriptor.getAuthenticatorUpdateInterval(),
+                                                                                      TimeUnit.MILLISECONDS);
+            }
+        }
+
+        public void stopActiveUpdate()
+        {
+            if (cacheRefresher != null)
+            {
+                cacheRefresher.cancel(false);
+                cacheRefresher = null;
+            }
         }
 
         public void warm(Cacheable<String, String> entryProvider)
         {
+            if (!DatabaseDescriptor.getAuthCacheWarmingEnabled())
+            {
+                logger.info("Prewarming of auth caches is disabled");
+                return;
+            }
+
             if (cache == null)
             {
                 logger.info("Cache not enabled, skipping pre-warming");
@@ -468,7 +491,8 @@ public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, 
                 }
                 catch (Exception e)
                 {
-                    logger.warn("Failed to pre-warm auth cache, retrying {} more times", retries, e);
+                    logger.info("Failed to pre-warm credentials cache, retrying {} more times", retries);
+                    logger.debug("Failed to pre-warm credentials cache", e);
                     Uninterruptibles.sleepUninterruptibly(retryInterval, TimeUnit.MILLISECONDS);
                 }
             }

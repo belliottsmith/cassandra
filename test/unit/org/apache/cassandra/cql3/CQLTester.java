@@ -123,6 +123,7 @@ public abstract class CQLTester
 
         System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "true");
         System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_MATERIALIZED_VIEWS, "true");
+        System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION, "true");
         System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
 
         DatabaseDescriptor.setAlterTableEnabled(true);

@@ -283,6 +283,10 @@ public class AlterTableStatement extends SchemaAlteringStatement
 
                 cfm.params(params);
 
+                if (!cfm.params.compression.isEnabled() && !Boolean.getBoolean(SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION))
+                {
+                    throw new ConfigurationException(String.format("Error while altering %s.%s: sstable compression cannot be disabled", cfm.ksName, cfm.cfName));
+                }
                 break;
             case RENAME:
                 cfm = meta.copy();

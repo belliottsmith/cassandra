@@ -84,7 +84,13 @@ public class CreateTableStatement extends SchemaAlteringStatement
     {
         try
         {
-            MigrationManager.announceNewColumnFamily(getCFMetaData(), isLocalOnly);
+            CFMetaData cfm = getCFMetaData();
+
+            if (!cfm.params.compression.isEnabled() && !Boolean.getBoolean(SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION))
+            {
+                throw new ConfigurationException(String.format("Error while creating %s.%s: sstable compression cannot be disabled", cfm.ksName, cfm.cfName));
+            }
+            MigrationManager.announceNewColumnFamily(cfm, isLocalOnly);
             return new Event.SchemaChange(Event.SchemaChange.Change.CREATED, Event.SchemaChange.Target.TABLE, keyspace(), columnFamily());
         }
         catch (AlreadyExistsException e)

@@ -45,7 +45,12 @@ public class Roles
 
     public static void warmCache()
     {
-       cache.warm(DatabaseDescriptor.getRoleManager());
+        cache.warm(DatabaseDescriptor.getRoleManager());
+    }
+
+    public static void startCacheActiveUpdate()
+    {
+        cache.startActiveUpdate();
     }
 
     /**
