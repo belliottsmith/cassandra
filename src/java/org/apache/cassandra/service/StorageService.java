@@ -5304,4 +5304,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         DatabaseDescriptor.setRejectOutOfTokenRangeRequests(enabled);
     }
+
+    @Override
+    public void clearConnectionHistory()
+    {
+        daemon.clearConnectionHistory();
+        logger.info("Cleared connection history");
+    }
 }

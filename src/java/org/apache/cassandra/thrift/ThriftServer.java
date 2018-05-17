@@ -82,6 +82,12 @@ public class ThriftServer implements CassandraDaemon.Server
         return server != null;
     }
 
+    @Override
+    public void clearConnectionHistory()
+    {
+        // NOOP
+    }
+
     /*
      * These methods are intended to be overridden to provide custom implementations.
      */
