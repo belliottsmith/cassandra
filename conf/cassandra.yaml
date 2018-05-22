@@ -1060,3 +1060,9 @@ windows_timer_interval: 1
 # scheduled_compaction_range_splits: 100
 # number of days it should take to compact everything, format is Xd for X days, Xh for X hours and Xs for X seconds:
 # scheduled_compaction_cycle_time: 60d
+
+# Automatically upgrade sstables after upgrade - if there is no ordinary compaction to do, the
+# oldest non-upgraded sstable will get upgraded to the latest version
+# automatic_sstable_upgrade: false
+# Limit the number of concurrent sstable upgrades
+# max_concurrent_automatic_sstable_upgrades: 1

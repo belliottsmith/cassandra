@@ -801,6 +801,8 @@ public class DatabaseDescriptor
         if (conf.column_index_max_target_size_in_kb <= 0 || conf.column_index_max_target_size_in_kb > Integer.MAX_VALUE / 1024)
             throw new ConfigurationException("column_index_max_target_size_in_kb must be between 1 and 2097152", false);
 
+        validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
+
     }
 
     /**
@@ -2605,5 +2607,38 @@ public class DatabaseDescriptor
                 throw new ConfigurationException("Could only supported time units are: s, h, d, got: "+unitCharacter);
         }
         return timeUnit.toSeconds(value);
+    }
+
+    public static boolean automaticSSTableUpgrade()
+    {
+        return conf.automatic_sstable_upgrade;
+    }
+
+    public static void setAutomaticSSTableUpgradeEnabled(boolean enabled)
+    {
+        if (conf.automatic_sstable_upgrade != enabled)
+            logger.debug("Changing automatic_sstable_upgrade to {}", enabled);
+        conf.automatic_sstable_upgrade = enabled;
+    }
+
+    public static int maxConcurrentAutoUpgradeTasks()
+    {
+        return conf.max_concurrent_automatic_sstable_upgrades;
+    }
+
+    public static void setMaxConcurrentAutoUpgradeTasks(int value)
+    {
+        if (conf.max_concurrent_automatic_sstable_upgrades != value)
+            logger.debug("Changing max_concurrent_automatic_sstable_upgrades to {}", value);
+        validateMaxConcurrentAutoUpgradeTasksConf(value);
+        conf.max_concurrent_automatic_sstable_upgrades = value;
+    }
+
+    private static void validateMaxConcurrentAutoUpgradeTasksConf(int value)
+    {
+        if (value < 0)
+            throw new ConfigurationException("max_concurrent_automatic_sstable_upgrades can't be negative");
+        if (value > getConcurrentCompactors())
+            logger.warn("max_concurrent_automatic_sstable_upgrades ({}) is larger than concurrent_compactors ({})", value, getConcurrentCompactors());
     }
 }

@@ -37,10 +37,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.compaction.AbstractCompactionTask;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.Verifier;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
@@ -57,6 +60,8 @@ import org.apache.cassandra.streaming.StreamSession;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
@@ -247,6 +252,39 @@ public class LegacySSTableTest
                 }
             }
         }
+    }
+
+    @Test
+    public void testAutomaticUpgrade() throws Exception
+    {
+        for (String legacyVersion : legacyVersions)
+        {
+            logger.info("Loading legacy version: {}", legacyVersion);
+            truncateTables(legacyVersion);
+            loadLegacyTables(legacyVersion);
+            ColumnFamilyStore cfs = Keyspace.open("legacy_tables").getColumnFamilyStore(String.format("legacy_%s_simple", legacyVersion));
+            AbstractCompactionTask act = cfs.getCompactionStrategyManager().getNextBackgroundTask(0);
+            // there should be no compactions to run with auto upgrades disabled:
+            assertEquals(null, act);
+        }
+
+        DatabaseDescriptor.setAutomaticSSTableUpgradeEnabled(true);
+        for (String legacyVersion : legacyVersions)
+        {
+            logger.info("Loading legacy version: {}", legacyVersion);
+            truncateTables(legacyVersion);
+            loadLegacyTables(legacyVersion);
+            ColumnFamilyStore cfs = Keyspace.open("legacy_tables").getColumnFamilyStore(String.format("legacy_%s_simple", legacyVersion));
+            if (cfs.getLiveSSTables().stream().anyMatch(s -> !s.descriptor.version.isLatestVersion()))
+                assertTrue(cfs.metric.oldVersionSSTableCount.getValue() > 0);
+            while (cfs.getLiveSSTables().stream().anyMatch(s -> !s.descriptor.version.isLatestVersion()))
+            {
+                CompactionManager.instance.submitBackground(cfs);
+                Thread.sleep(100);
+            }
+            assertTrue(cfs.metric.oldVersionSSTableCount.getValue() == 0);
+        }
+        DatabaseDescriptor.setAutomaticSSTableUpgradeEnabled(false);
     }
 
     private void streamLegacyTables(String legacyVersion) throws Exception
