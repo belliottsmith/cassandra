@@ -5061,9 +5061,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         LifecycleTransaction.rescheduleFailedDeletions();
     }
 
-    /**
-     * #{@inheritDoc}
-     */
+    @Deprecated
     public void loadNewSSTables(String ksName, String cfName)
     {
         loadNewSSTables(ksName, cfName, null);

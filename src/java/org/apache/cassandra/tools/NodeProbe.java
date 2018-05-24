@@ -1034,9 +1034,15 @@ public class NodeProbe implements AutoCloseable
         return msProxy.getDroppedMessages();
     }
 
+    @Deprecated
     public void loadNewSSTables(String ksName, String cfName, String dirPath)
     {
         ssProxy.loadNewSSTables(ksName, cfName, dirPath);
+    }
+
+    public void importNewSSTables(String ksName, String cfName, String srcPath, boolean resetLevel, boolean clearRepaired, boolean verifySSTables, boolean verifyTokens, boolean invalidateCaches, boolean extendedVerify)
+    {
+        getCfsProxy(ksName, cfName).importNewSSTables(srcPath, resetLevel, clearRepaired, verifySSTables, verifyTokens, invalidateCaches, extendedVerify);
     }
 
     public void rebuildIndex(String ksName, String cfName, String... idxNames)

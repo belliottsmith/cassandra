@@ -28,6 +28,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 import javax.management.*;
 import javax.management.openmbean.*;
 
@@ -60,13 +61,12 @@ import org.apache.cassandra.exceptions.StartupException;
 import org.apache.cassandra.index.SecondaryIndexManager;
 import org.apache.cassandra.index.internal.CassandraIndex;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
-import org.apache.cassandra.io.FSError;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.sstable.Component;
-import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTable;
+import org.apache.cassandra.io.sstable.KeyIterator;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.*;
 import org.apache.cassandra.io.sstable.format.big.BigFormat;
@@ -74,10 +74,11 @@ import org.apache.cassandra.io.sstable.metadata.CompactionMetadata;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.metrics.TableMetrics.Sampler;
 import org.apache.cassandra.schema.*;
-import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
+import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.*;
@@ -774,11 +775,12 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     /**
-     * See #{@code StorageService.loadNewSSTables(String, String)} for more info
+     * See #{@code StorageService.importNewSSTables} for more info
      *
      * @param ksName The keyspace name
      * @param cfName The columnFamily name
      */
+    @Deprecated
     public static void loadNewSSTables(String ksName, String cfName, String dirPath)
     {
         /** ks/cf existence checks will be done by open and getCFS methods for us */
@@ -786,30 +788,69 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         keyspace.getColumnFamilyStore(cfName).loadNewSSTables(dirPath);
     }
 
-
-    public synchronized void loadNewSSTables()
+    @Deprecated
+    public synchronized void loadNewSSTables(String dirPath)
     {
-        loadNewSSTables(null);
+        ImportOptions options = ImportOptions.options(dirPath)
+                                             .resetLevel(true)
+                                             .verifySSTables(true)
+                                             .verifyTokens(true).build();
+        importNewSSTables(options);
+    }
+
+    @Deprecated
+    public void loadNewSSTables()
+    {
+        ImportOptions options = ImportOptions.options().resetLevel(true).build();
+        importNewSSTables(options);
     }
 
     /**
-     * #{@inheritDoc}
+     * Iterates over all keys in the sstable index and invalidates the row cache
      */
-    public synchronized void loadNewSSTables(String dirPath)
+    private static void invalidateCachesForSSTable(ColumnFamilyStore cfs, Descriptor desc) throws IOException
     {
-        logger.info("Loading new SSTables for {}/{} from {}...", keyspace.getName(), name, dirPath);
+        try (KeyIterator iter = new KeyIterator(desc, cfs.metadata))
+        {
+            while (iter.hasNext())
+            {
+                DecoratedKey decoratedKey = iter.next();
+                cfs.invalidateCachedPartition(decoratedKey);
+            }
+        }
+    }
+
+
+    public void importNewSSTables(String srcPath, boolean resetLevel, boolean clearRepaired, boolean verifySSTables, boolean verifyTokens, boolean invalidateCaches, boolean extendedVerify)
+    {
+        ImportOptions options = ImportOptions.options(srcPath)
+                                             .resetLevel(resetLevel)
+                                             .clearRepaired(clearRepaired)
+                                             .verifySSTables(verifySSTables)
+                                             .verifyTokens(verifyTokens)
+                                             .invalidateCaches(invalidateCaches)
+                                             .extendedVerify(extendedVerify).build();
+
+        this.importNewSSTables(options);
+    }
+
+    @VisibleForTesting
+    synchronized void importNewSSTables(ImportOptions options)
+    {
+        logger.info("Loading new SSTables for {}/{}: {}",
+                    keyspace.getName(), name, options);
 
         File dir = null;
-        if (dirPath != null && !dirPath.isEmpty())
+        if (options.srcPath != null && !options.srcPath.isEmpty())
         {
-            dir = new File(dirPath);
+            dir = new File(options.srcPath);
             if (!dir.exists())
             {
-                throw new RuntimeException(String.format("Directory %s does not exist", dirPath));
+                throw new RuntimeException(String.format("Directory %s does not exist", options.srcPath));
             }
-            if (!Directories.verifyFullPermissions(dir, dirPath))
+            if (!Directories.verifyFullPermissions(dir, options.srcPath))
             {
-                throw new RuntimeException("Insufficient permissions on directory " + dirPath);
+                throw new RuntimeException("Insufficient permissions on directory " + options.srcPath);
             }
         }
 
@@ -820,6 +861,38 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         Directories.SSTableLister lister = dir == null ?
                 directories.sstableLister(Directories.OnTxnErr.IGNORE).skipTemporary(true) :
                 directories.sstableLister(dir, Directories.OnTxnErr.IGNORE).skipTemporary(true);
+
+        // verify first to avoid starting to copy sstables to the data directories and then have to abort.
+        if (options.verifySSTables || options.verifyTokens)
+        {
+            for (Map.Entry<Descriptor, Set<Component>> entry : lister.list().entrySet())
+            {
+                Descriptor descriptor = entry.getKey();
+                SSTableReader reader = null;
+                try
+                {
+                    reader = SSTableReader.open(descriptor, entry.getValue(), metadata);
+                    Verifier.Options verifierOptions = Verifier.options().extendedVerification(options.extendedVerify)
+                                                                         .checkOwnsTokens(options.verifyTokens)
+                                                                         .invokeDiskFailurePolicy(false)
+                                                                         .mutateRepairStatus(false).build();
+                    try (Verifier verifier = new Verifier(this, reader, false, verifierOptions))
+                    {
+                        verifier.verify();
+                    }
+                }
+                catch (Throwable t)
+                {
+                    throw new RuntimeException("Can't import sstable "+descriptor, t);
+                }
+                finally
+                {
+                    if (reader != null)
+                        reader.selfRef().release();
+                }
+            }
+        }
+
         for (Map.Entry<Descriptor, Set<Component>> entry : lister.list().entrySet())
         {
             Descriptor descriptor = entry.getKey();
@@ -832,21 +905,30 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                         descriptor.getFormat().getLatestVersion(),
                         descriptor));
 
-            // force foreign sstables to level 0
             try
             {
                 if (new File(descriptor.filenameFor(Component.STATS)).exists())
-                    descriptor.getMetadataSerializer().mutateLevel(descriptor, 0);
+                {
+                    if (options.resetLevel)
+                    {
+                        descriptor.getMetadataSerializer().mutateLevel(descriptor, 0);
+                    }
+                    if (options.clearRepaired)
+                    {
+                        descriptor.getMetadataSerializer().mutateRepaired(descriptor,
+                                                                          ActiveRepairService.UNREPAIRED_SSTABLE,
+                                                                          null);
+                    }
+                }
+                if (options.invalidateCaches)
+                    invalidateCachesForSSTable(this, descriptor);
             }
             catch (IOException e)
             {
-                FileUtils.handleCorruptSSTable(new CorruptSSTableException(e, entry.getKey().filenameFor(Component.STATS)));
-                logger.error("Cannot read sstable {}; other IO error, skipping table", entry, e);
-                continue;
+                logger.error("{} is corrupt, can't import", descriptor, e);
+                throw new RuntimeException(e);
             }
 
-            // Increment the generation until we find a filename that doesn't exist. This is needed because the new
-            // SSTables that are being loaded might already use these generation numbers.
             Descriptor newDescriptor;
 
             do
@@ -857,6 +939,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                                                dir == null ? descriptor.directory : directories.getWriteableLocationToLoadFile(new File(descriptor.baseFilename())),
                                                descriptor.ksname,
                                                descriptor.cfname,
+                                               // Increment the generation until we find a filename that doesn't exist. This is needed because the new
+                                               // SSTables that are being loaded might already use these generation numbers.
                                                fileIndexGenerator.incrementAndGet(),
                                                descriptor.formatType,
                                                descriptor.digestComponent);
@@ -871,23 +955,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             {
                 reader = SSTableReader.open(newDescriptor, entry.getValue(), metadata);
             }
-            catch (CorruptSSTableException ex)
+            catch (Throwable t)
             {
-                FileUtils.handleCorruptSSTable(ex);
-                logger.error("Corrupt sstable {}; skipping table", entry, ex);
-                continue;
-            }
-            catch (FSError ex)
-            {
-                FileUtils.handleFSError(ex);
-                logger.error("Cannot read sstable {}; file system error, skipping table", entry, ex);
-                continue;
-            }
-            catch (IOException ex)
-            {
-                FileUtils.handleCorruptSSTable(new CorruptSSTableException(ex, entry.getKey().filenameFor(Component.DATA)));
-                logger.error("Cannot read sstable {}; other IO error, skipping table", entry, ex);
-                continue;
+                for (SSTableReader sstable : newSSTables)
+                    sstable.selfRef().release();
+                // log which sstables we have copied so far, so that the operator can remove them
+                if (options.srcPath != null)
+                    logger.error("Aborting import of sstables. {} copied, {} was corrupt", newSSTables, newDescriptor);
+                throw new RuntimeException(newDescriptor+" is corrupt, can't import", t);
             }
             newSSTables.add(reader);
         }
@@ -2947,4 +3022,109 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         return neverPurgeTombstones;
     }
+
+    public static class ImportOptions
+    {
+        public final String srcPath;
+        public final boolean resetLevel;
+        public final boolean clearRepaired;
+        public final boolean verifySSTables;
+        public final boolean verifyTokens;
+        public final boolean invalidateCaches;
+        public final boolean extendedVerify;
+
+        public ImportOptions(String srcPath, boolean resetLevel, boolean clearRepaired, boolean verifySSTables, boolean verifyTokens, boolean invalidateCaches, boolean extendedVerify)
+        {
+            this.srcPath = srcPath;
+            this.resetLevel = resetLevel;
+            this.clearRepaired = clearRepaired;
+            this.verifySSTables = verifySSTables;
+            this.verifyTokens = verifyTokens;
+            this.invalidateCaches = invalidateCaches;
+            this.extendedVerify = extendedVerify;
+        }
+
+        public static Builder options(@Nullable String srcDir)
+        {
+            return new Builder(srcDir);
+        }
+
+        public static Builder options()
+        {
+            return options(null);
+        }
+
+        @Override
+        public String toString()
+        {
+            return "ImportOptions{" +
+                   "srcPath='" + srcPath + '\'' +
+                   ", resetLevel=" + resetLevel +
+                   ", clearRepaired=" + clearRepaired +
+                   ", verifySSTables=" + verifySSTables +
+                   ", verifyTokens=" + verifyTokens +
+                   ", invalidateCaches=" + invalidateCaches +
+                   ", extendedVerify=" + extendedVerify +
+                   '}';
+        }
+
+        static class Builder
+        {
+            private final String srcPath;
+            private boolean resetLevel = false;
+            private boolean clearRepaired = false;
+            private boolean verifySSTables = false;
+            private boolean verifyTokens = false;
+            private boolean invalidateCaches = false;
+            private boolean extendedVerify = false;
+
+            private Builder(String srcPath)
+            {
+                this.srcPath = srcPath;
+            }
+
+            public Builder resetLevel(boolean value)
+            {
+                resetLevel = value;
+                return this;
+            }
+
+            public Builder clearRepaired(boolean value)
+            {
+                clearRepaired = value;
+                return this;
+            }
+
+            public Builder verifySSTables(boolean value)
+            {
+                verifySSTables = value;
+                return this;
+            }
+
+            public Builder verifyTokens(boolean value)
+            {
+                verifyTokens = value;
+                return this;
+            }
+
+            public Builder invalidateCaches(boolean value)
+            {
+                invalidateCaches = value;
+                return this;
+            }
+
+
+            public Builder extendedVerify(boolean value)
+            {
+                extendedVerify = value;
+                return this;
+            }
+
+            public ImportOptions build()
+            {
+                return new ImportOptions(srcPath, resetLevel, clearRepaired, verifySSTables, verifyTokens, invalidateCaches, extendedVerify);
+            }
+        }
+    }
+
 }

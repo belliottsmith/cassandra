@@ -557,7 +557,7 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void rescheduleFailedDeletions();
 
     /**
-     * @deprecated use {@link #loadNewSSTables(String ksName, String tableName, String dirPath)} instead.
+     * @deprecated use {@link org.apache.cassandra.db.ColumnFamilyStore#importNewSSTables} instead
      */
     @Deprecated
     public void loadNewSSTables(String ksName, String tableName);
@@ -568,7 +568,10 @@ public interface StorageServiceMBean extends NotificationEmitter
      * @param ksName The parent keyspace name
      * @param tableName The ColumnFamily name where SSTables belong
      * @param dirPath The path where the SSTables will be loaded from
+     *
+     * @deprecated use {@link org.apache.cassandra.db.ColumnFamilyStore#importNewSSTables} instead
      */
+    @Deprecated
     public void loadNewSSTables(String ksName, String tableName, String dirPath);
 
     /**
