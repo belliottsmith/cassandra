@@ -17,7 +17,7 @@ builds:
   publish:
     docker:
       namespace: pie
-      registry: registry.is.apple.com
+      registry: docker.apple.com
       tag: latest
   timeout: 30
 - name: ghprb-3.0.17
@@ -28,7 +28,7 @@ builds:
     - ./rio/test.sh
   machine:
     docker:
-      baseImage: registry.is.apple.com/pie/cie_cassandra:latest
+      baseImage: docker.apple.com/pie/cie_cassandra:latest
   publish:
     reports:
       junit: true
@@ -41,7 +41,7 @@ builds:
     - ./rio/test.sh
   machine:
     docker:
-      baseImage: registry.is.apple.com/pie/cie_cassandra:latest
+      baseImage: docker.apple.com/pie/cie_cassandra:latest
   publish:
     reports:
       junit: true
@@ -57,7 +57,7 @@ builds:
         - ./rio/release.sh 3.0.17-SNAPSHOT
   machine:
     docker:
-      baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
+      baseImage: docker.apple.com/cpbuild/jdk1.8:latest
   publish:
     archives:
       includePattern: ".dist/publishable/**"
@@ -78,7 +78,7 @@ builds:
     - ./rio/carnival.sh 3.0.17
   machine:
     docker:
-      baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
+      baseImage: docker.apple.com/cpbuild/jdk1.8:latest
   publish:
     reports:
       junit: false
@@ -102,7 +102,7 @@ builds:
     - ./rio/release.sh 3.0.17.0
   machine:
     docker:
-      baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
+      baseImage: docker.apple.com/cpbuild/jdk1.8:latest
   publish:
     archives:
       includePattern: ".dist/publishable/**"
@@ -123,7 +123,7 @@ builds:
     - ./rio/carnival.sh 3.0.17.0
   machine:
     docker:
-      baseImage: registry.is.apple.com/cpbuild/jdk1.8:latest
+      baseImage: docker.apple.com/cpbuild/jdk1.8:latest
   publish:
     reports:
       junit: false
@@ -147,7 +147,7 @@ builds:
     - /home/tests/run_int.sh --with-xunit --xunit-file=/code/nosetests.xml --test-select-config=conf/cie-cassandra-3.0-all.cfg
   machine:
     docker:
-      baseImage: registry.is.apple.com/pie/cie_cassandra_dtest
+      baseImage: docker.apple.com/pie/cie_cassandra_dtest
   publish:
     logs: logs/
     reports:
@@ -166,7 +166,7 @@ builds:
     env:
       DTEST_TIMEOUT: 300
     docker:
-      baseImage: registry.is.apple.com/pie/cie_cassandra_dtest
+      baseImage: docker.apple.com/pie/cie_cassandra_dtest
   publish:
     logs: logs/
     reports:
@@ -184,7 +184,7 @@ builds:
     - /home/tests/run_int.sh --with-xunit --xunit-file=/code/nosetests.xml --test-select-config=conf/cie-cassandra-3.0-all.cfg
   machine:
     docker:
-      baseImage: registry.is.apple.com/pie/cie_cassandra_dtest
+      baseImage: docker.apple.com/pie/cie_cassandra_dtest
   publish:
     logs: logs/
     reports:
