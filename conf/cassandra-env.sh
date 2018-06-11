@@ -86,6 +86,9 @@ calculate_heap_sizes()
     fi
 }
 
+# We've had to move this up here above the WD40 check since setting this via our propety system is problematic
+JVM_ON_OUT_OF_MEMORY_ERROR_OPT=${JVM_ON_OUT_OF_MEMORY_ERROR_OPT:-"-XX:OnOutOfMemoryError=kill -9 %p"}
+
 # If we are running via WD-40 we shouldn't run any of this logic as it's all in cassandracfg now
 # If people are running our cie-cassandra release though (on dev machines etc) we still need to 
 # source this file and have the logic to build up the various arguments.
@@ -264,7 +267,8 @@ fi
 # on white spaces without taking quotes into account
 # JVM_OPTS="$JVM_OPTS -XX:+ExitOnOutOfMemoryError"
 # JVM_OPTS="$JVM_OPTS -XX:+CrashOnOutOfMemoryError"
-JVM_ON_OUT_OF_MEMORY_ERROR_OPT="-XX:OnOutOfMemoryError=kill -9 %p"
+# Please see above uncomment setting moved above WD40 check
+# JVM_ON_OUT_OF_MEMORY_ERROR_OPT="-XX:OnOutOfMemoryError=kill -9 %p"
 
 # print an heap histogram on OutOfMemoryError
 # JVM_OPTS="$JVM_OPTS -Dcassandra.printHeapHistogramOnOutOfMemoryError=true"
