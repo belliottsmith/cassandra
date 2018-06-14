@@ -1330,6 +1330,8 @@ public class DatabaseDescriptor
                 return getWriteRpcTimeout();
             case COUNTER_MUTATION:
                 return getCounterWriteRpcTimeout();
+            case PING:
+                return TimeUnit.SECONDS.toMillis(getBlockForPeersTimeoutInSeconds());
             default:
                 return getRpcTimeout();
         }
@@ -2640,5 +2642,15 @@ public class DatabaseDescriptor
             throw new ConfigurationException("max_concurrent_automatic_sstable_upgrades can't be negative");
         if (value > getConcurrentCompactors())
             logger.warn("max_concurrent_automatic_sstable_upgrades ({}) is larger than concurrent_compactors ({})", value, getConcurrentCompactors());
+    }
+
+    public static int getBlockForPeersPercentage()
+    {
+        return conf.block_for_peers_percentage;
+    }
+
+    public static int getBlockForPeersTimeoutInSeconds()
+    {
+        return conf.block_for_peers_timeout_in_secs;
     }
 }

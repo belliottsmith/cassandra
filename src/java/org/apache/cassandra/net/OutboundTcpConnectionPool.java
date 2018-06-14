@@ -22,6 +22,8 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.channels.SocketChannel;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -33,6 +35,8 @@ import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.metrics.ConnectionMetrics;
 import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.utils.FBUtilities;
+
+import static org.apache.cassandra.net.OutboundTcpConnectionPool.ConnectionType.SMALL_MESSAGE;
 
 public class OutboundTcpConnectionPool
 {
@@ -49,6 +53,37 @@ public class OutboundTcpConnectionPool
     // pointer to the reset Address.
     private InetAddress resetEndpoint;
     private ConnectionMetrics metrics;
+
+    // APPLE-INTERNAL: copied from trunk's OutboundConnectionIdentifier.
+    public enum ConnectionType
+    {
+        GOSSIP (0), LARGE_MESSAGE (1), SMALL_MESSAGE (2), STREAM (3);
+
+        private final int id;
+
+        ConnectionType(int id)
+        {
+            this.id = id;
+        }
+
+        public int getId()
+        {
+            return id;
+        }
+
+        private static final Map<Integer, ConnectionType> idMap = new HashMap<>(values().length);
+        static
+        {
+            for (ConnectionType type : values())
+                idMap.put(type.id, type);
+        }
+
+        public static ConnectionType fromId(int id)
+        {
+            return idMap.get(id);
+        }
+
+    }
 
     OutboundTcpConnectionPool(InetAddress remoteEp)
     {
@@ -67,11 +102,28 @@ public class OutboundTcpConnectionPool
      */
     OutboundTcpConnection getConnection(MessageOut msg)
     {
-        if (Stage.GOSSIP == msg.getStage())
-            return gossipMessages;
-        return msg.payloadSize(smallMessages.getTargetVersion()) > LARGE_MESSAGE_THRESHOLD
-               ? largeMessages
-               : smallMessages;
+        if (msg.connectionType == null)
+        {
+            if (Stage.GOSSIP == msg.getStage())
+                return gossipMessages;
+            return msg.payloadSize(smallMessages.getTargetVersion()) > LARGE_MESSAGE_THRESHOLD
+                   ? largeMessages
+                   : smallMessages;
+        }
+        else
+        {
+            switch (msg.connectionType)
+            {
+                case SMALL_MESSAGE:
+                    return smallMessages;
+                case LARGE_MESSAGE:
+                    return largeMessages;
+                case GOSSIP:
+                    return gossipMessages;
+                default:
+                    throw new IllegalArgumentException("unsupported connection type: " + msg.connectionType);
+            }
+        }
     }
 
     void reset()

@@ -31,6 +31,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.net.OutboundTcpConnectionPool.ConnectionType;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import static org.apache.cassandra.tracing.Tracing.isTracing;
@@ -45,6 +46,11 @@ public class MessageOut<T>
     private long payloadSize = -1;
     private int payloadSizeVersion = -1;
 
+    /**
+     * Allows sender to explicitly state which connection type the message should be sent on.
+     */
+    public final ConnectionType connectionType;
+
     // we do support messages that just consist of a verb
     public MessageOut(MessagingService.Verb verb)
     {
@@ -56,31 +62,40 @@ public class MessageOut<T>
         this(verb,
              payload,
              serializer,
-             isTracing()
-                 ? Tracing.instance.getTraceHeaders()
-                 : Collections.<String, byte[]>emptyMap());
+             isTracing() ? Tracing.instance.getTraceHeaders() : Collections.emptyMap(),
+             null);
     }
 
-    private MessageOut(MessagingService.Verb verb, T payload, IVersionedSerializer<T> serializer, Map<String, byte[]> parameters)
+    public MessageOut(MessagingService.Verb verb, T payload, IVersionedSerializer<T> serializer, ConnectionType connectionType)
     {
-        this(FBUtilities.getBroadcastAddress(), verb, payload, serializer, parameters);
+        this(verb,
+             payload,
+             serializer,
+             isTracing() ? Tracing.instance.getTraceHeaders() : Collections.emptyMap(),
+             connectionType);
+    }
+
+    public MessageOut(MessagingService.Verb verb, T payload, IVersionedSerializer<T> serializer, Map<String, byte[]> parameters, ConnectionType connectionType)
+    {
+        this(FBUtilities.getBroadcastAddress(), verb, payload, serializer, parameters, connectionType);
     }
 
     @VisibleForTesting
-    public MessageOut(InetAddress from, MessagingService.Verb verb, T payload, IVersionedSerializer<T> serializer, Map<String, byte[]> parameters)
+    public MessageOut(InetAddress from, MessagingService.Verb verb, T payload, IVersionedSerializer<T> serializer, Map<String, byte[]> parameters, ConnectionType connectionType)
     {
         this.from = from;
         this.verb = verb;
         this.payload = payload;
         this.serializer = serializer;
         this.parameters = parameters;
+        this.connectionType = connectionType;
     }
 
     public MessageOut<T> withParameter(String key, byte[] value)
     {
         ImmutableMap.Builder<String, byte[]> builder = ImmutableMap.builder();
         builder.putAll(parameters).put(key, value);
-        return new MessageOut<T>(verb, payload, serializer, builder.build());
+        return new MessageOut<T>(verb, payload, serializer, builder.build(), connectionType);
     }
 
     public Stage getStage()

@@ -31,6 +31,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 import javax.management.StandardMBean;
@@ -60,6 +63,9 @@ import org.apache.cassandra.auth.PasswordAuthenticator;
 import org.apache.cassandra.auth.Roles;
 import org.apache.cassandra.concurrent.*;
 import org.apache.cassandra.config.CFMetaData;
+
+import org.apache.cassandra.concurrent.ScheduledExecutors;
+import org.apache.cassandra.net.StartupClusterConnectivityChecker;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
@@ -529,6 +535,10 @@ public class CassandraDaemon
      */
     public void start()
     {
+        StartupClusterConnectivityChecker connectivityChecker = StartupClusterConnectivityChecker.create(DatabaseDescriptor.getBlockForPeersPercentage(),
+                                                                                                         DatabaseDescriptor.getBlockForPeersTimeoutInSeconds());
+        connectivityChecker.execute(Gossiper.instance.getEndpoints());
+
         String nativeFlag = System.getProperty("cassandra.start_native_transport");
         if ((nativeFlag != null && Boolean.parseBoolean(nativeFlag)) || (nativeFlag == null && DatabaseDescriptor.startNativeTransport()))
         {
@@ -714,11 +724,11 @@ public class CassandraDaemon
         Uninterruptibles.sleepUninterruptibly(GOSSIP_SETTLE_MIN_WAIT_MS, TimeUnit.MILLISECONDS);
         int totalPolls = 0;
         int numOkay = 0;
-        int epSize = Gossiper.instance.getEndpointStates().size();
+        int epSize = Gossiper.instance.getEndpointCount();
         while (numOkay < GOSSIP_SETTLE_POLL_SUCCESSES_REQUIRED)
         {
             Uninterruptibles.sleepUninterruptibly(GOSSIP_SETTLE_POLL_INTERVAL_MS, TimeUnit.MILLISECONDS);
-            int currentSize = Gossiper.instance.getEndpointStates().size();
+            int currentSize = Gossiper.instance.getEndpointCount();
             totalPolls++;
             if (currentSize == epSize)
             {

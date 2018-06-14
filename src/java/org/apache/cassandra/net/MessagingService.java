@@ -30,7 +30,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 import javax.net.ssl.SSLHandshakeException;
@@ -153,8 +152,14 @@ public final class MessagingService implements MessagingServiceMBean
         PAXOS_PROPOSE,
         PAXOS_COMMIT,
         @Deprecated PAGED_RANGE,
-        // remember to add new verbs at the end, since we serialize by ordinal
-        UNUSED_1,
+        PING,
+
+        // UNUSED verbs were used as padding for backward/forward compatability before 4.0,
+        // but it wasn't quite as bullet/future proof as needed. We still need to keep these entries
+        // around, at least for a major rev or two (post-4.0). see CASSANDRA-13993 for a discussion.
+        // For now, though, the UNUSED are legacy values (placeholders, basically) that should only be used
+        // for correctly adding VERBs that need to be emergency additions to 3.0/3.11.
+        // We can reclaim them (their id's, to be correct) in future versions, if desired, though.
         UNUSED_2,
         UNUSED_3,
         UNUSED_4,
@@ -166,7 +171,7 @@ public final class MessagingService implements MessagingServiceMBean
         APPLE_REPAIR_SUCCESS(-1002),
         APPLE_QUERY_REPAIR_HISTORY(-1003),
         ;
-        private int id;
+        private final int id;
         Verb()
         {
             this.id = ordinal();
@@ -198,14 +203,17 @@ public final class MessagingService implements MessagingServiceMBean
         static
         {
             for (Verb v : values())
-                idToVerbMap.put(v.getId(), v);
+            {
+                Verb existing = idToVerbMap.put(v.getId(), v);
+                if (existing != null)
+                    throw new IllegalArgumentException("cannot have two verbs that map to the same id: " + v + " and " + existing);
+            }
         }
 
         public static Verb fromId(int id)
         {
             return idToVerbMap.get(id);
         }
-
     }
 
     public static final EnumMap<MessagingService.Verb, Stage> verbStages = new EnumMap<MessagingService.Verb, Stage>(MessagingService.Verb.class)
@@ -256,11 +264,11 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.SNAPSHOT, Stage.MISC);
         put(Verb.ECHO, Stage.GOSSIP);
 
-        put(Verb.UNUSED_1, Stage.INTERNAL_RESPONSE);
         put(Verb.UNUSED_2, Stage.INTERNAL_RESPONSE);
         put(Verb.UNUSED_3, Stage.INTERNAL_RESPONSE);
 
         put(Verb.PARTITION_SIZE, Stage.READ);
+        put(Verb.PING, Stage.READ);
     }};
 
     /**
@@ -305,6 +313,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.BATCH_REMOVE, UUIDSerializer.serializer);
 
         put(Verb.PARTITION_SIZE, PartitionSizeCommand.serializer);
+        put(Verb.PING, PingMessage.serializer);
     }};
 
     /**

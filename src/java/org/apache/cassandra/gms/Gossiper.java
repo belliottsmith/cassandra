@@ -31,6 +31,7 @@ import javax.management.ObjectName;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.utils.Pair;
@@ -841,9 +842,14 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         return !(value1 == null || value2 == null) && value1.value.equals(value2.value);
     }
 
-    public Set<Entry<InetAddress, EndpointState>> getEndpointStates()
+    public ImmutableSet<InetAddress> getEndpoints()
     {
-        return endpointStateMap.entrySet();
+        return ImmutableSet.copyOf(endpointStateMap.keySet());
+    }
+
+    public int getEndpointCount()
+    {
+        return endpointStateMap.size();
     }
 
     public UUID getHostId(InetAddress endpoint)

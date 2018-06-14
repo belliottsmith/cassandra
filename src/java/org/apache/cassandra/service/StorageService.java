@@ -55,6 +55,7 @@ import org.apache.cassandra.db.RangeSliceVerbHandler;
 import org.apache.cassandra.db.ReadCommandVerbHandler;
 import org.apache.cassandra.db.partitions.AtomicBTreePartition;
 import org.apache.cassandra.io.util.DataInputPlus;
+import org.apache.cassandra.net.PingVerbHandler;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.Appender;
@@ -392,6 +393,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.BATCH_REMOVE, new BatchRemoveVerbHandler());
 
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PARTITION_SIZE, new PartitionSizeVerbHandler());
+        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PING, new PingVerbHandler());
     }
 
     public void registerDaemon(CassandraDaemon daemon)
