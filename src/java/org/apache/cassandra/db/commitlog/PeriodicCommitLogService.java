@@ -22,7 +22,7 @@ import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 class PeriodicCommitLogService extends AbstractCommitLogService
 {
-    private static final int blockWhenSyncLagsMillis = (int) (DatabaseDescriptor.getCommitLogSyncPeriod() * 1.5);
+    private static final int blockWhenSyncLagsMillis = DatabaseDescriptor.getPeriodicCommitLogSyncBlock();
 
     public PeriodicCommitLogService(final CommitLog commitLog)
     {
