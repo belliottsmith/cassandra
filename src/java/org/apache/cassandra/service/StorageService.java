@@ -5275,6 +5275,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         DatabaseDescriptor.setKeyspaceQuotasEnabled(enabled);
     }
 
+    public long getDefaultKeyspaceQuotaBytes()
+    {
+        return DatabaseDescriptor.getDefaultKeyspaceQuotaBytes();
+    }
+
+    public void setDefaultKeyspaceQuotaBytes(long quotaInBytes)
+    {
+        DatabaseDescriptor.setDefaultKeyspaceQuotaBytes(quotaInBytes);
+    }
+
     public boolean isOutOfTokenRangeRequestLoggingEnabled()
     {
         return DatabaseDescriptor.getLogOutOfTokenRangeRequests();

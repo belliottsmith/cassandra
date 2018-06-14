@@ -20,12 +20,16 @@ package org.apache.cassandra.service;
 
 import java.net.UnknownHostException;
 
+import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.gms.Gossiper;
@@ -36,8 +40,8 @@ import static org.junit.Assert.assertTrue;
 
 public class KeyspaceQuotaTest extends CQLTester
 {
-    @Before
-    public void before() throws ConfigurationException, UnknownHostException
+    @BeforeClass
+    public static void before() throws ConfigurationException
     {
         DatabaseDescriptor.setKeyspaceQuotasEnabled(true);
         DatabaseDescriptor.setKeyspaceQuotaRefreshTimeInSec(1);
@@ -48,6 +52,12 @@ public class KeyspaceQuotaTest extends CQLTester
         KeyspaceQuota.scheduleQuotaCheck();
     }
 
+    @AfterClass
+    public static void after()
+    {
+        StorageService.instance.getTokenMetadata().clearUnsafe();
+    }
+
     @Test
     public void rejectTest() throws Throwable
     {
@@ -55,11 +65,42 @@ public class KeyspaceQuotaTest extends CQLTester
         createTable("CREATE TABLE %s (id int primary key, v int)");
         execute("INSERT INTO %s (id, v) VALUES (1,1)");
         flush();
+        Keyspace ks = Keyspace.open(keyspace());
         QueryProcessor.executeOnceInternal(String.format("INSERT INTO cie_internal.ks_quota (keyspace_name, max_ks_size_mb) VALUES ('%s', 0)", keyspace()));
-        Thread.sleep(2000);
-        assertTrue(Keyspace.open(keyspace()).disabledForWrites);
+        while (!ks.disabledForWrites)
+            Thread.sleep(100);
         QueryProcessor.executeOnceInternal(String.format("DELETE FROM cie_internal.ks_quota WHERE keyspace_name = '%s'", keyspace()));
-        Thread.sleep(2000);
+        while (ks.disabledForWrites)
+            Thread.sleep(100);
         assertFalse(Keyspace.open(keyspace()).disabledForWrites);
+    }
+
+    @Test
+    public void defaultQuotaTest() throws Throwable
+    {
+        assertFalse(Keyspace.open(keyspace()).disabledForWrites);
+        createTable("CREATE TABLE %s (id int primary key, v int)");
+        execute("INSERT INTO %s (id, v) VALUES (1,1)");
+        flush();
+        Keyspace ks = Keyspace.open(keyspace());
+        DatabaseDescriptor.setDefaultKeyspaceQuotaBytes(0);
+        while (!ks.disabledForWrites)
+            Thread.sleep(100);
+        // can't use execute(...) here because it doesn't call checkAccess
+        boolean gotException = false;
+        try
+        {
+            QueryProcessor.process(String.format("insert into %s.%s (id, v) values (2,2)", keyspace(), currentTable()), ConsistencyLevel.ONE);
+        }
+        catch (Throwable t)
+        {
+            gotException = t.getMessage().toLowerCase().contains("quota");
+        }
+        assertTrue(gotException);
+        DatabaseDescriptor.setDefaultKeyspaceQuotaBytes(-1);
+        while (ks.disabledForWrites)
+            Thread.sleep(100);
+        QueryProcessor.process(String.format("insert into %s.%s (id, v) values (2,2)", keyspace(), currentTable()), ConsistencyLevel.ONE);
+
     }
 }

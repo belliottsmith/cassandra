@@ -2470,6 +2470,17 @@ public class DatabaseDescriptor
         conf.enable_keyspace_quotas = enabled;
     }
 
+    public static long getDefaultKeyspaceQuotaBytes()
+    {
+        return conf.default_keyspace_quota_bytes;
+    }
+
+    public static void setDefaultKeyspaceQuotaBytes(long quotaInBytes)
+    {
+        conf.default_keyspace_quota_bytes = quotaInBytes;
+    }
+
+
     public static int getKeyspaceQuotaRefreshTimeInSec()
     {
         return conf.keyspace_quota_refresh_time_in_sec;

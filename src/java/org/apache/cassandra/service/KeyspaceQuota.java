@@ -56,9 +56,11 @@ public class KeyspaceQuota
         {
             UntypedResultSet res = QueryProcessor.process(query, ConsistencyLevel.ONE);
             if (res.isEmpty())
-                return -1;
+            {
+                return DatabaseDescriptor.getDefaultKeyspaceQuotaBytes();
+            }
 
-            return res.one().getInt("max_ks_size_mb") << 20;
+            return ((long)res.one().getInt("max_ks_size_mb")) * 1024 * 1024;
         }
         catch (RequestExecutionException e)
         {
