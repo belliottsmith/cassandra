@@ -62,7 +62,7 @@ public class MockSchema
     public static final Keyspace ks = Keyspace.mockKS(KeyspaceMetadata.create("mockks", KeyspaceParams.simpleTransient(2)));
 
     public static final IndexSummary indexSummary;
-    private static final SegmentedFile segmentedFile = new BufferedSegmentedFile(new ChannelProxy(temp("mocksegmentedfile")), RandomAccessReader.DEFAULT_BUFFER_SIZE, 0);
+    public static final File tempFile = temp("mocksegmentedfile");
 
     public static Memtable memtable(ColumnFamilyStore cfs)
     {
@@ -111,6 +111,8 @@ public class MockSchema
             {
             }
         }
+        // create the segmentedFile with the correct size for SSTableReader#onDiskLength
+        SegmentedFile segmentedFile = new BufferedSegmentedFile(new ChannelProxy(tempFile), RandomAccessReader.DEFAULT_BUFFER_SIZE, size);
         if (size > 0)
         {
             try

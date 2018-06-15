@@ -157,4 +157,16 @@ public interface CompactionManagerMBean
      * when automatic sstable upgrades are enabled
      */
     public void setMaxConcurrentAutoUpgradeTasks(int value);
+
+    /**
+     * Get whether we should compact the biggest (by sstable count) STCS bucket in L0
+     */
+    public boolean getCompactBiggestSTCSBucketInL0();
+
+    /**
+     * Set whether we should cocmpact the biggest (by sstable count) STCS bucket in L0
+     * @return
+     */
+    public void setCompactBiggestSTCSBucketInL0(boolean value);
+
 }

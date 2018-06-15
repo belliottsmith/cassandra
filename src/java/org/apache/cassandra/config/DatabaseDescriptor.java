@@ -2672,4 +2672,18 @@ public class DatabaseDescriptor
     {
         return conf.block_for_peers_timeout_in_secs;
     }
+
+    public static boolean getCompactBiggestSTCSBucketInL0()
+    {
+        return conf.compact_biggest_stcs_bucket_l0;
+    }
+
+    public static void setCompactBiggestSTCSBucketInL0(boolean value)
+    {
+        if (value != conf.compact_biggest_stcs_bucket_l0)
+        {
+            logger.info("Setting compact_biggest_stcs_bucket_in_l0 to {}", value);
+            conf.compact_biggest_stcs_bucket_l0 = value;
+        }
+    }
 }

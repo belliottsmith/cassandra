@@ -469,6 +469,8 @@ public class Config
 
     public String full_query_log_dir = null;
 
+    public volatile boolean compact_biggest_stcs_bucket_l0 = false;
+
     public enum CommitLogSync
     {
         periodic,
