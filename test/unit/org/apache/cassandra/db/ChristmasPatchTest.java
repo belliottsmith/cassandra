@@ -18,37 +18,59 @@
 
 package org.apache.cassandra.db;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import com.google.common.primitives.Ints;
 import org.junit.Assert;
 import org.junit.Test;
 
+import org.apache.cassandra.MockSchema;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.db.ColumnFamilyStore.SuccessfulRepairTimeHolder;
+import org.apache.cassandra.db.xmas.BoundsAndOldestTombstone;
+import org.apache.cassandra.db.xmas.InvalidatedRepairedRange;
+import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
+import static junit.framework.Assert.assertEquals;
 import static org.apache.cassandra.db.ColumnFamilyStore.updateLastSuccessfulRepair;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 public class ChristmasPatchTest extends CQLTester
 {
-    SuccessfulRepairTimeHolder holder = new SuccessfulRepairTimeHolder(ImmutableList.of());
+    SuccessfulRepairTimeHolder holder = new SuccessfulRepairTimeHolder(ImmutableList.of(), ImmutableList.of());
 
     private static Token tk(long t)
     {
         return new Murmur3Partitioner.LongToken(t);
     }
 
+
+    private static DecoratedKey dk(long t)
+    {
+        return new BufferDecoratedKey(tk(t), ByteBufferUtil.EMPTY_BYTE_BUFFER);
+    }
     private static Range<Token> range(long left, long right)
     {
         return new Range<>(tk(left), tk(right));
+    }
+    private static Bounds<Token> bounds(long left, long right)
+    {
+        return new Bounds<>(tk(left), tk(right));
     }
 
     void update(long left, long right, int time)
@@ -90,7 +112,7 @@ public class ChristmasPatchTest extends CQLTester
     {
         update(0, 100, 100);
         SuccessfulRepairTimeHolder newHolder = updateLastSuccessfulRepair(range(0, 100), 99, holder);
-        Assert.assertNull(newHolder);
+        assertNull(newHolder);
     }
 
     @Test
@@ -108,5 +130,170 @@ public class ChristmasPatchTest extends CQLTester
         cfs.updateLastSuccessfulRepair(new Range<>(min, min), System.currentTimeMillis());
         Assert.assertEquals(gcBefore, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk, gcBefore));
     }
+
+    @Test
+    public void testClearSystemTable() throws InterruptedException
+    {
+        createTable("CREATE TABLE %s (id int primary key, t text)");
+        DatabaseDescriptor.setChristmasPatchEnabled();
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        cfs.skipRFCheckForXmasPatch();
+        cfs.updateLastSuccessfulRepair(range(10, 100), 10 * 1000);
+        cfs.updateLastSuccessfulRepair(range(200, 300), 20 * 1000);
+        cfs.updateLastSuccessfulRepair(range(400, 500), 30 * 1000);
+        cfs.updateLastSuccessfulRepair(range(90, 120), 40 * 1000);
+        List<Pair<Range<Token>, Integer>> successBefore = new ArrayList<>(cfs.getRepairTimeSnapshot().successfulRepairs);
+        List<SSTableReader> toImport = Lists.newArrayList(MockSchema.sstable(1, 5, 10, 7, cfs), // shouldn't affect - range is start-exclusive
+                                                          MockSchema.sstable(2, 300, 300, 4, cfs),
+                                                          MockSchema.sstable(3, 400, 1500, 2, cfs));
+
+        cfs.clearLastRepairTimesFor(toImport, 50);
+        List<InvalidatedRepairedRange> afterFirstImport = cfs.getRepairTimeSnapshot().invalidatedRepairs;
+        assertEquals(successBefore, cfs.getRepairTimeSnapshot().successfulRepairs);
+        List<InvalidatedRepairedRange> cur = new ArrayList<>(SystemKeyspace.getInvalidatedSuccessfulRepairRanges(keyspace(), currentTable()));
+        assertEquals(2, cur.size());
+        for (InvalidatedRepairedRange irr : cur)
+        {
+            assertTrue(irr.minLDTSeconds == 2 || irr.minLDTSeconds == 4);
+            if (irr.minLDTSeconds == 2)
+                assertEquals(range(400, 500), irr.range);
+            else
+                assertEquals(range(200, 300), irr.range);
+        }
+
+        cur.sort((a, b) -> Ints.compare(a.minLDTSeconds, b.minLDTSeconds));
+        assertEquals(cfs.getRepairTimeSnapshot().invalidatedRepairs, cur);
+
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk(7), 100));
+        assertEquals(10, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk(15), 100));
+        assertEquals(2, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk(450), 100));
+        assertEquals(2, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk(500), 100));
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk(400), 100));
+        assertEquals(4, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk(250), 100));
+
+        // import an sstable where min ldt is after the last repairs - should not affect anything:
+        cfs.clearLastRepairTimesFor(Collections.singletonList(MockSchema.sstable(4, 5, 10000, 50, cfs)), 50);
+        assertEquals(afterFirstImport, cfs.getRepairTimeSnapshot().invalidatedRepairs);
+
+        /*
+now we have something like this:
+[InvalidatedRepairedRange{invalidatedAtSeconds=1528851329, minLDTSeconds=2, range=(400,500]},
+ InvalidatedRepairedRange{invalidatedAtSeconds=1528851329, minLDTSeconds=4, range=(200,300]}]
+and we invalidate (5, 10000] with minLDT = 25 -> this means that we will find the (400, 500] and (90, 120] ranges above
+since those repairs are newer than the min ldt we are importing. It will insert a new invalidation for (90, 120] with minLDT = 25
+and it will update the (400, 500] one with a new invalidatedAtSeconds
+         */
+        InvalidatedRepairedRange irr400500 = cfs.getRepairTimeSnapshot().invalidatedRepairs.stream().filter(i -> i.range.equals(range(400, 500))).findFirst().get();
+        InvalidatedRepairedRange irr200300 = cfs.getRepairTimeSnapshot().invalidatedRepairs.stream().filter(i -> i.range.equals(range(200, 300))).findFirst().get();
+        cfs.clearLastRepairTimesFor(Collections.singletonList(MockSchema.sstable(5, 5, 10000, 25, cfs)), 55);
+        InvalidatedRepairedRange irr400500After = cfs.getRepairTimeSnapshot().invalidatedRepairs.stream().filter(i -> i.range.equals(range(400, 500))).findFirst().get();
+        InvalidatedRepairedRange irr200300After = cfs.getRepairTimeSnapshot().invalidatedRepairs.stream().filter(i -> i.range.equals(range(200, 300))).findFirst().get();
+        InvalidatedRepairedRange irr90120After = cfs.getRepairTimeSnapshot().invalidatedRepairs.stream().filter(i -> i.range.equals(range(90, 120))).findFirst().get();
+        assertEquals(irr200300, irr200300After); // untouched
+        assertEquals(irr400500.minLDTSeconds, irr400500After.minLDTSeconds); // min ldt should stay the same since 2 < 25
+        assertEquals(50, irr400500.invalidatedAtSeconds);
+        assertEquals(55, irr400500After.invalidatedAtSeconds);
+        assertEquals(25, irr90120After.minLDTSeconds);
+        assertEquals(55, irr90120After.invalidatedAtSeconds);
+
+        assertEquals(successBefore, cfs.getRepairTimeSnapshot().successfulRepairs);
+        SystemKeyspace.clearRepairedRanges(keyspace(), currentTable());
+        cfs.clearLastSucessfulRepairUnsafe();
+    }
+
+    @Test
+    public void testClearSystemTableOverlappingTimes()
+    {
+        createTable("CREATE TABLE %s (id int primary key, t text)");
+        DatabaseDescriptor.setChristmasPatchEnabled();
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        cfs.skipRFCheckForXmasPatch();
+        cfs.updateLastSuccessfulRepair(range(10, 100), 10 * 1000);
+        cfs.updateLastSuccessfulRepair(range(20, 110), 20 * 1000);
+        cfs.updateLastSuccessfulRepair(range(30, 120), 30 * 1000);
+        cfs.updateLastSuccessfulRepair(range(40, 130), 40 * 1000);
+        // intersects all repaired ranges, but oldest tombstone is newer than the two first repaired ranges
+        List<SSTableReader> toImport = Lists.newArrayList(MockSchema.sstable(1, 15, 102, 25, cfs));
+        cfs.clearLastRepairTimesFor(toImport, 45);
+
+        // check a few tokens that they have the correct gcBefore
+        // on the successful boundary, not repaired since range is (x, y]
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk(10), 100));
+        // repaired, not invalidated:
+        assertEquals(10, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk(11), 100));
+        // not invalidated since (20, 110] was repaired before the oldest tombstone (25) in the new sstable:
+        assertEquals(20, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk(30), 100));
+        // invalidated repaired range
+        assertEquals(25, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk(130), 100));
+
+        List<InvalidatedRepairedRange> invalidatedRanges = SystemKeyspace.getInvalidatedSuccessfulRepairRanges(keyspace(), currentTable());
+        assertEquals(2, invalidatedRanges.size());
+        Set<Range<Token>> expectedRanges = Sets.newHashSet(range(30, 120), range(40, 130));
+        for (InvalidatedRepairedRange irr : invalidatedRanges)
+        {
+            assertEquals(25, irr.minLDTSeconds);
+            assertTrue(expectedRanges.remove(irr.range));
+            assertEquals(45, irr.invalidatedAtSeconds);
+        }
+
+        // make sure a new repair bumps bumps the gcBefore for a key
+        assertKeyGCBefore(cfs, dk(125), range(121, 140), 25, 50);
+        assertKeyGCBefore(cfs, dk(55), range(53, 57), 25, 55);
+        assertKeyGCBefore(cfs, dk(11), range(0, 12), 10, 77);
+
+        cfs.clearLastSucessfulRepairUnsafe();
+        SystemKeyspace.clearRepairedRanges(keyspace(), currentTable());
+    }
+
+    private void assertKeyGCBefore(ColumnFamilyStore cfs, DecoratedKey key, Range<Token> repairedRange, int gcBeforeRepair, int succeedAt)
+    {
+        int keyGCBefore = cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, key, Integer.MAX_VALUE);
+        assertEquals(gcBeforeRepair, keyGCBefore);
+        cfs.updateLastSuccessfulRepair(repairedRange, succeedAt * 1000);
+        keyGCBefore = cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, key, Integer.MAX_VALUE);
+        assertEquals(succeedAt, keyGCBefore);
+    }
+
+    @Test
+    public void testBoundsAndOldestTombstone()
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        List<SSTableReader> sstables = Lists.newArrayList(MockSchema.sstable(1, 5, 10, 10, cfs),
+                                                          MockSchema.sstable(2, 300, 300, 13, cfs),
+                                                          MockSchema.sstable(3, 400, 1500, 5, cfs),
+                                                          MockSchema.sstable(3, 401, 1500, 6, cfs),
+                                                          MockSchema.sstable(3, 402, 1500, 7, cfs));
+        BoundsAndOldestTombstone bot = new BoundsAndOldestTombstone(sstables);
+        // non-intersecting
+        assertEquals(Integer.MAX_VALUE, bot.getOldestIntersectingTombstoneLDT(range(0,1), 0));
+        // intersecting but repaired before the tombstones LDT:
+        assertEquals(Integer.MAX_VALUE, bot.getOldestIntersectingTombstoneLDT(range(0,2000), 0));
+        // intersecting, repaired newer
+        assertEquals(10, bot.getOldestIntersectingTombstoneLDT(range(0,350), 20));
+        // make sure we get the oldest when querying overlapping ranges:
+        assertEquals(5, bot.getOldestIntersectingTombstoneLDT(range(350,2000), 20));
+
+    }
+
+    @Test
+    public void testInvalidatedRepairRange()
+    {
+        Range<Token> r = range(10,100);
+        InvalidatedRepairedRange irr = new InvalidatedRepairedRange(10, 10, r);
+        InvalidatedRepairedRange irr2 = new InvalidatedRepairedRange(20, 4, r);
+        InvalidatedRepairedRange irrMerged = irr.merge(5, irr2);
+        InvalidatedRepairedRange irrMerged2 = irr2.merge(5, irr);
+        assertEquals(irrMerged, irrMerged2);
+        // we should keep the smallest LDT
+        assertEquals(4, irrMerged.minLDTSeconds);
+        // and the largest invalidatedAtSeconds
+        assertEquals(20, irrMerged.invalidatedAtSeconds);
+        assertEquals(r, irrMerged.range);
+        assertNull(irr.merge(40, irr2));
+
+        assertEquals(irr2, irr.merge(15, irr2)); // irr is not active - repair has been run after the invalidatedAtSeconds
+        assertEquals(irr2, irr2.merge(15, irr));
+    }
+
 }
 

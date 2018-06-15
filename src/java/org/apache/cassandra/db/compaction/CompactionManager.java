@@ -1317,7 +1317,7 @@ public class CompactionManager implements CompactionManagerMBean
             long start = System.nanoTime();
             long partitionCount = 0;
             try (AbstractCompactionStrategy.ScannerList scanners = cfs.getCompactionStrategyManager().getScanners(sstables, validator.desc.ranges);
-                 ValidationCompactionController controller = new ValidationCompactionController(cfs, getDefaultGcBefore(cfs, validator.nowInSec));
+                 ValidationCompactionController controller = new ValidationCompactionController(cfs, getDefaultGcBefore(cfs, validator.nowInSec), validator.getPreviewKind());
                  CompactionIterator ci = new ValidationCompactionIterator(scanners.scanners, controller, validator.nowInSec, metrics))
             {
                 SessionData sessionData = new SessionData(validator.desc.parentSessionId, validator.desc.ranges, validator.getPreviewKind(), ci);
@@ -1710,9 +1710,25 @@ public class CompactionManager implements CompactionManagerMBean
      */
     private static class ValidationCompactionController extends CompactionController
     {
-        public ValidationCompactionController(ColumnFamilyStore cfs, int gcBefore)
+        private final ColumnFamilyStore.SuccessfulRepairTimeHolder repairTimes;
+        public ValidationCompactionController(ColumnFamilyStore cfs, int gcBefore, PreviewKind previewKind)
         {
             super(cfs, gcBefore);
+
+            /*
+             * We adjust our effective repaired times when we import sstables so that we don't gc tombstones that
+             * haven't actually been repaired. Since these sstables are only ever added to the unrepaired set, and
+             * the adjustments aren't neccesarily consistent between nodes, we ignore them when doing repaired data
+             * preview validations, since they would cause false positives for inconsistent data.
+             */
+            ColumnFamilyStore.SuccessfulRepairTimeHolder originalTimes = super.getRepairTimeSnapshot();
+            repairTimes = previewKind == PreviewKind.REPAIRED ? originalTimes.withoutInvalidationRepairs() : originalTimes;
+        }
+
+        @Override
+        public ColumnFamilyStore.SuccessfulRepairTimeHolder getRepairTimeSnapshot()
+        {
+            return repairTimes;
         }
 
         @Override

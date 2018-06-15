@@ -558,7 +558,7 @@ public class ColumnFamilyStoreTest
 
         Map<Range<Token>, Integer> storedSuccessfulRepairs = new HashMap<>();
         storedSuccessfulRepairs.put(new Range<Token>(new Murmur3Partitioner.LongToken(10), new Murmur3Partitioner.LongToken(20)), 42);
-        cfs.setLastSuccessfulRepairs(storedSuccessfulRepairs);
+        cfs.setLastSuccessfulRepairs(storedSuccessfulRepairs, Collections.emptyList());
         ImmutableList<Pair<Range<Token>, Integer>> lastSuccessfulRepairs = cfs.getRepairTimeSnapshot().successfulRepairs;
         Assert.assertEquals(storedSuccessfulRepairs.size(), lastSuccessfulRepairs.size());
 
@@ -578,8 +578,8 @@ public class ColumnFamilyStoreTest
 
         Map<Range<Token>, Integer> storedSuccessfulRepairs = new HashMap<>();
         storedSuccessfulRepairs.put(new Range<Token>(new Murmur3Partitioner.LongToken(10), new Murmur3Partitioner.LongToken(20)), 42);
-        cfs.setLastSuccessfulRepairs(storedSuccessfulRepairs);
-        cfs.setLastSuccessfulRepairs(storedSuccessfulRepairs);
+        cfs.setLastSuccessfulRepairs(storedSuccessfulRepairs, Collections.emptyList());
+        cfs.setLastSuccessfulRepairs(storedSuccessfulRepairs, Collections.emptyList());
     }
 
     @Test

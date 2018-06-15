@@ -58,6 +58,7 @@ public class MockSchema
         offsets.setInt(0, 0);
         indexSummary = new IndexSummary(Murmur3Partitioner.instance, offsets, 0, Memory.allocate(4), 0, 0, 0, 1);
     }
+
     private static final AtomicInteger id = new AtomicInteger();
     public static final Keyspace ks = Keyspace.mockKS(KeyspaceMetadata.create("mockks", KeyspaceParams.simpleTransient(2)));
 
@@ -79,6 +80,11 @@ public class MockSchema
         return sstable(generation, 0, false, cfs, readerBounds(first), readerBounds(last));
     }
 
+    public static SSTableReader sstable(int generation, long first, long last, int minLocalDeletionTime, ColumnFamilyStore cfs)
+    {
+        return sstable(generation, 0, false, cfs, readerBounds(first), readerBounds(last), minLocalDeletionTime);
+    }
+
     public static SSTableReader sstable(int generation, boolean keepRef, ColumnFamilyStore cfs)
     {
         return sstable(generation, 0, keepRef, cfs);
@@ -88,12 +94,18 @@ public class MockSchema
     {
         return sstable(generation, size, false, cfs);
     }
+
     public static SSTableReader sstable(int generation, int size, boolean keepRef, ColumnFamilyStore cfs)
     {
         return sstable(generation, size, keepRef, cfs, readerBounds(generation), readerBounds(generation));
     }
 
     public static SSTableReader sstable(int generation, int size, boolean keepRef, ColumnFamilyStore cfs, DecoratedKey first, DecoratedKey last)
+    {
+        return sstable(generation, size, keepRef, cfs, first, last, Integer.MAX_VALUE);
+    }
+
+    public static SSTableReader sstable(int generation, int size, boolean keepRef, ColumnFamilyStore cfs, DecoratedKey first, DecoratedKey last, int minLocalDeletionTime)
     {
         Descriptor descriptor = new Descriptor(cfs.getDirectories().getDirectoryForNewSSTables(),
                                                cfs.keyspace.getName(),
@@ -129,9 +141,10 @@ public class MockSchema
             }
         }
         SerializationHeader header = SerializationHeader.make(cfs.metadata, Collections.emptyList());
-        StatsMetadata metadata = (StatsMetadata) new MetadataCollector(cfs.metadata.comparator)
-                                                 .finalizeMetadata(cfs.metadata.partitioner.getClass().getCanonicalName(), 0.01f, -1, null, header)
-                                                 .get(MetadataType.STATS);
+        MetadataCollector collector = new MetadataCollector(cfs.metadata.comparator);
+        collector.update(new DeletionTime(System.currentTimeMillis() * 1000, minLocalDeletionTime));
+        StatsMetadata metadata = (StatsMetadata) collector.finalizeMetadata(cfs.metadata.partitioner.getClass().getCanonicalName(), 0.01f, -1, null, header)
+                                                          .get(MetadataType.STATS);
         SSTableReader reader = SSTableReader.internalOpen(descriptor, components, cfs.metadata,
                                                           segmentedFile.sharedCopy(), segmentedFile.sharedCopy(), indexSummary.sharedCopy(),
                                                           new AlwaysPresentFilter(), 1L, metadata, SSTableReader.OpenReason.NORMAL, header);

@@ -36,6 +36,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.*;
 import com.google.common.base.Throwables;
 import com.google.common.collect.*;
+import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +55,8 @@ import org.apache.cassandra.db.lifecycle.*;
 import org.apache.cassandra.db.partitions.CachedPartition;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.CellPath;
+import org.apache.cassandra.db.xmas.BoundsAndOldestTombstone;
+import org.apache.cassandra.db.xmas.InvalidatedRepairedRange;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -74,7 +77,6 @@ import org.apache.cassandra.io.sstable.metadata.CompactionMetadata;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.metrics.TableMetrics.Sampler;
 import org.apache.cassandra.schema.*;
@@ -248,7 +250,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     private volatile boolean compactionSpaceCheck = true;
 
     private volatile boolean neverPurgeTombstones = false;
-
     /**
      * A list to store ranges and the time they were last repaired. The list is
      * reverse-sorted based on the timestamp (see {@link ColumnFamilyStore#lastRepairTimeComparator}).
@@ -977,6 +978,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         try (Refs<SSTableReader> refs = Refs.ref(newSSTables))
         {
+            int nowSeconds = (int) (System.currentTimeMillis() / 1000);
+
+            int oldestSuggestedDeletion = gcBefore(nowSeconds);
+            if (Iterables.any(newSSTables, sst -> sst.getMinLocalDeletionTime() < oldestSuggestedDeletion))
+            {
+                logger.warn("Importing sstables with a minimum deletion time lower than gc grace seconds. This can result in overstreaming on the next repair");
+            }
+            clearLastRepairTimesFor(newSSTables, nowSeconds);
             data.addSSTables(newSSTables);
             indexManager.buildAllIndexesBlocking(newSSTables);
         }
@@ -1744,7 +1753,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         if (!useRepairHistory() || !DatabaseDescriptor.enableShadowChristmasPatch())
             return;
-        setLastSuccessfulRepairs(SystemKeyspace.getLastSuccessfulRepair(keyspace.getName(), name));
+        setLastSuccessfulRepairs(SystemKeyspace.getLastSuccessfulRepair(keyspace.getName(), name),
+                                 SystemKeyspace.getInvalidatedSuccessfulRepairRanges(keyspace.getName(), name));
     }
 
     /**
@@ -1758,12 +1768,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     @VisibleForTesting
-    void setLastSuccessfulRepairs(Map<Range<Token>, Integer> storedSuccessfulRepairs)
+    void setLastSuccessfulRepairs(Map<Range<Token>, Integer> storedSuccessfulRepairs, List<InvalidatedRepairedRange> storedInvalidatedRepairs)
     {
-        SuccessfulRepairTimeHolder current, next;
-        do
+        synchronized (lastSuccessfulRepair)
         {
-            current = lastSuccessfulRepair.get();
+            SuccessfulRepairTimeHolder current = lastSuccessfulRepair.get();
             if (!current.successfulRepairs.isEmpty())
                 throw new IllegalStateException("Last Successful repair should be empty. " + lastSuccessfulRepair);
 
@@ -1772,9 +1781,12 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             for (Map.Entry<Range<Token>, Integer> entry : storedSuccessfulRepairs.entrySet())
                 nextBuilder.add(Pair.create(entry.getKey(), entry.getValue()));
             Collections.sort(nextBuilder, lastRepairTimeComparator);
-            next = new SuccessfulRepairTimeHolder(ImmutableList.copyOf(nextBuilder));
-        } while (!lastSuccessfulRepair.compareAndSet(current, next));
 
+            List<InvalidatedRepairedRange> newInvalidatedRepairs = new ArrayList<>(storedInvalidatedRepairs);
+            newInvalidatedRepairs.sort((a, b) -> Ints.compare(a.minLDTSeconds, b.minLDTSeconds));
+
+            lastSuccessfulRepair.set(new SuccessfulRepairTimeHolder(ImmutableList.copyOf(nextBuilder), ImmutableList.copyOf(newInvalidatedRepairs)));
+        }
     }
 
     /**
@@ -1783,12 +1795,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     @VisibleForTesting
     public void clearLastSucessfulRepairUnsafe()
     {
-        SuccessfulRepairTimeHolder current;
-        SuccessfulRepairTimeHolder empty = SuccessfulRepairTimeHolder.EMPTY;
-        do
+        synchronized (lastSuccessfulRepair)
         {
-            current = lastSuccessfulRepair.get();
-        } while (!lastSuccessfulRepair.compareAndSet(current, empty));
+            lastSuccessfulRepair.set(SuccessfulRepairTimeHolder.EMPTY);
+        }
     }
 
     public void updateLastSuccessfulRepair(Range<Token> range, long succeedAt)
@@ -1798,20 +1808,16 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
         if (!DatabaseDescriptor.enableShadowChristmasPatch())
             return;
-        SuccessfulRepairTimeHolder current, next;
         int gcableTime = (int) (succeedAt / 1000);
-        do
+        synchronized (lastSuccessfulRepair)
         {
-            current = lastSuccessfulRepair.get();
-            next = updateLastSuccessfulRepair(range, gcableTime, current);
+            SuccessfulRepairTimeHolder current = lastSuccessfulRepair.get();
+            SuccessfulRepairTimeHolder next = updateLastSuccessfulRepair(range, gcableTime, current);
             if (null == next)
                 return;
-        } while (!lastSuccessfulRepair.compareAndSet(current, next));
-
-        // this will not be atomic with the update to the member field 'lastSuccessfulRepair',
-        // and there might be a race with another thread. However, as the losing thread will probably be rescheduled
-        // rather quickly after the winning thread, the loss in fidelity of the stored 'succeedAt' value is within in acceptable bounds
-        SystemKeyspace.updateLastSuccessfulRepair(metadata.ksName, name, range, succeedAt);
+            lastSuccessfulRepair.set(next);
+            SystemKeyspace.updateLastSuccessfulRepair(metadata.ksName, name, range, succeedAt);
+        }
         logger.debug("lastSuccessfulRepair:" + lastSuccessfulRepair);
     }
 
@@ -1850,7 +1856,67 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
 
         nextTimes.sort(lastRepairTimeComparator);
-        return new SuccessfulRepairTimeHolder(ImmutableList.copyOf(nextTimes));
+        return new SuccessfulRepairTimeHolder(ImmutableList.copyOf(nextTimes), currentRepairs.invalidatedRepairs);
+    }
+
+
+    /**
+     * Basic idea is that we can't use the sstable boundaries straight up - we would have to subtract the
+     * repaired ranges from all the invalidated ones after each successful repair, otherwise the table would
+     * keep growing since we import sstables with arbitrary boundaries.
+     *
+     * So, instead we check which old successful repaired ranges the imported sstables intersect and insert
+     * matching ranges in the invalidation table which we can then remove once we get a successful repair.
+     * This assumes we don't change repair boundaries (-st, -et) every repair.
+     *
+     * If the invalidation table already contains an "active" invalidation (one where no repair has been run after
+     * the invalidation/import was made) we make sure that the entry has the smallest ldt between the existing
+     * one and the new one.
+     */
+    @VisibleForTesting
+    void clearLastRepairTimesFor(Collection<SSTableReader> sstables, int nowSeconds)
+    {
+        if (!useRepairHistory() || !DatabaseDescriptor.enableShadowChristmasPatch())
+            return;
+
+        BoundsAndOldestTombstone bounds = new BoundsAndOldestTombstone(sstables);
+        synchronized (lastSuccessfulRepair)
+        {
+            SuccessfulRepairTimeHolder current = lastSuccessfulRepair.get();
+
+            Map<Range<Token>, InvalidatedRepairedRange> currentInvalidated = new HashMap<>();
+            for (InvalidatedRepairedRange irr : current.invalidatedRepairs)
+            {
+                currentInvalidated.put(irr.range, irr);
+            }
+
+            for (Pair<Range<Token>, Integer> repair : current.successfulRepairs)
+            {
+                Range<Token> repairedRange = repair.left;
+                int repairTime = repair.right;
+                // find the smallest local deletion time among the intersecting sstables:
+                int minLDT = bounds.getOldestIntersectingTombstoneLDT(repairedRange, repairTime);
+
+                if (minLDT != Integer.MAX_VALUE)
+                {
+                    logger.info("Invalidating successfully repaired range {}", repairedRange);
+                    InvalidatedRepairedRange newIRR = new InvalidatedRepairedRange(nowSeconds, minLDT, repairedRange);
+                    if (currentInvalidated.containsKey(repairedRange))
+                    {
+                        InvalidatedRepairedRange mergedIRR = newIRR.merge(repairTime, currentInvalidated.get(repairedRange));
+                        // this can be null if a repair is started and finished between us starting import and getting  here (ie, the
+                        // repairTime > nowInSeconds) keeping the already inactive newIRR is safe though
+                        if (mergedIRR != null)
+                            newIRR = mergedIRR;
+                    }
+                    currentInvalidated.put(repairedRange, newIRR);
+                    SystemKeyspace.invalidateSuccessfulRepair(keyspace.getName(), getTableName(), newIRR);
+                }
+            }
+            List<InvalidatedRepairedRange> newInvalidatedRepairedRanges = new ArrayList<>(currentInvalidated.values());
+            newInvalidatedRepairedRanges.sort((a, b) -> Ints.compare(a.minLDTSeconds, b.minLDTSeconds));
+            lastSuccessfulRepair.set(new SuccessfulRepairTimeHolder(current.successfulRepairs, ImmutableList.copyOf(newInvalidatedRepairedRanges)));
+        }
     }
 
     public SuccessfulRepairTimeHolder getRepairTimeSnapshot()
@@ -1869,12 +1935,16 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     {
         @VisibleForTesting
         final ImmutableList<Pair<Range<Token>, Integer>> successfulRepairs;
-        public static final SuccessfulRepairTimeHolder EMPTY = new SuccessfulRepairTimeHolder(ImmutableList.of());
+        final ImmutableList<InvalidatedRepairedRange> invalidatedRepairs;
 
-        public SuccessfulRepairTimeHolder(ImmutableList<Pair<Range<Token>, Integer>> successfulRepairs)
+        public static final SuccessfulRepairTimeHolder EMPTY = new SuccessfulRepairTimeHolder(ImmutableList.of(), ImmutableList.of());
+
+        public SuccessfulRepairTimeHolder(ImmutableList<Pair<Range<Token>, Integer>> successfulRepairs,
+                                          ImmutableList<InvalidatedRepairedRange> invalidatedRepairs)
         {
             // we don't need to copy here - the list is never updated, it is swapped out
             this.successfulRepairs = successfulRepairs;
+            this.invalidatedRepairs = invalidatedRepairs;
         }
 
         // todo: there is a possible compaction performance improvment here - we could sort the successfulRepairs by
@@ -1894,6 +1964,21 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     break;
                 }
             }
+            if (lastRepairTime == Integer.MIN_VALUE)
+                return lastRepairTime;
+
+            // now we need to check if a range that contains this token has been invalidated by nodetool import:
+            // invalidatedRepairs is sorted by smallest local deletion time first (ie, we keep the oldest tombstone ldt
+            // first in the list since this is what we are interested in here)
+            for (InvalidatedRepairedRange irr : invalidatedRepairs)
+            {
+                // if the nodetool import was run *after* the last repair time and the range repaired contains
+                // the token, it is invalid and we must use the min ldt as a last repair time.
+                if (irr.invalidatedAtSeconds > lastRepairTime && irr.range.contains(t))
+                {
+                    return irr.minLDTSeconds;
+                }
+            }
             return lastRepairTime;
         }
 
@@ -1911,6 +1996,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             for (Pair<Range<Token>, Integer> p : successfulRepairs)
                 builder.add(p.left);
             return builder.build();
+        }
+
+        public SuccessfulRepairTimeHolder withoutInvalidationRepairs()
+        {
+            return new SuccessfulRepairTimeHolder(successfulRepairs, ImmutableList.of());
         }
     }
 
@@ -2783,6 +2873,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             return lowestRepairTime;
     }
 
+    // this is only used for metrics, basically how old the oldest repair is, not merging in invalidations since we
+    // only want to know how old the oldest repair is
     public long getGCBeforeSeconds()
     {
         if ((System.currentTimeMillis() - lastCalculatedTime) > REFRESH_TIME_MILLIS)
