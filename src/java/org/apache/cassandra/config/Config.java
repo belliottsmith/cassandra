@@ -515,6 +515,8 @@ public class Config
      */
     public volatile int validation_preview_purge_head_start_in_sec = 60 * 60;
 
+    public volatile boolean compact_biggest_stcs_bucket_l0 = false;
+
     public volatile boolean enable_secondary_index = Boolean.getBoolean("cassandra.enable_secondary_index");
 
     public Boolean disable_incremental_repair = Boolean.parseBoolean(System.getProperty("cassandra.disable_incremental_repair", "true"));
