@@ -188,4 +188,16 @@ public interface CompactionManagerMBean
     public void setMaxScheduledCompactionSSTableSizeBytes(long size);
     public int getMaxScheduledCompactionSSTableCount();
     public void setMaxScheduledCompactionSSTableCount(int count);
+
+    /**
+     * Get whether we should compact the biggest (by sstable count) STCS bucket in L0
+     */
+    public boolean getCompactBiggestSTCSBucketInL0();
+
+    /**
+     * Set whether we should cocmpact the biggest (by sstable count) STCS bucket in L0
+     * @return
+     */
+    public void setCompactBiggestSTCSBucketInL0(boolean value);
+
 }
