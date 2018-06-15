@@ -195,7 +195,7 @@ public class LeveledManifest
         // the streamed files can be placed in their original levels
         if (StorageService.instance.isBootstrapMode())
         {
-            List<SSTableReader> mostInteresting = getSSTablesForSTCS(generations.get(0));
+            List<SSTableReader> mostInteresting = getSSTablesForSTCS(cfs, options, generations.get(0));
             if (!mostInteresting.isEmpty())
             {
                 logger.info("Bootstrapping - doing STCS in L0");
@@ -346,7 +346,7 @@ public class LeveledManifest
     {
         if (!DatabaseDescriptor.getDisableSTCSInL0() && generations.get(0).size() > MAX_COMPACTING_L0)
         {
-            List<SSTableReader> mostInteresting = getSSTablesForSTCS(generations.get(0));
+            List<SSTableReader> mostInteresting = getSSTablesForSTCS(cfs, options, generations.get(0));
             if (!mostInteresting.isEmpty())
             {
                 logger.debug("L0 is too far behind, performing size-tiering there first");
@@ -357,16 +357,67 @@ public class LeveledManifest
         return null;
     }
 
-    private List<SSTableReader> getSSTablesForSTCS(Collection<SSTableReader> sstables)
+    @VisibleForTesting
+    static List<SSTableReader> getSSTablesForSTCS(ColumnFamilyStore cfs, SizeTieredCompactionStrategyOptions options, Collection<SSTableReader> sstables)
     {
+        logger.debug("Getting SSTables for STCS in L0 for {}.{} (sstables size = {})", cfs.keyspace.getName(), cfs.getTableName(), sstables.size());
         Iterable<SSTableReader> candidates = cfs.getTracker().getUncompacting(sstables);
         List<Pair<SSTableReader,Long>> pairs = SizeTieredCompactionStrategy.createSSTableAndLengthPairs(AbstractCompactionStrategy.filterSuspectSSTables(candidates));
         List<List<SSTableReader>> buckets = SizeTieredCompactionStrategy.getBuckets(pairs,
                                                                                     options.bucketHigh,
                                                                                     options.bucketLow,
                                                                                     options.minSSTableSize);
+
+        if (DatabaseDescriptor.getCompactBiggestSTCSBucketInL0())
+            return bestBucket(buckets, cfs.getMinimumCompactionThreshold(), cfs.getMaximumCompactionThreshold());
+
         return SizeTieredCompactionStrategy.mostInterestingBucket(buckets,
                 cfs.getMinimumCompactionThreshold(), cfs.getMaximumCompactionThreshold());
+    }
+
+    /**
+     * Input buckets are bucketed by size - all sstables in a bucket are of "similar" size - this method considers
+     * all buckets with a large ( > maxThreshold) number of sstables and then picks the one with the smallest
+     * sum of the sstable size on disk.
+     *
+     * If no buckets have more than maxThreshold sstables, the largest one (by sstable count) is returned.
+     */
+    @VisibleForTesting
+    static List<SSTableReader> bestBucket(List<List<SSTableReader>> buckets, int minThreshold, int maxThreshold)
+    {
+        List<SSTableReader> candidate = null;
+        List<SSTableReader> biggest = null;
+        for (List<SSTableReader> bucket : buckets)
+        {
+            bucket.sort(SSTableReader.sizeComparator); // smallest sstables first in the list
+            if (bucket.size() >= maxThreshold)
+            {
+                // consider all buckets with many sstables
+                List<SSTableReader> prunedBucket = bucket.subList(0, maxThreshold);
+                if (candidate == null || bucketSize(candidate) > bucketSize(prunedBucket))
+                    candidate = prunedBucket;
+            }
+            // also keep track of the biggest bucket in general if no buckets are above maxThreshold
+            if (biggest == null || bucket.size() > biggest.size())
+                biggest = bucket;
+        }
+
+        if (candidate == null) // no buckets had more than maxThreshold sstables
+            candidate = biggest == null ? Collections.emptyList() : biggest.subList(0, Math.min(maxThreshold, biggest.size()));
+
+        if (candidate.size() < minThreshold)
+            return Collections.emptyList();
+
+        logger.info("Got {} sstables for STCS in L0, max_threshold = {}, avg sstable size = {} bytes",
+                    candidate.size(),
+                    maxThreshold,
+                    candidate.stream().mapToLong(SSTableReader::onDiskLength).sum() / candidate.size());
+        return candidate;
+    }
+
+    private static long bucketSize(List<SSTableReader> sstables)
+    {
+        return sstables.stream().mapToLong(SSTableReader::onDiskLength).sum();
     }
 
     /**
