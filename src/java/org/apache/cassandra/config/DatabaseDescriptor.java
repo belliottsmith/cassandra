@@ -4152,6 +4152,20 @@ public class DatabaseDescriptor
 
     public static boolean getEnableAggressiveGCCompaction() { return aggressiveGC; }
 
+    public static boolean getCompactBiggestSTCSBucketInL0()
+    {
+        return conf.compact_biggest_stcs_bucket_l0;
+    }
+
+    public static void setCompactBiggestSTCSBucketInL0(boolean value)
+    {
+        if (value != conf.compact_biggest_stcs_bucket_l0)
+        {
+            logger.info("Setting compact_biggest_stcs_bucket_in_l0 to {}", value);
+            conf.compact_biggest_stcs_bucket_l0 = value;
+        }
+    }
+
     public static boolean disableIncrementalRepair()
     {
         return conf.disable_incremental_repair;

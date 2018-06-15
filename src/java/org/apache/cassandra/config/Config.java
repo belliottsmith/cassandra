@@ -710,6 +710,8 @@ public class Config
      */
     public ConsistencyLevel denylist_consistency_level = ConsistencyLevel.QUORUM;
 
+    public volatile boolean compact_biggest_stcs_bucket_l0 = false;
+
     @Replaces(oldName = "enable_secondary_index", converter = Converters.IDENTITY, deprecated = true)
     public volatile boolean secondary_index_enabled = Boolean.getBoolean("cassandra.enable_secondary_index");
 
