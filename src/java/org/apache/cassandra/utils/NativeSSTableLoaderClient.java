@@ -22,6 +22,9 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
+
 import com.datastax.driver.core.*;
 
 import org.apache.cassandra.config.ColumnDefinition;
@@ -44,7 +47,7 @@ public class NativeSSTableLoaderClient extends SSTableLoader.Client
     private final int port;
     private final AuthProvider authProvider;
     private final SSLOptions sslOptions;
-
+    protected final Multimap<Range<Token>, Host> rangeToEndpoints = HashMultimap.create();
 
     public NativeSSTableLoaderClient(Collection<InetAddress> hosts, int port, String username, String password, SSLOptions sslOptions)
     {
@@ -85,7 +88,10 @@ public class NativeSSTableLoaderClient extends SSTableLoader.Client
                 Range<Token> range = new Range<>(tokenFactory.fromString(tokenRange.getStart().getValue().toString()),
                                                  tokenFactory.fromString(tokenRange.getEnd().getValue().toString()));
                 for (Host endpoint : endpoints)
+                {
                     addRangeForEndpoint(range, endpoint.getAddress());
+                    rangeToEndpoints.put(range, endpoint);
+                }
             }
 
             Types types = fetchTypes(keyspace, session);

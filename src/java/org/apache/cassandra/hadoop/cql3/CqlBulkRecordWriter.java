@@ -26,16 +26,23 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.*;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Multimap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.datastax.driver.core.Host;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.hadoop.ConfigHelper;
 import org.apache.cassandra.hadoop.HadoopCompat;
+import org.apache.cassandra.hadoop.IConsistencyLevel;
 import org.apache.cassandra.io.sstable.CQLSSTableWriter;
 import org.apache.cassandra.io.sstable.SSTableLoader;
 import org.apache.cassandra.io.util.FileUtils;
@@ -69,6 +76,8 @@ public class CqlBulkRecordWriter extends RecordWriter<Object, List<ByteBuffer>>
     public final static String STREAM_THROTTLE_MBITS = "mapreduce.output.bulkoutputformat.streamthrottlembits";
     public final static String MAX_FAILED_HOSTS = "mapreduce.output.bulkoutputformat.maxfailedhosts";
     public final static String IGNORE_HOSTS = "mapreduce.output.bulkoutputformat.ignorehosts";
+    public final static String BULK_WRITER_CL = "mapreduce.output.bulkoutputformat.consistencylevel";
+    public final static String LOCAL_DC = "mapreduce.output.bulkoutputformat.localdatacenter";
 
     private final Logger logger = LoggerFactory.getLogger(CqlBulkRecordWriter.class);
 
@@ -77,6 +86,7 @@ public class CqlBulkRecordWriter extends RecordWriter<Object, List<ByteBuffer>>
     protected final int bufferSize;
     protected Closeable writer;
     protected SSTableLoader loader;
+    private ExternalClient externalClient;
     protected Progressable progress;
     protected TaskAttemptContext context;
     protected final Set<InetAddress> ignores = new HashSet<>();
@@ -88,6 +98,8 @@ public class CqlBulkRecordWriter extends RecordWriter<Object, List<ByteBuffer>>
     private File outputDir;
     private boolean deleteSrc;
     private IPartitioner partitioner;
+    private IConsistencyLevel.BulkCL cl;
+    private String localDC;
 
     CqlBulkRecordWriter(TaskAttemptContext context) throws IOException
     {
@@ -118,7 +130,11 @@ public class CqlBulkRecordWriter extends RecordWriter<Object, List<ByteBuffer>>
         // if anything is missing, exceptions will be thrown here, instead of on write()
         keyspace = ConfigHelper.getOutputKeyspace(conf);
         table = ConfigHelper.getOutputColumnFamily(conf);
-        
+
+        cl = IConsistencyLevel.BulkCL.valueOf(conf.get(BULK_WRITER_CL, IConsistencyLevel.BulkCL.ALL.name()));
+        localDC = conf.get(LOCAL_DC, null);
+        Preconditions.checkArgument(!cl.localCL() || localDC != null);
+
         // check if table is aliased
         String aliasedCf = CqlBulkOutputFormat.getTableForAlias(conf, table);
         if (aliasedCf != null)
@@ -171,7 +187,7 @@ public class CqlBulkRecordWriter extends RecordWriter<Object, List<ByteBuffer>>
 
         if (loader == null)
         {
-            ExternalClient externalClient = new ExternalClient(conf);
+            externalClient = new ExternalClient(conf);
             externalClient.setTableMetadata(CFMetaData.compile(schema, keyspace));
 
             loader = new SSTableLoader(outputDir, externalClient, new NullOutputHandler())
@@ -231,6 +247,26 @@ public class CqlBulkRecordWriter extends RecordWriter<Object, List<ByteBuffer>>
         return dir;
     }
 
+    public static void setBulkWriterCl(final Configuration conf, final IConsistencyLevel.BulkCL cl)
+    {
+        conf.set(BULK_WRITER_CL, cl.name());
+    }
+
+    public static IConsistencyLevel.BulkCL getBulkWriterCl(final Configuration conf)
+    {
+        return IConsistencyLevel.BulkCL.valueOf(conf.get(BULK_WRITER_CL));
+    }
+
+    public static void setLocalDC(final Configuration conf, final String localDC)
+    {
+        conf.set(LOCAL_DC, localDC);
+    }
+
+    public static String getLocalDc(final Configuration conf)
+    {
+        return conf.get(LOCAL_DC);
+    }
+
     @Override
     public void close(TaskAttemptContext context) throws IOException, InterruptedException
     {
@@ -257,7 +293,12 @@ public class CqlBulkRecordWriter extends RecordWriter<Object, List<ByteBuffer>>
                     future.get(1000, TimeUnit.MILLISECONDS);
                     break;
                 }
-                catch (ExecutionException | TimeoutException te)
+                catch (ExecutionException e)
+                {
+                    logger.error("Failed streaming on hosts {}", loader.getFailedHosts());
+                    break;
+                }
+                catch (TimeoutException te)
                 {
                     if (null != progress)
                         progress.progress();
@@ -271,16 +312,54 @@ public class CqlBulkRecordWriter extends RecordWriter<Object, List<ByteBuffer>>
             }
             if (loader.getFailedHosts().size() > 0)
             {
-                if (loader.getFailedHosts().size() > maxFailures)
-                    throw new IOException("Too many hosts failed: " + loader.getFailedHosts());
+                if (cl == IConsistencyLevel.BulkCL.ALL)
+                {
+                    if (loader.getFailedHosts().size() > maxFailures)
+                        throw new IOException("Too many hosts failed: " + loader.getFailedHosts());
+                    else
+                        logger.warn("Some hosts failed: {}", loader.getFailedHosts());
+                }
                 else
-                    logger.warn("Some hosts failed: {}", loader.getFailedHosts());
+                {
+                    verifyClAndThrowError();
+                }
             }
         }
     }
-    
+
+
+    private void verifyClAndThrowError() throws IOException {
+        Multimap<Range<Token>, Host> rangeToEndpoints = externalClient.getRangeToEndpoints();
+
+        for (final Range<Token> tokenRange : rangeToEndpoints.keySet())
+        {
+            final Map<String, Map<InetAddress, Boolean>> errorsPerDCMap = new HashMap<>();
+
+            for (final Host ep : rangeToEndpoints.get(tokenRange))
+            {
+                InetAddress epAddress = ep.getAddress();
+                String dc = ep.getDatacenter();
+                boolean failed = loader.getFailedHosts().contains(epAddress);
+                errorsPerDCMap.computeIfAbsent(dc, k -> new HashMap<>())
+                              .put(epAddress, failed);
+            }
+
+            if (!cl.validateErrorMap(errorsPerDCMap, localDC))
+            {
+                final String errMsg = String.format("Too many hosts failed for token range: %s with errors: %s", tokenRange, errorsPerDCMap);
+                logger.error(errMsg);
+                throw new IOException(errMsg);
+            }
+            else
+            {
+                logger.info("Stream succeeded for token range {} with CL {}", tokenRange, cl);
+            }
+        }
+    }
+
     public static class ExternalClient extends NativeSSTableLoaderClient
     {
+
         public ExternalClient(Configuration conf)
         {
             super(resolveHostAddresses(conf),
@@ -307,6 +386,11 @@ public class CqlBulkRecordWriter extends RecordWriter<Object, List<ByteBuffer>>
             }
 
             return addresses;
+        }
+
+        private Multimap<Range<Token>, Host> getRangeToEndpoints()
+        {
+            return rangeToEndpoints;
         }
     }
 

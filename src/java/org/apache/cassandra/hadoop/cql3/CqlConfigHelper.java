@@ -183,6 +183,11 @@ public class CqlConfigHelper
         return Integer.parseInt(conf.get(OUTPUT_NATIVE_PORT, "9042"));
     }
 
+    public static void setOutputNativePort(Configuration conf, String port)
+    {
+        conf.set(OUTPUT_NATIVE_PORT, port);
+    }
+
     public static Optional<Integer> getInputMaxSimultReqPerConnections(Configuration conf)
     {
         return getIntSetting(INPUT_NATIVE_MAX_SIMULT_REQ_PER_CONNECTION, conf);

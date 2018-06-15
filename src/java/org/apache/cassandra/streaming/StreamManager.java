@@ -35,6 +35,8 @@ import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.RateLimiter;
 
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
+
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.streaming.management.StreamEventJMXNotifier;
 import org.apache.cassandra.streaming.management.StreamStateCompositeData;
@@ -123,7 +125,9 @@ public class StreamManager implements StreamManagerMBean
 
     public void register(final StreamResultFuture result)
     {
-        result.addEventListener(notifier);
+        if (!Config.isClientMode())
+            result.addEventListener(notifier);
+
         // Make sure we remove the stream on completion (whether successful or not)
         result.addListener(new Runnable()
         {

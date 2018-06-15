@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.hadoop.cql3.CqlConfigHelper;
 import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.thrift.*;
 import org.apache.cassandra.utils.FBUtilities;
@@ -451,6 +452,11 @@ public class ConfigHelper
     public static void setOutputRpcPort(Configuration conf, String port)
     {
         conf.set(OUTPUT_THRIFT_PORT, port);
+    }
+
+    public static void setOutputNativePort(Configuration conf, String port)
+    {
+        CqlConfigHelper.setOutputNativePort(conf, port);
     }
 
     public static String getOutputInitialAddress(Configuration conf)
