@@ -1425,6 +1425,92 @@ public class LeveledCompactionStrategyTest
         }
     }
 
+    @Test
+    public void testGetBestBucket()
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        List<SSTableReader> sstables = new ArrayList<>();
+        // first 100 sstables:
+        for (int i = 0; i < 100; i++)
+            sstables.add(MockSchema.sstable(i, i, cfs));
+
+        // then 40 400-byte sstables which should not be included in the compaction:
+        for (int i = 0; i < 40; i++)
+            sstables.add(MockSchema.sstable(i, 400, cfs));
+
+        Map<String, String> optionsMap = new HashMap<>();
+        optionsMap.put("min_sstable_size","200"); // make sure the small sstables get put in the same bucket
+        SizeTieredCompactionStrategyOptions options = new SizeTieredCompactionStrategyOptions(optionsMap);
+        DatabaseDescriptor.setCompactBiggestSTCSBucketInL0(true);
+
+        List<SSTableReader> biggestBucket = LeveledManifest.getSSTablesForSTCS(cfs, options, sstables);
+        assertEquals(32, biggestBucket.size()); // all 100 small sstables should be in the biggest bucket
+        for (SSTableReader sstable : biggestBucket)
+        {
+            assertEquals(sstable.descriptor.generation, sstable.onDiskLength());
+            assertTrue(sstable.onDiskLength() < 32); // did we actually get the smallest files?
+        }
+
+        // check that max compaction threshold holds:
+        cfs.setMaximumCompactionThreshold(50);
+        biggestBucket = LeveledManifest.getSSTablesForSTCS(cfs, options, sstables);
+        assertEquals(50, biggestBucket.size()); // all 100 small sstables should be in the biggest bucket
+        for (SSTableReader sstable : biggestBucket)
+        {
+            assertEquals(sstable.descriptor.generation, sstable.onDiskLength());
+            assertTrue(sstable.onDiskLength() < 50);
+        }
+
+        DatabaseDescriptor.setCompactBiggestSTCSBucketInL0(false);
+    }
+
+    @Test
+    public void testBestBucket2()
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        List<List<SSTableReader>> buckets = new ArrayList<>();
+        SSTableReader sstable1 = MockSchema.sstable(1, 1, cfs);
+        SSTableReader sstable2 = MockSchema.sstable(2, 2, cfs);
+        SSTableReader sstable3 = MockSchema.sstable(3, 3, cfs);
+        buckets.add(new ArrayList<>());
+        buckets.add(new ArrayList<>());
+        buckets.add(new ArrayList<>());
+
+        for (int i = 0; i < 50; i++)
+        {
+            buckets.get(0).add(sstable1);
+            buckets.get(1).add(sstable2);
+            buckets.get(2).add(sstable3);
+        }
+
+        buckets.get(1).add(sstable2);
+        buckets.get(2).add(sstable3);
+        buckets.get(2).add(sstable3);
+
+        // now we have:
+        // bucket[0] with 50 sstables with size = 1,
+        // bucket[1] with 51 sstables with size = 2,
+        // bucket[2] with 52 sstables with size = 3,
+        // best bucket should be bucket[0] if we have max_threshold < 50, but bucket[2] if max_threshold > 52:
+        List<SSTableReader> best = LeveledManifest.bestBucket(buckets, 4, 32);
+        assertEquals(32, best.size());
+        assertTrue(best.stream().allMatch(sstable -> sstable.onDiskLength() == 1));
+
+        // this considers all buckets with size >= 51, the one with size=2-sstables is the best one
+        best = LeveledManifest.bestBucket(buckets, 4,51);
+        assertEquals(51, best.size());
+        assertTrue(best.stream().allMatch(sstable -> sstable.onDiskLength() == 2));
+
+        // this gets the largest bucket by size
+        best = LeveledManifest.bestBucket(buckets, 4, 64);
+        assertEquals(52, best.size());
+        assertTrue(best.stream().allMatch(sstable -> sstable.onDiskLength() == 3));
+
+        // if min threshold is large
+        best = LeveledManifest.bestBucket(buckets, 55, 64);
+        assertEquals(0, best.size());
+    }
+
     private static SSTableReader sstable(ColumnFamilyStore cfs, int generation, long startToken, long endToken)
     {
         return MockSchema.sstable(generation, 0, false, startToken, endToken, cfs);
