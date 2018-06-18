@@ -21,18 +21,20 @@ package org.apache.cassandra.tools.nodetool;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 
 import io.airlift.command.Arguments;
 import io.airlift.command.Command;
 import io.airlift.command.Option;
+import com.google.common.collect.Lists;
 import org.apache.cassandra.tools.NodeProbe;
 import org.apache.cassandra.tools.NodeTool.NodeToolCmd;
 
 @Command(name = "import", description = "Import new SSTables to the system")
 public class Import extends NodeToolCmd
 {
-    @Arguments(usage = "<keyspace> <table> <directory>", description = "The keyspace, table name and directory to import sstables from")
+    @Arguments(usage = "<keyspace> <table> <directory> ...", description = "The keyspace, table name and directories to import sstables from")
     private List<String> args = new ArrayList<>();
 
     @Option(title = "keep_level",
@@ -73,13 +75,7 @@ public class Import extends NodeToolCmd
     @Override
     public void execute(NodeProbe probe)
     {
-        checkArgument(args.size() == 3, "import requires keyspace, table name and directory");
-
-        if (!noVerifyTokens && noVerify)
-        {
-            noVerifyTokens = true;
-            System.out.println("Not verifying tokens since --no-verify or -v is set");
-        }
+        checkArgument(args.size() >= 3, "import requires keyspace, table name and directories");
 
         if (quick)
         {
@@ -89,6 +85,14 @@ public class Import extends NodeToolCmd
             noVerify = true;
             extendedVerify = false;
         }
-        probe.importNewSSTables(args.get(0), args.get(1), args.get(2), !keepLevel, !keepRepaired, !noVerify, !noVerifyTokens, !noInvalidateCaches, extendedVerify);
+        List<String> srcPaths = Lists.newArrayList(args.subList(2, args.size()));
+        List<String> failedDirs = probe.importNewSSTables(args.get(0), args.get(1), new HashSet<>(srcPaths), !keepLevel, !keepRepaired, !noVerify, !noVerifyTokens, !noInvalidateCaches, extendedVerify);
+        if (!failedDirs.isEmpty())
+        {
+            System.err.println("Some directories failed to import, check server logs for details:");
+            for (String directory : failedDirs)
+                System.err.println(directory);
+            System.exit(1);
+        }
     }
 }
