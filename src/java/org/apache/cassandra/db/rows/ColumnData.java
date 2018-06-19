@@ -65,6 +65,13 @@ public abstract class ColumnData
     public abstract void validate();
 
     /**
+     * Validates the deletions (ttl and local deletion time) if any.
+     *
+     * @return true if it has any invalid deletions, false otherwise
+     */
+    public abstract boolean hasInvalidDeletions();
+
+    /**
      * Adds the data to the provided digest.
      *
      * @param digest the {@code MessageDigest} to add the data to.

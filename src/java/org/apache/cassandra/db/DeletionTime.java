@@ -88,6 +88,15 @@ public class DeletionTime implements Comparable<DeletionTime>, IMeasurableMemory
         FBUtilities.updateWithLong(digest, markedForDeleteAt());
     }
 
+    /**
+     * check if this deletion time is valid - localDeletionTime can never be negative
+     * @return true if it is valid
+     */
+    public boolean validate()
+    {
+        return localDeletionTime >= 0;
+    }
+
     @Override
     public boolean equals(Object o)
     {
@@ -107,6 +116,11 @@ public class DeletionTime implements Comparable<DeletionTime>, IMeasurableMemory
     public String toString()
     {
         return String.format("deletedAt=%d, localDeletion=%d", markedForDeleteAt(), localDeletionTime());
+    }
+
+    public String toPartitionString()
+    {
+        return String.format("partitionLevelDeletion=\"deletedAt=%d, localDeletion=%d\"", markedForDeleteAt(), localDeletionTime());
     }
 
     public int compareTo(DeletionTime dt)

@@ -712,4 +712,7 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     /** Clears the history of clients that have connected in the past **/
     void clearConnectionHistory();
+
+    public String getCorruptedTombstoneStrategy();
+    public void setCorruptedTombstoneStrategy(String strategy);
 }

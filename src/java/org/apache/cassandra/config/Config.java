@@ -448,6 +448,8 @@ public class Config
     public RepairCommandPoolFullStrategy repair_command_pool_full_strategy = RepairCommandPoolFullStrategy.queue;
     public int repair_command_pool_size = concurrent_validations;
 
+    public CorruptedTombstoneStrategy corrupted_tombstone_strategy = CorruptedTombstoneStrategy.disabled;
+
     // parameters to adjust how much to delay startup until a certain amount of the cluster is connect to and marked alive
     public int block_for_peers_percentage = 70;
     public int block_for_peers_timeout_in_secs = 10;
@@ -536,6 +538,13 @@ public class Config
     {
         queue,
         reject
+    }
+
+    public enum CorruptedTombstoneStrategy
+    {
+        disabled,
+        warn,
+        exception
     }
 
     private static final List<String> SENSITIVE_KEYS = new ArrayList<String>() {{

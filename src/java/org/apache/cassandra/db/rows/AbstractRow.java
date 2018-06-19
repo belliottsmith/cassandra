@@ -87,6 +87,18 @@ public abstract class AbstractRow extends AbstractCollection<ColumnData> impleme
             cd.validate();
     }
 
+    public boolean hasInvalidDeletions()
+    {
+        if (primaryKeyLivenessInfo().isExpiring() && (primaryKeyLivenessInfo().ttl() < 0 || primaryKeyLivenessInfo().localExpirationTime() < 0))
+            return true;
+        if (!deletion().time().validate())
+            return true;
+        for (ColumnData cd : this)
+            if (cd.hasInvalidDeletions())
+                return true;
+        return false;
+    }
+
     public String toString(CFMetaData metadata)
     {
         return toString(metadata, false);

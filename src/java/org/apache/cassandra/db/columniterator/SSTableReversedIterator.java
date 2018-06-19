@@ -218,6 +218,7 @@ public class SSTableReversedIterator extends AbstractSSTableIterator
                    && !stopReadingDisk())
             {
                 Unfiltered unfiltered = deserializer.readNext();
+                UnfilteredValidation.maybeValidateUnfiltered(unfiltered, metadata(), key, sstable);
                 // We may get empty row for the same reason expressed on UnfilteredSerializer.deserializeOne.
                 if (!unfiltered.isEmpty() && (!isFirst || includeFirst))
                     buffer.add(unfiltered);

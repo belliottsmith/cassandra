@@ -141,6 +141,7 @@ public class SSTableIterator extends AbstractSSTableIterator
                     return null;
 
                 Unfiltered next = deserializer.readNext();
+                UnfilteredValidation.maybeValidateUnfiltered(next, metadata(), key, sstable);
                 // We may get empty row for the same reason expressed on UnfilteredSerializer.deserializeOne.
                 if (next.isEmpty())
                     continue;
@@ -285,6 +286,7 @@ public class SSTableIterator extends AbstractSSTableIterator
 
 
                 Unfiltered next = deserializer.readNext();
+                UnfilteredValidation.maybeValidateUnfiltered(next, metadata(), key, sstable);
                 // We may get empty row for the same reason expressed on UnfilteredSerializer.deserializeOne.
                 if (next.isEmpty())
                     continue;

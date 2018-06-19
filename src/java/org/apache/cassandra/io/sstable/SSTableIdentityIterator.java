@@ -52,6 +52,8 @@ public class SSTableIdentityIterator extends AbstractIterator<Unfiltered> implem
         try
         {
             this.partitionLevelDeletion = DeletionTime.serializer.deserialize(file);
+            if (!partitionLevelDeletion.validate())
+                UnfilteredValidation.handleInvalid(sstable.metadata, key, sstable, partitionLevelDeletion.toPartitionString());
             SerializationHelper helper = new SerializationHelper(sstable.metadata, sstable.descriptor.version.correspondingMessagingVersion(), SerializationHelper.Flag.LOCAL);
             this.iterator = SSTableSimpleIterator.create(sstable.metadata, file, sstable.header, helper, partitionLevelDeletion);
             this.staticRow = iterator.readStaticRow();
@@ -120,7 +122,9 @@ public class SSTableIdentityIterator extends AbstractIterator<Unfiltered> implem
 
     protected Unfiltered doCompute()
     {
-        return iterator.hasNext() ? iterator.next() : endOfData();
+        Unfiltered unfiltered = iterator.hasNext() ? iterator.next() : endOfData();
+        UnfilteredValidation.maybeValidateUnfiltered(unfiltered, metadata(), key, sstable);
+        return unfiltered;
     }
 
     public void close()

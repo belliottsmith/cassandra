@@ -70,10 +70,13 @@ public class SSTableCorruptionDetectionTest extends SSTableWriterTestBase
     private static LifecycleTransaction txn;
     private static ColumnFamilyStore cfs;
     private static SSTableReader ssTableReader;
+    private static Config.CorruptedTombstoneStrategy original;
 
     @BeforeClass
     public static void setUp()
     {
+        // this test writes corrupted data on purpose, disable corrupted tombstone detection
+        original = DatabaseDescriptor.getCorruptedTombstoneStrategy();
         CFMetaData cfm = CFMetaData.Builder.create(keyspace, table)
                                            .addPartitionKey("pk", AsciiType.instance)
                                            .addClusteringColumn("ck1", AsciiType.instance)
@@ -129,6 +132,7 @@ public class SSTableCorruptionDetectionTest extends SSTableWriterTestBase
 
         txn.abort();
         writer.close();
+        DatabaseDescriptor.setCorruptedTombstoneStrategy(original);
     }
 
     @Test

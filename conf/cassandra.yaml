@@ -1070,3 +1070,7 @@ windows_timer_interval: 1
 # automatic_sstable_upgrade: false
 # Limit the number of concurrent sstable upgrades
 # max_concurrent_automatic_sstable_upgrades: 1
+
+# validate tombstones on reads and compaction
+# can be either "disabled", "warn" or "exception"
+# corrupted_tombstone_strategy: disabled

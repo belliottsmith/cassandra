@@ -109,6 +109,8 @@ abstract class AbstractSSTableIterator implements SliceableUnfilteredRowIterator
                     this.staticRow = Rows.EMPTY_STATIC_ROW;
                     this.reader = needsReader ? createReader(indexEntry, file, shouldCloseFile) : null;
                 }
+                if (!partitionLevelDeletion.validate())
+                    UnfilteredValidation.handleInvalid(metadata(), key, sstable, partitionLevelDeletion.toPartitionString());
 
                 if (reader == null && file != null && shouldCloseFile)
                     file.close();
