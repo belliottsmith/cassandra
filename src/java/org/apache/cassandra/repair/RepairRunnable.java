@@ -194,17 +194,28 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                 endpointRanges.get(endpoint).addAll(commonRange.ranges);
             }
         }
-        return ImmutableMap.copyOf(endpointRanges);
+        return new HashMap<>(endpointRanges);
     }
 
     protected void syncRepairHistory(Iterable<ColumnFamilyStore> tables, List<CommonRange> commonRanges)
     {
         Map<InetAddress, Set<Range<Token>>> endpointRanges = collectEndpointRanges(commonRanges);
+
+        // commonRanges only contains endpoint -> ranges for nodes that aren't this node (the coordinator).
+        // Here, we gather all ranges and add endpoint -> range for this node since we want to include the
+        // local repair history in the sync (since we probably have the most up to date data locally)
+        Set<Range<Token>> allRanges = new HashSet<>();
+        for (Set<Range<Token>> ranges: endpointRanges.values())
+        {
+            allRanges.addAll(ranges);
+        }
+        endpointRanges.put(FBUtilities.getBroadcastAddress(), allRanges);
+
         List<ListenableFuture<Object>> futures = new ArrayList<>();
 
         for (ColumnFamilyStore cfs : tables)
         {
-            RepairHistorySyncTask syncTask = new RepairHistorySyncTask(cfs, endpointRanges);
+            RepairHistorySyncTask syncTask = new RepairHistorySyncTask(cfs, ImmutableMap.copyOf(endpointRanges));
             syncTask.execute();
             futures.add(syncTask);
         }

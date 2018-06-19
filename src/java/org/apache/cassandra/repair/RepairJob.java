@@ -350,7 +350,9 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
 
         try
         {
-            successResponses = new CountDownLatch(endpoints.size());
+            Set<InetAddress> allEndpoints = new HashSet<>(endpoints);
+            allEndpoints.add(FBUtilities.getBroadcastAddress());  // guarantee coordinator is included
+            successResponses = new CountDownLatch(allEndpoints.size());
             IAsyncCallback callback = new IAsyncCallback()
             {
                 public boolean isLatencyForSnitch()
@@ -366,12 +368,10 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             };
 
             ActiveRepairService.RepairSuccess success = new ActiveRepairService.RepairSuccess(desc.keyspace, desc.columnFamily, desc.ranges, repairJobStartTime);
-            // store repair success for coordinator
-            ColumnFamilyStore cfs = Keyspace.open(success.keyspace).getColumnFamilyStore(success.columnFamily);
-            for (Range<Token> range : success.ranges)
-                cfs.updateLastSuccessfulRepair(range, success.succeedAt);
-            for (InetAddress endpoint : endpoints)
+            for (InetAddress endpoint : allEndpoints)
+            {
                 MessagingService.instance().sendRR(success.createMessage(), endpoint, callback, TimeUnit.HOURS.toMillis(1), false);
+            }
 
             if (!successResponses.await(1, TimeUnit.HOURS))
             {
