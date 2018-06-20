@@ -1175,9 +1175,8 @@ public final class SystemKeyspace
      */
     public static void updateLastSuccessfulRepair(String keyspace, String columnFamily, Range<Token> range, long timestamp)
     {
-        String cql = "INSERT INTO system.%s (keyspace_name, columnfamily_name, range, succeed_at) VALUES ('%s', '%s', 0x%s, %s)";
-        ByteBuffer bb = rangeToBytes(range);
-        executeInternal(String.format(cql, REPAIR_HISTORY_CF, keyspace, columnFamily, Hex.bytesToHex(bb.array(), bb.arrayOffset(), bb.remaining()), timestamp));
+        String cql = "INSERT INTO system.%s (keyspace_name, columnfamily_name, range, succeed_at) VALUES (?, ?, ?, ?)";
+        executeInternal(String.format(cql, REPAIR_HISTORY_CF), keyspace, columnFamily, rangeToBytes(range), new Date(timestamp));
     }
 
     @VisibleForTesting
@@ -1194,9 +1193,8 @@ public final class SystemKeyspace
      */
     public static void invalidateSuccessfulRepair(String ksName, String tableName, InvalidatedRepairedRange invalidatedRange)
     {
-        String cql = "UPDATE system.%s SET oldest_tombstone_seconds = %d, invalidated_at_seconds = %d WHERE keyspace_name='%s' AND columnfamily_name = '%s' AND range = 0x%s";
-        ByteBuffer bb = rangeToBytes(invalidatedRange.range);
-        executeInternal(String.format(cql, REPAIR_HISTORY_INVALIDATION_CF, invalidatedRange.minLDTSeconds, invalidatedRange.invalidatedAtSeconds, ksName, tableName, Hex.bytesToHex(bb.array(), bb.arrayOffset(), bb.remaining())));
+        String cql = "UPDATE system.%s SET oldest_tombstone_seconds = ?, invalidated_at_seconds = ? WHERE keyspace_name= ? AND columnfamily_name = ? AND range = ?";
+        executeInternal(String.format(cql, REPAIR_HISTORY_INVALIDATION_CF), invalidatedRange.minLDTSeconds, invalidatedRange.invalidatedAtSeconds, ksName, tableName, rangeToBytes(invalidatedRange.range));
     }
 
     public static List<InvalidatedRepairedRange> getInvalidatedSuccessfulRepairRanges(String keyspace, String columnFamily)
