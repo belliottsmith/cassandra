@@ -1,4 +1,13 @@
-3.0.17.0
+3.0.17.1
+ * Always close RT markers returned by ReadCommand#executeLocally() (CASSANDRA-14515)
+ * Reverse order queries with range tombstones can cause data loss (CASSANDRA-14513)
+ * Fix regression of lagging commitlog flush log message (CASSANDRA-14451)
+ * Add Missing dependencies in pom-all (CASSANDRA-14422)
+ * Cleanup StartupClusterConnectivityChecker and PING Verb (CASSANDRA-14447)
+ * Fix deprecated repair error notifications from 3.x clusters to legacy JMX clients (CASSANDRA-13121)
+ * Fix progress stats and units in compactionstats (CASSANDRA-12244)
+ * Better handle missing partition columns in system_schema.columns (CASSANDRA-14379)
+ * Delay hints store excise by write timeout to avoid race with decommission (CASSANDRA-13740)
  * <rdar://problem/41323998> (Apple Internal) Revert CASSANDRA-14252 from cie-cassandra
  * <rdar://problem/39912068> Backport 14467: Cass: add alerting/logging if invalid tombstones are detected
  * <rdar://problem/39666510> CASSANDRA-13665: Backport `nodetool clientlist` to 3.0
@@ -23,6 +32,8 @@
  * Pre-create deletion log records to finish compactions quicker (CASSANDRA-12763)
  * List clients by protocol versions `nodetool clientstats --by-protocol` (CASSANDRA-14335)
 Merged from 2.2:
+ * Incorrect counting of pending messages in OutboundTcpConnection (CASSANDRA-11551)
+ * Fix compaction failure caused by reading un-flushed data (CASSANDRA-12743)
  * Use Bounds instead of Range for sstables in anticompaction (CASSANDRA-14411)
  * Fix JSON queries with IN restrictions and ORDER BY clause (CASSANDRA-14286)
  * CQL fromJson(null) throws NullPointerException (CASSANDRA-13891)
