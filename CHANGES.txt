@@ -1,4 +1,29 @@
-3.0.17.1
+3.0.17.1 (open)
+
+
+3.0.17.0
+ * <rdar://problem/36596055> Backport CASSANDRA-14197 Automatic upgrade sstables
+ * <rdar://problem/39178633> Backport CASSANDRA-14397 Cass core: make it possible to more quickly interrupt compaction of a large partition
+ * <rdar://problem/38923437> Backport CASSANDRA-14442: Nodetool should take list of directories to refresh
+ * <rdar://problem/39912068> Backport CASSANDRA-14467: Cass: add alerting/logging if invalid tombstones are detected
+ * <rdar://problem/39666510> Backport CASSANDRA-13665: `nodetool clientlist` to 3.0
+ * <rdar://problem/39666602> Backport CASSANDRA-14335 List clients by protocol versions
+ * <rdar://problem/33859879> Backport CASSANDRA-13993 & CASSANDRA-14447 istfiresymbol -cluster wide bounce still causing Unavailables with 2.1.18.3
+ * <rdar://problem/39526066> Backport important parts from CASSANDRA-6719 and CASSANDRA-14417
+ * <rdar://problem/41323998> (Apple Internal) Revert CASSANDRA-14252 from cie-cassandra
+ * <rdar://problem/41267382> (Apple Internal) Fix to Christmas patch internal statement cache leak
+ * <rdar://problem/40370261> (Apple Internal) RepairSuccess is being sent to repair coordinator twice (#1116)
+ * <rdar://problem/39425813> (Apple Internal) Nodetool refresh violates last repair time patch
+ * <rdar://problem/39865401> (Apple Internal) Port "<rdar://problem/21448557 BulkWriter: Provide Consistency Levels based error handling" to 3.0
+ * <rdar://problem/35563981> (Apple Internal) L0 compactions never recover when thousands unleveled
+ * <rdar://problem/38086987> (Apple Internal) Allow a yaml prop to automatically insert the limit for a given keyspace.
+ * <rdar://problem/40094523> (Apple Internal) Allow override of PeriodicCommitLogService.blockWhenSyncLagsNanos
+ * <rdar://problem/40179208> (Apple Internal) Port JVM_ON_OUT_OF_MEMORY_ERROR_OPT options
+ * <rdar://problem/40144803> (Apple Internal) Problem trying to run force incremental repair for IR DR
+ * <rdar://problem/40147770> (Apple Internal) running repair with Force still updates last repair time in 3.0
+ * <rdar://problem/40720585> (Apple Internal) Update cassandra rio.yml to use new the new docker registry
+ * <rdar://problem/39871365> (Apple Internal) (Cass: block users from disabling compression)
+ * <rdar://problem/40124484> (Apple Internal) CacheRefresher init references StorageService before partitioner is configured
  * Always close RT markers returned by ReadCommand#executeLocally() (CASSANDRA-14515)
  * Reverse order queries with range tombstones can cause data loss (CASSANDRA-14513)
  * Fix regression of lagging commitlog flush log message (CASSANDRA-14451)
@@ -8,11 +33,7 @@
  * Fix progress stats and units in compactionstats (CASSANDRA-12244)
  * Better handle missing partition columns in system_schema.columns (CASSANDRA-14379)
  * Delay hints store excise by write timeout to avoid race with decommission (CASSANDRA-13740)
- * <rdar://problem/41323998> (Apple Internal) Revert CASSANDRA-14252 from cie-cassandra
- * <rdar://problem/39912068> Backport 14467: Cass: add alerting/logging if invalid tombstones are detected
- * <rdar://problem/39666510> CASSANDRA-13665: Backport `nodetool clientlist` to 3.0
- * Deprecate background repair and probablistic read_repair_chance table options
-   (CASSANDRA-13910)
+ * Deprecate background repair and probablistic read_repair_chance table options (CASSANDRA-13910)
  * Add missed CQL keywords to documentation (CASSANDRA-14359)
  * Fix unbounded validation compactions on repair / revert CASSANDRA-13797 (CASSANDRA-14332)
  * Avoid deadlock when running nodetool refresh before node is fully up (CASSANDRA-14310)
@@ -30,7 +51,6 @@
  * Chain commit log marker potential performance regression in batch commit mode (CASSANDRA-14194)
  * Fully utilise specified compaction threads (CASSANDRA-14210)
  * Pre-create deletion log records to finish compactions quicker (CASSANDRA-12763)
- * List clients by protocol versions `nodetool clientstats --by-protocol` (CASSANDRA-14335)
 Merged from 2.2:
  * Incorrect counting of pending messages in OutboundTcpConnection (CASSANDRA-11551)
  * Fix compaction failure caused by reading un-flushed data (CASSANDRA-12743)
