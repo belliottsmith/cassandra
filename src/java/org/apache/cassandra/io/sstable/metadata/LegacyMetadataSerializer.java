@@ -65,7 +65,9 @@ public class LegacyMetadataSerializer extends MetadataSerializer
         out.writeDouble(validation.bloomFilterFPChance);
         out.writeDouble(stats.compressionRatio);
         out.writeUTF(validation.partitioner);
-        out.writeInt(0); // compaction ancestors
+        out.writeInt(compaction.ancestors.size());
+        for (Integer ancestor : compaction.ancestors)
+            out.writeInt(ancestor);
         StreamingHistogram.serializer.serialize(stats.estimatedTombstoneDropTime, out);
         out.writeInt(stats.sstableLevel);
         out.writeInt(stats.minClusteringValues.size());
@@ -107,8 +109,11 @@ public class LegacyMetadataSerializer extends MetadataSerializer
                 double bloomFilterFPChance = in.readDouble();
                 double compressionRatio = in.readDouble();
                 String partitioner = in.readUTF();
-                int nbAncestors = in.readInt(); //skip compaction ancestors
-                in.skipBytes(nbAncestors * TypeSizes.sizeof(nbAncestors));
+                Set<Integer> ancestors = new HashSet<>();
+                int nbAncestors = in.readInt();
+                for (int i = 0; i < nbAncestors; i++)
+                    ancestors.add(in.readInt());
+
                 StreamingHistogram tombstoneHistogram = StreamingHistogram.serializer.deserialize(in);
                 int sstableLevel = 0;
                 if (in.available() > 0)
@@ -158,7 +163,7 @@ public class LegacyMetadataSerializer extends MetadataSerializer
                                                      null));
                 if (types.contains(MetadataType.COMPACTION))
                     components.put(MetadataType.COMPACTION,
-                                   new CompactionMetadata(null));
+                                   new CompactionMetadata(null, ancestors));
             }
         }
         return components;

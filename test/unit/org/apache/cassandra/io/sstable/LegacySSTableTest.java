@@ -22,10 +22,15 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 
+import com.google.common.collect.Sets;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -53,6 +58,10 @@ import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.Version;
 import org.apache.cassandra.io.sstable.format.big.BigFormat;
+import org.apache.cassandra.io.sstable.metadata.CompactionMetadata;
+import org.apache.cassandra.io.sstable.metadata.MetadataComponent;
+import org.apache.cassandra.io.sstable.metadata.MetadataSerializer;
+import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.StreamPlan;
@@ -166,6 +175,74 @@ public class LegacySSTableTest
                 {
                     sstable.descriptor.getMetadataSerializer().mutateRepaired(sstable.descriptor, 1234, UUID.randomUUID());
                     sstable.reloadSSTableMetadata();
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testSetAncestors() throws Exception
+    {
+        for (String legacyVersion : legacyVersions)
+        {
+            logger.info("Loading legacy version: {}", legacyVersion);
+            truncateTables(legacyVersion);
+            loadLegacyTables(legacyVersion);
+            CacheService.instance.invalidateKeyCache();
+
+            for (ColumnFamilyStore cfs : Keyspace.open("legacy_tables").getColumnFamilyStores())
+            {
+                for (SSTableReader sstable : cfs.getLiveSSTables())
+                {
+                    // set level and repaired info to make sure they are kept when setting ancestors:
+                    sstable.descriptor.getMetadataSerializer().mutateLevel(sstable.descriptor, 4);
+                    sstable.descriptor.getMetadataSerializer().mutateRepaired(sstable.descriptor, 44, UUID.randomUUID());
+                    ((MetadataSerializer)sstable.descriptor.getMetadataSerializer()).setAncestors(sstable.descriptor, Sets.newHashSet(1,2,3));
+                    // compaction metadata is deserialized only when used:
+                    Map<MetadataType, MetadataComponent> metadataComponents = sstable.descriptor.getMetadataSerializer().deserialize(sstable.descriptor, EnumSet.allOf(MetadataType.class));
+
+                    if (sstable.descriptor.version.hasCompactionAncestors())
+                        assertEquals(Sets.newHashSet(1, 2, 3), ((CompactionMetadata) metadataComponents.get(MetadataType.COMPACTION)).ancestors);
+
+                    sstable.descriptor.getMetadataSerializer().wipeAncestors(sstable.descriptor);
+                    sstable.reloadSSTableMetadata();
+                    metadataComponents = sstable.descriptor.getMetadataSerializer().deserialize(sstable.descriptor, EnumSet.allOf(MetadataType.class));
+                    assertEquals(Collections.emptySet(), ((CompactionMetadata) metadataComponents.get(MetadataType.COMPACTION)).ancestors);
+                    // make sure other metadata is kept:
+                    assertEquals(4, sstable.getSSTableLevel());
+                    if (sstable.descriptor.version.hasPendingRepair())
+                        assertTrue(sstable.isPendingRepair());
+                    if (sstable.descriptor.version.hasRepairedAt())
+                        assertEquals(44, sstable.getRepairedAt());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testRefreshWipesAncestors() throws Exception
+    {
+        for (String legacyVersion : legacyVersions)
+        {
+            logger.info("Loading legacy version: {}", legacyVersion);
+            truncateTables(legacyVersion);
+            loadLegacyTables(legacyVersion);
+
+            for (ColumnFamilyStore cfs : Keyspace.open("legacy_tables").getColumnFamilyStores())
+            {
+                for (SSTableReader sstable : cfs.getLiveSSTables())
+                {
+                    ((MetadataSerializer)sstable.descriptor.getMetadataSerializer()).setAncestors(sstable.descriptor, Sets.newHashSet(1,2,3));
+                }
+                Set<SSTableReader> toRelease = cfs.getLiveSSTables();
+                cfs.clearUnsafe();
+                // avoid leaking refs
+                toRelease.forEach(s -> s.selfRef().release());
+                cfs.loadNewSSTables();
+                for (SSTableReader sstable : cfs.getLiveSSTables())
+                {
+                    CompactionMetadata cm = (CompactionMetadata) sstable.descriptor.getMetadataSerializer().deserialize(sstable.descriptor, MetadataType.COMPACTION);
+                    assertTrue(cm.ancestors.isEmpty());
                 }
             }
         }

@@ -334,7 +334,9 @@ public class SSTableImporter
 
     /**
      * Depending on the options passed in, this might reset level on the sstable to 0 and/or remove the repair information
-     * from the sstable
+     * from the sstable.
+     *
+     * This always wipes sstable ancestors
      */
     private void maybeMutateMetadata(Descriptor descriptor, Options options) throws IOException
     {
@@ -350,6 +352,7 @@ public class SSTableImporter
                                                                   ActiveRepairService.UNREPAIRED_SSTABLE,
                                                                   null);
             }
+            descriptor.getMetadataSerializer().wipeAncestors(descriptor);
         }
     }
 
