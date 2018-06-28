@@ -376,7 +376,7 @@ public class SSTableImporter
 
         public static Builder options(String srcDir)
         {
-            return new Builder(Collections.singleton(srcDir));
+            return (srcDir==null) ? options(Collections.emptySet()) : options(Collections.singleton(srcDir));
         }
 
         public static Builder options(Set<String> srcDirs)

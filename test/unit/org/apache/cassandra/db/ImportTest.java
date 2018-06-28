@@ -105,7 +105,7 @@ public class ImportTest extends CQLTester
 
     @Test
     @Deprecated
-    public void refreshTest() throws Throwable
+    public void loadNewSSTablesTest() throws Throwable
     {
         createTable("create table %s (id int primary key, d int)");
         for (int i = 0; i < 10; i++)
@@ -116,6 +116,23 @@ public class ImportTest extends CQLTester
         sstables.forEach(s -> s.selfRef().release());
         assertEquals(0, execute("select * from %s").size());
         getCurrentColumnFamilyStore().loadNewSSTables();
+        assertEquals(10, execute("select * from %s").size());
+    }
+
+    @Test
+    @Deprecated
+    public void refreshCommandTest() throws Throwable
+    {
+        createTable("create table %s (id int primary key, d int)");
+        for (int i = 0; i < 10; i++)
+            execute("insert into %s (id, d) values (?, ?)", i, i);
+        getCurrentColumnFamilyStore().forceBlockingFlush();
+        Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
+        getCurrentColumnFamilyStore().clearUnsafe();
+        sstables.forEach(s -> s.selfRef().release());
+        assertEquals(0, execute("select * from %s").size());
+        // This simulates the Refresh command's call, with a null dirPath
+        getCurrentColumnFamilyStore().loadNewSSTables(null);
         assertEquals(10, execute("select * from %s").size());
     }
 
