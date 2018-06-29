@@ -74,4 +74,6 @@ public interface IMetadataSerializer
      * Mutate the repairedAt time and pendingRepair ID
      */
     void mutateRepaired(Descriptor descriptor, long newRepairedAt, UUID newPendingRepair) throws IOException;
+
+    void wipeAncestors(Descriptor descriptor) throws IOException;
 }

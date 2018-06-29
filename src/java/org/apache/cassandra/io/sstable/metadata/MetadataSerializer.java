@@ -21,6 +21,7 @@ import java.io.*;
 import java.util.*;
 import java.util.zip.CRC32;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -221,6 +222,23 @@ public class MetadataSerializer implements IMetadataSerializer
         StatsMetadata stats = (StatsMetadata) currentComponents.remove(MetadataType.STATS);
         // mutate time & id
         currentComponents.put(MetadataType.STATS, stats.mutateRepairedAt(newRepairedAt).mutatePendingRepair(newPendingRepair));
+        rewriteSSTableMetadata(descriptor, currentComponents);
+    }
+
+    public void wipeAncestors(Descriptor descriptor) throws IOException
+    {
+        setAncestors(descriptor, Collections.emptySet());
+    }
+
+    @VisibleForTesting
+    public void setAncestors(Descriptor descriptor, Set<Integer> ancestors) throws IOException
+    {
+        logger.trace("Setting ancestors to {} on {}",
+                     ancestors,
+                     descriptor.filenameFor(Component.STATS));
+        Map<MetadataType, MetadataComponent> currentComponents = deserialize(descriptor, EnumSet.allOf(MetadataType.class));
+        CompactionMetadata stats = (CompactionMetadata) currentComponents.remove(MetadataType.COMPACTION);
+        currentComponents.put(MetadataType.COMPACTION, new CompactionMetadata(stats.cardinalityEstimator, ancestors));
         rewriteSSTableMetadata(descriptor, currentComponents);
     }
 

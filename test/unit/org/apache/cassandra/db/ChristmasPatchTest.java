@@ -261,8 +261,8 @@ and it will update the (400, 500] one with a new invalidatedAtSeconds
         List<SSTableReader> sstables = Lists.newArrayList(MockSchema.sstable(1, 5, 10, 10, cfs),
                                                           MockSchema.sstable(2, 300, 300, 13, cfs),
                                                           MockSchema.sstable(3, 400, 1500, 5, cfs),
-                                                          MockSchema.sstable(3, 401, 1500, 6, cfs),
-                                                          MockSchema.sstable(3, 402, 1500, 7, cfs));
+                                                          MockSchema.sstable(4, 401, 1500, 6, cfs),
+                                                          MockSchema.sstable(5, 402, 1500, 7, cfs));
         BoundsAndOldestTombstone bot = new BoundsAndOldestTombstone(sstables);
         // non-intersecting
         assertEquals(Integer.MAX_VALUE, bot.getOldestIntersectingTombstoneLDT(range(0,1), 0));
