@@ -774,6 +774,40 @@ public class CreateTest extends CQLTester
                              "CREATE TABLE compact_table_create (id text PRIMARY KEY, content text) WITH COMPACT STORAGE;");
     }
 
+    @Test
+    public void testUsingDeterministicTableID()
+    {
+        DatabaseDescriptor.setIsSchemaDropCheckDisabled(false);
+        DatabaseDescriptor.useDeterministicTableID(true);
+
+        createTable("CREATE TABLE %s (id text PRIMARY KEY);");
+        TableMetadata tmd = currentTableMetadata();
+        assertEquals(TableId.deterministicFromKeyspaceAndTable(tmd.keyspace, tmd.name), tmd.id);
+
+    }
+
+    @Test
+    public void testNotUsingDeterministicTableIDWhenDisabled()
+    {
+        DatabaseDescriptor.setIsSchemaDropCheckDisabled(false);
+        DatabaseDescriptor.useDeterministicTableID(false);
+
+        createTable("CREATE TABLE %s (id text PRIMARY KEY);");
+        TableMetadata tmd = currentTableMetadata();
+        assertFalse(TableId.deterministicFromKeyspaceAndTable(tmd.keyspace, tmd.name).equals(tmd.id));
+    }
+
+    @Test
+    public void testNotUsingDeterministicTableIDWhenSchemaDropCheckIsDisabled()
+    {
+        DatabaseDescriptor.setIsSchemaDropCheckDisabled(true);
+        DatabaseDescriptor.useDeterministicTableID(true);
+
+        createTable("CREATE TABLE %s (id text PRIMARY KEY);");
+        TableMetadata tmd = currentTableMetadata();
+        assertFalse(TableId.deterministicFromKeyspaceAndTable(tmd.keyspace, tmd.name).equals(tmd.id));
+    }
+
     private void assertThrowsConfigurationException(String errorMsg, String createStmt)
     {
         try

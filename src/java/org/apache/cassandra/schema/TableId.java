@@ -63,11 +63,23 @@ public class TableId
      * This is deterministically based on the table name as system tables are hardcoded and initialized independently
      * on each node (they don't go through a CREATE), but we still want them to have the same ID everywhere.
      *
-     * We shouldn't use this for any other table.
+     * We shouldn't use this for any other table. (Unless in CIE, with
+     * use_deterministic_tableid set)
      */
     public static TableId forSystemTable(String keyspace, String table)
     {
         assert SchemaConstants.isLocalSystemKeyspace(keyspace) || SchemaConstants.isReplicatedSystemKeyspace(keyspace);
+        return new TableId(UUID.nameUUIDFromBytes(ArrayUtils.addAll(keyspace.getBytes(), table.getBytes())));
+    }
+
+    /**
+     * Creates the deterministic UUID of a regular table from keyspace and table name
+     *
+     * This is deterministically based on the table name as system tables are hardcoded and initialized independently
+     * on each node (they don't go through a CREATE), but we still want them to have the same ID everywhere.
+     */
+    public static TableId deterministicFromKeyspaceAndTable(String keyspace, String table)
+    {
         return new TableId(UUID.nameUUIDFromBytes(ArrayUtils.addAll(keyspace.getBytes(), table.getBytes())));
     }
 
