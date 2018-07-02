@@ -87,7 +87,7 @@ public class Config
     public DiskFailurePolicy disk_failure_policy = DiskFailurePolicy.ignore;
     public CommitFailurePolicy commit_failure_policy = CommitFailurePolicy.stop;
 
-    public volatile boolean use_deterministic_table_id = false;
+    public volatile boolean use_deterministic_table_id = Boolean.parseBoolean(System.getProperty("cassandra.use_deterministic_table_id", "true"));
 
     /* initial token in the ring */
     public String initial_token;

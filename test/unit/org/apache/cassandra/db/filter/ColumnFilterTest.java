@@ -92,6 +92,7 @@ public class ColumnFilterTest
     @BeforeClass
     public static void beforeClass()
     {
+        DatabaseDescriptor.daemonInitialization(); // for deterministic tableId
         DatabaseDescriptor.setSeedProvider(Arrays::asList);
         DatabaseDescriptor.setEndpointSnitch(new SimpleSnitch());
         DatabaseDescriptor.setDefaultFailureDetector();

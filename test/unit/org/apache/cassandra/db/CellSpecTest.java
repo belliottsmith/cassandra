@@ -29,6 +29,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.ListType;
 import org.apache.cassandra.db.rows.ArrayCell;
@@ -131,6 +132,12 @@ public class CellSpecTest
 
     @Parameterized.Parameters(name = "{0}")
     public static Collection<Object[]> data() {
+
+        // ACI Cassandra - config must be loaded for use_deterministic_table_id check
+        // Added here as the parameters are evaulated before an @BeforeClass annotated method,
+        // so the table creation would fail.
+        DatabaseDescriptor.daemonInitialization();
+
         TableMetadata table = TableMetadata.builder("testing", "testing")
                                            .addPartitionKeyColumn("pk", BytesType.instance)
                                            .build();

@@ -760,8 +760,25 @@ public class TableMetadata implements SchemaElement
 
             if (id == null)
             {
-                if (DatabaseDescriptor.useDeterministicTableID()) id = TableId.unsafeDeterministic(keyspace, name);
-                else id = TableId.generate();
+                boolean useDeterministicTableID = DatabaseDescriptor.useDeterministicTableID();
+                boolean isSchemaDropCheckDisabled = DatabaseDescriptor.isSchemaDropCheckDisabled();
+
+                if (useDeterministicTableID && isSchemaDropCheckDisabled)
+                {
+                    // it's unsafe to reuse a deterministic table id when recreate checks are disabled, as leftover sstables,
+                    // hints, paxos and batchlog entries could affect the new table.
+                    logger.warn("Not generating a deterministic id for table {}.{} as requested, because table recreate check is disabled",
+                                keyspace, name);
+                    id = TableId.generate();
+                }
+                else if (useDeterministicTableID)
+                {
+                    id = TableId.deterministicFromKeyspaceAndTable(keyspace, name);
+                }
+                else
+                {
+                    id = TableId.generate();
+                }
             }
 
             if (Flag.isCQLTable(flags))
