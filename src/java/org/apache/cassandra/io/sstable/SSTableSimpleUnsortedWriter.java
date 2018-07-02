@@ -186,7 +186,7 @@ class SSTableSimpleUnsortedWriter extends AbstractSSTableSimpleWriter
         }
     }
 
-    static class SyncException extends RuntimeException
+    public static class SyncException extends RuntimeException
     {
         SyncException(IOException ioe)
         {
