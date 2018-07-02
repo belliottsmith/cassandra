@@ -26,6 +26,9 @@ import javax.annotation.Nullable;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.auth.DataResource;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.ColumnIdentifier;
@@ -50,6 +53,7 @@ import static org.apache.cassandra.schema.IndexMetadata.isNameValid;
 @Unmetered
 public final class TableMetadata implements SchemaElement
 {
+    private static final Logger logger = LoggerFactory.getLogger(TableMetadata.class);
     public static final String COMPACT_STORAGE_HALT_MESSAGE =
             "Detected table %s.%s with COMPACT STORAGE flags (%s). " +
             "Compact Tables are not supported in Cassandra starting with version 4.0. " +
@@ -724,7 +728,27 @@ public final class TableMetadata implements SchemaElement
                 partitioner = DatabaseDescriptor.getPartitioner();
 
             if (id == null)
-                id = TableId.generate();
+            {
+                boolean useDeterministicTableID = DatabaseDescriptor.useDeterministicTableID();
+                boolean isSchemaDropCheckDisabled = DatabaseDescriptor.isSchemaDropCheckDisabled();
+
+                if (useDeterministicTableID && isSchemaDropCheckDisabled)
+                {
+                    // it's unsafe to reuse a deterministic table id when recreate checks are disabled, as leftover sstables,
+                    // hints, paxos and batchlog entries could affect the new table.
+                    logger.warn("Not generating a deterministic id for table {}.{} as requested, because table recreate check is disabled",
+                                keyspace, name);
+                    id = TableId.generate();
+                }
+                else if (useDeterministicTableID)
+                {
+                    id = TableId.deterministicFromKeyspaceAndTable(keyspace, name);
+                }
+                else
+                {
+                    id = TableId.generate();
+                }
+            }
 
             return new TableMetadata(this);
         }
