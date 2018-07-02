@@ -21,8 +21,10 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.statements.schema.CreateTableStatement;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.streaming.CassandraStreamHeader.CassandraStreamHeaderSerializer;
@@ -37,6 +39,12 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class CassandraStreamHeaderTest
 {
+    @BeforeClass
+    public static void beforeClass()
+    {
+        DatabaseDescriptor.daemonInitialization();
+    }
+
     @Test
     public void serializerTest()
     {
