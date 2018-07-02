@@ -30,6 +30,7 @@ import java.util.stream.IntStream;
 import org.junit.Assert;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
@@ -46,6 +47,10 @@ public class QueryReplayerEndToEndTest extends TestBaseImpl
     @Test
     public void testReplayAndCloseMultipleTimes() throws Throwable
     {
+        // CIE needs to initialize the config as the controlling VM creates the FQL queries
+        // and TableMetadata.builder needs to check for schema drop log / deterministic ids
+        DatabaseDescriptor.daemonInitialization();
+
         try (ICluster<IInvokableInstance> cluster = init(builder().withNodes(3)
                                                                   .withConfig(conf -> conf.with(Feature.NATIVE_PROTOCOL, Feature.GOSSIP, Feature.NETWORK))
                                                                   .start()))

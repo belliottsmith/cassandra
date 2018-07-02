@@ -763,6 +763,40 @@ public class CreateTest extends CQLTester
                                             + " WITH compression = { 'class' : 'SnappyCompressor', 'unknownOption' : 32 };");
     }
 
+    @Test
+    public void testUsingDeterministicTableID()
+    {
+        DatabaseDescriptor.setIsSchemaDropCheckDisabled(false);
+        DatabaseDescriptor.useDeterministicTableID(true);
+
+        createTable("CREATE TABLE %s (id text PRIMARY KEY);");
+        TableMetadata tmd = currentTableMetadata();
+        assertEquals(TableId.deterministicFromKeyspaceAndTable(tmd.keyspace, tmd.name), tmd.id);
+
+    }
+
+    @Test
+    public void testNotUsingDeterministicTableIDWhenDisabled()
+    {
+        DatabaseDescriptor.setIsSchemaDropCheckDisabled(false);
+        DatabaseDescriptor.useDeterministicTableID(false);
+
+        createTable("CREATE TABLE %s (id text PRIMARY KEY);");
+        TableMetadata tmd = currentTableMetadata();
+        assertFalse(TableId.deterministicFromKeyspaceAndTable(tmd.keyspace, tmd.name).equals(tmd.id));
+    }
+
+    @Test
+    public void testNotUsingDeterministicTableIDWhenSchemaDropCheckIsDisabled()
+    {
+        DatabaseDescriptor.setIsSchemaDropCheckDisabled(true);
+        DatabaseDescriptor.useDeterministicTableID(true);
+
+        createTable("CREATE TABLE %s (id text PRIMARY KEY);");
+        TableMetadata tmd = currentTableMetadata();
+        assertFalse(TableId.deterministicFromKeyspaceAndTable(tmd.keyspace, tmd.name).equals(tmd.id));
+    }
+
     private void assertThrowsConfigurationException(String errorMsg, String createStmt)
     {
         try
