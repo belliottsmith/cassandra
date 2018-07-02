@@ -544,6 +544,8 @@ public class Config
 
     public volatile boolean disable_schema_drop_check = false;
 
+    public volatile boolean use_deterministic_table_id = Boolean.parseBoolean(System.getProperty("cassandra.use_deterministic_table_id", "true"));
+
     /**
      * The intial capacity for creating RangeTombstoneList.
      */
