@@ -3459,4 +3459,14 @@ public class DatabaseDescriptor
     {
         conf.disable_schema_drop_check = value;
     }
+
+    public static boolean useDeterministicTableID()
+    {
+        return conf.use_deterministic_table_id;
+    }
+
+    public static void useDeterministicTableID(boolean value)
+    {
+        conf.use_deterministic_table_id = value;
+    }
 }
