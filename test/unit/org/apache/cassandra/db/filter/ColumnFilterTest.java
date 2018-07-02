@@ -23,6 +23,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.SetType;
@@ -35,6 +36,8 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
+
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.junit.Assert;
@@ -42,6 +45,12 @@ import org.junit.Assert;
 public class ColumnFilterTest
 {
     private static final ColumnFilter.Serializer serializer = new ColumnFilter.Serializer();
+
+    @BeforeClass
+    public static void beforeClass()
+    {
+        DatabaseDescriptor.daemonInitialization();
+    }
 
     @Test
     public void testColumnFilterSerialisationRoundTrip() throws Exception
