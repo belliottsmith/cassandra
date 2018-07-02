@@ -3120,6 +3120,12 @@ public class StorageProxy implements StorageProxyMBean
     }
 
     @Override
+    public void useDeterministicTableID(boolean value)
+    {
+        DatabaseDescriptor.useDeterministicTableID(value);
+    }
+
+    @Override
     public long[] getRecentReadLatencyHistogramMicrosV3()
     {
         return readMetrics.recentLatencyHistogram.getBuckets(true);
