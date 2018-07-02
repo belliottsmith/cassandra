@@ -70,6 +70,7 @@ public final class PurgeFunctionTest
     @Before
     public void setUp()
     {
+        DatabaseDescriptor.daemonInitialization();
         DatabaseDescriptor.setPartitionerUnsafe(Murmur3Partitioner.instance);
 
         metadata =

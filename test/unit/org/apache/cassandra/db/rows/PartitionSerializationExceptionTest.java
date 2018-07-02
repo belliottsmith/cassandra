@@ -18,8 +18,10 @@
 
 package org.apache.cassandra.db.rows;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.UTF8Type;
@@ -31,6 +33,12 @@ import static org.mockito.Mockito.when;
 
 public class PartitionSerializationExceptionTest
 {
+    @BeforeClass
+    public static void beforeClass()
+    {
+        DatabaseDescriptor.daemonInitialization(); // For useDeterministicTableID
+    }
+
     @Test
     public void testMessageWithSimplePartitionKey()
     {
