@@ -524,6 +524,8 @@ public class Config
 
     public volatile boolean disable_schema_drop_check = false;
 
+    public volatile boolean use_deterministic_table_id = false;
+
     /**
      * @deprecated migrate to {@link DatabaseDescriptor#isClientInitialized()}
      */
