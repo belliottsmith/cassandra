@@ -68,7 +68,8 @@ public class TableId
      * This is deterministically based on the table name as system tables are hardcoded and initialized independently
      * on each node (they don't go through a CREATE), but we still want them to have the same ID everywhere.
      *
-     * We shouldn't use this for any other table.
+     * We shouldn't use this for any other table. (Unless in CIE, with
+     * use_deterministic_tableid set)
      */
     public static TableId forSystemTable(String keyspace, String table)
     {
