@@ -87,7 +87,8 @@ public class Config
     public DiskFailurePolicy disk_failure_policy = DiskFailurePolicy.ignore;
     public CommitFailurePolicy commit_failure_policy = CommitFailurePolicy.stop;
 
-    public Boolean disable_schema_drop_check = false;
+    public volatile boolean disable_schema_drop_check = false;
+    public volatile boolean use_deterministic_table_id = false;
 
     public volatile Boolean enable_partition_blacklist = false;
 

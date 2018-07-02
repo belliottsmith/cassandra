@@ -25,6 +25,7 @@ import org.junit.Test;
 
 
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.statements.SchemaAlteringStatement;
@@ -684,6 +685,39 @@ public class CreateTest extends CQLTester
         assertThrowsConfigurationException("Unknown compression options unknownOption",
                                            "CREATE TABLE %s (a text, b int, c int, primary key (a, b))"
                                             + " WITH compression = { 'class' : 'SnappyCompressor', 'unknownOption' : 32 };");
+    }
+
+    @Test
+    public void testUsingDeterministicTableID()
+    {
+        DatabaseDescriptor.setIsSchemaDropCheckDisabled(false);
+        DatabaseDescriptor.useDeterministicTableID(true);
+
+        createTable("CREATE TABLE %s (id text PRIMARY KEY);");
+        CFMetaData cfm = currentTableMetadata();
+        assertEquals(CFMetaData.generateLegacyCfId(cfm.ksName, cfm.cfName), cfm.cfId);
+    }
+
+    @Test
+    public void testNotUsingDeterministicTableIDWhenDisabled()
+    {
+        DatabaseDescriptor.setIsSchemaDropCheckDisabled(false);
+        DatabaseDescriptor.useDeterministicTableID(false);
+
+        createTable("CREATE TABLE %s (id text PRIMARY KEY);");
+        CFMetaData cfm = currentTableMetadata();
+        assertFalse(CFMetaData.generateLegacyCfId(cfm.ksName, cfm.cfName).equals(cfm.cfId));
+    }
+
+    @Test
+    public void testNotUsingDeterministicTableIDWhenSchemaDropCheckIsDisabled()
+    {
+        DatabaseDescriptor.setIsSchemaDropCheckDisabled(true);
+        DatabaseDescriptor.useDeterministicTableID(true);
+
+        createTable("CREATE TABLE %s (id text PRIMARY KEY);");
+        CFMetaData cfm = currentTableMetadata();
+        assertFalse(CFMetaData.generateLegacyCfId(cfm.ksName, cfm.cfName).equals(cfm.cfId));
     }
 
      private void assertThrowsConfigurationException(String errorMsg, String createStmt) {

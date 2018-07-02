@@ -1442,8 +1442,28 @@ public final class CFMetaData
 
         public CFMetaData build()
         {
-            if (tableId == null)
-                tableId = UUIDGen.getTimeUUID();
+            if (null == tableId)
+            {
+                boolean useDeterministicTableID = DatabaseDescriptor.useDeterministicTableID();
+                boolean isSchemaDropCheckDisabled = DatabaseDescriptor.isSchemaDropCheckDisabled();
+
+                if (useDeterministicTableID && isSchemaDropCheckDisabled)
+                {
+                    // it's unsafe to reuse a deterministic table id when recreate checks are disabled, as leftover sstables,
+                    // hints, paxos and batchlog entries could affect the new table.
+                    logger.warn("Not generating a deterministic id for table {}.{} as requested, because table recreate check is disabled",
+                                keyspace, table);
+                    tableId = UUIDGen.getTimeUUID();
+                }
+                else if (useDeterministicTableID)
+                {
+                    tableId = generateLegacyCfId(keyspace, table);
+                }
+                else
+                {
+                    tableId = UUIDGen.getTimeUUID();
+                }
+            }
 
             List<ColumnDefinition> partitions = new ArrayList<>(partitionKeys.size());
             List<ColumnDefinition> clusterings = new ArrayList<>(clusteringColumns.size());

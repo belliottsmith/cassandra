@@ -101,6 +101,8 @@ public interface StorageProxyMBean
      */
     public void stopFullQueryLogger();
 
+    public void useDeterministicTableID(boolean value);
+
     public void logBlockingReadRepairAttemptsForNSeconds(int seconds);
 
     public long[] getRecentReadLatencyHistogramMicrosV3();

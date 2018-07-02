@@ -1809,9 +1809,24 @@ public class DatabaseDescriptor
         return conf.hinted_handoff_disabled_datacenters;
     }
 
-    public static boolean disableSchemaDropCheck()
+    public static boolean isSchemaDropCheckDisabled()
     {
         return conf.disable_schema_drop_check;
+    }
+
+    public static void setIsSchemaDropCheckDisabled(boolean value)
+    {
+        conf.disable_schema_drop_check = value;
+    }
+
+    public static boolean useDeterministicTableID()
+    {
+        return conf.use_deterministic_table_id;
+    }
+
+    public static void useDeterministicTableID(boolean value)
+    {
+        conf.use_deterministic_table_id = value;
     }
 
     public static void enableHintsForDC(String dc)

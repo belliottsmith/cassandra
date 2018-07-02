@@ -21,7 +21,7 @@ public class SchemaDropLog
 
     public static void addSchemaDrop(final String ks_name, String cf_name)
     {
-        if(disableCheckForTest || Schema.isInternalKeyspace(ks_name))
+        if (disableCheckForTest || Schema.isInternalKeyspace(ks_name))
             return;
 
         String query = "INSERT INTO " + CIEInternalKeyspace.NAME + "." + CIEInternalKeyspace.SCHEMA_DROP_LOG + " (ks_name, cf_name, time) VALUES (\'"
@@ -40,7 +40,7 @@ public class SchemaDropLog
 
     public static boolean schemaDropExists(final String ks_name, String cf_name)
     {
-        if(DatabaseDescriptor.disableSchemaDropCheck())
+        if (DatabaseDescriptor.isSchemaDropCheckDisabled())
             return false;
 
         if(disableCheckForTest || Schema.isInternalKeyspace(ks_name))
