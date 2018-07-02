@@ -21,10 +21,12 @@ import java.nio.ByteBuffer;
 import java.util.*;
 
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.google.common.collect.Iterators;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.ClusteringPrefix.Kind;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -54,6 +56,12 @@ public final class RTTransformationsTest
 
     private TableMetadata metadata;
     private DecoratedKey key;
+
+    @BeforeClass
+    public static void beforeClass()
+    {
+        DatabaseDescriptor.daemonInitialization();
+    }
 
     @Before
     public void setUp()
