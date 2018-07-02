@@ -112,6 +112,8 @@ public interface StorageProxyMBean
     public String getIdealConsistencyLevel();
     public String setIdealConsistencyLevel(String cl);
 
+    public void useDeterministicTableID(boolean value);
+
     public void logBlockingReadRepairAttemptsForNSeconds(int seconds);
 
     /**
