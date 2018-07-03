@@ -1,5 +1,6 @@
 3.0.19.0 (open)
 * Create MessagingService mocking classes (CASSANDRA-12016)
+* Restore resumable hints delivery, backport CASSANDRA-11960 (CASSANDRA-14419)
 
 3.0.17.15
 * <rdar://problem/49484414> (CASSANDRA-15072) Incomplete range results during 2.X -> 3.11.4 upgrade
