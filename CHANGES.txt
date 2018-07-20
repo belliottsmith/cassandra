@@ -1,5 +1,11 @@
-3.0.17.1 (open)
+3.0.17.2 (open)
 
+3.0.17.1
+ * <rdar://problem/42047182> (CASSANDRA-14568) Static collection deletions are corrupted in 3.0 -> 2.{1,2} messages
+ * <rdar://problem/38864888> (Apple Internal) Switch to deterministic table ids to prevent duplicate cf id exceptions
+ * <rdar://problem/33919865> Backport CASSANDRA-12526 Single sstable uplevel for LCS
+ * <rdar://problem/41477215> (Apple Internal) Cass Tooling: migration needs to invalidate ancestors or sstables can be removed on restart
+ * <rdar://problem/41486611> (Apple Internal) Fix NPE in `nodetool refresh` when no `-d` parameter passed #1141
 
 3.0.17.0
  * <rdar://problem/36596055> Backport CASSANDRA-14197 Automatic upgrade sstables
