@@ -475,7 +475,7 @@ public class TableViews extends AbstractCollection<View>
 
         // We allow existingBaseRow to be null, which we treat the same as being empty as an small optimization
         // to avoid allocating empty row objects when we know there was nothing existing.
-        Row mergedBaseRow = existingBaseRow == null ? updateBaseRow : Rows.merge(existingBaseRow, updateBaseRow, nowInSec);
+        Row mergedBaseRow = existingBaseRow == null ? updateBaseRow : Rows.merge(existingBaseRow, updateBaseRow);
         for (ViewUpdateGenerator generator : generators)
             generator.addBaseTableUpdate(existingBaseRow, mergedBaseRow);
     }

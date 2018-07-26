@@ -800,7 +800,7 @@ public class PartitionUpdate extends AbstractBTreePartition
                 assert columns().statics.containsAll(row.columns()) : columns().statics + " is not superset of " + row.columns();
                 staticRow = staticRow.isEmpty()
                             ? row
-                            : Rows.merge(staticRow, row, createdAtInSec);
+                            : Rows.merge(staticRow, row);
             }
             else
             {
@@ -837,7 +837,7 @@ public class PartitionUpdate extends AbstractBTreePartition
             assert !isBuilt : "A PartitionUpdate.Builder should only get built once";
             Object[] add = rowBuilder.build();
             Object[] merged = BTree.<Row>merge(tree, add, metadata.comparator,
-                                               UpdateFunction.Simple.of((a, b) -> Rows.merge(a, b, createdAtInSec)));
+                                               UpdateFunction.Simple.of(Rows::merge));
 
             EncodingStats newStats = EncodingStats.Collector.collect(staticRow, BTree.iterator(merged), deletionInfo);
 
@@ -866,8 +866,7 @@ public class PartitionUpdate extends AbstractBTreePartition
         private BTree.Builder<Row> rowBuilder(int initialCapacity)
         {
             return BTree.<Row>builder(metadata.comparator, initialCapacity)
-                   .setQuickResolver((a, b) ->
-                                     Rows.merge(a, b, createdAtInSec));
+                   .setQuickResolver(Rows::merge);
         }
         /**
          * Modify this update to set every timestamp for live data to {@code newTimestamp} and

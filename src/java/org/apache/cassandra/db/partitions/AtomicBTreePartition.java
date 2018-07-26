@@ -306,7 +306,6 @@ public final class AtomicBTreePartition extends AtomicBTreePartitionBase
         final MemtableAllocator allocator;
         final OpOrder.Group writeOp;
         final UpdateTransaction indexer;
-        final int nowInSec;
         Holder ref;
         Row.Builder regularBuilder;
         long dataSize;
@@ -320,7 +319,6 @@ public final class AtomicBTreePartition extends AtomicBTreePartitionBase
             this.allocator = allocator;
             this.writeOp = writeOp;
             this.indexer = indexer;
-            this.nowInSec = FBUtilities.nowInSeconds();
         }
 
         private Row.Builder builder(Clustering clustering)
@@ -351,7 +349,7 @@ public final class AtomicBTreePartition extends AtomicBTreePartitionBase
         public Row apply(Row existing, Row update)
         {
             Row.Builder builder = builder(existing.clustering());
-            colUpdateTimeDelta = Math.min(colUpdateTimeDelta, Rows.merge(existing, update, builder, nowInSec));
+            colUpdateTimeDelta = Math.min(colUpdateTimeDelta, Rows.merge(existing, update, builder));
 
             Row reconciled = builder.build();
 

@@ -453,7 +453,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
         {
             if (cellLevelGC)
             {
-                return Rows.removeShadowedCells(dataRow, tombRow, activeDeletionTime, nowInSec);
+                return Rows.removeShadowedCells(dataRow, tombRow, activeDeletionTime);
             }
             else
             {

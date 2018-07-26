@@ -767,7 +767,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
                     {
                         Cell cell = (Cell)data;
                         if (!activeDeletion.deletes(cell))
-                            merged = merged == null ? cell : Cells.reconcile(merged, cell, nowInSec);
+                            merged = merged == null ? cell : Cells.reconcile(merged, cell);
                     }
                     return merged;
                 }
@@ -833,7 +833,7 @@ public interface Row extends Unfiltered, Collection<ColumnData>
             public void reduce(int idx, Cell cell)
             {
                 if (!activeDeletion.deletes(cell))
-                    merged = merged == null ? cell : Cells.reconcile(merged, cell, nowInSec);
+                    merged = merged == null ? cell : Cells.reconcile(merged, cell);
             }
 
             protected Cell getReduced()

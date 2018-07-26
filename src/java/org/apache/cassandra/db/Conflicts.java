@@ -20,69 +20,77 @@ package org.apache.cassandra.db;
 import java.nio.ByteBuffer;
 
 import org.apache.cassandra.db.context.CounterContext;
+import org.apache.cassandra.db.rows.BufferCell;
+import org.apache.cassandra.db.rows.Cell;
 
 public abstract class Conflicts
 {
     private Conflicts() {}
 
-    public enum Resolution { LEFT_WINS, MERGE, RIGHT_WINS };
-
-    public static Resolution resolveRegular(long leftTimestamp,
-                                            boolean leftLive,
-                                            int leftLocalDeletionTime,
-                                            ByteBuffer leftValue,
-                                            long rightTimestamp,
-                                            boolean rightLive,
-                                            int rightLocalDeletionTime,
-                                            ByteBuffer rightValue)
+    public static Cell resolveRegular(Cell left, Cell right)
     {
+        long leftTimestamp = left.timestamp();
+        long rightTimestamp = right.timestamp();
         if (leftTimestamp != rightTimestamp)
-            return leftTimestamp < rightTimestamp ? Resolution.RIGHT_WINS : Resolution.LEFT_WINS;
+            return leftTimestamp < rightTimestamp ? right : left;
 
-        if (leftLive != rightLive)
-            return leftLive ? Resolution.RIGHT_WINS : Resolution.LEFT_WINS;
+        int leftLocalDeletionTime = left.localDeletionTime();
+        int rightLocalDeletionTime = right.localDeletionTime();
 
+        boolean leftIsExpiringOrTombstone = leftLocalDeletionTime != Cell.NO_DELETION_TIME;
+        boolean rightIsExpiringOrTombstone = rightLocalDeletionTime != Cell.NO_DELETION_TIME;
+        if (leftIsExpiringOrTombstone != rightIsExpiringOrTombstone)
+            return leftIsExpiringOrTombstone ? right : left;
+
+        ByteBuffer leftValue = left.value();
+        ByteBuffer rightValue = right.value();
         int c = leftValue.compareTo(rightValue);
         if (c < 0)
-            return Resolution.RIGHT_WINS;
+            return right;
         else if (c > 0)
-            return Resolution.LEFT_WINS;
+            return left;
 
         // Prefer the longest ttl if relevant
-        return leftLocalDeletionTime < rightLocalDeletionTime ? Resolution.RIGHT_WINS : Resolution.LEFT_WINS;
+        return leftLocalDeletionTime < rightLocalDeletionTime ? right : left;
     }
 
-    public static Resolution resolveCounter(long leftTimestamp,
-                                            boolean leftLive,
-                                            ByteBuffer leftValue,
-                                            long rightTimestamp,
-                                            boolean rightLive,
-                                            ByteBuffer rightValue)
+    public static Cell resolveCounter(Cell left, Cell right)
     {
+        boolean leftIsTombstone = left.isTombstone();
+        boolean rightIsTombstone = right.isTombstone();
+        long leftTimestamp = left.timestamp();
+        long rightTimestamp = right.timestamp();
         // No matter what the counter cell's timestamp is, a tombstone always takes precedence. See CASSANDRA-7346.
-        if (!leftLive)
+        if (leftIsTombstone)
             // left is a tombstone: it has precedence over right if either right is not a tombstone, or left has a greater timestamp
-            return rightLive || leftTimestamp > rightTimestamp ? Resolution.LEFT_WINS : Resolution.RIGHT_WINS;
+            return !rightIsTombstone || leftTimestamp > rightTimestamp ? left : right;
 
         // If right is a tombstone, since left isn't one, it has precedence
-        if (!rightLive)
-            return Resolution.RIGHT_WINS;
+        if (rightIsTombstone)
+            return right;
 
+        ByteBuffer leftValue = left.value();
+        ByteBuffer rightValue = right.value();
         // Handle empty values. Counters can't truly have empty values, but we can have a counter cell that temporarily
         // has one on read if the column for the cell is not queried by the user due to the optimization of #10657. We
         // thus need to handle this (see #11726 too).
         if (!leftValue.hasRemaining())
-            return rightValue.hasRemaining() || leftTimestamp > rightTimestamp ? Resolution.LEFT_WINS : Resolution.RIGHT_WINS;
+            return rightValue.hasRemaining() || leftTimestamp > rightTimestamp ? left : right;
 
         if (!rightValue.hasRemaining())
-            return Resolution.RIGHT_WINS;
+            return right;
 
-        return Resolution.MERGE;
-    }
+        ByteBuffer merged = CounterContext.instance().merge(leftValue, rightValue);
+        long timestamp = Math.max(leftTimestamp, rightTimestamp);
 
-    public static ByteBuffer mergeCounterValues(ByteBuffer left, ByteBuffer right)
-    {
-        return CounterContext.instance().merge(left, right);
+        // We save allocating a new cell object if it turns out that one cell was
+        // a complete superset of the other
+        if (merged == leftValue && timestamp == leftTimestamp)
+            return left;
+        else if (merged == rightValue && timestamp == rightTimestamp)
+            return right;
+        else // merge clocks and timestamps.
+            return new BufferCell(left.column(), timestamp, Cell.NO_TTL, Cell.NO_DELETION_TIME, merged, left.path());
     }
 
 }

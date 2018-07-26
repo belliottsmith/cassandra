@@ -66,9 +66,6 @@ public abstract class Cells
      * @param deletion the deletion time that applies to the cells being considered.
      * This deletion time may delete both {@code existing} or {@code update}.
      * @param builder the row builder to which the result of the reconciliation is written.
-     * @param nowInSec the current time in seconds (which plays a role during reconciliation
-     * because deleted cells always have precedence on timestamp equality and deciding if a
-     * cell is a live or not depends on the current time due to expiring cells).
      *
      * @return the timestamp delta between existing and update, or {@code Long.MAX_VALUE} if one
      * of them is {@code null} or deleted by {@code deletion}).
@@ -76,8 +73,7 @@ public abstract class Cells
     public static long reconcile(Cell existing,
                                  Cell update,
                                  DeletionTime deletion,
-                                 Row.Builder builder,
-                                 int nowInSec)
+                                 Row.Builder builder)
     {
         existing = existing == null || deletion.deletes(existing) ? null : existing;
         update = update == null || deletion.deletes(update) ? null : update;
@@ -94,7 +90,7 @@ public abstract class Cells
             return Long.MAX_VALUE;
         }
 
-        Cell reconciled = reconcile(existing, update, nowInSec);
+        Cell reconciled = reconcile(existing, update);
         builder.addCell(reconciled);
 
         return Math.abs(existing.timestamp() - update.timestamp());
@@ -111,59 +107,20 @@ public abstract class Cells
      *
      * @param c1 the first cell participating in the reconciliation.
      * @param c2 the second cell participating in the reconciliation.
-     * @param nowInSec the current time in seconds (which plays a role during reconciliation
-     * because deleted cells always have precedence on timestamp equality and deciding if a
-     * cell is a live or not depends on the current time due to expiring cells).
      *
      * @return a cell corresponding to the reconciliation of {@code c1} and {@code c2}.
      * For non-counter cells, this will always be either {@code c1} or {@code c2}, but for
      * counter cells this can be a newly allocated cell.
      */
-    public static Cell reconcile(Cell c1, Cell c2, int nowInSec)
+    public static Cell reconcile(Cell c1, Cell c2)
     {
-        if (c1 == null)
-            return c2 == null ? null : c2;
-        if (c2 == null)
-            return c1;
+        if (c1 == null || c2 == null)
+            return c2 == null ? c1 : c2;
 
         if (c1.isCounterCell() || c2.isCounterCell())
-        {
-            Conflicts.Resolution res = Conflicts.resolveCounter(c1.timestamp(),
-                                                                c1.isLive(nowInSec),
-                                                                c1.value(),
-                                                                c2.timestamp(),
-                                                                c2.isLive(nowInSec),
-                                                                c2.value());
+            return Conflicts.resolveCounter(c1, c2);
 
-            switch (res)
-            {
-                case LEFT_WINS: return c1;
-                case RIGHT_WINS: return c2;
-                default:
-                    ByteBuffer merged = Conflicts.mergeCounterValues(c1.value(), c2.value());
-                    long timestamp = Math.max(c1.timestamp(), c2.timestamp());
-
-                    // We save allocating a new cell object if it turns out that one cell was
-                    // a complete superset of the other
-                    if (merged == c1.value() && timestamp == c1.timestamp())
-                        return c1;
-                    else if (merged == c2.value() && timestamp == c2.timestamp())
-                        return c2;
-                    else // merge clocks and timestamps.
-                        return new BufferCell(c1.column(), timestamp, Cell.NO_TTL, Cell.NO_DELETION_TIME, merged, c1.path());
-            }
-        }
-
-        Conflicts.Resolution res = Conflicts.resolveRegular(c1.timestamp(),
-                                                            c1.isLive(nowInSec),
-                                                            c1.localDeletionTime(),
-                                                            c1.value(),
-                                                            c2.timestamp(),
-                                                            c2.isLive(nowInSec),
-                                                            c2.localDeletionTime(),
-                                                            c2.value());
-        assert res != Conflicts.Resolution.MERGE;
-        return res == Conflicts.Resolution.LEFT_WINS ? c1 : c2;
+        return Conflicts.resolveRegular(c1, c2);
     }
 
     /**
@@ -187,9 +144,6 @@ public abstract class Cells
      * @param deletion the deletion time that applies to the cells being considered.
      * This deletion time may delete cells in both {@code existing} and {@code update}.
      * @param builder the row build to which the result of the reconciliation is written.
-     * @param nowInSec the current time in seconds (which plays a role during reconciliation
-     * because deleted cells always have precedence on timestamp equality and deciding if a
-     * cell is a live or not depends on the current time due to expiring cells).
      *
      * @return the smallest timestamp delta between corresponding cells from existing and update. A
      * timestamp delta being computed as the difference between a cell from {@code update} and the
@@ -201,8 +155,7 @@ public abstract class Cells
                                         Iterator<Cell> existing,
                                         Iterator<Cell> update,
                                         DeletionTime deletion,
-                                        Row.Builder builder,
-                                        int nowInSec)
+                                        Row.Builder builder)
     {
         Comparator<CellPath> comparator = column.cellPathComparator();
         Cell nextExisting = getNext(existing);
@@ -215,17 +168,17 @@ public abstract class Cells
                      : comparator.compare(nextExisting.path(), nextUpdate.path()));
             if (cmp < 0)
             {
-                reconcile(nextExisting, null, deletion, builder, nowInSec);
+                reconcile(nextExisting, null, deletion, builder);
                 nextExisting = getNext(existing);
             }
             else if (cmp > 0)
             {
-                reconcile(null, nextUpdate, deletion, builder, nowInSec);
+                reconcile(null, nextUpdate, deletion, builder);
                 nextUpdate = getNext(update);
             }
             else
             {
-                timeDelta = Math.min(timeDelta, reconcile(nextExisting, nextUpdate, deletion, builder, nowInSec));
+                timeDelta = Math.min(timeDelta, reconcile(nextExisting, nextUpdate, deletion, builder));
                 nextExisting = getNext(existing);
                 nextUpdate = getNext(update);
             }
@@ -246,20 +199,16 @@ public abstract class Cells
      * @param deletion the deletion time that applies to the cells being considered.
      * This deletion time may delete both {@code existing} or {@code update}.
      * @param builder the row builder to which the result of the filtering is written.
-     * @param nowInSec the current time in seconds (which plays a role during reconciliation
-     * because deleted cells always have precedence on timestamp equality and deciding if a
-     * cell is a live or not depends on the current time due to expiring cells).
      */
     public static void addNonShadowed(Cell existing,
                                       Cell update,
                                       DeletionTime deletion,
-                                      Row.Builder builder,
-                                      int nowInSec)
+                                      Row.Builder builder)
     {
         if (deletion.deletes(existing))
             return;
 
-        Cell reconciled = reconcile(existing, update, nowInSec);
+        Cell reconciled = reconcile(existing, update);
         if (reconciled != update)
             builder.addCell(existing);
     }
@@ -278,16 +227,12 @@ public abstract class Cells
      * @param deletion the deletion time that applies to the cells being considered.
      * This deletion time may delete both {@code existing} or {@code update}.
      * @param builder the row builder to which the result of the filtering is written.
-     * @param nowInSec the current time in seconds (which plays a role during reconciliation
-     * because deleted cells always have precedence on timestamp equality and deciding if a
-     * cell is a live or not depends on the current time due to expiring cells).
      */
     public static void addNonShadowedComplex(ColumnMetadata column,
                                              Iterator<Cell> existing,
                                              Iterator<Cell> update,
                                              DeletionTime deletion,
-                                             Row.Builder builder,
-                                             int nowInSec)
+                                             Row.Builder builder)
     {
         Comparator<CellPath> comparator = column.cellPathComparator();
         Cell nextExisting = getNext(existing);
@@ -297,12 +242,12 @@ public abstract class Cells
             int cmp = nextUpdate == null ? -1 : comparator.compare(nextExisting.path(), nextUpdate.path());
             if (cmp < 0)
             {
-                addNonShadowed(nextExisting, null, deletion, builder, nowInSec);
+                addNonShadowed(nextExisting, null, deletion, builder);
                 nextExisting = getNext(existing);
             }
             else if (cmp == 0)
             {
-                addNonShadowed(nextExisting, nextUpdate, deletion, builder, nowInSec);
+                addNonShadowed(nextExisting, nextUpdate, deletion, builder);
                 nextExisting = getNext(existing);
                 nextUpdate = getNext(update);
             }
