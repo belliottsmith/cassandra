@@ -613,7 +613,6 @@ public class BTreeRow extends AbstractRow
                 ColumnMetadata column = cell.column;
                 if (cell.column.isSimple())
                 {
-                    assert lb + 1 == ub;
                     while (++lb < ub)
                         cell = Cells.reconcile(cell, (Cell) cells[lb]);
                     return cell;
