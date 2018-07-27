@@ -32,6 +32,7 @@ import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.marshal.UTF8Type;
+import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -514,6 +515,8 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
                     }
                     encoded >>>= 1;
                 }
+                if (encoded != 0)
+                    throw new IOException("Invalid Columns subset bytes; too many bits set:" + Long.toBinaryString(encoded));
                 return new Columns(builder.build(), firstComplexIdx);
             }
         }
