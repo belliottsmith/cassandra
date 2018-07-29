@@ -147,6 +147,12 @@ public class Mutation implements IMutation
         return modifications.isEmpty();
     }
 
+    public void quickValidate()
+    {
+        for (PartitionUpdate update : modifications.values())
+            update.validate();
+    }
+
     /**
      * Creates a new mutation that merges all the provided mutations.
      *

@@ -82,6 +82,11 @@ public abstract class AbstractCell extends Cell
             column().validateCellPath(path());
     }
 
+    public void validateSize()
+    {
+        column.type.validateSize(this);
+    }
+
     public long maxTimestamp()
     {
         return timestamp();

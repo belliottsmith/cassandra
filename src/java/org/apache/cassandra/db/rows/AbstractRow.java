@@ -87,6 +87,16 @@ public abstract class AbstractRow extends AbstractCollection<ColumnData> impleme
             cd.validate();
     }
 
+    public void validateDataSize(CFMetaData metadata)
+    {
+        Clustering clustering = clustering();
+        for (int i = 0; i < clustering.size(); i++)
+            metadata.comparator.subtype(i).validateSize(clustering, i);
+
+        for (ColumnData cd : this)
+            cd.validateSize();
+    }
+
     public String toString(CFMetaData metadata)
     {
         return toString(metadata, false);

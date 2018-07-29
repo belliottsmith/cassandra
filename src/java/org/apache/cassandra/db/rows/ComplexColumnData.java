@@ -130,6 +130,12 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
             cell.validate();
     }
 
+    public void validateSize()
+    {
+        for (Cell cell : this)
+            cell.validateSize();
+    }
+
     public void digest(MessageDigest digest)
     {
         if (!complexDeletion.isLive())

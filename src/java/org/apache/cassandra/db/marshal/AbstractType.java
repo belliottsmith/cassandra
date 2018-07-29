@@ -27,6 +27,10 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+import com.datastax.driver.core.utils.Bytes;
+import org.apache.cassandra.db.ClusteringPrefix;
+import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.utils.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -157,6 +161,32 @@ public abstract class AbstractType<T> implements Comparator<ByteBuffer>
     public void validate(ByteBuffer bytes) throws MarshalException
     {
         getSerializer().validate(bytes);
+    }
+
+    /* validate that the byte array is a valid sequence for the type we are supposed to be comparing */
+    public void validateSize(ClusteringPrefix prefix, int index) throws MarshalException
+    {
+        int valueLength = valueLengthIfFixed();
+        if (valueLength < 0)
+            return;
+
+        ByteBuffer bytes = prefix.get(index);
+        if (bytes != null && bytes.remaining() != 0 && bytes.remaining() != valueLength)
+            throw new MarshalException(Bytes.toHexString(bytes) + " is invalid length for type " + this.toString() + "; expect 0 or " + valueLength + " bytes");
+    }
+
+    /* validate that the byte array is a valid sequence for the type we are supposed to be comparing */
+    public void validateSize(Cell cell) throws MarshalException
+    {
+        if (cell.path() != null && !isCollection())
+            throw new MarshalException("Invalid cell: non-collection type (" + this + ") has cell path");
+
+        int valueLength = valueLengthIfFixed();
+        if (valueLength < 0)
+            return;
+        ByteBuffer bytes = cell.value();
+        if (bytes != null && bytes.remaining() != 0 && bytes.remaining() != valueLength)
+            throw new MarshalException(Bytes.toHexString(bytes) + " is invalid length for type " + this.toString() + "; expect 0 or " + valueLength + " bytes");
     }
 
     public final int compare(ByteBuffer left, ByteBuffer right)

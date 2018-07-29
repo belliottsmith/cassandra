@@ -18,7 +18,6 @@
 package org.apache.cassandra.db;
 
 import java.nio.ByteBuffer;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -29,8 +28,6 @@ import com.google.common.collect.ImmutableList;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.FastByteOperations;
 
 import static org.apache.cassandra.io.sstable.IndexHelper.IndexInfo;
 
@@ -209,6 +206,19 @@ public class ClusteringComparator implements Comparator<Clusterable>
             if (value != null)
                 subtype(i).validate(value);
         }
+    }
+
+    /**
+     * Validates the provided prefix for corrupted data.
+     *
+     * @param clustering the clustering prefix to validate.
+     *
+     * @throws MarshalException if {@code clustering} contains some invalid data.
+     */
+    public void validateSizes(ClusteringPrefix clustering)
+    {
+        for (int i = 0; i < clustering.size(); i++)
+            subtype(i).validateSize(clustering, i);
     }
 
     /**

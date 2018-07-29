@@ -65,6 +65,13 @@ public abstract class ColumnData
     public abstract void validate();
 
     /**
+     * Validate the column data.
+     *
+     * @throws MarshalException if the data is not valid.
+     */
+    public abstract void validateSize();
+
+    /**
      * Adds the data to the provided digest.
      *
      * @param digest the {@code MessageDigest} to add the data to.

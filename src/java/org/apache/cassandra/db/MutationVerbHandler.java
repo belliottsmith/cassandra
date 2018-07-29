@@ -62,6 +62,7 @@ public class MutationVerbHandler implements IVerbHandler<Mutation>
         {
             if (message.version < MessagingService.VERSION_30 && LegacyBatchlogMigrator.isLegacyBatchlogMutation(message.payload))
             {
+                message.payload.apply();
                 LegacyBatchlogMigrator.handleLegacyMutation(message.payload);
                 reply(id, replyTo);
             }

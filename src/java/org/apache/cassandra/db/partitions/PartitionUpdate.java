@@ -468,6 +468,21 @@ public class PartitionUpdate extends AbstractBTreePartition
     }
 
     /**
+     * Validates the data contained in this update is all of the correct size, to avoid ser/deser errors.
+     *
+     * @throws org.apache.cassandra.serializers.MarshalException if some of the data contained in this update is corrupted.
+     */
+    public void validateSizes()
+    {
+        for (Row row : this)
+        {
+            metadata().comparator.validateSizes(row.clustering());
+            for (ColumnData cd : row)
+                cd.validateSize();
+        }
+    }
+
+    /**
      * The maximum timestamp used in this update.
      *
      * @return the maximum timestamp used in this update.
