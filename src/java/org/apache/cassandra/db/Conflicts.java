@@ -57,18 +57,21 @@ public abstract class Conflicts
     public static Cell resolveCounter(Cell left, Cell right)
     {
         // No matter what the counter cell's timestamp is, a tombstone always takes precedence. See CASSANDRA-7346.
-        boolean leftIsTombstone = left.isTombstone();
-        boolean rightIsTombstone = right.isTombstone();
-        if (leftIsTombstone != rightIsTombstone)
-            return leftIsTombstone ? left : right;
-
         long leftTimestamp = left.timestamp();
         long rightTimestamp = right.timestamp();
-        if (leftIsTombstone) // ==> && rightIsTombstone
+
+        boolean leftIsTombstone = left.isTombstone();
+        boolean rightIsTombstone = right.isTombstone();
+        if (leftIsTombstone || rightIsTombstone)
+        {
+            if (leftIsTombstone != rightIsTombstone)
+                return leftIsTombstone ? left : right;
             return leftTimestamp > rightTimestamp ? left : right;
+        }
 
         ByteBuffer leftValue = left.value();
         ByteBuffer rightValue = right.value();
+
         // Handle empty values. Counters can't truly have empty values, but we can have a counter cell that temporarily
         // has one on read if the column for the cell is not queried by the user due to the optimization of #10657. We
         // thus need to handle this (see #11726 too).
