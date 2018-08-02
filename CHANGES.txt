@@ -3,6 +3,7 @@
 * Restore resumable hints delivery, backport CASSANDRA-11960 (CASSANDRA-14419)
 * Fix potential IndexOutOfBoundsException with counters (CASSANDRA-14167)
 * Fix reading columns with non-UTF names from schema (CASSANDRA-14468)
+ * sstableloader should use discovered broadcast address to connect intra-cluster (CASSANDRA-14522)
 Merged from 2.2:
  * Returns null instead of NaN or Infinity in JSON strings (CASSANDRA-14377)
 
