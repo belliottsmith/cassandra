@@ -3,6 +3,8 @@
 * Restore resumable hints delivery, backport CASSANDRA-11960 (CASSANDRA-14419)
 * Fix potential IndexOutOfBoundsException with counters (CASSANDRA-14167)
 * Fix reading columns with non-UTF names from schema (CASSANDRA-14468)
+Merged from 2.2:
+ * Returns null instead of NaN or Infinity in JSON strings (CASSANDRA-14377)
 
 3.0.17.15
 * <rdar://problem/49484414> (CASSANDRA-15072) Incomplete range results during 2.X -> 3.11.4 upgrade
