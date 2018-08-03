@@ -21,8 +21,8 @@ import java.nio.ByteBuffer;
 import java.util.Comparator;
 import java.util.Iterator;
 
+import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.schema.ColumnMetadata;
-import org.apache.cassandra.db.Conflicts;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
 
@@ -118,9 +118,93 @@ public abstract class Cells
             return c2 == null ? c1 : c2;
 
         if (c1.isCounterCell() || c2.isCounterCell())
-            return Conflicts.resolveCounter(c1, c2);
+            return resolveCounter(c1, c2);
 
-        return Conflicts.resolveRegular(c1, c2);
+        return resolveRegular(c1, c2);
+    }
+
+    private static Cell resolveRegular(Cell left, Cell right)
+    {
+        long leftTimestamp = left.timestamp();
+        long rightTimestamp = right.timestamp();
+        if (leftTimestamp != rightTimestamp)
+            return leftTimestamp > rightTimestamp ? left : right;
+
+        int leftLocalDeletionTime = left.localDeletionTime();
+        int rightLocalDeletionTime = right.localDeletionTime();
+
+        boolean leftIsExpiringOrTombstone = leftLocalDeletionTime != Cell.NO_DELETION_TIME;
+        boolean rightIsExpiringOrTombstone = rightLocalDeletionTime != Cell.NO_DELETION_TIME;
+
+        if (leftIsExpiringOrTombstone | rightIsExpiringOrTombstone)
+        {
+            // Tombstones always win reconciliation with live cells of the same timstamp
+            // CASSANDRA-14592: for consistency of reconciliation, regardless of system clock at time of reconciliation
+            // this requires us to treat expiring cells (which will become tombstones at some future date) the same wrt regular cells
+            if (leftIsExpiringOrTombstone != rightIsExpiringOrTombstone)
+                return leftIsExpiringOrTombstone ? left : right;
+
+            // for most historical consistency, we still prefer tombstones over expiring cells;
+            // this is consistent, because at the only point that it matters (when the expiring cell becomes a tombstone)
+            // there is no logical difference between the two, besides the point at which GC will sweep them
+            boolean leftIsTombstone = !left.isExpiring(); // !isExpiring() == isTombstone(), but does not need to consider localDeletionTime()
+            boolean rightIsTombstone = !right.isExpiring();
+            if (leftIsTombstone != rightIsTombstone)
+                return leftIsTombstone ? left : right;
+
+            // ==> (leftIsExpiring && rightIsExpiring) or (leftIsTombstone && rightIsTombstone)
+            // if both are expiring, we do not want to consult the value bytes if we can avoid it, as like with C-14592
+            // the value bytes implicitly depend on the system time at reconciliation, as a
+            // would otherwise always win (unless it had an empty value), until it expired and was translated to a tombstone
+            if (leftLocalDeletionTime != rightLocalDeletionTime)
+                return leftLocalDeletionTime > rightLocalDeletionTime ? left : right;
+        }
+
+        ByteBuffer leftValue = left.value();
+        ByteBuffer rightValue = right.value();
+        return leftValue.compareTo(rightValue) >= 0 ? left : right;
+    }
+
+    private static Cell resolveCounter(Cell left, Cell right)
+    {
+        // No matter what the counter cell's timestamp is, a tombstone always takes precedence. See CASSANDRA-7346.
+        long leftTimestamp = left.timestamp();
+        long rightTimestamp = right.timestamp();
+
+        boolean leftIsTombstone = left.isTombstone();
+        boolean rightIsTombstone = right.isTombstone();
+        if (leftIsTombstone || rightIsTombstone)
+        {
+            assert leftIsTombstone != rightIsTombstone;
+            return leftIsTombstone ? left : right;
+        }
+
+        ByteBuffer leftValue = left.value();
+        ByteBuffer rightValue = right.value();
+
+        // Handle empty values. Counters can't truly have empty values, but we can have a counter cell that temporarily
+        // has one on read if the column for the cell is not queried by the user due to the optimization of #10657. We
+        // thus need to handle this (see #11726 too).
+        boolean leftIsEmpty = !leftValue.hasRemaining();
+        boolean rightIsEmpty = !rightValue.hasRemaining();
+        if (leftIsEmpty || rightIsEmpty)
+        {
+            if (leftIsEmpty != rightIsEmpty)
+                return leftIsEmpty ? left : right;
+            return leftTimestamp > rightTimestamp ? left : right;
+        }
+
+        ByteBuffer merged = CounterContext.instance().merge(leftValue, rightValue);
+        long timestamp = Math.max(leftTimestamp, rightTimestamp);
+
+        // We save allocating a new cell object if it turns out that one cell was
+        // a complete superset of the other
+        if (merged == leftValue && timestamp == leftTimestamp)
+            return left;
+        else if (merged == rightValue && timestamp == rightTimestamp)
+            return right;
+        else // merge clocks and timestamps.
+            return new BufferCell(left.column(), timestamp, Cell.NO_TTL, Cell.NO_DELETION_TIME, merged, left.path());
     }
 
     /**
