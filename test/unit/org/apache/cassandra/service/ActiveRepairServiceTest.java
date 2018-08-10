@@ -127,7 +127,7 @@ public class ActiveRepairServiceTest
         Set<InetAddressAndPort> expected = new HashSet<>();
         for (Replica replica : ars.getAddressReplicas().get(FBUtilities.getBroadcastAddressAndPort()))
         {
-            expected.addAll(ars.getRangeAddresses(tmd.cloneOnlyTokenMap()).get(replica.getRange()).asEndpointSet());
+            expected.addAll(ars.getRangeAddresses(tmd.cloneOnlyTokenMap()).get(replica.getRange()).toEndpointCollection(HashSet::new));
         }
         expected.remove(FBUtilities.getBroadcastAddressAndPort());
         Iterable<Range<Token>> ranges = StorageService.instance.getLocalReplicas(KEYSPACE5).asRanges();
@@ -172,7 +172,7 @@ public class ActiveRepairServiceTest
         Set<InetAddressAndPort> expected = new HashSet<>();
         for (Replica replica : ars.getAddressReplicas().get(FBUtilities.getBroadcastAddressAndPort()))
         {
-            expected.addAll(ars.getRangeAddresses(tmd.cloneOnlyTokenMap()).get(replica.getRange()).asEndpointSet());
+            expected.addAll(ars.getRangeAddresses(tmd.cloneOnlyTokenMap()).get(replica.getRange()).toEndpointCollection(HashSet::new));
         }
         expected.remove(FBUtilities.getBroadcastAddressAndPort());
         // remove remote endpoints
@@ -200,7 +200,7 @@ public class ActiveRepairServiceTest
         List<InetAddressAndPort> expected = new ArrayList<>();
         for (Replica replicas : ars.getAddressReplicas().get(FBUtilities.getBroadcastAddressAndPort()))
         {
-            expected.addAll(ars.getRangeAddresses(tmd.cloneOnlyTokenMap()).get(replicas.getRange()).asEndpointSet());
+            expected.addAll(ars.getRangeAddresses(tmd.cloneOnlyTokenMap()).get(replicas.getRange()).toEndpointCollection(HashSet::new));
         }
 
         expected.remove(FBUtilities.getBroadcastAddressAndPort());

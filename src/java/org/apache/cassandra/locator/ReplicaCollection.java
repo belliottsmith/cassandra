@@ -18,13 +18,21 @@
 
 package org.apache.cassandra.locator;
 
+import java.util.AbstractCollection;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.BinaryOperator;
+import java.util.function.Function;
+import java.util.function.IntFunction;
 import java.util.function.Supplier;
+import java.util.stream.Collector;
 import java.util.stream.Stream;
 
 import com.google.common.base.Preconditions;
@@ -41,65 +49,83 @@ import org.apache.cassandra.dht.Token;
  * transient replication status, basic contains and remove methods can be ambiguous. Replicas forces you
  * to be explicit about what you're checking the container for, or removing from it.
  */
-public abstract class ReplicaCollection implements Iterable<Replica>
+public abstract class ReplicaCollection extends AbstractCollection<Replica>
 {
 
-    public abstract boolean add(Replica replica);
-    public abstract void addAll(Iterable<Replica> replicas);
-    public abstract void removeEndpoint(InetAddressAndPort endpoint);
-    public abstract void removeReplica(Replica replica);
-    public abstract int size();
-    public abstract Stream<Replica> stream();
-    protected abstract Collection<Replica> getUnmodifiableCollection();
-
-    public Iterable<InetAddressAndPort> asEndpoints()
+    protected static <C extends ReplicaCollection> Collector<Replica, C, C> collector(Set<Collector.Characteristics> characteristics, Supplier<C> supplier)
     {
-        return Iterables.transform(this, Replica::getEndpoint);
+        return new Collector<Replica, C, C>()
+        {
+            private final BiConsumer<C, Replica> accumulator = ReplicaCollection::add;
+            private final BinaryOperator<C> combiner = (a, b) ->
+            {
+                if (a.size() > b.size())
+                {
+                    a.addAll(b);
+                    return a;
+                }
+                b.addAll(a);
+                return b;
+            };
+            private final Function<C, C> finisher = collection -> collection;
+
+            public Supplier<C> supplier() { return supplier; }
+            public BiConsumer<C, Replica> accumulator() { return accumulator; }
+            public BinaryOperator<C> combiner() { return combiner; }
+            public Function<C, C> finisher() { return finisher; }
+            public Set<Characteristics> characteristics() { return characteristics; }
+        };
     }
 
-    public Set<InetAddressAndPort> asEndpointSet()
-    {
-        Set<InetAddressAndPort> result = Sets.newHashSetWithExpectedSize(size());
-        for (Replica replica: this)
-        {
-            result.add(replica.getEndpoint());
-        }
-        return result;
-    }
-
-    public List<InetAddressAndPort> asEndpointList()
-    {
-        List<InetAddressAndPort> result = new ArrayList<>(size());
-        for (Replica replica: this)
-        {
-            result.add(replica.getEndpoint());
-        }
-        return result;
+    private Collection<Replica> asUnmodifiableCollection() {
+        return Collections.unmodifiableCollection(this);
     }
 
     public Collection<InetAddressAndPort> asUnmodifiableEndpointCollection()
     {
-        return Collections2.transform(getUnmodifiableCollection(), Replica::getEndpoint);
-    }
-
-    public Iterable<Range<Token>> asRanges()
-    {
-        return Iterables.transform(this, Replica::getRange);
-    }
-
-    public Set<Range<Token>> asRangeSet()
-    {
-        Set<Range<Token>> result = Sets.newHashSetWithExpectedSize(size());
-        for (Replica replica: this)
-        {
-            result.add(replica.getRange());
-        }
-        return result;
+        return Collections2.transform(asUnmodifiableCollection(), Replica::getEndpoint);
     }
 
     public Collection<Range<Token>> asUnmodifiableRangeCollection()
     {
-        return Collections2.transform(getUnmodifiableCollection(), Replica::getRange);
+        return Collections2.transform(asUnmodifiableCollection(), Replica::getRange);
+    }
+
+    public Collection<InetAddressAndPort> asEndpoints()
+    {
+        return Collections2.transform(this, Replica::getEndpoint);
+    }
+
+    public Collection<Range<Token>> asRanges()
+    {
+        return Collections2.transform(this, Replica::getRange);
+    }
+
+    public <T, C extends Collection<T>> C toCollection(Function<Replica, T> transform, IntFunction<C> constructor)
+    {
+        C result = constructor.apply(size());
+        for (Replica replica : this)
+            result.add(transform.apply(replica));
+        return result;
+    }
+
+    public <C extends Collection<Replica>> C filterToCollection(Predicate<Replica> predicate, IntFunction<C> constructor)
+    {
+        C result = constructor.apply(size());
+        for (Replica replica : this)
+            if (predicate.apply(replica))
+                result.add(replica);
+        return result;
+    }
+
+    public <C extends Collection<InetAddressAndPort>> C toEndpointCollection(IntFunction<C> constructor)
+    {
+        return toCollection(Replica::getEndpoint, constructor);
+    }
+
+    public Set<Range<Token>> toRangeSet()
+    {
+        return toCollection(Replica::getRange, HashSet::new);
     }
 
     public Iterable<Range<Token>> fullRanges()
@@ -107,20 +133,9 @@ public abstract class ReplicaCollection implements Iterable<Replica>
         return Iterables.transform(Iterables.filter(this, Replica::isFull), Replica::getRange);
     }
 
-    public Iterable<Range<Token>>  transientRanges()
+    public Iterable<Range<Token>> transientRanges()
     {
         return Iterables.transform(Iterables.filter(this, Replica::isTransient), Replica::getRange);
-    }
-
-    public boolean containsEndpoint(InetAddressAndPort endpoint)
-    {
-        Preconditions.checkNotNull(endpoint);
-        for (Replica replica: this)
-        {
-            if (replica.getEndpoint().equals(endpoint))
-                return true;
-        }
-        return false;
     }
 
     public void removeReplicas(ReplicaCollection toRemove)
@@ -128,10 +143,7 @@ public abstract class ReplicaCollection implements Iterable<Replica>
         Preconditions.checkNotNull(toRemove);
         if (Iterables.all(this, Replica::isFull) && Iterables.all(toRemove, Replica::isFull))
         {
-            for (Replica remove: toRemove)
-            {
-                removeReplica(remove);
-            }
+            removeAll(toRemove);
         }
         else
         {
@@ -145,21 +157,13 @@ public abstract class ReplicaCollection implements Iterable<Replica>
         Preconditions.checkNotNull(toRemove);
         if (Iterables.all(this, Replica::isFull) && Iterables.all(toRemove, Replica::isFull))
         {
-            for (Replica remove: toRemove)
-            {
-                removeEndpoint(remove.getEndpoint());
-            }
+            asEndpoints().removeAll(toRemove.asEndpoints());
         }
         else
         {
             // FIXME: add support for transient replicas
             throw new UnsupportedOperationException("transient replicas are currently unsupported");
         }
-    }
-
-    public boolean isEmpty()
-    {
-        return size() == 0;
     }
 
     @Override
@@ -179,88 +183,6 @@ public abstract class ReplicaCollection implements Iterable<Replica>
                 return sb.append(']').toString();
             sb.append(", ");
         }
-    }
-
-    public boolean noneMatch(Predicate<Replica> predicate)
-    {
-        return !anyMatch(predicate);
-    }
-
-    public boolean anyMatch(Predicate<Replica> predicate)
-    {
-        Preconditions.checkNotNull(predicate);
-        for (Replica replica : this)
-        {
-            if (predicate.apply(replica))
-                return true;
-        }
-        return false;
-    }
-
-    public boolean allMatch(Predicate<Replica> predicate)
-    {
-        Preconditions.checkNotNull(predicate);
-        for (Replica replica : this)
-        {
-            if (!predicate.apply(replica))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public <T extends ReplicaCollection> T filter(java.util.function.Predicate<Replica> predicates[], Supplier<T> collectorSupplier)
-    {
-        Preconditions.checkNotNull(predicates);
-        Preconditions.checkNotNull(collectorSupplier);
-        T newReplicas = collectorSupplier.get();
-        for (Replica replica : this)
-        {
-            boolean success = true;
-            for (java.util.function.Predicate<Replica> predicate : predicates)
-            {
-                if (!predicate.test(replica))
-                {
-                    success = false;
-                    break;
-                }
-            }
-
-            if (success)
-            {
-                newReplicas.add(replica);
-            }
-        }
-        return newReplicas;
-    }
-
-    public long count(Predicate<Replica> predicate)
-    {
-        Preconditions.checkNotNull(predicate);
-        long count = 0;
-        for (Replica replica : this)
-        {
-            if (predicate.apply(replica))
-            {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    public Optional<Replica> findFirst(Predicate<Replica> predicate)
-    {
-        Preconditions.checkNotNull(predicate);
-        for (Replica replica : this)
-        {
-            if (predicate.apply(replica))
-            {
-                return Optional.of(replica);
-            }
-        }
-
-        return Optional.empty();
     }
 
 }

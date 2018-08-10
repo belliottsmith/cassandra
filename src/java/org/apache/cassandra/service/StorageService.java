@@ -34,12 +34,10 @@ import java.util.stream.StreamSupport;
 import javax.annotation.Nullable;
 import javax.management.*;
 import javax.management.openmbean.CompositeData;
-import javax.management.openmbean.CompositeDataSupport;
 import javax.management.openmbean.OpenDataException;
 import javax.management.openmbean.TabularData;
 import javax.management.openmbean.TabularDataSupport;
 
-import com.clearspring.analytics.stream.Counter;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -83,7 +81,6 @@ import org.apache.cassandra.io.sstable.SSTableLoader;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.*;
 import org.apache.cassandra.metrics.StorageMetrics;
-import org.apache.cassandra.metrics.TableMetrics.Sampler;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.repair.*;
 import org.apache.cassandra.repair.messages.RepairOption;
@@ -107,7 +104,6 @@ import org.apache.cassandra.streaming.*;
 import org.apache.cassandra.tracing.TraceKeyspace;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.*;
-import org.apache.cassandra.utils.TopKSampler.SamplerResult;
 import org.apache.cassandra.utils.logging.LoggingSupportFactory;
 import org.apache.cassandra.utils.progress.ProgressEvent;
 import org.apache.cassandra.utils.progress.ProgressEventType;
@@ -1911,7 +1907,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         : getRangeToAddressMap(keyspace);
 
         for (Map.Entry<Range<Token>, ReplicaList> entry : rangeToAddressMap.entrySet())
-            ranges.add(TokenRange.create(tf, entry.getKey(), entry.getValue().asEndpointList(), withPort));
+            ranges.add(TokenRange.create(tf, entry.getKey(), entry.getValue().toEndpointCollection(ArrayList::new), withPort));
 
         return ranges;
     }
@@ -2740,7 +2736,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
             ReplicaList replicas = snitch.getSortedListByProximity(myAddress, possibleRanges);
 
-            assert !replicas.containsEndpoint(myAddress);
+            assert !replicas.asEndpoints().contains(myAddress);
 
             for (Replica replica : replicas)
             {
@@ -2825,7 +2821,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                     logger.debug("Requesting from {} replicas {}", source, StringUtils.join(replicas, ", "));
                 // TODO: test streaming
                 Replicas.checkFull(replicas);
-                stream.requestRanges(source, keyspaceName, replicas.asRangeSet());
+                stream.requestRanges(source, keyspaceName, replicas.toRangeSet());
             }
         }
         StreamResultFuture future = stream.execute();
@@ -2849,7 +2845,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private ReplicaMultimap<Range<Token>, ReplicaSet> getChangedRangesForLeaving(String keyspaceName, InetAddressAndPort endpoint)
     {
         // First get all ranges the leaving endpoint is responsible for
-        Collection<Range<Token>> ranges = getReplicasForEndpoint(keyspaceName, endpoint).asRangeSet();
+        Collection<Range<Token>> ranges = getReplicasForEndpoint(keyspaceName, endpoint).toRangeSet();
 
         if (logger.isDebugEnabled())
             logger.debug("Node {} ranges [{}]", endpoint, StringUtils.join(ranges, ", "));
@@ -4356,7 +4352,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         ReplicaSet ranges = endpointRanges.get(address);
                         // TODO: test streaming
                         Replicas.checkFull(ranges);
-                        streamPlan.transferRanges(address, keyspace, endpointRanges.get(address).asRangeSet());
+                        streamPlan.transferRanges(address, keyspace, endpointRanges.get(address).toRangeSet());
                     }
 
                     // stream requests

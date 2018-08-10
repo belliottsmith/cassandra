@@ -79,12 +79,12 @@ public class ReplicaPlan
             IEndpointSnitch snitch = keyspace.getReplicationStrategy().snitch;
             String localDC = DatabaseDescriptor.getLocalDataCenter();
 
-            return allReplicas.filter(replica -> !contacted.containsReplica(replica) &&
+            return allReplicas.filter(replica -> !contacted.contains(replica) &&
                                                  snitch.getDatacenter(replica).equals(localDC));
         }
         else
         {
-            return allReplicas.filter(replica -> !contacted.containsReplica(replica));
+            return allReplicas.filter(replica -> !contacted.contains(replica));
         }
     }
 

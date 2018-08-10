@@ -323,7 +323,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
 
         Replicas.checkFull(replicaSets.get(rangeSuperSet));
-        Set<InetAddressAndPort> neighbors = replicaSets.get(rangeSuperSet).asEndpointSet();
+        Set<InetAddressAndPort> neighbors = replicaSets.get(rangeSuperSet).toEndpointCollection(HashSet::new);
         neighbors.remove(FBUtilities.getBroadcastAddressAndPort());
 
         if (dataCenters != null && !dataCenters.isEmpty())

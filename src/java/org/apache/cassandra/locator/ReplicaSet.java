@@ -18,19 +18,13 @@
 
 package org.apache.cassandra.locator;
 
-import java.util.Collection;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.BiConsumer;
-import java.util.function.BinaryOperator;
-import java.util.function.Function;
-import java.util.function.Supplier;
+import java.util.Spliterator;
 import java.util.stream.Collector;
-import java.util.stream.Stream;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -38,7 +32,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 
-public class ReplicaSet extends ReplicaCollection
+// warning: equals() depends on class identity; if extending, be sure to assess this
+public final class ReplicaSet extends ReplicaCollection
 {
     static final ReplicaSet EMPTY = new ReplicaSet(ImmutableSet.of());
 
@@ -48,46 +43,7 @@ public class ReplicaSet extends ReplicaCollection
     }
 
     private static final Set<Collector.Characteristics> SET_COLLECTOR_CHARACTERISTICS = ImmutableSet.of(Collector.Characteristics.UNORDERED, Collector.Characteristics.IDENTITY_FINISH);
-    public static final Collector<Replica, ReplicaSet, ReplicaSet> COLLECTOR = new Collector<Replica, ReplicaSet, ReplicaSet>()
-    {
-        private final Supplier<ReplicaSet> supplier = ReplicaSet::new;
-        private final BiConsumer<ReplicaSet, Replica> accumulator = (set, replica) -> set.add(replica);
-        private final BinaryOperator<ReplicaSet> combiner = (a, b) -> {
-            if (a.size() > b.size())
-            {
-                a.addAll(b);
-                return a;
-            }
-            b.addAll(a);
-            return b;
-        };
-        private final Function<ReplicaSet, ReplicaSet> finisher = set -> set;
-
-        public Supplier<ReplicaSet> supplier()
-        {
-            return supplier;
-        }
-
-        public BiConsumer<ReplicaSet, Replica> accumulator()
-        {
-            return accumulator;
-        }
-
-        public BinaryOperator<ReplicaSet> combiner()
-        {
-            return combiner;
-        }
-
-        public Function<ReplicaSet, ReplicaSet> finisher()
-        {
-            return finisher;
-        }
-
-        public Set<Characteristics> characteristics()
-        {
-            return SET_COLLECTOR_CHARACTERISTICS;
-        }
-    };
+    public static final Collector<Replica, ReplicaSet, ReplicaSet> COLLECTOR = ReplicaCollection.collector(SET_COLLECTOR_CHARACTERISTICS, ReplicaSet::new);
 
     private final Set<Replica> replicaSet;
 
@@ -133,43 +89,16 @@ public class ReplicaSet extends ReplicaCollection
     }
 
     @Override
-    public void addAll(Iterable<Replica> replicas)
-    {
-        Iterables.addAll(replicaSet, replicas);
-    }
-
-    @Override
-    public void removeEndpoint(InetAddressAndPort endpoint)
-    {
-        Preconditions.checkNotNull(endpoint);
-        Iterator<Replica> iterator = replicaSet.iterator();
-        while (iterator.hasNext())
-        {
-            Replica next = iterator.next();
-            if (next.getEndpoint().equals(endpoint))
-            {
-                iterator.remove();
-            }
-        }
-    }
-
-    @Override
-    public void removeReplica(Replica replica)
+    public boolean remove(Object replica)
     {
         Preconditions.checkNotNull(replica);
-        replicaSet.remove(replica);
+        return replicaSet.remove(replica);
     }
 
     @Override
     public int size()
     {
         return replicaSet.size();
-    }
-
-    @Override
-    protected Collection<Replica> getUnmodifiableCollection()
-    {
-        return Collections.unmodifiableCollection(replicaSet);
     }
 
     @Override
@@ -182,7 +111,7 @@ public class ReplicaSet extends ReplicaCollection
     {
         if (Iterables.all(this, Replica::isFull) && Iterables.all(differenceOn, Replica::isFull))
         {
-            Set<InetAddressAndPort> diffEndpoints = differenceOn.asEndpointSet();
+            Set<InetAddressAndPort> diffEndpoints = differenceOn.toEndpointCollection(HashSet::new);
             return new ReplicaSet(Replicas.filterOnEndpoints(this, e -> !diffEndpoints.contains(e)));
         }
         else
@@ -193,20 +122,20 @@ public class ReplicaSet extends ReplicaCollection
 
     }
 
-    public ReplicaSet filter(Predicate<Replica>... predicates)
+    public ReplicaSet filter(Predicate<Replica> predicate)
     {
-        return filter(predicates, ReplicaSet::new);
+        return filterToCollection(predicate, ReplicaSet::new);
     }
 
-    public boolean containsReplica(Replica replica)
+    public boolean contains(Object replica)
     {
         return replicaSet.contains(replica);
     }
 
     @Override
-    public Stream<Replica> stream()
+    public Spliterator<Replica> spliterator()
     {
-        return replicaSet.stream();
+        return replicaSet.spliterator();
     }
 
     public static ReplicaSet immutableCopyOf(ReplicaSet from)

@@ -82,7 +82,7 @@ public class ReadRepairTest
         @Override
         protected boolean isLocal(InetAddressAndPort endpoint)
         {
-            return targets.containsEndpoint(endpoint);
+            return targets.asEndpoints().contains(endpoint);
         }
     }
 

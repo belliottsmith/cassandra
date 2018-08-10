@@ -96,7 +96,7 @@ public class OldNetworkTopologyStrategy extends AbstractReplicationStrategy
             {
                 Token t = iter.next();
                 Replica replica = new Replica(metadata.getEndpoint(t), previousToken, primaryToken, true);
-                if (!replicas.containsEndpoint(replica.getEndpoint()))
+                if (!replicas.asEndpoints().contains(replica.getEndpoint()))
                     replicas.add(replica);
             }
         }

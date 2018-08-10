@@ -166,7 +166,7 @@ public class ReplicaListTest extends ReplicaCollectionTestBase
     {
         ReplicaList set = new ReplicaList();
         set.addAll(ImmutableList.of(A, B, Replica.trans(B.getEndpoint(), B.getRange()), C));
-        set.removeEndpoint(B.getEndpoint());
+        set.asEndpoints().remove(B.getEndpoint());
         List<Replica> check = Lists.newArrayList(A, C);
         for (Replica r : set)
         {
@@ -183,19 +183,19 @@ public class ReplicaListTest extends ReplicaCollectionTestBase
         rlist.add(ReplicaUtils.full(EP2, range(0, 100)));
         rlist.add(ReplicaUtils.full(EP3, range(0, 100)));
 
-        assertTrue(rlist.containsEndpoint(EP1));
+        assertTrue(rlist.asEndpoints().contains(EP1));
         assertEquals(3, rlist.size());
-        rlist.removeEndpoint(EP1);
-        assertFalse(rlist.containsEndpoint(EP1));
+        rlist.asEndpoints().remove(EP1);
+        assertFalse(rlist.asEndpoints().contains(EP1));
         assertEquals(2, rlist.size());
     }
 
     @Test
     public void removeReplica()
     {
-        ReplicaList list = new ReplicaList(Replicas.of(ImmutableList.of(A, B, C)));
+        ReplicaList list = new ReplicaList(Replicas.of(A, B, C));
         assertEquals( 3, list.size());
-        list.removeReplica(B);
+        list.remove(B);
         assertEquals(2, list.size());
         assertEquals(A, list.get(0));
         assertEquals(C, list.get(1));
@@ -204,7 +204,7 @@ public class ReplicaListTest extends ReplicaCollectionTestBase
     @Test(expected = NullPointerException.class)
     public void containsEndpointNull()
     {
-        new ReplicaList().containsEndpoint(null);
+        new ReplicaList().asEndpoints().contains(null);
     }
 
     @Test
@@ -212,16 +212,16 @@ public class ReplicaListTest extends ReplicaCollectionTestBase
     {
         ReplicaList list = new ReplicaList();
         list.addAll(ImmutableList.of(A, B, C));
-        assertTrue(list.containsEndpoint(B.getEndpoint()));
-        assertTrue(list.containsEndpoint(A.getEndpoint()));
-        assertTrue(list.containsEndpoint(C.getEndpoint()));
-        assertFalse(list.containsEndpoint(InetAddressAndPort.getByName("0.0.0.0")));
+        assertTrue(list.asEndpoints().contains(B.getEndpoint()));
+        assertTrue(list.asEndpoints().contains(A.getEndpoint()));
+        assertTrue(list.asEndpoints().contains(C.getEndpoint()));
+        assertFalse(list.asEndpoints().contains(InetAddressAndPort.getByName("0.0.0.0")));
     }
 
     @Test(expected = NullPointerException.class)
     public void testFilterNullPredicate()
     {
-        new ReplicaList().filter((com.google.common.base.Predicate[])null);
+        new ReplicaList().filter(null);
     }
 
     @Test

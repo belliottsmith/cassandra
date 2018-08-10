@@ -300,7 +300,7 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
         ReplicaList backups = new ReplicaList(replicaPlan.allReplicas.size() - replicaPlan.targetReplicas.size());
         for (Replica replica : replicaPlan.allReplicas)
         {
-            if (!contactedReplicas.containsReplica(replica))
+            if (!contactedReplicas.contains(replica))
                 backups.add(replica);
         }
 

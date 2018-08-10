@@ -20,6 +20,7 @@ package org.apache.cassandra.locator;
 
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -27,6 +28,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Spliterator;
 import java.util.function.BiConsumer;
 import java.util.function.BinaryOperator;
 import java.util.function.Function;
@@ -36,8 +38,10 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -45,48 +49,15 @@ import com.google.common.collect.Iterables;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 
-public class ReplicaList extends ReplicaCollection
+// warning: equals() depends on class identity; if extending, be sure to assess this
+public final class ReplicaList extends ReplicaCollection
 {
     static final ReplicaList EMPTY = new ReplicaList(ImmutableList.of());
 
     private final List<Replica> replicaList;
 
     private static final Set<Collector.Characteristics> LIST_COLLECTOR_CHARACTERISTICS = ImmutableSet.of(Collector.Characteristics.IDENTITY_FINISH);
-    public static final Collector<Replica, ReplicaList, ReplicaList> COLLECTOR = new Collector<Replica, ReplicaList, ReplicaList>()
-    {
-        private final Supplier<ReplicaList> supplier = ReplicaList::new;
-        private final BiConsumer<ReplicaList, Replica> accumulator = (set, replica) -> set.add(replica);
-        private final BinaryOperator<ReplicaList> combiner = (a, b) -> {
-            a.addAll(b);
-            return a;
-        };
-        private final Function<ReplicaList, ReplicaList> finisher = list -> list;
-
-        public Supplier<ReplicaList> supplier()
-        {
-            return supplier;
-        }
-
-        public BiConsumer<ReplicaList, Replica> accumulator()
-        {
-            return accumulator;
-        }
-
-        public BinaryOperator<ReplicaList> combiner()
-        {
-            return combiner;
-        }
-
-        public Function<ReplicaList, ReplicaList> finisher()
-        {
-            return finisher;
-        }
-
-        public Set<Characteristics> characteristics()
-        {
-            return LIST_COLLECTOR_CHARACTERISTICS;
-        }
-    };
+    public static final Collector<Replica, ReplicaList, ReplicaList> COLLECTOR = ReplicaCollection.collector(LIST_COLLECTOR_CHARACTERISTICS, ReplicaList::new);
 
     public ReplicaList()
     {
@@ -96,17 +67,6 @@ public class ReplicaList extends ReplicaCollection
     public ReplicaList(int capacity)
     {
         this(new ArrayList<>(capacity));
-    }
-
-    public ReplicaList(ReplicaList from)
-    {
-        this(new ArrayList<>(from.replicaList));
-    }
-
-    public ReplicaList(ReplicaCollection from)
-    {
-        this(new ArrayList<>(from.size()));
-        addAll(from);
     }
 
     public ReplicaList(Collection<Replica> from)
@@ -146,9 +106,15 @@ public class ReplicaList extends ReplicaCollection
     }
 
     @Override
-    public void addAll(Iterable<Replica> replicas)
+    public boolean remove(Object replica)
     {
-        Iterables.addAll(replicaList, replicas);
+        Preconditions.checkNotNull(replica);
+        return replicaList.remove(replica);
+    }
+
+    public Replica get(int idx)
+    {
+        return replicaList.get(idx);
     }
 
     @Override
@@ -158,58 +124,26 @@ public class ReplicaList extends ReplicaCollection
     }
 
     @Override
-    protected Collection<Replica> getUnmodifiableCollection()
-    {
-        return Collections.unmodifiableCollection(replicaList);
-    }
-
-    @Override
     public Iterator<Replica> iterator()
     {
         return replicaList.iterator();
     }
 
-    public Replica get(int idx)
-    {
-        return replicaList.get(idx);
-    }
-
     @Override
-    public void removeEndpoint(InetAddressAndPort endpoint)
+    public Spliterator<Replica> spliterator()
     {
-        Preconditions.checkNotNull(endpoint);
-        for (int i=replicaList.size()-1; i>=0; i--)
-        {
-            if (replicaList.get(i).getEndpoint().equals(endpoint))
-            {
-                replicaList.remove(i);
-            }
-        }
+        return replicaList.spliterator();
     }
 
-    @Override
-    public void removeReplica(Replica replica)
+    public ReplicaList subList(int fromIndex, int toIndex)
     {
-        Preconditions.checkNotNull(replica);
-        replicaList.remove(replica);
+        return new ReplicaList(replicaList.subList(fromIndex, toIndex));
     }
 
-    @Override
-    public boolean containsEndpoint(InetAddressAndPort endpoint)
+    public ReplicaList filter(Predicate<Replica> predicate)
     {
-        Preconditions.checkNotNull(endpoint);
-        for (int i=0; i<size(); i++)
-        {
-            if (replicaList.get(i).getEndpoint().equals(endpoint))
-                return true;
-        }
-        return false;
-    }
-
-    public ReplicaList filter(Predicate<Replica>... predicates)
-    {
-        Preconditions.checkNotNull(predicates);
-        return filter(predicates, ReplicaList::new);
+        Preconditions.checkNotNull(predicate);
+        return filterToCollection(predicate, ReplicaList::new);
     }
 
     public void sort(Comparator<Replica> comparator)
@@ -226,7 +160,8 @@ public class ReplicaList extends ReplicaCollection
         //   so will be very small (< RF). In that case, retainAll is in fact more efficient.
         //   2) we do ultimately need a list so converting everything to sets don't make sense
         //   3) l1 and l2 are sorted by proximity. The use of retainAll  maintain that sorting in the result, while using sets wouldn't.
-        return l1.filter(r -> l2.containsEndpoint(r.getEndpoint()));
+
+        return l1.filter(Predicates.compose(l2.asEndpoints()::contains, Replica::getEndpoint));
     }
 
     public static ReplicaList of()
@@ -244,22 +179,8 @@ public class ReplicaList extends ReplicaCollection
     public static ReplicaList of(Replica... replicas)
     {
         ReplicaList replicaList = new ReplicaList(replicas.length);
-        for (Replica replica: replicas)
-        {
-            replicaList.add(replica);
-        }
+        replicaList.addAll(Arrays.asList(replicas));
         return replicaList;
-    }
-
-    public ReplicaList subList(int fromIndex, int toIndex)
-    {
-        return new ReplicaList(replicaList.subList(fromIndex, toIndex));
-    }
-
-    @Override
-    public Stream<Replica> stream()
-    {
-        return replicaList.stream();
     }
 
     public static ReplicaList immutableCopyOf(ReplicaCollection replicas)
@@ -284,7 +205,7 @@ public class ReplicaList extends ReplicaCollection
 
     public static ReplicaList empty()
     {
-        return new ReplicaList();
+        return EMPTY;
     }
 
     /**

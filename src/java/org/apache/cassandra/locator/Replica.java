@@ -141,7 +141,7 @@ public final class Replica implements Comparable<Replica>
     {
         if (isFull() && Iterables.all(toSubtract, Replica::isFull))
         {
-            Set<Range<Token>> subtractedRanges = getRange().subtractAll(toSubtract.asRangeSet());
+            Set<Range<Token>> subtractedRanges = getRange().subtractAll(toSubtract.toRangeSet());
             ReplicaSet replicaSet = new ReplicaSet(subtractedRanges.size());
             for (Range<Token> range : subtractedRanges)
                 replicaSet.add(new Replica(getEndpoint(), range, isFull()));

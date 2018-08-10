@@ -918,8 +918,8 @@ public class TokenMetadata
 
             for(Replica replica : moveAffectedReplicas)
             {
-                Set<InetAddressAndPort> currentEndpoints = strategy.calculateNaturalReplicas(replica.getRange().right, metadata).asEndpointSet();
-                Set<InetAddressAndPort> newEndpoints = strategy.calculateNaturalReplicas(replica.getRange().right, allLeftMetadata).asEndpointSet();
+                Set<InetAddressAndPort> currentEndpoints = strategy.calculateNaturalReplicas(replica.getRange().right, metadata).toEndpointCollection(HashSet::new);
+                Set<InetAddressAndPort> newEndpoints = strategy.calculateNaturalReplicas(replica.getRange().right, allLeftMetadata).toEndpointCollection(HashSet::new);
                 Set<InetAddressAndPort> difference = Sets.difference(newEndpoints, currentEndpoints);
                 for(final InetAddressAndPort address : difference)
                 {

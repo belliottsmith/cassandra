@@ -410,7 +410,7 @@ public class RangeStreamer
                                         + " in keyspace " + keyspace);
             }
 
-            if (!rangesWithSources.get(entry.getValue()).containsEndpoint(entry.getKey()))
+            if (!rangesWithSources.get(entry.getValue()).asEndpoints().contains(entry.getKey()))
             {
                 throw new IllegalStateException("Trying to stream from wrong endpoint. Range: " + entry.getValue()
                                                 + " in keyspace " + keyspace + " from endpoint: " + entry.getKey());

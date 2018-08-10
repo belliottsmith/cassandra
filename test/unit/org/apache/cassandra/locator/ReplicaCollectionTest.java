@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.locator;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -54,7 +55,7 @@ public class ReplicaCollectionTest extends ReplicaCollectionTestBase
     public void testAsEndpointList()
     {
         ReplicaList replicaList = ReplicaList.of(A, B, C);
-        List<InetAddressAndPort> list = replicaList.asEndpointList();
+        List<InetAddressAndPort> list = replicaList.toEndpointCollection(ArrayList::new);
         Iterator<InetAddressAndPort> i = list.iterator();
         assertEquals(A.getEndpoint(), i.next());
         assertEquals(B.getEndpoint(), i.next());
@@ -91,7 +92,7 @@ public class ReplicaCollectionTest extends ReplicaCollectionTestBase
     @Test
     public void testAsRangeSet()
     {
-        Set<Range<Token>> ranges = ReplicaList.of(A, B, C).asRangeSet();
+        Set<Range<Token>> ranges = ReplicaList.of(A, B, C).toRangeSet();
         assertEquals(Sets.newHashSet(A, B, C).stream().map(Replica::getRange).collect(Collectors.toSet()), ranges);
     }
 
@@ -123,20 +124,20 @@ public class ReplicaCollectionTest extends ReplicaCollectionTestBase
     @Test(expected = NullPointerException.class)
     public void testContainsEndpointNull()
     {
-        ReplicaSet.of().containsEndpoint(null);
+        ReplicaSet.of().asEndpoints().contains(null);
     }
 
     @Test
-    public void testContainsEndpoint()
+    public void testContainsEndpoints()
     {
         ReplicaSet set = ReplicaSet.of(A, B, C);
-        assertTrue(Stream.of(A, B, C).map(Replica::getEndpoint).allMatch(set::containsEndpoint));
+        assertTrue(Stream.of(A, B, C).map(Replica::getEndpoint).allMatch(set.asEndpoints()::contains));
     }
 
     @Test(expected = NullPointerException.class)
     public void testRemoveReplicasNull()
     {
-        ReplicaSet.of().removeEndpoint(null);
+        ReplicaSet.of().asEndpoints().remove(null);
     }
 
     @Test
@@ -152,7 +153,7 @@ public class ReplicaCollectionTest extends ReplicaCollectionTestBase
     {
         ReplicaSet set = ReplicaSet.of(A);
         assertFalse(set.isEmpty());
-        set.removeReplica(A);
+        set.remove(A);
         assertTrue(set.isEmpty());
     }
 
@@ -163,91 +164,4 @@ public class ReplicaCollectionTest extends ReplicaCollectionTestBase
         assertEquals("[Full(127.0.0.2:7000,(1,2]), Transient(127.0.0.3:7000,(2,3])]", list.toString());
     }
 
-    @Test(expected = NullPointerException.class)
-    public void testNoneMatchNull()
-    {
-        ReplicaList.of().noneMatch(null);
-    }
-
-    @Test
-    public void testNoneMatch()
-    {
-        ReplicaList list = ReplicaList.of(A, B, C);
-        assertTrue(list.noneMatch(Predicates.alwaysFalse()));
-        assertFalse(list.noneMatch(C::equals));
-    }
-
-    @Test(expected = NullPointerException.class)
-    public void testAnyMatchNull()
-    {
-        ReplicaList.of().anyMatch(null);
-    }
-
-    @Test
-    public void testAnyMatch()
-    {
-        ReplicaList list = ReplicaList.of(A, B, C);
-        assertTrue(list.anyMatch(C::equals));
-        assertFalse(list.anyMatch(Predicates.alwaysFalse()));
-    }
-
-    @Test(expected = NullPointerException.class)
-    public void testAllMatchNull()
-    {
-        ReplicaList.of().allMatch(null);
-    }
-
-    @Test
-    public void testAllMatch()
-    {
-        ReplicaList list = ReplicaList.of(A, A, A);
-        assertTrue(list.allMatch(A::equals));
-        assertFalse(list.allMatch(C::equals));
-    }
-
-    @Test(expected = NullPointerException.class)
-    public void testFilterNullPredicates()
-    {
-        ReplicaList.of().filter(null, ReplicaList::new);
-    }
-
-    @Test(expected = NullPointerException.class)
-    public void testFilterNullCollector()
-    {
-        ReplicaList.of().filter(new java.util.function.Predicate[] { Predicates.alwaysTrue() }, null);
-    }
-
-    @Test
-    public void testFilter()
-    {
-        ReplicaList result = ReplicaList.of(A, B, C).filter(new java.util.function.Predicate[] { Predicates.alwaysTrue() }, ReplicaList::new);
-        assertEquals(ReplicaList.of(A, B, C), result);
-        assertTrue(ReplicaList.of(A, B, C).filter(new java.util.function.Predicate[] { Predicates.alwaysFalse() }, ReplicaList::new).isEmpty());
-    }
-
-    @Test(expected = NullPointerException.class)
-    public void testCountNull()
-    {
-        ReplicaList.of().count(null);
-    }
-
-    @Test
-    public void testCount()
-    {
-        assertEquals(1, ReplicaList.of(A, B, C).count(B::equals));
-        assertEquals(2, ReplicaList.of(A, B, C).count(replica -> replica == A || replica == C));
-    }
-
-    @Test(expected = NullPointerException.class)
-    public void testFindFirstNull()
-    {
-        ReplicaList.of().findFirst(null);
-    }
-
-    @Test
-    public void testFindFirst()
-    {
-        assertEquals(B, ReplicaList.of(A, B, C).findFirst(B::equals).get());
-        assertFalse(ReplicaList.of(A, B, C).findFirst(Predicates.alwaysFalse()).isPresent());
-    }
 }

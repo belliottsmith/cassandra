@@ -22,6 +22,7 @@ package org.apache.cassandra.locator;
 import java.util.List;
 import java.util.Map;
 
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.junit.Test;
@@ -153,7 +154,7 @@ public class ReplicaMultimapTest extends ReplicaCollectionTestBase
         map.putAll(A, sourceList);
         ReplicaMultimap<Replica, ReplicaList> map2 = ReplicaMultimap.list();
         map2.putAll(map);
-        assertTrue(map2.get(A).allMatch(Sets.newHashSet(C, A, B)::contains));
+        assertTrue(Sets.newHashSet(C, A, B).containsAll(map2.get(A)));
     }
 
     @Test

@@ -362,7 +362,7 @@ public class RangeFetchMapCalculatorTest
     {
         for (Map.Entry<InetAddressAndPort, Range<Token>> entry : result.entries())
         {
-            assertTrue(rangesWithSources.get(entry.getValue()).containsEndpoint(entry.getKey()));
+            assertTrue(rangesWithSources.get(entry.getValue()).asEndpoints().contains(entry.getKey()));
         }
     }
 

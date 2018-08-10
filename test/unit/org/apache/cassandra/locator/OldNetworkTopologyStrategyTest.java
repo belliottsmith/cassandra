@@ -20,7 +20,6 @@ package org.apache.cassandra.locator;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -160,7 +159,7 @@ public class OldNetworkTopologyStrategyTest
     {
         for (Token keyToken : keyTokens)
         {
-            List<InetAddressAndPort> endpoints = strategy.getNaturalReplicas(keyToken).asEndpointList();
+            List<InetAddressAndPort> endpoints = strategy.getNaturalReplicas(keyToken).toEndpointCollection(ArrayList::new);
             for (int j = 0; j < endpoints.size(); j++)
             {
                 ArrayList<InetAddressAndPort> hostsExpected = expectedResults.get(keyToken.toString());

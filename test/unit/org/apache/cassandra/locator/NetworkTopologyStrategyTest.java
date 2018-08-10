@@ -78,7 +78,7 @@ public class NetworkTopologyStrategyTest
         // Query for the natural hosts
         ReplicaList replicas = strategy.getNaturalReplicas(new StringToken("123"));
         assert 6 == replicas.size();
-        assert 6 == replicas.asEndpointSet().size(); // ensure uniqueness
+        assert 6 == replicas.toEndpointCollection(HashSet::new).size(); // ensure uniqueness
         assert 6 == new ReplicaSet(replicas).size(); // ensure uniqueness
     }
 
@@ -103,7 +103,7 @@ public class NetworkTopologyStrategyTest
         // Query for the natural hosts
         ReplicaList replicas = strategy.getNaturalReplicas(new StringToken("123"));
         assert 6 == replicas.size();
-        assert 6 == replicas.asEndpointSet().size(); // ensure uniqueness
+        assert 6 == replicas.toEndpointCollection(HashSet::new).size(); // ensure uniqueness
         assert 6 == new ReplicaSet(replicas).size(); // ensure uniqueness
     }
 
@@ -145,7 +145,7 @@ public class NetworkTopologyStrategyTest
         {
             ReplicaList replicas = strategy.calculateNaturalReplicas(new StringToken(testToken), metadata);
             ReplicaSet replicaSet = new ReplicaSet(replicas);
-            Set<InetAddressAndPort> endpointSet = replicas.asEndpointSet();
+            Set<InetAddressAndPort> endpointSet = replicas.toEndpointCollection(HashSet::new);
 
             Assert.assertEquals(totalRF, replicas.size());
             Assert.assertEquals(totalRF, replicaSet.size());
@@ -217,7 +217,7 @@ public class NetworkTopologyStrategyTest
         {
             Token token = Murmur3Partitioner.instance.getRandomToken(rand);
             List<InetAddressAndPort> expected = calculateNaturalEndpoints(token, tokenMetadata, datacenters, snitch);
-            List<InetAddressAndPort> actual = nts.calculateNaturalReplicas(token, tokenMetadata).asEndpointList();
+            List<InetAddressAndPort> actual = nts.calculateNaturalReplicas(token, tokenMetadata).toEndpointCollection(ArrayList::new);
             if (endpointsDiffer(expected, actual))
             {
                 System.err.println("Endpoints mismatch for token " + token);

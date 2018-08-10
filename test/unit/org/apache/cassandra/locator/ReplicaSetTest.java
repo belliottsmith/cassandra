@@ -137,7 +137,7 @@ public class ReplicaSetTest extends ReplicaCollectionTestBase
     {
         ReplicaSet set = new ReplicaSet();
         set.addAll(ImmutableSet.of(A, B, Replica.trans(B.getEndpoint(), B.getRange()), C));
-        set.removeEndpoint(B.getEndpoint());
+        set.asEndpoints().remove(B.getEndpoint());
         Set<Replica> check = Sets.newHashSet(A, C);
         for (Replica r : set)
         {
@@ -154,19 +154,19 @@ public class ReplicaSetTest extends ReplicaCollectionTestBase
         rset.add(ReplicaUtils.full(EP2, range(0, 100)));
         rset.add(ReplicaUtils.full(EP3, range(0, 100)));
 
-        Assert.assertTrue(rset.containsEndpoint(EP1));
+        Assert.assertTrue(rset.asEndpoints().contains(EP1));
         Assert.assertEquals(3, rset.size());
-        rset.removeEndpoint(EP1);
-        assertFalse(rset.containsEndpoint(EP1));
+        rset.asEndpoints().remove(EP1);
+        assertFalse(rset.asEndpoints().contains(EP1));
         Assert.assertEquals(2, rset.size());
     }
 
     @Test
     public void removeReplica()
     {
-        ReplicaSet set = new ReplicaSet(Replicas.of(ImmutableSet.of(A, B, C)));
+        ReplicaSet set = new ReplicaSet(Replicas.of(A, B, C));
         assertEquals( 3, set.size());
-        set.removeReplica(B);
+        set.remove(B);
         assertEquals(2, set.size());
         Set<Replica> check = Sets.newHashSet(A, C);
         Iterator<Replica> i = set.iterator();
