@@ -49,12 +49,12 @@ public class ReplicationFactorTest
         }
     }
 
-    private static void assertRfParse(String s, int expectedReplicas, int expectedTrans)
+    private static void assertRfParse(String s, int expectedReplicas, int expectedTransient)
     {
         ReplicationFactor rf = ReplicationFactor.fromString(s);
-        Assert.assertEquals(expectedReplicas, rf.replicas);
-        Assert.assertEquals(expectedTrans, rf.trans);
-        Assert.assertEquals(expectedReplicas - expectedTrans, rf.full);
+        Assert.assertEquals(expectedReplicas, rf.allReplicas);
+        Assert.assertEquals(expectedTransient, rf.transientReplicas());
+        Assert.assertEquals(expectedReplicas - expectedTransient, rf.fullReplicas);
     }
 
     @Test

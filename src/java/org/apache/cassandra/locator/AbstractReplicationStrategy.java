@@ -201,9 +201,13 @@ public abstract class AbstractReplicationStrategy
      */
     public abstract ReplicationFactor getReplicationFactor();
 
+    public int allReplicaCount() { return getReplicationFactor().allReplicas; }
+    public int fullReplicaCount() { return getReplicationFactor().fullReplicas; }
+    public int transientReplicaCount() { return getReplicationFactor().transientReplicas(); }
+
     public boolean hasTransientReplicas()
     {
-        return getReplicationFactor().trans > 0;
+        return getReplicationFactor().hasTransientReplicas();
     }
 
     /*
@@ -360,7 +364,7 @@ public abstract class AbstractReplicationStrategy
         AbstractReplicationStrategy strategy = createInternal(keyspaceName, strategyClass, tokenMetadata, snitch, strategyOptions);
         strategy.validateExpectedOptions();
         strategy.validateOptions();
-        if (strategy.getReplicationFactor().trans > 0 && !DatabaseDescriptor.isTransientReplicationEnabled())
+        if (strategy.hasTransientReplicas() && !DatabaseDescriptor.isTransientReplicationEnabled())
         {
             throw new ConfigurationException("Transient replication is disabled. Enable in cassandra.yaml to use.");
         }

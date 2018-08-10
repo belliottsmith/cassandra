@@ -167,9 +167,9 @@ public class TokenAllocation
         throw new ConfigurationException("Token allocation does not support replication strategy " + rs.getClass().getSimpleName());
     }
 
-    static StrategyAdapter getStrategy(final TokenMetadata tokenMetadata, final SimpleStrategy rs, final InetAddressAndPort endpoint)
+    static StrategyAdapter getStrategy(final SimpleStrategy rs)
     {
-        final int replicas = rs.getReplicationFactor().replicas;
+        final int replicas = rs.allReplicaCount();
 
         return new StrategyAdapter()
         {
@@ -196,7 +196,7 @@ public class TokenAllocation
     static StrategyAdapter getStrategy(final TokenMetadata tokenMetadata, final NetworkTopologyStrategy rs, final IEndpointSnitch snitch, final InetAddressAndPort endpoint)
     {
         final String dc = snitch.getDatacenter(endpoint);
-        final int replicas = rs.getReplicationFactor(dc).replicas;
+        final int replicas = rs.getReplicationFactor(dc).allReplicas;
 
         if (replicas == 0 || replicas == 1)
         {

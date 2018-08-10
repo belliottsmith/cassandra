@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Collection;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -45,7 +44,7 @@ public class OldNetworkTopologyStrategy extends AbstractReplicationStrategy
 
     public ReplicaList calculateNaturalReplicas(Token token, TokenMetadata metadata)
     {
-        ReplicaList replicas = new ReplicaList(rf.replicas);
+        ReplicaList replicas = new ReplicaList(rf.allReplicas);
         ArrayList<Token> tokens = metadata.sortedTokens();
 
         if (tokens.isEmpty())
@@ -54,12 +53,12 @@ public class OldNetworkTopologyStrategy extends AbstractReplicationStrategy
         Iterator<Token> iter = TokenMetadata.ringIterator(tokens, token, false);
         Token primaryToken = iter.next();
         Token previousToken = metadata.getPredecessor(primaryToken);
-        assert rf.trans == 0: "support transient replicas";
+        assert !rf.hasTransientReplicas() : "support transient replicas";
         replicas.add(new Replica(metadata.getEndpoint(primaryToken), previousToken, primaryToken, true));
 
         boolean bDataCenter = false;
         boolean bOtherRack = false;
-        while (replicas.size() < rf.replicas && iter.hasNext())
+        while (replicas.size() < rf.allReplicas && iter.hasNext())
         {
             // First try to find one in a different data center
             Token t = iter.next();
@@ -89,10 +88,10 @@ public class OldNetworkTopologyStrategy extends AbstractReplicationStrategy
 
         // If we found N number of nodes we are good. This loop wil just exit. Otherwise just
         // loop through the list and add until we have N nodes.
-        if (replicas.size() < rf.replicas)
+        if (replicas.size() < rf.allReplicas)
         {
             iter = TokenMetadata.ringIterator(tokens, token, false);
-            while (replicas.size() < rf.replicas && iter.hasNext())
+            while (replicas.size() < rf.allReplicas && iter.hasNext())
             {
                 Token t = iter.next();
                 Replica replica = new Replica(metadata.getEndpoint(t), previousToken, primaryToken, true);

@@ -101,7 +101,7 @@ public final class AlterKeyspaceStatement extends AlterSchemaStatement
         AbstractReplicationStrategy before = keyspaceDiff.before.createReplicationStrategy();
         AbstractReplicationStrategy after = keyspaceDiff.after.createReplicationStrategy();
 
-        return before.getReplicationFactor().full < after.getReplicationFactor().full
+        return before.fullReplicaCount() < after.fullReplicaCount()
              ? ImmutableSet.of("When increasing replication factor you need to run a full (-full) repair to distribute the data.")
              : ImmutableSet.of();
     }
@@ -130,12 +130,12 @@ public final class AlterKeyspaceStatement extends AlterSchemaStatement
 
         ReplicationFactor oldRF = oldStrategy.getReplicationFactor();
         ReplicationFactor newRF = newStrategy.getReplicationFactor();
-        int oldTrans = oldRF.trans;
-        int oldFull = oldRF.full;
-        int newTrans = newRF.trans;
-        int newFull = newRF.full;
+        int oldTransient = oldRF.transientReplicas();
+        int oldFull = oldRF.fullReplicas;
+        int newTransient = newRF.transientReplicas();
+        int newFull = newRF.fullReplicas;
 
-        if (newTrans > 0)
+        if (newTransient > 0)
         {
             Keyspace ks = Keyspace.open(keyspaceName);
             for (ColumnFamilyStore cfs : ks.getColumnFamilyStores())
@@ -155,7 +155,7 @@ public final class AlterKeyspaceStatement extends AlterSchemaStatement
         //This is true right now because the transition from transient -> full lacks the pending state
         //necessary for correctness. What would happen if we allowed this is that we would attempt
         //to read from a transient replica as if it were a full replica.
-        if (oldFull > newFull && oldTrans > 0)
+        if (oldFull > newFull && oldTransient > 0)
             throw new ConfigurationException("Can't add full replicas if there are any transient replicas. You must first remove all transient replicas, then change the # of full replicas, then add back the transient replicas");
 
         //Don't increase transient replication factor by more than one at a time if changing number of replicas
@@ -163,8 +163,8 @@ public final class AlterKeyspaceStatement extends AlterSchemaStatement
         //that don't have the necessary data. W/O transient replication this alteration was allowed and it's not clear
         //if it should be.
         //This is structured so you can convert as mnay full replicas to transient replicas as you want.
-        boolean numReplicasChanged = oldTrans + oldFull != newTrans + newFull;
-        if (numReplicasChanged && (newTrans > oldTrans && newTrans != oldTrans + 1))
+        boolean numReplicasChanged = oldTransient + oldFull != newTransient + newFull;
+        if (numReplicasChanged && (newTransient > oldTransient && newTransient != oldTransient + 1))
             throw new ConfigurationException("Can only safely increase number of transients one at a time with incremental repair run in between each time");
     }
 

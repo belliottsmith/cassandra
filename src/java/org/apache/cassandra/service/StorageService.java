@@ -3592,7 +3592,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 Iterables.addAll(option.getRanges(), getLocalReplicas(keyspace).asRanges());
             }
         }
-        if (option.getRanges().isEmpty() || Keyspace.open(keyspace).getReplicationStrategy().getReplicationFactor().replicas < 2)
+        if (option.getRanges().isEmpty() || Keyspace.open(keyspace).getReplicationStrategy().allReplicaCount() < 2)
             return 0;
 
         int cmd = nextRepairCommand.incrementAndGet();
@@ -3997,13 +3997,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         if (keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
                         {
                             NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
-                            rf = strategy.getReplicationFactor(dc).replicas;
+                            rf = strategy.getReplicationFactor(dc).allReplicas;
                             numNodes = metadata.getTopology().getDatacenterEndpoints().get(dc).size();
                         }
                         else
                         {
                             numNodes = metadata.getAllEndpoints().size();
-                            rf = keyspace.getReplicationStrategy().getReplicationFactor().replicas;
+                            rf = keyspace.getReplicationStrategy().allReplicaCount();
                         }
 
                         if (numNodes <= rf)
@@ -4287,7 +4287,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
                                     //Due to CASSANDRA-5953 we can have a higher RF then we have endpoints.
                                     //So we need to be careful to only be strict when endpoints == RF
-                                    if (oldEndpoints.size() == strategy.getReplicationFactor().replicas)
+                                    if (oldEndpoints.size() == strategy.allReplicaCount())
                                     {
                                         oldEndpoints.removeEndpoints(newEndpoints);
 
@@ -4480,7 +4480,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         for (String keyspaceName : Schema.instance.getNonLocalStrategyKeyspaces())
         {
             // if the replication factor is 1 the data is lost so we shouldn't wait for confirmation
-            if (Keyspace.open(keyspaceName).getReplicationStrategy().getReplicationFactor().replicas == 1)
+            if (Keyspace.open(keyspaceName).getReplicationStrategy().allReplicaCount() == 1)
                 continue;
 
             // get all ranges that change ownership (that is, a node needs

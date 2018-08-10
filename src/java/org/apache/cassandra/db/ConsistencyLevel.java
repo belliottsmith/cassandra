@@ -91,13 +91,13 @@ public enum ConsistencyLevel
 
     private int quorumFor(Keyspace keyspace)
     {
-        return (keyspace.getReplicationStrategy().getReplicationFactor().replicas / 2) + 1;
+        return (keyspace.getReplicationStrategy().allReplicaCount() / 2) + 1;
     }
 
     private int localQuorumFor(Keyspace keyspace, String dc)
     {
         return (keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
-             ? (((NetworkTopologyStrategy) keyspace.getReplicationStrategy()).getReplicationFactor(dc).replicas / 2) + 1
+             ? (((NetworkTopologyStrategy) keyspace.getReplicationStrategy()).getReplicationFactor(dc).allReplicas / 2) + 1
              : quorumFor(keyspace);
     }
 
@@ -118,7 +118,8 @@ public enum ConsistencyLevel
             case SERIAL:
                 return quorumFor(keyspace);
             case ALL:
-                return keyspace.getReplicationStrategy().getReplicationFactor().replicas;
+                // TODO: should this include the transient replicas? does this make any sense?
+                return keyspace.getReplicationStrategy().allReplicaCount();
             case LOCAL_QUORUM:
             case LOCAL_SERIAL:
                 return localQuorumFor(keyspace, DatabaseDescriptor.getLocalDataCenter());

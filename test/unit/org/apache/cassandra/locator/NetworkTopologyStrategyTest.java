@@ -72,9 +72,9 @@ public class NetworkTopologyStrategyTest
 
         // Set the localhost to the tokenmetadata. Embedded cassandra way?
         NetworkTopologyStrategy strategy = new NetworkTopologyStrategy(keyspaceName, metadata, snitch, configOptions);
-        assert strategy.getReplicationFactor("DC1").replicas == 3;
-        assert strategy.getReplicationFactor("DC2").replicas == 2;
-        assert strategy.getReplicationFactor("DC3").replicas == 1;
+        assert strategy.getReplicationFactor("DC1").allReplicas == 3;
+        assert strategy.getReplicationFactor("DC2").allReplicas == 2;
+        assert strategy.getReplicationFactor("DC3").allReplicas == 1;
         // Query for the natural hosts
         ReplicaList replicas = strategy.getNaturalReplicas(new StringToken("123"));
         assert 6 == replicas.size();
@@ -97,9 +97,9 @@ public class NetworkTopologyStrategyTest
 
         // Set the localhost to the tokenmetadata. Embedded cassandra way?
         NetworkTopologyStrategy strategy = new NetworkTopologyStrategy(keyspaceName, metadata, snitch, configOptions);
-        assert strategy.getReplicationFactor("DC1").replicas == 3;
-        assert strategy.getReplicationFactor("DC2").replicas == 3;
-        assert strategy.getReplicationFactor("DC3").replicas == 0;
+        assert strategy.getReplicationFactor("DC1").allReplicas == 3;
+        assert strategy.getReplicationFactor("DC2").allReplicas == 3;
+        assert strategy.getReplicationFactor("DC3").allReplicas == 0;
         // Query for the natural hosts
         ReplicaList replicas = strategy.getNaturalReplicas(new StringToken("123"));
         assert 6 == replicas.size();

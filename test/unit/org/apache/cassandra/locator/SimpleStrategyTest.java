@@ -117,7 +117,7 @@ public class SimpleStrategyTest
             for (int i = 0; i < keyTokens.length; i++)
             {
                 ReplicaList replicas = strategy.getNaturalReplicas(keyTokens[i]);
-                assertEquals(strategy.getReplicationFactor().replicas, replicas.size());
+                assertEquals(strategy.allReplicaCount(), replicas.size());
                 List<InetAddressAndPort> correctEndpoints = new ArrayList<>();
                 for (int j = 0; j < replicas.size(); j++)
                     correctEndpoints.add(hosts.get((i + j + 1) % hosts.size()));
@@ -163,7 +163,7 @@ public class SimpleStrategyTest
 
             PendingRangeCalculatorService.calculatePendingRanges(strategy, keyspaceName);
 
-            int replicationFactor = strategy.getReplicationFactor().replicas;
+            int replicationFactor = strategy.allReplicaCount();
 
             for (int i = 0; i < keyTokens.length; i++)
             {

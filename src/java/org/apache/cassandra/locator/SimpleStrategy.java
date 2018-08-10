@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Collection;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 
 import org.apache.cassandra.dht.Range;
@@ -48,7 +47,7 @@ public class SimpleStrategy extends AbstractReplicationStrategy
     public ReplicaList calculateNaturalReplicas(Token token, TokenMetadata metadata)
     {
         ArrayList<Token> tokens = metadata.sortedTokens();
-        ReplicaList replicas = new ReplicaList(rf.replicas);
+        ReplicaList replicas = new ReplicaList(rf.allReplicas);
 
         if (tokens.isEmpty())
             return replicas;
@@ -58,12 +57,12 @@ public class SimpleStrategy extends AbstractReplicationStrategy
         Token replicaStart = metadata.getPredecessor(replicaEnd);
         Range<Token> replicaRange = new Range<>(replicaStart, replicaEnd);
         Iterator<Token> iter = TokenMetadata.ringIterator(tokens, token, false);
-        while (replicas.size() < rf.replicas && iter.hasNext())
+        while (replicas.size() < rf.allReplicas && iter.hasNext())
         {
             Token tk = iter.next();
             InetAddressAndPort ep = metadata.getEndpoint(tk);
             if (!replicas.asEndpoints().contains(ep))
-                replicas.add(new Replica(ep, replicaRange, replicas.size() < rf.full));
+                replicas.add(new Replica(ep, replicaRange, replicas.size() < rf.allReplicas));
         }
         return replicas;
     }

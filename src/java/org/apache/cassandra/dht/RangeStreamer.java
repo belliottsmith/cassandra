@@ -18,11 +18,9 @@
 package org.apache.cassandra.dht;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicates;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 
@@ -203,7 +201,7 @@ public class RangeStreamer
             logger.info("{}: range {} exists on {} for keyspace {}", description, entry.getKey(), entry.getValue(), keyspaceName);
 
         AbstractReplicationStrategy strat = Keyspace.open(keyspaceName).getReplicationStrategy();
-        Multimap<InetAddressAndPort, Range<Token>> rangeFetchMap = useStrictSource || strat == null || strat.getReplicationFactor().replicas == 1
+        Multimap<InetAddressAndPort, Range<Token>> rangeFetchMap = useStrictSource || strat == null || strat.allReplicaCount() == 1
                                                             ? getRangeFetchMap(rangesForKeyspace, sourceFilters, keyspaceName, useStrictConsistency)
                                                             : getOptimizedRangeFetchMap(rangesForKeyspace, sourceFilters, keyspaceName);
 
@@ -227,7 +225,7 @@ public class RangeStreamer
         AbstractReplicationStrategy strat = Keyspace.open(keyspaceName).getReplicationStrategy();
         return useStrictConsistency
                 && tokens != null
-                && metadata.getSizeOfAllEndpoints() != strat.getReplicationFactor().replicas;
+                && metadata.getSizeOfAllEndpoints() != strat.allReplicaCount();
     }
 
     /**
@@ -296,7 +294,7 @@ public class RangeStreamer
 
                     // Due to CASSANDRA-5953 we can have a higher RF then we have endpoints.
                     // So we need to be careful to only be strict when endpoints == RF
-                    if (oldEndpoints.size() == strat.getReplicationFactor().replicas)
+                    if (oldEndpoints.size() == strat.allReplicaCount())
                     {
                         oldEndpoints.removeEndpoints(newEndpoints);
                         assert oldEndpoints.size() == 1 : "Expected 1 endpoint but found " + oldEndpoints.size();
@@ -365,7 +363,7 @@ public class RangeStreamer
             if (!foundSource)
             {
                 AbstractReplicationStrategy strat = Keyspace.open(keyspace).getReplicationStrategy();
-                if (strat != null && strat.getReplicationFactor().replicas == 1)
+                if (strat != null && strat.allReplicaCount() == 1)
                 {
                     if (useStrictConsistency)
                         throw new IllegalStateException("Unable to find sufficient sources for streaming range " + range + " in keyspace " + keyspace + " with RF=1. " +
