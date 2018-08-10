@@ -19,14 +19,13 @@
 package org.apache.cassandra.locator;
 
 import java.util.AbstractCollection;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
-import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
+import java.util.Spliterator;
 import java.util.function.BiConsumer;
 import java.util.function.BinaryOperator;
 import java.util.function.Function;
@@ -37,9 +36,9 @@ import java.util.stream.Stream;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Sets;
 
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -49,7 +48,7 @@ import org.apache.cassandra.dht.Token;
  * transient replication status, basic contains and remove methods can be ambiguous. Replicas forces you
  * to be explicit about what you're checking the container for, or removing from it.
  */
-public abstract class ReplicaCollection extends AbstractCollection<Replica>
+public class ReplicaCollection implements Iterable<Replica>
 {
 
     protected static <C extends ReplicaCollection> Collector<Replica, C, C> collector(Set<Collector.Characteristics> characteristics, Supplier<C> supplier)
@@ -57,16 +56,18 @@ public abstract class ReplicaCollection extends AbstractCollection<Replica>
         return new Collector<Replica, C, C>()
         {
             private final BiConsumer<C, Replica> accumulator = ReplicaCollection::add;
-            private final BinaryOperator<C> combiner = (a, b) ->
-            {
-                if (a.size() > b.size())
-                {
-                    a.addAll(b);
-                    return a;
-                }
-                b.addAll(a);
-                return b;
-            };
+            private final BinaryOperator<C> combiner = characteristics.contains(Characteristics.UNORDERED)
+                    ? (a, b) ->
+                    {
+                        if (a.size() > b.size())
+                        {
+                            a.asCollection().addAll(b.asCollection());
+                            return a;
+                        }
+                        b.asCollection().addAll(a.asCollection());
+                        return b;
+                    }
+                    : (a, b) -> { a.asCollection().addAll(b.asCollection()); return a; };
             private final Function<C, C> finisher = collection -> collection;
 
             public Supplier<C> supplier() { return supplier; }
@@ -77,31 +78,57 @@ public abstract class ReplicaCollection extends AbstractCollection<Replica>
         };
     }
 
-    private Collection<Replica> asUnmodifiableCollection() {
-        return Collections.unmodifiableCollection(this);
+    protected final Collection<Replica> collection;
+    protected final Collection<Replica> asCollection() { return collection; }
+    protected ReplicaCollection(Collection<Replica> collection)
+    {
+        this.collection = collection;
     }
 
-    public Collection<InetAddressAndPort> asUnmodifiableEndpointCollection()
+    public final Iterator<Replica> iterator()
     {
-        return Collections2.transform(asUnmodifiableCollection(), Replica::getEndpoint);
+        return asCollection().iterator();
     }
 
-    public Collection<Range<Token>> asUnmodifiableRangeCollection()
+    public Stream<Replica> stream() { return asCollection().stream(); }
+
+    private <T> Collection<T> asUnmodifiableCollection(Function<Replica, T> map)
     {
-        return Collections2.transform(asUnmodifiableCollection(), Replica::getRange);
+        return new AbstractCollection<T>()
+        {
+            final Iterator<Replica> iterator = asCollection().iterator();
+            @Override
+            public Iterator<T> iterator()
+            {
+                return new Iterator<T>()
+                {
+                    @Override
+                    public boolean hasNext() { return iterator.hasNext(); }
+
+                    @Override
+                    public T next() { return map.apply(iterator.next()); }
+                };
+            }
+
+            @Override
+            public int size()
+            {
+                return ReplicaCollection.this.size();
+            }
+        };
     }
 
     public Collection<InetAddressAndPort> asEndpoints()
     {
-        return Collections2.transform(this, Replica::getEndpoint);
+        return asUnmodifiableCollection(Replica::getEndpoint);
     }
 
     public Collection<Range<Token>> asRanges()
     {
-        return Collections2.transform(this, Replica::getRange);
+        return asUnmodifiableCollection(Replica::getRange);
     }
 
-    public <T, C extends Collection<T>> C toCollection(Function<Replica, T> transform, IntFunction<C> constructor)
+    <T, C extends Collection<T>> C toCollection(Function<Replica, T> transform, IntFunction<C> constructor)
     {
         C result = constructor.apply(size());
         for (Replica replica : this)
@@ -109,7 +136,7 @@ public abstract class ReplicaCollection extends AbstractCollection<Replica>
         return result;
     }
 
-    public <C extends Collection<Replica>> C filterToCollection(Predicate<Replica> predicate, IntFunction<C> constructor)
+    <C extends Collection<Replica>> C filterToCollection(Predicate<Replica> predicate, IntFunction<C> constructor)
     {
         C result = constructor.apply(size());
         for (Replica replica : this)
@@ -138,18 +165,45 @@ public abstract class ReplicaCollection extends AbstractCollection<Replica>
         return Iterables.transform(Iterables.filter(this, Replica::isTransient), Replica::getRange);
     }
 
+    public boolean add(Replica replica)
+    {
+        Preconditions.checkNotNull(replica);
+        return asCollection().add(replica);
+    }
+
+    public boolean addAll(ReplicaCollection replicas)
+    {
+        Preconditions.checkNotNull(replicas);
+        return asCollection().addAll(replicas.asCollection());
+    }
+
+    public int size()
+    {
+        return asCollection().size();
+    }
+
+    public boolean isEmpty()
+    {
+        return asCollection().isEmpty();
+    }
+
     public void removeReplicas(ReplicaCollection toRemove)
     {
         Preconditions.checkNotNull(toRemove);
         if (Iterables.all(this, Replica::isFull) && Iterables.all(toRemove, Replica::isFull))
         {
-            removeAll(toRemove);
+            asCollection().removeAll(toRemove.asCollection());
         }
         else
         {
             // FIXME: add support for transient replicas
             throw new UnsupportedOperationException("transient replicas are currently unsupported");
         }
+    }
+
+    public void removeEndpoint(InetAddressAndPort endpoint)
+    {
+        Iterables.removeIf(asCollection(), test -> endpoint.equals(test.getEndpoint()));
     }
 
     public void removeEndpoints(ReplicaCollection toRemove)
@@ -157,7 +211,10 @@ public abstract class ReplicaCollection extends AbstractCollection<Replica>
         Preconditions.checkNotNull(toRemove);
         if (Iterables.all(this, Replica::isFull) && Iterables.all(toRemove, Replica::isFull))
         {
-            asEndpoints().removeAll(toRemove.asEndpoints());
+            for (Replica remove: toRemove)
+            {
+                removeEndpoint(remove.getEndpoint());
+            }
         }
         else
         {
@@ -166,23 +223,23 @@ public abstract class ReplicaCollection extends AbstractCollection<Replica>
         }
     }
 
+    public boolean equals(Object o)
+    {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        ReplicaCollection that = (ReplicaCollection) o;
+        return Objects.equals(asCollection(), that.asCollection());
+    }
+
+    public int hashCode()
+    {
+        return asCollection().hashCode();
+    }
+
     @Override
     public String toString()
     {
-        Iterator<Replica> i = iterator();
-        if (!i.hasNext())
-            return "[]";
-
-        StringBuilder sb = new StringBuilder();
-        sb.append('[');
-        while (true)
-        {
-            Replica replica = i.next();
-            sb.append(replica);
-            if (!i.hasNext())
-                return sb.append(']').toString();
-            sb.append(", ");
-        }
+        return asCollection().toString();
     }
 
 }

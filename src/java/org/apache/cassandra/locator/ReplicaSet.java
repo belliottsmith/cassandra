@@ -19,14 +19,11 @@
 package org.apache.cassandra.locator;
 
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashSet;
-import java.util.Objects;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.stream.Collector;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -54,57 +51,18 @@ public final class ReplicaSet extends ReplicaCollection
 
     public ReplicaSet(int expectedSize)
     {
-        this(Sets.newHashSetWithExpectedSize(expectedSize));
+        this(new HashSet<>(expectedSize));
     }
 
     public ReplicaSet(ReplicaCollection replicas)
     {
-        this(Sets.newHashSetWithExpectedSize(replicas.size()));
-        Iterables.addAll(replicaSet, replicas);
+        this(new HashSet<>(replicas.asCollection()));
     }
 
     private ReplicaSet(Set<Replica> replicaSet)
     {
+        super(replicaSet);
         this.replicaSet = replicaSet;
-    }
-
-    public boolean equals(Object o)
-    {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        ReplicaSet that = (ReplicaSet) o;
-        return Objects.equals(replicaSet, that.replicaSet);
-    }
-
-    public int hashCode()
-    {
-        return replicaSet.hashCode();
-    }
-
-    @Override
-    public boolean add(Replica replica)
-    {
-        Preconditions.checkNotNull(replica);
-        return replicaSet.add(replica);
-    }
-
-    @Override
-    public boolean remove(Object replica)
-    {
-        Preconditions.checkNotNull(replica);
-        return replicaSet.remove(replica);
-    }
-
-    @Override
-    public int size()
-    {
-        return replicaSet.size();
-    }
-
-    @Override
-    public Iterator<Replica> iterator()
-    {
-        return replicaSet.iterator();
     }
 
     public ReplicaSet differenceOnEndpoint(ReplicaCollection differenceOn)
@@ -119,12 +77,11 @@ public final class ReplicaSet extends ReplicaCollection
             // FIXME: add support for transient replicas
             throw new UnsupportedOperationException("transient replicas are currently unsupported");
         }
-
     }
 
     public ReplicaSet filter(Predicate<Replica> predicate)
     {
-        return filterToCollection(predicate, ReplicaSet::new);
+        return new ReplicaSet(this.<Set<Replica>>filterToCollection(predicate, HashSet::new));
     }
 
     public boolean contains(Object replica)
@@ -145,7 +102,7 @@ public final class ReplicaSet extends ReplicaCollection
 
     public static ReplicaSet immutableCopyOf(ReplicaCollection from)
     {
-        return new ReplicaSet(ImmutableSet.<Replica>builder().addAll(from).build());
+        return new ReplicaSet(ImmutableSet.copyOf(from.asCollection()));
     }
 
     public static ReplicaSet of(Replica replica)
@@ -155,7 +112,7 @@ public final class ReplicaSet extends ReplicaCollection
         return new ReplicaSet(set);
     }
 
-    public static ReplicaSet of(Replica... replicas)
+    public static ReplicaSet of(Replica ... replicas)
     {
         ReplicaSet set = new ReplicaSet(Sets.newHashSetWithExpectedSize(replicas.length));
         for (Replica replica : replicas)

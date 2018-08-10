@@ -21,7 +21,6 @@ package org.apache.cassandra.locator;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 
 import com.google.common.base.Predicates;
@@ -132,8 +131,8 @@ public class ReplicaListTest extends ReplicaCollectionTestBase
     @Test
     public void testAddAll()
     {
-        ReplicaList list = new ReplicaList(new LinkedList<>());
-        list.addAll(ImmutableList.of(A, B, C));
+        ReplicaList list = new ReplicaList();
+        list.addAll(Replicas.of(A, B, C));
         assertEquals(3, list.size());
         assertEquals(A, list.get(0));
         assertEquals(B, list.get(1));
@@ -144,7 +143,7 @@ public class ReplicaListTest extends ReplicaCollectionTestBase
     public void testIterator()
     {
         assertFalse(new ReplicaList().iterator().hasNext());
-        ReplicaList list = new ReplicaList(ImmutableList.of(A));
+        ReplicaList list = new ReplicaList(Replicas.of(A));
         Iterator<Replica> i = list.iterator();
         assertTrue(i.hasNext());
         assertEquals(A, i.next());
@@ -165,8 +164,8 @@ public class ReplicaListTest extends ReplicaCollectionTestBase
     public void testRemoveEndpoint()
     {
         ReplicaList set = new ReplicaList();
-        set.addAll(ImmutableList.of(A, B, Replica.trans(B.getEndpoint(), B.getRange()), C));
-        set.asEndpoints().remove(B.getEndpoint());
+        set.addAll(Replicas.of(A, B, Replica.trans(B.getEndpoint(), B.getRange()), C));
+        set.removeEndpoint(B.getEndpoint());
         List<Replica> check = Lists.newArrayList(A, C);
         for (Replica r : set)
         {
@@ -185,20 +184,9 @@ public class ReplicaListTest extends ReplicaCollectionTestBase
 
         assertTrue(rlist.asEndpoints().contains(EP1));
         assertEquals(3, rlist.size());
-        rlist.asEndpoints().remove(EP1);
+        rlist.removeEndpoint(EP1);
         assertFalse(rlist.asEndpoints().contains(EP1));
         assertEquals(2, rlist.size());
-    }
-
-    @Test
-    public void removeReplica()
-    {
-        ReplicaList list = new ReplicaList(Replicas.of(A, B, C));
-        assertEquals( 3, list.size());
-        list.remove(B);
-        assertEquals(2, list.size());
-        assertEquals(A, list.get(0));
-        assertEquals(C, list.get(1));
     }
 
     @Test(expected = NullPointerException.class)
@@ -211,7 +199,7 @@ public class ReplicaListTest extends ReplicaCollectionTestBase
     public void testContainsEndpoint() throws Exception
     {
         ReplicaList list = new ReplicaList();
-        list.addAll(ImmutableList.of(A, B, C));
+        list.addAll(new ReplicaCollection(ImmutableList.of(A, B, C)));
         assertTrue(list.asEndpoints().contains(B.getEndpoint()));
         assertTrue(list.asEndpoints().contains(A.getEndpoint()));
         assertTrue(list.asEndpoints().contains(C.getEndpoint()));
@@ -227,7 +215,7 @@ public class ReplicaListTest extends ReplicaCollectionTestBase
     @Test
     public void testFilter()
     {
-        ReplicaList list = new ReplicaList(new ReplicaList(ImmutableList.of(A, B, C)));
+        ReplicaList list = new ReplicaList(Replicas.of(A, B, C));
         assertEquals(3, list.size());
         ReplicaList filtered = list.filter(replica -> replica != B);
         assertEquals(2, filtered.size());
@@ -238,11 +226,11 @@ public class ReplicaListTest extends ReplicaCollectionTestBase
     @Test
     public void testSort()
     {
-        ReplicaList list = new ReplicaList(ImmutableList.of(B, A, C));
+        ReplicaList list = new ReplicaList(Replicas.of(B, A, C));
         list.sort(Comparator.naturalOrder());
-        ArrayList list2 = Lists.newArrayList(B, A, C);
+        ArrayList<Replica> list2 = Lists.newArrayList(B, A, C);
         list2.sort(Comparator.naturalOrder());
-        assertEquals(new ReplicaList(list2), list);
+        assertEquals(new ReplicaList(Replicas.from(list2)), list);
     }
 
     @Test(expected = NullPointerException.class)

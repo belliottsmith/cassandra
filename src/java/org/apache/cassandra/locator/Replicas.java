@@ -18,8 +18,10 @@
 
 package org.apache.cassandra.locator;
 
+import java.util.AbstractCollection;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -34,24 +36,11 @@ import org.apache.cassandra.utils.FBUtilities;
 
 public class Replicas
 {
-    private static abstract class ImmutableReplicaContainer extends ReplicaCollection
-    {
-        @Override
-        public boolean add(Replica replica)
-        {
-            throw new UnsupportedOperationException();
-        }
-    }
 
     public static ReplicaCollection from(Iterable<Replica> iterable, ToIntFunction<Iterable<Replica>> size)
     {
-        return new ImmutableReplicaContainer()
+        Collection<Replica> collection = new AbstractCollection<Replica>()
         {
-            public int size()
-            {
-                return size.applyAsInt(iterable);
-            }
-
             public Iterator<Replica> iterator()
             {
                 final Iterator<Replica> iterator = iterable.iterator();
@@ -70,7 +59,14 @@ public class Replicas
                     }
                 };
             }
+
+            @Override
+            public int size()
+            {
+                return size.applyAsInt(iterable);
+            }
         };
+        return new ReplicaCollection(collection);
     }
 
     public static ReplicaCollection from(Iterable<Replica> iterable)
@@ -111,16 +107,16 @@ public class Replicas
     public static ReplicaCollection of(Replica replica)
     {
         Preconditions.checkNotNull(replica);
-        return from(Collections.singleton(replica), i -> 1);
+        return new ReplicaCollection(Collections.singleton(replica));
     }
 
-    public static ReplicaCollection of(Replica ... replica)
+    public static ReplicaCollection of(Replica ... replicas)
     {
-        Preconditions.checkNotNull(replica);
-        return from(Arrays.asList(replica), i -> replica.length);
+        Preconditions.checkNotNull(replicas);
+        return new ReplicaCollection(Arrays.asList(replicas));
     }
 
-    private static ReplicaCollection EMPTY = from(Collections.emptyList(), i -> 0);
+    private static ReplicaCollection EMPTY = new ReplicaCollection(Collections.emptyList());
     public static ReplicaCollection empty()
     {
         return EMPTY;

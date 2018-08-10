@@ -81,7 +81,7 @@ public final class ViewUtils
             // We have to remove any endpoint which is shared between the base and the view, as it will select itself
             // and throw off the counts otherwise.
             if (baseReplicas.asEndpoints().contains(viewEndpoint.getEndpoint()))
-                baseReplicas.asEndpoints().remove(viewEndpoint.getEndpoint());
+                baseReplicas.removeEndpoint(viewEndpoint.getEndpoint());
             else if (!(replicationStrategy instanceof NetworkTopologyStrategy) ||
                      DatabaseDescriptor.getEndpointSnitch().getDatacenter(viewEndpoint).equals(localDataCenter))
                 viewReplicas.add(viewEndpoint);

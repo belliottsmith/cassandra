@@ -861,7 +861,7 @@ public class TokenMetadata
         // get all ranges that will be affected by leaving nodes
         Set<Range<Token>> affectedRanges = new HashSet<Range<Token>>();
         for (InetAddressAndPort endpoint : leavingEndpoints)
-            affectedRanges.addAll(addressRanges.get(endpoint).asUnmodifiableRangeCollection());
+            affectedRanges.addAll(addressRanges.get(endpoint).asRanges());
 
         // for each of those ranges, find what new nodes will be responsible for the range when
         // all leaving nodes are gone.

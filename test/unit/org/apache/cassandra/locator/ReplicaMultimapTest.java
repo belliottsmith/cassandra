@@ -154,7 +154,7 @@ public class ReplicaMultimapTest extends ReplicaCollectionTestBase
         map.putAll(A, sourceList);
         ReplicaMultimap<Replica, ReplicaList> map2 = ReplicaMultimap.list();
         map2.putAll(map);
-        assertTrue(Sets.newHashSet(C, A, B).containsAll(map2.get(A)));
+        assertTrue(Sets.newHashSet(C, A, B).containsAll(map2.get(A).asCollection()));
     }
 
     @Test

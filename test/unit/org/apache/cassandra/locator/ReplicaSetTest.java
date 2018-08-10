@@ -123,7 +123,7 @@ public class ReplicaSetTest extends ReplicaCollectionTestBase
     public void testAddAll()
     {
         ReplicaSet set = new ReplicaSet();
-        set.addAll(ImmutableSet.of(A, B, C));
+        set.addAll(Replicas.of(A, B, C));
         Set<Replica> check = Sets.newHashSet(A, B, C);
         for (Replica r : set)
         {
@@ -136,8 +136,8 @@ public class ReplicaSetTest extends ReplicaCollectionTestBase
     public void testRemoveEndpoint()
     {
         ReplicaSet set = new ReplicaSet();
-        set.addAll(ImmutableSet.of(A, B, Replica.trans(B.getEndpoint(), B.getRange()), C));
-        set.asEndpoints().remove(B.getEndpoint());
+        set.addAll(Replicas.of(A, B, Replica.trans(B.getEndpoint(), B.getRange()), C));
+        set.removeEndpoint(B.getEndpoint());
         Set<Replica> check = Sets.newHashSet(A, C);
         for (Replica r : set)
         {
@@ -156,22 +156,9 @@ public class ReplicaSetTest extends ReplicaCollectionTestBase
 
         Assert.assertTrue(rset.asEndpoints().contains(EP1));
         Assert.assertEquals(3, rset.size());
-        rset.asEndpoints().remove(EP1);
+        rset.removeEndpoint(EP1);
         assertFalse(rset.asEndpoints().contains(EP1));
         Assert.assertEquals(2, rset.size());
-    }
-
-    @Test
-    public void removeReplica()
-    {
-        ReplicaSet set = new ReplicaSet(Replicas.of(A, B, C));
-        assertEquals( 3, set.size());
-        set.remove(B);
-        assertEquals(2, set.size());
-        Set<Replica> check = Sets.newHashSet(A, C);
-        Iterator<Replica> i = set.iterator();
-        assertTrue(check.remove(i.next()));
-        assertTrue(check.remove(i.next()));
     }
 
     @Test(expected = NullPointerException.class)

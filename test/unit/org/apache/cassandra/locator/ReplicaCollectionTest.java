@@ -42,17 +42,7 @@ import static org.junit.Assert.assertTrue;
 public class ReplicaCollectionTest extends ReplicaCollectionTestBase
 {
     @Test
-    public void testAsEndpoints()
-    {
-        ReplicaList replicaList = ReplicaList.of(A, B, C);
-        Iterator<InetAddressAndPort> i = replicaList.asEndpoints().iterator();
-        assertEquals(A.getEndpoint(), i.next());
-        assertEquals(B.getEndpoint(), i.next());
-        assertEquals(C.getEndpoint(), i.next());
-    }
-
-    @Test
-    public void testAsEndpointList()
+    public void testToEndpointList()
     {
         ReplicaList replicaList = ReplicaList.of(A, B, C);
         List<InetAddressAndPort> list = replicaList.toEndpointCollection(ArrayList::new);
@@ -64,15 +54,15 @@ public class ReplicaCollectionTest extends ReplicaCollectionTestBase
     }
 
     @Test(expected = UnsupportedOperationException.class)
-    public void testAsUnmodifiableEndpointCollectionUnmodifiable()
+    public void testAsEndpointsClear()
     {
-        ReplicaList.of(A, B, C).asUnmodifiableEndpointCollection().clear();
+        ReplicaList.of(A, B, C).asEndpoints().clear();
     }
 
     @Test
-    public void testAsUnmodifiableEndpointCollection()
+    public void testAsEndpoints()
     {
-        Iterator<InetAddressAndPort> i = ReplicaList.of(A, B, C).asUnmodifiableEndpointCollection().iterator();
+        Iterator<InetAddressAndPort> i = ReplicaList.of(A, B, C).asEndpoints().iterator();
         assertEquals(A.getEndpoint(), i.next());
         assertEquals(B.getEndpoint(), i.next());
         assertEquals(C.getEndpoint(), i.next());
@@ -80,32 +70,22 @@ public class ReplicaCollectionTest extends ReplicaCollectionTestBase
     }
 
     @Test
-    public void testAsRanges()
-    {
-        Iterator<Range<Token>> i = ReplicaList.of(A, B, C).asRanges().iterator();
-        assertEquals(A.getRange(), i.next());
-        assertEquals(B.getRange(), i.next());
-        assertEquals(C.getRange(), i.next());
-        assertFalse(i.hasNext());
-    }
-
-    @Test
-    public void testAsRangeSet()
+    public void testToRangeSet()
     {
         Set<Range<Token>> ranges = ReplicaList.of(A, B, C).toRangeSet();
         assertEquals(Sets.newHashSet(A, B, C).stream().map(Replica::getRange).collect(Collectors.toSet()), ranges);
     }
 
     @Test(expected = UnsupportedOperationException.class)
-    public void testAsUnmodifiableRangeCollectionUnmodifiable()
+    public void testAsRangesClear()
     {
-        ReplicaList.of(A, B, C).asUnmodifiableRangeCollection().clear();
+        ReplicaList.of(A, B, C).asRanges().clear();
     }
 
     @Test
-    public void testAsUnmodifiableRangeCollection()
+    public void testAsRanges()
     {
-        Collection<Range<Token>> ranges = ReplicaList.of(A, B, C).asUnmodifiableRangeCollection();
+        Collection<Range<Token>> ranges = ReplicaList.of(A, B, C).asRanges();
         assertTrue(Iterators.elementsEqual(Lists.newArrayList(A, B, C).stream().map(Replica::getRange).collect(Collectors.toList()).iterator(), ranges.iterator()));
     }
 
@@ -137,7 +117,7 @@ public class ReplicaCollectionTest extends ReplicaCollectionTestBase
     @Test(expected = NullPointerException.class)
     public void testRemoveReplicasNull()
     {
-        ReplicaSet.of().asEndpoints().remove(null);
+        ReplicaSet.of().removeEndpoint(null);
     }
 
     @Test
@@ -153,7 +133,7 @@ public class ReplicaCollectionTest extends ReplicaCollectionTestBase
     {
         ReplicaSet set = ReplicaSet.of(A);
         assertFalse(set.isEmpty());
-        set.remove(A);
+        set.removeEndpoint(A.getEndpoint());
         assertTrue(set.isEmpty());
     }
 

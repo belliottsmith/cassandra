@@ -22,29 +22,18 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
-import java.util.Spliterator;
-import java.util.function.BiConsumer;
-import java.util.function.BinaryOperator;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -69,6 +58,11 @@ public final class ReplicaList extends ReplicaCollection
         this(new ArrayList<>(capacity));
     }
 
+    public ReplicaList(ReplicaCollection from)
+    {
+        this(from.asCollection());
+    }
+
     public ReplicaList(Collection<Replica> from)
     {
         this(new ArrayList<>(from));
@@ -76,63 +70,13 @@ public final class ReplicaList extends ReplicaCollection
 
     private ReplicaList(List<Replica> replicaList)
     {
+        super(replicaList);
         this.replicaList = replicaList;
-    }
-
-    public boolean equals(Object o)
-    {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        ReplicaList that = (ReplicaList) o;
-        return Objects.equals(replicaList, that.replicaList);
-    }
-
-    public int hashCode()
-    {
-        return replicaList.hashCode();
-    }
-
-    @Override
-    public String toString()
-    {
-        return replicaList.toString();
-    }
-
-    @Override
-    public boolean add(Replica replica)
-    {
-        Preconditions.checkNotNull(replica);
-        return replicaList.add(replica);
-    }
-
-    @Override
-    public boolean remove(Object replica)
-    {
-        Preconditions.checkNotNull(replica);
-        return replicaList.remove(replica);
     }
 
     public Replica get(int idx)
     {
         return replicaList.get(idx);
-    }
-
-    @Override
-    public int size()
-    {
-        return replicaList.size();
-    }
-
-    @Override
-    public Iterator<Replica> iterator()
-    {
-        return replicaList.iterator();
-    }
-
-    @Override
-    public Spliterator<Replica> spliterator()
-    {
-        return replicaList.spliterator();
     }
 
     public ReplicaList subList(int fromIndex, int toIndex)
@@ -143,7 +87,7 @@ public final class ReplicaList extends ReplicaCollection
     public ReplicaList filter(Predicate<Replica> predicate)
     {
         Preconditions.checkNotNull(predicate);
-        return filterToCollection(predicate, ReplicaList::new);
+        return new ReplicaList(this.<List<Replica>>filterToCollection(predicate, ArrayList::new));
     }
 
     public void sort(Comparator<Replica> comparator)
@@ -178,9 +122,9 @@ public final class ReplicaList extends ReplicaCollection
 
     public static ReplicaList of(Replica... replicas)
     {
-        ReplicaList replicaList = new ReplicaList(replicas.length);
-        replicaList.addAll(Arrays.asList(replicas));
-        return replicaList;
+        ReplicaList result = new ReplicaList(replicas.length);
+        result.replicaList.addAll(Arrays.asList(replicas));
+        return result;
     }
 
     public static ReplicaList immutableCopyOf(ReplicaCollection replicas)
