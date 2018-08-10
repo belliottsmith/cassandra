@@ -77,12 +77,12 @@ public class AsymmetricLocalSyncTask extends AsymmetricSyncTask implements Strea
             case FILE_PROGRESS:
                 ProgressInfo pi = ((StreamEvent.ProgressEvent) event).progress;
                 state.trace("{}/{} ({}%) {} idx:{}{}",
-                            new Object[] { FBUtilities.prettyPrintMemory(pi.currentBytes),
-                                           FBUtilities.prettyPrintMemory(pi.totalBytes),
-                                           pi.currentBytes * 100 / pi.totalBytes,
-                                           pi.direction == ProgressInfo.Direction.OUT ? "sent to" : "received from",
-                                           pi.sessionIndex,
-                                           pi.peer });
+                        FBUtilities.prettyPrintMemory(pi.currentBytes),
+                        FBUtilities.prettyPrintMemory(pi.totalBytes),
+                        pi.currentBytes * 100 / pi.totalBytes,
+                        pi.direction == ProgressInfo.Direction.OUT ? "sent to" : "received from",
+                        pi.sessionIndex,
+                        pi.peer);
         }
     }
 
