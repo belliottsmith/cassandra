@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.cassandra.locator.RangesAtEndpoint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,11 +65,11 @@ public class LocalSyncTask extends SyncTask implements StreamEventHandler
         StreamPlan plan = new StreamPlan(StreamOperation.REPAIR, 1, false, pendingRepair, previewKind)
                           .listeners(this)
                           .flushBeforeTransfer(pendingRepair == null)
-                          .requestRanges(dst, desc.keyspace, ReplicaList.toDummyList(differences), ReplicaList.empty(), desc.columnFamily);  // request ranges from the remote node
+                          .requestRanges(dst, desc.keyspace, RangesAtEndpoint.toDummyList(differences), RangesAtEndpoint.empty(), desc.columnFamily);  // request ranges from the remote node
         if (!pullRepair)
         {
             // send ranges to the remote node if we are not performing a pull repair
-            plan.transferRanges(dst, desc.keyspace, ReplicaList.toDummyList(differences), desc.columnFamily);
+            plan.transferRanges(dst, desc.keyspace, RangesAtEndpoint.toDummyList(differences), desc.columnFamily);
         }
 
         return plan;

@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.Lists;
 import com.google.common.primitives.Ints;
+import org.apache.cassandra.locator.EndpointsForRange;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -90,7 +91,7 @@ public class DataResolverTransientTest extends AbstractReadResponseTest
     private void assertNoTransientRepairs(PartitionUpdate update)
     {
         SinglePartitionReadCommand command = SinglePartitionReadCommand.fullPartitionRead(update.metadata(), nowInSec, dk(5));
-        ReplicaList targetReplicas = ReplicaList.of(full(EP1), full(EP2), trans(EP3));
+        EndpointsForRange targetReplicas = EndpointsForRange.of(full(EP1), full(EP2), trans(EP3));
         TestableReadRepair repair = new TestableReadRepair(command, QUORUM);
         DataResolver resolver = new DataResolver(command, plan(targetReplicas, ConsistencyLevel.QUORUM), repair, 0);
 
@@ -159,7 +160,7 @@ public class DataResolverTransientTest extends AbstractReadResponseTest
     public void fullRepairsIgnoreTransientReplicas()
     {
         SinglePartitionReadCommand command = SinglePartitionReadCommand.fullPartitionRead(cfm, nowInSec, dk(5));
-        ReplicaList targetReplicas = new ReplicaList(Lists.newArrayList(full(EP1), full(EP2), trans(EP3)));
+        EndpointsForRange targetReplicas = EndpointsForRange.of(full(EP1), full(EP2), trans(EP3));
         TestableReadRepair repair = new TestableReadRepair(command, QUORUM);
         DataResolver resolver = new DataResolver(command, plan(targetReplicas, QUORUM), repair, 0);
 
@@ -186,7 +187,7 @@ public class DataResolverTransientTest extends AbstractReadResponseTest
     public void transientMismatchesRepairFullReplicas()
     {
         SinglePartitionReadCommand command = SinglePartitionReadCommand.fullPartitionRead(cfm, nowInSec, dk(5));
-        ReplicaList targetReplicas = new ReplicaList(Lists.newArrayList(full(EP1), full(EP2), trans(EP3)));
+        EndpointsForRange targetReplicas = EndpointsForRange.of(full(EP1), full(EP2), trans(EP3));
         TestableReadRepair repair = new TestableReadRepair(command, QUORUM);
         DataResolver resolver = new DataResolver(command, plan(targetReplicas, QUORUM), repair, 0);
 
@@ -208,7 +209,7 @@ public class DataResolverTransientTest extends AbstractReadResponseTest
 
     }
 
-    private ReplicaPlan plan(ReplicaList replicas, ConsistencyLevel consistencyLevel)
+    private ReplicaPlan plan(EndpointsForRange replicas, ConsistencyLevel consistencyLevel)
     {
         return new ReplicaPlan(ks, consistencyLevel, replicas, replicas);
     }

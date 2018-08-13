@@ -25,6 +25,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.stream.Collectors;
 
+import org.apache.cassandra.locator.Endpoints;
+import org.apache.cassandra.locator.EndpointsForRange;
+import org.apache.cassandra.locator.EndpointsForToken;
+import org.apache.cassandra.locator.ReplicaCollection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,13 +44,9 @@ import org.apache.cassandra.exceptions.WriteFailureException;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
-import org.apache.cassandra.locator.ReplicaList;
-import org.apache.cassandra.locator.ReplicaSet;
-import org.apache.cassandra.locator.Replicas;
 import org.apache.cassandra.net.IAsyncCallbackWithFailure;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.schema.Schema;
-import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackWithFailure<T>
@@ -233,7 +233,7 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
 
     public void assureSufficientLiveNodes() throws UnavailableException
     {
-        consistencyLevel.assureSufficientLiveNodes(keyspace, Replicas.filter(replicaPlan.allReplicas(), isReplicaAlive));
+        consistencyLevel.assureSufficientLiveNodes(keyspace, replicaPlan.allReplicas().filter(isReplicaAlive));
     }
 
     protected void signal()
@@ -296,13 +296,8 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
         if (replicaPlan.allReplicas.size() == replicaPlan.targetReplicas.size())
             return;
 
-        ReplicaSet contactedReplicas = new ReplicaSet(replicaPlan.targetReplicas);
-        ReplicaList backups = new ReplicaList(replicaPlan.allReplicas.size() - replicaPlan.targetReplicas.size());
-        for (Replica replica : replicaPlan.allReplicas)
-        {
-            if (!contactedReplicas.containsReplica(replica))
-                backups.add(replica);
-        }
+        Endpoints<?> contactedReplicas = replicaPlan.targetReplicas;
+        Endpoints<?> backupReplicas = replicaPlan.allReplicas.filter(r -> !contactedReplicas.contains(r));
 
         long timeout = Long.MAX_VALUE;
         List<ColumnFamilyStore> cfs = mutation.getTableIds().stream()
@@ -322,7 +317,7 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
                 for (ColumnFamilyStore cf : cfs)
                     cf.metric.additionalWritesOnUnavailable.inc();
 
-                writePerformer.apply(mutation, backups,
+                writePerformer.apply(mutation, backupReplicas,
                                     (AbstractWriteResponseHandler<IMutation>) this,
                                     localDC, consistencyLevel);
             }

@@ -26,6 +26,7 @@ import java.util.function.Predicate;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.cassandra.locator.EndpointsForRange;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -108,14 +109,9 @@ public class WriteResponseHandlerTransientTest
                     return DC2;
             }
 
-            public ReplicaList getSortedListByProximity(InetAddressAndPort address, ReplicaCollection unsortedAddress)
+            public <C extends ReplicaCollection<? extends C>> C sortedByProximity(InetAddressAndPort address, C unsortedAddress)
             {
-                return null;
-            }
-
-            public void sortByProximity(InetAddressAndPort address, ReplicaList replicas)
-            {
-
+                return unsortedAddress;
             }
 
             public int compareEndpoints(InetAddressAndPort target, Replica a1, Replica a2)
@@ -128,7 +124,7 @@ public class WriteResponseHandlerTransientTest
 
             }
 
-            public boolean isWorthMergingForRangeQuery(ReplicaList merged, ReplicaList l1, ReplicaList l2)
+            public boolean isWorthMergingForRangeQuery(ReplicaCollection<?> merged, ReplicaCollection<?> l1, ReplicaCollection<?> l2)
             {
                 return false;
             }
@@ -143,24 +139,24 @@ public class WriteResponseHandlerTransientTest
     @Test
     public void checkPendingReplicasAreFiltered()
     {
-        ReplicaList natural = ReplicaList.of(full(EP1), full(EP2), trans(EP3));
-        ReplicaList pending = ReplicaList.of(full(EP4), full(EP5), trans(EP6));
+        EndpointsForRange natural = EndpointsForRange.of(full(EP1), full(EP2), trans(EP3));
+        EndpointsForRange pending = EndpointsForRange.of(full(EP4), full(EP5), trans(EP6));
         WritePathReplicaPlan replicaPlan = WritePathReplicaPlan.createReplicaPlan(ks, ConsistencyLevel.QUORUM, natural, pending, (a) -> true);
 
-        Assert.assertEquals(ReplicaList.of(full(EP4), full(EP5)), replicaPlan.pendingReplicas());
+        Assert.assertEquals(EndpointsForRange.of(full(EP4), full(EP5)), replicaPlan.pendingReplicas());
     }
 
-    private static WritePathReplicaPlan expected(ReplicaList all, ReplicaList initial)
+    private static WritePathReplicaPlan expected(EndpointsForRange all, EndpointsForRange initial)
     {
-        return new WritePathReplicaPlan(ks, null, all, initial, Replicas.empty());
+        return new WritePathReplicaPlan(ks, null, all, initial, EndpointsForRange.empty());
     }
 
-    private static WritePathReplicaPlan getSpeculationContext(ReplicaList replicas, int blockFor, Predicate<InetAddressAndPort> livePredicate)
+    private static WritePathReplicaPlan getSpeculationContext(EndpointsForRange replicas, int blockFor, Predicate<InetAddressAndPort> livePredicate)
     {
-        return WritePathReplicaPlan.createReplicaPlan(ks, ConsistencyLevel.QUORUM, blockFor, replicas, Replicas.empty(), livePredicate);
+        return WritePathReplicaPlan.createReplicaPlan(ks, ConsistencyLevel.QUORUM, blockFor, replicas, EndpointsForRange.empty(), livePredicate);
     }
 
-    private static void assertSpeculationReplicas(WritePathReplicaPlan expected, ReplicaList replicas, int blockFor, Predicate<InetAddressAndPort> livePredicate)
+    private static void assertSpeculationReplicas(WritePathReplicaPlan expected, EndpointsForRange replicas, int blockFor, Predicate<InetAddressAndPort> livePredicate)
     {
         WritePathReplicaPlan actual = getSpeculationContext(replicas, blockFor, livePredicate);
         Assert.assertEquals(expected.allReplicas, actual.allReplicas);
@@ -173,15 +169,15 @@ public class WriteResponseHandlerTransientTest
         return ep -> !deadSet.contains(ep);
     }
 
-    private static ReplicaList replicas(Replica... rr)
+    private static EndpointsForRange replicas(Replica... rr)
     {
-        return new ReplicaList(Lists.newArrayList(rr));
+        return EndpointsForRange.of(rr);
     }
 
     @Test
     public void checkSpeculationContext()
     {
-        ReplicaList all = replicas(full(EP1), full(EP2), trans(EP3));
+        EndpointsForRange all = replicas(full(EP1), full(EP2), trans(EP3));
         // in happy path, transient replica should be classified as a backup
         assertSpeculationReplicas(expected(all,
                                            replicas(full(EP1), full(EP2))),

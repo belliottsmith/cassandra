@@ -19,6 +19,9 @@ package org.apache.cassandra.service;
 
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.locator.EndpointsForRange;
+import org.apache.cassandra.locator.EndpointsForToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,14 +55,14 @@ public class WriteResponseHandler<T> extends AbstractWriteResponseHandler<T>
         responses = totalBlockFor();
     }
 
-    public WriteResponseHandler(Replica replica, WriteType writeType, Runnable callback, long queryStartNanoTime)
+    public WriteResponseHandler(Token token, Replica replica, WriteType writeType, Runnable callback, long queryStartNanoTime)
     {
-        this(WritePathReplicaPlan.createReplicaPlan(null, ConsistencyLevel.ONE, ReplicaList.of(replica), Replicas.empty()), ConsistencyLevel.ONE, null, callback, writeType, queryStartNanoTime);
+        this(WritePathReplicaPlan.createReplicaPlan(null, ConsistencyLevel.ONE, EndpointsForToken.of(token, replica), EndpointsForToken.empty()), ConsistencyLevel.ONE, null, callback, writeType, queryStartNanoTime);
     }
 
-    public WriteResponseHandler(Replica replica, WriteType writeType, long queryStartNanoTime)
+    public WriteResponseHandler(Token token, Replica replica, WriteType writeType, long queryStartNanoTime)
     {
-        this(replica, writeType, null, queryStartNanoTime);
+        this(token, replica, writeType, null, queryStartNanoTime);
     }
 
     public void response(MessageIn<T> m)

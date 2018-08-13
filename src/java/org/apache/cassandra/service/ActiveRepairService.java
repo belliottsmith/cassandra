@@ -38,6 +38,7 @@ import com.google.common.util.concurrent.AbstractFuture;
 
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+import org.apache.cassandra.locator.EndpointsByRange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -301,7 +302,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                                        Collection<String> hosts)
     {
         StorageService ss = StorageService.instance;
-        Map<Range<Token>, ReplicaList> replicaSets = ss.getRangeToAddressMap(keyspaceName);
+        EndpointsByRange replicaSets = ss.getRangeToAddressMap(keyspaceName);
         Range<Token> rangeSuperSet = null;
         for (Range<Token> range : keyspaceLocalRanges)
         {
@@ -323,8 +324,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
 
         Replicas.checkFull(replicaSets.get(rangeSuperSet));
-        Set<InetAddressAndPort> neighbors = replicaSets.get(rangeSuperSet).asEndpointSet();
-        neighbors.remove(FBUtilities.getBroadcastAddressAndPort());
+        Set<InetAddressAndPort> neighbors = Replicas.filterOutLocalEndpoint(replicaSets.get(rangeSuperSet)).endpoints();
 
         if (dataCenters != null && !dataCenters.isEmpty())
         {
