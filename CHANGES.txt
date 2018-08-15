@@ -1,3 +1,7 @@
+3.0.18
+ * Fix corrupted static collection deletions in 3.0 <-> 2.{1,2} messages (CASSANDRA-14568)
+
+
 3.0.17
  * Fix corrupted static collection deletions in 3.0 -> 2.{1,2} messages (CASSANDRA-14568)
  * Fix potential IndexOutOfBoundsException with counters (CASSANDRA-14167)
