@@ -44,9 +44,12 @@ with_dtests_jobs: &with_dtest_jobs
             - dtests-with-vnodes:
                   requires:
                       - build
+                      - unit_test	
             - dtests-no-vnodes:
                   requires:
                       - build
+                      - unit_test	
+                      - dtests-with-vnodes	
 with_dtest_jobs_only: &with_dtest_jobs_only
         jobs:
             - build
