@@ -1,11 +1,4 @@
 schemaVersion: '2.0'
-name: cie-cassandra
-category: cie
-users:
-- cie-db-dev
-notificationRecipients:
-- jasobrown@apple.com
-- cie-db-ci@group.apple.com
 builds:
 - name: base-docker-3.0.17
   branchName: cie-cassandra-3.0.17
