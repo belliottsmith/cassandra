@@ -19,8 +19,8 @@ package org.apache.cassandra.metrics;
 
 import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
@@ -29,20 +29,18 @@ import com.google.common.collect.Maps;
 
 import com.codahale.metrics.*;
 import com.codahale.metrics.Timer;
-import com.google.common.collect.Maps;
-
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Memtable;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
+import org.apache.cassandra.index.SecondaryIndexManager;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
-import org.apache.cassandra.index.SecondaryIndexManager;
+import org.apache.cassandra.metrics.Sampler.SamplerType;
 import org.apache.cassandra.repair.SystemDistributedKeyspace;
 import org.apache.cassandra.utils.EstimatedHistogram;
 import org.apache.cassandra.utils.Pair;
-import org.apache.cassandra.utils.TopKSampler;
 
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 
@@ -216,6 +214,17 @@ public class TableMetrics
     public final static LatencyMetrics globalWriteLatency = new LatencyMetrics(globalFactory, globalAliasFactory, "Write");
     public final static LatencyMetrics globalRangeLatency = new LatencyMetrics(globalFactory, globalAliasFactory, "Range");
 
+    /** When sampler activated, will track the most frequently read partitions **/
+    public final Sampler<ByteBuffer> topReadPartitionFrequency;
+    /** When sampler activated, will track the most frequently written to partitions **/
+    public final Sampler<ByteBuffer> topWritePartitionFrequency;
+    /** When sampler activated, will track the largest mutations **/
+    public final Sampler<ByteBuffer> topWritePartitionSize;
+    /** When sampler activated, will track the most frequent partitions with cas contention **/
+    public final Sampler<ByteBuffer> topCasPartitionContention;
+    /** When sampler activated, will track the slowest local reads **/
+    public final Sampler<String> topLocalReadQueryTime;
+
     private static Pair<Long, Long> totalNonSystemTablesSize(Predicate<SSTableReader> predicate)
     {
         long total = 0;
@@ -288,7 +297,7 @@ public class TableMetrics
     public final Meter readRepairRequests;
     public final Meter shortReadProtectionRequests;
 
-    public final Map<Sampler, TopKSampler<ByteBuffer>> samplers;
+    public final EnumMap<SamplerType, Sampler<?>> samplers;
     /**
      * stores metrics that will be rolled into a single global metric
      */
@@ -349,11 +358,48 @@ public class TableMetrics
         factory = new TableMetricNameFactory(cfs, "Table");
         aliasFactory = new TableMetricNameFactory(cfs, "ColumnFamily");
 
-        samplers = Maps.newHashMap();
-        for (Sampler sampler : Sampler.values())
+        samplers = new EnumMap<>(SamplerType.class);
+        topReadPartitionFrequency = new FrequencySampler<ByteBuffer>()
         {
-            samplers.put(sampler, new TopKSampler<>());
-        }
+            public String toString(ByteBuffer value)
+            {
+                return cfs.metadata.getKeyValidator().getString(value);
+            }
+        };
+        topWritePartitionFrequency = new FrequencySampler<ByteBuffer>()
+        {
+            public String toString(ByteBuffer value)
+            {
+                return cfs.metadata.getKeyValidator().getString(value);
+            }
+        };
+        topWritePartitionSize = new MaxSampler<ByteBuffer>()
+        {
+            public String toString(ByteBuffer value)
+            {
+                return cfs.metadata.getKeyValidator().getString(value);
+            }
+        };
+        topCasPartitionContention = new FrequencySampler<ByteBuffer>()
+        {
+            public String toString(ByteBuffer value)
+            {
+                return cfs.metadata.getKeyValidator().getString(value);
+            }
+        };
+        topLocalReadQueryTime = new MaxSampler<String>()
+        {
+            public String toString(String value)
+            {
+                return value;
+            }
+        };
+
+        samplers.put(SamplerType.READS, topReadPartitionFrequency);
+        samplers.put(SamplerType.WRITES, topWritePartitionFrequency);
+        samplers.put(SamplerType.WRITE_SIZE, topWritePartitionSize);
+        samplers.put(SamplerType.CAS_CONTENTIONS, topCasPartitionContention);
+        samplers.put(SamplerType.LOCAL_READ_TIME, topLocalReadQueryTime);
 
         memtableColumnsCount = createTableGauge("MemtableColumnsCount", new Gauge<Long>()
         {
@@ -1188,10 +1234,5 @@ public class TableMetrics
             mbeanName.append(",name=").append(metricName);
             return new CassandraMetricsRegistry.MetricName(groupName, type, metricName, "all", mbeanName.toString());
         }
-    }
-
-    public enum Sampler
-    {
-        READS, WRITES
     }
 }

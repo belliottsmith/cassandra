@@ -381,6 +381,8 @@ public class StorageProxy implements StorageProxyMBean
                 casWriteMetrics.contentionEstimatedHistogram.add(contentions);
             }
             final long latency = System.nanoTime() - start;
+            Keyspace.open(keyspaceName).getColumnFamilyStore(cfName).metric.topCasPartitionContention.addSample(key.getKey(), contentions);
+
             casWriteMetrics.addNano(latency);
             writeMetricsMap.get(consistencyForPaxos).addNano(latency);
         }

@@ -828,7 +828,7 @@ public class SinglePartitionReadCommand extends ReadCommand
             if (!merged.isEmpty())
             {
                 DecoratedKey key = merged.partitionKey();
-                cfs.metric.samplers.get(TableMetrics.Sampler.READS).addSample(key.getKey(), key.hashCode(), 1);
+                cfs.metric.topReadPartitionFrequency.addSample(key.getKey(), 1);
             }
 
             return merged;
@@ -998,7 +998,7 @@ public class SinglePartitionReadCommand extends ReadCommand
             return EmptyIterators.unfilteredRow(metadata(), partitionKey(), false);
 
         DecoratedKey key = result.partitionKey();
-        cfs.metric.samplers.get(TableMetrics.Sampler.READS).addSample(key.getKey(), key.hashCode(), 1);
+        cfs.metric.topReadPartitionFrequency.addSample(key.getKey(), 1);
 
         // "hoist up" the requested data into a more recent sstable
         if (metricsCollector.getMergedSSTables() > cfs.getMinimumCompactionThreshold()

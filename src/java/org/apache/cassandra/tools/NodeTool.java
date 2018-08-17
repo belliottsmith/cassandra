@@ -29,7 +29,6 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.*;
 
 import io.airlift.command.*;
-
 import org.apache.cassandra.locator.EndpointSnitchInfoMBean;
 import org.apache.cassandra.tools.nodetool.*;
 import org.apache.cassandra.utils.FBUtilities;
@@ -101,6 +100,7 @@ public class NodeTool
                 Move.class,
                 PauseHandoff.class,
                 ResumeHandoff.class,
+                ProfileLoad.class,
                 ProxyHistograms.class,
                 Rebuild.class,
                 Refresh.class,
