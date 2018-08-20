@@ -21,7 +21,6 @@ package org.apache.cassandra.streaming;
 import java.util.Collection;
 import java.util.UUID;
 
-import org.apache.cassandra.locator.ReplicaList;
 import org.apache.cassandra.locator.RangesAtEndpoint;
 import org.apache.cassandra.streaming.messages.StreamMessageHeader;
 

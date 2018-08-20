@@ -26,10 +26,7 @@ import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.locator.Endpoints;
-import org.apache.cassandra.locator.EndpointsForRange;
-import org.apache.cassandra.locator.EndpointsForToken;
 import org.apache.cassandra.locator.Replica;
-import org.apache.cassandra.locator.ReplicaList;
 import org.apache.cassandra.service.reads.DigestResolver;
 
 public class NoopReadRepair implements ReadRepair

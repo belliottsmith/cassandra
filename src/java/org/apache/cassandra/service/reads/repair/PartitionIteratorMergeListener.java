@@ -29,10 +29,6 @@ import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.locator.Endpoints;
-import org.apache.cassandra.locator.EndpointsForRange;
-import org.apache.cassandra.locator.EndpointsForToken;
-import org.apache.cassandra.locator.Replica;
-import org.apache.cassandra.locator.ReplicaList;
 
 public class PartitionIteratorMergeListener implements UnfilteredPartitionIterators.MergeListener
 {

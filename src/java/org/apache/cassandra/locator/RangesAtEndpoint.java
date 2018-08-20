@@ -37,6 +37,10 @@ import java.util.Set;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
+/**
+ * A ReplicaCollection for Ranges occurring at an endpoint. All Replica will be for the same endpoint,
+ * and must be unique Ranges (though overlapping ranges are presently permitted, these should probably not be permitted to occur)
+ */
 public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint>
 {
     private static final Collector<Replica, Builder, RangesAtEndpoint> COLLECTOR = collector(ImmutableSet.of(), Builder::new);

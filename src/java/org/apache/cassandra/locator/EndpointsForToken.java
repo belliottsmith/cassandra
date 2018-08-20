@@ -29,6 +29,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * A ReplicaCollection where all Replica are required to cover a range that fully contains the token() defined in the builder().
+ * Endpoints are guaranteed to be unique; on construction, this is enforced unless optionally silenced (in which case
+ * only the first occurrence makes the cut).
+ */
 public class EndpointsForToken extends Endpoints<EndpointsForToken>
 {
     private final Token token;

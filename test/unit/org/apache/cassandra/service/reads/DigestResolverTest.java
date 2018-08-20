@@ -19,7 +19,6 @@
 package org.apache.cassandra.service.reads;
 
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import org.apache.cassandra.locator.EndpointsForRange;
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,7 +28,6 @@ import org.apache.cassandra.db.SimpleBuilders;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.rows.Row;
-import org.apache.cassandra.locator.ReplicaList;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ReplicaPlan;
 import org.apache.cassandra.service.reads.repair.NoopReadRepair;

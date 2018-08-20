@@ -45,10 +45,7 @@ import org.apache.cassandra.db.rows.RowDiffListener;
 import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.locator.Endpoints;
-import org.apache.cassandra.locator.EndpointsForRange;
-import org.apache.cassandra.locator.EndpointsForToken;
 import org.apache.cassandra.locator.Replica;
-import org.apache.cassandra.locator.ReplicaList;
 import org.apache.cassandra.schema.ColumnMetadata;
 
 import static org.apache.cassandra.service.reads.repair.ReadRepair.createRepairMutation;

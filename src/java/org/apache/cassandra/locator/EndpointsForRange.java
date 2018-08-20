@@ -32,6 +32,11 @@ import java.util.Map;
 
 import static com.google.common.collect.Iterables.all;
 
+/**
+ * A ReplicaCollection where all Replica are required to cover a range that fully contains the range() defined in the builder().
+ * Endpoints are guaranteed to be unique; on construction, this is enforced unless optionally silenced (in which case
+ * only the first occurrence makes the cut).
+ */
 public class EndpointsForRange extends Endpoints<EndpointsForRange>
 {
     private final Range<Token> range;
