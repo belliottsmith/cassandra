@@ -609,12 +609,12 @@ public class RangeStreamer
                     logger.trace("{}ing from {} ranges {}", description, source, StringUtils.join(remaining, ", "));
 
                 RangesAtEndpoint fullReplicas = fetchReplicas.stream()
-                        .filter(pair -> pair.local.isFull())
-                        .map(pair -> pair.remote)
+                        .filter(pair -> pair.remote.isFull())
+                        .map(pair -> pair.local)
                         .collect(RangesAtEndpoint.collector());
                 RangesAtEndpoint transientReplicas = fetchReplicas.stream()
-                        .filter(pair -> pair.local.isTransient())
-                        .map(pair -> pair.remote)
+                        .filter(pair -> pair.remote.isTransient())
+                        .map(pair -> pair.local)
                         .collect(RangesAtEndpoint.collector());
 
                 logger.debug("Source and our replicas {}", fetchReplicas);
