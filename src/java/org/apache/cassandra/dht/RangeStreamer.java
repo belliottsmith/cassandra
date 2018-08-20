@@ -24,7 +24,6 @@ import java.util.function.Function;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
@@ -63,7 +62,6 @@ import static com.google.common.base.Predicates.and;
 import static com.google.common.base.Predicates.not;
 import static com.google.common.collect.Iterables.all;
 import static com.google.common.collect.Iterables.any;
-import static com.google.common.collect.Iterables.tryFind;
 
 /**
  * Assists in streaming ranges to this node.

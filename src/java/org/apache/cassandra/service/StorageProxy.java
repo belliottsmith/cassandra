@@ -1909,12 +1909,7 @@ public class StorageProxy implements StorageProxyMBean
 
     public static EndpointsForToken getLiveSortedReplicasForToken(Keyspace keyspace, RingPosition pos)
     {
-        EndpointsForToken liveReplicas = StorageService.instance.getLiveNaturalReplicasForToken(keyspace, pos);
-        // Replica availability is considered by the query path
-        Preconditions.checkState(liveReplicas.isEmpty() || liveReplicas.stream().anyMatch(Replica::isFull),
-                                 "At least one full replica required for reads: " + liveReplicas);
-
-        return DatabaseDescriptor.getEndpointSnitch().sortedByProximity(FBUtilities.getBroadcastAddressAndPort(), liveReplicas);
+        return getLiveSortedReplicas(keyspace, pos).forToken(pos.getToken());
     }
 
     public static EndpointsForRange getLiveSortedReplicas(Keyspace keyspace, RingPosition pos)

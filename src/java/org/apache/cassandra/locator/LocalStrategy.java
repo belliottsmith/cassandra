@@ -35,7 +35,7 @@ public class LocalStrategy extends AbstractReplicationStrategy
     public LocalStrategy(String keyspaceName, TokenMetadata tokenMetadata, IEndpointSnitch snitch, Map<String, String> configOptions)
     {
         super(keyspaceName, tokenMetadata, snitch, configOptions);
-        replicas = EndpointsForRange.of(
+        replicas = EndpointsForRange.of( // TODO: TR-Review these are the wrong tokens
                 new Replica(FBUtilities.getBroadcastAddressAndPort(),
                         DatabaseDescriptor.getPartitioner().getMinimumToken(),
                         DatabaseDescriptor.getPartitioner().getMinimumToken(),
@@ -50,9 +50,9 @@ public class LocalStrategy extends AbstractReplicationStrategy
      * LocalStrategy may be used before tokens are set up.
      */
     @Override
-    public EndpointsForToken getNaturalReplicasForToken(RingPosition searchPosition)
+    public EndpointsForRange getNaturalReplicas(RingPosition searchPosition)
     {
-        return replicas.forToken(searchPosition.getToken());
+        return replicas;
     }
 
     public EndpointsForRange calculateNaturalReplicas(Token token, TokenMetadata metadata)

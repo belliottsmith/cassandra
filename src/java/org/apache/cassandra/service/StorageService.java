@@ -3930,11 +3930,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return Keyspace.open(keyspaceName).getReplicationStrategy().getNaturalReplicasForToken(pos);
     }
 
-    public EndpointsForRange getNaturalReplicas(String keyspaceName, RingPosition pos)
-    {
-        return Keyspace.open(keyspaceName).getReplicationStrategy().getNaturalReplicas(pos);
-    }
-
     /**
      * Returns the endpoints currently responsible for storing the token plus pending ones
      */
@@ -3955,8 +3950,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      */
     public EndpointsForToken getLiveNaturalReplicasForToken(Keyspace keyspace, RingPosition pos)
     {
-        EndpointsForToken replicas = keyspace.getReplicationStrategy().getNaturalReplicasForToken(pos);
-        return replicas.filter(r -> FailureDetector.instance.isAlive(r.endpoint()));
+        return getLiveNaturalReplicas(keyspace, pos).forToken(pos.getToken());
     }
 
     /**
