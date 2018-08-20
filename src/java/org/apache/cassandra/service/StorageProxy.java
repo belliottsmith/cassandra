@@ -675,6 +675,7 @@ public class StorageProxy implements StorageProxyMBean
         final String localDataCenter = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddressAndPort());
 
         long startTime = System.nanoTime();
+        // TODO: TR-Review why a HashMap? Unnecessarily costly to maintain, surely?
         Map<IMutation, AbstractWriteResponseHandler<IMutation>> responseHandlers = new HashMap<>(mutations.size());
 
         try
@@ -694,6 +695,7 @@ public class StorageProxy implements StorageProxyMBean
 
             for (Map.Entry<IMutation, AbstractWriteResponseHandler<IMutation>> entry : responseHandlers.entrySet())
             {
+                // TODO: TR-Review should this be hard-coded to standardWritePerformer?
                 entry.getValue().maybeTryAdditionalReplicas(entry.getKey(), standardWritePerformer, localDataCenter);
             }
 
