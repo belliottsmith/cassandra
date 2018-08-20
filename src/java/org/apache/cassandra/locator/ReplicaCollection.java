@@ -52,7 +52,7 @@ public interface ReplicaCollection<C extends ReplicaCollection<? extends C>> ext
     public abstract int size();
 
     /**
-     * @return true iff size() > 1
+     * @return true iff size() == 0
      */
     public abstract boolean isEmpty();
 
@@ -63,15 +63,15 @@ public interface ReplicaCollection<C extends ReplicaCollection<? extends C>> ext
     public abstract boolean contains(Replica replica);
 
     /**
-     * @return a *eagerly constructed* copy of this collection containing the Replica that match the provided predicate;
-     * an effort will be made to either return ourself, or a subList.
+     * @return a *eagerly constructed* copy of this collection containing the Replica that match the provided predicate.
+     * An effort will be made to either return ourself, or a subList, where possible.
      * It is guaranteed that no changes to any upstream Mutable will affect the state of the result.
      */
     public abstract C filter(Predicate<Replica> predicate);
 
     /**
      * @return an *eagerly constructed* copy of this collection containing the Replica at positions [start..end);
-     * if start == 0 and end == size(), this collection may be returned (if it is already immutable)
+     * An effort will be made to either return ourself, or a subList, where possible.
      * It is guaranteed that no changes to any upstream Mutable will affect the state of the result.
      */
     public abstract C subList(int start, int end);
@@ -108,6 +108,10 @@ public interface ReplicaCollection<C extends ReplicaCollection<? extends C>> ext
          */
         C asSnapshot();
 
+        /**
+         * @param replica add this replica to the end of the collection
+         * @param ignoreConflict if false, fail on any conflicting additions (as defined by C's semantics)
+         */
         void add(Replica replica, boolean ignoreConflict);
 
         default public void add(Replica replica)

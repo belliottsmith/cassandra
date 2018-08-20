@@ -81,14 +81,14 @@ public class ReplicaCollectionTest
         return new Range<>(tk(left), tk(right));
     }
 
-    public static class TestCase<C extends AbstractReplicaCollection<C>>
+    static class TestCase<C extends AbstractReplicaCollection<C>>
     {
-        public final C test;
-        public final List<Replica> canonicalList;
-        public final Multimap<InetAddressAndPort, Replica> canonicalByEndpoint;
-        public final Multimap<Range<Token>, Replica> canonicalByRange;
+        final C test;
+        final List<Replica> canonicalList;
+        final Multimap<InetAddressAndPort, Replica> canonicalByEndpoint;
+        final Multimap<Range<Token>, Replica> canonicalByRange;
 
-        public TestCase(C test, List<Replica> canonicalList)
+        TestCase(C test, List<Replica> canonicalList)
         {
             this.test = test;
             this.canonicalList = canonicalList;
@@ -100,17 +100,17 @@ public class ReplicaCollectionTest
                 canonicalByRange.put(replica.range(), replica);
         }
 
-        public void testSize()
+        void testSize()
         {
             Assert.assertEquals(canonicalList.size(), test.size());
         }
 
-        public void testEquals()
+        void testEquals()
         {
             Assert.assertEquals(ReplicaList.copyOf(canonicalList), test);
         }
 
-        public void testEndpoints()
+        void testEndpoints()
         {
             // TODO: we should do more exhaustive tests of the collection
             Assert.assertEquals(ImmutableSet.copyOf(canonicalByEndpoint.keySet()), ImmutableSet.copyOf(test.endpoints()));
@@ -140,7 +140,7 @@ public class ReplicaCollectionTest
             Assert.assertEquals(new LinkedHashSet<>(Lists.transform(canonicalList, Replica::endpoint)), test.endpoints());
         }
 
-        public void testSelect(int subListDepth, int filterDepth, int sortDepth, int selectDepth)
+        void testSelect(int subListDepth, int filterDepth, int sortDepth, int selectDepth)
         {
             TestCase<C> allMatchZeroCapacity = new TestCase<>(test.select(0).add(Predicates.alwaysTrue()).get(), Collections.emptyList());
             allMatchZeroCapacity.testAll(subListDepth, filterDepth, sortDepth, selectDepth - 1);
@@ -164,6 +164,7 @@ public class ReplicaCollectionTest
 
         private void assertSubList(C subCollection, int from, int to)
         {
+            Assert.assertTrue(subCollection.isSnapshot);
             if (from == to)
             {
                 Assert.assertTrue(subCollection.isEmpty());
@@ -171,12 +172,17 @@ public class ReplicaCollectionTest
             else
             {
                 List<Replica> subList = this.test.list.subList(from, to);
+                if (test.isSnapshot)
+                    Assert.assertSame(subList.getClass(), subCollection.list.getClass());
                 Assert.assertEquals(subList, subCollection.list);
             }
         }
 
-        public void testSubList(int subListDepth, int filterDepth, int sortDepth, int selectDepth)
+        void testSubList(int subListDepth, int filterDepth, int sortDepth, int selectDepth)
         {
+            if (test.isSnapshot)
+                Assert.assertSame(test, test.subList(0, test.size()));
+
             if (test.isEmpty())
                 return;
 
@@ -188,42 +194,44 @@ public class ReplicaCollectionTest
             skipBack.testAll(subListDepth - 1, filterDepth, sortDepth, selectDepth);
         }
 
-        public void testFilter(int subListDepth, int filterDepth, int sortDepth, int selectDepth)
+        void testFilter(int subListDepth, int filterDepth, int sortDepth, int selectDepth)
         {
-            if (test.size() > 0)
-            {   // remove start
-                Predicate<Replica> removeStart = r -> r != canonicalList.get(0);
-                // we recurse on the same subset in testSubList, so just corroborate we have the correct list here
-                assertSubList(test.filter(removeStart), 1, canonicalList.size());
-            }
-            if (test.size() > 1)
-            {   // remove end
-                Predicate<Replica> removeEnd = r -> r != canonicalList.get(canonicalList.size() - 1);
-                // we recurse on the same subset in testSubList, so just corroborate we have the correct list here
-                assertSubList(test.filter(removeEnd), 0, canonicalList.size() - 1);
-            }
-            if (test.size() > 2)
-            {   // remove middle
-                Predicate<Replica> removeMiddle = r -> r != canonicalList.get(canonicalList.size() / 2);
-                TestCase<C> filtered = new TestCase<>(test.filter(removeMiddle), ImmutableList.copyOf(Iterables.filter(canonicalList, removeMiddle::test)));
-                filtered.testAll(subListDepth, filterDepth - 1, sortDepth, selectDepth);
-            }
+            if (test.isSnapshot)
+                Assert.assertSame(test, test.filter(Predicates.alwaysTrue()));
+
+            if (test.isEmpty())
+                return;
+            // remove start
+            // we recurse on the same subset in testSubList, so just corroborate we have the correct list here
+            assertSubList(test.filter(r -> r != canonicalList.get(0)), 1, canonicalList.size());
+
+            if (test.size() <= 1)
+                return;
+            // remove end
+            // we recurse on the same subset in testSubList, so just corroborate we have the correct list here
+            assertSubList(test.filter(r -> r != canonicalList.get(canonicalList.size() - 1)), 0, canonicalList.size() - 1);
+
+            if (test.size() <= 2)
+                return;
+            Predicate<Replica> removeMiddle = r -> r != canonicalList.get(canonicalList.size() / 2);
+            TestCase<C> filtered = new TestCase<>(test.filter(removeMiddle), ImmutableList.copyOf(Iterables.filter(canonicalList, removeMiddle::test)));
+            filtered.testAll(subListDepth, filterDepth - 1, sortDepth, selectDepth);
         }
 
-        public void testContains()
+        void testContains()
         {
             for (Replica replica : canonicalList)
                 Assert.assertTrue(test.contains(replica));
             Assert.assertFalse(test.contains(Replica.full(NULL_EP, NULL_RANGE)));
         }
 
-        public void testGet()
+        void testGet()
         {
             for (int i = 0 ; i < canonicalList.size() ; ++i)
                 Assert.assertEquals(canonicalList.get(i), test.get(i));
         }
 
-        public void testSort(int subListDepth, int filterDepth, int sortDepth, int selectDepth)
+        void testSort(int subListDepth, int filterDepth, int sortDepth, int selectDepth)
         {
             final Comparator<Replica> comparator = (o1, o2) ->
             {
@@ -259,14 +267,14 @@ public class ReplicaCollectionTest
         }
     }
 
-    class RangesAtEndpointTestCase extends TestCase<RangesAtEndpoint>
+    static class RangesAtEndpointTestCase extends TestCase<RangesAtEndpoint>
     {
-        public RangesAtEndpointTestCase(RangesAtEndpoint test, List<Replica> canonicalList)
+        RangesAtEndpointTestCase(RangesAtEndpoint test, List<Replica> canonicalList)
         {
             super(test, canonicalList);
         }
 
-        public void testRanges()
+        void testRanges()
         {
             Assert.assertEquals(ImmutableSet.copyOf(canonicalByRange.keySet()), ImmutableSet.copyOf(test.ranges()));
             try
@@ -328,10 +336,16 @@ public class ReplicaCollectionTest
         test.addAll(canonical1, false);
         test.addAll(canonical1, false); // we ignore exact duplicates
         try
-        {
+        {   // invalid endpoint; always error
+            test.add(Replica.full(EP2, BROADCAST_RANGE), true);
+            Assert.fail();
+        } catch (IllegalArgumentException e) { }
+        try
+        {   // conflict on isFull/isTransient
             test.add(Replica.full(EP1, R3), false);
             Assert.fail();
         } catch (IllegalArgumentException e) { }
+        test.add(Replica.full(EP1, R3), true);
 
         new RangesAtEndpointTestCase(test, canonical1).testAll();
 
@@ -370,10 +384,16 @@ public class ReplicaCollectionTest
         test.addAll(canonical1, false);
         test.addAll(canonical1, false); // we ignore exact duplicates
         try
-        {
-            test.add(Replica.full(EP1, R2), false);
+        {   // incorrect range
+            test.add(Replica.full(BROADCAST_EP, R2), true);
             Assert.fail();
         } catch (IllegalArgumentException e) { }
+        try
+        {   // conflict on isFull/isTransient
+            test.add(Replica.trans(EP1, R1), false);
+            Assert.fail();
+        } catch (IllegalArgumentException e) { }
+        test.add(Replica.trans(EP1, R1), true);
 
         new TestCase<>(test, canonical1).testAll();
 
@@ -404,10 +424,16 @@ public class ReplicaCollectionTest
         test.addAll(canonical1, false);
         test.addAll(canonical1, false); // we ignore exact duplicates
         try
-        {
-            test.add(Replica.full(EP1, R2), false);
+        {   // incorrect range
+            test.add(Replica.full(BROADCAST_EP, R2), true);
             Assert.fail();
         } catch (IllegalArgumentException e) { }
+        try
+        {   // conflict on isFull/isTransient
+            test.add(Replica.trans(EP1, R1), false);
+            Assert.fail();
+        } catch (IllegalArgumentException e) { }
+        test.add(Replica.trans(EP1, R1), true);
 
         new TestCase<>(test, canonical1).testAll();
 
