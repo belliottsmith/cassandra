@@ -44,21 +44,19 @@ import java.util.stream.Collectors;
 public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint>
 {
     private static final Collector<Replica, Builder, RangesAtEndpoint> COLLECTOR = collector(ImmutableSet.of(), Builder::new);
-    private static final Map<Range<Token>, Replica> EMPTY_MAP = new LinkedHashMap<>();
-    private static final RangesAtEndpoint EMPTY = new RangesAtEndpoint(null, EMPTY_LIST, EMPTY_MAP);
+    private static final Map<Range<Token>, Replica> EMPTY_MAP = Collections.unmodifiableMap(new LinkedHashMap<>());
+    private static final RangesAtEndpoint EMPTY = new RangesAtEndpoint(null, EMPTY_LIST, true, EMPTY_MAP);
 
     private InetAddressAndPort endpoint;
     private volatile Map<Range<Token>, Replica> byRange;
 
-    private RangesAtEndpoint(InetAddressAndPort endpoint, List<Replica> list)
+    private RangesAtEndpoint(InetAddressAndPort endpoint, List<Replica> list, boolean isSnapshot)
     {
-        super(list);
-        this.endpoint = endpoint;
+        this(endpoint, list, isSnapshot, null);
     }
-
-    private RangesAtEndpoint(InetAddressAndPort endpoint, List<Replica> list, Map<Range<Token>, Replica> byRange)
+    private RangesAtEndpoint(InetAddressAndPort endpoint, List<Replica> list, boolean isSnapshot, Map<Range<Token>, Replica> byRange)
     {
-        super(list);
+        super(list, isSnapshot);
         this.endpoint = endpoint;
         this.byRange = byRange;
     }
@@ -67,7 +65,10 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
     @Override
     public Set<InetAddressAndPort> endpoints()
     {
-        return list.isEmpty() ? Collections.emptySet() : Collections.singleton(endpoint);
+        return Collections.unmodifiableSet(list.isEmpty()
+                ? Collections.emptySet()
+                : Collections.singleton(endpoint)
+        );
     }
 
     public Set<Range<Token>> ranges()
@@ -84,14 +85,14 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
     }
 
     @Override
-    protected RangesAtEndpoint subClone(List<Replica> subList)
+    protected RangesAtEndpoint snapshot(List<Replica> subList)
     {
         if (subList.isEmpty()) return empty();
-        return new RangesAtEndpoint(endpoint, subList);
+        return new RangesAtEndpoint(endpoint, subList, true);
     }
 
     @Override
-    public RangesAtEndpoint asImmutableView()
+    public RangesAtEndpoint self()
     {
         return this;
     }
@@ -131,12 +132,14 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
 
     public static class Mutable extends RangesAtEndpoint implements ReplicaCollection.Mutable<RangesAtEndpoint>
     {
+        boolean hasSnapshot;
         public Mutable() { this(0); }
         public Mutable(int capacity) { this(null, capacity); }
-        public Mutable(InetAddressAndPort endpoint, int capacity) { super(endpoint, new ArrayList<>(capacity), new LinkedHashMap<>()); }
+        public Mutable(InetAddressAndPort endpoint, int capacity) { super(endpoint, new ArrayList<>(capacity), false, new LinkedHashMap<>()); }
 
         public void add(Replica replica, boolean ignoreConflict)
         {
+            if (hasSnapshot) throw new IllegalStateException();
             Preconditions.checkNotNull(replica);
             if (super.endpoint == null)
                 super.endpoint = replica.endpoint();
@@ -163,9 +166,20 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
             return Collections.unmodifiableMap(super.byRange());
         }
 
+        public RangesAtEndpoint get(boolean isSnapshot)
+        {
+            return new RangesAtEndpoint(super.endpoint, super.list, isSnapshot, Collections.unmodifiableMap(super.byRange));
+        }
+
         public RangesAtEndpoint asImmutableView()
         {
-            return new RangesAtEndpoint(super.endpoint, super.list, Collections.unmodifiableMap(super.byRange));
+            return get(false);
+        }
+
+        public RangesAtEndpoint asSnapshot()
+        {
+            hasSnapshot = true;
+            return get(true);
         }
     }
 
@@ -192,7 +206,9 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
 
     public static RangesAtEndpoint of(Replica replica)
     {
-        return new RangesAtEndpoint(replica.endpoint(), Collections.singletonList(replica), Collections.singletonMap(replica.range(), replica));
+        ArrayList<Replica> one = new ArrayList<>(1);
+        one.add(replica);
+        return new RangesAtEndpoint(replica.endpoint(), one, true, Collections.unmodifiableMap(Collections.singletonMap(replica.range(), replica)));
     }
 
     public static RangesAtEndpoint of(Replica ... replicas)
@@ -237,7 +253,7 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
         //Always say full and then if the repair is incremental or not will determine what is streamed.
         return new RangesAtEndpoint(dummy, ranges.stream()
                 .map(range -> new Replica(dummy, range, true))
-                .collect(Collectors.toList()));
+                .collect(Collectors.toList()), true);
 
     }
 }

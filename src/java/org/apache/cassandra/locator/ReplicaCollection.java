@@ -65,17 +65,20 @@ public interface ReplicaCollection<C extends ReplicaCollection<? extends C>> ext
     /**
      * @return a *eagerly constructed* copy of this collection containing the Replica that match the provided predicate;
      * an effort will be made to either return ourself, or a subList.
+     * It is guaranteed that no changes to any upstream Mutable will affect the state of the result.
      */
     public abstract C filter(Predicate<Replica> predicate);
 
     /**
      * @return an *eagerly constructed* copy of this collection containing the Replica at positions [start..end);
      * if start == 0 and end == size(), this collection may be returned (if it is already immutable)
+     * It is guaranteed that no changes to any upstream Mutable will affect the state of the result.
      */
     public abstract C subList(int start, int end);
 
     /**
      * @return an *eagerly constructed* copy of this collection containing the Replica re-ordered according to this comparator
+     * It is guaranteed that no changes to any upstream Mutable will affect the state of the result.
      */
     public abstract C sorted(Comparator<Replica> comparator);
 
@@ -94,7 +97,17 @@ public interface ReplicaCollection<C extends ReplicaCollection<? extends C>> ext
      */
     public interface Mutable<C extends ReplicaCollection<? extends C>> extends ReplicaCollection<C>
     {
+        /**
+         * @return an Immutable clone that mirrors any modifications to this Mutable instance.
+         */
         C asImmutableView();
+
+        /**
+         * @return an Immutable clone that assumes this Mutable will never be modified again.
+         * If this is not true, behaviour is undefined.
+         */
+        C asSnapshot();
+
         void add(Replica replica, boolean ignoreConflict);
 
         default public void add(Replica replica)
@@ -127,7 +140,7 @@ public interface ReplicaCollection<C extends ReplicaCollection<? extends C>> ext
 
         public C build()
         {
-            C result = mutable.asImmutableView();
+            C result = mutable.asSnapshot();
             mutable = null;
             return result;
         }

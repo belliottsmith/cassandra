@@ -34,12 +34,12 @@ import java.util.Set;
 
 public class ReplicaList extends AbstractReplicaCollection<ReplicaList>
 {
-    private static final ReplicaList EMPTY = new ReplicaList(Collections.emptyList());
+    private static final ReplicaList EMPTY = new ReplicaList(Collections.emptyList(), true);
 
     private volatile Set<InetAddressAndPort> endpoints;
-    private ReplicaList(List<Replica> list)
+    private ReplicaList(List<Replica> list, boolean isSnapshot)
     {
-        super(list);
+        super(list, isSnapshot);
     }
 
     @Override
@@ -47,18 +47,20 @@ public class ReplicaList extends AbstractReplicaCollection<ReplicaList>
     {
         Set<InetAddressAndPort> result = endpoints;
         if (result == null)
-            endpoints = result = new LinkedHashSet<>(Collections2.transform(list, Replica::endpoint));
+            endpoints = result = Collections.unmodifiableSet(new LinkedHashSet<>(Collections2.transform(list, Replica::endpoint)));
         return result;
     }
 
     @Override
-    protected ReplicaList subClone(List<Replica> subList)
+    protected ReplicaList snapshot(List<Replica> subList)
     {
-        return new ReplicaList(subList);
+        return subList.isEmpty()
+                ? empty()
+                : new ReplicaList(subList, true);
     }
 
     @Override
-    public ReplicaList asImmutableView()
+    public ReplicaList self()
     {
         return this;
     }
@@ -71,18 +73,27 @@ public class ReplicaList extends AbstractReplicaCollection<ReplicaList>
 
     public static class Mutable extends ReplicaList implements ReplicaCollection.Mutable<ReplicaList>
     {
+        boolean hasSnapshot;
         public Mutable() { this(0); }
-        public Mutable(int capacity) { super(new ArrayList<>(capacity)); }
+        public Mutable(int capacity) { super(new ArrayList<>(capacity), false); }
 
         public void add(Replica replica, boolean ignoreConflict)
         {
+            if (hasSnapshot) throw new IllegalStateException();
             Preconditions.checkNotNull(replica);
             list.add(replica);
+            super.endpoints = null;
         }
 
         public ReplicaList asImmutableView()
         {
-            return new ReplicaList(super.list);
+            return new ReplicaList(super.list, false);
+        }
+
+        public ReplicaList asSnapshot()
+        {
+            hasSnapshot = true;
+            return new ReplicaList(super.list, true);
         }
     }
 
@@ -108,7 +119,9 @@ public class ReplicaList extends AbstractReplicaCollection<ReplicaList>
 
     public static ReplicaList of(Replica replica)
     {
-        return new ReplicaList(Collections.singletonList(replica));
+        ArrayList<Replica> one = new ArrayList<>(1);
+        one.add(replica);
+        return new ReplicaList(one, true);
     }
 
     public static ReplicaList of(Replica ... replicas)

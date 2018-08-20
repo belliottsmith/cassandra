@@ -60,25 +60,45 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
     }
 
     protected final List<Replica> list;
-    protected AbstractReplicaCollection(List<Replica> list)
+    protected final boolean isSnapshot;
+    protected AbstractReplicaCollection(List<Replica> list, boolean isSnapshot)
     {
         this.list = list;
+        this.isSnapshot = isSnapshot;
     }
 
     // if subList == null, should return self (or a clone thereof)
-    protected abstract C subClone(List<Replica> subList);
-    public abstract C asImmutableView();
+    protected abstract C snapshot(List<Replica> subList);
+    protected abstract C self();
+
+    public C snapshot()
+    {
+        return isSnapshot ? self()
+                          : snapshot(list.isEmpty() ? EMPTY_LIST
+                                                    : new ArrayList<>(list));
+    }
 
     public final C subList(int start, int end)
     {
-        if (start == 0 && end == size()) return asImmutableView();
-        return subClone(list.subList(start, end));
+        List<Replica> subList;
+        if (isSnapshot)
+        {
+            if (start == 0 && end == size()) return self();
+            else if (start == end) subList = EMPTY_LIST;
+            else subList = list.subList(start, end);
+        }
+        else
+        {
+            if (start == end) subList = EMPTY_LIST;
+            else subList = new ArrayList<>(list.subList(start, end)); // TODO: we could take a subList here, but comodification checks stop us
+        }
+        return snapshot(subList);
     }
 
     public final C filter(Predicate<Replica> predicate)
     {
         if (isEmpty())
-            return asImmutableView();
+            return snapshot();
 
         List<Replica> copy = null;
         int beginRun = -1, endRun = -1;
@@ -106,10 +126,10 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
         if (beginRun < 0)
             beginRun = endRun = 0;
         if (endRun < 0)
-            endRun = list.size();
+            endRun = size();
         if (copy == null)
             return subList(beginRun, endRun);
-        return subClone(copy);
+        return snapshot(copy);
     }
 
     public final class Select
@@ -121,8 +141,13 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
             this.result = new ArrayList<>(targetSize);
             this.targetSize = targetSize;
         }
+
+        /**
+         * Add matching replica to the result; this predicate should be mutually exclusive with all prior predicates
+         */
         public Select add(Predicate<Replica> predicate)
         {
+            assert !Iterables.any(result, predicate::test);
             for (int i = 0 ; result.size() < targetSize && i < list.size() ; ++i)
                 if (predicate.test(list.get(i)))
                     result.add(list.get(i));
@@ -130,7 +155,7 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
         }
         public C get()
         {
-            return subClone(result);
+            return snapshot(result);
         }
     }
 
@@ -152,7 +177,7 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
     {
         List<Replica> copy = new ArrayList<>(list);
         copy.sort(comparator);
-        return subClone(copy);
+        return snapshot(copy);
     }
 
     public final Replica get(int i)

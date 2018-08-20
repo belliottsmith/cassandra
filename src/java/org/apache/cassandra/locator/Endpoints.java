@@ -27,17 +27,16 @@ import java.util.Set;
 
 public abstract class Endpoints<C extends Endpoints<C>> extends AbstractReplicaCollection<C>
 {
-    static final Map<InetAddressAndPort, Replica> EMPTY_MAP = new LinkedHashMap<>();
+    static final Map<InetAddressAndPort, Replica> EMPTY_MAP = Collections.unmodifiableMap(new LinkedHashMap<>());
 
     volatile Map<InetAddressAndPort, Replica> byEndpoint;
-    Endpoints(List<Replica> list)
+    Endpoints(List<Replica> list, boolean isSnapshot)
     {
-        super(list);
+        this(list, isSnapshot, null);
     }
-
-    Endpoints(List<Replica> list, Map<InetAddressAndPort, Replica> byEndpoint)
+    Endpoints(List<Replica> list, boolean isSnapshot, Map<InetAddressAndPort, Replica> byEndpoint)
     {
-        super(list);
+        super(list, isSnapshot);
         this.byEndpoint = byEndpoint;
     }
 

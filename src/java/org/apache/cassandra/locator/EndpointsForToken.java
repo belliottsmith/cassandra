@@ -37,15 +37,14 @@ import java.util.Map;
 public class EndpointsForToken extends Endpoints<EndpointsForToken>
 {
     private final Token token;
-    private EndpointsForToken(Token token, List<Replica> list)
+    private EndpointsForToken(Token token, List<Replica> list, boolean isSnapshot)
     {
-        super(list);
-        this.token = token;
+        this(token, list, isSnapshot, null);
     }
 
-    EndpointsForToken(Token token, List<Replica> list, Map<InetAddressAndPort, Replica> byEndpoint)
+    EndpointsForToken(Token token, List<Replica> list, boolean isSnapshot, Map<InetAddressAndPort, Replica> byEndpoint)
     {
-        super(list, byEndpoint);
+        super(list, isSnapshot, byEndpoint);
         this.token = token;
         assert token != null;
     }
@@ -62,25 +61,27 @@ public class EndpointsForToken extends Endpoints<EndpointsForToken>
     }
 
     @Override
-    public EndpointsForToken asImmutableView()
+    public EndpointsForToken self()
     {
         return this;
     }
 
     @Override
-    protected EndpointsForToken subClone(List<Replica> subList)
+    protected EndpointsForToken snapshot(List<Replica> subList)
     {
         if (subList.isEmpty()) return empty(token);
-        return new EndpointsForToken(token, subList);
+        return new EndpointsForToken(token, subList, true);
     }
 
     public static class Mutable extends EndpointsForToken implements ReplicaCollection.Mutable<EndpointsForToken>
     {
+        boolean hasSnapshot;
         public Mutable(Token token) { this(token, 0); }
-        public Mutable(Token token, int capacity) { super(token, new ArrayList<>(capacity), new LinkedHashMap<>()); }
+        public Mutable(Token token, int capacity) { super(token, new ArrayList<>(capacity), false, new LinkedHashMap<>()); }
 
         public void add(Replica replica, boolean ignoreConflict)
         {
+            if (hasSnapshot) throw new IllegalStateException();
             Preconditions.checkNotNull(replica);
             if (!replica.range().contains(super.token))
                 throw new IllegalArgumentException("Mismatching ranges added to EndpointsForRange.Builder: " + replica + " does not contain " + super.token);
@@ -105,9 +106,20 @@ public class EndpointsForToken extends Endpoints<EndpointsForToken>
             return Collections.unmodifiableMap(super.byEndpoint());
         }
 
+        private EndpointsForToken get(boolean isSnapshot)
+        {
+            return new EndpointsForToken(super.token, super.list, isSnapshot, Collections.unmodifiableMap(super.byEndpoint));
+        }
+
         public EndpointsForToken asImmutableView()
         {
-            return new EndpointsForToken(super.token, super.list, Collections.unmodifiableMap(super.byEndpoint));
+            return get(false);
+        }
+
+        public EndpointsForToken asSnapshot()
+        {
+            hasSnapshot = true;
+            return get(true);
         }
     }
 
@@ -128,7 +140,7 @@ public class EndpointsForToken extends Endpoints<EndpointsForToken>
 
     public static EndpointsForToken empty(Token token)
     {
-        return new EndpointsForToken(token, EMPTY_LIST, EMPTY_MAP);
+        return new EndpointsForToken(token, EMPTY_LIST, true, EMPTY_MAP);
     }
 
     public static EndpointsForToken of(Token token, Replica replica)
@@ -137,7 +149,7 @@ public class EndpointsForToken extends Endpoints<EndpointsForToken>
         ArrayList<Replica> one = new ArrayList<>(1);
         one.add(replica);
         // we can safely use singletonMap, as we only otherwise use LinkedHashMap
-        return new EndpointsForToken(token, one, Collections.singletonMap(replica.endpoint(), replica));
+        return new EndpointsForToken(token, one, true, Collections.unmodifiableMap(Collections.singletonMap(replica.endpoint(), replica)));
     }
 
     public static EndpointsForToken of(Token token, Replica ... replicas)

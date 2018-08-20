@@ -1357,7 +1357,7 @@ public class StorageProxy implements StorageProxyMBean
             MessagingService.instance().applyBackPressure(backPressureHosts, responseHandler.currentTimeout());
 
         if (endpointsToHint != null)
-            submitHint(mutation, endpointsToHint.asImmutableView(), responseHandler);
+            submitHint(mutation, endpointsToHint.asSnapshot(), responseHandler);
 
         if (insertLocal)
         {
@@ -1374,7 +1374,7 @@ public class StorageProxy implements StorageProxyMBean
         {
             // for each datacenter, send the message to one node to relay the write to other replicas
             for (ReplicaCollection.Mutable<? extends Endpoints<?>> dcTargets : dcGroups.values())
-                sendMessagesToNonlocalDC(message, dcTargets.asImmutableView(), responseHandler);
+                sendMessagesToNonlocalDC(message, dcTargets.asSnapshot(), responseHandler);
         }
     }
 
