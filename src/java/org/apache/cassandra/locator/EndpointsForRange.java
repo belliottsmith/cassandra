@@ -85,7 +85,7 @@ public class EndpointsForRange extends Endpoints<EndpointsForRange>
         public Mutable(Range<Token> range) { this(range, 0); }
         public Mutable(Range<Token> range, int capacity) { super(range, new ArrayList<>(capacity), new LinkedHashMap<>()); }
 
-        public boolean add(Replica replica)
+        public void add(Replica replica, boolean ignoreConflict)
         {
             Preconditions.checkNotNull(replica);
             if (!replica.range().contains(super.range))
@@ -95,11 +95,12 @@ public class EndpointsForRange extends Endpoints<EndpointsForRange>
             if (prev != null)
             {
                 super.byEndpoint.put(replica.endpoint(), prev); // restore prev
-                return false;
+                if (!prev.equals(replica) && !ignoreConflict) // ignore pure duplicates
+                    throw new IllegalArgumentException("Conflicting replica added (expected unique endpoints): " + replica + "; existing: " + prev);
+                return;
             }
 
             list.add(replica);
-            return true;
         }
 
         @Override

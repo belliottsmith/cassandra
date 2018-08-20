@@ -56,11 +56,11 @@ public abstract class ReplicaMultimap<K, C extends ReplicaCollection<?>>
             return map.computeIfAbsent(key, k -> newMutable(key));
         }
 
-        public boolean put(K key, Replica replica)
+        public void put(K key, Replica replica)
         {
             Preconditions.checkNotNull(key);
             Preconditions.checkNotNull(replica);
-            return get(key).add(replica);
+            get(key).add(replica);
         }
     }
 

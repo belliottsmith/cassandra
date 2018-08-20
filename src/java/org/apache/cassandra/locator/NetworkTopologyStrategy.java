@@ -135,16 +135,14 @@ public class NetworkTopologyStrategy extends AbstractReplicationStrategy
             {
                 // New rack.
                 --rfLeft;
-                boolean added = replicas.add(replica);
-                assert added;
+                replicas.add(replica, false);
                 return done();
             }
             if (acceptableRackRepeats <= 0)
                 // There must be rfLeft distinct racks left, do not add any more rack repeats.
                 return false;
 
-            boolean added = replicas.add(replica);
-            assert added;
+            replicas.add(replica, false);
             // Added a node that is from an already met rack to match RF when there aren't enough racks.
             --acceptableRackRepeats;
             --rfLeft;

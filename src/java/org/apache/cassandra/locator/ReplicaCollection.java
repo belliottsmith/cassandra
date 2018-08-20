@@ -94,28 +94,23 @@ public interface ReplicaCollection<C extends ReplicaCollection<? extends C>> ext
      */
     public interface Mutable<C extends ReplicaCollection<? extends C>> extends ReplicaCollection<C>
     {
-        public boolean add(Replica replica);
         C asImmutableView();
+        void add(Replica replica, boolean ignoreConflict);
 
-        default public boolean add(Replica replica, boolean ignoreDuplicate)
+        default public void add(Replica replica)
         {
-            boolean success = add(replica);
-            if (!success && ignoreDuplicate)
-                throw new IllegalArgumentException("Duplicate replica added: " + replica);
-            return success;
+            add(replica, false);
         }
 
-        default public boolean addAll(Iterable<Replica> replicas, boolean ignoreDuplicates)
+        default public void addAll(Iterable<Replica> replicas, boolean ignoreConflicts)
         {
-            boolean added = false;
             for (Replica replica : replicas)
-                added |= add(replica, ignoreDuplicates);
-            return added;
+                add(replica, ignoreConflicts);
         }
 
-        default public boolean addAll(Iterable<Replica> replicas)
+        default public void addAll(Iterable<Replica> replicas)
         {
-            return addAll(replicas, false);
+            addAll(replicas, false);
         }
     }
 

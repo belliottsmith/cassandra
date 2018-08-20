@@ -133,7 +133,7 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
         public Mutable(int capacity) { this(null, capacity); }
         public Mutable(InetAddressAndPort endpoint, int capacity) { super(endpoint, new ArrayList<>(capacity), new LinkedHashMap<>()); }
 
-        public boolean add(Replica replica)
+        public void add(Replica replica, boolean ignoreConflict)
         {
             Preconditions.checkNotNull(replica);
             if (super.endpoint == null)
@@ -145,11 +145,12 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
             if (prev != null)
             {
                 super.byRange.put(replica.range(), prev); // restore prev
-                return false;
+                if (!prev.equals(replica) && !ignoreConflict) // we will ignore a pure duplicate
+                    throw new IllegalArgumentException("Conflicting replica added (expected unique ranges): " + replica + "; existing: " + prev);
+                return;
             }
 
             list.add(replica);
-            return true;
         }
 
         @Override

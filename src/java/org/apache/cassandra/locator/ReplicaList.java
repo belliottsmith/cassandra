@@ -86,11 +86,10 @@ public class ReplicaList extends AbstractReplicaCollection<ReplicaList>
         public Mutable() { this(0); }
         public Mutable(int capacity) { super(new ArrayList<>(capacity)); }
 
-        public boolean add(Replica replica)
+        public void add(Replica replica, boolean ignoreConflict)
         {
             Preconditions.checkNotNull(replica);
             list.add(replica);
-            return true;
         }
 
         public ReplicaList asImmutableView()
