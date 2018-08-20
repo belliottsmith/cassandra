@@ -76,8 +76,6 @@ public class StreamPlan
      */
     public StreamPlan requestRanges(InetAddressAndPort from, String keyspace, RangesAtEndpoint fullRanges, RangesAtEndpoint transientRanges)
     {
-        assert fullRanges.isEmpty() || (fullRanges.endpoints().size() == 1 && fullRanges.endpoints().contains(from));
-        assert transientRanges.isEmpty() || (transientRanges.endpoints().size() == 1 && transientRanges.endpoints().contains(from));
         return requestRanges(from, keyspace, fullRanges, transientRanges, EMPTY_COLUMN_FAMILIES);
     }
 
