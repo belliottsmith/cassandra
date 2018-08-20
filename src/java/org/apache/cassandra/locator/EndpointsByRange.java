@@ -36,7 +36,7 @@ public class EndpointsByRange extends ReplicaMultimap<Range<Token>, EndpointsFor
     public EndpointsForRange get(Range<Token> range)
     {
         Preconditions.checkNotNull(range);
-        return map.getOrDefault(range, EndpointsForRange.empty());
+        return map.getOrDefault(range, EndpointsForRange.empty(range));
     }
 
     public static class Mutable extends ReplicaMultimap.Mutable<Range<Token>, EndpointsForRange.Mutable>

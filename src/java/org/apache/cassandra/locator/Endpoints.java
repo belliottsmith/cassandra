@@ -27,8 +27,9 @@ import java.util.Set;
 
 public abstract class Endpoints<C extends Endpoints<C>> extends AbstractReplicaCollection<C>
 {
-    volatile Map<InetAddressAndPort, Replica> byEndpoint;
+    static final Map<InetAddressAndPort, Replica> EMPTY_MAP = new LinkedHashMap<>();
 
+    volatile Map<InetAddressAndPort, Replica> byEndpoint;
     Endpoints(List<Replica> list)
     {
         super(list);
@@ -40,6 +41,10 @@ public abstract class Endpoints<C extends Endpoints<C>> extends AbstractReplicaC
         this.byEndpoint = byEndpoint;
     }
 
+    /**
+     * construct a new Mutable of our own type, so that we can concatenate
+     * TODO: this isn't terribly pretty, but we need sometimes to select / merge two Endpoints of unknown type;
+     */
     public abstract Mutable<C> newMutable(int initialCapacity);
 
     @Override

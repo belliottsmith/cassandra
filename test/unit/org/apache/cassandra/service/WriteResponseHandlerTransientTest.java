@@ -148,12 +148,12 @@ public class WriteResponseHandlerTransientTest
 
     private static WritePathReplicaPlan expected(EndpointsForRange all, EndpointsForRange initial)
     {
-        return new WritePathReplicaPlan(ks, null, all, initial, EndpointsForRange.empty());
+        return new WritePathReplicaPlan(ks, null, all, initial, EndpointsForRange.empty(all.range()));
     }
 
     private static WritePathReplicaPlan getSpeculationContext(EndpointsForRange replicas, int blockFor, Predicate<InetAddressAndPort> livePredicate)
     {
-        return WritePathReplicaPlan.createReplicaPlan(ks, ConsistencyLevel.QUORUM, blockFor, replicas, EndpointsForRange.empty(), livePredicate);
+        return WritePathReplicaPlan.createReplicaPlan(ks, ConsistencyLevel.QUORUM, blockFor, replicas, EndpointsForRange.empty(replicas.range()), livePredicate);
     }
 
     private static void assertSpeculationReplicas(WritePathReplicaPlan expected, EndpointsForRange replicas, int blockFor, Predicate<InetAddressAndPort> livePredicate)

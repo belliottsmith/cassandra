@@ -63,8 +63,8 @@ public interface ReplicaCollection<C extends ReplicaCollection<? extends C>> ext
     public abstract boolean contains(Replica replica);
 
     /**
-     * @return an *eagerly constructed* copy of this collection containing the Replica that match the provided predicate;
-     * if the predicate is non-selective (i.e. all contents test true), this collection may be returned (if it is already immutable)
+     * @return a *eagerly constructed* copy of this collection containing the Replica that match the provided predicate;
+     * an effort will be made to either return ourself, or a subList.
      */
     public abstract C filter(Predicate<Replica> predicate);
 
@@ -86,6 +86,12 @@ public interface ReplicaCollection<C extends ReplicaCollection<? extends C>> ext
     public abstract int hashCode();
     public abstract String toString();
 
+    /**
+     * A mutable extension of a ReplicaCollection.  This is append-only, so it is safe to select a subList,
+     * or at any time take an asImmutableView() snapshot.
+     * TODO: TR-Review do we think this constraint is OK?
+     * TODO: TR-Review is it better to extend ReplicaCollection, or require to take an asImmutableView() for reading?
+     */
     public interface Mutable<C extends ReplicaCollection<? extends C>> extends ReplicaCollection<C>
     {
         public boolean add(Replica replica);

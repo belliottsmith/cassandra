@@ -34,10 +34,7 @@ import static com.google.common.collect.Iterables.all;
 
 public class EndpointsForRange extends Endpoints<EndpointsForRange>
 {
-    private static final EndpointsForRange EMPTY = new EndpointsForRange(null, Collections.emptyList());
-
     private final Range<Token> range;
-
     private EndpointsForRange(Range<Token> range, List<Replica> list)
     {
         super(list);
@@ -48,6 +45,12 @@ public class EndpointsForRange extends Endpoints<EndpointsForRange>
     {
         super(list, byEndpoint);
         this.range = range;
+        assert range != null;
+    }
+
+    public Range<Token> range()
+    {
+        return range;
     }
 
     @Override
@@ -64,7 +67,7 @@ public class EndpointsForRange extends Endpoints<EndpointsForRange>
 
     public EndpointsForToken forToken(Token token)
     {
-        if (range != null && !range.contains(token))
+        if (!range.contains(token))
             throw new IllegalArgumentException(token + " is not contained within " + range);
         return new EndpointsForToken(token, list, byEndpoint);
     }
@@ -72,7 +75,9 @@ public class EndpointsForRange extends Endpoints<EndpointsForRange>
     @Override
     protected EndpointsForRange subClone(List<Replica> subList)
     {
-        return subList == null ? this.asImmutableView() : new EndpointsForRange(range, subList);
+        if (subList == null) return asImmutableView();
+        if (subList.isEmpty()) return empty(range);
+        return new EndpointsForRange(range, subList);
     }
 
     public static class Mutable extends EndpointsForRange implements ReplicaCollection.Mutable<EndpointsForRange>
@@ -95,6 +100,14 @@ public class EndpointsForRange extends Endpoints<EndpointsForRange>
 
             list.add(replica);
             return true;
+        }
+
+        @Override
+        public Map<InetAddressAndPort, Replica> byEndpoint()
+        {
+            // our internal map is modifiable, but it is unsafe to modify the map externally
+            // it would be possible to implement a safe modifiable map, but it is probably not valuable
+            return Collections.unmodifiableMap(super.byEndpoint());
         }
 
         public EndpointsForRange asImmutableView()
@@ -122,19 +135,18 @@ public class EndpointsForRange extends Endpoints<EndpointsForRange>
         return new Builder(range, capacity);
     }
 
-    public static EndpointsForRange empty()
-    {
-        return EMPTY;
-    }
-
     public static EndpointsForRange empty(Range<Token> range)
     {
-        return new EndpointsForRange(range, Collections.emptyList(), Collections.emptyMap());
+        return new EndpointsForRange(range, EMPTY_LIST, EMPTY_MAP);
     }
 
     public static EndpointsForRange of(Replica replica)
     {
-        return new EndpointsForRange(replica.range(), Collections.singletonList(replica), Collections.singletonMap(replica.endpoint(), replica));
+        // we only use ArrayList or ArrayList.SubList, to ensure callsites are bimorphic
+        ArrayList<Replica> one = new ArrayList<>(1);
+        one.add(replica);
+        // we can safely use singletonMap, as we only otherwise use LinkedHashMap
+        return new EndpointsForRange(replica.range(), one, Collections.singletonMap(replica.endpoint(), replica));
     }
 
     public static EndpointsForRange of(Replica ... replicas)
@@ -144,7 +156,8 @@ public class EndpointsForRange extends Endpoints<EndpointsForRange>
 
     public static EndpointsForRange copyOf(Collection<Replica> replicas)
     {
-        if (replicas.isEmpty()) return empty();
+        if (replicas.isEmpty())
+            throw new IllegalArgumentException("Collection must be non-empty to copy");
         Range<Token> range = replicas.iterator().next().range();
         assert all(replicas, r -> range.equals(r.range()));
         return builder(range, replicas.size()).addAll(replicas).build();

@@ -1222,7 +1222,7 @@ public class TokenMetadata
     {
         PendingRangeMaps pendingRangeMaps = this.pendingRanges.get(keyspaceName);
         if (pendingRangeMaps == null)
-            return EndpointsForToken.empty();
+            return EndpointsForToken.empty(token);
 
         return pendingRangeMaps.pendingEndpointsFor(token);
     }

@@ -1055,7 +1055,7 @@ public class StorageProxy implements StorageProxyMBean
         EndpointsForRange replicas = SystemReplicas.getSystemReplicas(endpoints);
 
         ConsistencyLevel consistencyLevel = replicas.size() == 1 ? ConsistencyLevel.ONE : ConsistencyLevel.TWO;
-        WriteResponseHandler<?> handler = new WriteResponseHandler<>(WritePathReplicaPlan.createReplicaPlan(null, consistencyLevel, replicas, EndpointsForRange.empty()),
+        WriteResponseHandler<?> handler = new WriteResponseHandler<>(WritePathReplicaPlan.createReplicaPlan(null, consistencyLevel, replicas, EndpointsForRange.empty(replicas.range())),
                                                                      consistencyLevel,
                                                                      Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME),
                                                                      null,

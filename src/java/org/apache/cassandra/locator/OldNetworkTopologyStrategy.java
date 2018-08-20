@@ -47,7 +47,7 @@ public class OldNetworkTopologyStrategy extends AbstractReplicationStrategy
     {
         ArrayList<Token> tokens = metadata.sortedTokens();
         if (tokens.isEmpty())
-            return EndpointsForRange.empty();
+            return EndpointsForRange.empty(new Range<>(metadata.partitioner.getMinimumToken(), metadata.partitioner.getMinimumToken()));
 
         Iterator<Token> iter = TokenMetadata.ringIterator(tokens, token, false);
         Token primaryToken = iter.next();

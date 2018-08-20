@@ -42,6 +42,8 @@ import java.util.stream.Stream;
  */
 public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollection<? extends C>> implements ReplicaCollection<C>
 {
+    protected static final List<Replica> EMPTY_LIST = new ArrayList<>(); // since immutable, can safely return this to avoid megamorphic callsites
+
     public static <C extends ReplicaCollection<? extends C>, B extends Builder<C, ?, B>> Collector<Replica, B, C> collector(Set<Collector.Characteristics> characteristics, Supplier<B> supplier)
     {
         return new Collector<Replica, B, C>()
@@ -95,7 +97,7 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
         }
 
         if (firstMatch < 0)
-            return subClone(Collections.emptyList());
+            return subClone(EMPTY_LIST);
         if (copy == null)
             copy = list.subList(firstMatch, list.size());
         return subClone(copy);
@@ -123,6 +125,15 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
         }
     }
 
+    /**
+     * An efficient method for selecting a subset of replica via a sequence of filters.
+     * Once the target number of replica are met, no more filters are applied, or replicas added.
+     *
+     * Example: select(3).add(filter1).add(filter2).get();
+     *
+     * @param targetSize the number of Replica you want to select into a new ReplicaCollection of type C
+     * @return a Select object
+     */
     public final Select select(int targetSize)
     {
         return new Select(targetSize);

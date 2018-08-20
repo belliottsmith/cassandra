@@ -31,6 +31,8 @@ import org.apache.cassandra.locator.Replica;
 
 public class ReplicaPlan
 {
+    // TODO: ideally these would be generified to either EndpointsByToken or EndpointsByRange, but currently we conflate
+    // the two in a couple of places (primarily Digest/DataResolver, which can be for a range or partition read)
     protected final Endpoints<?> allReplicas;
     // Might be modified by speculative strategy
     protected volatile Endpoints<?> targetReplicas;

@@ -49,7 +49,7 @@ public class SimpleStrategy extends AbstractReplicationStrategy
     {
         ArrayList<Token> ring = metadata.sortedTokens();
         if (ring.isEmpty())
-            return EndpointsForRange.empty();
+            return EndpointsForRange.empty(new Range<>(metadata.partitioner.getMinimumToken(), metadata.partitioner.getMinimumToken()));
 
         Token replicaEnd = TokenMetadata.firstToken(ring, token);
         Token replicaStart = metadata.getPredecessor(replicaEnd);

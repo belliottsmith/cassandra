@@ -509,7 +509,7 @@ public class BatchlogManager implements BatchlogManagerMBean
 
             ReplayWriteResponseHandler(Keyspace keyspace, EndpointsForToken writeReplicas, long queryStartNanoTime)
             {
-                super(WritePathReplicaPlan.createReplicaPlan(keyspace, null, writeReplicas, EndpointsForToken.empty()),
+                super(WritePathReplicaPlan.createReplicaPlan(keyspace, null, writeReplicas, EndpointsForToken.empty(writeReplicas.token())),
                       null, null, null, WriteType.UNLOGGED_BATCH, queryStartNanoTime);
                 Iterables.addAll(undelivered, writeReplicas.endpoints());
             }

@@ -40,7 +40,8 @@ import java.util.stream.Collectors;
 public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint>
 {
     private static final Collector<Replica, Builder, RangesAtEndpoint> COLLECTOR = collector(ImmutableSet.of(), Builder::new);
-    private static final RangesAtEndpoint EMPTY = new RangesAtEndpoint(null, Collections.emptyList());
+    private static final Map<Range<Token>, Replica> EMPTY_MAP = new LinkedHashMap<>();
+    private static final RangesAtEndpoint EMPTY = new RangesAtEndpoint(null, EMPTY_LIST, EMPTY_MAP);
 
     private InetAddressAndPort endpoint;
     private volatile Map<Range<Token>, Replica> byRange;
@@ -62,7 +63,7 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
     @Override
     public Set<InetAddressAndPort> endpoints()
     {
-        return endpoint == null ? Collections.emptySet() : Collections.singleton(endpoint);
+        return list.isEmpty() ? Collections.emptySet() : Collections.singleton(endpoint);
     }
 
     public Set<Range<Token>> ranges()
@@ -82,7 +83,9 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
     protected RangesAtEndpoint subClone(List<Replica> subList)
     {
         // TODO: when we implement our map as one that iterates our own list, we can also return the map after sorting (i.e. if sizes equal)
-        return subList == null ? this.asImmutableView() : new RangesAtEndpoint(subList.isEmpty() ? null : endpoint, subList);
+        if (subList == null) return asImmutableView();
+        if (subList.isEmpty()) return empty();
+        return new RangesAtEndpoint(endpoint, subList);
     }
 
     @Override
@@ -149,12 +152,19 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
             return true;
         }
 
+        @Override
+        public Map<Range<Token>, Replica> byRange()
+        {
+            // our internal map is modifiable, but it is unsafe to modify the map externally
+            // it would be possible to implement a safe modifiable map, but it is probably not valuable
+            return Collections.unmodifiableMap(super.byRange());
+        }
+
         public RangesAtEndpoint asImmutableView()
         {
             return new RangesAtEndpoint(super.endpoint, super.list, Collections.unmodifiableMap(super.byRange));
         }
     }
-
 
     public static class Builder extends ReplicaCollection.Builder<RangesAtEndpoint, Mutable, RangesAtEndpoint.Builder>
     {

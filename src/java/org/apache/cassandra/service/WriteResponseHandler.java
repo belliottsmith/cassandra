@@ -57,7 +57,7 @@ public class WriteResponseHandler<T> extends AbstractWriteResponseHandler<T>
 
     public WriteResponseHandler(Token token, Replica replica, WriteType writeType, Runnable callback, long queryStartNanoTime)
     {
-        this(WritePathReplicaPlan.createReplicaPlan(null, ConsistencyLevel.ONE, EndpointsForToken.of(token, replica), EndpointsForToken.empty()), ConsistencyLevel.ONE, null, callback, writeType, queryStartNanoTime);
+        this(WritePathReplicaPlan.createReplicaPlan(null, ConsistencyLevel.ONE, EndpointsForToken.of(token, replica), EndpointsForToken.empty(token)), ConsistencyLevel.ONE, null, callback, writeType, queryStartNanoTime);
     }
 
     public WriteResponseHandler(Token token, Replica replica, WriteType writeType, long queryStartNanoTime)

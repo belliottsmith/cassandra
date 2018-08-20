@@ -229,7 +229,7 @@ public class WriteResponseHandlerTest
 
     private static AbstractWriteResponseHandler createWriteResponseHandler(ConsistencyLevel cl, ConsistencyLevel ideal, long queryStartTime)
     {
-        return ks.getReplicationStrategy().getWriteResponseHandler(WritePathReplicaPlan.createReplicaPlan(ks, cl, targets, EndpointsForRange.empty()), cl, () -> {},
+        return ks.getReplicationStrategy().getWriteResponseHandler(WritePathReplicaPlan.createReplicaPlan(ks, cl, targets, EndpointsForRange.empty(targets.range())), cl, () -> {},
                                                                    WriteType.SIMPLE, queryStartTime, ideal);
     }
 
