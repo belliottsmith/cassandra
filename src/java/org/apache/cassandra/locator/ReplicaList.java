@@ -19,6 +19,7 @@
 package org.apache.cassandra.locator;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Collections2;
 import com.google.common.collect.Iterators;
 
 import java.util.AbstractSet;
@@ -27,6 +28,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -34,39 +36,25 @@ public class ReplicaList extends AbstractReplicaCollection<ReplicaList>
 {
     private static final ReplicaList EMPTY = new ReplicaList(Collections.emptyList());
 
+    private volatile Set<InetAddressAndPort> endpoints;
     private ReplicaList(List<Replica> list)
     {
         super(list);
     }
 
-    private <T> Set<T> toSet(com.google.common.base.Function<Replica, T> transform)
-    {
-        List<Replica> unmodifiable = Collections.unmodifiableList(list);
-        return new AbstractSet<T>()
-        {
-            @Override
-            public Iterator<T> iterator()
-            {
-                return Iterators.transform(unmodifiable.iterator(), transform);
-            }
-            @Override
-            public int size()
-            {
-                return list.size();
-            }
-        };
-    }
-
     @Override
     public Set<InetAddressAndPort> endpoints()
     {
-        return toSet(Replica::endpoint);
+        Set<InetAddressAndPort> result = endpoints;
+        if (result == null)
+            endpoints = result = new LinkedHashSet<>(Collections2.transform(list, Replica::endpoint));
+        return result;
     }
 
     @Override
     protected ReplicaList subClone(List<Replica> subList)
     {
-        return subList == null ? this.asImmutableView() : new ReplicaList(subList);
+        return new ReplicaList(subList);
     }
 
     @Override

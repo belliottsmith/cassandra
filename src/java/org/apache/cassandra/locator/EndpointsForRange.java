@@ -80,7 +80,6 @@ public class EndpointsForRange extends Endpoints<EndpointsForRange>
     @Override
     protected EndpointsForRange subClone(List<Replica> subList)
     {
-        if (subList == null) return asImmutableView();
         if (subList.isEmpty()) return empty(range);
         return new EndpointsForRange(range, subList);
     }

@@ -70,7 +70,6 @@ public class EndpointsForToken extends Endpoints<EndpointsForToken>
     @Override
     protected EndpointsForToken subClone(List<Replica> subList)
     {
-        if (subList == null) return asImmutableView();
         if (subList.isEmpty()) return empty(token);
         return new EndpointsForToken(token, subList);
     }

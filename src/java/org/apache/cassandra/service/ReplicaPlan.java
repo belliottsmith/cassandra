@@ -105,9 +105,9 @@ public class ReplicaPlan
         return consistencyLevel;
     }
 
-    public ReplicaPlan with(Endpoints<?> targets)
+    public ReplicaPlan with(Endpoints<?> targetReplicas)
     {
-        return new ReplicaPlan(keyspace, consistencyLevel, allReplicas, targets);
+        return new ReplicaPlan(keyspace, consistencyLevel, allReplicas, targetReplicas);
     }
 
     public ReplicaPlan with(ConsistencyLevel consistencyLevel)

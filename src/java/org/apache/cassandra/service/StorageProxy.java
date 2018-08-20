@@ -1952,9 +1952,9 @@ public class StorageProxy implements StorageProxyMBean
             this.range = range;
         }
 
-        public RangeQueryReplicaPlan with(Endpoints<?> newTargets)
+        public RangeQueryReplicaPlan with(Endpoints<?> targetReplicas)
         {
-            return new RangeQueryReplicaPlan(keyspace, consistencyLevel, range, allReplicas, newTargets);
+            return new RangeQueryReplicaPlan(keyspace, consistencyLevel, range, allReplicas, targetReplicas);
         }
     }
 

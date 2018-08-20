@@ -71,35 +71,44 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
 
     public final C subList(int start, int end)
     {
-        return subClone(start == 0 && end == size() ? null : list.subList(start, end));
+        if (start == 0 && end == size()) return asImmutableView();
+        return subClone(list.subList(start, end));
     }
 
     public final C filter(Predicate<Replica> predicate)
     {
+        if (isEmpty())
+            return asImmutableView();
+
         List<Replica> copy = null;
-        int firstMatch = -1;
+        int beginRun = -1, endRun = -1;
         for (int i = 0 ; i < list.size() ; ++i)
         {
             Replica replica = list.get(i);
-            if (!predicate.test(replica))
+            if (predicate.test(replica))
             {
-                if (copy == null && firstMatch >= 0)
+                if (copy != null)
+                    copy.add(replica);
+                else if (beginRun < 0)
+                    beginRun = i;
+                else if (endRun > 0)
                 {
-                    copy = new ArrayList<>(list.size() - 1);
-                    for (int j = firstMatch ; j < i ; ++j)
+                    copy = new ArrayList<>((list.size() - i) + (endRun - beginRun));
+                    for (int j = beginRun ; j < endRun ; ++j)
                         copy.add(list.get(j));
+                    copy.add(list.get(i));
                 }
             }
-            else if (copy != null)
-                copy.add(replica);
-            else if (firstMatch < 0)
-                firstMatch = i;
+            else if (beginRun >= 0 && endRun < 0)
+                endRun = i;
         }
 
-        if (firstMatch < 0)
-            return subClone(EMPTY_LIST);
+        if (beginRun < 0)
+            beginRun = endRun = 0;
+        if (endRun < 0)
+            endRun = list.size();
         if (copy == null)
-            copy = list.subList(firstMatch, list.size());
+            return subList(beginRun, endRun);
         return subClone(copy);
     }
 

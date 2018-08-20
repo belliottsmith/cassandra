@@ -86,8 +86,6 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
     @Override
     protected RangesAtEndpoint subClone(List<Replica> subList)
     {
-        // TODO: when we implement our map as one that iterates our own list, we can also return the map after sorting (i.e. if sizes equal)
-        if (subList == null) return asImmutableView();
         if (subList.isEmpty()) return empty();
         return new RangesAtEndpoint(endpoint, subList);
     }

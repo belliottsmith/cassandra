@@ -26,7 +26,6 @@ import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.locator.Endpoints;
-import org.apache.cassandra.locator.EndpointsForToken;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
 
@@ -59,7 +58,7 @@ public class WritePathReplicaPlan extends ReplicaPlan
     {
         if (!keyspace.getReplicationStrategy().hasTransientReplicas())
         {
-            Endpoints<?> replicas = EndpointsForToken.concat(naturalReplicas, pendingReplicas, true);
+            E replicas = Endpoints.concat(naturalReplicas, pendingReplicas, true);
             return new WritePathReplicaPlan(keyspace, consistencyLevel, replicas, replicas, pendingReplicas);
         }
 
