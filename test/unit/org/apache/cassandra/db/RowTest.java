@@ -83,7 +83,7 @@ public class RowTest
     }
 
     @Test
-    public void testMergeRangeTombstones() throws InterruptedException
+    public void testMergeRangeTombstones()
     {
         PartitionUpdate.Builder update1 = new PartitionUpdate.Builder(metadata, dk, metadata.regularAndStaticColumns(), 1);
         writeRangeTombstone(update1, "1", "11", 123, 123);
@@ -99,7 +99,7 @@ public class RowTest
         writeRangeTombstone(update2, "4", "41", 123, 1230);
         writeRangeTombstone(update2, "5", "51", 123, 1230);
 
-        try (UnfilteredRowIterator merged = UnfilteredRowIterators.merge(ImmutableList.of(update1.build().unfilteredIterator(), update2.build().unfilteredIterator()), nowInSeconds))
+        try (UnfilteredRowIterator merged = UnfilteredRowIterators.merge(ImmutableList.of(update1.build().unfilteredIterator(), update2.build().unfilteredIterator())))
         {
             Object[][] expected = new Object[][]{ { "1", "11", 123l, 123 },
                                                   { "111", "112", 1230l, 123 },

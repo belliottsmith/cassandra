@@ -289,9 +289,8 @@ public class PartitionUpdate extends AbstractBTreePartition
         if (size == 1)
             return Iterables.getOnlyElement(updates);
 
-        int nowInSecs = FBUtilities.nowInSeconds();
         List<UnfilteredRowIterator> asIterators = Lists.transform(updates, AbstractBTreePartition::unfilteredIterator);
-        return fromIterator(UnfilteredRowIterators.merge(asIterators, nowInSecs), ColumnFilter.all(updates.get(0).metadata()));
+        return fromIterator(UnfilteredRowIterators.merge(asIterators), ColumnFilter.all(updates.get(0).metadata()));
     }
 
     // We override this, because the version in the super-class calls holder(), which build the update preventing
@@ -716,7 +715,6 @@ public class PartitionUpdate extends AbstractBTreePartition
         private final boolean canHaveShadowedData;
         private Object[] tree = BTree.empty();
         private final BTree.Builder<Row> rowBuilder;
-        private final int createdAtInSec = FBUtilities.nowInSeconds();
         private Row staticRow = Rows.EMPTY_STATIC_ROW;
         private final RegularAndStaticColumns columns;
         private boolean isBuilt = false;
@@ -898,7 +896,6 @@ public class PartitionUpdate extends AbstractBTreePartition
                    ", key=" + key +
                    ", deletionInfo=" + deletionInfo +
                    ", canHaveShadowedData=" + canHaveShadowedData +
-                   ", createdAtInSec=" + createdAtInSec +
                    ", staticRow=" + staticRow +
                    ", columns=" + columns +
                    ", isBuilt=" + isBuilt +

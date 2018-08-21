@@ -144,9 +144,11 @@ public abstract class Cells
             if (leftIsExpiringOrTombstone != rightIsExpiringOrTombstone)
                 return leftIsExpiringOrTombstone ? left : right;
 
-            // for most historical consistency, we still prefer tombstones over expiring cells;
-            // this is consistent, because at the only point that it matters (when the expiring cell becomes a tombstone)
-            // there is no logical difference between the two, besides the point at which GC will sweep them
+            // for most historical consistency, we still prefer tombstones over expiring cells.
+            // While this leads to the an inconsistency over which is chosen
+            // (i.e. before expiry, the pure tombstone; after expiry, whichever is more recent)
+            // this inconsistency has no user-visible distinction, as at this point they are both logically tombstones
+            // (the only possible difference is the time at which the cells become purgeable)
             boolean leftIsTombstone = !left.isExpiring(); // !isExpiring() == isTombstone(), but does not need to consider localDeletionTime()
             boolean rightIsTombstone = !right.isExpiring();
             if (leftIsTombstone != rightIsTombstone)
@@ -167,14 +169,15 @@ public abstract class Cells
 
     private static Cell resolveCounter(Cell left, Cell right)
     {
-        // No matter what the counter cell's timestamp is, a tombstone always takes precedence. See CASSANDRA-7346.
         long leftTimestamp = left.timestamp();
         long rightTimestamp = right.timestamp();
 
         boolean leftIsTombstone = left.isTombstone();
         boolean rightIsTombstone = right.isTombstone();
-        if (leftIsTombstone || rightIsTombstone)
+
+        if (leftIsTombstone | rightIsTombstone)
         {
+            // No matter what the counter cell's timestamp is, a tombstone always takes precedence. See CASSANDRA-7346.
             assert leftIsTombstone != rightIsTombstone;
             return leftIsTombstone ? left : right;
         }
