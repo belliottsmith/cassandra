@@ -565,6 +565,18 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return daemon.isNativeTransportRunning();
     }
 
+    @Override
+    public void enableNativeTransportOldProtocolVersions()
+    {
+        DatabaseDescriptor.setNativeTransportAllowOlderProtocols(true);
+    }
+
+    @Override
+    public void disableNativeTransportOldProtocolVersions()
+    {
+        DatabaseDescriptor.setNativeTransportAllowOlderProtocols(false);
+    }
+
     public void stopTransports()
     {
         if (isInitialized())

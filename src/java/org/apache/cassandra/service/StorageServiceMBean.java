@@ -556,6 +556,8 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void stopNativeTransport();
     public void startNativeTransport();
     public boolean isNativeTransportRunning();
+    public void enableNativeTransportOldProtocolVersions();
+    public void disableNativeTransportOldProtocolVersions();
 
     // sets limits on number of concurrent requests in flights in number of bytes
     public long getNativeTransportMaxConcurrentRequestsInBytes();

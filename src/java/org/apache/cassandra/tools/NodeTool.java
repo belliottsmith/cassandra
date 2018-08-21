@@ -150,7 +150,9 @@ public class NodeTool
                 EnableHintsForDC.class,
                 FailureDetectorInfo.class,
                 RefreshSizeEstimates.class,
-                ReloadSslCertificates.class
+                ReloadSslCertificates.class,
+                EnableOldProtocolVersions.class,
+                DisableOldProtocolVersions.class
         );
 
         Cli.CliBuilder<Runnable> builder = Cli.builder("nodetool");

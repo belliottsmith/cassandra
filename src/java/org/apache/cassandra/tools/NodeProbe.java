@@ -1502,6 +1502,16 @@ public class NodeProbe implements AutoCloseable
     {
         ssProxy.clearConnectionHistory();
     }
+
+    public void enableOldProtocolVersions()
+    {
+        ssProxy.enableNativeTransportOldProtocolVersions();
+    }
+
+    public void disableOldProtocolVersions()
+    {
+        ssProxy.disableNativeTransportOldProtocolVersions();
+    }
 }
 
 class ColumnFamilyStoreMBeanIterator implements Iterator<Map.Entry<String, ColumnFamilyStoreMBean>>

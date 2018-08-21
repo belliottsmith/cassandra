@@ -1774,6 +1774,16 @@ public class DatabaseDescriptor
         return conf.paxos_variant;
     }
 
+    public static boolean getNativeTransportAllowOlderProtocols()
+    {
+        return conf.native_transport_allow_older_protocols;
+    }
+
+    public static void setNativeTransportAllowOlderProtocols(boolean isEnabled)
+    {
+        conf.native_transport_allow_older_protocols = isEnabled;
+    }
+
     public static double getCommitLogSyncBatchWindow()
     {
         return conf.commitlog_sync_batch_window_in_ms;
