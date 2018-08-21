@@ -5276,7 +5276,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      */
     public static Pair<ReplicaSet, ReplicaSet> calculateStreamAndFetchRanges(ReplicaSet current, ReplicaSet updated)
     {
-        // FIXME: transient replication
         ReplicaSet toStream = new ReplicaSet();
         ReplicaSet toFetch  = new ReplicaSet();
 
@@ -5318,29 +5317,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 toStream.addAll(remainder);
             }
         }
-
-//        System.out.println("Calculating toStream");
-//        for (Replica r1 : current)
-//        {
-//            boolean intersect = false;
-//            Set<Replica> remainder = null;
-//            for (Replica r2 : updated)
-//            {
-//                System.out.printf("Comparing %s and %s%n", r1, r2);
-//                //If we will end up transiently replicating send the entire thing and don't subtract
-//                if (r1.getRange().intersects(r2.getRange()) && !(r1.isFull() && r2.isTransient()))
-//                {
-//                    toStream.addAll(r1.subtractIgnoreTransientStatus(r2));
-//                    System.out.printf("    Intersects adding %s%n", remainder);
-//                    intersect = true;
-//                }
-//            }
-//            if (!intersect)
-//            {
-//                System.out.printf("    Doesn't intersect adding %s%n", r1);
-//                toStream.add(r1); // should seed whole old range
-//            }
-//        }
 
         logger.info("Calculating toFetch");
         for (Replica r2 : updated)
