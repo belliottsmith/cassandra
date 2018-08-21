@@ -556,23 +556,27 @@ public class RangeStreamer
                     Replica ourReplica = sourceAndOurReplica.right;
                     if (ourReplica.isFull() && sourceReplica.isFull())
                     {
-                        return fullRanges.stream().anyMatch(ourReplica.getRange()::equals);
+                        return fullRanges.contains(ourReplica.getRange());
                     }
                     else if (ourReplica.isFull() && sourceReplica.isTransient())
                     {
-                        return transientRanges.stream().anyMatch(ourReplica.getRange()::equals);
+                        return transientRanges.contains(ourReplica.getRange());
                     }
                     else if (ourReplica.isTransient())
                     {
-                        return fullRanges.stream().anyMatch(ourReplica.getRange()::equals) || transientRanges.stream().anyMatch(ourReplica.getRange()::equals);
+                        return fullRanges.contains(ourReplica.getRange()) || transientRanges.contains(ourReplica.getRange());
                     }
                     else
                     {
                         throw new AssertionError("Unreachable");
                     }
                 };
-                List<Pair<Replica, Replica>> remaining = sourceAndOurReplicas.stream().filter(Predicates.not(isAvailable)).collect(Collectors.toList());
-                List<Pair<Replica, Replica>> skipped = sourceAndOurReplicas.stream().filter(isAvailable).collect(Collectors.toList());
+                List<Pair<Replica, Replica>> remaining = sourceAndOurReplicas.stream()
+                                                                             .filter(Predicates.not(isAvailable))
+                                                                             .collect(Collectors.toList());
+                List<Pair<Replica, Replica>> skipped = sourceAndOurReplicas.stream()
+                                                                           .filter(isAvailable)
+                                                                           .collect(Collectors.toList());
                 if (!skipped.isEmpty())
                 {
                     logger.info("Some ranges of {} are already available. Skipping streaming those ranges. Skipping {}. Fully available {} Transiently available {}", sourceAndOurReplicas, skipped, fullRanges, transientRanges);
@@ -581,14 +585,14 @@ public class RangeStreamer
                 if (logger.isTraceEnabled())
                     logger.trace("{}ing from {} ranges {}", description, source, StringUtils.join(remaining, ", "));
 
-                ReplicaCollection fullReplicas = new ReplicaList(sourceAndOurReplicas.stream()
-                                                                            .filter(pair -> pair.left.isFull())
-                                                                            .map(pair -> pair.right)
-                                                                            .collect(toList()));
-                ReplicaCollection transientReplicas = new ReplicaList(sourceAndOurReplicas.stream()
-                                                                                 .filter(pair -> pair.left.isTransient())
-                                                                                 .map(pair -> pair.right)
-                                                                                 .collect(toList()));
+                ReplicaCollection fullReplicas = remaining.stream()
+                                                          .filter(pair -> pair.left.isFull())
+                                                          .map(pair -> pair.right)
+                                                          .collect(ReplicaList.COLLECTOR);
+                ReplicaCollection transientReplicas = remaining.stream()
+                                                               .filter(pair -> pair.left.isTransient())
+                                                               .map(pair -> pair.right)
+                                                               .collect(ReplicaList.COLLECTOR);
 
                 logger.debug("Source and our replicas {}", sourceAndOurReplicas);
                 logger.debug("Source {} Keyspace {}  streaming full {} transient {}", source, keyspace, fullReplicas, transientReplicas);
