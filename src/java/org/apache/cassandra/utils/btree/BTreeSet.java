@@ -83,7 +83,7 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
 
     public BTreeSet<V> subList(int fromIndex, int toIndex)
     {
-        return new BTreeRange<V>(tree, comparator, fromIndex, toIndex - 1);
+        return new BTreeSetRange<V>(tree, comparator, fromIndex, toIndex - 1);
     }
 
     @Override
@@ -139,19 +139,19 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
     @Override
     public BTreeSet<V> subSet(V fromElement, boolean fromInclusive, V toElement, boolean toInclusive)
     {
-        return new BTreeRange<>(tree, comparator, fromElement, fromInclusive, toElement, toInclusive);
+        return new BTreeSetRange<>(tree, comparator, fromElement, fromInclusive, toElement, toInclusive);
     }
 
     @Override
     public BTreeSet<V> headSet(V toElement, boolean inclusive)
     {
-        return new BTreeRange<>(tree, comparator, null, true, toElement, inclusive);
+        return new BTreeSetRange<>(tree, comparator, null, true, toElement, inclusive);
     }
 
     @Override
     public BTreeSet<V> tailSet(V fromElement, boolean inclusive)
     {
-        return new BTreeRange<>(tree, comparator, fromElement, inclusive, null, true);
+        return new BTreeSetRange<>(tree, comparator, fromElement, inclusive, null, true);
     }
 
     @Override
@@ -175,7 +175,7 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
     @Override
     public BTreeSet<V> descendingSet()
     {
-        return new BTreeRange<V>(this.tree, this.comparator).descendingSet();
+        return new BTreeSetRange<V>(this.tree, this.comparator).descendingSet();
     }
 
     @Override
@@ -232,12 +232,7 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
 
     public int hashCode()
     {
-        // we can't just delegate to Arrays.deepHashCode(),
-        // because two equivalent sets may be represented by differently shaped trees
-        int result = 1;
-        for (V v : this)
-            result = 31 * result + Objects.hashCode(v);
-        return result;
+        return BTree.hashCode(tree);
     }
 
     @Override
@@ -318,23 +313,23 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
         throw new UnsupportedOperationException();
     }
 
-    public static class BTreeRange<V> extends BTreeSet<V>
+    public static class BTreeSetRange<V> extends BTreeSet<V>
     {
         // both inclusive
         protected final int lowerBound, upperBound;
-        BTreeRange(Object[] tree, Comparator<? super V> comparator)
+        BTreeSetRange(Object[] tree, Comparator<? super V> comparator)
         {
             this(tree, comparator, null, true, null, true);
         }
 
-        BTreeRange(BTreeRange<V> from)
+        BTreeSetRange(BTreeSetRange<V> from)
         {
             super(from.tree, from.comparator);
             this.lowerBound = from.lowerBound;
             this.upperBound = from.upperBound;
         }
 
-        BTreeRange(Object[] tree, Comparator<? super V> comparator, int lowerBound, int upperBound)
+        BTreeSetRange(Object[] tree, Comparator<? super V> comparator, int lowerBound, int upperBound)
         {
             super(tree, comparator);
             if (upperBound < lowerBound - 1)
@@ -343,7 +338,7 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
             this.upperBound = upperBound;
         }
 
-        BTreeRange(Object[] tree, Comparator<? super V> comparator, V lowerBound, boolean inclusiveLowerBound, V upperBound, boolean inclusiveUpperBound)
+        BTreeSetRange(Object[] tree, Comparator<? super V> comparator, V lowerBound, boolean inclusiveLowerBound, V upperBound, boolean inclusiveUpperBound)
         {
             this(tree, comparator,
                  lowerBound == null ? 0 : inclusiveLowerBound ? BTree.ceilIndex(tree, comparator, lowerBound)
@@ -353,7 +348,7 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
         }
 
         // narrowing range constructor - makes this the intersection of the two ranges over the same tree b
-        BTreeRange(BTreeRange<V> a, BTreeRange<V> b)
+        BTreeSetRange(BTreeSetRange<V> a, BTreeSetRange<V> b)
         {
             this(a.tree, a.comparator, Math.max(a.lowerBound, b.lowerBound), Math.min(a.upperBound, b.upperBound));
             assert a.tree == b.tree;
@@ -433,32 +428,32 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
         @Override
         public BTreeSet<V> subSet(V fromElement, boolean fromInclusive, V toElement, boolean toInclusive)
         {
-            return new BTreeRange<>(this, new BTreeRange<>(tree, comparator, fromElement, fromInclusive, toElement, toInclusive));
+            return new BTreeSetRange<>(this, new BTreeSetRange<>(tree, comparator, fromElement, fromInclusive, toElement, toInclusive));
         }
 
         @Override
         public BTreeSet<V> headSet(V toElement, boolean inclusive)
         {
-            return new BTreeRange<>(this, new BTreeRange<>(tree, comparator, null, true, toElement, inclusive));
+            return new BTreeSetRange<>(this, new BTreeSetRange<>(tree, comparator, null, true, toElement, inclusive));
         }
 
         @Override
         public BTreeSet<V> tailSet(V fromElement, boolean inclusive)
         {
-            return new BTreeRange<>(this, new BTreeRange<>(tree, comparator, fromElement, inclusive, null, true));
+            return new BTreeSetRange<>(this, new BTreeSetRange<>(tree, comparator, fromElement, inclusive, null, true));
         }
 
         @Override
         public BTreeSet<V> descendingSet()
         {
-            return new BTreeDescRange<>(this);
+            return new BTreeDescSetRange<>(this);
         }
 
         public BTreeSet<V> subList(int fromIndex, int toIndex)
         {
             if (fromIndex < 0 || toIndex > size())
                 throw new IndexOutOfBoundsException();
-            return new BTreeRange<V>(tree, comparator, lowerBound + fromIndex, lowerBound + toIndex - 1);
+            return new BTreeSetRange<V>(tree, comparator, lowerBound + fromIndex, lowerBound + toIndex - 1);
         }
 
         @Override
@@ -477,9 +472,9 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
         }
     }
 
-    public static class BTreeDescRange<V> extends BTreeRange<V>
+    public static class BTreeDescSetRange<V> extends BTreeSetRange<V>
     {
-        BTreeDescRange(BTreeRange<V> from)
+        BTreeDescSetRange(BTreeSetRange<V> from)
         {
             super(from.tree, from.comparator, from.lowerBound, from.upperBound);
         }
@@ -532,7 +527,7 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
         {
             if (fromIndex < 0 || toIndex > size())
                 throw new IndexOutOfBoundsException();
-            return new BTreeDescRange<V>(new BTreeRange<V>(tree, comparator, upperBound - (toIndex - 1), upperBound - fromIndex));
+            return new BTreeDescSetRange<V>(new BTreeSetRange<V>(tree, comparator, upperBound - (toIndex - 1), upperBound - fromIndex));
         }
 
         @Override
@@ -556,7 +551,7 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
         @Override
         public BTreeSet<V> descendingSet()
         {
-            return new BTreeRange<>(this);
+            return new BTreeSetRange<>(this);
         }
 
         public Comparator<V> comparator()

@@ -20,6 +20,7 @@ package org.apache.cassandra.utils.btree;
 
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.ToIntFunction;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -506,7 +507,6 @@ public class BTree
      * this implementation is *not* optimal; it requires two logarithmic traversals, although the second is much cheaper
      * (having less height, and operating over only primitive arrays), and the clarity is compelling
      */
-
     public static <V> int lowerIndex(Object[] btree, Comparator<? super V> comparator, V find)
     {
         int i = findIndex(btree, comparator, find);
@@ -791,13 +791,17 @@ public class BTree
 
     public static int hashCode(Object[] btree)
     {
+        return hashCode(btree, Objects::hashCode);
+    }
+
+    public static int hashCode(Object[] btree, ToIntFunction<Object> f)
+    {
         // we can't just delegate to Arrays.deepHashCode(),
         // because two equivalent trees may be represented by differently shaped trees
         int result = 1;
         for (Object v : iterable(btree))
-            result = 31 * result + Objects.hashCode(v);
+            result = 31 * result + f.applyAsInt(v);
         return result;
-
     }
 
     /**
