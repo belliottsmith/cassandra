@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.utils;
 
+import java.util.Collection;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
@@ -25,9 +26,6 @@ import com.google.common.collect.TreeMultimap;
 
 public class SortedBiMultiValMap<K, V> extends BiMultiValMap<K, V>
 {
-    @SuppressWarnings("unchecked")
-    private static final Comparator DEFAULT_COMPARATOR = (o1, o2) -> ((Comparable) o1).compareTo(o2);
-
     protected SortedBiMultiValMap(SortedMap<K, V> forwardMap, SortedSetMultimap<V, K> reverseMap)
     {
         super(forwardMap, reverseMap);
