@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.utils;
 
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -26,6 +27,9 @@ import com.google.common.collect.TreeMultimap;
 
 public class SortedBiMultiValMap<K, V> extends BiMultiValMap<K, V>
 {
+    @SuppressWarnings("unchecked")
+    private static final Comparator DEFAULT_COMPARATOR = (o1, o2) -> ((Comparable) o1).compareTo(o2);
+
     protected SortedBiMultiValMap(SortedMap<K, V> forwardMap, SortedSetMultimap<V, K> reverseMap)
     {
         super(forwardMap, reverseMap);
@@ -56,20 +60,19 @@ public class SortedBiMultiValMap<K, V> extends BiMultiValMap<K, V>
     public static <K, V> SortedBiMultiValMap<K, V> create(BiMultiValMap<K, V> map, Comparator<K> keyComparator, Comparator<V> valueComparator)
     {
         SortedBiMultiValMap<K, V> newMap = create(keyComparator, valueComparator);
-        newMap.forwardMap.putAll(map);
-        newMap.reverseMap.putAll(map.inverse());
+        newMap.forwardMap.putAll(map.forwardMap);
+        // Put each individual TreeSet instead of Multimap#putAll(Multimap) to get linear complexity
+        // See CASSANDRA-14660
+        for (Entry<V, Collection<K>> entry : map.inverse().asMap().entrySet())
+        {
+            newMap.reverseMap.putAll(entry.getKey(), entry.getValue());
+        }
         return newMap;
     }
 
+    @SuppressWarnings("unchecked")
     private static <T> Comparator<T> defaultComparator()
     {
-        return new Comparator<T>()
-        {
-            @SuppressWarnings("unchecked")
-            public int compare(T o1, T o2)
-            {
-                return ((Comparable<T>) o1).compareTo(o2);
-            }
-        };
+        return DEFAULT_COMPARATOR;
     }
 }
