@@ -606,14 +606,15 @@ public class RangeStreamer
                 if (logger.isTraceEnabled())
                     logger.trace("{}ing from {} ranges {}", description, source, StringUtils.join(remaining, ", "));
 
+                InetAddressAndPort localHost = FBUtilities.getLocalAddressAndPort();
                 RangesAtEndpoint fullReplicas = remaining.stream()
                         .filter(pair -> pair.remote.isFull())
                         .map(pair -> pair.local)
-                        .collect(RangesAtEndpoint.collector());
+                        .collect(RangesAtEndpoint.collector(localHost));
                 RangesAtEndpoint transientReplicas = remaining.stream()
                         .filter(pair -> pair.remote.isTransient())
                         .map(pair -> pair.local)
-                        .collect(RangesAtEndpoint.collector());
+                        .collect(RangesAtEndpoint.collector(localHost));
 
                 logger.debug("Source and our replicas {}", fetchReplicas);
                 logger.debug("Source {} Keyspace {}  streaming full {} transient {}", source, keyspace, fullReplicas, transientReplicas);

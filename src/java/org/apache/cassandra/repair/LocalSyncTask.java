@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.repair;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Predicate;
@@ -66,7 +67,7 @@ public class LocalSyncTask extends SyncTask implements StreamEventHandler
         StreamPlan plan = new StreamPlan(StreamOperation.REPAIR, 1, false, pendingRepair, previewKind)
                           .listeners(this)
                           .flushBeforeTransfer(pendingRepair == null)
-                          .requestRanges(dst, desc.keyspace, RangesAtEndpoint.toDummyList(differences), RangesAtEndpoint.empty(), desc.columnFamily);  // request ranges from the remote node
+                          .requestRanges(dst, desc.keyspace, RangesAtEndpoint.toDummyList(differences), RangesAtEndpoint.toDummyList(Collections.emptyList()), desc.columnFamily);  // request ranges from the remote node
 
         if (!pullRepair && !isTransient.test(dst))
         {

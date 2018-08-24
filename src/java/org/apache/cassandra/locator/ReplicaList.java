@@ -66,6 +66,12 @@ public class ReplicaList extends AbstractReplicaCollection<ReplicaList>
     }
 
     @Override
+    public ReplicaCollection.Mutable<ReplicaList> newMutable(int initialCapacity)
+    {
+        return new Mutable(initialCapacity);
+    }
+
+    @Override
     public boolean contains(Replica replica)
     {
         return list.contains(replica);
