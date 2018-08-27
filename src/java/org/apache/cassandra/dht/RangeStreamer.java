@@ -100,8 +100,36 @@ public class RangeStreamer
 
         public FetchReplica(Replica local, Replica remote)
         {
+            Preconditions.checkNotNull(local);
+            Preconditions.checkNotNull(remote);
             this.local = local;
             this.remote = remote;
+        }
+
+        public String toString()
+        {
+            return "FetchReplica{" +
+                   "local=" + local +
+                   ", remote=" + remote +
+                   '}';
+        }
+
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            FetchReplica that = (FetchReplica) o;
+
+            if (!local.equals(that.local)) return false;
+            return remote.equals(that.remote);
+        }
+
+        public int hashCode()
+        {
+            int result = local.hashCode();
+            result = 31 * result + remote.hashCode();
+            return result;
         }
     }
 
@@ -402,18 +430,19 @@ public class RangeStreamer
                             oldEndpoints = sorted.apply(oldEndpoints.filter(accept));
                         }
 
-                        sources = oldEndpoints;
+                        //Apply testSourceFilters that were given to us, and establish everything remaining is alive for the strict case
+                        sources = oldEndpoints.filter(testSourceFilters);
                     }
                     else
                     {
                         //Without strict consistency we have given up on correctness so no point in fetching from
                         //a random full + transient replica since it's also likely to lose data
-                        //TODO this is returning multiple replicas and we need to reduce it to just one
-                        sources = sorted.apply(rangeAddresses.get(range).filter(accept));
+                        //Also apply testSourceFilters that were given to us so we can safely select a single source
+                        sources = sorted.apply(rangeAddresses.get(range).filter(and(accept, testSourceFilters)));
+                        //Limit it to just the first possible source, we don't need more than one and downstream
+                        //will fetch from every source we supply
+                        sources = sources.size() > 0 ? sources.subList(0, 1) : sources;
                     }
-
-                    //Apply additional policy filters that were given to us, and establish everything remaining is alive for the strict case
-                    sources = sources.filter(testSourceFilters);
 
                     // storing range and preferred endpoint set
                     rangesToFetchWithPreferredEndpoints.putAll(toFetch, sources, Conflict.NONE);
@@ -606,6 +635,12 @@ public class RangeStreamer
                 if (logger.isTraceEnabled())
                     logger.trace("{}ing from {} ranges {}", description, source, StringUtils.join(remaining, ", "));
 
+                //At the other end the distinction between full and transient is ignored it just used the transient status
+                //of the Replica objects we send to determine what to send. The real reason we have this split down to
+                //StreamRequest is that on completion StreamRequest is used to write to the system table tracking
+                //what has already been streamed. At that point since we only have the local Replica instances so we don't
+                //know what we got from the remote. We preserve that here by splitting based on the remotes transient
+                //status.
                 RangesAtEndpoint fullReplicas = remaining.stream()
                         .filter(pair -> pair.remote.isFull())
                         .map(pair -> pair.local)
