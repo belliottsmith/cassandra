@@ -84,7 +84,7 @@ public abstract class ReplicaLayout<E extends Endpoints<E>, L extends ReplicaLay
     {
         E result = all;
         if (result == null)
-            all = result = Endpoints.concat(natural, pending, Conflict.ALL);
+            all = result = Endpoints.concat(natural, pending, Conflict.NONE);
         return result;
     }
 
@@ -287,7 +287,7 @@ public abstract class ReplicaLayout<E extends Endpoints<E>, L extends ReplicaLay
         int participants = pending.size() + natural.size();
         int requiredParticipants = participants / 2 + 1; // See CASSANDRA-8346, CASSANDRA-833
 
-        EndpointsForToken all = Endpoints.concat(natural, pending, Conflict.ALL);
+        EndpointsForToken all = Endpoints.concat(natural, pending, Conflict.NONE);
         EndpointsForToken selected = all.filter(IAsyncCallback.isReplicaAlive);
         if (selected.size() < requiredParticipants)
             throw new UnavailableException(consistencyForPaxos, requiredParticipants, selected.size());
@@ -311,7 +311,7 @@ public abstract class ReplicaLayout<E extends Endpoints<E>, L extends ReplicaLay
     @VisibleForTesting
     public static ForToken forWrite(Keyspace keyspace, ConsistencyLevel consistencyLevel, Token token, int blockFor, EndpointsForToken natural, EndpointsForToken pending, Predicate<InetAddressAndPort> livePredicate) throws UnavailableException
     {
-        EndpointsForToken all = Endpoints.concat(natural, pending, Conflict.ALL);
+        EndpointsForToken all = Endpoints.concat(natural, pending, Conflict.NONE);
         EndpointsForToken selected = all
                 .select()
                 .add(r -> r.isFull() && livePredicate.test(r.endpoint()))

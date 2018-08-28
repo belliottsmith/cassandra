@@ -1223,7 +1223,7 @@ public class TokenMetadata
      */
     public EndpointsForToken getWriteEndpoints(Token token, String keyspaceName, EndpointsForToken naturalEndpoints)
     {
-        return Endpoints.concat(naturalEndpoints, pendingEndpointsForToken(token, keyspaceName), Conflict.ALL);
+        return Endpoints.concat(naturalEndpoints, pendingEndpointsForToken(token, keyspaceName), Conflict.NONE);
     }
 
     /** @return an endpoint to token multimap representation of tokenToEndpointMap (a copy) */

@@ -3983,7 +3983,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         // TODO: race condition to fetch these. impliciations??
         EndpointsForToken natural = getNaturalReplicasForToken(keyspaceName, token);
         EndpointsForToken pending = tokenMetadata.pendingEndpointsForToken(token, keyspaceName);
-        return Endpoints.concat(natural, pending, Conflict.ALL);
+        return Endpoints.concat(natural, pending, Conflict.NONE);
     }
 
     /**
