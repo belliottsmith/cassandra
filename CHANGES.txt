@@ -7,6 +7,7 @@
 * Improve TokenMetaData cache populating performance avoid long locking (CASSANDRA-14660)
 Merged from 2.2:
  * Returns null instead of NaN or Infinity in JSON strings (CASSANDRA-14377)
+ * Fix incorrect cqlsh results when selecting same columns multiple times (CASSANDRA-13262)
 
 3.0.17.15
 * <rdar://problem/49484414> (CASSANDRA-15072) Incomplete range results during 2.X -> 3.11.4 upgrade
