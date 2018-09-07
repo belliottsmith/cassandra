@@ -179,6 +179,7 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
                 if (count == limit) next = list.size();
                 while (next < list.size() && !predicate.test(list.get(next)))
                     ++next;
+                ++count;
             }
             @Override
             public boolean hasNext()
