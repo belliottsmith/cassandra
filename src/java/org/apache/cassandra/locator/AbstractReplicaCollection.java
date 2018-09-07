@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.BinaryOperator;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -156,7 +157,47 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
         return snapshot(copy);
     }
 
-   public final C sorted(Comparator<Replica> comparator)
+    public final Iterable<Replica> filterLazily(Predicate<Replica> predicate)
+    {
+        return filterLazily(predicate, Integer.MAX_VALUE);
+    }
+
+    public final Iterable<Replica> filterLazily(Predicate<Replica> predicate, int limit)
+    {
+        return () -> filterIterator(predicate, limit);
+    }
+
+    private Iterator<Replica> filterIterator(Predicate<Replica> predicate, int limit)
+    {
+        return new Iterator<Replica>()
+        {
+            int next = 0;
+            int count = 0;
+            { updateNext(); }
+            void updateNext()
+            {
+                if (count == limit) next = list.size();
+                while (next < list.size() && !predicate.test(list.get(next)))
+                    ++next;
+            }
+            @Override
+            public boolean hasNext()
+            {
+                return next < list.size();
+            }
+
+            @Override
+            public Replica next()
+            {
+                if (!hasNext()) throw new IllegalStateException();
+                Replica result = list.get(next++);
+                updateNext();
+                return result;
+            }
+        };
+    }
+
+    public final C sorted(Comparator<Replica> comparator)
     {
         List<Replica> copy = new ArrayList<>(list);
         copy.sort(comparator);

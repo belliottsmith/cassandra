@@ -36,7 +36,6 @@ import java.util.Collection;
 import java.util.function.Predicate;
 
 import static com.google.common.collect.Iterables.any;
-import static com.google.common.collect.Iterables.filter;
 import static com.google.common.collect.Iterables.limit;
 
 public class ReplicaPlans
@@ -127,13 +126,13 @@ public class ReplicaPlans
             assert consistencyLevel != ConsistencyLevel.EACH_QUORUM;
 
             ReplicaCollection.Mutable<E> contact = liveAndDown.all().newMutable(liveAndDown.all().size());
-            contact.addAll(filter(liveAndDown.natural(), Replica::isFull));
+            contact.addAll(liveAndDown.natural().filterLazily(Replica::isFull));
             contact.addAll(liveAndDown.pending());
 
             int liveCount = contact.count(liveOnly.all()::contains);
             int requiredTransientCount = consistencyLevel.blockForWrite(keyspace, liveAndDown.pending()) - liveCount;
             if (requiredTransientCount > 0)
-                contact.addAll(limit(filter(liveOnly.natural(), Replica::isTransient), requiredTransientCount));
+                contact.addAll(liveOnly.natural().filterLazily(Replica::isTransient, requiredTransientCount));
             return contact.asSnapshot();
         }
     };
