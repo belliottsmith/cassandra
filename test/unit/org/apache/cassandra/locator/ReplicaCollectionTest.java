@@ -153,16 +153,16 @@ public class ReplicaCollectionTest
             }
             else
             {
-                List<Replica> subList = this.test.list.subList(from, to);
+                AbstractReplicaCollection.ReplicaList subList = this.test.list.subList(from, to);
                 if (test.isSnapshot)
-                    Assert.assertSame(subList.getClass(), subCollection.list.getClass());
+                    Assert.assertSame(subList.contents, subCollection.list.contents);
                 Assert.assertEquals(subList, subCollection.list);
             }
         }
 
         private void assertSubSequence(Iterable<Replica> subSequence, int from, int to)
         {
-            List<Replica> subList = this.test.list.subList(from, to);
+            AbstractReplicaCollection.ReplicaList subList = this.test.list.subList(from, to);
             if (!elementsEqual(subList, subSequence))
             {
                 elementsEqual(subList, subSequence);
