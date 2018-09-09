@@ -68,13 +68,13 @@ public class EndpointsForToken extends Endpoints<EndpointsForToken>
     }
 
     @Override
-    protected EndpointsForToken snapshot(ReplicaList subList)
+    protected EndpointsForToken snapshot(ReplicaList newList)
     {
-        if (subList.isEmpty()) return empty(token);
-        ReplicaMap<InetAddressAndPort> map = byEndpoint;
-        if (map != null)
-            map = list.isSubList(subList) ? byEndpoint.subList(subList) : null;
-        return new EndpointsForToken(token, subList, true, map);
+        if (newList.isEmpty()) return empty(token);
+        ReplicaMap<InetAddressAndPort> byEndpoint = null;
+        if (this.byEndpoint != null && list.isSubList(newList))
+            byEndpoint = this.byEndpoint.subList(newList);
+        return new EndpointsForToken(token, newList, true, byEndpoint);
     }
 
     public static class Mutable extends EndpointsForToken implements ReplicaCollection.Mutable<EndpointsForToken>
@@ -91,7 +91,7 @@ public class EndpointsForToken extends Endpoints<EndpointsForToken>
             if (!replica.range().contains(super.token))
                 throw new IllegalArgumentException("Replica " + replica + " does not contain " + super.token);
 
-            if (!super.byEndpoint.putIfAbsent(replica, list.size()))
+            if (!super.byEndpoint.internalPutIfAbsent(replica, list.size()))
             {
                 switch (ignoreConflict)
                 {

@@ -76,13 +76,13 @@ public class EndpointsForRange extends Endpoints<EndpointsForRange>
     }
 
     @Override
-    protected EndpointsForRange snapshot(ReplicaList subList)
+    protected EndpointsForRange snapshot(ReplicaList newList)
     {
-        if (subList.isEmpty()) return empty(range);
-        ReplicaMap<InetAddressAndPort> map = byEndpoint;
-        if (map != null)
-            map = list.isSubList(subList) ? byEndpoint.subList(subList) : null;
-        return new EndpointsForRange(range, subList, true, map);
+        if (newList.isEmpty()) return empty(range);
+        ReplicaMap<InetAddressAndPort> byEndpoint = null;
+        if (this.byEndpoint != null && list.isSubList(newList))
+            byEndpoint = this.byEndpoint.subList(newList);
+        return new EndpointsForRange(range, newList, true, byEndpoint);
     }
 
     public static class Mutable extends EndpointsForRange implements ReplicaCollection.Mutable<EndpointsForRange>
@@ -99,7 +99,7 @@ public class EndpointsForRange extends Endpoints<EndpointsForRange>
             if (!replica.range().contains(super.range))
                 throw new IllegalArgumentException("Replica " + replica + " does not contain " + super.range);
 
-            if (!super.byEndpoint.putIfAbsent(replica, list.size()))
+            if (!super.byEndpoint.internalPutIfAbsent(replica, list.size()))
             {
                 switch (ignoreConflict)
                 {

@@ -25,6 +25,7 @@ import com.google.common.collect.Iterables;
 import java.util.AbstractMap;
 import java.util.AbstractSet;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Objects;
@@ -219,9 +220,11 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
     }
 
     /**
-     * A simple list with no comodification checks and immutability by default (only append permitted, and only one initial copy)
-     * this permits us to reduce the amount of garbage generated, by not wrapping iterators or unnecessarily copying
-     * and reduces the amount of indirection necessary, as well as ensuring monomorphic callsites
+     * A simple map that ensures the underlying list's iteration order is maintained, and can be shared with
+     * subLists (either produced via subList, or via filter that naturally produced a subList).
+     * This permits us to reduce the amount of garbage generated, by not unnecessarily copying,
+     * reduces the amount of indirection necessary, as well as ensuring monomorphic callsites.
+     * The underlying map is also more efficient, particularly for such small collections as we typically produce.
      */
     protected static class ReplicaMap<K> extends AbstractMap<K, Replica>
     {
@@ -234,31 +237,19 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
         abstract class AbstractImmutableSet<K> extends AbstractSet<K>
         {
             @Override
-            public boolean remove(Object o)
-            {
-                throw new UnsupportedOperationException();
-            }
-
+            public boolean removeAll(Collection<?> c) { throw new UnsupportedOperationException(); }
             @Override
-            public int size()
-            {
-                return list.size();
-            }
+            public boolean remove(Object o) { throw new UnsupportedOperationException(); }
+            @Override
+            public int size() { return list.size(); }
         }
 
         class KeySet extends AbstractImmutableSet<K>
         {
             @Override
-            public boolean contains(Object o)
-            {
-                return containsKey(o);
-            }
-
+            public boolean contains(Object o) { return containsKey(o); }
             @Override
-            public Iterator<K> iterator()
-            {
-                return list.transformIterator(toKey);
-            }
+            public Iterator<K> iterator() { return list.transformIterator(toKey); }
         }
 
         class EntrySet extends AbstractImmutableSet<Entry<K, Replica>>
@@ -308,10 +299,7 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
             this.map = map;
         }
 
-        boolean putIfAbsent(Replica replica, int index)
-        {
-            return putIfAbsent(map, toKey, replica, index);
-        }
+        boolean internalPutIfAbsent(Replica replica, int index) { return putIfAbsent(map, toKey, replica, index); }
 
         @Override
         public boolean containsKey(Object key)
@@ -364,15 +352,15 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
     }
 
     protected final ReplicaList list;
-    protected final boolean isSnapshot;
-    protected AbstractReplicaCollection(ReplicaList list, boolean isSnapshot)
+    final boolean isSnapshot;
+    AbstractReplicaCollection(ReplicaList list, boolean isSnapshot)
     {
         this.list = list;
         this.isSnapshot = isSnapshot;
     }
 
     // if subList == null, should return self (or a clone thereof)
-    protected abstract C snapshot(ReplicaList subList);
+    protected abstract C snapshot(ReplicaList newList);
     protected abstract C self();
     /**
      * construct a new Mutable of our own type, so that we can concatenate
@@ -515,7 +503,7 @@ public abstract class AbstractReplicaCollection<C extends AbstractReplicaCollect
     @Override
     public final String toString()
     {
-        return list.toString();
+        return Iterables.toString(list);
     }
 
     static <C extends AbstractReplicaCollection<C>> C concat(C replicas, C extraReplicas, Mutable.Conflict ignoreConflicts)

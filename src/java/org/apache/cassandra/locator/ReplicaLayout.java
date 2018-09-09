@@ -26,6 +26,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
@@ -80,6 +81,8 @@ public abstract class ReplicaLayout<E extends Endpoints<E>>
 
         public ReplicaLayout.ForTokenRead filter(Predicate<Replica> filter)
         {
+            EndpointsForToken filtered = natural().filter(filter);
+            if (filtered == natural()) return this;
             return new ReplicaLayout.ForTokenRead(
                     natural().filter(filter)
             );
@@ -104,8 +107,10 @@ public abstract class ReplicaLayout<E extends Endpoints<E>>
 
         public ReplicaLayout.ForRangeRead filter(Predicate<Replica> filter)
         {
+            EndpointsForRange filtered = natural().filter(filter);
+            if (filtered == natural()) return this;
             return new ReplicaLayout.ForRangeRead(
-                    range(), natural().filter(filter)
+                    range(), filtered
             );
         }
     }
@@ -159,10 +164,15 @@ public abstract class ReplicaLayout<E extends Endpoints<E>>
         }
         public ReplicaLayout.ForTokenWrite filter(Predicate<Replica> filter)
         {
+            EndpointsForToken filtered = all().filter(filter);
+            if (filtered == all()) return this;
+            // unique by endpoint, so can for efficiency filter only on endpoint
+            Set<InetAddressAndPort> keptEndpoints = filtered.endpoints();
+            Predicate<Replica> kept = r -> keptEndpoints.contains(r.endpoint());
             return new ReplicaLayout.ForTokenWrite(
-                    natural().filter(filter),
-                    pending().filter(filter),
-                    all().filter(filter)
+                    natural().filter(kept),
+                    pending().filter(kept),
+                    filtered
             );
         }
     }
@@ -186,6 +196,7 @@ public abstract class ReplicaLayout<E extends Endpoints<E>>
 
     public static ReplicaLayout.ForTokenWrite forTokenWriteLiveAndDown(Keyspace keyspace, Token token)
     {
+        // TODO: these should be cached, not the natural replicas
         // TODO: race condition to fetch these. implications??
         EndpointsForToken natural = keyspace.getReplicationStrategy().getNaturalReplicasForToken(token);
         EndpointsForToken pending = StorageService.instance.getTokenMetadata().pendingEndpointsForToken(token, keyspace.getName());

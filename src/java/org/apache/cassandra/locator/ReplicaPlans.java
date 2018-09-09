@@ -36,10 +36,10 @@ import java.util.Collection;
 import java.util.function.Predicate;
 
 import static com.google.common.collect.Iterables.any;
-import static com.google.common.collect.Iterables.limit;
 
 public class ReplicaPlans
 {
+    // TODO: cache the main read and write plans
 
     public static ReplicaPlan.ForTokenWrite forSingleReplicaWrite(Keyspace keyspace, Token token, Replica replica)
     {
@@ -137,6 +137,14 @@ public class ReplicaPlans
         }
     };
 
+    private static Predicate<Replica> inSelfDC()
+    {
+        IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
+        String selfDc = DatabaseDescriptor.getLocalDataCenter();
+        assert selfDc.equals(snitch.getDatacenter(FBUtilities.getBroadcastAddressAndPort()));
+        return replica -> selfDc.equals(snitch.getDatacenter(replica));
+    }
+
     public static ReplicaPlan.ForPaxosWrite forPaxos(Keyspace keyspace, DecoratedKey key, ConsistencyLevel consistencyForPaxos) throws UnavailableException
     {
         Token tk = key.getToken();
@@ -148,11 +156,7 @@ public class ReplicaPlans
         {
             // TODO: we should cleanup our semantics here, as we're filtering ALL nodes to localDC which is unexpected for ReplicaPlan
             // Restrict natural and pending to node in the local DC only
-            String localDc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddressAndPort());
-            IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
-            Predicate<Replica> isLocalDc = replica -> localDc.equals(snitch.getDatacenter(replica));
-
-            liveAndDown = liveAndDown.filter(isLocalDc);
+            liveAndDown = liveAndDown.filter(inSelfDC());
         }
 
         ReplicaLayout.ForTokenWrite liveOnly = liveAndDown.filter(FailureDetector.isReplicaAlive);
@@ -193,6 +197,8 @@ public class ReplicaPlans
     {
         ReplicaLayout.ForTokenRead liveAndDown = ReplicaLayout.forTokenReadLiveAndDown(keyspace, token);
         ReplicaLayout.ForTokenRead liveOnly = liveAndDown.filter(FailureDetector.isReplicaAlive);
+
+
         EndpointsForToken contact = consistencyLevel.filterForQuery(keyspace, liveOnly.all(),
                 retry.equals(AlwaysSpeculativeRetryPolicy.INSTANCE));
 
@@ -205,7 +211,13 @@ public class ReplicaPlans
     {
         ReplicaLayout.ForRangeRead liveAndDown = ReplicaLayout.forRangeReadLiveAndDown(keyspace, range);
         ReplicaLayout.ForRangeRead liveOnly = liveAndDown.filter(FailureDetector.isReplicaAlive);
-        EndpointsForRange contact = consistencyLevel.filterForQuery(keyspace, liveOnly.all());
+
+        EndpointsForRange candidates = liveOnly.all();
+        if (consistencyLevel.isDatacenterLocal())
+            candidates = candidates.filter(inSelfDC());
+
+        candidates = DatabaseDescriptor.getEndpointSnitch().sortedByProximity(FBUtilities.getBroadcastAddressAndPort(), candidates);
+        EndpointsForRange contact = consistencyLevel.filterForQuery(keyspace, candidates);
 
         int blockFor = consistencyLevel.blockFor(keyspace);
         if (blockFor < contact.size())

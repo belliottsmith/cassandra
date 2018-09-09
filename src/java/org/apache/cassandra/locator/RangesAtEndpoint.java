@@ -93,13 +93,13 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
     }
 
     @Override
-    protected RangesAtEndpoint snapshot(ReplicaList subList)
+    protected RangesAtEndpoint snapshot(ReplicaList newList)
     {
-        if (subList.isEmpty()) return empty(endpoint);
-        ReplicaMap<Range<Token>> map = byRange;
-        if (map != null)
-            map = list.isSubList(subList) ? byRange.subList(subList) : null;
-        return new RangesAtEndpoint(endpoint, subList, true, map);
+        if (newList.isEmpty()) return empty(endpoint);
+        ReplicaMap<Range<Token>> byRange = null;
+        if (this.byRange != null && list.isSubList(newList))
+            byRange = this.byRange.subList(newList);
+        return new RangesAtEndpoint(endpoint, newList, true, byRange);
     }
 
     @Override
@@ -174,7 +174,7 @@ public class RangesAtEndpoint extends AbstractReplicaCollection<RangesAtEndpoint
             if (!Objects.equals(super.endpoint, replica.endpoint()))
                 throw new IllegalArgumentException("Replica " + replica + " has incorrect endpoint (expected " + super.endpoint + ")");
 
-            if (!super.byRange.putIfAbsent(replica, list.size()))
+            if (!super.byRange.internalPutIfAbsent(replica, list.size()))
             {
                 switch (ignoreConflict)
                 {
