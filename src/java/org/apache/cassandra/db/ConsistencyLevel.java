@@ -19,15 +19,16 @@ package org.apache.cassandra.db;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Predicate;
 
 import com.google.common.collect.Iterables;
+import org.apache.cassandra.locator.SameDCTester;
 import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.locator.ReplicaCollection;
 import org.apache.cassandra.locator.Replicas;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -90,12 +91,12 @@ public enum ConsistencyLevel
         return codeIdx[code];
     }
 
-    private int quorumFor(Keyspace keyspace)
+    public static int quorumFor(Keyspace keyspace)
     {
         return (keyspace.getReplicationStrategy().getReplicationFactor().allReplicas / 2) + 1;
     }
 
-    private int localQuorumFor(Keyspace keyspace, String dc)
+    public static int localQuorumFor(Keyspace keyspace, String dc)
     {
         return (keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
              ? (((NetworkTopologyStrategy) keyspace.getReplicationStrategy()).getReplicationFactor(dc).allReplicas / 2) + 1
@@ -176,21 +177,12 @@ public enum ConsistencyLevel
         return isDCLocal;
     }
 
-    public static boolean isLocal(InetAddressAndPort endpoint)
-    {
-        return DatabaseDescriptor.getLocalDataCenter().equals(DatabaseDescriptor.getEndpointSnitch().getDatacenter(endpoint));
-    }
-
-    public static boolean isLocal(Replica replica)
-    {
-        return isLocal(replica.endpoint());
-    }
-
     private static ReplicaCount countDCLocalReplicas(ReplicaCollection<?> liveReplicas)
     {
+        Predicate<Replica> isDCSameAsSelf = SameDCTester.replicas();
         ReplicaCount count = new ReplicaCount();
         for (Replica replica : liveReplicas)
-            if (isLocal(replica))
+            if (isDCSameAsSelf.test(replica))
                 count.increment(replica);
         return count;
     }
@@ -232,51 +224,6 @@ public enum ConsistencyLevel
             dcEndpoints.get(dc).increment(replica);
         }
         return dcEndpoints;
-    }
-
-    public <E extends Endpoints<E>> E filterForQuery(Keyspace keyspace, E liveReplicas)
-    {
-        return filterForQuery(keyspace, liveReplicas, false);
-    }
-
-    public <E extends Endpoints<E>> E filterForQuery(Keyspace keyspace, E liveReplicas, boolean alwaysSpeculate)
-    {
-        /*
-         * If we are doing an each quorum query, we have to make sure that the endpoints we select
-         * provide a quorum for each data center. If we are not using a NetworkTopologyStrategy,
-         * we should fall through and grab a quorum in the replication strategy.
-         *
-         * We do not speculate for EACH_QUORUM.
-         */
-        if (this == EACH_QUORUM && keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
-            return filterForEachQuorum(keyspace, liveReplicas);
-
-        int count = blockFor(keyspace) + (alwaysSpeculate ? 1 : 0);
-        return isDCLocal
-                ? liveReplicas.filter(ConsistencyLevel::isLocal, count)
-                : liveReplicas.subList(0, Math.min(liveReplicas.size(), count));
-    }
-
-    private <E extends Endpoints<E>> E filterForEachQuorum(Keyspace keyspace, E liveReplicas)
-    {
-        NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
-        Map<String, Integer> dcsReplicas = new HashMap<>();
-        for (String dc : strategy.getDatacenters())
-        {
-            // we put _up to_ dc replicas only
-            dcsReplicas.put(dc, localQuorumFor(keyspace, dc));
-        }
-
-        return liveReplicas.filter((replica) -> {
-            String dc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(replica);
-            int replicas = dcsReplicas.get(dc);
-            if (replicas > 0)
-            {
-                dcsReplicas.put(dc, --replicas);
-                return true;
-            }
-            return false;
-        });
     }
 
     public boolean isSufficientReplicasForRead(Keyspace keyspace, Endpoints<?> liveReplicas)
@@ -340,7 +287,7 @@ public enum ConsistencyLevel
                     if (logger.isTraceEnabled())
                     {
                         logger.trace(String.format("Local replicas %s are insufficient to satisfy LOCAL_QUORUM requirement of %d live replicas and %d full replicas in '%s'",
-                                allLive.filter(ConsistencyLevel::isLocal), blockFor, blockForFullReplicas, DatabaseDescriptor.getLocalDataCenter()));
+                                allLive.filter(SameDCTester.replicas()), blockFor, blockForFullReplicas, DatabaseDescriptor.getLocalDataCenter()));
                     }
                     throw UnavailableException.create(this, blockFor, blockForFullReplicas, localLive.allReplicas(), localLive.fullReplicas);
                 }

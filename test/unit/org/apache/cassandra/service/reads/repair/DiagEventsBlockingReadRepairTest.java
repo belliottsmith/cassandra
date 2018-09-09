@@ -171,7 +171,8 @@ public class DiagEventsBlockingReadRepairTest extends AbstractReadRepairTest
 
         DiagnosticPartitionReadRepairHandler(DecoratedKey key, Map<Replica, Mutation> repairs, int maxBlockFor, P replicaPlan)
         {
-            super(key, repairs, maxBlockFor, replicaPlan);
+            super(key, repairs, maxBlockFor, replicaPlan,
+                    e -> replicaPlan.consistencyLevel().isDatacenterLocal() && targets.contains(e));
             DiagnosticEventService.instance().subscribe(PartitionRepairEvent.class, this::onRepairEvent);
         }
 
@@ -183,19 +184,6 @@ public class DiagEventsBlockingReadRepairTest extends AbstractReadRepairTest
 
         protected void sendRR(MessageOut<Mutation> message, InetAddressAndPort endpoint)
         {
-        }
-
-        List<InetAddressAndPort> candidates = targets;
-
-        protected List<InetAddressAndPort> getCandidateEndpoints()
-        {
-            return candidates;
-        }
-
-        @Override
-        protected boolean isLocal(InetAddressAndPort endpoint)
-        {
-            return targets.contains(endpoint);
         }
     }
 }

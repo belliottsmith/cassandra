@@ -50,7 +50,8 @@ public class BlockingReadRepairTest extends AbstractReadRepairTest
     {
         public InstrumentedReadRepairHandler(Map<Replica, Mutation> repairs, int maxBlockFor, P replicaPlan)
         {
-            super(Util.dk("not a real usable value"), repairs, maxBlockFor, replicaPlan);
+            super(Util.dk("not a real usable value"), repairs, maxBlockFor, replicaPlan,
+                    e -> replicaPlan.consistencyLevel().isDatacenterLocal() && targets.contains(e));
         }
 
         Map<InetAddressAndPort, Mutation> mutationsSent = new HashMap<>();
@@ -58,12 +59,6 @@ public class BlockingReadRepairTest extends AbstractReadRepairTest
         protected void sendRR(MessageOut<Mutation> message, InetAddressAndPort endpoint)
         {
             mutationsSent.put(endpoint, message.payload);
-        }
-
-        @Override
-        protected boolean isLocal(InetAddressAndPort endpoint)
-        {
-            return targets.contains(endpoint);
         }
     }
 

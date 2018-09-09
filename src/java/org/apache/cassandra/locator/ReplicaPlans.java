@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.locator;
 
+import com.carrotsearch.hppc.ObjectIntOpenHashMap;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -30,7 +31,6 @@ import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.service.reads.AlwaysSpeculativeRetryPolicy;
 import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
-import org.apache.cassandra.utils.FBUtilities;
 
 import java.util.Collection;
 import java.util.function.Predicate;
@@ -186,11 +186,7 @@ public class ReplicaPlans
         {
             // TODO: we should cleanup our semantics here, as we're filtering ALL nodes to localDC which is unexpected for ReplicaPlan
             // Restrict natural and pending to node in the local DC only
-            String localDc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddressAndPort());
-            IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
-            Predicate<Replica> isLocalDc = replica -> localDc.equals(snitch.getDatacenter(replica));
-
-            liveAndDown = liveAndDown.filter(isLocalDc);
+            liveAndDown = liveAndDown.filter(SameDCTester.replicas());
         }
 
         ReplicaLayout.ForTokenWrite liveOnly = liveAndDown.filter(FailureDetector.isReplicaAlive);
@@ -234,6 +230,7 @@ public class ReplicaPlans
         return new ReplicaPlan.ForRangeRead(keyspace, ConsistencyLevel.ONE, range, one, one);
     }
 
+<<<<<<< HEAD
     /**
      * Construct a plan for reading the provided token at the provided consistency level.  This translates to a collection of
      *   - candidates who are: alive, replicate the token, and are sorted by their snitch scores
@@ -242,13 +239,53 @@ public class ReplicaPlans
      * The candidate collection can be used for speculation, although at present it would break
      * LOCAL_QUORUM and EACH_QUORUM to do so without further filtering
      */
+=======
+    private static <E extends Endpoints<E>> E candidatesForRead(ConsistencyLevel consistencyLevel, E liveNaturalReplicas)
+    {
+        return consistencyLevel.isDatacenterLocal()
+                ? liveNaturalReplicas.filter(SameDCTester.replicas())
+                : liveNaturalReplicas;
+    }
+
+    private static <E extends Endpoints<E>> E contactForEachQuorumRead(Keyspace keyspace, E candidates)
+    {
+        NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
+        ObjectIntOpenHashMap<String> dcCount = new ObjectIntOpenHashMap<>(strategy.getDatacenters().size());
+        for (String dc : strategy.getDatacenters())
+            dcCount.put(dc, ConsistencyLevel.localQuorumFor(keyspace, dc));
+
+        final IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
+        return candidates.filter((replica) -> {
+            String dc = snitch.getDatacenter(replica);
+            return dcCount.addTo(dc, -1) >= 0;
+        });
+    }
+
+    private static <E extends Endpoints<E>> E contactForRead(Keyspace keyspace, ConsistencyLevel consistencyLevel, boolean alwaysSpeculate, E candidates)
+    {
+        /*
+         * If we are doing an each quorum query, we have to make sure that the endpoints we select
+         * provide a quorum for each data center. If we are not using a NetworkTopologyStrategy,
+         * we should fall through and grab a quorum in the replication strategy.
+         *
+         * We do not speculate for EACH_QUORUM.
+         *
+         * TODO: this is still very inconistently managed between {LOCAL,EACH}_QUORUM and other consistency levels - should address this in a follow-up
+         */
+        if (consistencyLevel == ConsistencyLevel.EACH_QUORUM && keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
+            return contactForEachQuorumRead(keyspace, candidates);
+
+        int count = consistencyLevel.blockFor(keyspace) + (alwaysSpeculate ? 1 : 0);
+        return candidates.subList(0, Math.min(count, candidates.size()));
+    }
+
+>>>>>>> Fix bug where we may speculate to a non-local node for LOCAL_QUORUM queries (this would Timeout instead of Unavailable)
     public static ReplicaPlan.ForTokenRead forRead(Keyspace keyspace, Token token, ConsistencyLevel consistencyLevel, SpeculativeRetryPolicy retry)
     {
-        ReplicaLayout.ForTokenRead candidates = ReplicaLayout.forTokenReadLiveSorted(keyspace, token);
-        EndpointsForToken contact = consistencyLevel.filterForQuery(keyspace, candidates.natural(),
-                retry.equals(AlwaysSpeculativeRetryPolicy.INSTANCE));
+        EndpointsForToken candidates = candidatesForRead(consistencyLevel, ReplicaLayout.forTokenReadLiveSorted(keyspace, token).natural());
+        EndpointsForToken contact = contactForRead(keyspace, consistencyLevel, retry.equals(AlwaysSpeculativeRetryPolicy.INSTANCE), candidates);
 
-        ReplicaPlan.ForTokenRead result = new ReplicaPlan.ForTokenRead(keyspace, consistencyLevel, candidates.natural(), contact);
+        ReplicaPlan.ForTokenRead result = new ReplicaPlan.ForTokenRead(keyspace, consistencyLevel, candidates, contact);
         result.assureSufficientReplicas(); // Throw UAE early if we don't have enough replicas.
         return result;
     }
@@ -262,10 +299,10 @@ public class ReplicaPlans
      */
     public static ReplicaPlan.ForRangeRead forRangeRead(Keyspace keyspace, ConsistencyLevel consistencyLevel, AbstractBounds<PartitionPosition> range)
     {
-        ReplicaLayout.ForRangeRead candidates = ReplicaLayout.forRangeReadLiveSorted(keyspace, range);
-        EndpointsForRange contact = consistencyLevel.filterForQuery(keyspace, candidates.natural());
+        EndpointsForRange candidates = candidatesForRead(consistencyLevel, ReplicaLayout.forRangeReadLiveSorted(keyspace, range).natural());
+        EndpointsForRange contact = contactForRead(keyspace, consistencyLevel, false, candidates);
 
-        ReplicaPlan.ForRangeRead result = new ReplicaPlan.ForRangeRead(keyspace, consistencyLevel, candidates.range(), candidates.natural(), contact);
+        ReplicaPlan.ForRangeRead result = new ReplicaPlan.ForRangeRead(keyspace, consistencyLevel, range, candidates, contact);
         result.assureSufficientReplicas();
         return result;
     }
@@ -283,13 +320,12 @@ public class ReplicaPlans
         if (!consistencyLevel.isSufficientReplicasForRead(keyspace, mergedCandidates))
             return null;
 
-        EndpointsForRange contact = consistencyLevel.filterForQuery(keyspace, mergedCandidates);
+        EndpointsForRange mergedContact = contactForRead(keyspace, consistencyLevel, false, mergedCandidates);
 
         // Estimate whether merging will be a win or not
-        if (!DatabaseDescriptor.getEndpointSnitch().isWorthMergingForRangeQuery(contact, left.contact(), right.contact()))
+        if (!DatabaseDescriptor.getEndpointSnitch().isWorthMergingForRangeQuery(mergedContact, left.contact(), right.contact()))
             return null;
 
-        // If we get there, merge this range and the next one
-        return new ReplicaPlan.ForRangeRead(keyspace, consistencyLevel, newRange, mergedCandidates, contact);
+        return new ReplicaPlan.ForRangeRead(keyspace, consistencyLevel, newRange, mergedCandidates, mergedContact);
     }
 }
