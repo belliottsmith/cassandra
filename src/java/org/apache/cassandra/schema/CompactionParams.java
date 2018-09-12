@@ -64,12 +64,17 @@ public final class CompactionParams
         ImmutableMap.of(Option.MIN_THRESHOLD.toString(), Integer.toString(DEFAULT_MIN_THRESHOLD),
                         Option.MAX_THRESHOLD.toString(), Integer.toString(DEFAULT_MAX_THRESHOLD));
 
+    public static final Map<String, String> DEFAULT_GLOBALS =
+        new ImmutableMap.Builder<String, String>().putAll(DEFAULT_THRESHOLDS)
+                                                  .put(Option.ENABLED.toString(), Boolean.toString(DEFAULT_ENABLED))
+                                                  .build();
+
     private static final boolean sizeTieredDefault = Boolean.parseBoolean(System.getProperty("cie-cassandra.sizeTieredDefault", "false"));
     public static final CompactionParams DEFAULT_SYSTEM =
-        new CompactionParams(SizeTieredCompactionStrategy.class, DEFAULT_THRESHOLDS, DEFAULT_ENABLED);
+        CompactionParams.create(SizeTieredCompactionStrategy.class, DEFAULT_GLOBALS);
 
     public static final CompactionParams DEFAULT = sizeTieredDefault ? DEFAULT_SYSTEM :
-        new CompactionParams(LeveledCompactionStrategy.class, DEFAULT_THRESHOLDS, DEFAULT_ENABLED);
+        CompactionParams.create(LeveledCompactionStrategy.class, DEFAULT_GLOBALS);
 
     private final Class<? extends AbstractCompactionStrategy> klass;
     private final ImmutableMap<String, String> options;
