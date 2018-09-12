@@ -33,6 +33,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.UntypedResultSet;
@@ -55,6 +56,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.serializers.MarshalException;
@@ -635,6 +637,13 @@ public class CompactionsCQLTest extends CQLTester
         getCurrentColumnFamilyStore().forceMajorCompaction();
         assertTombstones(getCurrentColumnFamilyStore().getLiveSSTables().iterator().next(), false);
         getCurrentColumnFamilyStore().truncateBlocking();
+    }
+
+    @Test
+    public void testDefaultLCSOptions()
+    {
+        createTable("CREATE TABLE %s (id int primary key, b text)");
+        assertEquals(getCurrentColumnFamilyStore().metadata.params.compaction, CompactionParams.DEFAULT);
     }
 
     private void assertSuspectAndReset(Collection<SSTableReader> sstables)

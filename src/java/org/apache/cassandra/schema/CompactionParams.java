@@ -69,7 +69,7 @@ public final class CompactionParams
         new CompactionParams(SizeTieredCompactionStrategy.class, DEFAULT_THRESHOLDS, DEFAULT_ENABLED);
 
     public static final CompactionParams DEFAULT = sizeTieredDefault ? DEFAULT_SYSTEM :
-        new CompactionParams(LeveledCompactionStrategy.class, new HashMap<>(), DEFAULT_ENABLED);
+        new CompactionParams(LeveledCompactionStrategy.class, DEFAULT_THRESHOLDS, DEFAULT_ENABLED);
 
     private final Class<? extends AbstractCompactionStrategy> klass;
     private final ImmutableMap<String, String> options;
@@ -257,7 +257,7 @@ public final class CompactionParams
     }
 
     /*
-     * LCS doesn't, STCS and DTCS do
+     * all built-in strategies support this
      */
     @SuppressWarnings("unchecked")
     public static boolean supportsThresholdParams(Class<? extends AbstractCompactionStrategy> klass)
