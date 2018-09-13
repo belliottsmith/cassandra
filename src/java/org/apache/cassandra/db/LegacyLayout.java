@@ -216,7 +216,7 @@ public abstract class LegacyLayout
             ByteBuffer collectionNameBytes = components.remove(clusteringSize);
             collectionName = metadata.getColumnDefinition(collectionNameBytes);
             if (collectionName == null) {
-                collectionName = metadata.getDroppedColumnDefinition(collectionNameBytes);
+                collectionName = metadata.getDroppedColumnDefinition(collectionNameBytes, isStatic);
                 if (collectionName == null)
                     throw new RuntimeException("Unknown collection column " + UTF8Type.instance.getString(collectionNameBytes) + " during deserialization");
             }
