@@ -1,11 +1,4 @@
 schemaVersion: '2.0'
-name: cie-cassandra
-category: cie
-users:
-- cie-db-dev
-notificationRecipients:
-- jasobrown@apple.com
-- cie-db-ci@group.apple.com
 builds:
 - name: base-docker-3.0.17
   branchName: cie-cassandra-3.0.17
@@ -47,8 +40,8 @@ builds:
       junit: true
   timeout: 60
   finally:
-    buildChain:
-    - cie-cassandra-snapshot-3.0.17
+    pipelineChain:
+        - pipeline: snapshot-3.0.17
 - name: snapshot-3.0.17
   branchName: cie-cassandra-3.0.17
   build:
@@ -66,8 +59,8 @@ builds:
   finally:
     tag:
       enabled: false
-    buildChain:
-        - cie-cassandra-snapshot-carnival-3.0.17
+    pipelineChain:
+        - pipeline: snapshot-carnival-3.0.17
   trigger:
     gitPush: false
 - name: snapshot-carnival-3.0.17
@@ -111,8 +104,8 @@ builds:
   finally:
     tag:
       enabled: false
-    buildChain:
-    - cie-cassandra-carnival-3.0.17
+    pipelineChain:
+      - pipeline: carnival-3.0.17
   trigger:
     gitPush: false
 - name: carnival-3.0.17
