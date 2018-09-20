@@ -26,6 +26,7 @@ import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.locator.InOurDcTester;
 import org.apache.cassandra.locator.ReplicaCollection;
 import org.apache.cassandra.locator.Replicas;
+import org.apache.cassandra.locator.Replicas.ReplicaCount;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,6 +38,9 @@ import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.NetworkTopologyStrategy;
 import org.apache.cassandra.transport.ProtocolException;
+
+import static org.apache.cassandra.locator.Replicas.countDCLocalReplicas;
+import static org.apache.cassandra.locator.Replicas.countPerDCEndpoints;
 
 public enum ConsistencyLevel
 {
@@ -177,55 +181,6 @@ public enum ConsistencyLevel
         return isDCLocal;
     }
 
-    private static ReplicaCount countDCLocalReplicas(ReplicaCollection<?> liveReplicas)
-    {
-        ReplicaCount count = new ReplicaCount();
-        Predicate<Replica> inOurDc = InOurDcTester.replicas();
-        for (Replica replica : liveReplicas)
-            if (inOurDc.test(replica))
-                count.increment(replica);
-        return count;
-    }
-
-    private static class ReplicaCount
-    {
-        int fullReplicas;
-        int transientReplicas;
-
-        int allReplicas()
-        {
-            return fullReplicas + transientReplicas;
-        }
-
-        void increment(Replica replica)
-        {
-            if (replica.isFull()) ++fullReplicas;
-            else ++transientReplicas;
-        }
-
-        boolean isSufficient(int allReplicas, int fullReplicas)
-        {
-            return this.fullReplicas >= fullReplicas
-                    && this.allReplicas() >= allReplicas;
-        }
-    }
-
-    private static Map<String, ReplicaCount> countPerDCEndpoints(Keyspace keyspace, Iterable<Replica> liveReplicas)
-    {
-        NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
-
-        Map<String, ReplicaCount> dcEndpoints = new HashMap<>();
-        for (String dc: strategy.getDatacenters())
-            dcEndpoints.put(dc, new ReplicaCount());
-
-        for (Replica replica : liveReplicas)
-        {
-            String dc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(replica);
-            dcEndpoints.get(dc).increment(replica);
-        }
-        return dcEndpoints;
-    }
-
     public <E extends Endpoints<E>> E filterForQuery(Keyspace keyspace, E liveReplicas)
     {
         return filterForQuery(keyspace, liveReplicas, false);
@@ -291,7 +246,7 @@ public enum ConsistencyLevel
                         ReplicaCount count = entry.getValue();
                         if (!count.isSufficient(localQuorumFor(keyspace, entry.getKey()), 0))
                             return false;
-                        fullCount += count.fullReplicas;
+                        fullCount += count.fullReplicas();
                     }
                     return fullCount > 0;
                 }
@@ -321,7 +276,7 @@ public enum ConsistencyLevel
             {
                 ReplicaCount localLive = countDCLocalReplicas(allLive);
                 if (!localLive.isSufficient(blockFor, blockForFullReplicas))
-                    throw UnavailableException.create(this, 1, blockForFullReplicas, localLive.allReplicas(), localLive.fullReplicas);
+                    throw UnavailableException.create(this, 1, blockForFullReplicas, localLive.allReplicas(), localLive.fullReplicas());
                 break;
             }
             case LOCAL_QUORUM:
@@ -334,7 +289,7 @@ public enum ConsistencyLevel
                         logger.trace(String.format("Local replicas %s are insufficient to satisfy LOCAL_QUORUM requirement of %d live replicas and %d full replicas in '%s'",
                                 allLive.filter(InOurDcTester.replicas()), blockFor, blockForFullReplicas, DatabaseDescriptor.getLocalDataCenter()));
                     }
-                    throw UnavailableException.create(this, blockFor, blockForFullReplicas, localLive.allReplicas(), localLive.fullReplicas);
+                    throw UnavailableException.create(this, blockFor, blockForFullReplicas, localLive.allReplicas(), localLive.fullReplicas());
                 }
                 break;
             }
@@ -348,8 +303,8 @@ public enum ConsistencyLevel
                         int dcBlockFor = localQuorumFor(keyspace, entry.getKey());
                         ReplicaCount dcCount = entry.getValue();
                         if (!dcCount.isSufficient(dcBlockFor, 0))
-                            throw UnavailableException.create(this, entry.getKey(), dcBlockFor, dcCount.allReplicas(), 0, dcCount.fullReplicas);
-                        totalFull += dcCount.fullReplicas;
+                            throw UnavailableException.create(this, entry.getKey(), dcBlockFor, dcCount.allReplicas(), 0, dcCount.fullReplicas());
+                        totalFull += dcCount.fullReplicas();
                         total += dcCount.allReplicas();
                     }
                     if (totalFull < blockForFullReplicas)

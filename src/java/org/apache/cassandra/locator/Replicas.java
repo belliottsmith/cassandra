@@ -19,9 +19,14 @@
 package org.apache.cassandra.locator;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Predicate;
 
 import com.google.common.collect.Iterables;
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.Keyspace;
 
 import static com.google.common.collect.Iterables.all;
 
@@ -35,6 +40,65 @@ public class Replicas
             if (replica.isFull())
                 ++count;
         return count;
+    }
+
+    public static ReplicaCount countDCLocalReplicas(ReplicaCollection<?> liveReplicas)
+    {
+        ReplicaCount count = new ReplicaCount();
+        Predicate<Replica> inOurDc = InOurDcTester.replicas();
+        for (Replica replica : liveReplicas)
+            if (inOurDc.test(replica))
+                count.increment(replica);
+        return count;
+    }
+
+    public static class ReplicaCount
+    {
+        int fullReplicas;
+        int transientReplicas;
+
+        public int allReplicas()
+        {
+            return fullReplicas + transientReplicas;
+        }
+
+        public int fullReplicas()
+        {
+            return fullReplicas;
+        }
+
+        public int transientReplicas()
+        {
+            return transientReplicas;
+        }
+
+        public void increment(Replica replica)
+        {
+            if (replica.isFull()) ++fullReplicas;
+            else ++transientReplicas;
+        }
+
+        public boolean isSufficient(int allReplicas, int fullReplicas)
+        {
+            return this.fullReplicas >= fullReplicas
+                    && this.allReplicas() >= allReplicas;
+        }
+    }
+
+    public static Map<String, ReplicaCount> countPerDCEndpoints(Keyspace keyspace, Iterable<Replica> liveReplicas)
+    {
+        NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
+
+        Map<String, ReplicaCount> dcEndpoints = new HashMap<>();
+        for (String dc: strategy.getDatacenters())
+            dcEndpoints.put(dc, new ReplicaCount());
+
+        for (Replica replica : liveReplicas)
+        {
+            String dc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(replica);
+            dcEndpoints.get(dc).increment(replica);
+        }
+        return dcEndpoints;
     }
 
     /**
