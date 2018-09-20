@@ -19,14 +19,13 @@
 package org.apache.cassandra.locator;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Predicate;
 
+import com.carrotsearch.hppc.ObjectObjectOpenHashMap;
 import com.google.common.collect.Iterables;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.Keyspace;
 
 import static com.google.common.collect.Iterables.all;
 
@@ -85,20 +84,18 @@ public class Replicas
         return count;
     }
 
-    public static Map<String, ReplicaCount> countPerDc(Keyspace keyspace, Iterable<Replica> liveReplicas)
+    public static ObjectObjectOpenHashMap<String, ReplicaCount> countPerDc(Collection<String> dataCenters, Iterable<Replica> liveReplicas)
     {
-        NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
-
-        Map<String, ReplicaCount> dcEndpoints = new HashMap<>();
-        for (String dc: strategy.getDatacenters())
-            dcEndpoints.put(dc, new ReplicaCount());
+        ObjectObjectOpenHashMap<String, ReplicaCount> perDc = new ObjectObjectOpenHashMap<>(dataCenters.size());
+        for (String dc: dataCenters)
+            perDc.put(dc, new ReplicaCount());
 
         for (Replica replica : liveReplicas)
         {
             String dc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(replica);
-            dcEndpoints.get(dc).increment(replica);
+            perDc.get(dc).increment(replica);
         }
-        return dcEndpoints;
+        return perDc;
     }
 
     /**

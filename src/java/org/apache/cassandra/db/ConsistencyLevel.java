@@ -18,6 +18,7 @@
 package org.apache.cassandra.db;
 
 
+import com.carrotsearch.hppc.ObjectIntOpenHashMap;
 import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -79,7 +80,7 @@ public enum ConsistencyLevel
         return codeIdx[code];
     }
 
-    private static int quorumFor(Keyspace keyspace)
+    public static int quorumFor(Keyspace keyspace)
     {
         return (keyspace.getReplicationStrategy().getReplicationFactor().allReplicas / 2) + 1;
     }
@@ -89,6 +90,15 @@ public enum ConsistencyLevel
         return (keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
              ? (((NetworkTopologyStrategy) keyspace.getReplicationStrategy()).getReplicationFactor(dc).allReplicas / 2) + 1
              : quorumFor(keyspace);
+    }
+
+    public static ObjectIntOpenHashMap<String> eachQuorumFor(Keyspace keyspace)
+    {
+        NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
+        ObjectIntOpenHashMap<String> perDc = new ObjectIntOpenHashMap<>(strategy.getDatacenters().size());
+        for (String dc : strategy.getDatacenters())
+            perDc.put(dc, ConsistencyLevel.localQuorumFor(keyspace, dc));
+        return perDc;
     }
 
     public int blockFor(Keyspace keyspace)
