@@ -19,15 +19,16 @@ package org.apache.cassandra.db;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Predicate;
 
 import com.google.common.collect.Iterables;
 import org.apache.cassandra.locator.Endpoints;
+import org.apache.cassandra.locator.InOurDcTester;
 import org.apache.cassandra.locator.ReplicaCollection;
 import org.apache.cassandra.locator.Replicas;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -176,21 +177,12 @@ public enum ConsistencyLevel
         return isDCLocal;
     }
 
-    public static boolean isLocal(InetAddressAndPort endpoint)
-    {
-        return DatabaseDescriptor.getLocalDataCenter().equals(DatabaseDescriptor.getEndpointSnitch().getDatacenter(endpoint));
-    }
-
-    public static boolean isLocal(Replica replica)
-    {
-        return isLocal(replica.endpoint());
-    }
-
     private static ReplicaCount countDCLocalReplicas(ReplicaCollection<?> liveReplicas)
     {
         ReplicaCount count = new ReplicaCount();
+        Predicate<Replica> inOurDc = InOurDcTester.replicas();
         for (Replica replica : liveReplicas)
-            if (isLocal(replica))
+            if (inOurDc.test(replica))
                 count.increment(replica);
         return count;
     }
@@ -253,7 +245,7 @@ public enum ConsistencyLevel
 
         int count = blockFor(keyspace) + (alwaysSpeculate ? 1 : 0);
         return isDCLocal
-                ? liveReplicas.filter(ConsistencyLevel::isLocal, count)
+                ? liveReplicas.filter(InOurDcTester.replicas(), count)
                 : liveReplicas.subList(0, Math.min(liveReplicas.size(), count));
     }
 
@@ -340,7 +332,7 @@ public enum ConsistencyLevel
                     if (logger.isTraceEnabled())
                     {
                         logger.trace(String.format("Local replicas %s are insufficient to satisfy LOCAL_QUORUM requirement of %d live replicas and %d full replicas in '%s'",
-                                allLive.filter(ConsistencyLevel::isLocal), blockFor, blockForFullReplicas, DatabaseDescriptor.getLocalDataCenter()));
+                                allLive.filter(InOurDcTester.replicas()), blockFor, blockForFullReplicas, DatabaseDescriptor.getLocalDataCenter()));
                     }
                     throw UnavailableException.create(this, blockFor, blockForFullReplicas, localLive.allReplicas(), localLive.fullReplicas);
                 }
