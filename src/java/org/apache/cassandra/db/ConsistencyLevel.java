@@ -26,7 +26,7 @@ import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.NetworkTopologyStrategy;
 import org.apache.cassandra.transport.ProtocolException;
 
-import static org.apache.cassandra.locator.Replicas.countDCLocalReplicas;
+import static org.apache.cassandra.locator.Replicas.countInOurDc;
 
 public enum ConsistencyLevel
 {
@@ -141,7 +141,7 @@ public enum ConsistencyLevel
                 break;
             case LOCAL_ONE: case LOCAL_QUORUM: case LOCAL_SERIAL:
                 // we will only count local replicas towards our response count, as these queries only care about local guarantees
-                blockFor += countDCLocalReplicas(pending).allReplicas();
+                blockFor += countInOurDc(pending).allReplicas();
                 break;
             case ONE: case TWO: case THREE:
             case QUORUM: case EACH_QUORUM:

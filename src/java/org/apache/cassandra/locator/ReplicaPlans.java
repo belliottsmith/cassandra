@@ -45,8 +45,8 @@ import static com.google.common.collect.Iterables.filter;
 import static com.google.common.collect.Iterables.limit;
 import static org.apache.cassandra.db.ConsistencyLevel.EACH_QUORUM;
 import static org.apache.cassandra.db.ConsistencyLevel.localQuorumFor;
-import static org.apache.cassandra.locator.Replicas.countDCLocalReplicas;
-import static org.apache.cassandra.locator.Replicas.countPerDCEndpoints;
+import static org.apache.cassandra.locator.Replicas.countInOurDc;
+import static org.apache.cassandra.locator.Replicas.countPerDc;
 
 public class ReplicaPlans
 {
@@ -60,17 +60,17 @@ public class ReplicaPlans
                 // local hint is acceptable, and local node is always live
                 return true;
             case LOCAL_ONE:
-                return countDCLocalReplicas(liveReplicas).isSufficient(1, 1);
+                return countInOurDc(liveReplicas).hasAtleast(1, 1);
             case LOCAL_QUORUM:
-                return countDCLocalReplicas(liveReplicas).isSufficient(consistencyLevel.blockFor(keyspace), 1);
+                return countInOurDc(liveReplicas).hasAtleast(consistencyLevel.blockFor(keyspace), 1);
             case EACH_QUORUM:
                 if (keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
                 {
                     int fullCount = 0;
-                    for (Map.Entry<String, Replicas.ReplicaCount> entry : countPerDCEndpoints(keyspace, liveReplicas).entrySet())
+                    for (Map.Entry<String, Replicas.ReplicaCount> entry : countPerDc(keyspace, liveReplicas).entrySet())
                     {
                         Replicas.ReplicaCount count = entry.getValue();
-                        if (!count.isSufficient(localQuorumFor(keyspace, entry.getKey()), 0))
+                        if (!count.hasAtleast(localQuorumFor(keyspace, entry.getKey()), 0))
                             return false;
                         fullCount += count.fullReplicas();
                     }
@@ -100,15 +100,15 @@ public class ReplicaPlans
                 break;
             case LOCAL_ONE:
             {
-                Replicas.ReplicaCount localLive = countDCLocalReplicas(allLive);
-                if (!localLive.isSufficient(blockFor, blockForFullReplicas))
+                Replicas.ReplicaCount localLive = countInOurDc(allLive);
+                if (!localLive.hasAtleast(blockFor, blockForFullReplicas))
                     throw UnavailableException.create(consistencyLevel, 1, blockForFullReplicas, localLive.allReplicas(), localLive.fullReplicas());
                 break;
             }
             case LOCAL_QUORUM:
             {
-                Replicas.ReplicaCount localLive = countDCLocalReplicas(allLive);
-                if (!localLive.isSufficient(blockFor, blockForFullReplicas))
+                Replicas.ReplicaCount localLive = countInOurDc(allLive);
+                if (!localLive.hasAtleast(blockFor, blockForFullReplicas))
                 {
                     if (logger.isTraceEnabled())
                     {
@@ -124,11 +124,11 @@ public class ReplicaPlans
                 {
                     int total = 0;
                     int totalFull = 0;
-                    for (Map.Entry<String, Replicas.ReplicaCount> entry : countPerDCEndpoints(keyspace, allLive).entrySet())
+                    for (Map.Entry<String, Replicas.ReplicaCount> entry : countPerDc(keyspace, allLive).entrySet())
                     {
                         int dcBlockFor = localQuorumFor(keyspace, entry.getKey());
                         Replicas.ReplicaCount dcCount = entry.getValue();
-                        if (!dcCount.isSufficient(dcBlockFor, 0))
+                        if (!dcCount.hasAtleast(dcBlockFor, 0))
                             throw UnavailableException.create(consistencyLevel, entry.getKey(), dcBlockFor, dcCount.allReplicas(), 0, dcCount.fullReplicas());
                         totalFull += dcCount.fullReplicas();
                         total += dcCount.allReplicas();

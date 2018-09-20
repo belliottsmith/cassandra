@@ -33,22 +33,12 @@ import static com.google.common.collect.Iterables.all;
 public class Replicas
 {
 
-    public static int countFull(ReplicaCollection<?> liveReplicas)
+    public static int countFull(ReplicaCollection<?> replicas)
     {
         int count = 0;
-        for (Replica replica : liveReplicas)
+        for (Replica replica : replicas)
             if (replica.isFull())
                 ++count;
-        return count;
-    }
-
-    public static ReplicaCount countDCLocalReplicas(ReplicaCollection<?> liveReplicas)
-    {
-        ReplicaCount count = new ReplicaCount();
-        Predicate<Replica> inOurDc = InOurDcTester.replicas();
-        for (Replica replica : liveReplicas)
-            if (inOurDc.test(replica))
-                count.increment(replica);
         return count;
     }
 
@@ -78,14 +68,24 @@ public class Replicas
             else ++transientReplicas;
         }
 
-        public boolean isSufficient(int allReplicas, int fullReplicas)
+        public boolean hasAtleast(int allReplicas, int fullReplicas)
         {
             return this.fullReplicas >= fullReplicas
                     && this.allReplicas() >= allReplicas;
         }
     }
 
-    public static Map<String, ReplicaCount> countPerDCEndpoints(Keyspace keyspace, Iterable<Replica> liveReplicas)
+    public static ReplicaCount countInOurDc(ReplicaCollection<?> replicas)
+    {
+        ReplicaCount count = new ReplicaCount();
+        Predicate<Replica> inOurDc = InOurDcTester.replicas();
+        for (Replica replica : replicas)
+            if (inOurDc.test(replica))
+                count.increment(replica);
+        return count;
+    }
+
+    public static Map<String, ReplicaCount> countPerDc(Keyspace keyspace, Iterable<Replica> liveReplicas)
     {
         NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
 
