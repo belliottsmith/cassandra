@@ -856,7 +856,6 @@ public class TokenMetadata
                                                            Set<Pair<Token, InetAddressAndPort>> movingEndpoints)
     {
         PendingRangeMaps newPendingRanges = new PendingRangeMaps();
-
         RangesByEndpoint addressRanges = strategy.getAddressReplicas(metadata);
 
         // Copy of metadata reflecting the situation after all leave operations are finished.
@@ -871,14 +870,23 @@ public class TokenMetadata
         // all leaving nodes are gone.
         for (Range<Token> range : removeAffectedRanges)
         {
+            /**
+             * If we remove a node, we can produce null->{full,transient} or full->transient
+             * we cannot produce transient->full, because transient replicas are allocated last.
+             * We must persist all of these transitions, so we simply ignore those ranges that
+             * are identically replicated
+             */
             EndpointsForRange currentReplicas = strategy.calculateNaturalReplicas(range.right, metadata);
-            EndpointsForRange newReplicas = strategy.calculateNaturalReplicas(range.right, allLeftMetadata);
+            EndpointsForRange newReplicas = strategy.calculateNaturalReplicas(range.right, allLeftMetadata)
+                    .filter(newReplica -> {
+                        Replica currentReplica = currentReplicas.byEndpoint().get(newReplica.range());
+                        if (currentReplica == null)
+                            return true;
+                        return currentReplica.isTransient() && !newReplica.isTransient();
+                    });
+
             for (Replica replica : newReplicas)
-            {
-                if (currentReplicas.endpoints().contains(replica.endpoint()))
-                    continue;
                 newPendingRanges.addPendingRange(range, replica);
-            }
         }
 
         // At this stage newPendingRanges has been updated according to leave operations. We can
@@ -889,13 +897,18 @@ public class TokenMetadata
         Multimap<InetAddressAndPort, Token> bootstrapAddresses = bootstrapTokens.inverse();
         for (InetAddressAndPort endpoint : bootstrapAddresses.keySet())
         {
+            /**
+             * If we add a node, we can produce transient->full or {full,transient}->null
+             * we cannot produce full->transient, because transient replicas are allocated last.
+             * Since a full->transient pending transition is always resolved to a no-op
+             * (see {@link ReplicaLayout#haveWriteConflicts}), we simply don't bother to store them here
+             */
             Collection<Token> tokens = bootstrapAddresses.get(endpoint);
 
             allLeftMetadata.updateNormalTokens(tokens, endpoint);
             for (Replica replica : strategy.getAddressReplicas(allLeftMetadata, endpoint))
-            {
                 newPendingRanges.addPendingRange(replica.range(), replica);
-            }
+
             allLeftMetadata.removeEndpoint(endpoint);
         }
 
@@ -911,16 +924,12 @@ public class TokenMetadata
             InetAddressAndPort endpoint = moving.right; // address of the moving node
             //Add ranges before the move
             for (Replica replica : strategy.getAddressReplicas(allLeftMetadata, endpoint))
-            {
                 moveAffectedReplicas.add(replica);
-            }
 
             allLeftMetadata.updateNormalToken(moving.left, endpoint);
             //Add ranges after the move
             for (Replica replica : strategy.getAddressReplicas(allLeftMetadata, endpoint))
-            {
                 moveAffectedReplicas.add(replica);
-            }
 
             for (Replica replica : moveAffectedReplicas)
             {
@@ -942,9 +951,7 @@ public class TokenMetadata
                         // cleaner to ensure this is dealt with at point of use, where we can make a conscious decision
                         // about which to use
                         for (Replica pendingReplica : newReplica.subtractSameReplication(oldReplicas))
-                        {
                             newPendingRanges.addPendingRange(pendingReplica.range(), pendingReplica);
-                        }
                     }
                 }
             }
