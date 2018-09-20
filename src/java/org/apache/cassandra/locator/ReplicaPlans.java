@@ -19,6 +19,7 @@
 package org.apache.cassandra.locator;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Iterables;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
@@ -31,16 +32,125 @@ import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.service.reads.AlwaysSpeculativeRetryPolicy;
 import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
 import org.apache.cassandra.utils.FBUtilities;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Predicate;
 
 import static com.google.common.collect.Iterables.any;
 import static com.google.common.collect.Iterables.filter;
 import static com.google.common.collect.Iterables.limit;
+import static org.apache.cassandra.db.ConsistencyLevel.EACH_QUORUM;
+import static org.apache.cassandra.db.ConsistencyLevel.localQuorumFor;
+import static org.apache.cassandra.locator.Replicas.countDCLocalReplicas;
+import static org.apache.cassandra.locator.Replicas.countPerDCEndpoints;
 
 public class ReplicaPlans
 {
+    private static final Logger logger = LoggerFactory.getLogger(ReplicaPlans.class);
+
+    public static boolean isSufficientLiveReplicasForRead(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> liveReplicas)
+    {
+        switch (consistencyLevel)
+        {
+            case ANY:
+                // local hint is acceptable, and local node is always live
+                return true;
+            case LOCAL_ONE:
+                return countDCLocalReplicas(liveReplicas).isSufficient(1, 1);
+            case LOCAL_QUORUM:
+                return countDCLocalReplicas(liveReplicas).isSufficient(consistencyLevel.blockFor(keyspace), 1);
+            case EACH_QUORUM:
+                if (keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
+                {
+                    int fullCount = 0;
+                    for (Map.Entry<String, Replicas.ReplicaCount> entry : countPerDCEndpoints(keyspace, liveReplicas).entrySet())
+                    {
+                        Replicas.ReplicaCount count = entry.getValue();
+                        if (!count.isSufficient(localQuorumFor(keyspace, entry.getKey()), 0))
+                            return false;
+                        fullCount += count.fullReplicas();
+                    }
+                    return fullCount > 0;
+                }
+                // Fallthough on purpose for SimpleStrategy
+            default:
+                return liveReplicas.size() >= consistencyLevel.blockFor(keyspace)
+                        && Replicas.countFull(liveReplicas) > 0;
+        }
+    }
+
+    static void assureSufficientLiveReplicasForRead(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> liveReplicas) throws UnavailableException
+    {
+        assureSufficientLiveReplicas(keyspace, consistencyLevel, liveReplicas, consistencyLevel.blockFor(keyspace), 1);
+    }
+    static void assureSufficientLiveReplicasForWrite(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> allLive, Endpoints<?> pendingWithDown) throws UnavailableException
+    {
+        assureSufficientLiveReplicas(keyspace, consistencyLevel, allLive, consistencyLevel.blockForWrite(keyspace, pendingWithDown), 0);
+    }
+    static void assureSufficientLiveReplicas(Keyspace keyspace, ConsistencyLevel consistencyLevel, Endpoints<?> allLive, int blockFor, int blockForFullReplicas) throws UnavailableException
+    {
+        switch (consistencyLevel)
+        {
+            case ANY:
+                // local hint is acceptable, and local node is always live
+                break;
+            case LOCAL_ONE:
+            {
+                Replicas.ReplicaCount localLive = countDCLocalReplicas(allLive);
+                if (!localLive.isSufficient(blockFor, blockForFullReplicas))
+                    throw UnavailableException.create(consistencyLevel, 1, blockForFullReplicas, localLive.allReplicas(), localLive.fullReplicas());
+                break;
+            }
+            case LOCAL_QUORUM:
+            {
+                Replicas.ReplicaCount localLive = countDCLocalReplicas(allLive);
+                if (!localLive.isSufficient(blockFor, blockForFullReplicas))
+                {
+                    if (logger.isTraceEnabled())
+                    {
+                        logger.trace(String.format("Local replicas %s are insufficient to satisfy LOCAL_QUORUM requirement of %d live replicas and %d full replicas in '%s'",
+                                allLive.filter(InOurDcTester.replicas()), blockFor, blockForFullReplicas, DatabaseDescriptor.getLocalDataCenter()));
+                    }
+                    throw UnavailableException.create(consistencyLevel, blockFor, blockForFullReplicas, localLive.allReplicas(), localLive.fullReplicas());
+                }
+                break;
+            }
+            case EACH_QUORUM:
+                if (keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
+                {
+                    int total = 0;
+                    int totalFull = 0;
+                    for (Map.Entry<String, Replicas.ReplicaCount> entry : countPerDCEndpoints(keyspace, allLive).entrySet())
+                    {
+                        int dcBlockFor = localQuorumFor(keyspace, entry.getKey());
+                        Replicas.ReplicaCount dcCount = entry.getValue();
+                        if (!dcCount.isSufficient(dcBlockFor, 0))
+                            throw UnavailableException.create(consistencyLevel, entry.getKey(), dcBlockFor, dcCount.allReplicas(), 0, dcCount.fullReplicas());
+                        totalFull += dcCount.fullReplicas();
+                        total += dcCount.allReplicas();
+                    }
+                    if (totalFull < blockForFullReplicas)
+                        throw UnavailableException.create(consistencyLevel, blockFor, total, blockForFullReplicas, totalFull);
+                    break;
+                }
+                // Fallthough on purpose for SimpleStrategy
+            default:
+                int live = allLive.size();
+                int full = Replicas.countFull(allLive);
+                if (live < blockFor || full < blockForFullReplicas)
+                {
+                    if (logger.isTraceEnabled())
+                        logger.trace("Live nodes {} do not satisfy ConsistencyLevel ({} required)", Iterables.toString(allLive), blockFor);
+                    throw UnavailableException.create(consistencyLevel, blockFor, blockForFullReplicas, live, full);
+                }
+                break;
+        }
+    }
+
 
     /**
      * Construct a ReplicaPlan for writing to exactly one node, with CL.ONE. This node is *assumed* to be alive.
@@ -109,8 +219,8 @@ public class ReplicaPlans
     public static ReplicaPlan.ForTokenWrite forWrite(Keyspace keyspace, ConsistencyLevel consistencyLevel, ReplicaLayout.ForTokenWrite liveAndDown, ReplicaLayout.ForTokenWrite live, Selector selector) throws UnavailableException
     {
         EndpointsForToken contacts = selector.select(keyspace, consistencyLevel, liveAndDown, live);
+        assureSufficientLiveReplicasForWrite(keyspace, consistencyLevel, live.all(), liveAndDown.pending());
         ReplicaPlan.ForTokenWrite result = new ReplicaPlan.ForTokenWrite(keyspace, consistencyLevel, liveAndDown.pending(), liveAndDown.all(), live.all(), contacts);
-        result.assureSufficientReplicas();
         return result;
     }
 
@@ -154,7 +264,7 @@ public class ReplicaPlans
             if (!any(liveAndDown.all(), Replica::isTransient))
                 return liveAndDown.all();
 
-            assert consistencyLevel != ConsistencyLevel.EACH_QUORUM;
+            assert consistencyLevel != EACH_QUORUM;
 
             ReplicaCollection.Mutable<E> contacts = liveAndDown.all().newMutable(liveAndDown.all().size());
             contacts.addAll(filter(liveAndDown.natural(), Replica::isFull));
@@ -215,6 +325,53 @@ public class ReplicaPlans
         return new ReplicaPlan.ForPaxosWrite(keyspace, consistencyForPaxos, liveAndDown.pending(), liveAndDown.all(), live.all(), contacts, requiredParticipants);
     }
 
+
+
+    public static <E extends Endpoints<E>> E filterForQuery(Keyspace keyspace, ConsistencyLevel consistencyLevel, E liveReplicas)
+    {
+        return filterForQuery(keyspace, consistencyLevel, liveReplicas, false);
+    }
+
+    public static <E extends Endpoints<E>> E filterForQuery(Keyspace keyspace, ConsistencyLevel consistencyLevel, E liveReplicas, boolean alwaysSpeculate)
+    {
+        /*
+         * If we are doing an each quorum query, we have to make sure that the endpoints we select
+         * provide a quorum for each data center. If we are not using a NetworkTopologyStrategy,
+         * we should fall through and grab a quorum in the replication strategy.
+         *
+         * We do not speculate for EACH_QUORUM.
+         */
+        if (consistencyLevel == EACH_QUORUM && keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
+            return filterForEachQuorum(keyspace, consistencyLevel, liveReplicas);
+
+        int count = consistencyLevel.blockFor(keyspace) + (alwaysSpeculate ? 1 : 0);
+        return consistencyLevel.isDatacenterLocal()
+                ? liveReplicas.filter(InOurDcTester.replicas(), count)
+                : liveReplicas.subList(0, Math.min(liveReplicas.size(), count));
+    }
+
+    private static <E extends Endpoints<E>> E filterForEachQuorum(Keyspace keyspace, ConsistencyLevel consistencyLevel, E liveReplicas)
+    {
+        NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
+        Map<String, Integer> dcsReplicas = new HashMap<>();
+        for (String dc : strategy.getDatacenters())
+        {
+            // we put _up to_ dc replicas only
+            dcsReplicas.put(dc, localQuorumFor(keyspace, dc));
+        }
+
+        return liveReplicas.filter((replica) -> {
+            String dc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(replica);
+            int replicas = dcsReplicas.get(dc);
+            if (replicas > 0)
+            {
+                dcsReplicas.put(dc, --replicas);
+                return true;
+            }
+            return false;
+        });
+    }
+
     /**
      * Construct a plan for reading from a single node - this permits no speculation or read-repair
      */
@@ -245,12 +402,11 @@ public class ReplicaPlans
     public static ReplicaPlan.ForTokenRead forRead(Keyspace keyspace, Token token, ConsistencyLevel consistencyLevel, SpeculativeRetryPolicy retry)
     {
         ReplicaLayout.ForTokenRead candidates = ReplicaLayout.forTokenReadLiveSorted(keyspace, token);
-        EndpointsForToken contacts = consistencyLevel.filterForQuery(keyspace, candidates.natural(),
+        EndpointsForToken contacts = filterForQuery(keyspace, consistencyLevel, candidates.natural(),
                 retry.equals(AlwaysSpeculativeRetryPolicy.INSTANCE));
 
-        ReplicaPlan.ForTokenRead result = new ReplicaPlan.ForTokenRead(keyspace, consistencyLevel, candidates.natural(), contacts);
-        result.assureSufficientReplicas(); // Throw UAE early if we don't have enough replicas.
-        return result;
+        assureSufficientLiveReplicasForRead(keyspace, consistencyLevel, contacts); // Throw UAE early if we don't have enough replicas.
+        return new ReplicaPlan.ForTokenRead(keyspace, consistencyLevel, candidates.natural(), contacts);
     }
 
     /**
@@ -263,11 +419,10 @@ public class ReplicaPlans
     public static ReplicaPlan.ForRangeRead forRangeRead(Keyspace keyspace, ConsistencyLevel consistencyLevel, AbstractBounds<PartitionPosition> range)
     {
         ReplicaLayout.ForRangeRead candidates = ReplicaLayout.forRangeReadLiveSorted(keyspace, range);
-        EndpointsForRange contacts = consistencyLevel.filterForQuery(keyspace, candidates.natural());
+        EndpointsForRange contacts = filterForQuery(keyspace, consistencyLevel, candidates.natural());
 
-        ReplicaPlan.ForRangeRead result = new ReplicaPlan.ForRangeRead(keyspace, consistencyLevel, range, candidates.natural(), contacts);
-        result.assureSufficientReplicas();
-        return result;
+        assureSufficientLiveReplicasForRead(keyspace, consistencyLevel, contacts); // Throw UAE early if we don't have enough replicas.
+        return new ReplicaPlan.ForRangeRead(keyspace, consistencyLevel, range, candidates.natural(), contacts);
     }
 
     /**
@@ -280,10 +435,10 @@ public class ReplicaPlans
         EndpointsForRange mergedCandidates = left.candidates().keep(right.candidates().endpoints());
 
         // Check if there are enough shared endpoints for the merge to be possible.
-        if (!consistencyLevel.isSufficientLiveReplicasForRead(keyspace, mergedCandidates))
+        if (!isSufficientLiveReplicasForRead(keyspace, consistencyLevel, mergedCandidates))
             return null;
 
-        EndpointsForRange contacts = consistencyLevel.filterForQuery(keyspace, mergedCandidates);
+        EndpointsForRange contacts = filterForQuery(keyspace, consistencyLevel, mergedCandidates);
 
         // Estimate whether merging will be a win or not
         if (!DatabaseDescriptor.getEndpointSnitch().isWorthMergingForRangeQuery(contacts, left.contacts(), right.contacts()))
