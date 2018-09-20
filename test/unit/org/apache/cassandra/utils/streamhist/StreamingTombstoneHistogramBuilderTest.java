@@ -25,6 +25,7 @@ import java.util.stream.IntStream;
 
 import org.junit.Test;
 
+import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 
@@ -167,10 +168,47 @@ public class StreamingTombstoneHistogramBuilderTest
         IntStream.range(Integer.MAX_VALUE - 30, Integer.MAX_VALUE).forEach(builder::update);
     }
 
+    @Test
+    public void testIntegerOverflowRoundingLargeTimestamp()
+    {
+        StreamingTombstoneHistogramBuilder builder = new StreamingTombstoneHistogramBuilder(5, 10, 60);
+        int[] samples = new int[] {
+            Cell.MAX_DELETION_TIME - 2, // should not be missed as result of INTEGER math overflow on rounding
+            59, 60, 119, 180, 181, 300, 400
+        };
+        for (int i = 0 ; i < samples.length ; i++)
+            builder.update(samples[i]);
+
+        TombstoneHistogram histogram = builder.build();
+
+        assertEquals(asMap(histogram).size(), 5);
+        assertEquals(asMap(histogram).get(180).intValue(), 4);
+        assertEquals(asMap(histogram).get(240).intValue(), 1);
+        assertEquals(asMap(histogram).get(300).intValue(), 1);
+        assertEquals(asMap(histogram).get(420).intValue(), 1);
+        assertEquals(asMap(histogram).get(Cell.MAX_DELETION_TIME).intValue(), 1);
+    }
+
+    @Test
+    public void testThatPointIsNotRoundedToNoDeletionTime()
+    {
+        int pointThatRoundedToNoDeletion = Cell.NO_DELETION_TIME - 2;
+        assert pointThatRoundedToNoDeletion + pointThatRoundedToNoDeletion % 3 == Cell.NO_DELETION_TIME : "test data should be valid";
+
+        StreamingTombstoneHistogramBuilder builder = new StreamingTombstoneHistogramBuilder(5, 10, 3);
+        builder.update(pointThatRoundedToNoDeletion);
+
+        TombstoneHistogram histogram = builder.build();
+
+        assertEquals(asMap(histogram).size(), 1);
+        assertEquals(asMap(histogram).get(Cell.MAX_DELETION_TIME).intValue(), 1);
+    }
+
     private Map<Integer, Integer> asMap(TombstoneHistogram histogram)
     {
         Map<Integer, Integer> result = new HashMap<>();
         histogram.forEach(result::put);
         return result;
     }
+
 }

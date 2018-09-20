@@ -24,6 +24,8 @@ import java.util.stream.Collectors;
 
 import com.google.common.math.IntMath;
 
+import org.apache.cassandra.db.rows.Cell;
+
 import static org.apache.cassandra.utils.streamhist.StreamingTombstoneHistogramBuilder.AddResult.ACCUMULATED;
 import static org.apache.cassandra.utils.streamhist.StreamingTombstoneHistogramBuilder.AddResult.INSERTED;
 
@@ -595,12 +597,20 @@ public class StreamingTombstoneHistogramBuilder
         }
     }
 
-    private static int roundKey(int p, int roundSeconds)
+    private static int roundKey(int point, int roundSeconds)
     {
-        int d = p % roundSeconds;
-        if (d > 0)
-            return p + (roundSeconds - d);
-        else
-            return p;
+        int d = point % roundSeconds;
+        if (d == 0)
+            return point;
+
+        point += roundSeconds - d;
+        if (point > Cell.MAX_DELETION_TIME)
+            // the rounding should not be a reason to mark point as unexpirable
+            return Cell.MAX_DELETION_TIME;
+        else if (point < 0)
+            // math overflow happen because of point was close to max possible value
+            return  Cell.MAX_DELETION_TIME;
+        return point;
     }
+
 }
