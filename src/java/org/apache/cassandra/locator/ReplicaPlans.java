@@ -385,17 +385,16 @@ public class ReplicaPlans
      *   - candidates who are: alive, replicate the token, and are sorted by their snitch scores
      *   - contacts who are: the first blockFor + (retry == ALWAYS ? 1 : 0) candidates
      *
-     * The candidate collection can be used for speculation, although at present it would break
-     * LOCAL_QUORUM and EACH_QUORUM to do so without further filtering
+     * The candidate collection can be used for speculation, although at present
+     * it would break EACH_QUORUM to do so without further filtering
      */
     public static ReplicaPlan.ForTokenRead forRead(Keyspace keyspace, Token token, ConsistencyLevel consistencyLevel, SpeculativeRetryPolicy retry)
     {
         EndpointsForToken candidates = candidatesForRead(consistencyLevel, ReplicaLayout.forTokenReadLiveSorted(keyspace, token).natural());
         EndpointsForToken contacts = contactForRead(keyspace, consistencyLevel, retry.equals(AlwaysSpeculativeRetryPolicy.INSTANCE), candidates);
 
-        ReplicaPlan.ForTokenRead result = new ReplicaPlan.ForTokenRead(keyspace, consistencyLevel, candidates, contacts);
         assureSufficientLiveReplicasForRead(keyspace, consistencyLevel, contacts);
-        return result;
+        return new ReplicaPlan.ForTokenRead(keyspace, consistencyLevel, candidates, contacts);
     }
 
     /**
