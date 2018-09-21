@@ -142,7 +142,7 @@ public class CompactionStrategyManagerPendingRepairTest extends AbstractPendingR
         csm.handleNotification(notification, cfs.getTracker());
         Assert.assertFalse(csm.getUnrepaired().getSSTables().contains(sstable));
         Assert.assertTrue(csm.getRepaired().getSSTables().contains(sstable));
-        Assert.assertFalse(csm.getForPendingRepair(repairID).getSSTables().contains(sstable));
+        Assert.assertNull(csm.getForPendingRepair(repairID));
     }
 
     @Test
@@ -159,7 +159,7 @@ public class CompactionStrategyManagerPendingRepairTest extends AbstractPendingR
         // delete sstable
         SSTableDeletingNotification notification = new SSTableDeletingNotification(sstable);
         csm.handleNotification(notification, cfs.getTracker());
-        Assert.assertFalse(csm.getForPendingRepair(repairID).getSSTables().contains(sstable));
+        Assert.assertNull(csm.getForPendingRepair(repairID));
         Assert.assertFalse(csm.getUnrepaired().getSSTables().contains(sstable));
         Assert.assertFalse(csm.getRepaired().getSSTables().contains(sstable));
     }
