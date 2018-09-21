@@ -1,4 +1,6 @@
 3.0.17.2 (open)
+ * <rdar://problem/43378188> CorruptSSTableExceptions in 3.0.17.1 (CASSANDRA-14568 reopened) Static collection deletions are corrupted in 3.0 <-> 2.{1,2} messages
+ * <rdar://problem/43761175> CASSANDRA-14749: Collection Deletions for Dropped Columns in 2.1/3.0 mixed-mode can delete rows
 
 3.0.17.1
  * <rdar://problem/42047182> (CASSANDRA-14568) Static collection deletions are corrupted in 3.0 -> 2.{1,2} messages
