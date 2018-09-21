@@ -10,7 +10,7 @@ cleanup() {
 trap cleanup 0
 
 export JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF8
-
+export PATH="${JAVA_HOME}/bin:${PATH}"
 
 # We check here that the rio-build.xml isn't missing some change from build.xml, not full proof but should catch 99% of misssed dep changes.
 diff --ignore-space-change --ignore-matching-lines='groupId="com.apple.cie.db.cassandra"\|groupId="org.apache.cassandra"\|default="jar" name="cie-cassandra"\|default="jar" name="apache-cassandra"\|Dcie-cassandra.sizeTieredDefault=\|cie-cassandra.disable_schema_drop_log=' rio-build.xml build.xml
@@ -26,5 +26,5 @@ fi
 
 
 ant realclean
-ant test
+ant test -Dtest.runners=2
 ant build

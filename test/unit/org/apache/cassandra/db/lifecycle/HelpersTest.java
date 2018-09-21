@@ -182,23 +182,4 @@ public class HelpersTest
 
         txnLogs.finish();
     }
-
-    @Test
-    public void testObsoletionPerformance()
-    {
-        ColumnFamilyStore cfs = MockSchema.newCFS();
-        LogTransaction txnLogs = new LogTransaction(OperationType.UNKNOWN);
-        List<SSTableReader> readers = new ArrayList<>();
-
-        for (int i = 0; i < 10000; i++)
-        {
-            readers.add(MockSchema.sstable(i + 1, cfs));
-        }
-        long start = System.currentTimeMillis();
-
-        Helpers.prepareForObsoletion(readers.subList(0, 500), txnLogs, new ArrayList<>(),null );
-        txnLogs.finish();
-        long time = System.currentTimeMillis() - start;
-        assertTrue(time < 20000);
-    }
 }

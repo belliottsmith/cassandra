@@ -144,26 +144,28 @@ public class FBUtilitiesTest
         ExecutorService executor = Executors.newFixedThreadPool(4);
         FBUtilities.reset();
         List<Future<?>> futures = new ArrayList<>();
-        for (int i = 4; i >= 1; i--)
+        // Submit a long running task
+        Future<?> longRunning = executor.submit(() -> { TimeUnit.MILLISECONDS.sleep(1000); return 1000; });
+        futures.add(longRunning);
+
+        // now a series of shorter running tasks, verifying that we only wait on the first completion
+        for (int i=0; i < 5; i++)
         {
             final int sleep = i * 10;
-            futures.add(executor.submit(() -> { TimeUnit.MILLISECONDS.sleep(sleep); return sleep; }));
+            futures.add(executor.submit(() -> {
+                TimeUnit.MILLISECONDS.sleep(sleep);
+                return sleep;
+            }));
+            Future<?> fut = FBUtilities.waitOnFirstFuture(futures, 3);
+            int futSleep = (Integer) fut.get();
+            assertEquals(futSleep, sleep);
+            futures.remove(fut);
         }
-        Future<?> fut = FBUtilities.waitOnFirstFuture(futures, 3);
-        int futSleep = (Integer) fut.get();
-        assertEquals(futSleep, 10);
-        futures.remove(fut);
-        fut = FBUtilities.waitOnFirstFuture(futures, 3);
-        futSleep = (Integer) fut.get();
-        assertEquals(futSleep, 20);
-        futures.remove(fut);
-        fut = FBUtilities.waitOnFirstFuture(futures, 3);
-        futSleep = (Integer) fut.get();
-        assertEquals(futSleep, 30);
-        futures.remove(fut);
-        fut = FBUtilities.waitOnFirstFuture(futures, 3);
-        futSleep = (Integer) fut.get();
-        assertEquals(futSleep, 40);
+
+        // the long running task should still be pending
+        assertEquals(1, futures.size());
+        assertEquals(longRunning, futures.get(0));
+        executor.shutdownNow();
     }
 
 }
