@@ -721,6 +721,15 @@ public class LocalSessions
     }
 
     /**
+     * determines if a local session exists, and if it's in the finalized state
+     */
+    public boolean isSessionFinalized(UUID sessionID)
+    {
+        LocalSession session = getSession(sessionID);
+        return session != null && session.getState() == FINALIZED;
+    }
+
+    /**
      * determines if a local session exists, and if it's not finalized or failed
      */
     public boolean isSessionInProgress(UUID sessionID)
