@@ -1,6 +1,14 @@
-3.0.17.2 (open)
+3.0.17.3 (open)
+
+3.0.17.2
  * <rdar://problem/43378188> CorruptSSTableExceptions in 3.0.17.1 (CASSANDRA-14568 reopened) Static collection deletions are corrupted in 3.0 <-> 2.{1,2} messages
  * <rdar://problem/43761175> CASSANDRA-14749: Collection Deletions for Dropped Columns in 2.1/3.0 mixed-mode can delete rows
+ * <rdar://problem/43644933> Core: MigrationManager shows new tables created after bootstrap completes
+ * <rdar://problem/43147431> Backport CASSANDRA-14638: Column result order can change in 'SELECT *' results when upgrading from 2.1 to 3.0 causing response corruption for queries using prepared statements when static columns are used
+ * <rdar://problem/44682596> Backport CASSANDRA-14780: Avoid creating empty compaction tasks after truncat
+ * <rdar://problem/43514881> Backport CASSANDRA-14657: Handle failures in upgradesstables/cleanup/relocatee
+ * <rdar://problem/43627167> DESC order reads can fail to return the last Unfiltered in the partition (#1170)
+ * <rdar://problem/44577257> Backport CASSANDRA-14763: Fail incremental repair prepare phase if it encounters sstables from un-finalized sessions
 
 3.0.17.1
  * <rdar://problem/42047182> (CASSANDRA-14568) Static collection deletions are corrupted in 3.0 -> 2.{1,2} messages
