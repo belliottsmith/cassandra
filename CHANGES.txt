@@ -1,4 +1,7 @@
-3.0.17.3 (open)
+3.0.17.4 (open)
+
+3.0.17.3
+ * <rdar://problem/43831930> Backport CASSANDRA-14672: After deleting data in 3.11.3, reads fail: "open marker and close marker have different deletion times"
 
 3.0.17.2
  * <rdar://problem/43378188> CorruptSSTableExceptions in 3.0.17.1 (CASSANDRA-14568 reopened) Static collection deletions are corrupted in 3.0 <-> 2.{1,2} messages
