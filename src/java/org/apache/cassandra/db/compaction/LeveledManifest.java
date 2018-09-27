@@ -477,7 +477,7 @@ public class LeveledManifest
     @VisibleForTesting
     static List<SSTableReader> getSSTablesForSTCS(ColumnFamilyStore cfs, SizeTieredCompactionStrategyOptions options, Collection<SSTableReader> sstables)
     {
-        logger.info("Getting SSTables for STCS in L0 for {}.{} (sstables size = {})", cfs.keyspace.getName(), cfs.getTableName(), sstables.size());
+        logger.debug("Getting SSTables for STCS in L0 for {}.{} (sstables size = {})", cfs.keyspace.getName(), cfs.getTableName(), sstables.size());
         Iterable<SSTableReader> candidates = cfs.getTracker().getUncompacting(sstables);
         List<Pair<SSTableReader,Long>> pairs = SizeTieredCompactionStrategy.createSSTableAndLengthPairs(AbstractCompactionStrategy.filterSuspectSSTables(candidates));
         List<List<SSTableReader>> buckets = SizeTieredCompactionStrategy.getBuckets(pairs,
