@@ -1,4 +1,8 @@
-3.0.17.4 (open)
+3.0.17.5 (open)
+
+3.0.17.4
+ * <rdar://problem/44860292> Backport CASSANDRA-14794: Avoid calling iter.next() in a loop when notifying indexers about range tombstones
+ * <rdar://problem/44820917> (Apple Internal) LCS logging too much during bootstrap with many tables 
 
 3.0.17.3
  * <rdar://problem/43831930> Backport CASSANDRA-14672: After deleting data in 3.11.3, reads fail: "open marker and close marker have different deletion times"
