@@ -1,4 +1,7 @@
-3.0.17.5 (open)
+3.0.17.6 (open)
+
+3.0.17.5
+ * rdar://44980966 Backport CASSANDRA-14803: Rows that cross index block boundaries can cause incomplete reverse reads in some cases.
 
 3.0.17.4
  * <rdar://problem/44860292> Backport CASSANDRA-14794: Avoid calling iter.next() in a loop when notifying indexers about range tombstones
