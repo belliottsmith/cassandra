@@ -1,4 +1,8 @@
-3.0.17.6 (open)
+3.0.17.7 (open)
+
+3.0.17.6
+ * rdar://problem/45237082 Backport CASSANDRA-14823: Legacy sstables with range tombstones spanning multiple index blocks create invalid bound sequences on 3.0+ (#1193)
+ * rdar://problem/45225995 Backport CASSANDRA-14824: Expand range tombstone validation checks to multiple interim request stages (#1192)
 
 3.0.17.5
  * rdar://44980966 Backport CASSANDRA-14803: Rows that cross index block boundaries can cause incomplete reverse reads in some cases.
