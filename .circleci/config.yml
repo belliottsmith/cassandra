@@ -434,3 +434,4 @@ jobs:
       - store_artifacts:
           path: ~/cassandra-dtest/logs
           destination: dtest_upgrade_no_vnodes_logs
+
