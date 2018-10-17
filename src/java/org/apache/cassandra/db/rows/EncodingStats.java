@@ -92,19 +92,34 @@ public class EncodingStats
      */
     public EncodingStats mergeWith(EncodingStats that)
     {
-        long minTimestamp = this.minTimestamp == TIMESTAMP_EPOCH
-                          ? that.minTimestamp
-                          : (that.minTimestamp == TIMESTAMP_EPOCH ? this.minTimestamp : Math.min(this.minTimestamp, that.minTimestamp));
-
-        int minDelTime = this.minLocalDeletionTime == DELETION_TIME_EPOCH
-                       ? that.minLocalDeletionTime
-                       : (that.minLocalDeletionTime == DELETION_TIME_EPOCH ? this.minLocalDeletionTime : Math.min(this.minLocalDeletionTime, that.minLocalDeletionTime));
-
-        int minTTL = this.minTTL == TTL_EPOCH
-                   ? that.minTTL
-                   : (that.minTTL == TTL_EPOCH ? this.minTTL : Math.min(this.minTTL, that.minTTL));
-
+        long minTimestamp = minLong(this.minTimestamp, that.minTimestamp, TIMESTAMP_EPOCH);
+        int minDelTime = minInt(this.minLocalDeletionTime, that.minLocalDeletionTime, DELETION_TIME_EPOCH);
+        int minTTL = minInt(this.minTTL, that.minTTL, TTL_EPOCH);
         return new EncodingStats(minTimestamp, minDelTime, minTTL);
+    }
+
+    private static long minLong(long l1, long l2, long notset)
+    {
+        return l1 == notset ? l2 : (l2 == notset ? l1 : Math.min(l1, l2)) ;
+    }
+
+    private static int minInt(int i1, int i2, int notset)
+    {
+        return i1 == notset ? i2 : (i2 == notset ? i1 : Math.min(i1, i2)) ;
+    }
+
+
+    public static EncodingStats collect(Collection<UnfilteredRowIterator> iterators)
+    {
+        Collector collector = new Collector();
+        for (UnfilteredRowIterator iter : iterators)
+        {
+            EncodingStats stats = iter.stats();
+            collector.minTimestamp = minLong(collector.minTimestamp, stats.minTimestamp, TIMESTAMP_EPOCH);
+            collector.minDeletionTime = minInt(collector.minDeletionTime, stats.minLocalDeletionTime, DELETION_TIME_EPOCH);
+            collector.minTTL = minInt(collector.minTTL, stats.minTTL, TTL_EPOCH);
+        }
+        return collector.get();
     }
 
     @Override

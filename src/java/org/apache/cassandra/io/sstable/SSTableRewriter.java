@@ -19,6 +19,7 @@ package org.apache.cassandra.io.sstable;
 
 import java.lang.ref.WeakReference;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -134,14 +135,17 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
         DecoratedKey key = partition.partitionKey();
         maybeReopenEarly(key);
         RowIndexEntry index = writer.append(partition);
-        if (!transaction.isOffline() && index != null)
+        if (DatabaseDescriptor.getMigrateKeycacheOnCompaction())
         {
-            for (SSTableReader reader : transaction.originals())
+            if (!transaction.isOffline() && index != null)
             {
-                if (reader.getCachedPosition(key, false) != null)
+                for (SSTableReader reader : transaction.originals())
                 {
-                    cachedKeys.put(key, index);
-                    break;
+                    if (reader.getCachedPosition(key, false) != null)
+                    {
+                        cachedKeys.put(key, index);
+                        break;
+                    }
                 }
             }
         }
@@ -223,9 +227,7 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
      */
     private void moveStarts(SSTableReader newReader, DecoratedKey lowerbound)
     {
-        if (transaction.isOffline())
-            return;
-        if (preemptiveOpenInterval == Long.MAX_VALUE)
+        if (transaction.isOffline() || preemptiveOpenInterval == Long.MAX_VALUE)
             return;
 
         newReader.setupOnline();
