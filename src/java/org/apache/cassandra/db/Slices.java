@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterators;
 
 import org.apache.cassandra.config.CFMetaData;
@@ -62,7 +63,7 @@ public abstract class Slices implements Iterable<Slice>
         if (slice.start() == Slice.Bound.BOTTOM && slice.end() == Slice.Bound.TOP)
             return Slices.ALL;
 
-        assert comparator.compare(slice.start(), slice.end()) <= 0;
+        Preconditions.checkArgument(!slice.isEmpty(comparator));
         return new ArrayBackedSlices(comparator, new Slice[]{ slice });
     }
 
@@ -203,7 +204,7 @@ public abstract class Slices implements Iterable<Slice>
 
         public Builder add(Slice slice)
         {
-            assert comparator.compare(slice.start(), slice.end()) <= 0;
+            Preconditions.checkArgument(!slice.isEmpty(comparator));
             if (slices.size() > 0 && comparator.compare(slices.get(slices.size()-1).end(), slice.start()) > 0)
                 needsNormalizing = true;
             slices.add(slice);

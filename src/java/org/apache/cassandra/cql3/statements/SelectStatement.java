@@ -29,9 +29,12 @@ import java.util.Map;
 import java.util.NavigableSet;
 import java.util.SortedSet;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -626,7 +629,8 @@ public class SelectStatement implements CQLStatement
         }
     }
 
-    private Slices makeSlices(QueryOptions options)
+    @VisibleForTesting
+    public Slices makeSlices(QueryOptions options)
     throws InvalidRequestException
     {
         SortedSet<Slice.Bound> startBounds = restrictions.getClusteringColumnsBounds(Bound.START, options);
@@ -638,7 +642,7 @@ public class SelectStatement implements CQLStatement
         {
             Slice.Bound start = startBounds.first();
             Slice.Bound end = endBounds.first();
-            return cfm.comparator.compare(start, end) > 0
+            return Slice.isEmpty(cfm.comparator, start, end)
                  ? Slices.NONE
                  : Slices.with(cfm.comparator, Slice.make(start, end));
         }
@@ -652,7 +656,7 @@ public class SelectStatement implements CQLStatement
             Slice.Bound end = endIter.next();
 
             // Ignore slices that are nonsensical
-            if (cfm.comparator.compare(start, end) > 0)
+            if (Slice.isEmpty(cfm.comparator, start, end))
                 continue;
 
             builder.add(start, end);
@@ -684,7 +688,7 @@ public class SelectStatement implements CQLStatement
      * Returns the limit specified by the user.
      * May be used by custom QueryHandler implementations
      *
-     * @return the limit specified by the user or <code>DataLimits.NO_LIMIT</code> if no value 
+     * @return the limit specified by the user or <code>DataLimits.NO_LIMIT</code> if no value
      * as been specified.
      */
     public int getLimit(QueryOptions options)
