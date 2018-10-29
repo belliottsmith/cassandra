@@ -1,4 +1,7 @@
-3.0.17.7 (open)
+3.0.17.8 (open)
+
+3.0.17.7
+ * <rdar://problem/45496903> Backport CASSANDRA-14838: Dropped columns can cause reverse sstable iteration to return prematurely
 
 3.0.17.6
  * rdar://problem/45237082 Backport CASSANDRA-14823: Legacy sstables with range tombstones spanning multiple index blocks create invalid bound sequences on 3.0+ (#1193)
