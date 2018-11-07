@@ -78,6 +78,8 @@ public abstract class Version
 
     public abstract boolean hasMetadataChecksum();
 
+    public abstract boolean hasAccurateMinMax();
+
     public String getVersion()
     {
         return version;

@@ -113,7 +113,7 @@ public class BigFormat implements SSTableFormat
     // we always incremented the major version.
     static class BigVersion extends Version
     {
-        public static final String current_version = "me";
+        public static final String current_version = "mf";
         public static final String earliest_supported_version = "jb";
 
         // jb (2.0.1): switch from crc32 to adler32 for compression checksums
@@ -131,6 +131,7 @@ public class BigFormat implements SSTableFormat
         // mc (3.0.8, 3.9): commit log intervals included
         // md (3.0.11, 3.10): pending repair session included
         // me (3.0.15): checksummed sstable metadata file
+        // mf (3.0.18, 3.11.4): corrected sstable min/max clustering
         //
         // NOTE: when adding a new version, please add that to LegacySSTableTest, too.
 
@@ -154,6 +155,7 @@ public class BigFormat implements SSTableFormat
         private final boolean hasCommitLogIntervals;
         private final boolean hasPendingRepair;
         private final boolean hasMetadataChecksum;
+        private final boolean hasAccurateMinMax;
 
         /**
          * CASSANDRA-7066: compaction ancerstors are no longer used and have been removed.
@@ -209,6 +211,7 @@ public class BigFormat implements SSTableFormat
             hasCommitLogIntervals = version.compareTo("mc") >= 0;
             hasPendingRepair = version.compareTo("md") >= 0;
             hasMetadataChecksum = version.compareTo("me") >= 0;
+            hasAccurateMinMax = version.compareTo("mf") >= 0;
         }
 
         @Override
@@ -286,6 +289,12 @@ public class BigFormat implements SSTableFormat
         public boolean hasPendingRepair()
         {
             return hasPendingRepair;
+        }
+
+        @Override
+        public boolean hasAccurateMinMax()
+        {
+            return hasAccurateMinMax;
         }
 
         @Override
