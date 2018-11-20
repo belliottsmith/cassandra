@@ -1075,7 +1075,3 @@ windows_timer_interval: 1
 # can be either "disabled", "warn" or "exception"
 # corrupted_tombstone_strategy: disabled
 
-# Define use of legacy delayed flusher for replies to TCP connections. This will increase latency, but might be beneficial for
-# legacy use-cases where only a single connection is used for each Cassandra node. Default is false.
-# native_transport_flush_in_batches_legacy: false
-
