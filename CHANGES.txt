@@ -9,6 +9,8 @@
 Merged from 2.2:
  * Fix incorrect cqlsh results when selecting same columns multiple times (CASSANDRA-13262)
  * Returns null instead of NaN or Infinity in JSON strings (CASSANDRA-14377)
+ * Don't skip entire sstables when reading backwards with mixed clustering column order (CASSANDRA-14910)
+ * Cannot perform slice reads in reverse direction against tables with clustering columns in mixed order (CASSANDRA-14899)
 
 3.0.17.15
 * <rdar://problem/49484414> (CASSANDRA-15072) Incomplete range results during 2.X -> 3.11.4 upgrade
