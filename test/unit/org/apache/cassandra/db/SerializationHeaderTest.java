@@ -19,38 +19,47 @@
 package org.apache.cassandra.db;
 
 import com.google.common.io.Files;
-import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.cql3.ColumnIdentifier;
+import org.apache.cassandra.db.compaction.OperationType;
+import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.rows.BTreeRow;
+import org.apache.cassandra.db.rows.BufferCell;
+import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
-import org.apache.cassandra.dht.Murmur3Partitioner;
-import org.apache.cassandra.io.sstable.CQLSSTableWriter;
+import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
+import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.io.sstable.format.SSTableWriter;
+import org.apache.cassandra.io.sstable.format.big.BigFormat;
+import org.apache.cassandra.io.sstable.format.big.BigTableWriter;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.schema.KeyspaceParams;
 import org.junit.Assert;
+import org.junit.Test;
 
 import java.io.File;
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.Comparator;
+import java.nio.ByteBuffer;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 public class SerializationHeaderTest
 {
     private static String KEYSPACE = "SerializationHeaderTest";
 
+    @Test
     public void testWrittenAsDifferentKind() throws Exception
     {
         final String tableName = "testWrittenAsDifferentKind";
-        final String schemaCqlWithStatic = String.format("CREATE TABLE %s (k int PRIMARY KEY, v static int)", tableName);
-        final String schemaCqlWithRegular = String.format("CREATE TABLE %s (k int PRIMARY KEY, v int)", tableName);
+        final String schemaCqlWithStatic = String.format("CREATE TABLE %s (k int, c int, v int static, PRIMARY KEY(k, c))", tableName);
+        final String schemaCqlWithRegular = String.format("CREATE TABLE %s (k int, c int, v int, PRIMARY KEY(k, c))", tableName);
         ColumnIdentifier v = ColumnIdentifier.getInterned("v", false);
         CFMetaData schemaWithStatic = CFMetaData.compile(schemaCqlWithStatic, KEYSPACE);
         CFMetaData schemaWithRegular = CFMetaData.compile(schemaCqlWithRegular, KEYSPACE);
@@ -59,36 +68,56 @@ public class SerializationHeaderTest
         schemaWithStatic.recordColumnDrop(columnRegular, 0L);
         schemaWithRegular.recordColumnDrop(columnStatic, 0L);
 
-
+        final AtomicInteger generation = new AtomicInteger();
         File dir = Files.createTempDir();
         try
         {
-            Function<String, Callable<Descriptor>> writer = schemaCql -> () -> {
-                try (CQLSSTableWriter sstableWriter = CQLSSTableWriter.builder()
-                        .forTable(schemaCqlWithStatic)
-                        .inDirectory(dir)
-                        .withPartitioner(Murmur3Partitioner.instance)
-                        .using(String.format("INSERT INTO %s.%s(k, v) VALUES(?, ?)", KEYSPACE, tableName))
-                        .build())
+            BiFunction<CFMetaData, Function<ByteBuffer, Clustering>, Callable<Descriptor>> writer = (schema, clusteringFunction) -> () -> {
+                Descriptor descriptor = new Descriptor(BigFormat.latestVersion, dir, schema.ksName, schema.cfName, generation.incrementAndGet(), SSTableFormat.Type.BIG, Component.DIGEST_CRC32);
+
+                SerializationHeader header = SerializationHeader.makeWithoutStats(schema);
+                try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.WRITE);
+                        SSTableWriter sstableWriter = BigTableWriter.create(schema, descriptor,1, 0L, 0, header, txn);)
                 {
-                    sstableWriter.addRow(1, 1);
+                    ColumnDefinition cd = schema.getColumnDefinition(v);
+                    for (int i = 0 ; i < 5 ; ++i) {
+                        final ByteBuffer value = Int32Type.instance.decompose(i);
+                        Cell cell = BufferCell.live(schema, cd, 1L, value);
+                        Clustering clustering = clusteringFunction.apply(value);
+                        Row row = BTreeRow.singleCellRow(clustering, cell);
+                        sstableWriter.append(PartitionUpdate.singleRowUpdate(schema, value, row).unfilteredIterator());
+                    }
+                    sstableWriter.finish(false);
+                    txn.finish();
                 }
-                return Arrays.stream(dir.listFiles())
-                        .map(File::getName)
-                        .map(Descriptor::fromFilename)
-                        .sorted(Comparator.comparingInt(d -> -d.generation))
-                        .findFirst()
-                        .get();
+                return descriptor;
             };
-            Descriptor sstableWithStatic = writer.apply(schemaCqlWithStatic).call();
-            Descriptor sstableWithRegular = writer.apply(schemaCqlWithRegular).call();
+
+            Descriptor sstableWithRegular = writer.apply(schemaWithRegular, Clustering::new).call();
+            Descriptor sstableWithStatic = writer.apply(schemaWithStatic, value -> Clustering.STATIC_CLUSTERING).call();
             SSTableReader readerWithStatic = SSTableReader.openNoValidation(sstableWithStatic, schemaWithRegular);
             SSTableReader readerWithRegular = SSTableReader.openNoValidation(sstableWithRegular, schemaWithStatic);
 
-            try (ISSTableScanner scanStatic = readerWithStatic.getScanner()) {
-                UnfilteredRowIterator iter = scanStatic.next();
-                Assert.assertFalse(iter.hasNext());
-                Assert.assertEquals(Int32Type.instance.compose(iter.staticRow().getCell(columnStatic).value()), 1L);
+            try (ISSTableScanner partitions = readerWithStatic.getScanner()) {
+                for (int i = 0 ; i < 5 ; ++i)
+                {
+                    UnfilteredRowIterator partition = partitions.next();
+                    Assert.assertFalse(partition.hasNext());
+                    long value = Int32Type.instance.compose(partition.staticRow().getCell(columnStatic).value());
+                    Assert.assertEquals(value, (long)i);
+                }
+                Assert.assertFalse(partitions.hasNext());
+            }
+            try (ISSTableScanner partitions = readerWithRegular.getScanner()) {
+                for (int i = 0 ; i < 5 ; ++i)
+                {
+                    UnfilteredRowIterator partition = partitions.next();
+                    long value = Int32Type.instance.compose(((Row)partition.next()).getCell(columnRegular).value());
+                    Assert.assertEquals(value, (long)i);
+                    Assert.assertTrue(partition.staticRow().isEmpty());
+                    Assert.assertFalse(partition.hasNext());
+                }
+                Assert.assertFalse(partitions.hasNext());
             }
         }
         finally
