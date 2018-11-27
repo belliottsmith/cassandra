@@ -215,10 +215,11 @@ public abstract class LegacyLayout
             // pop the collection name from the back of the list of clusterings
             ByteBuffer collectionNameBytes = components.remove(clusteringSize);
             collectionName = metadata.getColumnDefinition(collectionNameBytes);
-            if (collectionName == null) {
+            if (collectionName == null || !collectionName.isComplex()) {
                 collectionName = metadata.getDroppedColumnDefinition(collectionNameBytes, isStatic);
                 if (collectionName == null)
                     throw new RuntimeException("Unknown collection column " + UTF8Type.instance.getString(collectionNameBytes) + " during deserialization");
+                // TODO: check if this is still not complex, and construct a fake definition if so (should be rare, maybe don't even care)
             }
         }
 
@@ -1344,8 +1345,8 @@ public abstract class LegacyLayout
             // If the RT has been superceded by a drop, we still return true as we don't want the
             // grouper to terminate yet.
             helper.startOfComplexColumn(tombstone.start.collectionName);
-            if (helper.isDroppedComplexDeletion(tombstone.deletionTime))
-                return true;
+//            if (helper.isDroppedComplexDeletion(tombstone.deletionTime))
+//                return true;
 
             if (clustering == null)
             {
