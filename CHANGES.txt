@@ -1,4 +1,12 @@
-3.0.17.8 (open)
+3.0.17.9 (open)
+
+3.0.17.8
+ * <rdar://problem/45713672> CASSANDRA-14861: Inaccurate sstable min/max metadata can cause data loss
+ * <rdar://problem/46033711> CASSANDRA-14889: fix 14861 related test failures
+ * <rdar://problem/46103626> CASSANDRA-14894: RangeTombstoneList doesn't properly clean up mergeable or superseded rts in some cases
+ * <rdar://problem/45883803> CASSANDRA-14873: Missing rows when reading 2.1 SSTables in 3.0
+ * <rdar://problem/46245867> CASSANDRA-14912: LegacyLayout errors on collection tombstones from dropped columns
+ * <rdar://problem/45523670> CASSANDRA-14843: Drop/add column name with different Kind can result in corruption
 
 3.0.17.7
  * <rdar://problem/45496903> Backport CASSANDRA-14838: Dropped columns can cause reverse sstable iteration to return prematurely
