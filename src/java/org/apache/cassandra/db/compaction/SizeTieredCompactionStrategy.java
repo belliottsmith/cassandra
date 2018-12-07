@@ -203,7 +203,7 @@ public class SizeTieredCompactionStrategy extends AbstractCompactionStrategy
     }
 
     @SuppressWarnings("resource")
-    public Collection<AbstractCompactionTask> getMaximalTask(final int gcBefore, boolean splitOutput)
+    public synchronized Collection<AbstractCompactionTask> getMaximalTask(final int gcBefore, boolean splitOutput)
     {
         Iterable<SSTableReader> filteredSSTables = filterSuspectSSTables(sstables);
         if (Iterables.isEmpty(filteredSSTables))

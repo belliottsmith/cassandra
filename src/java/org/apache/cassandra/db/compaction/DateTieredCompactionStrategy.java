@@ -208,11 +208,6 @@ public class DateTieredCompactionStrategy extends AbstractCompactionStrategy
         });
     }
 
-    /**
-     *
-     * @param sstables
-     * @return
-     */
     public static List<Pair<SSTableReader, Long>> createSSTableAndMinTimestampPairs(Iterable<SSTableReader> sstables)
     {
         List<Pair<SSTableReader, Long>> sstableMinTimestampPairs = Lists.newArrayListWithCapacity(Iterables.size(sstables));
@@ -220,6 +215,7 @@ public class DateTieredCompactionStrategy extends AbstractCompactionStrategy
             sstableMinTimestampPairs.add(Pair.create(sstable, sstable.getMinTimestamp()));
         return sstableMinTimestampPairs;
     }
+
     @Override
     public synchronized void addSSTable(SSTableReader sstable)
     {

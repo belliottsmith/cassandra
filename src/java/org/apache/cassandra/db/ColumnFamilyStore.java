@@ -2500,7 +2500,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 assert data.getCompacting().isEmpty() : data.getCompacting();
                 Iterable<SSTableReader> sstables = getLiveSSTables();
                 sstables = AbstractCompactionStrategy.filterSuspectSSTables(sstables);
-                sstables = ImmutableList.copyOf(sstables);
                 LifecycleTransaction modifier = data.tryModify(sstables, operationType);
                 assert modifier != null: "something marked things compacting while compactions are disabled";
                 return modifier;
