@@ -1399,6 +1399,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return bgMonitor.getSeverity(endpoint);
     }
 
+    public void shutdownBGMonitor()
+    {
+        bgMonitor.shutdown();
+    }
+
     /**
      * for a keyspace, return the ranges and corresponding listen addresses.
      * @param keyspace

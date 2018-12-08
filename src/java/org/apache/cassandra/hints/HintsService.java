@@ -240,6 +240,7 @@ public final class HintsService implements HintsServiceMBean
 
         dispatchExecutor.shutdownBlocking();
         writeExecutor.shutdownBlocking();
+        bufferPool.close();
     }
 
     /**

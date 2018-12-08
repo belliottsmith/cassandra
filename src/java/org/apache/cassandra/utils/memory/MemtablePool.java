@@ -67,6 +67,8 @@ public abstract class MemtablePool
     }
 
     public abstract boolean needToCopyOnHeap();
+    
+    @VisibleForTesting
     public void shutdown() throws InterruptedException
     {
         cleaner.shutdown();
