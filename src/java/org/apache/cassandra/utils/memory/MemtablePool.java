@@ -66,6 +66,7 @@ public abstract class MemtablePool
         return cleaner == null ? null : new MemtableCleanerThread<>(this, cleaner);
     }
 
+    @VisibleForTesting
     public void shutdown() throws InterruptedException
     {
         cleaner.shutdown();
