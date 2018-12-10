@@ -1,4 +1,10 @@
-3.0.17.9 (open)
+3.0.17.10 (open)
+
+3.0.17.9
+ * <rdar://problem/46448814> Backport CASSANDRA-14919: Regression in paging queries in mixed version clusters
+ * <rdar://problem/46486486> Backport CASSANDRA-14869: Fix full ring range subtraction
+ * <rdar://problem/45868384> Backport CASSANDRA-14871: Severe concurrency issues in STCS,DTCS,TWCS,TMD.Topology,TypeParser
+ * <rdar://problem/41760226> Backport CASSANDRA-14554: Streaming needs to synchronise access to LifecycleTransaction
 
 3.0.17.8
  * <rdar://problem/41760226> CASSANDRA-14554: Streaming needs to synchronise access to LifecycleTransaction

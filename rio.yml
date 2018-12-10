@@ -95,7 +95,7 @@ builds:
   build:
     template: freestyle:v2:release
     steps:
-    - ./rio/release.sh 3.0.17.8
+    - ./rio/release.sh 3.0.17.9
   machine:
     docker:
       baseImage: docker.apple.com/cpbuild/jdk1.8:latest
@@ -116,7 +116,7 @@ builds:
   build:
     template: freestyle:v2:carnival
     steps:
-    - ./rio/carnival.sh 3.0.17.8
+    - ./rio/carnival.sh 3.0.17.9
   machine:
     docker:
       baseImage: docker.apple.com/cpbuild/jdk1.8:latest
@@ -125,12 +125,12 @@ builds:
       junit: false
     carnival:
       packageName: CIEDb
-      packageSuffix: three-zero-seventeen-eight
+      packageSuffix: three-zero-seventeen-nine
       packagePath: CIEDb/Updates/
     releaseTrain: 1BUILD
   finally:
     tag:
-      expression: cie-cassandra-3.0.17.8
+      expression: cie-cassandra-3.0.17.9
     radar:
       annotate: true
   trigger:
