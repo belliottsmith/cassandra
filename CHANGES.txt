@@ -1,6 +1,7 @@
 3.0.17.9 (open)
 
 3.0.17.8
+ * <rdar://problem/41760226> CASSANDRA-14554: Streaming needs to synchronise access to LifecycleTransaction
  * <rdar://problem/45713672> CASSANDRA-14861: Inaccurate sstable min/max metadata can cause data loss
  * <rdar://problem/46033711> CASSANDRA-14889: fix 14861 related test failures
  * <rdar://problem/46103626> CASSANDRA-14894: RangeTombstoneList doesn't properly clean up mergeable or superseded rts in some cases

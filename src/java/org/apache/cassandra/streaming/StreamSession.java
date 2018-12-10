@@ -249,10 +249,10 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         return pendingRepair;
     }
 
-    public LifecycleTransaction getTransaction(UUID cfId)
+    StreamReceiveTask getReceivingTask(UUID cfId)
     {
         assert receivers.containsKey(cfId);
-        return receivers.get(cfId).getTransaction();
+        return receivers.get(cfId);
     }
     public boolean isPreview()
     {

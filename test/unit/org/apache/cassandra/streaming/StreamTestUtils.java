@@ -51,11 +51,26 @@ public class StreamTestUtils
                 //no-op
             }
 
-            public LifecycleTransaction getTransaction(UUID cfId)
+            public StreamReceiveTask getReceivingTask(UUID cfId)
             {
-                return LifecycleTransaction.offline(OperationType.STREAM);
+                return new StubStreamReceiveTask(this, cfId);
             }
         };
+    }
+
+    // StreamReaderTest & StreamSessionTest, which use the StreamSessions obtained via the session()
+    // method, don't actually receive streams. Instead, they either use a specially constructed StreamReader
+    // or StreamSession::prepare to test that the validation of owned ranges in stream messages. Since
+    // CASSANDRA-14554 though, a StreamReceiveTask is required for each cfId in order to obtain a
+    // LifecycleNewTracker to synchronize access to the underlying lifecycle transaction. Because the
+    // receive task will not actually run, we can safely prime it to expect 0 total files & bytes.
+    static class StubStreamReceiveTask extends StreamReceiveTask
+    {
+
+        public StubStreamReceiveTask(StreamSession session, UUID cfId)
+        {
+            super(session, cfId, 0, 0);
+        }
     }
 
     static class StubConnectionHandler extends ConnectionHandler

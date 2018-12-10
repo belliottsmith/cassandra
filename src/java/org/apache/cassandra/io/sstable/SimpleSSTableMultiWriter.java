@@ -26,7 +26,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.RowIndexEntry;
 import org.apache.cassandra.db.SerializationHeader;
-import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
@@ -121,9 +121,9 @@ public class SimpleSSTableMultiWriter implements SSTableMultiWriter
                                             CFMetaData cfm,
                                             MetadataCollector metadataCollector,
                                             SerializationHeader header,
-                                            LifecycleTransaction txn)
+                                            LifecycleNewTracker lifecycleNewTracker)
     {
-        SSTableWriter writer = SSTableWriter.create(descriptor, keyCount, repairedAt, pendingRepair, cfm, metadataCollector, header, txn);
+        SSTableWriter writer = SSTableWriter.create(descriptor, keyCount, repairedAt, pendingRepair, cfm, metadataCollector, header, lifecycleNewTracker);
         return new SimpleSSTableMultiWriter(writer);
     }
 }

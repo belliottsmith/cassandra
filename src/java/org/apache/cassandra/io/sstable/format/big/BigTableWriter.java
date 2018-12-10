@@ -22,12 +22,12 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
 
+import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.CFMetaData;
@@ -65,10 +65,10 @@ public class BigTableWriter extends SSTableWriter
                           CFMetaData metadata, 
                           MetadataCollector metadataCollector, 
                           SerializationHeader header,
-                          LifecycleTransaction txn)
+                          LifecycleNewTracker lifecycleNewTracker)
     {
         super(descriptor, keyCount, repairedAt, pendingRepair, metadata, metadataCollector, header);
-        txn.trackNew(this); // must track before any files are created
+        lifecycleNewTracker.trackNew(this); // must track before any files are created
 
         if (compression)
         {
