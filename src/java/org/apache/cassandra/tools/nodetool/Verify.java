@@ -43,6 +43,11 @@ public class Verify extends NodeToolCmd
             description = "Also check that all sstables are the latest version")
     private boolean checkVersion = false;
 
+    @Option(title = "override-disable",
+    name = {"-f", "--force"},
+    description = "Override custom disabling of verify tool")
+    private boolean overrideDisable = false;
+
     @Option(title = "dfp",
             name = {"-d", "--dfp"},
             description = "Invoke the disk failure policy if a corrupt sstable is found")
@@ -66,6 +71,12 @@ public class Verify extends NodeToolCmd
     @Override
     public void execute(NodeProbe probe)
     {
+        if (!overrideDisable)
+        {
+            System.out.println("verify is disabled for '<rdar://problem/46635385> block nodetool verify in 3.0 clusters'.");
+            System.exit(1);
+        }
+
         List<String> keyspaces = parseOptionalKeyspace(args, probe);
         String[] tableNames = parseOptionalTables(args);
 
