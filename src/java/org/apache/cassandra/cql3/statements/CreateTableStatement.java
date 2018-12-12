@@ -61,7 +61,7 @@ public class CreateTableStatement extends SchemaAlteringStatement
     private final Set<ColumnIdentifier> staticColumns;
     private final TableParams params;
     private final boolean ifNotExists;
-    private final UUID id;
+    private UUID id;
 
     public CreateTableStatement(CFName name, TableParams params, boolean ifNotExists, Set<ColumnIdentifier> staticColumns, UUID id)
     {
@@ -111,6 +111,11 @@ public class CreateTableStatement extends SchemaAlteringStatement
         {
             throw new RuntimeException(e);
         }
+    }
+
+    public void setTableId(UUID id)
+    {
+        this.id = id;
     }
 
     public CFMetaData.Builder metadataBuilder()

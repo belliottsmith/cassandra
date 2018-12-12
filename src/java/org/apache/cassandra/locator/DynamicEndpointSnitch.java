@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.locator;
 
-import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.*;
@@ -27,10 +26,9 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import com.codahale.metrics.ExponentiallyDecayingReservoir;
-import javax.management.MBeanServer;
-import javax.management.ObjectName;
 
 import com.codahale.metrics.Snapshot;
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.gms.ApplicationState;
@@ -40,6 +38,7 @@ import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.MBeanWrapper;
 
 
 /**
@@ -141,15 +140,7 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
 
     private void registerMBean()
     {
-        MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-        try
-        {
-            mbs.registerMBean(this, new ObjectName(mbeanName));
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException(e);
-        }
+        MBeanWrapper.instance.registerMBean(this, mbeanName);
     }
 
     public void close()
@@ -157,15 +148,7 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         updateSchedular.cancel(false);
         resetSchedular.cancel(false);
 
-        MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-        try
-        {
-            mbs.unregisterMBean(new ObjectName(mbeanName));
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException(e);
-        }
+        MBeanWrapper.instance.unregisterMBean(mbeanName);
     }
 
     @Override
@@ -300,7 +283,8 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         sample.update(latency);
     }
 
-    private void updateScores() // this is expensive
+    @VisibleForTesting
+    public synchronized void updateScores() // this is expensive
     {
         if (!StorageService.instance.isGossipActive())
             return;

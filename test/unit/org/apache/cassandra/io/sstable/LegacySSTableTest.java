@@ -57,6 +57,7 @@ import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.Version;
 import org.apache.cassandra.io.sstable.format.big.BigFormat;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.StreamPlan;
@@ -735,7 +736,7 @@ public class LegacySSTableTest
         {
             for (File file : srcDir.listFiles())
             {
-                copyFile(cfDir, file);
+                FileUtils.copyFile(cfDir, file);
             }
         }
     }
@@ -746,7 +747,7 @@ public class LegacySSTableTest
         Assert.assertTrue("The table directory " + tableDir + " was not found", tableDir.isDirectory());
         for (File file : tableDir.listFiles())
         {
-            copyFile(cfDir, file);
+            FileUtils.copyFile(cfDir, file);
         }
     }
 

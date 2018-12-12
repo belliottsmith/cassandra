@@ -29,6 +29,7 @@ import java.util.NavigableSet;
 import java.util.SortedSet;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.annotations.VisibleForTesting;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -430,7 +431,8 @@ public class SelectStatement implements CQLStatement
         ClientWarn.instance.warn(msg);
     }
 
-    private ResultMessage.Rows processResults(PartitionIterator partitions,
+    @VisibleForTesting
+    public ResultMessage.Rows processResults(PartitionIterator partitions,
                                               QueryOptions options,
                                               int nowInSec,
                                               int userLimit) throws RequestValidationException
