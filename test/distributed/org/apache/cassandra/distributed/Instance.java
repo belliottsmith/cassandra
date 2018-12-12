@@ -260,6 +260,7 @@ public class Instance extends InvokableInstance
         config.data_file_directories = overrides.data_file_directories;
         config.commitlog_directory = overrides.commitlog_directory;
         config.hints_directory = overrides.hints_directory;
+        config.cdc_raw_directory = overrides.cdc_directory;
         config.concurrent_writes = overrides.concurrent_writes;
         config.concurrent_counter_writes = overrides.concurrent_counter_writes;
         config.concurrent_materialized_view_writes = overrides.concurrent_materialized_view_writes;
