@@ -154,6 +154,9 @@ public class Config
     public Integer memtable_clock_shift = 17;
     public Long memtable_excess_waste_bytes = 10 * 1024 * 1024L;
 
+    // Limit the maximum depth of repair session merkle trees
+    public volatile Integer repair_session_max_tree_depth = 18;
+
     public Integer storage_port = 7000;
     public Integer ssl_storage_port = 7001;
     public String listen_address;

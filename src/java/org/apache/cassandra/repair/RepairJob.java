@@ -21,6 +21,7 @@ import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.*;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.*;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -34,8 +35,11 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.streaming.PreviewKind;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.MerkleTrees;
 import org.apache.cassandra.utils.Pair;
 
 /**
@@ -139,39 +143,9 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         // When all validations complete, submit sync tasks
         ListenableFuture<List<SyncStat>> syncResults = Futures.transform(validations, new AsyncFunction<List<TreeResponse>, List<SyncStat>>()
         {
-            public ListenableFuture<List<SyncStat>> apply(List<TreeResponse> trees) throws Exception
+            public ListenableFuture<List<SyncStat>> apply(List<TreeResponse> trees)
             {
-                InetAddress local = FBUtilities.getLocalAddress();
-
-                List<SyncTask> syncTasks = new ArrayList<>();
-                // We need to difference all trees one against another
-                for (int i = 0; i < trees.size() - 1; ++i)
-                {
-                    TreeResponse r1 = trees.get(i);
-                    for (int j = i + 1; j < trees.size(); ++j)
-                    {
-                        TreeResponse r2 = trees.get(j);
-
-                        r1.trees.acquire();
-                        r2.trees.acquire();
-
-                        SyncTask task;
-                        if (r1.endpoint.equals(local) || r2.endpoint.equals(local))
-                        {
-                            task = new LocalSyncTask(desc, r1, r2, isIncremental ? desc.parentSessionId : null, session.pullRepair, session.previewKind);
-                        }
-                        else
-                        {
-                            task = new RemoteSyncTask(desc, r1, r2, session.previewKind);
-                            // RemoteSyncTask expects SyncComplete message sent back.
-                            // Register task to RepairSession to receive response.
-                            session.waitForSync(Pair.create(desc, new NodePair(r1.endpoint, r2.endpoint)), (RemoteSyncTask) task);
-                        }
-                        syncTasks.add(task);
-                    }
-                }
-                syncTasks.forEach(taskExecutor::submit);
-                return Futures.allAsList(syncTasks);
+                return Futures.allAsList(createSyncTasks(trees, FBUtilities.getLocalAddress()));
             }
         }, taskExecutor);
 
@@ -202,6 +176,42 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
                 setException(t);
             }
         }, taskExecutor);
+    }
+
+    @VisibleForTesting
+    List<SyncTask> createSyncTasks(List<TreeResponse> trees, InetAddress local)
+    {
+        List<SyncTask> syncTasks = new ArrayList<>();
+        // We need to difference all trees one against another
+        for (int i = 0; i < trees.size() - 1; ++i)
+        {
+            TreeResponse r1 = trees.get(i);
+            for (int j = i + 1; j < trees.size(); ++j)
+            {
+                TreeResponse r2 = trees.get(j);
+                r1.trees.acquire();
+                r2.trees.acquire();
+
+                SyncTask task;
+
+                List<Range<Token>> differences = MerkleTrees.difference(r1.trees, r2.trees);
+
+                if (r1.endpoint.equals(local) || r2.endpoint.equals(local))
+                {
+                    task = new LocalSyncTask(desc, r1.endpoint, r2.endpoint, differences, isIncremental ? desc.parentSessionId : null, session.pullRepair, session.previewKind);
+                }
+                else
+                {
+                    task = new RemoteSyncTask(desc, r1.endpoint, r2.endpoint, differences, session.previewKind);
+                    // RemoteSyncTask expects SyncComplete message sent back.
+                    // Register task to RepairSession to receive response.
+                    session.waitForSync(Pair.create(desc, new NodePair(r1.endpoint, r2.endpoint)), (RemoteSyncTask) task);
+                }
+                syncTasks.add(task);
+                taskExecutor.submit(task);
+            }
+        }
+        return syncTasks;
     }
 
     /**

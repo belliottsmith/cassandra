@@ -1,4 +1,9 @@
-3.0.18.0 (open)
+3.0.19
+ * Improve merkle tree size and time on heap (CASSANDRA-14096)
+Merged from 2.2:
+ * Multi-version in-JVM dtests (CASSANDRA-14937)
+
+3.0.18.0
  * Add a script to make running the cqlsh tests in cassandra repo easier (CASSANDRA-14951)
  * If SizeEstimatesRecorder misses a 'onDropTable' notification, the size_estimates table will never be cleared for that table. (CASSANDRA-14905)
  * Fix cassandra-stress write hang with default options (CASSANDRA-14616)

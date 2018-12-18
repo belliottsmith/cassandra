@@ -43,16 +43,16 @@ public class RemoteSyncTask extends SyncTask
 {
     private static final Logger logger = LoggerFactory.getLogger(RemoteSyncTask.class);
 
-    public RemoteSyncTask(RepairJobDesc desc, TreeResponse r1, TreeResponse r2, PreviewKind previewKind)
+    public RemoteSyncTask(RepairJobDesc desc, InetAddress firstEndpoint, InetAddress secondEndpoint, List<Range<Token>> rangesToSync, PreviewKind previewKind)
     {
-        super(desc, r1, r2, previewKind);
+        super(desc, firstEndpoint, secondEndpoint, rangesToSync, previewKind);
     }
 
     @Override
     protected void startSync(List<Range<Token>> differences)
     {
         InetAddress local = FBUtilities.getBroadcastAddress();
-        SyncRequest request = new SyncRequest(desc, local, r1.endpoint, r2.endpoint, differences, previewKind);
+        SyncRequest request = new SyncRequest(desc, local, firstEndpoint, secondEndpoint, differences, previewKind);
         String message = String.format("Forwarding streaming repair of %d ranges to %s (to be streamed with %s)", request.ranges.size(), request.src, request.dst);
         logger.info("{} {}", previewKind.logPrefix(desc.sessionId), message);
         Tracing.traceRepair(message);
@@ -67,7 +67,7 @@ public class RemoteSyncTask extends SyncTask
         }
         else
         {
-            setException(new RepairException(desc, previewKind, String.format("Sync failed between %s and %s", r1.endpoint, r2.endpoint)));
+            setException(new RepairException(desc, previewKind, String.format("Sync failed between %s and %s", firstEndpoint, secondEndpoint)));
         }
         finished();
     }

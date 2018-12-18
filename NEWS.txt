@@ -42,6 +42,14 @@ restore snapshots created with the previous major version using the
 'sstableloader' tool. You can upgrade the file format of your snapshots
 using the provided 'sstableupgrade' tool.
 
+3.0.19
+======
+
+Upgrading
+---------
+	- repair_session_max_tree_depth setting has been added to cassandra.yaml to allow operators to reduce
+	  merkle tree size if repair is creating too much heap pressure. See CASSANDRA-14096 for details.
+
 3.0.18
 ======
 
