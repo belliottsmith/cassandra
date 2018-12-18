@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.distributed;
 
-
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,46 +32,43 @@ import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-
-public class Coordinator
+public class Coordinator implements org.apache.cassandra.distributed.api.ICoordinator
 {
     final Instance instance;
-
     public Coordinator(Instance instance)
     {
         this.instance = instance;
     }
 
-    private static Object[][] coordinatorExecute(String query, int consistencyLevel, Object[] bindings)
+    @Override
+    public Object[][] execute(String query, Enum<?> consistencyLevelOrigin, Object... boundValues)
     {
-        CQLStatement prepared = QueryProcessor.getStatement(query, ClientState.forInternalCalls()).statement;
-        List<ByteBuffer> boundValues = new ArrayList<>();
-        for (Object binding : bindings)
-        {
-            boundValues.add(ByteBufferUtil.objectToBytes(binding));
-        }
+        return instance.sync(() -> {
+            ConsistencyLevel consistencyLevel = ConsistencyLevel.valueOf(consistencyLevelOrigin.name());
+            CQLStatement prepared = QueryProcessor.getStatement(query, ClientState.forInternalCalls()).statement;
+            List<ByteBuffer> boundBBValues = new ArrayList<>();
+            for (Object boundValue : boundValues)
+            {
+                boundBBValues.add(ByteBufferUtil.objectToBytes(boundValue));
+            }
 
-        ResultMessage res = prepared.execute(QueryState.forInternalCalls(),
-                                             QueryOptions.create(ConsistencyLevel.fromCode(consistencyLevel),
-                                                                 boundValues,
-                                                                 false,
-                                                                 10,
-                                                                 null,
-                                                                 null,
-                                                                 Server.VERSION_4));
+            ResultMessage res = prepared.execute(QueryState.forInternalCalls(),
+                    QueryOptions.create(consistencyLevel,
+                            boundBBValues,
+                            false,
+                            10,
+                            null,
+                            null,
+                            Server.VERSION_4));
 
-        if (res != null && res.kind == ResultMessage.Kind.ROWS)
-        {
-            return RowUtil.toObjects((ResultMessage.Rows) res);
-        }
-        else
-        {
-            return new Object[][]{};
-        }
-    }
-
-    public Object[][] execute(String query, ConsistencyLevel consistencyLevel, Object... boundValues)
-    {
-        return instance.appliesOnInstance(Coordinator::coordinatorExecute).apply(query, consistencyLevel.code, boundValues);
+            if (res != null && res.kind == ResultMessage.Kind.ROWS)
+            {
+                return RowUtil.toObjects((ResultMessage.Rows) res);
+            }
+            else
+            {
+                return new Object[][]{};
+            }
+        }).call();
     }
 }

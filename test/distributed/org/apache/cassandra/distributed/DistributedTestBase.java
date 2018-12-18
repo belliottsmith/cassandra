@@ -20,6 +20,7 @@ package org.apache.cassandra.distributed;
 
 import java.util.Arrays;
 
+import org.apache.cassandra.distributed.api.InstanceVersion;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 
@@ -35,6 +36,7 @@ public class DistributedTestBase
 
     TestCluster createCluster(int nodeCount) throws Throwable
     {
+//        TestCluster cluster = TestCluster.create(InstanceVersion.lib(nodeCount, "/Users/belliottsmith/code/cassandra/cassandra/libdir"));
         TestCluster cluster = TestCluster.create(nodeCount);
         cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': " + nodeCount + "};");
 

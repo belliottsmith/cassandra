@@ -58,7 +58,7 @@ public class NamedThreadFactory implements ThreadFactory
     public Thread newThread(Runnable runnable)
     {
         String name = id + ':' + n.getAndIncrement();
-        Thread thread = new FastThreadLocalThread(threadGroup, threadLocalDeallocator(runnable), name);
+        Thread thread = new  FastThreadLocalThread(threadGroup, threadLocalDeallocator(runnable), name);
         thread.setPriority(priority);
         thread.setDaemon(true);
         if (contextClassLoader != null)
