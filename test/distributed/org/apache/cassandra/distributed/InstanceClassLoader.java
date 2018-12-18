@@ -19,44 +19,56 @@
 package org.apache.cassandra.distributed;
 
 import com.google.common.base.Predicate;
+import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.utils.Pair;
 
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.util.HashSet;
+import java.util.Arrays;
 import java.util.Set;
-import java.util.function.IntFunction;
+import java.util.stream.Collectors;
 
 public class InstanceClassLoader extends URLClassLoader
 {
     // Classes that have to be shared between instances, for configuration or returning values
-    private final static Class<?>[] commonClasses = new Class[]
+    private static final Set<String> sharedClassNames = Arrays.stream(new Class[]
             {
                     Pair.class,
-                    InstanceConfig.class,
-                    Message.class,
                     InetAddressAndPort.class,
-                    InvokableInstance.SerializableBiConsumer.class,
-                    InvokableInstance.SerializableBiFunction.class,
-                    InvokableInstance.SerializableCallable.class,
-                    InvokableInstance.SerializableConsumer.class,
-                    InvokableInstance.SerializableFunction.class,
-                    InvokableInstance.SerializableRunnable.class,
-                    InvokableInstance.SerializableTriFunction.class,
-                    InvokableInstance.InstanceFunction.class
-            };
+                    ParameterizedClass.class
+            })
+            .map(Class::getName)
+            .collect(Collectors.toSet());
+
+    private static final Predicate<String> sharedPackageNames = name ->
+               name.startsWith("org.apache.cassandra.distributed.api.")
+            || name.startsWith("sun.")
+            || name.startsWith("oracle.")
+            || name.startsWith("com.sun.")
+            || name.startsWith("com.oracle.")
+            || name.startsWith("java.")
+            || name.startsWith("javax.")
+            || name.startsWith("jdk.")
+            || name.startsWith("netscape.")
+            || name.startsWith("org.xml.sax.");
+
+    private static final Predicate<String> isSharedClass = name ->
+            sharedPackageNames.apply(name) || sharedClassNames.contains(name);
+
+    public static interface Factory
+    {
+        InstanceClassLoader create(int id, URL[] urls, ClassLoader sharedClassLoader);
+    }
 
     private final int id; // for debug purposes
-    private final ClassLoader commonClassLoader;
-    private final Predicate<String> isCommonClassName;
+    private final ClassLoader sharedClassLoader;
 
-    InstanceClassLoader(int id, URL[] urls, Predicate<String> isCommonClassName, ClassLoader commonClassLoader)
+    InstanceClassLoader(int id, URL[] urls, ClassLoader sharedClassLoader)
     {
         super(urls, null);
         this.id = id;
-        this.commonClassLoader = commonClassLoader;
-        this.isCommonClassName = isCommonClassName;
+        this.sharedClassLoader = sharedClassLoader;
     }
 
     @Override
@@ -65,13 +77,10 @@ public class InstanceClassLoader extends URLClassLoader
         // Do not share:
         //  * yaml, which  is a rare exception because it does mess with loading org.cassandra...Config class instances
         //  * most of the rest of Cassandra classes (unless they were explicitly shared) g
-        if (name.startsWith("org.slf4j") ||
-                name.startsWith("ch.qos.logback") ||
-                name.startsWith("org.yaml") ||
-                (name.startsWith("org.apache.cassandra") && !isCommonClassName.apply(name)))
-            return loadClassInternal(name);
+        if (isSharedClass.apply(name))
+            return sharedClassLoader.loadClass(name);
 
-        return commonClassLoader.loadClass(name);
+        return loadClassInternal(name);
     }
 
     Class<?> loadClassInternal(String name) throws ClassNotFoundException
@@ -86,16 +95,6 @@ public class InstanceClassLoader extends URLClassLoader
 
             return c;
         }
-    }
-
-    public static IntFunction<ClassLoader> createFactory(URLClassLoader contextClassLoader)
-    {
-        Set<String> commonClassNames = new HashSet<>();
-        for (Class<?> k : commonClasses)
-            commonClassNames.add(k.getName());
-
-        URL[] urls = contextClassLoader.getURLs();
-        return id -> new InstanceClassLoader(id, urls, commonClassNames::contains, contextClassLoader);
     }
 
     /**
