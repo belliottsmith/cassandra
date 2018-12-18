@@ -18,19 +18,20 @@
 
 package org.apache.cassandra.distributed;
 
+import org.apache.cassandra.distributed.api.IInvokableInstance;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.Closeable;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -39,64 +40,73 @@ import java.util.function.Function;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.utils.Throwables;
 
-public abstract class InvokableInstance
+public class InvokableInstance implements IInvokableInstance
 {
-    protected final ExecutorService isolatedExecutor;
+    final ExecutorService isolatedExecutor;
     private final ClassLoader classLoader;
     private final Method deserializeOnInstance;
 
-    public InvokableInstance(String name, ClassLoader classLoader)
+    InvokableInstance(String name, ClassLoader classLoader)
     {
         this.isolatedExecutor = Executors.newCachedThreadPool(new NamedThreadFactory(name, Thread.NORM_PRIORITY, classLoader, new ThreadGroup(name)));
         this.classLoader = classLoader;
-        try
-        {
-            this.deserializeOnInstance = classLoader.loadClass(InvokableInstance.class.getName()).getDeclaredMethod("deserializeOneObject", byte[].class);
-        }
-        catch (ClassNotFoundException | NoSuchMethodException e)
-        {
-            throw new RuntimeException(e);
-        }
+        this.deserializeOnInstance = lookupDeserializeOneObject(classLoader);
     }
 
-    public interface CallableNoExcept<T> extends Callable<T> { public T call(); }
-    public interface SerializableCallable<T> extends CallableNoExcept<T>, Serializable { }
-    public <T> CallableNoExcept<T> callsOnInstance(SerializableCallable<T> call) { return invokesOnExecutor((SerializableCallable<T>) transferOneObject(call), isolatedExecutor); }
-    public <T> T callOnInstance(SerializableCallable<T> call) { return callsOnInstance(call).call(); }
+    void shutdown()
+    {
+        isolatedExecutor.shutdownNow();
+    }
 
-    public interface SerializableRunnable extends Runnable, Serializable {}
-    public Runnable runsOnInstance(SerializableRunnable run) { return invokesOnExecutor((SerializableRunnable) transferOneObject(run), isolatedExecutor); }
+    <O> CallableNoExcept<Future<O>> async(CallableNoExcept<O> call) { return () -> isolatedExecutor.submit(call); }
+    public <O> CallableNoExcept<Future<O>> asyncCallsOnInstance(SerializableCallable<O> call) { return async(transfer(call)); }
+    <O> CallableNoExcept<O> sync(CallableNoExcept<O> call) { return () -> waitOn(async(call).call()); }
+    public <O> CallableNoExcept<O> callsOnInstance(SerializableCallable<O> call) { return sync(transfer(call)); }
+    public <O> O callOnInstance(SerializableCallable<O> call) { return callsOnInstance(call).call(); }
+
+    CallableNoExcept<Future<?>> async(Runnable run) { return () -> isolatedExecutor.submit(run); }
+    public CallableNoExcept<Future<?>> asyncRunsOnInstance(SerializableRunnable run) { return async(transfer(run)); }
+    Runnable sync(Runnable run) { return () -> waitOn(async(run).call()); }
+    public Runnable runsOnInstance(SerializableRunnable run) { return sync(transfer(run)); }
     public void runOnInstance(SerializableRunnable run) { runsOnInstance(run).run(); }
 
-    public interface SerializableConsumer<T> extends Consumer<T>, Serializable {}
-    public <T> Consumer<T> acceptsOnInstance(SerializableConsumer<T> consumer) { return invokesOnExecutor((SerializableConsumer<T>) transferOneObject(consumer), isolatedExecutor); }
+    <I> Function<I, Future<?>> async(Consumer<I> consumer) { return (a) -> isolatedExecutor.submit(() -> consumer.accept(a)); }
+    public <I> Function<I, Future<?>> asyncAcceptsOnInstance(SerializableConsumer<I> consumer) { return async(transfer(consumer)); }
+    <I> Consumer<I> sync(Consumer<I> consumer) { return (a) -> waitOn(async(consumer).apply(a)); }
+    public <I> Consumer<I> acceptsOnInstance(SerializableConsumer<I> consumer) { return sync(transfer(consumer)); }
 
-    public interface SerializableBiConsumer<T1, T2> extends BiConsumer<T1, T2>, Serializable {}
-    public <T1, T2> BiConsumer<T1, T2> acceptsOnInstance(SerializableBiConsumer<T1, T2> consumer) { return invokesOnExecutor((SerializableBiConsumer<T1, T2>) transferOneObject(consumer), isolatedExecutor); }
+    <I1, I2> BiFunction<I1, I2, Future<?>> async(BiConsumer<I1, I2> consumer) { return (a, b) -> isolatedExecutor.submit(() -> consumer.accept(a, b)); }
+    public <I1, I2> BiFunction<I1, I2, Future<?>> asyncAcceptsOnInstance(SerializableBiConsumer<I1, I2> consumer) { return async(transfer(consumer)); }
+    <I1, I2> BiConsumer<I1, I2> sync(BiConsumer<I1, I2> consumer) { return (a, b) -> waitOn(async(consumer).apply(a, b)); }
+    public <I1, I2> BiConsumer<I1, I2> acceptsOnInstance(SerializableBiConsumer<I1, I2> consumer) { return sync(transfer(consumer)); }
 
-    public interface SerializableFunction<I, O> extends Function<I, O>, Serializable {}
-    public <I, O> Function<I, O> appliesOnInstance(SerializableFunction<I, O> f) { return invokesOnExecutor((SerializableFunction<I, O>) transferOneObject(f), isolatedExecutor); }
+    <I, O> Function<I, Future<O>> async(Function<I, O> f) { return (a) -> isolatedExecutor.submit(() -> f.apply(a)); }
+    public <I, O> Function<I, Future<O>> asyncAppliesOnInstance(SerializableFunction<I, O> f) { return async(transfer(f)); }
+    <I, O> Function<I, O> sync(Function<I, O> f) { return (a) -> waitOn(async(f).apply(a)); }
+    public <I, O> Function<I, O> appliesOnInstance(SerializableFunction<I, O> f) { return sync(transfer(f)); }
 
-    public interface SerializableBiFunction<I1, I2, O> extends BiFunction<I1, I2, O>, Serializable {}
-    public <I1, I2, O> BiFunction<I1, I2, O> appliesOnInstance(SerializableBiFunction<I1, I2, O> f) { return invokesOnExecutor((SerializableBiFunction<I1, I2, O>) transferOneObject(f), isolatedExecutor); }
+    private <I1, I2, O> BiFunction<I1, I2, Future<O>> async(BiFunction<I1, I2, O> f) { return (a, b) -> isolatedExecutor.submit(() -> f.apply(a, b)); }
+    public <I1, I2, O> BiFunction<I1, I2, Future<O>> asyncAppliesOnInstance(SerializableBiFunction<I1, I2, O> f) { return async(transfer(f)); }
+    private <I1, I2, O> BiFunction<I1, I2, O> sync(BiFunction<I1, I2, O> f) { return (a, b) -> waitOn(async(f).apply(a, b)); }
+    public <I1, I2, O> BiFunction<I1, I2, O> appliesOnInstance(SerializableBiFunction<I1, I2, O> f) { return sync(transfer(f)); }
 
-    public interface TriFunction<I1, I2, I3, O>
+    private <I1, I2, I3, O> TriFunction<I1, I2, I3, Future<O>> async(TriFunction<I1, I2, I3, O> f) { return (a, b, c) -> isolatedExecutor.submit(() -> f.apply(a, b, c)); }
+    public <I1, I2, I3, O> TriFunction<I1, I2, I3, Future<O>> asyncAppliesOnInstance(SerializableTriFunction<I1, I2, I3, O> f) { return async(transfer(f)); }
+    private <I1, I2, I3, O> TriFunction<I1, I2, I3, O> sync(TriFunction<I1, I2, I3, O> f) { return (a, b, c) -> waitOn(async(f).apply(a, b, c)); }
+    public <I1, I2, I3, O> TriFunction<I1, I2, I3, O> appliesOnInstance(SerializableTriFunction<I1, I2, I3, O> f) { return sync(transfer(f)); }
+
+    @Override
+    public <E extends Serializable> E transfer(E object)
     {
-        O apply(I1 i1, I2 i2, I3 i3);
+        return (E) transferOneObject(object, classLoader, deserializeOnInstance);
     }
-    public interface SerializableTriFunction<I1, I2, I3, O> extends Serializable, TriFunction<I1, I2, I3, O> { }
 
-    public <I1, I2, I3, O> TriFunction<I1, I2, I3, O> appliesOnInstance(SerializableTriFunction<I1, I2, I3, O> f) { return invokesOnExecutor((SerializableTriFunction<I1, I2, I3, O>) transferOneObject(f), isolatedExecutor); }
-
-    public interface InstanceFunction<I, O> extends SerializableBiFunction<Instance, I, O> {}
-
-    // E must be a functional interface, and lambda must be implemented by a lambda function
-    public <E extends Serializable> E invokesOnInstance(E lambda)
+    static <E extends Serializable> E transferAdhoc(E object, ClassLoader classLoader)
     {
-        return (E) transferOneObject(lambda);
+        return transferOneObject(object, classLoader, lookupDeserializeOneObject(classLoader));
     }
 
-    public Object transferOneObject(Object object)
+    private static <E extends Serializable> E transferOneObject(E object, ClassLoader classLoader, Method deserializeOnInstance)
     {
         byte[] bytes = serializeOneObject(object);
         try
@@ -105,7 +115,7 @@ public abstract class InvokableInstance
             if (onInstance.getClass().getClassLoader() != classLoader)
                 throw new IllegalStateException(onInstance + " seemingly from wrong class loader: " + onInstance.getClass().getClassLoader() + ", but expected " + classLoader);
 
-            return onInstance;
+            return (E) onInstance;
         }
         catch (IllegalAccessException | InvocationTargetException e)
         {
@@ -113,16 +123,13 @@ public abstract class InvokableInstance
         }
     }
 
-    private byte[] serializeOneObject(Object object)
+    private static Method lookupDeserializeOneObject(ClassLoader classLoader)
     {
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-             ObjectOutputStream oos = new ObjectOutputStream(baos))
+        try
         {
-            oos.writeObject(object);
-            oos.close();
-            return baos.toByteArray();
+            return classLoader.loadClass(InvokableInstance.class.getName()).getDeclaredMethod("deserializeOneObject", byte[].class);
         }
-        catch (IOException e)
+        catch (ClassNotFoundException | NoSuchMethodException e)
         {
             throw new RuntimeException(e);
         }
@@ -142,72 +149,36 @@ public abstract class InvokableInstance
         }
     }
 
-    private static <V> CallableNoExcept<V> invokesOnExecutor(SerializableCallable<V> callable, ExecutorService invokeOn)
+    private static byte[] serializeOneObject(Object object)
     {
-        return () -> {
-            try
-            {
-                return invokeOn.submit(callable).get();
-            }
-            catch (InterruptedException e)
-            {
-                throw new RuntimeException(e);
-            }
-            catch (ExecutionException e)
-            {
-                Throwables.maybeFail(e.getCause());
-                throw new AssertionError();
-            }
-        };
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             ObjectOutputStream oos = new ObjectOutputStream(baos))
+        {
+            oos.writeObject(object);
+            oos.close();
+            return baos.toByteArray();
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
+        }
     }
 
-    private static Runnable invokesOnExecutor(SerializableRunnable runnable, ExecutorService invokeOn)
+    private static <T> T waitOn(Future<T> f)
     {
-        return () -> {
-            try
-            {
-                invokeOn.submit(runnable).get();
-            }
-            catch (InterruptedException e)
-            {
-                throw new RuntimeException(e);
-            }
-            catch (ExecutionException e)
-            {
-                Throwables.maybeFail(e.getCause());
-                throw new AssertionError();
-            }
-        };
-    }
-
-    private static <A> Consumer<A> invokesOnExecutor(SerializableConsumer<A> consumer, ExecutorService invokeOn)
-    {
-        return (a) -> invokesOnExecutor(() -> consumer.accept(a), invokeOn).run();
-    }
-
-    private static <A, B> BiConsumer<A, B> invokesOnExecutor(SerializableBiConsumer<A, B> consumer, ExecutorService invokeOn)
-    {
-        return (a, b) -> invokesOnExecutor(() -> consumer.accept(a, b), invokeOn).run();
-    }
-
-    private static <A, B> Function<A, B> invokesOnExecutor(SerializableFunction<A, B> f, ExecutorService invokeOn)
-    {
-        return (a) -> invokesOnExecutor(() -> f.apply(a), invokeOn).call();
-    }
-
-    private static <A, B, C> BiFunction<A, B, C> invokesOnExecutor(SerializableBiFunction<A, B, C> f, ExecutorService invokeOn)
-    {
-        return (a, b) -> invokesOnExecutor(() -> f.apply(a, b), invokeOn).call();
-    }
-
-    private static <A, B, C, D> SerializableTriFunction<A, B, C, D> invokesOnExecutor(SerializableTriFunction<A, B, C, D> f, ExecutorService invokeOn)
-    {
-        return (a, b, c) -> invokesOnExecutor(() -> f.apply(a, b, c), invokeOn).call();
-    }
-
-    void shutdown()
-    {
-        isolatedExecutor.shutdownNow();
+        try
+        {
+            return f.get();
+        }
+        catch (InterruptedException e)
+        {
+            throw new RuntimeException(e);
+        }
+        catch (ExecutionException e)
+        {
+            Throwables.maybeFail(e.getCause());
+            throw new AssertionError();
+        }
     }
 
 }

@@ -20,7 +20,6 @@ package org.apache.cassandra.distributed;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -34,19 +33,26 @@ import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.function.IntFunction;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.google.common.collect.Sets;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.diag.DiagnosticEventService;
+import org.apache.cassandra.distributed.api.ICoordinator;
+import org.apache.cassandra.distributed.api.IInstance;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
+import org.apache.cassandra.distributed.api.IMessage;
+import org.apache.cassandra.distributed.api.IMessageFilters;
+import org.apache.cassandra.distributed.api.ITestCluster;
+import org.apache.cassandra.distributed.api.InstanceVersion;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.MessagingService;
@@ -59,7 +65,7 @@ import org.apache.cassandra.utils.concurrent.SimpleCondition;
  *
  * All instances created under the same cluster will have a shared ClassLoader that'll preload
  * common classes required for configuration and communication (byte buffers, primitives, config
- * objects etc). Shared classes are listed in {@link InstanceClassLoader#commonClasses}.
+ * objects etc). Shared classes are listed in {@link InstanceClassLoader#sharedClassNames}.
  *
  * Each instance has its own class loader that will load logging, yaml libraries and all non-shared
  * Cassandra package classes. The rule of thumb is that we'd like to have all Cassandra-specific things
@@ -78,80 +84,126 @@ import org.apache.cassandra.utils.concurrent.SimpleCondition;
  * handlers for internode to have more control over it. Messaging is wired by passing verbs manually.
  * coordinator-handling code and hooks to the callbacks can be found in {@link Coordinator}.
  */
-public class TestCluster implements AutoCloseable
+public class TestCluster implements ITestCluster, AutoCloseable
 {
     // WARNING: we have this logger not (necessarily) for logging, but
     // to ensure we have instantiated the main classloader's LoggerFactory (and any LogbackStatusListener)
     // before we instantiate any for a new instance
     private static final Logger logger = LoggerFactory.getLogger(TestCluster.class);
 
+    private class InstanceWrapper extends DelegatingInstance
+    {
+        private volatile boolean isShutdown = true;
+        private volatile InstanceVersion version;
+        private final IInstanceConfig config;
+
+        private InstanceWrapper(InstanceVersion version, IInstanceConfig config)
+        {
+            super(null);
+            this.config = config;
+            setVersion(version);
+        }
+
+        @Override
+        public void startup()
+        {
+            delegate.startup(TestCluster.this);
+            isShutdown = false;
+        }
+
+        @Override
+        public void shutdown()
+        {
+            isShutdown = true;
+            delegate.shutdown();
+        }
+
+        @Override
+        public void receiveMessage(IMessage message)
+        {
+            if (!isShutdown) // since we sync directly on the other node, we drop messages immediately if we are shutdown
+                delegate.receiveMessage(message);
+        }
+
+        @Override
+        public void setVersion(InstanceVersion version)
+        {
+            if (!isShutdown)
+                throw new IllegalStateException("Must be shutdown before version can be modified");
+            // re-initialise
+            this.version = version;
+            ClassLoader classLoader = new InstanceClassLoader(config.num(), version.getClassPath(), sharedClassLoader);
+            delegate = Instance.create(config, classLoader);
+        }
+    }
+
     private final File root;
-    private final List<Instance> instances;
-    private final Coordinator coordinator;
-    private final Map<InetAddressAndPort, Instance> instanceMap;
+    // immutable
+    private final ClassLoader sharedClassLoader;
+
+    // mutated by starting/stopping a node
+    private final List<InstanceWrapper> instances;
+    private final Map<InetAddressAndPort, InstanceWrapper> instanceMap;
+
+    // mutated by user-facing API
     private final MessageFilters filters;
 
-    private TestCluster(File root, List<Instance> instances)
+    private TestCluster(File root, List<InstanceVersion> versions, List<IInstanceConfig> configs, ClassLoader sharedClassLoader)
     {
         this.root = root;
-        this.instances = instances;
+        this.sharedClassLoader = sharedClassLoader;
+        this.instances = new ArrayList<>();
         this.instanceMap = new HashMap<>();
-        this.coordinator = new Coordinator(instances.get(0));
+        for (int i = 0 ; i < versions.size() ; ++i)
+        {
+            InstanceWrapper wrapper = new InstanceWrapper(versions.get(i), configs.get(i));
+            instances.add(wrapper);
+            InstanceWrapper prev = instanceMap.put(configs.get(i).broadcastAddress(), wrapper);
+            if (null != prev)
+                throw new IllegalStateException("Cluster cannot have multiple nodes with same InetAddressAndPort: " + configs.get(i).broadcastAddress() + " vs " + prev.config.broadcastAddress());
+        }
         this.filters = new MessageFilters(this);
-    }
-
-    void launch()
-    {
-        FBUtilities.waitOnFutures(instances.stream()
-                .map(i -> i.isolatedExecutor.submit(() -> i.launch(this)))
-                .collect(Collectors.toList())
-        );
-        for (Instance instance : instances)
-            instanceMap.put(instance.getBroadcastAddress(), instance);
-    }
-
-    public int size()
-    {
-        return instances.size();
-    }
-
-    public Coordinator coordinator()
-    {
-        return coordinator;
     }
 
     /**
      * WARNING: we index from 1 here, for consistency with inet address!
      */
-    public Instance get(int idx)
+    public ICoordinator coordinator(int node)
     {
-        return instances.get(idx - 1);
+        return instances.get(node - 1).coordinator();
+    }
+    /**
+     * WARNING: we index from 1 here, for consistency with inet address!
+     */
+    public IInstance get(int node) { return instances.get(node - 1); }
+    public IInstance get(InetAddressAndPort addr) { return instanceMap.get(addr); }
+
+    public int size()
+    {
+        return instances.size();
+    }
+    public Stream<IInstance> stream() { return instances.stream().map(IInstance.class::cast); }
+    public void forEach(IInvokableInstance.SerializableRunnable runnable) { forEach(i -> i.runsOnInstance(runnable)); }
+    public void forEach(Consumer<? super IInstance> consumer) { instances.forEach(consumer); }
+    public void parallelForEach(IInvokableInstance.SerializableRunnable runnable, long timeout, TimeUnit units) { parallelForEach(i -> i.runsOnInstance(runnable), timeout, units); }
+    public void parallelForEach(IInvokableInstance.SerializableConsumer<? super IInstance> consumer, long timeout, TimeUnit units)
+    {
+        FBUtilities.waitOnFutures(instances.stream()
+                .map(i -> i.asyncAcceptsOnInstance(consumer).apply(i)) // acceptsOnInstance unnecessary, but permits us to easily handoff threading
+                .collect(Collectors.toList()),
+          timeout, units);
     }
 
-    public Instance get(InetAddressAndPort addr)
-    {
-        return instanceMap.get(addr);
-    }
 
-    MessageFilters filters()
-    {
-        return filters;
-    }
-
-    MessageFilters.Builder verbs(MessagingService.Verb ... verbs)
-    {
-        return filters.verbs(verbs);
-    }
+    public IMessageFilters filters() { return filters; }
+    MessageFilters.Builder verbs(MessagingService.Verb ... verbs) { return filters.verbs(verbs); }
 
     public void disableAutoCompaction(String keyspace)
     {
-        for (Instance instance : instances)
-        {
-            instance.runOnInstance(() -> {
-                for (ColumnFamilyStore cs : Keyspace.open(keyspace).getColumnFamilyStores())
-                    cs.disableAutoCompaction();
-            });
-        }
+        forEach(() -> {
+            for (ColumnFamilyStore cs : Keyspace.open(keyspace).getColumnFamilyStores())
+                cs.disableAutoCompaction();
+        });
     }
 
     public void schemaChange(String query)
@@ -159,7 +211,7 @@ public class TestCluster implements AutoCloseable
         try (SchemaChangeMonitor monitor = new SchemaChangeMonitor())
         {
             // execute the schema change
-            coordinator().execute(query, ConsistencyLevel.ALL);
+            coordinator(1).execute(query, ConsistencyLevel.ALL);
             monitor.waitForAgreement();
         }
     }
@@ -183,7 +235,7 @@ public class TestCluster implements AutoCloseable
         public SchemaChangeMonitor()
         {
             this.cleanup = new ArrayList<>(instances.size());
-            for (Instance instance : instances)
+            for (IInstance instance : instances)
             {
                 cleanup.add(
                         instance.appliesOnInstance(
@@ -199,7 +251,7 @@ public class TestCluster implements AutoCloseable
 
         private void signal()
         {
-            if (schemaHasChanged && 1 == instances.stream().map(Instance::getSchemaVersion).distinct().count())
+            if (schemaHasChanged && 1 == instances.stream().map(IInstance::getSchemaVersion).distinct().count())
                 agreement.signalAll();
         }
 
@@ -217,7 +269,8 @@ public class TestCluster implements AutoCloseable
             try
             {
                 agreement.await(1L, TimeUnit.MINUTES);
-            } catch (InterruptedException e)
+            }
+            catch (InterruptedException e)
             {
                 throw new IllegalStateException("Schema agreement not reached");
             }
@@ -229,29 +282,42 @@ public class TestCluster implements AutoCloseable
         get(instance).schemaChange(statement);
     }
 
+    private void startup()
+    {
+        parallelForEach(IInstance::startup, 0, null);
+    }
+
     public static TestCluster create(int nodeCount) throws Throwable
     {
         return create(nodeCount, Files.createTempDirectory("dtests").toFile());
     }
-
     public static TestCluster create(int nodeCount, File root)
+    {
+        return create(InstanceVersion.current(nodeCount), root);
+    }
+
+    public static TestCluster create(List<InstanceVersion> versions) throws IOException
+    {
+        return create(versions, Files.createTempDirectory("dtests").toFile());
+    }
+    public static TestCluster create(List<InstanceVersion> versions, File root)
     {
         root.mkdirs();
         setupLogging(root);
 
-        IntFunction<ClassLoader> classLoaderFactory = InstanceClassLoader.createFactory(
-                (URLClassLoader) Thread.currentThread().getContextClassLoader());
-        List<Instance> instances = new ArrayList<>();
-        long token = Long.MIN_VALUE + 1, increment = 2 * (Long.MAX_VALUE / nodeCount);
-        for (int i = 0 ; i < nodeCount ; ++i)
+        ClassLoader sharedClassLoader = Thread.currentThread().getContextClassLoader();
+
+        List<IInstanceConfig> configs = new ArrayList<>();
+        long token = Long.MIN_VALUE + 1, increment = 2 * (Long.MAX_VALUE / versions.size());
+        for (int i = 0 ; i < versions.size() ; ++i)
         {
-            InstanceConfig instanceConfig = InstanceConfig.generate(i + 1, root, String.valueOf(token));
-            instances.add(new Instance(instanceConfig, classLoaderFactory.apply(i + 1)));
+            InstanceConfig config = InstanceConfig.generate(i + 1, root, String.valueOf(token));
+            configs.add(config);
             token += increment;
         }
 
-        TestCluster cluster = new TestCluster(root, instances);
-        cluster.launch();
+        TestCluster cluster = new TestCluster(root, versions, configs, sharedClassLoader);
+        cluster.startup();
         return cluster;
     }
 
@@ -277,12 +343,9 @@ public class TestCluster implements AutoCloseable
     @Override
     public void close()
     {
-        List<Future<?>> futures = instances.stream()
-                .map(i -> i.isolatedExecutor.submit(i::shutdown))
-                .collect(Collectors.toList());
+        parallelForEach(IInstance::shutdown, 1L, TimeUnit.MINUTES);
 
         // Make sure to only delete directory when threads are stopped
-        FBUtilities.waitOnFutures(futures, 60, TimeUnit.SECONDS);
         FileUtils.deleteRecursive(root);
 
         //withThreadLeakCheck(futures);
