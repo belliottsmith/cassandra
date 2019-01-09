@@ -136,8 +136,6 @@ final class HintsBufferPool implements Closeable
     public void close()
     {
         if (currentBuffer != null)
-        {
-            ((DirectBuffer) currentBuffer.slab).cleaner().clean();
-        }
+            currentBuffer.free();
     }
 }
