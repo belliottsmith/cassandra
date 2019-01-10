@@ -43,6 +43,9 @@ import java.util.stream.Collectors;
 
 import com.google.common.collect.Sets;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.netty.util.concurrent.FastThreadLocal;
 import io.netty.util.concurrent.FastThreadLocalThread;
 import io.netty.util.internal.InternalThreadLocalMap;
@@ -84,6 +87,11 @@ import org.apache.cassandra.utils.concurrent.SimpleCondition;
  */
 public class TestCluster implements AutoCloseable
 {
+    // WARNING: we have this logger not (necessarily) for logging, but
+    // to ensure we have instantiated the main classloader's LoggerFactory (and any LogbackStatusListener)
+    // before we instantiate any for a new instance
+    private static final Logger logger = LoggerFactory.getLogger(TestCluster.class);
+
     private final ExecutorService exec = Executors.newCachedThreadPool(new NamedThreadFactory("cluster-async-tasks"));
 
     private final File root;
