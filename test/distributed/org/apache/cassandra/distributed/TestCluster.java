@@ -30,6 +30,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -187,10 +189,13 @@ public class TestCluster implements ITestCluster, AutoCloseable
     public void parallelForEach(IInvokableInstance.SerializableRunnable runnable, long timeout, TimeUnit units) { parallelForEach(i -> i.runsOnInstance(runnable), timeout, units); }
     public void parallelForEach(IInvokableInstance.SerializableConsumer<? super IRestartableInstance> consumer, long timeout, TimeUnit units)
     {
+        // TODO: remove!
+        ExecutorService tmp = Executors.newCachedThreadPool();
         FBUtilities.waitOnFutures(instances.stream()
-                .map(i -> i.asyncAcceptsOnInstance(consumer).apply(i)) // acceptsOnInstance unnecessary, but permits us to easily handoff threading
+                .map(i -> tmp.submit(() -> consumer.accept(i)))
                 .collect(Collectors.toList()),
           timeout, units);
+        tmp.shutdownNow();
     }
 
 
