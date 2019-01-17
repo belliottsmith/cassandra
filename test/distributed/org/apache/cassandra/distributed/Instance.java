@@ -60,7 +60,6 @@ import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.ITestCluster;
-import org.apache.cassandra.distributed.api.InstanceVersion;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
@@ -337,18 +336,6 @@ public class Instance extends InvokableInstance implements IInstance
             Throwables.maybeFail(error);
         }).accept(isolatedExecutor);
         super.shutdown();
-    }
-
-    @Override
-    public void setVersion(InstanceVersion version)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void startup()
-    {
-        throw new UnsupportedOperationException();
     }
 
     private static Throwable parallelRun(Throwable accumulate, ExecutorService runOn, ThrowingRunnable ... runnables)

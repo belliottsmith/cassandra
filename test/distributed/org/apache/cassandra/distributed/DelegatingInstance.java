@@ -23,12 +23,10 @@ import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.ITestCluster;
-import org.apache.cassandra.distributed.api.InstanceVersion;
 import org.apache.cassandra.locator.InetAddressAndPort;
 
 import java.io.Serializable;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
@@ -80,21 +78,9 @@ public class DelegatingInstance implements IInstance
     }
 
     @Override
-    public void startup()
-    {
-        delegate.startup();
-    }
-
-    @Override
     public void shutdown()
     {
         delegate.shutdown();
-    }
-
-    @Override
-    public void setVersion(InstanceVersion version)
-    {
-        delegate.setVersion(version);
     }
 
     @Override

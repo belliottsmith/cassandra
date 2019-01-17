@@ -28,7 +28,7 @@ public interface ITestCluster
     IInstance get(int i);
     IInstance get(InetAddressAndPort endpoint);
     int size();
-    Stream<IInstance> stream();
+    Stream<? extends IInstance> stream();
     IMessageFilters filters();
 
 }

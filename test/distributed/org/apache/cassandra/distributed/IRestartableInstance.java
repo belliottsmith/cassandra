@@ -16,25 +16,16 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.api;
+package org.apache.cassandra.distributed;
 
-import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.distributed.api.IInstance;
 
-import java.util.UUID;
-
-// The cross-version API requires that an Instance has a constructor signature of (IInstanceConfig, ClassLoader)
-public interface IInstance extends IInvokableInstance
+// this lives outside the api package so that we do not have to worry about inter-version compatibility
+public interface IRestartableInstance extends IInstance
 {
-    void schemaChange(String query);
-    public Object[][] executeInternal(String query, Object... args);
-    ICoordinator coordinator();
-
-    IInstanceConfig config();
-    public InetAddressAndPort getBroadcastAddress();
-    UUID getSchemaVersion();
-
-    // these methods are not for external use, but for simplicity we leave them public and on the normal IInstance interface
+    void startup();
     void shutdown();
-    void startup(ITestCluster cluster);
-    void receiveMessage(IMessage message);
+
+    // only to be invoked while the node is shutdown!
+    public void setVersion(Versions.Version version);
 }
