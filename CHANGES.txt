@@ -1,4 +1,9 @@
-3.0.17.10 (open)
+3.0.17.11 (open)
+
+3.0.17.10
+* <rdar://problem/46477243> Backport CASSANDRA-14936: message="Error anticompacting [BigTableReader()]" in clouddb p97
+* <rdar://problem/47314417> Backport CASSANDRA-14958: (Counters fail to increment in 2.1/2.2 to 3.X mixed version clusters)
+* <rdar://problem/46728325> Backport CASSANDRA-14935: PendingAntiCompaction should be more judicious in the compactions it cancels
 
 3.0.17.9
  * <rdar://problem/46448814> Backport CASSANDRA-14919: Regression in paging queries in mixed version clusters
