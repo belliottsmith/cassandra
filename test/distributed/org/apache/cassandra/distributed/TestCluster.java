@@ -155,9 +155,9 @@ public class TestCluster implements ITestCluster, AutoCloseable
         {
             InstanceWrapper wrapper = new InstanceWrapper(version, configs.get(i));
             instances.add(wrapper);
-            InstanceWrapper prev = instanceMap.put(configs.get(i).broadcastAddress(), wrapper);
+            InstanceWrapper prev = instanceMap.put(configs.get(i).broadcastAddressAndPort(), wrapper);
             if (null != prev)
-                throw new IllegalStateException("Cluster cannot have multiple nodes with same InetAddressAndPort: " + configs.get(i).broadcastAddress() + " vs " + prev.config.broadcastAddress());
+                throw new IllegalStateException("Cluster cannot have multiple nodes with same InetAddressAndPort: " + configs.get(i).broadcastAddressAndPort() + " vs " + prev.config.broadcastAddressAndPort());
         }
         this.filters = new MessageFilters(this);
     }
@@ -225,15 +225,13 @@ public class TestCluster implements ITestCluster, AutoCloseable
      */
     public class SchemaChangeMonitor implements AutoCloseable
     {
-        public SchemaChangeMonitor() {}
-
         @Override
         public void close() { }
 
         public void waitForAgreement()
         {
             long start = System.nanoTime();
-            while (1 != instances.stream().map(IInstance::getSchemaVersion).distinct().count())
+            while (1 != instances.stream().map(IInstance::schemaVersion).distinct().count())
             {
                 if (System.nanoTime() - start > TimeUnit.MINUTES.toNanos(1L))
                     throw new IllegalStateException("Schema agreement not reached");
