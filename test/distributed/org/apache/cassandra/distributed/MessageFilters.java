@@ -23,6 +23,7 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.BiConsumer;
 
+import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.api.ITestCluster;
@@ -43,12 +44,16 @@ public class MessageFilters implements IMessageFilters
     {
         return (toAddress, message) ->
         {
-            int from = cluster.get(message.from()).config().num();
-            int to = cluster.get(toAddress).config().num();
+            IInstance from = cluster.get(message.from());
+            IInstance to = cluster.get(toAddress);
+            if (from == null || to == null)
+                return; // cannot deliver
+            int fromNum = from.config().num();
+            int toNum = to.config().num();
             int verb = message.verb();
             for (Filter filter : filters)
             {
-                if (filter.matches(from, to, verb))
+                if (filter.matches(fromNum, toNum, verb))
                     return;
             }
 

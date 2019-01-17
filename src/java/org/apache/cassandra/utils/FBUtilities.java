@@ -129,7 +129,7 @@ public class FBUtilities
     {
         if (localInetAddressAndPort == null)
         {
-            localInetAddressAndPort = InetAddressAndPort.getByAddress(getJustLocalAddress());
+            localInetAddressAndPort = InetAddressAndPort.getByAddressOverrideDefaults(getJustLocalAddress(), DatabaseDescriptor.getStoragePort());
         }
         return localInetAddressAndPort;
     }
@@ -156,7 +156,7 @@ public class FBUtilities
     {
         if (broadcastInetAddressAndPort == null)
         {
-            broadcastInetAddressAndPort = InetAddressAndPort.getByAddress(getJustBroadcastAddress());
+            broadcastInetAddressAndPort = InetAddressAndPort.getByAddressOverrideDefaults(getJustBroadcastAddress(), DatabaseDescriptor.getStoragePort());
         }
         return broadcastInetAddressAndPort;
     }

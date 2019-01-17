@@ -45,17 +45,23 @@ public class InstanceConfig implements IInstanceConfig
     public UUID hostId() { return hostId; }
     private final Map<String, Object> params = new TreeMap<>();
 
+    private volatile InetAddressAndPort broadcastAddressAndPort;
+
     @Override
-    public InetAddressAndPort broadcastAddress()
+    public InetAddressAndPort broadcastAddressAndPort()
     {
-        try
+        if (broadcastAddressAndPort == null)
         {
-            return InetAddressAndPort.getByName(getString("broadcast_address"));
+            try
+            {
+                broadcastAddressAndPort = InetAddressAndPort.getByNameOverrideDefaults(getString("broadcast_address"), getInt("storage_port"));
+            }
+            catch (UnknownHostException e)
+            {
+                throw new IllegalStateException(e);
+            }
         }
-        catch (UnknownHostException e)
-        {
-            throw new IllegalStateException(e);
-        }
+        return broadcastAddressAndPort;
     }
 
     private InstanceConfig(int num,
@@ -90,6 +96,7 @@ public class InstanceConfig implements IInstanceConfig
                 .set("concurrent_compactors", 1)
                 .set("memtable_heap_space_in_mb", 10)
                 .set("commitlog_sync", "batch")
+                .set("storage_port", 7010)
                 .set("endpoint_snitch", SimpleSnitch.class.getName())
                 .set("seed_provider", new ParameterizedClass(SimpleSeedProvider.class.getName(),
                         Collections.singletonMap("seeds", "127.0.0.1:7010")))

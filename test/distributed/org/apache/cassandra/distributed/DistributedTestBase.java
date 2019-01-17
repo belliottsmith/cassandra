@@ -35,9 +35,12 @@ public class DistributedTestBase
 
     TestCluster createCluster(int nodeCount) throws Throwable
     {
-        TestCluster cluster = TestCluster.create(nodeCount);
-        cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': " + nodeCount + "};");
+        return init(TestCluster.create(nodeCount));
+    }
 
+    protected TestCluster init(TestCluster cluster)
+    {
+        cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': " + cluster.size() + "};");
         return cluster;
     }
 

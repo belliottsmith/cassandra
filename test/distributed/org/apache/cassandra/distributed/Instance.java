@@ -46,6 +46,7 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Memtable;
 import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.db.SystemKeyspaceMigrator40;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.IPartitioner;
@@ -113,7 +114,7 @@ public class Instance extends InvokableInstance implements IInstance
     }
 
     @Override
-    public InetAddressAndPort getBroadcastAddress() { return FBUtilities.getBroadcastAddressAndPort(); }
+    public InetAddressAndPort broadcastAddressAndPort() { return FBUtilities.getBroadcastAddressAndPort(); }
 
     @Override
     public Object[][] executeInternal(String query, Object... args)
@@ -131,7 +132,7 @@ public class Instance extends InvokableInstance implements IInstance
     }
 
     @Override
-    public UUID getSchemaVersion()
+    public UUID schemaVersion()
     {
         // we do not use method reference syntax here, because we need to sync on the node-local schema instance
         //noinspection Convert2MethodRef
@@ -229,8 +230,34 @@ public class Instance extends InvokableInstance implements IInstance
                 DatabaseDescriptor.daemonInitialization();
 
                 DatabaseDescriptor.createAllDirectories();
-                Keyspace.setInitialized();
+
+                // We need to persist this as soon as possible after startup checks.
+                // This should be the first write to SystemKeyspace (CASSANDRA-11742)
                 SystemKeyspace.persistLocalMetadata();
+                SystemKeyspaceMigrator40.migrate();
+
+                try
+                {
+                    // load schema from disk
+                    Schema.instance.loadFromDisk();
+                }
+                catch (Exception e)
+                {
+                    throw e;
+                }
+
+                Keyspace.setInitialized();
+
+                // Replay any CommitLogSegments found on disk
+                try
+                {
+                    CommitLog.instance.recoverSegmentsOnDisk();
+                }
+                catch (IOException e)
+                {
+                    throw new RuntimeException(e);
+                }
+
                 // Even though we don't use MessagingService, access the static NettyFactory
                 // instance here so that we start the static event loop state
                 // (e.g. acceptGroup, inboundGroup, outboundGroup, etc ...). We can remove this
@@ -238,6 +265,8 @@ public class Instance extends InvokableInstance implements IInstance
                 NettyFactory.instance.getClass();
                 initializeRing(cluster);
                 registerMockMessaging(cluster);
+
+                SystemKeyspace.finishStartup();
             }
             catch (Throwable t)
             {
@@ -275,7 +304,7 @@ public class Instance extends InvokableInstance implements IInstance
         {
             IInstanceConfig config = cluster.get(i).config();
             initialTokens.add(config.getString("initial_token"));
-            hosts.add(config.broadcastAddress());
+            hosts.add(config.broadcastAddressAndPort());
             hostIds.add(config.hostId());
         }
 

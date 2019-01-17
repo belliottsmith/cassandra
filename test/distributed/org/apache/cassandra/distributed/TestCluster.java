@@ -159,9 +159,9 @@ public class TestCluster implements ITestCluster, AutoCloseable
         {
             InstanceWrapper wrapper = new InstanceWrapper(version, configs.get(i));
             instances.add(wrapper);
-            InstanceWrapper prev = instanceMap.put(configs.get(i).broadcastAddress(), wrapper);
+            InstanceWrapper prev = instanceMap.put(configs.get(i).broadcastAddressAndPort(), wrapper);
             if (null != prev)
-                throw new IllegalStateException("Cluster cannot have multiple nodes with same InetAddressAndPort: " + configs.get(i).broadcastAddress() + " vs " + prev.config.broadcastAddress());
+                throw new IllegalStateException("Cluster cannot have multiple nodes with same InetAddressAndPort: " + configs.get(i).broadcastAddressAndPort() + " vs " + prev.config.broadcastAddressAndPort());
         }
         this.filters = new MessageFilters(this);
     }
@@ -255,7 +255,7 @@ public class TestCluster implements ITestCluster, AutoCloseable
 
         private void signal()
         {
-            if (schemaHasChanged && 1 == instances.stream().map(IInstance::getSchemaVersion).distinct().count())
+            if (schemaHasChanged && 1 == instances.stream().map(IInstance::schemaVersion).distinct().count())
                 agreement.signalAll();
         }
 
