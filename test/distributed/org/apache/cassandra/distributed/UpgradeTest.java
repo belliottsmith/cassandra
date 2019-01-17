@@ -31,7 +31,7 @@ public class UpgradeTest extends DistributedTestBase
     public void upgradeTest() throws IOException
     {
         Versions versions = Versions.find();
-        try (TestCluster cluster = TestCluster.create(3, versions.getLatest(Versions.Major.v22)))
+        try (TestCluster cluster = init(TestCluster.create(3, Versions.CURRENT)))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck)) WITH read_repair='none'");
 
@@ -39,7 +39,8 @@ public class UpgradeTest extends DistributedTestBase
             cluster.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 2, 2)");
             cluster.get(3).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 3, 3)");
 
-            for (Versions.Major major : new Versions.Major[] { Versions.Major.v30, Versions.Major.v3X, Versions.Major.v4 })
+//            for (Versions.Major major : new Versions.Major[] { Versions.Major.v30, Versions.Major.v3X, Versions.Major.v4 })
+            for (Versions.Major major : new Versions.Major[] { Versions.Major.v4 })
             {
                 for (int i = 1 ; i <= 3 ; ++i)
                 {

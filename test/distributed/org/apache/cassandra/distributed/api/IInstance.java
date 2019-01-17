@@ -30,8 +30,8 @@ public interface IInstance extends IInvokableInstance
     ICoordinator coordinator();
 
     IInstanceConfig config();
-    public InetAddressAndPort getBroadcastAddress();
-    UUID getSchemaVersion();
+    public InetAddressAndPort broadcastAddressAndPort();
+    UUID schemaVersion();
 
     // these methods are not for external use, but for simplicity we leave them public and on the normal IInstance interface
     void shutdown();
