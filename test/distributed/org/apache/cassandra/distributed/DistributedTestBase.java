@@ -20,7 +20,6 @@ package org.apache.cassandra.distributed;
 
 import java.util.Arrays;
 
-import org.apache.cassandra.distributed.api.InstanceVersion;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 
