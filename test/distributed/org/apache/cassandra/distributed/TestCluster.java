@@ -52,7 +52,6 @@ import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.api.ITestCluster;
-import org.apache.cassandra.distributed.api.InstanceVersion;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.MessagingService;
@@ -91,13 +90,13 @@ public class TestCluster implements ITestCluster, AutoCloseable
     // before we instantiate any for a new instance
     private static final Logger logger = LoggerFactory.getLogger(TestCluster.class);
 
-    private class InstanceWrapper extends DelegatingInstance
+    private class InstanceWrapper extends DelegatingInstance implements IRestartableInstance
     {
         private volatile boolean isShutdown = true;
-        private volatile InstanceVersion version;
+        private volatile Versions.Version version;
         private final IInstanceConfig config;
 
-        private InstanceWrapper(InstanceVersion version, IInstanceConfig config)
+        private InstanceWrapper(Versions.Version version, IInstanceConfig config)
         {
             super(null);
             this.config = config;
@@ -126,13 +125,13 @@ public class TestCluster implements ITestCluster, AutoCloseable
         }
 
         @Override
-        public void setVersion(InstanceVersion version)
+        public void setVersion(Versions.Version version)
         {
             if (!isShutdown)
                 throw new IllegalStateException("Must be shutdown before version can be modified");
             // re-initialise
             this.version = version;
-            ClassLoader classLoader = new InstanceClassLoader(config.num(), version.getClassPath(), sharedClassLoader);
+            ClassLoader classLoader = new InstanceClassLoader(config.num(), version.classpath, sharedClassLoader);
             delegate = Instance.create(config, classLoader);
         }
     }
@@ -148,15 +147,15 @@ public class TestCluster implements ITestCluster, AutoCloseable
     // mutated by user-facing API
     private final MessageFilters filters;
 
-    private TestCluster(File root, List<InstanceVersion> versions, List<IInstanceConfig> configs, ClassLoader sharedClassLoader)
+    private TestCluster(File root, int size, Versions.Version version, List<IInstanceConfig> configs, ClassLoader sharedClassLoader)
     {
         this.root = root;
         this.sharedClassLoader = sharedClassLoader;
         this.instances = new ArrayList<>();
         this.instanceMap = new HashMap<>();
-        for (int i = 0 ; i < versions.size() ; ++i)
+        for (int i = 0 ; i < size ; ++i)
         {
-            InstanceWrapper wrapper = new InstanceWrapper(versions.get(i), configs.get(i));
+            InstanceWrapper wrapper = new InstanceWrapper(version, configs.get(i));
             instances.add(wrapper);
             InstanceWrapper prev = instanceMap.put(configs.get(i).broadcastAddress(), wrapper);
             if (null != prev)
@@ -175,18 +174,18 @@ public class TestCluster implements ITestCluster, AutoCloseable
     /**
      * WARNING: we index from 1 here, for consistency with inet address!
      */
-    public IInstance get(int node) { return instances.get(node - 1); }
-    public IInstance get(InetAddressAndPort addr) { return instanceMap.get(addr); }
+    public IRestartableInstance get(int node) { return instances.get(node - 1); }
+    public IRestartableInstance get(InetAddressAndPort addr) { return instanceMap.get(addr); }
 
     public int size()
     {
         return instances.size();
     }
-    public Stream<IInstance> stream() { return instances.stream().map(IInstance.class::cast); }
+    public Stream<IRestartableInstance> stream() { return instances.stream().map(IRestartableInstance.class::cast); }
     public void forEach(IInvokableInstance.SerializableRunnable runnable) { forEach(i -> i.runsOnInstance(runnable)); }
-    public void forEach(Consumer<? super IInstance> consumer) { instances.forEach(consumer); }
+    public void forEach(Consumer<? super IRestartableInstance> consumer) { instances.forEach(consumer); }
     public void parallelForEach(IInvokableInstance.SerializableRunnable runnable, long timeout, TimeUnit units) { parallelForEach(i -> i.runsOnInstance(runnable), timeout, units); }
-    public void parallelForEach(IInvokableInstance.SerializableConsumer<? super IInstance> consumer, long timeout, TimeUnit units)
+    public void parallelForEach(IInvokableInstance.SerializableConsumer<? super IRestartableInstance> consumer, long timeout, TimeUnit units)
     {
         FBUtilities.waitOnFutures(instances.stream()
                 .map(i -> i.asyncAcceptsOnInstance(consumer).apply(i)) // acceptsOnInstance unnecessary, but permits us to easily handoff threading
@@ -284,7 +283,7 @@ public class TestCluster implements ITestCluster, AutoCloseable
 
     private void startup()
     {
-        parallelForEach(IInstance::startup, 0, null);
+        parallelForEach(IRestartableInstance::startup, 0, null);
     }
 
     public static TestCluster create(int nodeCount) throws Throwable
@@ -293,14 +292,14 @@ public class TestCluster implements ITestCluster, AutoCloseable
     }
     public static TestCluster create(int nodeCount, File root)
     {
-        return create(InstanceVersion.current(nodeCount), root);
+        return create(nodeCount, Versions.CURRENT, root);
     }
 
-    public static TestCluster create(List<InstanceVersion> versions) throws IOException
+    public static TestCluster create(int nodeCount, Versions.Version version) throws IOException
     {
-        return create(versions, Files.createTempDirectory("dtests").toFile());
+        return create(nodeCount, version, Files.createTempDirectory("dtests").toFile());
     }
-    public static TestCluster create(List<InstanceVersion> versions, File root)
+    public static TestCluster create(int nodeCount, Versions.Version version, File root)
     {
         root.mkdirs();
         setupLogging(root);
@@ -308,15 +307,15 @@ public class TestCluster implements ITestCluster, AutoCloseable
         ClassLoader sharedClassLoader = Thread.currentThread().getContextClassLoader();
 
         List<IInstanceConfig> configs = new ArrayList<>();
-        long token = Long.MIN_VALUE + 1, increment = 2 * (Long.MAX_VALUE / versions.size());
-        for (int i = 0 ; i < versions.size() ; ++i)
+        long token = Long.MIN_VALUE + 1, increment = 2 * (Long.MAX_VALUE / nodeCount);
+        for (int i = 0 ; i < nodeCount ; ++i)
         {
             InstanceConfig config = InstanceConfig.generate(i + 1, root, String.valueOf(token));
             configs.add(config);
             token += increment;
         }
 
-        TestCluster cluster = new TestCluster(root, versions, configs, sharedClassLoader);
+        TestCluster cluster = new TestCluster(root, nodeCount, version, configs, sharedClassLoader);
         cluster.startup();
         return cluster;
     }
