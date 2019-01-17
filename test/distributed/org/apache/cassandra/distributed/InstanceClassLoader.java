@@ -75,9 +75,6 @@ public class InstanceClassLoader extends URLClassLoader
     @Override
     public Class<?> loadClass(String name) throws ClassNotFoundException
     {
-        // Do not share:
-        //  * yaml, which  is a rare exception because it does mess with loading org.cassandra...Config class instances
-        //  * most of the rest of Cassandra classes (unless they were explicitly shared) g
         if (isSharedClass.apply(name))
             return sharedClassLoader.loadClass(name);
 
