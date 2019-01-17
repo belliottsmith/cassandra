@@ -127,7 +127,7 @@ public class InstanceConfig implements IInstanceConfig
     public void propagate(Object writeToConfig)
     {
         for (Map.Entry<String, Object> e : params.entrySet())
-            propagate(writeToConfig, e.getKey(), e.getValue(), false);
+            propagate(writeToConfig, e.getKey(), e.getValue(), true);
     }
 
     private void propagate(Object writeToConfig, String fieldName, Object value, boolean ignoreMissing)
