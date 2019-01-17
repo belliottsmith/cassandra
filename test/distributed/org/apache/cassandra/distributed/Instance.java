@@ -225,7 +225,8 @@ public class Instance extends InvokableInstance implements IInstance
             {
                 mkdirs();
                 InstanceIDDefiner.instanceId = config.num();
-                DatabaseDescriptor.daemonInitialization(() -> loadConfig(config));
+                Config.setOverrideLoadConfig(() -> loadConfig(config));
+                DatabaseDescriptor.daemonInitialization();
 
                 DatabaseDescriptor.createAllDirectories();
                 Keyspace.setInitialized();
