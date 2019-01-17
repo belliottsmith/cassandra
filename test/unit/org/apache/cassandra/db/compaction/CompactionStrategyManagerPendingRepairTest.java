@@ -212,7 +212,7 @@ public class CompactionStrategyManagerPendingRepairTest extends AbstractPendingR
         Assert.assertSame(PendingRepairManager.RepairFinishedCompactionTask.class, compactionTask.getClass());
 
         // run the compaction
-        compactionTask.execute(null);
+        compactionTask.execute(ActiveCompactionsTracker.NOOP);
 
         Assert.assertTrue(csm.getRepaired().getSSTables().contains(sstable));
         Assert.assertFalse(csm.getUnrepaired().getSSTables().contains(sstable));
@@ -249,7 +249,7 @@ public class CompactionStrategyManagerPendingRepairTest extends AbstractPendingR
         Assert.assertSame(PendingRepairManager.RepairFinishedCompactionTask.class, compactionTask.getClass());
 
         // run the compaction
-        compactionTask.execute(null);
+        compactionTask.execute(ActiveCompactionsTracker.NOOP);
 
         Assert.assertFalse(csm.getRepaired().getSSTables().contains(sstable));
         Assert.assertTrue(csm.getUnrepaired().getSSTables().contains(sstable));
@@ -260,5 +260,4 @@ public class CompactionStrategyManagerPendingRepairTest extends AbstractPendingR
         Assert.assertFalse(sstable.isRepaired());
         Assert.assertEquals(ActiveRepairService.UNREPAIRED_SSTABLE, sstable.getSSTableMetadata().repairedAt);
     }
-
 }

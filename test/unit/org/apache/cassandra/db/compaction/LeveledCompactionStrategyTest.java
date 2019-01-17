@@ -373,7 +373,7 @@ public class LeveledCompactionStrategyTest
         waitForLeveling(cfs);
         cfs.disableAutoCompaction();
 
-        while(CompactionManager.instance.isCompacting(Arrays.asList(cfs)))
+        while(CompactionManager.instance.isCompacting(Arrays.asList(cfs), (sstable) -> true))
             Thread.sleep(100);
 
         CompactionStrategyManager strategy =  cfs.getCompactionStrategyManager();
@@ -470,7 +470,7 @@ public class LeveledCompactionStrategyTest
         Collection<Range<Token>> tokenRanges = new ArrayList<>(Arrays.asList(tokenRange));
         cfs.forceCompactionForTokenRange(tokenRanges);
 
-        while(CompactionManager.instance.isCompacting(Arrays.asList(cfs))) {
+        while(CompactionManager.instance.isCompacting(Arrays.asList(cfs), (sstable) -> true)) {
             Thread.sleep(100);
         }
 
@@ -483,7 +483,7 @@ public class LeveledCompactionStrategyTest
         cfs.forceCompactionForTokenRange(tokenRanges2);
 
 
-        while(CompactionManager.instance.isCompacting(Arrays.asList(cfs))) {
+        while(CompactionManager.instance.isCompacting(Arrays.asList(cfs), (sstable) -> true)) {
             Thread.sleep(100);
         }
 
@@ -535,7 +535,7 @@ public class LeveledCompactionStrategyTest
         Collection<Range<Token>> wrappingRanges = new ArrayList<>(Arrays.asList(wrappingRange));
         cfs.forceCompactionForTokenRange(wrappingRanges);
 
-        while(CompactionManager.instance.isCompacting(Arrays.asList(cfs)))
+        while(CompactionManager.instance.isCompacting(Arrays.asList(cfs), (sstable) -> true))
         {
             Thread.sleep(100);
         }
@@ -761,11 +761,7 @@ public class LeveledCompactionStrategyTest
             LeveledCompactionStrategy.ScheduledLeveledCompactionTask task = lcs.getNextScheduledCompactionTask(gcBefore, false);
             if (task != null)
             {
-                task.execute(new CompactionManager.CompactionExecutorStatsCollector()
-                {
-                    public void beginCompaction(CompactionInfo.Holder ci) {}
-                    public void finishCompaction(CompactionInfo.Holder ci) {}
-                });
+                task.execute(ActiveCompactionsTracker.NOOP);
 
                 // this means we have wrapped around and can stop compacting
                 if (compactedRanges.contains(task.compactedRange))
@@ -830,11 +826,7 @@ public class LeveledCompactionStrategyTest
                 assertTrue(lcs.timeForScheduledCompaction(false));
             if (task != null)
             {
-                task.execute(new CompactionManager.CompactionExecutorStatsCollector()
-                {
-                    public void beginCompaction(CompactionInfo.Holder ci) {}
-                    public void finishCompaction(CompactionInfo.Holder ci) {}
-                });
+                task.execute(ActiveCompactionsTracker.NOOP);
                 // after executing the scheduled compaction it should not be time for a new one (in this setup where we are not backlogged on compactions)
                 if (isScheduled)
                 {

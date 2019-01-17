@@ -228,7 +228,7 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
 
 
     @Test
-    public void testDropExpiredSSTables() throws InterruptedException
+    public void testDropExpiredSSTables()
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
@@ -239,16 +239,17 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
 
         // create 2 sstables
         DecoratedKey key = Util.dk(String.valueOf("expired"));
-        new RowUpdateBuilder(cfs.metadata, System.currentTimeMillis(), 1, key.getKey())
+        long now = System.currentTimeMillis();
+        new RowUpdateBuilder(cfs.metadata, now, 1, key.getKey())
             .clustering("column")
             .add("val", value).build().applyUnsafe();
 
         cfs.forceBlockingFlush();
         SSTableReader expiredSSTable = cfs.getLiveSSTables().iterator().next();
-        Thread.sleep(10);
+        now += 10;
 
         key = Util.dk(String.valueOf("nonexpired"));
-        new RowUpdateBuilder(cfs.metadata, System.currentTimeMillis(), key.getKey())
+        new RowUpdateBuilder(cfs.metadata, now, key.getKey())
             .clustering("column")
             .add("val", value).build().applyUnsafe();
 
@@ -265,9 +266,9 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
         for (SSTableReader sstable : cfs.getLiveSSTables())
             twcs.addSSTable(sstable);
         twcs.startup();
-        assertNull(twcs.getNextBackgroundTask((int) (System.currentTimeMillis() / 1000)));
-        Thread.sleep(2000);
-        AbstractCompactionTask t = twcs.getNextBackgroundTask((int) (System.currentTimeMillis()/1000));
+        assertNull(twcs.getNextBackgroundTask((int) (now / 1000)));
+        now += 2000;
+        AbstractCompactionTask t = twcs.getNextBackgroundTask((int) (now/1000));
         assertNotNull(t);
         assertEquals(1, Iterables.size(t.transaction.originals()));
         SSTableReader sstable = t.transaction.originals().iterator().next();

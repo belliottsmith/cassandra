@@ -111,7 +111,7 @@ public class AbstractPendingRepairTest extends AbstractRepairTest
         return sstable;
     }
 
-    protected static void mutateRepaired(SSTableReader sstable, long repairedAt, UUID pendingRepair)
+    public static void mutateRepaired(SSTableReader sstable, long repairedAt, UUID pendingRepair)
     {
         try
         {
@@ -124,12 +124,12 @@ public class AbstractPendingRepairTest extends AbstractRepairTest
         }
     }
 
-    protected static void mutateRepaired(SSTableReader sstable, long repairedAt)
+    public static void mutateRepaired(SSTableReader sstable, long repairedAt)
     {
         mutateRepaired(sstable, repairedAt, ActiveRepairService.NO_PENDING_REPAIR);
     }
 
-    protected static void mutateRepaired(SSTableReader sstable, UUID pendingRepair)
+    public static void mutateRepaired(SSTableReader sstable, UUID pendingRepair)
     {
         mutateRepaired(sstable, ActiveRepairService.UNREPAIRED_SSTABLE, pendingRepair);
     }

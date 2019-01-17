@@ -694,9 +694,9 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             return positionOffset + (currentScanner == null ? 0L : currentScanner.getCurrentPosition());
         }
 
-        public String getBackingFiles()
+        public Set<SSTableReader> getBackingSSTables()
         {
-            return Joiner.on(", ").join(sstables);
+            return ImmutableSet.copyOf(sstables);
         }
     }
 

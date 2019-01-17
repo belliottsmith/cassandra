@@ -369,7 +369,8 @@ public class SecondaryIndexManager implements IndexRegistry
 
         SecondaryIndexBuilder builder = new SecondaryIndexBuilder(baseCfs,
                                                                   indexes,
-                                                                  new ReducingKeyIterator(sstables));
+                                                                  new ReducingKeyIterator(sstables),
+                                                                  sstables);
         Future<?> future = CompactionManager.instance.submitIndexBuild(builder);
         FBUtilities.waitOnFuture(future);
 

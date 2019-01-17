@@ -29,6 +29,7 @@ import com.google.common.collect.ImmutableSet;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.commitlog.ReplayPosition;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.io.sstable.Component;
@@ -47,6 +48,7 @@ import org.apache.cassandra.io.util.SegmentedFile;
 import org.apache.cassandra.schema.CachingParams;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
+import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.AlwaysPresentFilter;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -143,7 +145,7 @@ public class MockSchema
         SerializationHeader header = SerializationHeader.make(cfs.metadata, Collections.emptyList());
         MetadataCollector collector = new MetadataCollector(cfs.metadata.comparator);
         collector.update(new DeletionTime(System.currentTimeMillis() * 1000, minLocalDeletionTime));
-        StatsMetadata metadata = (StatsMetadata) collector.finalizeMetadata(cfs.metadata.partitioner.getClass().getCanonicalName(), 0.01f, -1, null, header)
+        StatsMetadata metadata = (StatsMetadata) collector.finalizeMetadata(cfs.metadata.partitioner.getClass().getCanonicalName(), 0.01f, ActiveRepairService.UNREPAIRED_SSTABLE, null, header)
                                                           .get(MetadataType.STATS);
         SSTableReader reader = SSTableReader.internalOpen(descriptor, components, cfs.metadata,
                                                           segmentedFile.sharedCopy(), segmentedFile.sharedCopy(), indexSummary.sharedCopy(),
@@ -166,6 +168,20 @@ public class MockSchema
         CFMetaData metadata = newCFMetaData(ksname, cfname);
         Keyspace keyspace = Keyspace.mockKS(KeyspaceMetadata.create(ksname, KeyspaceParams.simpleTransient(2)));
         return new ColumnFamilyStore(keyspace, cfname, 0, metadata, new Directories(metadata), false, false);
+    }
+
+    public static ColumnFamilyStore newCFSOverrideFlush()
+    {
+        String cfname = "mockcf" + (id.incrementAndGet());
+        CFMetaData metadata = newCFMetaData(ks.getName(), cfname);
+        Keyspace keyspace = Keyspace.mockKS(KeyspaceMetadata.create(ks.getName(), KeyspaceParams.simpleTransient(2)));
+        return new ColumnFamilyStore(keyspace, cfname, 0, metadata, new Directories(metadata), false, false) {
+            @Override
+            public ReplayPosition forceBlockingFlush()
+            {
+                return ReplayPosition.NONE;
+            }
+        };
     }
 
     public static CFMetaData newCFMetaData(String ksname, String cfname)

@@ -17,60 +17,43 @@
  */
 package org.apache.cassandra.db.compaction;
 
-import java.io.Serializable;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.service.StorageService;
+import com.google.common.base.Joiner;
+import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 
-/** Implements serializable to allow structured info to be returned via JMX. */
-public final class CompactionInfo implements Serializable
+import org.apache.cassandra.io.sstable.format.SSTableReader;
+
+public final class CompactionInfo
 {
-    private static final long serialVersionUID = 3695381572726744816L;
     private final CFMetaData cfm;
     private final OperationType tasktype;
     private final long completed;
     private final long total;
     private final Unit unit;
     private final UUID compactionId;
+    private final ImmutableSet<SSTableReader> sstables;
 
-    public static enum Unit
+    public CompactionInfo(CFMetaData cfm, OperationType tasktype, long bytesComplete, long totalBytes, UUID compactionId, Collection<SSTableReader> sstables)
     {
-        BYTES("bytes"), RANGES("ranges"), KEYS("keys");
-
-        private final String name;
-
-        private Unit(String name)
-        {
-            this.name = name;
-        }
-
-        @Override
-        public String toString()
-        {
-            return name;
-        }
-
-        public static boolean isFileSize(String unit)
-        {
-            return BYTES.toString().equals(unit);
-        }
+        this(cfm, tasktype, bytesComplete, totalBytes, Unit.BYTES, compactionId, sstables);
     }
 
-    public CompactionInfo(CFMetaData cfm, OperationType tasktype, long bytesComplete, long totalBytes, UUID compactionId)
+    public CompactionInfo(OperationType tasktype, long completed, long total, Unit unit, UUID compactionId, Collection<SSTableReader> sstables)
     {
-        this(cfm, tasktype, bytesComplete, totalBytes, Unit.BYTES, compactionId);
+        this(null, tasktype, completed, total, unit, compactionId, sstables);
     }
 
-    public CompactionInfo(OperationType tasktype, long completed, long total, Unit unit, UUID compactionId)
-    {
-        this(null, tasktype, completed, total, unit, compactionId);
-    }
-
-    public CompactionInfo(CFMetaData cfm, OperationType tasktype, long completed, long total, Unit unit, UUID compactionId)
+    private CompactionInfo(CFMetaData cfm, OperationType tasktype, long completed, long total, Unit unit, UUID compactionId, Collection<SSTableReader> sstables)
     {
         this.tasktype = tasktype;
         this.completed = completed;
@@ -78,12 +61,22 @@ public final class CompactionInfo implements Serializable
         this.cfm = cfm;
         this.unit = unit;
         this.compactionId = compactionId;
+        this.sstables = ImmutableSet.copyOf(sstables);
+    }
+
+    /**
+     * Special compaction info where we always need to cancel the compaction - for example ViewBuilderTask and AutoSavingCache where we don't know
+     * the sstables at construction
+     */
+    public static CompactionInfo withoutSSTables(CFMetaData cfm, OperationType tasktype, long completed, long total, Unit unit, UUID compactionId)
+    {
+        return new CompactionInfo(cfm, tasktype, completed, total, unit, compactionId, ImmutableSet.of());
     }
 
     /** @return A copy of this CompactionInfo with updated progress. */
     public CompactionInfo forProgress(long complete, long total)
     {
-        return new CompactionInfo(cfm, tasktype, complete, total, unit, compactionId);
+        return new CompactionInfo(cfm, tasktype, complete, total, unit, compactionId, sstables);
     }
 
     public UUID getId()
@@ -126,6 +119,11 @@ public final class CompactionInfo implements Serializable
         return compactionId;
     }
 
+    public Set<SSTableReader> getSSTables()
+    {
+        return sstables;
+    }
+
     public String toString()
     {
         StringBuilder buff = new StringBuilder();
@@ -154,7 +152,17 @@ public final class CompactionInfo implements Serializable
         ret.put("taskType", tasktype.toString());
         ret.put("unit", unit.toString());
         ret.put("compactionId", compactionId == null ? "" : compactionId.toString());
+        ret.put("sstables", Joiner.on(',').join(sstables));
         return ret;
+    }
+
+    boolean shouldStop(Predicate<SSTableReader> sstablePredicate)
+    {
+        if (sstables.isEmpty())
+        {
+            return true;
+        }
+        return Iterables.any(sstables, sstablePredicate);
     }
 
     public static abstract class Holder
@@ -190,6 +198,29 @@ public final class CompactionInfo implements Serializable
             if (reportedSeverity != 0d)
                 StorageService.instance.reportSeverity(-(reportedSeverity));
             reportedSeverity = 0d;
+        }
+    }
+
+    public static enum Unit
+    {
+        BYTES("bytes"), RANGES("ranges"), KEYS("keys");
+
+        private final String name;
+
+        private Unit(String name)
+        {
+            this.name = name;
+        }
+
+        @Override
+        public String toString()
+        {
+            return name;
+        }
+
+        public static boolean isFileSize(String unit)
+        {
+            return BYTES.toString().equals(unit);
         }
     }
 }

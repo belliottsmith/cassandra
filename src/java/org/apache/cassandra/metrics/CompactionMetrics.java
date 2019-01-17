@@ -36,12 +36,9 @@ import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 /**
  * Metrics for compaction.
  */
-public class CompactionMetrics implements CompactionManager.CompactionExecutorStatsCollector
+public class CompactionMetrics
 {
     public static final MetricNameFactory factory = new DefaultNameFactory("Compaction");
-
-    // a synchronized identity set of running tasks to their compaction info
-    private static final Set<CompactionInfo.Holder> compactions = Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<CompactionInfo.Holder, Boolean>()));
 
     /** Estimated number of compactions remaining to perform */
     public final Gauge<Integer> pendingTasks;
@@ -68,7 +65,7 @@ public class CompactionMetrics implements CompactionManager.CompactionExecutorSt
                         n += cfs.getCompactionStrategyManager().getEstimatedRemainingTasks();
                 }
                 // add number of currently running compactions
-                return n + compactions.size();
+                return n + CompactionManager.instance.active.getCompactions().size();
             }
         });
         pendingTasksByTableName = Metrics.register(factory.createMetricName("PendingTasksByTableName"), new Gauge<Map<String, Map<String, Integer>>>()
@@ -95,7 +92,7 @@ public class CompactionMetrics implements CompactionManager.CompactionExecutorSt
                 }
 
                 // currently running compactions
-                for (CompactionInfo.Holder compaction : compactions)
+                for (CompactionInfo.Holder compaction : CompactionManager.instance.active.getCompactions())
                 {
                     CFMetaData metaData = compaction.getCompactionInfo().getCFMetaData();
                     if (metaData == null)
@@ -133,26 +130,5 @@ public class CompactionMetrics implements CompactionManager.CompactionExecutorSt
         });
         totalCompactionsCompleted = Metrics.meter(factory.createMetricName("TotalCompactionsCompleted"));
         bytesCompacted = Metrics.counter(factory.createMetricName("BytesCompacted"));
-    }
-
-    public void beginCompaction(CompactionInfo.Holder ci)
-    {
-        // notify
-        ci.started();
-        compactions.add(ci);
-    }
-
-    public void finishCompaction(CompactionInfo.Holder ci)
-    {
-        // notify
-        ci.finished();
-        compactions.remove(ci);
-        bytesCompacted.inc(ci.getCompactionInfo().getTotal());
-        totalCompactionsCompleted.mark();
-    }
-
-    public static List<CompactionInfo.Holder> getCompactions()
-    {
-        return new ArrayList<CompactionInfo.Holder>(compactions);
     }
 }

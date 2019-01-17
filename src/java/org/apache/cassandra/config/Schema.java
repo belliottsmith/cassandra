@@ -648,7 +648,7 @@ public class Schema
         KeyspaceMetadata ksm = Schema.instance.getKSMetaData(ksName);
         String snapshotName = Keyspace.getTimestampedSnapshotNameWithPrefix(ksName, ColumnFamilyStore.SNAPSHOT_DROP_PREFIX);
 
-        CompactionManager.instance.interruptCompactionFor(ksm.tablesAndViews(), true);
+        CompactionManager.instance.interruptCompactionFor(ksm.tablesAndViews(), (sstable) -> true, true);
 
         Keyspace keyspace = Keyspace.open(ksm.name);
 
@@ -722,7 +722,7 @@ public class Schema
         unload(cfm);
         setKeyspaceMetadata(newKsm);
 
-        CompactionManager.instance.interruptCompactionFor(Collections.singleton(cfm), true);
+        CompactionManager.instance.interruptCompactionFor(Collections.singleton(cfm), (sstable) -> true,true);
 
         if (DatabaseDescriptor.isAutoSnapshot())
             cfs.snapshot(Keyspace.getTimestampedSnapshotNameWithPrefix(cfs.name, ColumnFamilyStore.SNAPSHOT_DROP_PREFIX));
@@ -777,7 +777,7 @@ public class Schema
         unload(view);
         setKeyspaceMetadata(newKsm);
 
-        CompactionManager.instance.interruptCompactionFor(Collections.singleton(view.metadata), true);
+        CompactionManager.instance.interruptCompactionFor(Collections.singleton(view.metadata), (sstable) -> true, true);
 
         if (DatabaseDescriptor.isAutoSnapshot())
             cfs.snapshot(Keyspace.getTimestampedSnapshotName(cfs.name));

@@ -593,8 +593,8 @@ public class CustomCassandraIndex implements Index
     {
         // interrupt in-progress compactions
         Collection<ColumnFamilyStore> cfss = Collections.singleton(indexCfs);
-        CompactionManager.instance.interruptCompactionForCFs(cfss, true);
-        CompactionManager.instance.waitForCessation(cfss);
+        CompactionManager.instance.interruptCompactionForCFs(cfss, (sstable) -> true, true);
+        CompactionManager.instance.waitForCessation(cfss, (sstable) -> true);
         indexCfs.keyspace.writeOrder.awaitNewBarrier();
         indexCfs.forceBlockingFlush();
         indexCfs.readOrdering.awaitNewBarrier();
@@ -642,7 +642,8 @@ public class CustomCassandraIndex implements Index
 
             SecondaryIndexBuilder builder = new SecondaryIndexBuilder(baseCfs,
                                                                       Collections.singleton(this),
-                                                                      new ReducingKeyIterator(sstables));
+                                                                      new ReducingKeyIterator(sstables),
+                                                                      sstables);
             Future<?> future = CompactionManager.instance.submitIndexBuild(builder);
             FBUtilities.waitOnFuture(future);
             indexCfs.forceBlockingFlush();

@@ -389,7 +389,7 @@ public class CompactionsPurgeTest
             }
         }
 
-        cfs.getCompactionStrategyManager().getUserDefinedTask(sstablesIncomplete, Integer.MAX_VALUE).execute(null);
+        cfs.getCompactionStrategyManager().getUserDefinedTask(sstablesIncomplete, Integer.MAX_VALUE).execute(ActiveCompactionsTracker.NOOP);
 
         // verify that minor compaction does GC when key is provably not
         // present in a non-compacted sstable
@@ -438,7 +438,7 @@ public class CompactionsPurgeTest
         cfs.forceBlockingFlush();
 
         // compact the sstables with the c1/c2 data and the c1 tombstone
-        cfs.getCompactionStrategyManager().getUserDefinedTask(sstablesIncomplete, Integer.MAX_VALUE).execute(null);
+        cfs.getCompactionStrategyManager().getUserDefinedTask(sstablesIncomplete, Integer.MAX_VALUE).execute(ActiveCompactionsTracker.NOOP);
 
         // We should have both the c1 and c2 tombstones still. Since the min timestamp in the c2 tombstone
         // sstable is older than the c1 tombstone, it is invalid to throw out the c1 tombstone.

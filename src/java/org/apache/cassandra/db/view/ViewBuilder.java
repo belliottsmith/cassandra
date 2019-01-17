@@ -204,7 +204,7 @@ public class ViewBuilder extends CompactionInfo.Holder
              if ((lastToken != null) && lastToken.compareTo(range.right) > 0)
                  rangesCompleted++;
           }
-         return new CompactionInfo(baseCfs.metadata, OperationType.VIEW_BUILD, rangesCompleted, rangesTotal, Unit.RANGES, compactionId);
+         return CompactionInfo.withoutSSTables(baseCfs.metadata, OperationType.VIEW_BUILD, rangesCompleted, rangesTotal, Unit.RANGES, compactionId);
     }
 
     public void stop()

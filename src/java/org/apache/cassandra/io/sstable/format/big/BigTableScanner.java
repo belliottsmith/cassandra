@@ -22,6 +22,8 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.cassandra.utils.AbstractIterator;
+
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 import com.google.common.util.concurrent.RateLimiter;
 
@@ -250,9 +252,9 @@ public class BigTableScanner implements ISSTableScanner
         return dfile.getFilePointer();
     }
 
-    public String getBackingFiles()
+    public Set<SSTableReader> getBackingSSTables()
     {
-        return sstable.toString();
+        return ImmutableSet.of(sstable);
     }
 
     public boolean isForThrift()
@@ -418,6 +420,11 @@ public class BigTableScanner implements ISSTableScanner
         public boolean isForThrift()
         {
             return false;
+        }
+
+        public Set<SSTableReader> getBackingSSTables()
+        {
+            return ImmutableSet.of(sstable);
         }
 
         public CFMetaData metadata()
