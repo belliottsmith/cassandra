@@ -230,8 +230,9 @@ public class Instance extends InvokableInstance implements IInstance
             {
                 mkdirs();
                 InstanceIDDefiner.instanceId = config.num();
+                Config.setOverrideLoadConfig(() -> loadConfig(config));
+                DatabaseDescriptor.daemonInitialization();
 
-                DatabaseDescriptor.daemonInitialization(() -> loadConfig(config));
                 DatabaseDescriptor.createAllDirectories();
                 Keyspace.setInitialized();
                 SystemKeyspace.persistLocalMetadata();
