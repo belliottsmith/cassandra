@@ -158,7 +158,6 @@ public class FBUtilities
         return broadcastInetAddress;
     }
 
-
     public static InetAddress getBroadcastRpcAddress()
     {
         if (broadcastRpcAddress == null)

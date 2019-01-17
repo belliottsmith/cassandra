@@ -73,6 +73,7 @@ import org.apache.cassandra.net.MessageDeliveryTask;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.schema.LegacySchemaMigrator;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.QueryState;
@@ -109,7 +110,8 @@ public class Instance extends InvokableInstance implements IInstance
         return new Coordinator(this);
     }
 
-    public InetAddressAndPort getBroadcastAddress() { return LegacyAdapter.getBroadcastAddressAndPort(); }
+    @Override
+    public InetAddressAndPort broadcastAddressAndPort() { return LegacyAdapter.getBroadcastAddressAndPort(); }
 
     public Object[][] executeInternal(String query, Object... args)
     {
@@ -125,7 +127,8 @@ public class Instance extends InvokableInstance implements IInstance
         }).call();
     }
 
-    public UUID getSchemaVersion()
+    @Override
+    public UUID schemaVersion()
     {
         // we do not use method reference syntax here, because we need to sync on the node-local schema instance
         //noinspection Convert2MethodRef
@@ -161,9 +164,9 @@ public class Instance extends InvokableInstance implements IInstance
 
         Map<InetAddress, InetAddressAndPort> addressAndPortMap = new HashMap<>();
         cluster.stream().forEach(instance -> {
-            InetAddressAndPort addressAndPort = instance.getBroadcastAddress();
-            if (!addressAndPort.equals(instance.config().broadcastAddress()))
-                throw new IllegalStateException("addressAndPort mismatch: " + addressAndPort + " vs " + instance.config().broadcastAddress());
+            InetAddressAndPort addressAndPort = instance.broadcastAddressAndPort();
+            if (!addressAndPort.equals(instance.config().broadcastAddressAndPort()))
+                throw new IllegalStateException("addressAndPort mismatch: " + addressAndPort + " vs " + instance.config().broadcastAddressAndPort());
             InetAddressAndPort prev = addressAndPortMap.put(addressAndPort.address, addressAndPort);
             if (null != prev)
                 throw new IllegalStateException("This version of Cassandra does not support multiple nodes with the same InetAddress: " + addressAndPort + " vs " + prev);
@@ -233,10 +236,38 @@ public class Instance extends InvokableInstance implements IInstance
                 Config.setOverrideLoadConfig(() -> loadConfig(config));
                 DatabaseDescriptor.setDaemonInitialized();
                 DatabaseDescriptor.createAllDirectories();
-                Keyspace.setInitialized();
+
+                // We need to persist this as soon as possible after startup checks.
+                // This should be the first write to SystemKeyspace (CASSANDRA-11742)
                 SystemKeyspace.persistLocalMetadata();
+                LegacySchemaMigrator.migrate();
+
+                try
+                {
+                    // load schema from disk
+                    Schema.instance.loadFromDisk();
+                }
+                catch (Exception e)
+                {
+                    throw e;
+                }
+
+                Keyspace.setInitialized();
+
+                // Replay any CommitLogSegments found on disk
+                try
+                {
+                    CommitLog.instance.recover();
+                }
+                catch (IOException e)
+                {
+                    throw new RuntimeException(e);
+                }
+
                 initializeRing(cluster);
                 registerMockMessaging(cluster);
+
+                SystemKeyspace.finishStartup();
             }
             catch (Throwable t)
             {
@@ -274,7 +305,7 @@ public class Instance extends InvokableInstance implements IInstance
         {
             IInstanceConfig config = cluster.get(i).config();
             initialTokens.add(config.getString("initial_token"));
-            hosts.add(config.broadcastAddress());
+            hosts.add(config.broadcastAddressAndPort());
             hostIds.add(config.hostId());
         }
 

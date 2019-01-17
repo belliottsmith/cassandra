@@ -42,9 +42,9 @@ public class DelegatingInstance implements IInstance
     }
 
     @Override
-    public InetAddressAndPort getBroadcastAddress()
+    public InetAddressAndPort broadcastAddressAndPort()
     {
-        return delegate.getBroadcastAddress();
+        return delegate.broadcastAddressAndPort();
     }
 
     @Override
@@ -54,9 +54,9 @@ public class DelegatingInstance implements IInstance
     }
 
     @Override
-    public UUID getSchemaVersion()
+    public UUID schemaVersion()
     {
-        return delegate.getSchemaVersion();
+        return delegate.schemaVersion();
     }
 
     @Override
