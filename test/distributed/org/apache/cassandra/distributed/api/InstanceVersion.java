@@ -28,25 +28,14 @@ import java.util.List;
 
 public class InstanceVersion
 {
-    public static InstanceVersion CURRENT = new InstanceVersion(null);
-    public final String libDir;
-    public InstanceVersion(String libDir)
+    public static InstanceVersion CURRENT = new InstanceVersion(((URLClassLoader)InstanceVersion.class.getClassLoader()).getURLs());
+    public final URL[] urls;
+    public InstanceVersion(URL[] urls)
     {
-        this.libDir = libDir;
+        this.urls = urls;
     }
     public URL[] getClassPath()
     {
-        URL[] urls;
-        if (this == CURRENT)
-        {
-            urls = ((URLClassLoader)InstanceVersion.class.getClassLoader()).getURLs();
-        }
-        else
-        {
-            urls = Arrays.stream(new File(libDir).listFiles())
-                    .map(InstanceVersion::toURL)
-                    .toArray(URL[]::new);
-        }
         return urls;
     }
 
@@ -55,9 +44,19 @@ public class InstanceVersion
         return cluster(nodeCount, CURRENT);
     }
 
-    public static List<InstanceVersion> lib(int nodeCount, String libDir)
+    public static List<InstanceVersion> dir(int nodeCount, String libDir)
     {
-        return cluster(nodeCount, new InstanceVersion(libDir));
+        URL[] urls = Arrays.stream(new File(libDir).listFiles())
+                           .map(InstanceVersion::toURL)
+                           .toArray(URL[]::new);
+
+        return cluster(nodeCount, new InstanceVersion(urls));
+    }
+
+    public static List<InstanceVersion> jar(int nodeCount, String libJar)
+    {
+        URL[] urls = new URL[] { toURL(new File(libJar)) };
+        return cluster(nodeCount, new InstanceVersion(urls));
     }
 
     public static List<InstanceVersion> cluster(int nodeCount, InstanceVersion version)
@@ -76,7 +75,7 @@ public class InstanceVersion
         }
         catch (MalformedURLException e)
         {
-            throw new IllegalStateException(e);
+            throw new IllegalArgumentException(e);
         }
     }
 }
