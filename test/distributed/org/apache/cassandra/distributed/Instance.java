@@ -57,8 +57,9 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
+import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.distributed.api.IMessage;
-import org.apache.cassandra.distributed.api.ITestCluster;
+import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
@@ -84,20 +85,17 @@ import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.concurrent.Ref;
 import org.apache.cassandra.utils.memory.BufferPool;
 
-public class Instance extends InvokableInstance implements IInstance
+public class Instance extends IsolatedExecutor implements IInstance
 {
     public final IInstanceConfig config;
 
-    private Instance(IInstanceConfig config, ClassLoader classLoader)
+    // should never be invoked directly, so that it is instantiated on other class loader;
+    // only visible for inheritance
+    Instance(IInstanceConfig config, ClassLoader classLoader)
     {
         super("node" + config.num(), classLoader);
         this.config = config;
-    }
-
-    static IInstance create(IInstanceConfig config, ClassLoader classLoader)
-    {
-        return transferAdhoc((SerializableBiFunction<IInstanceConfig, ClassLoader, IInstance>)Instance::new, classLoader)
-               .apply(config, classLoader);
+        InstanceIDDefiner.setInstanceId(config.num());
     }
 
     public IInstanceConfig config()
@@ -108,6 +106,11 @@ public class Instance extends InvokableInstance implements IInstance
     public ICoordinator coordinator()
     {
         return new Coordinator(this);
+    }
+
+    public IListen listen()
+    {
+        return new Listen(this);
     }
 
     @Override
@@ -135,7 +138,13 @@ public class Instance extends InvokableInstance implements IInstance
         return Schema.instance.getVersion();
     }
 
-    public void schemaChange(String query)
+    public void startup()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void schemaChangeInternal(String query)
     {
         sync(() -> {
             try
@@ -157,7 +166,7 @@ public class Instance extends InvokableInstance implements IInstance
         }).run();
     }
 
-    private void registerMockMessaging(ITestCluster cluster)
+    private void registerMockMessaging(ICluster cluster)
     {
         BiConsumer<InetAddressAndPort, IMessage> deliverToInstance = (to, message) -> cluster.get(to).receiveMessage(message);
         BiConsumer<InetAddressAndPort, IMessage> deliverToInstanceIfNotFiltered = cluster.filters().filter(deliverToInstance);
@@ -225,13 +234,13 @@ public class Instance extends InvokableInstance implements IInstance
         }).run();
     }
 
-    public void startup(ITestCluster cluster)
+    @Override
+    public void startup(ICluster cluster)
     {
         sync(() -> {
             try
             {
                 mkdirs();
-                InstanceIDDefiner.instanceId = config.num();
 
                 Config.setOverrideLoadConfig(() -> loadConfig(config));
                 DatabaseDescriptor.setDaemonInitialized();
@@ -294,7 +303,7 @@ public class Instance extends InvokableInstance implements IInstance
         return config;
     }
 
-    private void initializeRing(ITestCluster cluster)
+    private void initializeRing(ICluster cluster)
     {
         // This should be done outside instance in order to avoid serializing config
         String partitionerName = config.getString("partitioner");
@@ -343,7 +352,7 @@ public class Instance extends InvokableInstance implements IInstance
 
     public void shutdown()
     {
-        acceptsOnInstance((ExecutorService executor) -> {
+        sync((ExecutorService executor) -> {
             Throwable error = null;
             error = parallelRun(error, executor,
                     Gossiper.instance::stop,
@@ -372,9 +381,9 @@ public class Instance extends InvokableInstance implements IInstance
             );
             LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
             loggerContext.stop();
+            super.shutdown();
             Throwables.maybeFail(error);
         }).accept(isolatedExecutor);
-        super.shutdown();
     }
 
     private static Throwable parallelRun(Throwable accumulate, ExecutorService runOn, ThrowingRunnable ... runnables)

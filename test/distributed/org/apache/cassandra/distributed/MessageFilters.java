@@ -26,16 +26,16 @@ import java.util.function.BiConsumer;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
-import org.apache.cassandra.distributed.api.ITestCluster;
+import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.MessagingService;
 
 public class MessageFilters implements IMessageFilters
 {
-    private final ITestCluster cluster;
+    private final ICluster cluster;
     private final Set<Filter> filters = new CopyOnWriteArraySet<>();
 
-    public MessageFilters(TestCluster cluster)
+    public MessageFilters(AbstractCluster cluster)
     {
         this.cluster = cluster;
     }

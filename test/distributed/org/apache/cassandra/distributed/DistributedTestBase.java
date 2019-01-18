@@ -33,12 +33,7 @@ public class DistributedTestBase
         System.setProperty("org.apache.cassandra.disable_mbean_registration", "true");
     }
 
-    TestCluster createCluster(int nodeCount) throws Throwable
-    {
-        return init(TestCluster.create(nodeCount));
-    }
-
-    protected TestCluster init(TestCluster cluster)
+    protected <C extends AbstractCluster<?>> C init(C cluster)
     {
         cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': " + cluster.size() + "};");
         return cluster;

@@ -28,9 +28,11 @@ public interface IInstanceConfig
     UUID hostId();
     InetAddressAndPort broadcastAddressAndPort();
 
-    // write the specified parameters to the Config object; we do not specify Config as the type to support a Config
-    // from any ClassLoader; the implementation must not directly access any fields of the Object, or cast it, but
-    // must use the reflection API to modify the state
+    /**
+     * write the specified parameters to the Config object; we do not specify Config as the type to support a Config
+     * from any ClassLoader; the implementation must not directly access any fields of the Object, or cast it, but
+     * must use the reflection API to modify the state
+     */
     void propagate(Object writeToConfig);
 
     Object get(String fieldName);

@@ -23,18 +23,22 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import java.util.UUID;
 
 // The cross-version API requires that an Instance has a constructor signature of (IInstanceConfig, ClassLoader)
-public interface IInstance extends IInvokableInstance
+public interface IInstance extends IIsolatedExecutor
 {
-    void schemaChange(String query);
-    public Object[][] executeInternal(String query, Object... args);
     ICoordinator coordinator();
+    IListen listen();
+
+    void schemaChangeInternal(String query);
+    public Object[][] executeInternal(String query, Object... args);
 
     IInstanceConfig config();
     public InetAddressAndPort broadcastAddressAndPort();
     UUID schemaVersion();
 
-    // these methods are not for external use, but for simplicity we leave them public and on the normal IInstance interface
+    void startup();
     void shutdown();
-    void startup(ITestCluster cluster);
+
+    // these methods are not for external use, but for simplicity we leave them public and on the normal IInstance interface
+    void startup(ICluster cluster);
     void receiveMessage(IMessage message);
 }

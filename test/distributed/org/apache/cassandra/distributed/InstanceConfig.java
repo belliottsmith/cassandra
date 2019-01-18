@@ -30,6 +30,7 @@ import java.lang.reflect.Field;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -41,7 +42,7 @@ public class InstanceConfig implements IInstanceConfig
     public final int num;
     public int num() { return num; }
 
-    public final UUID hostId = java.util.UUID.randomUUID();
+    public final UUID hostId;
     public UUID hostId() { return hostId; }
     private final Map<String, Object> params = new TreeMap<>();
 
@@ -77,6 +78,7 @@ public class InstanceConfig implements IInstanceConfig
                            String initial_token)
     {
         this.num = num;
+        this.hostId = java.util.UUID.randomUUID();
         this    .set("broadcast_address", broadcast_address)
                 .set("listen_address", listen_address)
                 .set("broadcast_rpc_address", broadcast_rpc_address)
@@ -102,6 +104,13 @@ public class InstanceConfig implements IInstanceConfig
                         Collections.singletonMap("seeds", "127.0.0.1:7010")))
                 // legacy parameters
                 .forceSet("commitlog_sync_batch_window_in_ms", 1.0);
+    }
+
+    private InstanceConfig(InstanceConfig copy)
+    {
+        this.num = copy.num;
+        this.params.putAll(copy.params);
+        this.hostId = copy.hostId;
     }
 
     public InstanceConfig set(String fieldName, Object value)
@@ -205,6 +214,17 @@ public class InstanceConfig implements IInstanceConfig
                                   String.format("%s/node%d/hints", root, nodeNum),
 //                                  String.format("%s/node%d/cdc", root, nodeNum),
                                   token);
+    }
+
+    public InstanceConfig forVersion(Versions.Major major)
+    {
+        switch (major)
+        {
+            case v4: return this;
+            default: return new InstanceConfig(this)
+                            .set("seed_provider", new ParameterizedClass(SimpleSeedProvider.class.getName(),
+                                                                         Collections.singletonMap("seeds", "127.0.0.1")));
+        }
     }
 
     public String toString()
