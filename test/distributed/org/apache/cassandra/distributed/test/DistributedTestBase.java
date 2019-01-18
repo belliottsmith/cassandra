@@ -16,12 +16,14 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.test;
 
 import java.util.Arrays;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
+
+import org.apache.cassandra.distributed.impl.AbstractCluster;
 
 public class DistributedTestBase
 {

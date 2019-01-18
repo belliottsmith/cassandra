@@ -16,13 +16,26 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.impl;
 
-import org.apache.cassandra.distributed.api.IInstance;
+import ch.qos.logback.core.PropertyDefinerBase;
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 
-// this lives outside the api package so that we do not have to worry about inter-version compatibility
-public interface IVersionedInstance extends IInstance
+/**
+ * Used by logback to find/define property value, see logback-dtest.xml
+ */
+public class InstanceIDDefiner extends PropertyDefinerBase
 {
-    // only to be invoked while the node is shutdown!
-    public void setVersion(Versions.Version version);
+    // Instantiated per classloader, set by Instance
+    private static volatile String instanceId = "<main>";
+    public static void setInstanceId(int id)
+    {
+        instanceId = "node" + id;
+        NamedThreadFactory.setGlobalPrefix("node" + id + "_");
+    }
+
+    public String getPropertyValue()
+    {
+        return instanceId;
+    }
 }

@@ -23,12 +23,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.List;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.cassandra.distributed.api.IInstanceConfig;
-import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.ICluster;
+import org.apache.cassandra.distributed.impl.AbstractCluster;
+import org.apache.cassandra.distributed.impl.IInvokableInstance;
+import org.apache.cassandra.distributed.impl.InstanceConfig;
+import org.apache.cassandra.distributed.impl.Versions;
 
 public class Cluster extends AbstractCluster<IInvokableInstance> implements ICluster, AutoCloseable
 {
