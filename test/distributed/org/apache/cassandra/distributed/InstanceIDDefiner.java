@@ -19,6 +19,7 @@
 package org.apache.cassandra.distributed;
 
 import ch.qos.logback.core.PropertyDefinerBase;
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 
 /**
  * Used by logback to find/define property value, see logback-dtest.xml
@@ -26,13 +27,15 @@ import ch.qos.logback.core.PropertyDefinerBase;
 public class InstanceIDDefiner extends PropertyDefinerBase
 {
     // Instantiated per classloader, set by Instance
-    public static int instanceId = -1;
+    private static volatile String instanceId = "<main>";
+    public static void setInstanceId(int id)
+    {
+        instanceId = "node" + id;
+        NamedThreadFactory.setGlobalPrefix("node" + id + "_");
+    }
 
     public String getPropertyValue()
     {
-        if (instanceId == -1)
-            return "<main>";
-        else
-            return "INSTANCE" + instanceId;
+        return instanceId;
     }
 }

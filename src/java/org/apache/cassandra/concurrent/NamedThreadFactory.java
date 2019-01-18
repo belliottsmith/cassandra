@@ -28,7 +28,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class NamedThreadFactory implements ThreadFactory
 {
+<<<<<<< HEAD
     protected final String id;
+=======
+    private static volatile String globalPrefix;
+    public static void setGlobalPrefix(String prefix) { globalPrefix = prefix; }
+
+    public final String id;
+>>>>>>> 476f79bb99... major refactor
     private final int priority;
     private final ClassLoader contextClassLoader;
     private final ThreadGroup threadGroup;
@@ -55,7 +62,8 @@ public class NamedThreadFactory implements ThreadFactory
     public Thread newThread(Runnable runnable)
     {
         String name = id + ':' + n.getAndIncrement();
-        Thread thread = new Thread(threadGroup, runnable, name);
+        String prefix = globalPrefix;
+        Thread thread = new Thread(threadGroup, runnable, prefix != null ? prefix + name : name);
         thread.setDaemon(true);
         thread.setPriority(priority);
         if (contextClassLoader != null)

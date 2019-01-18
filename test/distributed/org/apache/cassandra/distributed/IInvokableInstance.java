@@ -16,32 +16,30 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.api;
+package org.apache.cassandra.distributed;
 
 import java.io.Serializable;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-public interface IInvokableInstance
-{
-    public interface CallableNoExcept<O> extends Callable<O> { public O call(); }
-    public interface SerializableCallable<O> extends CallableNoExcept<O>, Serializable { }
-    public interface SerializableRunnable extends Runnable, Serializable {}
-    public interface SerializableConsumer<O> extends Consumer<O>, Serializable {}
-    public interface SerializableBiConsumer<I1, I2> extends BiConsumer<I1, I2>, Serializable {}
-    public interface SerializableFunction<I, O> extends Function<I, O>, Serializable {}
-    public interface SerializableBiFunction<I1, I2, O> extends BiFunction<I1, I2, O>, Serializable {}
-    public interface TriFunction<I1, I2, I3, O>
-    {
-        O apply(I1 i1, I2 i2, I3 i3);
-    }
-    public interface SerializableTriFunction<I1, I2, I3, O> extends Serializable, TriFunction<I1, I2, I3, O> { }
+import org.apache.cassandra.distributed.api.IInstance;
+import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 
+/**
+ * This version is only supported for a Cluster running the same code as the test environment, and permits
+ * ergonomic cross-node behaviours, without editing the cross-version API.
+ *
+ * A lambda can be written tto be invoked on any or all of the nodes.
+ *
+ * The reason this cannot (easily) be made cross-version is that the lambda is tied to the declaring class, which will
+ * not be the same in the alternate version.  Even were it not, there would likely be a runtime linkage error given
+ * any code divergence.
+ */
+public interface IInvokableInstance extends IInstance
+{
     <O> CallableNoExcept<Future<O>> asyncCallsOnInstance(SerializableCallable<O> call);
     <O> CallableNoExcept<O> callsOnInstance(SerializableCallable<O> call);
     <O> O callOnInstance(SerializableCallable<O> call);

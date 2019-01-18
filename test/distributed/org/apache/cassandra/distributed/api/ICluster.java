@@ -16,16 +16,19 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.api;
 
-import org.apache.cassandra.distributed.api.IInstance;
+import org.apache.cassandra.locator.InetAddressAndPort;
 
-// this lives outside the api package so that we do not have to worry about inter-version compatibility
-public interface IRestartableInstance extends IInstance
+import java.util.stream.Stream;
+
+public interface ICluster
 {
-    void startup();
-    void shutdown();
 
-    // only to be invoked while the node is shutdown!
-    public void setVersion(Versions.Version version);
+    IInstance get(int i);
+    IInstance get(InetAddressAndPort endpoint);
+    int size();
+    Stream<? extends IInstance> stream();
+    IMessageFilters filters();
+
 }
