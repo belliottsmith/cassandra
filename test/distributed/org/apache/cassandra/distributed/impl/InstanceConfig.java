@@ -100,7 +100,7 @@ public class InstanceConfig implements IInstanceConfig
                 .set("storage_port", 7010)
                 .set("endpoint_snitch", SimpleSnitch.class.getName())
                 .set("seed_provider", new ParameterizedClass(SimpleSeedProvider.class.getName(),
-                        Collections.singletonMap("seeds", "127.0.0.1:7010")))
+                        Collections.singletonMap("seeds", "127.0.0.1")))
                 // legacy parameters
                 .forceSet("commitlog_sync_batch_window_in_ms", 1.0);
     }
