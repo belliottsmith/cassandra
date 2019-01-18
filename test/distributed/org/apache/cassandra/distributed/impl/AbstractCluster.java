@@ -125,7 +125,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         {
             ClassLoader classLoader = new InstanceClassLoader(config.num(), version.classpath, sharedClassLoader);
             return InvokableInstance.transferAdhoc((SerializableBiFunction<IInstanceConfig, ClassLoader, InvokableInstance>)InvokableInstance::new, classLoader)
-                                        .apply(config, classLoader);
+                                        .apply(config.forVersion(version.major), classLoader);
         }
 
         public IInstanceConfig config()
