@@ -18,16 +18,9 @@
 
 package org.apache.cassandra.distributed.api;
 
-import org.apache.cassandra.locator.InetAddressAndPort;
-
-/**
- * A cross-version interface for delivering internode messages via message sinks
- */
-public interface IMessage
+public interface IListen
 {
-    int verb();
-    byte[] bytes();
-    int id();
-    int version();
-    InetAddressAndPort from();
+    public interface Cancel { void cancel(); }
+
+    Cancel schema(Runnable onChange);
 }

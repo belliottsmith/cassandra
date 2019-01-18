@@ -31,7 +31,7 @@ public class UpgradeTest extends DistributedTestBase
     public void upgradeTest() throws IOException
     {
         Versions versions = Versions.find();
-        try (TestCluster cluster = init(TestCluster.create(3, Versions.CURRENT)))
+        try (MultiVersionCluster cluster = init(MultiVersionCluster.create(3, versions.getLatest(Versions.Major.v3X))))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck)) WITH read_repair='none'");
 
