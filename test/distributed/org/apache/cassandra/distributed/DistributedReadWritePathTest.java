@@ -37,7 +37,7 @@ public class DistributedReadWritePathTest extends DistributedTestBase
     @Test
     public void coordinatorRead() throws Throwable
     {
-        try (TestCluster cluster = createCluster(3))
+        try (Cluster cluster = init(Cluster.create(3)))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck)) WITH read_repair='none'");
 
@@ -57,7 +57,7 @@ public class DistributedReadWritePathTest extends DistributedTestBase
     @Test
     public void coordinatorWrite() throws Throwable
     {
-        try (TestCluster cluster = createCluster(3))
+        try (Cluster cluster = init(Cluster.create(3)))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck)) WITH read_repair='none'");
 
@@ -79,7 +79,7 @@ public class DistributedReadWritePathTest extends DistributedTestBase
     @Test
     public void readRepairTest() throws Throwable
     {
-        try (TestCluster cluster = createCluster(3))
+        try (Cluster cluster = init(Cluster.create(3)))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck)) WITH read_repair='blocking'");
 
@@ -101,7 +101,7 @@ public class DistributedReadWritePathTest extends DistributedTestBase
     @Test
     public void failingReadRepairTest() throws Throwable
     {
-        try (TestCluster cluster = createCluster(3))
+        try (Cluster cluster = init(Cluster.create(3)))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck)) WITH read_repair='blocking'");
 
@@ -123,7 +123,7 @@ public class DistributedReadWritePathTest extends DistributedTestBase
     @Test
     public void writeWithSchemaDisagreement() throws Throwable
     {
-        try (TestCluster cluster = createCluster(3))
+        try (Cluster cluster = init(Cluster.create(3)))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
 
@@ -153,7 +153,7 @@ public class DistributedReadWritePathTest extends DistributedTestBase
     @Test
     public void readWithSchemaDisagreement() throws Throwable
     {
-        try (TestCluster cluster = createCluster(3))
+        try (Cluster cluster = init(Cluster.create(3)))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
 

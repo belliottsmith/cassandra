@@ -30,8 +30,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -46,27 +44,26 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.diag.DiagnosticEventService;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
-import org.apache.cassandra.distributed.api.IInvokableInstance;
+import org.apache.cassandra.distributed.api.IIsolatedExecutor;
+import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
-import org.apache.cassandra.distributed.api.ITestCluster;
+import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.schema.SchemaEvent;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 /**
- * TestCluster creates, initializes and manages Cassandra instances ({@link Instance}.
+ * AbstractCluster creates, initializes and manages Cassandra instances ({@link Instance}.
  *
  * All instances created under the same cluster will have a shared ClassLoader that'll preload
  * common classes required for configuration and communication (byte buffers, primitives, config
- * objects etc). Shared classes are listed in {@link InstanceClassLoader#sharedClassNames}.
+ * objects etc). Shared classes are listed in {@link InstanceClassLoader}.
  *
  * Each instance has its own class loader that will load logging, yaml libraries and all non-shared
  * Cassandra package classes. The rule of thumb is that we'd like to have all Cassandra-specific things
@@ -85,38 +82,74 @@ import org.apache.cassandra.utils.concurrent.SimpleCondition;
  * handlers for internode to have more control over it. Messaging is wired by passing verbs manually.
  * coordinator-handling code and hooks to the callbacks can be found in {@link Coordinator}.
  */
-public class TestCluster implements ITestCluster, AutoCloseable
+public abstract class AbstractCluster<I extends IInstance> implements ICluster, AutoCloseable
 {
     // WARNING: we have this logger not (necessarily) for logging, but
     // to ensure we have instantiated the main classloader's LoggerFactory (and any LogbackStatusListener)
     // before we instantiate any for a new instance
-    private static final Logger logger = LoggerFactory.getLogger(TestCluster.class);
+    private static final Logger logger = LoggerFactory.getLogger(AbstractCluster.class);
 
-    private class InstanceWrapper extends DelegatingInstance implements IRestartableInstance
+    private final File root;
+    private final ClassLoader sharedClassLoader;
+
+    // mutated by starting/stopping a node
+    private final List<I> instances;
+    private final Map<InetAddressAndPort, I> instanceMap;
+
+    // mutated by user-facing API
+    private final MessageFilters filters;
+
+    class Wrapper extends DelegatingInvokableInstance implements IVersionedInstance
     {
-        private volatile boolean isShutdown = true;
+        private final InstanceConfig config;
+        private volatile IInvokableInstance delegate;
         private volatile Versions.Version version;
-        private final IInstanceConfig config;
+        private volatile boolean isShutdown = true;
 
-        private InstanceWrapper(Versions.Version version, IInstanceConfig config)
+        protected IInvokableInstance delegate()
         {
-            super(null);
+            if (delegate == null)
+                delegate = newInstance();
+            return delegate;
+        }
+
+        Wrapper(Versions.Version version, InstanceConfig config)
+        {
             this.config = config;
-            setVersion(version);
+            this.version = version;
+            // we ensure there is always a non-null delegate, so that the executor may be used while the node is offline
+            this.delegate = newInstance();
+        }
+
+        private IInvokableInstance newInstance()
+        {
+            ClassLoader classLoader = new InstanceClassLoader(config.num(), version.classpath, sharedClassLoader);
+            return InvokableInstance.transferAdhoc((SerializableBiFunction<IInstanceConfig, ClassLoader, InvokableInstance>)InvokableInstance::new, classLoader)
+                                        .apply(config, classLoader);
+        }
+
+        public IInstanceConfig config()
+        {
+            return config;
         }
 
         @Override
-        public void startup()
+        public synchronized void startup()
         {
-            delegate.startup(TestCluster.this);
+            if (!isShutdown)
+                throw new IllegalStateException();
+            delegate.startup(AbstractCluster.this);
             isShutdown = false;
         }
 
         @Override
-        public void shutdown()
+        public synchronized void shutdown()
         {
+            if (isShutdown)
+                throw new IllegalStateException();
             isShutdown = true;
             delegate.shutdown();
+            delegate = null;
         }
 
         @Override
@@ -127,44 +160,39 @@ public class TestCluster implements ITestCluster, AutoCloseable
         }
 
         @Override
-        public void setVersion(Versions.Version version)
+        public synchronized void setVersion(Versions.Version version)
         {
             if (!isShutdown)
                 throw new IllegalStateException("Must be shutdown before version can be modified");
             // re-initialise
             this.version = version;
-            ClassLoader classLoader = new InstanceClassLoader(config.num(), version.classpath, sharedClassLoader);
-            delegate = Instance.create(config, classLoader);
+            if (delegate != null)
+            {
+                // we can have a non-null delegate even thought we are shutdown, if delegate() has been invoked since shutdown.
+                delegate.shutdown();
+                delegate = null;
+            }
         }
     }
 
-    private final File root;
-    // immutable
-    private final ClassLoader sharedClassLoader;
-
-    // mutated by starting/stopping a node
-    private final List<InstanceWrapper> instances;
-    private final Map<InetAddressAndPort, InstanceWrapper> instanceMap;
-
-    // mutated by user-facing API
-    private final MessageFilters filters;
-
-    private TestCluster(File root, int size, Versions.Version version, List<IInstanceConfig> configs, ClassLoader sharedClassLoader)
+    AbstractCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
     {
         this.root = root;
         this.sharedClassLoader = sharedClassLoader;
         this.instances = new ArrayList<>();
         this.instanceMap = new HashMap<>();
-        for (int i = 0 ; i < size ; ++i)
+        for (InstanceConfig config : configs)
         {
-            InstanceWrapper wrapper = new InstanceWrapper(version, configs.get(i));
-            instances.add(wrapper);
-            InstanceWrapper prev = instanceMap.put(configs.get(i).broadcastAddressAndPort(), wrapper);
+            I instance = newInstanceWrapper(version, config);
+            instances.add(instance);
+            I prev = instanceMap.put(instance.config().broadcastAddressAndPort(), instance);
             if (null != prev)
-                throw new IllegalStateException("Cluster cannot have multiple nodes with same InetAddressAndPort: " + configs.get(i).broadcastAddressAndPort() + " vs " + prev.config.broadcastAddressAndPort());
+                throw new IllegalStateException("Cluster cannot have multiple nodes with same InetAddressAndPort: " + instance.config().broadcastAddressAndPort() + " vs " + prev.config().broadcastAddressAndPort());
         }
         this.filters = new MessageFilters(this);
     }
+
+    protected abstract I newInstanceWrapper(Versions.Version version, InstanceConfig config);
 
     /**
      * WARNING: we index from 1 here, for consistency with inet address!
@@ -176,26 +204,22 @@ public class TestCluster implements ITestCluster, AutoCloseable
     /**
      * WARNING: we index from 1 here, for consistency with inet address!
      */
-    public IRestartableInstance get(int node) { return instances.get(node - 1); }
-    public IRestartableInstance get(InetAddressAndPort addr) { return instanceMap.get(addr); }
+    public I get(int node) { return instances.get(node - 1); }
+    public I get(InetAddressAndPort addr) { return instanceMap.get(addr); }
 
     public int size()
     {
         return instances.size();
     }
-    public Stream<IRestartableInstance> stream() { return instances.stream().map(IRestartableInstance.class::cast); }
-    public void forEach(IInvokableInstance.SerializableRunnable runnable) { forEach(i -> i.runsOnInstance(runnable)); }
-    public void forEach(Consumer<? super IRestartableInstance> consumer) { instances.forEach(consumer); }
-    public void parallelForEach(IInvokableInstance.SerializableRunnable runnable, long timeout, TimeUnit units) { parallelForEach(i -> i.runsOnInstance(runnable), timeout, units); }
-    public void parallelForEach(IInvokableInstance.SerializableConsumer<? super IRestartableInstance> consumer, long timeout, TimeUnit units)
+    public Stream<I> stream() { return instances.stream(); }
+    public void forEach(IIsolatedExecutor.SerializableRunnable runnable) { forEach(i -> i.sync(runnable)); }
+    public void forEach(Consumer<? super I> consumer) { instances.forEach(consumer); }
+    public void parallelForEach(IIsolatedExecutor.SerializableConsumer<? super I> consumer, long timeout, TimeUnit units)
     {
-        // TODO: remove!
-        ExecutorService tmp = Executors.newCachedThreadPool();
         FBUtilities.waitOnFutures(instances.stream()
-                .map(i -> tmp.submit(() -> consumer.accept(i)))
-                .collect(Collectors.toList()),
-          timeout, units);
-        tmp.shutdownNow();
+                                           .map(i -> i.async(consumer).apply(i))
+                                           .collect(Collectors.toList()),
+                                  timeout, units);
     }
 
 
@@ -232,7 +256,7 @@ public class TestCluster implements ITestCluster, AutoCloseable
      */
     public class SchemaChangeMonitor implements AutoCloseable
     {
-        final List<Runnable> cleanup;
+        final List<IListen.Cancel> cleanup;
         volatile boolean schemaHasChanged;
         final SimpleCondition agreement = new SimpleCondition();
 
@@ -240,17 +264,7 @@ public class TestCluster implements ITestCluster, AutoCloseable
         {
             this.cleanup = new ArrayList<>(instances.size());
             for (IInstance instance : instances)
-            {
-                cleanup.add(
-                        instance.appliesOnInstance(
-                                (Runnable runnable) -> {
-                                    Consumer<SchemaEvent> consumer = event -> runnable.run();
-                                    DiagnosticEventService.instance().subscribe(SchemaEvent.class, SchemaEvent.SchemaEventType.VERSION_UPDATED, consumer);
-                                    return (Runnable) () -> DiagnosticEventService.instance().unsubscribe(SchemaEvent.class, consumer);
-                                }
-                        ).apply(this::signal)
-                );
-            }
+                cleanup.add(instance.listen().schema(this::signal));
         }
 
         private void signal()
@@ -262,8 +276,8 @@ public class TestCluster implements ITestCluster, AutoCloseable
         @Override
         public void close()
         {
-            for (Runnable runnable : cleanup)
-                runnable.run();
+            for (IListen.Cancel cancel : cleanup)
+                cancel.cancel();
         }
 
         public void waitForAgreement()
@@ -272,7 +286,8 @@ public class TestCluster implements ITestCluster, AutoCloseable
             signal();
             try
             {
-                agreement.await(1L, TimeUnit.MINUTES);
+                if (!agreement.await(1L, TimeUnit.MINUTES))
+                    throw new InterruptedException();
             }
             catch (InterruptedException e)
             {
@@ -283,35 +298,45 @@ public class TestCluster implements ITestCluster, AutoCloseable
 
     public void schemaChange(String statement, int instance)
     {
-        get(instance).schemaChange(statement);
+        get(instance).schemaChangeInternal(statement);
     }
 
-    private void startup()
+    void startup()
     {
-        parallelForEach(IRestartableInstance::startup, 0, null);
+        parallelForEach(I::startup, 0, null);
     }
 
-    public static TestCluster create(int nodeCount) throws Throwable
+    interface Factory<I extends IInstance, C extends AbstractCluster<I>>
     {
-        return create(nodeCount, Files.createTempDirectory("dtests").toFile());
-    }
-    public static TestCluster create(int nodeCount, File root)
-    {
-        return create(nodeCount, Versions.CURRENT, root);
+        C newCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader);
     }
 
-    public static TestCluster create(int nodeCount, Versions.Version version) throws IOException
+    static <I extends IInstance, C extends AbstractCluster<I>> C
+    create(int nodeCount, Factory<I, C> factory) throws Throwable
     {
-        return create(nodeCount, version, Files.createTempDirectory("dtests").toFile());
+        return create(nodeCount, Files.createTempDirectory("dtests").toFile(), factory);
     }
-    public static TestCluster create(int nodeCount, Versions.Version version, File root)
+
+    static <I extends IInstance, C extends AbstractCluster<I>> C
+    create(int nodeCount, File root, Factory<I, C> factory)
+    {
+        return create(nodeCount, Versions.CURRENT, root, factory);
+    }
+
+    static <I extends IInstance, C extends AbstractCluster<I>> C
+    create(int nodeCount, Versions.Version version, Factory<I, C> factory) throws IOException
+    {
+        return create(nodeCount, version, Files.createTempDirectory("dtests").toFile(), factory);
+    }
+    static <I extends IInstance, C extends AbstractCluster<I>> C
+    create(int nodeCount, Versions.Version version, File root, Factory<I, C> factory)
     {
         root.mkdirs();
         setupLogging(root);
 
         ClassLoader sharedClassLoader = Thread.currentThread().getContextClassLoader();
 
-        List<IInstanceConfig> configs = new ArrayList<>();
+        List<InstanceConfig> configs = new ArrayList<>();
         long token = Long.MIN_VALUE + 1, increment = 2 * (Long.MAX_VALUE / nodeCount);
         for (int i = 0 ; i < nodeCount ; ++i)
         {
@@ -320,7 +345,7 @@ public class TestCluster implements ITestCluster, AutoCloseable
             token += increment;
         }
 
-        TestCluster cluster = new TestCluster(root, nodeCount, version, configs, sharedClassLoader);
+        C cluster = factory.newCluster(root, version, configs, sharedClassLoader);
         cluster.startup();
         return cluster;
     }

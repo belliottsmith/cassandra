@@ -16,18 +16,25 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.api;
+package org.apache.cassandra.distributed;
 
-import org.apache.cassandra.locator.InetAddressAndPort;
+import java.util.function.Consumer;
 
-/**
- * A cross-version interface for delivering internode messages via message sinks
- */
-public interface IMessage
+import org.apache.cassandra.diag.DiagnosticEventService;
+import org.apache.cassandra.schema.SchemaEvent;
+
+public class Listen implements org.apache.cassandra.distributed.api.IListen
 {
-    int verb();
-    byte[] bytes();
-    int id();
-    int version();
-    InetAddressAndPort from();
+    final Instance instance;
+    public Listen(Instance instance)
+    {
+        this.instance = instance;
+    }
+
+    public Cancel schema(Runnable onChange)
+    {
+        Consumer<SchemaEvent> consumer = event -> onChange.run();
+        DiagnosticEventService.instance().subscribe(SchemaEvent.class, SchemaEvent.SchemaEventType.VERSION_UPDATED, consumer);
+        return () -> DiagnosticEventService.instance().unsubscribe(SchemaEvent.class, consumer);
+    }
 }
