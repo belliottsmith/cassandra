@@ -29,9 +29,16 @@ import org.apache.cassandra.distributed.impl.IVersionedInstance;
 import org.apache.cassandra.distributed.impl.InstanceConfig;
 import org.apache.cassandra.distributed.impl.Versions;
 
+/**
+ * A multi-version cluster, offering only the cross-version API
+ *
+ * TODO: we could perhaps offer some convenience methods for nodes we know to be of the 'current' version,
+ * to permit upgrade tests to perform cluster operations without updating the cross-version API,
+ * so long as one node is up-to-date.
+ */
 public class MultiVersionCluster extends AbstractCluster<IVersionedInstance> implements ICluster, AutoCloseable
 {
-    MultiVersionCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
+    private MultiVersionCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
     {
         super(root, version, configs, sharedClassLoader);
     }
