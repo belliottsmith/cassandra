@@ -29,9 +29,13 @@ import org.apache.cassandra.distributed.impl.IInvokableInstance;
 import org.apache.cassandra.distributed.impl.InstanceConfig;
 import org.apache.cassandra.distributed.impl.Versions;
 
+/**
+ * A simple cluster supporting only the 'current' Cassandra version, offering easy access to the convenience methods
+ * of IInvokableInstance on each node.
+ */
 public class Cluster extends AbstractCluster<IInvokableInstance> implements ICluster, AutoCloseable
 {
-    Cluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
+    private Cluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
     {
         super(root, version, configs, sharedClassLoader);
     }
@@ -49,15 +53,5 @@ public class Cluster extends AbstractCluster<IInvokableInstance> implements IClu
     {
         return create(nodeCount, Versions.CURRENT, root, Cluster::new);
     }
-
-    public static Cluster create(int nodeCount, Versions.Version version) throws IOException
-    {
-        return create(nodeCount, version, Files.createTempDirectory("dtests").toFile(), Cluster::new);
-    }
-    public static Cluster create(int nodeCount, Versions.Version version, File root)
-    {
-        return create(nodeCount, version, root, Cluster::new);
-    }
-
 }
 

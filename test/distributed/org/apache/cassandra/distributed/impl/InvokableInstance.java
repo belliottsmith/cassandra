@@ -27,6 +27,13 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+/**
+ * An extension of Instance permitting convenience methods for easily running arbitrary code on the node.
+ *
+ * This can only be used with nodes running the 'current' version of Cassandra, for two reasons:
+ *  1) The node needs to share a classpath containing identical code for the invokers
+ *  2) The node needs to have compatible methods etc. for whatever the code actually uses, else runtime linkage errors etc.
+ */
 public class InvokableInstance extends Instance implements IInvokableInstance
 {
     InvokableInstance(IInstanceConfig config, ClassLoader classLoader)
