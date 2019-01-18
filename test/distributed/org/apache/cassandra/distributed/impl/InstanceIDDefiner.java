@@ -16,27 +16,26 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.impl;
 
-import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.utils.FBUtilities;
+import ch.qos.logback.core.PropertyDefinerBase;
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 
-import java.net.InetAddress;
-
-public class LegacyAdapter
+/**
+ * Used by logback to find/define property value, see logback-dtest.xml
+ */
+public class InstanceIDDefiner extends PropertyDefinerBase
 {
-    private static final InetAddressAndPort broadcastAddressAndPort;
-    static
+    // Instantiated per classloader, set by Instance
+    private static volatile String instanceId = "<main>";
+    public static void setInstanceId(int id)
     {
-        InetAddress address = FBUtilities.getBroadcastAddress();
-        int port = DatabaseDescriptor.getStoragePort();
-        broadcastAddressAndPort = InetAddressAndPort.getByAddressOverrideDefaults(address, port);
+        instanceId = "node" + id;
+        NamedThreadFactory.setGlobalPrefix("node" + id + "_");
     }
 
-    public static InetAddressAndPort getBroadcastAddressAndPort()
+    public String getPropertyValue()
     {
-        return broadcastAddressAndPort;
+        return instanceId;
     }
-
 }

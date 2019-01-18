@@ -16,11 +16,12 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.test;
 
 import org.junit.Test;
 
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.distributed.Cluster;
 
 public class DistributedReadWritePathTest extends DistributedTestBase
 {
