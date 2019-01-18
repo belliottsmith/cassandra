@@ -16,12 +16,13 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.test;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.distributed.Cluster;
 
 import static org.apache.cassandra.net.MessagingService.Verb.READ_REPAIR;
 

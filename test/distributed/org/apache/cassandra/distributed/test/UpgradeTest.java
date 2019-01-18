@@ -16,13 +16,15 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 
 import org.junit.Test;
 
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.distributed.MultiVersionCluster;
+import org.apache.cassandra.distributed.impl.Versions;
 
 public class UpgradeTest extends DistributedTestBase
 {

@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.impl;
 
 import com.google.common.base.Predicate;
 import org.apache.cassandra.config.ParameterizedClass;
@@ -27,7 +27,6 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Arrays;
 import java.util.Set;
-import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 
 public class InstanceClassLoader extends URLClassLoader

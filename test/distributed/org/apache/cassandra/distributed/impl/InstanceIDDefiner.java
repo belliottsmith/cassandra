@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.impl;
 
 import ch.qos.logback.core.PropertyDefinerBase;
 import org.apache.cassandra.concurrent.NamedThreadFactory;

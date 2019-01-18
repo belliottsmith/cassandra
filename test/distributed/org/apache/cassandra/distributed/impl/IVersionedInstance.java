@@ -16,25 +16,13 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.impl;
 
-import java.util.function.Consumer;
+import org.apache.cassandra.distributed.api.IInstance;
 
-import org.apache.cassandra.diag.DiagnosticEventService;
-import org.apache.cassandra.schema.SchemaEvent;
-
-public class Listen implements org.apache.cassandra.distributed.api.IListen
+// this lives outside the api package so that we do not have to worry about inter-version compatibility
+public interface IVersionedInstance extends IInstance
 {
-    final Instance instance;
-    public Listen(Instance instance)
-    {
-        this.instance = instance;
-    }
-
-    public Cancel schema(Runnable onChange)
-    {
-        Consumer<SchemaEvent> consumer = event -> onChange.run();
-        DiagnosticEventService.instance().subscribe(SchemaEvent.class, SchemaEvent.SchemaEventType.VERSION_UPDATED, consumer);
-        return () -> DiagnosticEventService.instance().unsubscribe(SchemaEvent.class, consumer);
-    }
+    // only to be invoked while the node is shutdown!
+    public void setVersion(Versions.Version version);
 }

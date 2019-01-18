@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.impl;
 
 import java.io.File;
 import java.io.IOException;
@@ -99,7 +99,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
     // mutated by user-facing API
     private final MessageFilters filters;
 
-    class Wrapper extends DelegatingInvokableInstance implements IVersionedInstance
+    protected class Wrapper extends DelegatingInvokableInstance implements IVersionedInstance
     {
         private final InstanceConfig config;
         private volatile IInvokableInstance delegate;
@@ -113,7 +113,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
             return delegate;
         }
 
-        Wrapper(Versions.Version version, InstanceConfig config)
+        public Wrapper(Versions.Version version, InstanceConfig config)
         {
             this.config = config;
             this.version = version;
@@ -175,7 +175,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         }
     }
 
-    AbstractCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
+    protected AbstractCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
     {
         this.root = root;
         this.sharedClassLoader = sharedClassLoader;
@@ -224,7 +224,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
 
 
     public IMessageFilters filters() { return filters; }
-    MessageFilters.Builder verbs(MessagingService.Verb ... verbs) { return filters.verbs(verbs); }
+    public MessageFilters.Builder verbs(MessagingService.Verb ... verbs) { return filters.verbs(verbs); }
 
     public void disableAutoCompaction(String keyspace)
     {
@@ -306,29 +306,30 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         parallelForEach(I::startup, 0, null);
     }
 
-    interface Factory<I extends IInstance, C extends AbstractCluster<I>>
+    protected interface Factory<I extends IInstance, C extends AbstractCluster<I>>
     {
         C newCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader);
     }
 
-    static <I extends IInstance, C extends AbstractCluster<I>> C
+    protected static <I extends IInstance, C extends AbstractCluster<I>> C
     create(int nodeCount, Factory<I, C> factory) throws Throwable
     {
         return create(nodeCount, Files.createTempDirectory("dtests").toFile(), factory);
     }
 
-    static <I extends IInstance, C extends AbstractCluster<I>> C
+    protected static <I extends IInstance, C extends AbstractCluster<I>> C
     create(int nodeCount, File root, Factory<I, C> factory)
     {
         return create(nodeCount, Versions.CURRENT, root, factory);
     }
 
-    static <I extends IInstance, C extends AbstractCluster<I>> C
+    protected static <I extends IInstance, C extends AbstractCluster<I>> C
     create(int nodeCount, Versions.Version version, Factory<I, C> factory) throws IOException
     {
         return create(nodeCount, version, Files.createTempDirectory("dtests").toFile(), factory);
     }
-    static <I extends IInstance, C extends AbstractCluster<I>> C
+
+    protected static <I extends IInstance, C extends AbstractCluster<I>> C
     create(int nodeCount, Versions.Version version, File root, Factory<I, C> factory)
     {
         root.mkdirs();
