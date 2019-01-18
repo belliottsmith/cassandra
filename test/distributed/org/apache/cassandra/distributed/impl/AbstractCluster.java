@@ -138,7 +138,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         {
             if (!isShutdown)
                 throw new IllegalStateException();
-            delegate.startup(AbstractCluster.this);
+            delegate().startup(AbstractCluster.this);
             isShutdown = false;
         }
 
@@ -155,7 +155,8 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         @Override
         public void receiveMessage(IMessage message)
         {
-            if (!isShutdown) // since we sync directly on the other node, we drop messages immediately if we are shutdown
+            IInvokableInstance delegate = this.delegate;
+            if (!isShutdown && delegate != null) // since we sync directly on the other node, we drop messages immediately if we are shutdown
                 delegate.receiveMessage(message);
         }
 
