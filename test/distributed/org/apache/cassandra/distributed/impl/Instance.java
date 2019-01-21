@@ -221,7 +221,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             }
             catch (Throwable t)
             {
-                throw new RuntimeException("Exception occurred on the node " + FBUtilities.getBroadcastAddressAndPort(), t);
+                throw new RuntimeException("Exception occurred on node " + FBUtilities.getBroadcastAddressAndPort(), t);
             }
         }).run();
     }

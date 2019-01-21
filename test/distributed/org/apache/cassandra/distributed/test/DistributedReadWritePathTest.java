@@ -29,13 +29,6 @@ import static org.apache.cassandra.net.MessagingService.Verb.READ_REPAIR;
 public class DistributedReadWritePathTest extends DistributedTestBase
 {
     @Test
-    public void coordinatorReadStress() throws Throwable
-    {
-        for (int i = 0 ; i < 1000 ; ++i)
-            coordinatorRead();
-    }
-
-    @Test
     public void coordinatorRead() throws Throwable
     {
         try (Cluster cluster = init(Cluster.create(3)))
@@ -146,8 +139,8 @@ public class DistributedReadWritePathTest extends DistributedTestBase
                 thrown = e;
             }
 
-            Assert.assertTrue(thrown.getMessage().contains("Exception occurred on the node"));
-            Assert.assertTrue(thrown.getCause().getMessage().contains("Unknown column v2 during deserialization"));
+            Assert.assertTrue(thrown.getMessage().contains("Exception occurred on node"));
+            Assert.assertTrue(thrown.getCause().getCause().getCause().getMessage().contains("Unknown column v2 during deserialization"));
         }
     }
 
@@ -176,8 +169,8 @@ public class DistributedReadWritePathTest extends DistributedTestBase
             {
                 thrown = e;
             }
-            Assert.assertTrue(thrown.getMessage().contains("Exception occurred on the node"));
-            Assert.assertTrue(thrown.getCause().getMessage().contains("Unknown column v2 during deserialization"));
+            Assert.assertTrue(thrown.getMessage().contains("Exception occurred on node"));
+            Assert.assertTrue(thrown.getCause().getCause().getCause().getMessage().contains("Unknown column v2 during deserialization"));
         }
     }
 }
