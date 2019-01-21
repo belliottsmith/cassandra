@@ -40,30 +40,29 @@ import org.apache.cassandra.distributed.api.IIsolatedExecutor;
  */
 public interface IInvokableInstance extends IInstance
 {
-    <O> CallableNoExcept<Future<O>> asyncCallsOnInstance(SerializableCallable<O> call);
-    <O> CallableNoExcept<O> callsOnInstance(SerializableCallable<O> call);
-    <O> O callOnInstance(SerializableCallable<O> call);
+    public default <O> CallableNoExcept<Future<O>> asyncCallsOnInstance(SerializableCallable<O> call) { return async(transfer(call)); }
+    public default <O> CallableNoExcept<O> callsOnInstance(SerializableCallable<O> call) { return sync(transfer(call)); }
+    public default <O> O callOnInstance(SerializableCallable<O> call) { return callsOnInstance(call).call(); }
 
-    CallableNoExcept<Future<?>> asyncRunsOnInstance(SerializableRunnable run);
-    Runnable runsOnInstance(SerializableRunnable run);
-    void runOnInstance(SerializableRunnable run);
+    public default CallableNoExcept<Future<?>> asyncRunsOnInstance(SerializableRunnable run) { return async(transfer(run)); }
+    public default Runnable runsOnInstance(SerializableRunnable run) { return sync(transfer(run)); }
+    public default void runOnInstance(SerializableRunnable run) { runsOnInstance(run).run(); }
 
-    <I> Function<I, Future<?>> asyncAcceptsOnInstance(SerializableConsumer<I> consumer);
-    <I> Consumer<I> acceptsOnInstance(SerializableConsumer<I> consumer);
+    public default <I> Function<I, Future<?>> asyncAcceptsOnInstance(SerializableConsumer<I> consumer) { return async(transfer(consumer)); }
+    public default <I> Consumer<I> acceptsOnInstance(SerializableConsumer<I> consumer) { return sync(transfer(consumer)); }
 
-    <I1, I2> BiFunction<I1, I2, Future<?>> asyncAcceptsOnInstance(SerializableBiConsumer<I1, I2> consumer);
-    <I1, I2> BiConsumer<I1, I2> acceptsOnInstance(SerializableBiConsumer<I1, I2> consumer);
+    public default <I1, I2> BiFunction<I1, I2, Future<?>> asyncAcceptsOnInstance(SerializableBiConsumer<I1, I2> consumer) { return async(transfer(consumer)); }
+    public default <I1, I2> BiConsumer<I1, I2> acceptsOnInstance(SerializableBiConsumer<I1, I2> consumer) { return sync(transfer(consumer)); }
 
-    <I, O> Function<I, Future<O>> asyncAppliesOnInstance(SerializableFunction<I, O> f);
-    <I, O> Function<I, O> appliesOnInstance(SerializableFunction<I, O> f);
+    public default <I, O> Function<I, Future<O>> asyncAppliesOnInstance(SerializableFunction<I, O> f) { return async(transfer(f)); }
+    public default <I, O> Function<I, O> appliesOnInstance(SerializableFunction<I, O> f) { return sync(transfer(f)); }
 
-    <I1, I2, O> BiFunction<I1, I2, Future<O>> asyncAppliesOnInstance(SerializableBiFunction<I1, I2, O> f);
-    <I1, I2, O> BiFunction<I1, I2, O> appliesOnInstance(SerializableBiFunction<I1, I2, O> f);
+    public default <I1, I2, O> BiFunction<I1, I2, Future<O>> asyncAppliesOnInstance(SerializableBiFunction<I1, I2, O> f) { return async(transfer(f)); }
+    public default <I1, I2, O> BiFunction<I1, I2, O> appliesOnInstance(SerializableBiFunction<I1, I2, O> f) { return sync(transfer(f)); }
 
-    <I1, I2, I3, O> TriFunction<I1, I2, I3, Future<O>> asyncAppliesOnInstance(SerializableTriFunction<I1, I2, I3, O> f);
-    <I1, I2, I3, O> TriFunction<I1, I2, I3, O> appliesOnInstance(SerializableTriFunction<I1, I2, I3, O> f);
+    public default <I1, I2, I3, O> TriFunction<I1, I2, I3, Future<O>> asyncAppliesOnInstance(SerializableTriFunction<I1, I2, I3, O> f) { return async(transfer(f)); }
+    public default <I1, I2, I3, O> TriFunction<I1, I2, I3, O> appliesOnInstance(SerializableTriFunction<I1, I2, I3, O> f) { return sync(transfer(f)); }
 
-    // E must be a functional interface, and lambda must be implemented by a lambda function
-    <E extends Serializable> E transfer(E object);
+    public <E extends Serializable> E transfer(E object);
 
 }

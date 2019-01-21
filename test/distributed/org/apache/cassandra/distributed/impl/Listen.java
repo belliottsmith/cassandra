@@ -35,21 +35,18 @@ public class Listen implements org.apache.cassandra.distributed.api.IListen
     {
         final AtomicBoolean cancel = new AtomicBoolean();
         instance.isolatedExecutor.execute(() -> {
+            UUID prev = instance.schemaVersion();
             while (true)
             {
-                UUID prev = instance.schemaVersion();
-                while (true)
-                {
-                    if (cancel.get())
-                        return;
+                if (cancel.get())
+                    return;
 
-                    LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10L));
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10L));
 
-                    UUID cur = instance.schemaVersion();
-                    if (!prev.equals(cur))
-                        onChange.run();
-                    prev = cur;
-                }
+                UUID cur = instance.schemaVersion();
+                if (!prev.equals(cur))
+                    onChange.run();
+                prev = cur;
             }
         });
         return () -> cancel.set(true);
