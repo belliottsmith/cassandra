@@ -182,8 +182,7 @@ public class LogbackStatusListener implements StatusListener, LoggerContextListe
             Thread currentThread = Thread.currentThread();
             long currentThreadId = currentThread.getId();
             if (asyncAppenderThreadId == Long.MIN_VALUE &&
-                currentThread.getName().equals("AsyncAppender-Worker-ASYNC") &&
-                !InstanceClassLoader.wasLoadedByAnInstanceClassLoader(currentThread.getClass()))
+                currentThread.getName().equals("AsyncAppender-Worker-ASYNC"))
             {
                 asyncAppenderThreadId = currentThreadId;
             }
@@ -471,10 +470,9 @@ public class LogbackStatusListener implements StatusListener, LoggerContextListe
     {
         if (!hadPreInstallError && !haveInstalled)
         {
-            if (InstanceClassLoader.wasLoadedByAnInstanceClassLoader(getClass())
-                || System.out.getClass().getName().contains("LogbackStatusListener"))
+            if (System.out.getClass().getName().contains("LogbackStatusListener"))
             {
-                // don't operate if we're a dtest node, or if we're not the first to swap System.out for some other reason
+                // don't operate if we're not the first to swap System.out for some reason
                 hadPreInstallError = true;
                 return;
             }
