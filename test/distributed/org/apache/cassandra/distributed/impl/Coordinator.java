@@ -26,13 +26,14 @@ import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-public class Coordinator implements org.apache.cassandra.distributed.api.ICoordinator
+public class Coordinator implements ICoordinator
 {
     final Instance instance;
     public Coordinator(Instance instance)
