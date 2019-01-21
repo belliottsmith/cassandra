@@ -27,7 +27,7 @@ import org.apache.cassandra.distributed.impl.AbstractCluster;
 
 public class DistributedTestBase
 {
-    static String KEYSPACE = "distributed_test_keyspace";
+    public static String KEYSPACE = "distributed_test_keyspace";
 
     @BeforeClass
     public static void setup()
@@ -35,7 +35,7 @@ public class DistributedTestBase
         System.setProperty("org.apache.cassandra.disable_mbean_registration", "true");
     }
 
-    protected <C extends AbstractCluster<?>> C init(C cluster)
+    protected static <C extends AbstractCluster<?>> C init(C cluster)
     {
         cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': " + cluster.size() + "};");
         return cluster;
