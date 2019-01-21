@@ -158,8 +158,7 @@ public class IsolatedExecutor implements IIsolatedExecutor
         }
         catch (ExecutionException e)
         {
-            Throwables.maybeFail(e.getCause());
-            throw new AssertionError();
+            throw new RuntimeException(e.getCause());
         }
     }
 
