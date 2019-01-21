@@ -81,7 +81,7 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Throwables;
 import org.apache.cassandra.utils.concurrent.Ref;
 
-public class Instance extends IsolatedExecutor implements IInstance
+public class Instance extends IsolatedExecutor implements IInvokableInstance
 {
     public final IInstanceConfig config;
 

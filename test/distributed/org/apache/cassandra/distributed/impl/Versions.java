@@ -30,11 +30,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.utils.FBUtilities;
 
 public class Versions
 {
+    private static final Logger logger = LoggerFactory.getLogger(Versions.class);
     public static Version CURRENT = new Version(FBUtilities.getReleaseVersionString(), ((URLClassLoader)Versions.class.getClassLoader()).getURLs());
 
     public enum Major
@@ -130,16 +135,17 @@ public class Versions
                        .stream()
                        .filter(v -> full.equals(v.version))
                        .findFirst()
-                       .orElse(null);
+                       .orElseThrow(() -> new RuntimeException("No version " + full + " found"));
     }
 
     public Version getLatest(Major major)
     {
-        return versions.get(major).stream().findFirst().orElse(null);
+        return versions.get(major).stream().findFirst().orElseThrow(() -> new RuntimeException("No " + major + " versions found"));
     }
 
     public static Versions find()
     {
+        logger.info("Looking for dtest jars in " + new File("build").getAbsolutePath());
         final Pattern pattern = Pattern.compile("dtest-([0-9.]+)\\.jar");
         final Map<Major, List<Version>> versions = new HashMap<>();
         for (Major major : Major.values())
@@ -156,7 +162,10 @@ public class Versions
         }
 
         for (Map.Entry<Major, List<Version>> e : versions.entrySet())
+        {
             Collections.sort(e.getValue(), Comparator.comparing(v -> v.version, e.getKey()::compare));
+            logger.info("Found " + e.getValue().stream().map(v -> v.version).collect(Collectors.joining(", ")));
+        }
 
         return new Versions(versions);
     }

@@ -28,7 +28,6 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Arrays;
 import java.util.Set;
-import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 
 public class InstanceClassLoader extends URLClassLoader
@@ -45,7 +44,7 @@ public class InstanceClassLoader extends URLClassLoader
             .map(Class::getName)
             .collect(Collectors.toSet());
 
-    private static final Predicate<String> sharedPackageNames = name ->
+    private static final Predicate<String> sharePackage = name ->
                name.startsWith("org.apache.cassandra.distributed.api.")
             || name.startsWith("sun.")
             || name.startsWith("oracle.")
@@ -57,28 +56,25 @@ public class InstanceClassLoader extends URLClassLoader
             || name.startsWith("netscape.")
             || name.startsWith("org.xml.sax.");
 
-    private static final Predicate<String> isSharedClass = name ->
-            sharedPackageNames.apply(name) || sharedClassNames.contains(name);
+    private static final Predicate<String> shareClass = name -> sharePackage.apply(name) || sharedClassNames.contains(name);
 
     public static interface Factory
     {
         InstanceClassLoader create(int id, URL[] urls, ClassLoader sharedClassLoader);
     }
 
-    private final int id; // for debug purposes
     private final ClassLoader sharedClassLoader;
 
     InstanceClassLoader(int id, URL[] urls, ClassLoader sharedClassLoader)
     {
         super(urls, null);
-        this.id = id;
         this.sharedClassLoader = sharedClassLoader;
     }
 
     @Override
     public Class<?> loadClass(String name) throws ClassNotFoundException
     {
-        if (isSharedClass.apply(name))
+        if (shareClass.apply(name))
             return sharedClassLoader.loadClass(name);
 
         return loadClassInternal(name);
@@ -96,14 +92,6 @@ public class InstanceClassLoader extends URLClassLoader
 
             return c;
         }
-    }
-
-    /**
-     * @return true iff this class was loaded by an InstanceClassLoader, and as such is used by a dtest node
-     */
-    public static boolean wasLoadedByAnInstanceClassLoader(Class<?> clazz)
-    {
-        return clazz.getClassLoader().getClass().getName().equals(InstanceClassLoader.class.getName());
     }
 
 }
