@@ -36,10 +36,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
+import org.apache.cassandra.utils.MBeanWrapper;
 import org.apache.cassandra.utils.Pair;
-
-import javax.management.MBeanServer;
-import javax.management.ObjectName;
 
 public class PermissionsCache implements PermissionsCacheMBean, WarmableCache<Pair<AuthenticatedUser, IResource>, Set<Permission>>
 {
@@ -58,29 +56,14 @@ public class PermissionsCache implements PermissionsCacheMBean, WarmableCache<Pa
     {
         this.authorizer = authorizer;
         this.cache = initCache(null);
-        try
-        {
-            MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-            mbs.registerMBean(this, new ObjectName(MBEAN_NAME));
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException(e);
-        }
+        MBeanWrapper.instance.registerMBean(this, MBEAN_NAME);
     }
 
     @VisibleForTesting
     protected static void unregisterMBean()
     {
-        try
-        {
-            MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-            mbs.unregisterMBean(new ObjectName(MBEAN_NAME));
-        }
-        catch (Exception e)
-        {
-            logger.warn("Error unregistering Permissions Cache mbean", e);
-        }
+        if (MBeanWrapper.instance.isRegistered(MBEAN_NAME))
+            MBeanWrapper.instance.unregisterMBean(MBEAN_NAME);
     }
 
     public Set<Permission> getPermissions(AuthenticatedUser user, IResource resource)
