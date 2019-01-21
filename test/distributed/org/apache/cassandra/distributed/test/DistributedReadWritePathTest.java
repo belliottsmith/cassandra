@@ -27,13 +27,6 @@ public class DistributedReadWritePathTest extends DistributedTestBase
 {
 
     @Test
-    public void coordinatorReadStress() throws Throwable
-    {
-        for (int i = 0 ; i < 1000 ; ++i)
-            coordinatorRead();
-    }
-
-    @Test
     public void coordinatorRead() throws Throwable
     {
         try (Cluster cluster = init(Cluster.create(3)))
