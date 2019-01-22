@@ -99,7 +99,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
     // mutated by user-facing API
     private final MessageFilters filters;
 
-    protected class Wrapper extends DelegatingInvokableInstance implements IVersionedInstance
+    protected class Wrapper extends DelegatingInvokableInstance implements IUpgradeableInstance
     {
         private final InstanceConfig config;
         private volatile IInvokableInstance delegate;
