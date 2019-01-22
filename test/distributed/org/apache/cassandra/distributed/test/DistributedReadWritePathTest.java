@@ -28,6 +28,7 @@ import static org.apache.cassandra.net.MessagingService.Verb.READ_REPAIR;
 
 public class DistributedReadWritePathTest extends DistributedTestBase
 {
+
     @Test
     public void coordinatorRead() throws Throwable
     {
