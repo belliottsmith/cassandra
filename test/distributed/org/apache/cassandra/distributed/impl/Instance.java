@@ -56,7 +56,6 @@ import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.api.ICoordinator;
-import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.distributed.api.IMessage;
@@ -92,6 +91,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         super("node" + config.num(), classLoader);
         this.config = config;
         InstanceIDDefiner.setInstanceId(config.num());
+        FBUtilities.setBroadcastInetAddress(config.broadcastAddressAndPort().address);
     }
 
     public IInstanceConfig config()
@@ -109,8 +109,18 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         return new Listen(this);
     }
 
+    private volatile InetAddressAndPort broadcastAddressAndPort;
     @Override
-    public InetAddressAndPort broadcastAddressAndPort() { return LegacyAdapter.getBroadcastAddressAndPort(); }
+    public InetAddressAndPort broadcastAddressAndPort()
+    {
+        if (broadcastAddressAndPort == null)
+        {
+            InetAddress address = FBUtilities.getBroadcastAddress();
+            int port = DatabaseDescriptor.getStoragePort();
+            broadcastAddressAndPort = InetAddressAndPort.getByAddressOverrideDefaults(address, port);
+        }
+        return broadcastAddressAndPort;
+    }
 
     public Object[][] executeInternal(String query, Object... args)
     {
@@ -181,7 +191,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 new MessageDeliverySink(deliverToInstanceIfNotFiltered, addressAndPortMap::get));
     }
 
-    private static class MessageDeliverySink implements IMessageSink
+    private class MessageDeliverySink implements IMessageSink
     {
         private final BiConsumer<InetAddressAndPort, IMessage> deliver;
         private final Function<InetAddress, InetAddressAndPort> lookupAddressAndPort;
@@ -195,7 +205,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         {
             try (DataOutputBuffer out = new DataOutputBuffer(1024))
             {
-                InetAddressAndPort from = LegacyAdapter.getBroadcastAddressAndPort();
+                InetAddressAndPort from = broadcastAddressAndPort();
+                assert from.equals(lookupAddressAndPort.apply(messageOut.from));
                 InetAddressAndPort toFull = lookupAddressAndPort.apply(to);
                 messageOut.serialize(out, MessagingService.current_version);
                 deliver.accept(toFull, new Message(messageOut.verb.ordinal(), out.toByteArray(), id, MessagingService.current_version, from));
@@ -225,7 +236,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             }
             catch (Throwable t)
             {
-                throw new RuntimeException("Exception occurred on node " + LegacyAdapter.getBroadcastAddressAndPort(), t);
+                throw new RuntimeException("Exception occurred on node " + broadcastAddressAndPort(), t);
             }
         }).run();
     }
