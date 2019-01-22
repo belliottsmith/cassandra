@@ -22,8 +22,9 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
+import org.apache.cassandra.distributed.api.IListen;
 
-public class Listen implements org.apache.cassandra.distributed.api.IListen
+public class Listen implements IListen
 {
     final Instance instance;
     public Listen(Instance instance)

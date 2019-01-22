@@ -163,6 +163,8 @@ public class Versions
 
         for (Map.Entry<Major, List<Version>> e : versions.entrySet())
         {
+            if (e.getValue().isEmpty())
+                continue;
             Collections.sort(e.getValue(), Comparator.comparing(v -> v.version, e.getKey()::compare));
             logger.info("Found " + e.getValue().stream().map(v -> v.version).collect(Collectors.joining(", ")));
         }
