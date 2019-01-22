@@ -114,18 +114,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         return new Listen(this);
     }
 
-    private volatile InetAddressAndPort broadcastAddressAndPort;
     @Override
-    public InetAddressAndPort broadcastAddressAndPort()
-    {
-        if (broadcastAddressAndPort == null)
-        {
-            InetAddress address = FBUtilities.getBroadcastAddress();
-            int port = DatabaseDescriptor.getStoragePort();
-            broadcastAddressAndPort = InetAddressAndPort.getByAddressOverrideDefaults(address, port);
-        }
-        return broadcastAddressAndPort;
-    }
+    public InetAddressAndPort broadcastAddressAndPort() { return config.broadcastAddressAndPort(); }
 
     public Object[][] executeInternal(String query, Object... args)
     {
@@ -289,6 +279,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 registerMockMessaging(cluster);
 
                 SystemKeyspace.finishStartup();
+
+                if (!FBUtilities.getBroadcastAddress().equals(broadcastAddressAndPort().address))
+                    throw new IllegalStateException();
+                if (DatabaseDescriptor.getStoragePort() != broadcastAddressAndPort().port)
+                    throw new IllegalStateException();
             }
             catch (Throwable t)
             {
