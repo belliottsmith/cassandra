@@ -129,7 +129,7 @@ public class FBUtilities
     {
         if (localInetAddressAndPort == null)
         {
-            localInetAddressAndPort = InetAddressAndPort.getByAddressOverrideDefaults(getJustLocalAddress(), DatabaseDescriptor.getStoragePort());
+            localInetAddressAndPort = InetAddressAndPort.getByAddress(getJustLocalAddress());
         }
         return localInetAddressAndPort;
     }
@@ -156,7 +156,7 @@ public class FBUtilities
     {
         if (broadcastInetAddressAndPort == null)
         {
-            broadcastInetAddressAndPort = InetAddressAndPort.getByAddressOverrideDefaults(getJustBroadcastAddress(), DatabaseDescriptor.getStoragePort());
+            broadcastInetAddressAndPort = InetAddressAndPort.getByAddress(getJustBroadcastAddress());
         }
         return broadcastInetAddressAndPort;
     }
@@ -168,6 +168,15 @@ public class FBUtilities
     {
         broadcastInetAddress = addr;
         broadcastInetAddressAndPort = InetAddressAndPort.getByAddress(broadcastInetAddress);
+    }
+
+    /**
+     * <b>THIS IS FOR TESTING ONLY!!</b>
+     */
+    public static void setBroadcastInetAddressAndPort(InetAddressAndPort addr)
+    {
+        broadcastInetAddress = addr.address;
+        broadcastInetAddressAndPort = addr;
     }
 
     /**

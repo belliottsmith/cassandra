@@ -97,6 +97,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         super("node" + config.num(), classLoader);
         this.config = config;
         InstanceIDDefiner.setInstanceId(config.num());
+        FBUtilities.setBroadcastInetAddressAndPort(config.broadcastAddressAndPort());
     }
 
     @Override
