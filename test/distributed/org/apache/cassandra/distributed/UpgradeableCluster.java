@@ -25,7 +25,7 @@ import java.util.List;
 
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.impl.AbstractCluster;
-import org.apache.cassandra.distributed.impl.IVersionedInstance;
+import org.apache.cassandra.distributed.impl.IUpgradeableInstance;
 import org.apache.cassandra.distributed.impl.InstanceConfig;
 import org.apache.cassandra.distributed.impl.Versions;
 
@@ -36,34 +36,34 @@ import org.apache.cassandra.distributed.impl.Versions;
  * to permit upgrade tests to perform cluster operations without updating the cross-version API,
  * so long as one node is up-to-date.
  */
-public class MultiVersionCluster extends AbstractCluster<IVersionedInstance> implements ICluster, AutoCloseable
+public class UpgradeableCluster extends AbstractCluster<IUpgradeableInstance> implements ICluster, AutoCloseable
 {
-    private MultiVersionCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
+    private UpgradeableCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
     {
         super(root, version, configs, sharedClassLoader);
     }
 
-    protected IVersionedInstance newInstanceWrapper(Versions.Version version, InstanceConfig config)
+    protected IUpgradeableInstance newInstanceWrapper(Versions.Version version, InstanceConfig config)
     {
         return new Wrapper(version, config);
     }
 
-    public static MultiVersionCluster create(int nodeCount) throws Throwable
+    public static UpgradeableCluster create(int nodeCount) throws Throwable
     {
-        return create(nodeCount, MultiVersionCluster::new);
+        return create(nodeCount, UpgradeableCluster::new);
     }
-    public static MultiVersionCluster create(int nodeCount, File root)
+    public static UpgradeableCluster create(int nodeCount, File root)
     {
-        return create(nodeCount, Versions.CURRENT, root, MultiVersionCluster::new);
+        return create(nodeCount, Versions.CURRENT, root, UpgradeableCluster::new);
     }
 
-    public static MultiVersionCluster create(int nodeCount, Versions.Version version) throws IOException
+    public static UpgradeableCluster create(int nodeCount, Versions.Version version) throws IOException
     {
-        return create(nodeCount, version, Files.createTempDirectory("dtests").toFile(), MultiVersionCluster::new);
+        return create(nodeCount, version, Files.createTempDirectory("dtests").toFile(), UpgradeableCluster::new);
     }
-    public static MultiVersionCluster create(int nodeCount, Versions.Version version, File root)
+    public static UpgradeableCluster create(int nodeCount, Versions.Version version, File root)
     {
-        return create(nodeCount, version, root, MultiVersionCluster::new);
+        return create(nodeCount, version, root, UpgradeableCluster::new);
     }
 
 }

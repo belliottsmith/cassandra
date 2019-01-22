@@ -22,7 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import org.apache.cassandra.distributed.MultiVersionCluster;
+import org.apache.cassandra.distributed.UpgradeableCluster;
 import org.apache.cassandra.distributed.impl.Instance;
 import org.apache.cassandra.distributed.impl.Versions;
 import org.apache.cassandra.distributed.impl.Versions.Version;
@@ -34,12 +34,12 @@ public class UpgradeTestBase extends DistributedTestBase
 {
     public static interface RunOnCluster
     {
-        public void run(MultiVersionCluster cluster) throws Throwable;
+        public void run(UpgradeableCluster cluster) throws Throwable;
     }
 
     public static interface RunOnClusterAndNode
     {
-        public void run(MultiVersionCluster cluster, int node) throws Throwable;
+        public void run(UpgradeableCluster cluster, int node) throws Throwable;
     }
 
     public static class TestVersions
@@ -127,7 +127,7 @@ public class UpgradeTestBase extends DistributedTestBase
 
             for (TestVersions upgrade : this.upgrade)
             {
-                try (MultiVersionCluster cluster = init(MultiVersionCluster.create(nodeCount, upgrade.initial)))
+                try (UpgradeableCluster cluster = init(UpgradeableCluster.create(nodeCount, upgrade.initial)))
                 {
                     cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
