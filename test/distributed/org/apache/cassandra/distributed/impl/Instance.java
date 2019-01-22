@@ -118,7 +118,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     }
 
     @Override
-    public InetAddressAndPort broadcastAddressAndPort() { return FBUtilities.getBroadcastAddressAndPort(); }
+    public InetAddressAndPort broadcastAddressAndPort() { return config.broadcastAddressAndPort(); }
 
     @Override
     public Object[][] executeInternal(String query, Object... args)
@@ -178,7 +178,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         MessagingService.instance().addMessageSink(new MessageDeliverySink(deliverToInstanceIfNotFiltered));
     }
 
-    private static class MessageDeliverySink implements IMessageSink
+    private class MessageDeliverySink implements IMessageSink
     {
         private final BiConsumer<InetAddressAndPort, IMessage> deliver;
         MessageDeliverySink(BiConsumer<InetAddressAndPort, IMessage> deliver)
@@ -191,7 +191,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         {
             try (DataOutputBuffer out = new DataOutputBuffer(1024))
             {
-                InetAddressAndPort from = FBUtilities.getBroadcastAddressAndPort();
+                InetAddressAndPort from = broadcastAddressAndPort();
                 messageOut.serialize(out, MessagingService.current_version);
                 deliver.accept(to, new Message(messageOut.verb.getId(), out.toByteArray(), id, MessagingService.current_version, from));
             }
@@ -222,7 +222,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             }
             catch (Throwable t)
             {
-                throw new RuntimeException("Exception occurred on node " + FBUtilities.getBroadcastAddressAndPort(), t);
+                throw new RuntimeException("Exception occurred on node " + broadcastAddressAndPort(), t);
             }
         }).run();
     }
@@ -275,6 +275,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 registerMockMessaging(cluster);
 
                 SystemKeyspace.finishStartup();
+
+                if (!FBUtilities.getBroadcastAddressAndPort().equals(broadcastAddressAndPort()))
+                    throw new IllegalStateException();
             }
             catch (Throwable t)
             {
