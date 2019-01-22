@@ -186,9 +186,10 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         {
             I instance = newInstanceWrapper(version, config);
             instances.add(instance);
-            I prev = instanceMap.put(instance.config().broadcastAddressAndPort(), instance);
+            // we use the config().broadcastAddressAndPort() here because we have not initialised the Instance
+            I prev = instanceMap.put(instance.broadcastAddressAndPort(), instance);
             if (null != prev)
-                throw new IllegalStateException("Cluster cannot have multiple nodes with same InetAddressAndPort: " + instance.config().broadcastAddressAndPort() + " vs " + prev.config().broadcastAddressAndPort());
+                throw new IllegalStateException("Cluster cannot have multiple nodes with same InetAddressAndPort: " + instance.broadcastAddressAndPort() + " vs " + prev.broadcastAddressAndPort());
         }
         this.filters = new MessageFilters(this);
     }
