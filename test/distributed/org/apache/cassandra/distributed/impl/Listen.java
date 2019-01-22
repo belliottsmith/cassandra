@@ -21,9 +21,10 @@ package org.apache.cassandra.distributed.impl;
 import java.util.function.Consumer;
 
 import org.apache.cassandra.diag.DiagnosticEventService;
+import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.schema.SchemaEvent;
 
-public class Listen implements org.apache.cassandra.distributed.api.IListen
+public class Listen implements IListen
 {
     final Instance instance;
     public Listen(Instance instance)
