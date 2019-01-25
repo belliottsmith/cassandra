@@ -147,7 +147,19 @@ public abstract class ColumnData implements IMeasurableMemory
                         }
                     }
                     cells = BTree.update(existingTree, updateTree, existingComplex.column.cellComparator(), (UpdateFunction) reconciler);
+
+                    // Custom cell builders may defer adding cells until the end of the column so are
+                    // not suitable for a transformer.  As used infrequently, lower code impact to just build a second time.
+                    if (existingComplex.column.type.usesCustomCellBuilder())
+                    {
+                        final BTreeCellsBuilder customBuilder = new BTreeCellsBuilder(existingComplex.column.cellComparator(), cells.length);
+                        Cells.Builder builder = existingComplex.column.type.wrapCellsBuilder(customBuilder);
+                        BTree.apply(cells, builder::addCell);
+                        builder.endColumn();
+                        cells = customBuilder.build();
+                    }
                 }
+
                 return new ComplexColumnData(existingComplex.column, cells, maxComplexDeletion);
             }
         }
