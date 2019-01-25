@@ -256,7 +256,7 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell<?>>
         return new Builder();
     }
 
-    public static class Builder
+    public static class Builder implements Cells.Builder
     {
         private DeletionTime complexDeletion;
         private ColumnMetadata column;
