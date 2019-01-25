@@ -23,7 +23,6 @@ import java.util.*;
 import java.util.function.BiFunction;
 
 import com.google.common.base.Function;
-import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
@@ -34,7 +33,6 @@ import org.apache.cassandra.db.marshal.ByteType;
 import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.btree.BTree;
-import org.apache.cassandra.utils.btree.UpdateFunction;
 
 /**
  * The data for a complex column, that is it's cells and potential complex
@@ -236,7 +234,7 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
         return new Builder();
     }
 
-    public static class Builder
+    public static class Builder implements Cells.Builder
     {
         private static BiFunction<Cell, Cell, Cell> noResolve = (a, b) -> {
             throw new IllegalStateException();
