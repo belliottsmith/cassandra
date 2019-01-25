@@ -477,7 +477,7 @@ public interface Row extends Unfiltered, Iterable<ColumnData>, IMeasurableMemory
      * that latter case, the result will follow the usual reconciliation rules (so equal cells are reconciled with
      * {@link Cells#reconcile} and the "biggest" of multiple complex deletion for the same column wins).
      */
-    public interface Builder
+    public interface Builder extends Cells.Builder
     {
         /**
          * Creates a copy of this {@code Builder}.
@@ -815,6 +815,7 @@ public interface Row extends Unfiltered, Iterable<ColumnData>, IMeasurableMemory
                 {
                     complexBuilder.newColumn(column);
                     complexCells.clear();
+                    Cells.Builder cellBuilder = column.type.wrapCellsBuilder(complexBuilder);
                     DeletionTime complexDeletion = DeletionTime.LIVE;
                     for (int i=0, isize=versions.size(); i<isize; i++)
                     {
@@ -840,8 +841,9 @@ public interface Row extends Unfiltered, Iterable<ColumnData>, IMeasurableMemory
                     {
                         Cell<?> merged = cells.next();
                         if (merged != null)
-                            complexBuilder.addCell(merged);
+                            cellBuilder.addCell(merged);
                     }
+                    cellBuilder.endColumn();
                     return complexBuilder.build();
                 }
             }

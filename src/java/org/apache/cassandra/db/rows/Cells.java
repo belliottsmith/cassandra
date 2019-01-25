@@ -33,6 +33,16 @@ import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
  */
 public abstract class Cells
 {
+    /** Interface for reconciling all of the cells in a complex type before
+     *  committing them to the final builder.
+     */
+    public static interface Builder
+    {
+        public void addCell(Cell<?> cell);
+
+        default void endColumn() { };
+    }
+
     private Cells() {}
 
     /**
@@ -75,7 +85,7 @@ public abstract class Cells
     public static long reconcile(Cell<?> existing,
                                  Cell<?> update,
                                  DeletionTime deletion,
-                                 Row.Builder builder)
+                                 Builder builder)
     {
         existing = existing == null || deletion.deletes(existing) ? null : existing;
         update = update == null || deletion.deletes(update) ? null : update;
@@ -230,7 +240,7 @@ public abstract class Cells
      * {@code existing} to {@code writer}.
      * @param deletion the deletion time that applies to the cells being considered.
      * This deletion time may delete cells in both {@code existing} and {@code update}.
-     * @param builder the row build to which the result of the reconciliation is written.
+     * @param rowBuilder the row build to which the result of the reconciliation is written.
      *
      * @return the smallest timestamp delta between corresponding cells from existing and update. A
      * timestamp delta being computed as the difference between a cell from {@code update} and the
@@ -242,8 +252,9 @@ public abstract class Cells
                                         Iterator<Cell<?>> existing,
                                         Iterator<Cell<?>> update,
                                         DeletionTime deletion,
-                                        Row.Builder builder)
+                                        Builder rowBuilder)
     {
+        Builder builder = column.type.wrapCellsBuilder(rowBuilder);
         Comparator<CellPath> comparator = column.cellPathComparator();
         Cell<?> nextExisting = getNext(existing);
         Cell<?> nextUpdate = getNext(update);
@@ -270,6 +281,7 @@ public abstract class Cells
                 nextUpdate = getNext(update);
             }
         }
+        builder.endColumn();
         return timeDelta;
     }
 
