@@ -51,13 +51,11 @@ import org.apache.cassandra.schema.DroppedColumn;
 
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.BiLongAccumulator;
-import org.apache.cassandra.utils.BulkIterator;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.LongAccumulator;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.BTreeSearchIterator;
-import org.apache.cassandra.utils.btree.UpdateFunction;
 import org.apache.cassandra.utils.memory.Cloner;
 
 /**
@@ -773,8 +771,8 @@ public class BTreeRow extends AbstractRow
                     lb++;
                 }
 
-                Object[] buildFrom = new Object[ub - lb];
-                int buildFromCount = 0;
+                BTreeCellsBuilder btreeBuilder = new BTreeCellsBuilder(column.cellComparator(), ub - lb);
+                Cells.Builder builder = column.type.wrapCellsBuilder(btreeBuilder);
                 Cell<?> previous = null;
                 for (int i = lb; i < ub; i++)
                 {
@@ -782,24 +780,25 @@ public class BTreeRow extends AbstractRow
 
                     if (deletion == DeletionTime.LIVE || c.timestamp() >= deletion.markedForDeleteAt())
                     {
-                        if (previous != null && column.cellComparator().compare(previous, c) == 0)
+                        if (previous == null)
                         {
-                            c = Cells.reconcile(previous, c);
-                            buildFrom[buildFromCount - 1] = c;
+                            previous = c;
                         }
-                        else
+                        else if (column.cellComparator().compare(previous, c) == 0)
                         {
-                            buildFrom[buildFromCount++] = c;
+                            previous = Cells.reconcile(previous, c);
                         }
-                        previous = c;
+                        else // previous != null && cellComparator != 0
+                        {
+                            builder.addCell(previous);
+                            previous = c;
+                        }
                     }
                 }
-
-                try (BulkIterator<Cell> iterator = BulkIterator.of(buildFrom))
-                {
-                    Object[] btree = BTree.build(iterator, buildFromCount, UpdateFunction.noOp());
-                    return new ComplexColumnData(column, btree, deletion);
-                }
+                if (previous != null)
+                    builder.addCell(previous);
+                builder.endColumn();
+                return new ComplexColumnData(column, btreeBuilder.build(), deletion);
             }
         }
 
