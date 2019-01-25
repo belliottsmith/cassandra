@@ -32,7 +32,9 @@ import org.apache.cassandra.cql3.AssignmentTestable;
 import org.apache.cassandra.cql3.CQL3Type;
 import org.apache.cassandra.cql3.ColumnSpecification;
 import org.apache.cassandra.cql3.Term;
+import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.Cells;
 import org.apache.cassandra.exceptions.SyntaxException;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -373,6 +375,17 @@ public abstract class AbstractType<T> implements Comparator<ByteBuffer>, Assignm
     public boolean isUDT()
     {
         return false;
+    }
+
+    /**
+     * Permit multicell types to transform vanilla cell builders.
+     *
+     * Some use cases for this include capping collections by size,
+     * transforming cells, or filtering underlying cells by arbitrary criteria.
+     */
+    public Cells.Builder wrapCellsBuilder(Cells.Builder builder)
+    {
+        return builder;
     }
 
     public boolean isTuple()
