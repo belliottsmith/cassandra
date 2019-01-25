@@ -700,6 +700,8 @@ public class BTreeRow extends AbstractRow
                 }
 
                 List<Object> buildFrom = new ArrayList<>(ub - lb);
+                Cells.Builder builder = column.type.wrapCellsBuilder(buildFrom::add);
+
                 Cell<?> previous = null;
                 for (int i = lb; i < ub; i++)
                 {
@@ -707,18 +709,24 @@ public class BTreeRow extends AbstractRow
 
                     if (deletion == DeletionTime.LIVE || c.timestamp() >= deletion.markedForDeleteAt())
                     {
-                        if (previous != null && column.cellComparator().compare(previous, c) == 0)
+                        if (previous == null)
                         {
-                            c = Cells.reconcile(previous, c);
-                            buildFrom.set(buildFrom.size() - 1, c);
+                            previous = c;
                         }
-                        else
+                        else if (column.cellComparator().compare(previous, c) == 0)
                         {
-                            buildFrom.add(c);
+                            previous = Cells.reconcile(previous, c);
                         }
-                        previous = c;
+                        else // previous != null && cellComparator != 0
+                        {
+                            builder.addCell(previous);
+                            previous = c;
+                        }
                     }
                 }
+                if (previous != null)
+                    builder.addCell(previous);
+                builder.endColumn();
 
                 Object[] btree = BTree.build(buildFrom, UpdateFunction.noOp());
                 return new ComplexColumnData(column, btree, deletion);
