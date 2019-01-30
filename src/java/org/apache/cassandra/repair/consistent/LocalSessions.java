@@ -553,29 +553,38 @@ public class LocalSessions
         {
             public void onSuccess(@Nullable Object result)
             {
-                logger.info("Prepare phase for incremental repair session {} completed", sessionID);
-                setStateAndSave(session, PREPARED);
-                sendMessage(coordinator, new PrepareConsistentResponse(sessionID, getBroadcastAddress(), true));
-                executor.shutdown();
+
+                try
+                {
+                    logger.debug("Prepare phase for incremental repair session {} completed", sessionID);
+                    if (session.getState() != FAILED)
+                    {
+                        setStateAndSave(session, PREPARED);
+                        sendMessage(coordinator, new PrepareConsistentResponse(sessionID, getBroadcastAddress(), true));
+                    }
+                    else
+                    {
+                        logger.debug("Session {} failed before anticompaction completed", sessionID);
+                    }
+                }
+                finally
+                {
+                    executor.shutdown();
+                }
             }
 
             public void onFailure(Throwable t)
             {
-                if (t instanceof PendingAntiCompaction.SSTableAcquisitionException)
-                {
-                    logger.warn("Prepare phase for incremental repair session {} was unable to " +
-                                "acquire exclusive access to the neccesary sstables. " +
-                                "This is usually caused by running multiple incremental repairs on nodes that share token ranges",
-                                sessionID);
-
-                }
-                else
+                try
                 {
                     logger.error("Prepare phase for incremental repair session {} failed", sessionID, t);
+                    sendMessage(coordinator, new PrepareConsistentResponse(sessionID, getBroadcastAddress(), false));
+                    failSession(sessionID, false);
                 }
-                sendMessage(coordinator, new PrepareConsistentResponse(sessionID, getBroadcastAddress(), false));
-                failSession(sessionID, false);
-                executor.shutdown();
+                finally
+                {
+                    executor.shutdown();
+                }
             }
         });
     }
