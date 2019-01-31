@@ -228,7 +228,7 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
 
 
     @Test
-    public void testDropExpiredSSTables()
+    public void testDropExpiredSSTables() throws InterruptedException
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
@@ -238,18 +238,16 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
         ByteBuffer value = ByteBuffer.wrap(new byte[100]);
 
         // create 2 sstables
-        DecoratedKey key = Util.dk(String.valueOf("expired"));
-        long now = System.currentTimeMillis();
-        new RowUpdateBuilder(cfs.metadata, now, 1, key.getKey())
+        DecoratedKey key = Util.dk("expired");
+        new RowUpdateBuilder(cfs.metadata, 0L, 1, key.getKey())
             .clustering("column")
             .add("val", value).build().applyUnsafe();
 
         cfs.forceBlockingFlush();
         SSTableReader expiredSSTable = cfs.getLiveSSTables().iterator().next();
-        now += 10;
 
-        key = Util.dk(String.valueOf("nonexpired"));
-        new RowUpdateBuilder(cfs.metadata, now, key.getKey())
+        key = Util.dk("nonexpired");
+        new RowUpdateBuilder(cfs.metadata, 10, key.getKey())
             .clustering("column")
             .add("val", value).build().applyUnsafe();
 
@@ -266,9 +264,9 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
         for (SSTableReader sstable : cfs.getLiveSSTables())
             twcs.addSSTable(sstable);
         twcs.startup();
-        assertNull(twcs.getNextBackgroundTask((int) (now / 1000)));
-        now += 2000;
-        AbstractCompactionTask t = twcs.getNextBackgroundTask((int) (now/1000));
+        assertNull(twcs.getNextBackgroundTask(0));
+        Thread.sleep(100); // we need to make sure we pass EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS_KEY
+        AbstractCompactionTask t = twcs.getNextBackgroundTask(Integer.MAX_VALUE);
         assertNotNull(t);
         assertEquals(1, Iterables.size(t.transaction.originals()));
         SSTableReader sstable = t.transaction.originals().iterator().next();
