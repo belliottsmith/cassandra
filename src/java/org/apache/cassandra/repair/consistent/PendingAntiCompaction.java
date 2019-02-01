@@ -25,6 +25,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
@@ -34,6 +35,7 @@ import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
+import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,6 +62,8 @@ import static org.apache.cassandra.service.ActiveRepairService.UNREPAIRED_SSTABL
  */
 public class PendingAntiCompaction
 {
+    private static final int ACQUIRE_SLEEP_MS = Integer.getInteger("cassandra.acquire_sleep_ms", 1000);
+    private static final int ACQUIRE_RETRY_SECONDS = Integer.getInteger("cassandra.acquire_retry_seconds", 60);
     private static final Logger logger = LoggerFactory.getLogger(PendingAntiCompaction.class);
 
     static class AcquireResult
@@ -147,14 +151,23 @@ public class PendingAntiCompaction
         private final ColumnFamilyStore cfs;
         private final UUID sessionID;
         private final AntiCompactionPredicate predicate;
+        private final int acquireRetrySeconds;
+        private final int acquireSleepMillis;
 
-        public AcquisitionCallable(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, UUID sessionID)
+        AcquisitionCallable(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, UUID sessionID, int acquireRetrySeconds, int acquireSleepMillis)
+        {
+            this(cfs, sessionID, acquireRetrySeconds, acquireSleepMillis, new AntiCompactionPredicate(ranges, sessionID));
+        }
+
+        @VisibleForTesting
+        AcquisitionCallable(ColumnFamilyStore cfs, UUID sessionID, int acquireRetrySeconds, int acquireSleepMillis, AntiCompactionPredicate predicate)
         {
             this.cfs = cfs;
             this.sessionID = sessionID;
-            predicate = new AntiCompactionPredicate(ranges, sessionID);
+            this.predicate = predicate;
+            this.acquireRetrySeconds = acquireRetrySeconds;
+            this.acquireSleepMillis = acquireSleepMillis;
         }
-
         @SuppressWarnings("resource")
         private AcquireResult acquireTuple()
         {
@@ -184,17 +197,34 @@ public class PendingAntiCompaction
             logger.debug("acquiring sstables for pending anti compaction on session {}", sessionID);
             // try to modify after cancelling running compactions. This will attempt to cancel in flight compactions including the given sstables for
             // up to a minute, after which point, null will be returned
-            try
+            long start = System.currentTimeMillis();
+            long delay = TimeUnit.SECONDS.toMillis(acquireRetrySeconds);
+            // Note that it is `predicate` throwing SSTableAcquisitionException if it finds a conflicting sstable
+            // and we only retry when runWithCompactionsDisabled throws when uses the predicate, not when acquireTuple is.
+            // This avoids the case when we have an sstable [0, 100] and a user starts a repair on [0, 50] and then [51, 100] before
+            // anticompaction has finished but not when the second repair is [25, 75] for example - then we will fail it without retry.
+            do
             {
-                // Note that anticompactions are not disabled when running this. This is safe since runWithCompactionsDisabled
-                // is synchronized - acquireTuple and predicate can only be run by a single thread (for the given cfs).
-                return cfs.runWithCompactionsDisabled(this::acquireTuple, predicate, false, false);
-            }
-            catch (SSTableAcquisitionException e)
-            {
-                logger.warn(e.getMessage());
-                logger.debug("Got exception trying to acquire sstables", e);
-            }
+                try
+                {
+                    // Note that anticompactions are not disabled when running this. This is safe since runWithCompactionsDisabled
+                    // is synchronized - acquireTuple and predicate can only be run by a single thread (for the given cfs).
+                    return cfs.runWithCompactionsDisabled(this::acquireTuple, predicate, false, false);
+                }
+                catch (SSTableAcquisitionException e)
+                {
+                    logger.warn("Session {} failed acquiring sstables: {}, retrying every {}ms for another {}s",
+                                sessionID,
+                                e.getMessage(),
+                                acquireSleepMillis,
+                                TimeUnit.SECONDS.convert(delay + start - System.currentTimeMillis(), TimeUnit.MILLISECONDS));
+                    Uninterruptibles.sleepUninterruptibly(acquireSleepMillis, TimeUnit.MILLISECONDS);
+
+                    if (System.currentTimeMillis() - start > delay)
+                        logger.debug("{} Timed out waiting to acquire sstables", sessionID, e);
+
+                }
+            } while (System.currentTimeMillis() - start < delay);
             return null;
         }
     }
@@ -269,11 +299,26 @@ public class PendingAntiCompaction
     private final UUID prsId;
     private final Collection<Range<Token>> ranges;
     private final ExecutorService executor;
+    private final int acquireRetrySeconds;
+    private final int acquireSleepMillis;
 
-    public PendingAntiCompaction(UUID prsId, Collection<Range<Token>> ranges, ExecutorService executor)
+    public PendingAntiCompaction(UUID prsId,
+                                 Collection<Range<Token>> ranges,
+                                 ExecutorService executor)
+    {
+        this(prsId, ranges, ACQUIRE_RETRY_SECONDS, ACQUIRE_SLEEP_MS, executor);
+    }
+
+    public PendingAntiCompaction(UUID prsId,
+                                 Collection<Range<Token>> ranges,
+                                 int acquireRetrySeconds,
+                                 int acquireSleepMillis,
+                                 ExecutorService executor)
     {
         this.prsId = prsId;
         this.ranges = ranges;
+        this.acquireRetrySeconds = acquireRetrySeconds;
+        this.acquireSleepMillis = acquireSleepMillis;
         this.executor = executor;
     }
 
@@ -284,7 +329,7 @@ public class PendingAntiCompaction
         for (ColumnFamilyStore cfs : prs.getColumnFamilyStores())
         {
             cfs.forceBlockingFlush();
-            ListenableFutureTask<AcquireResult> task = ListenableFutureTask.create(getAcquisitionCallable(cfs, ranges, prsId));
+            ListenableFutureTask<AcquireResult> task = ListenableFutureTask.create(getAcquisitionCallable(cfs, ranges, prsId, acquireRetrySeconds, acquireSleepMillis));
             executor.submit(task);
             tasks.add(task);
         }
@@ -294,9 +339,9 @@ public class PendingAntiCompaction
     }
 
     @VisibleForTesting
-    protected AcquisitionCallable getAcquisitionCallable(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, UUID prsId)
+    protected AcquisitionCallable getAcquisitionCallable(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, UUID prsId, int acquireRetrySeconds, int acquireSleepMillis)
     {
-        return new AcquisitionCallable(cfs, ranges, prsId);
+        return new AcquisitionCallable(cfs, ranges, prsId, acquireRetrySeconds, acquireSleepMillis);
     }
 
     @VisibleForTesting

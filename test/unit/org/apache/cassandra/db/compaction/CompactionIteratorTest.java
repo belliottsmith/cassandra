@@ -99,38 +99,4 @@ public class CompactionIteratorTest extends CQLTester
             }
         }
     }
-
-    @Test
-    public void noTransformPartitionTest() throws Throwable
-    {
-        createTable("create table %s (id int, id2 int, d text, primary key (id, id2))");
-        for (int i = 0; i < 10; i++)
-        {
-            execute("insert into %s (id, id2, d) values (?, ?, 'abc')", i, i);
-        }
-        getCurrentColumnFamilyStore().forceBlockingFlush();
-        SSTableReader sstable = getCurrentColumnFamilyStore().getLiveSSTables().iterator().next();
-
-
-        try (CompactionController controller = new CompactionController(getCurrentColumnFamilyStore(), Integer.MAX_VALUE);
-             ISSTableScanner scanner = sstable.getScanner();
-             CompactionIterator iter = new CompactionIterator(OperationType.COMPACTION,
-                                                              Collections.singletonList(scanner),
-                                                              controller, FBUtilities.nowInSeconds(), null, null, false))
-        {
-            iter.stop();
-            int rowCnt = 0;
-            while (iter.hasNext())
-            {
-                iter.stop();
-                try (UnfilteredRowIterator rows = iter.next())
-                {
-                    rowCnt++;
-                }
-            }
-            assertEquals(10, rowCnt);
-
-        }
-    }
-
 }

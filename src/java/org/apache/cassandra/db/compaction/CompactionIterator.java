@@ -82,16 +82,11 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
 
     public CompactionIterator(OperationType type, List<ISSTableScanner> scanners, CompactionController controller, int nowInSec, UUID compactionId)
     {
-        this(type, scanners, controller, nowInSec, compactionId, ActiveCompactionsTracker.NOOP, true);
-    }
-
-    public CompactionIterator(OperationType type, List<ISSTableScanner> scanners, CompactionController controller, int nowInSec, UUID compactionId, ActiveCompactionsTracker activeCompactions)
-    {
-        this(type, scanners, controller, nowInSec, compactionId, activeCompactions, true);
+        this(type, scanners, controller, nowInSec, compactionId, ActiveCompactionsTracker.NOOP);
     }
 
     @SuppressWarnings("resource") // We make sure to close mergedIterator in close() and CompactionIterator is itself an AutoCloseable
-    public CompactionIterator(OperationType type, List<ISSTableScanner> scanners, CompactionController controller, int nowInSec, UUID compactionId, ActiveCompactionsTracker activeCompactions, boolean abortable)
+    public CompactionIterator(OperationType type, List<ISSTableScanner> scanners, CompactionController controller, int nowInSec, UUID compactionId, ActiveCompactionsTracker activeCompactions)
     {
         this.controller = controller;
         this.type = type;
@@ -116,10 +111,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
                                              : UnfilteredPartitionIterators.merge(scanners, nowInSec, listener());
         boolean isForThrift = merged.isForThrift(); // to stop capture of iterator in Purger, which is confusing for debug
         merged = Transformation.apply(merged, new Purger(isForThrift, controller, nowInSec));
-        if (abortable)
-            compacted = Transformation.apply(merged, new AbortableUnfilteredPartitionTransformation(this));
-        else
-            compacted = merged;
+        compacted = Transformation.apply(merged, new AbortableUnfilteredPartitionTransformation(this));
     }
 
     public boolean isForThrift()
