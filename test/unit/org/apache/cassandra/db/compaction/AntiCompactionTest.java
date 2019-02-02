@@ -28,6 +28,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -163,6 +164,7 @@ public class AntiCompactionTest
         assertEquals(repairedKeys, repairedAt != UNREPAIRED_SSTABLE ? 4 : 0);
         assertEquals(pendingKeys, pendingRepair != NO_PENDING_REPAIR ? 4 : 0);
         assertEquals(nonRepairedKeys, 6);
+        assertOnDiskState(store, 2);
     }
 
     @Test
@@ -205,6 +207,7 @@ public class AntiCompactionTest
         }
         assertEquals(sum, cfs.metric.liveDiskSpaceUsed.getCount());
         assertEquals(rows, 1000 * (1000 * 5));//See writeFile for how this number is derived
+        assertOnDiskState(cfs, 2);
     }
 
     private SSTableReader writeFile(ColumnFamilyStore cfs, int count)
@@ -301,6 +304,7 @@ public class AntiCompactionTest
         }
         assertEquals(repairedKeys, 40);
         assertEquals(nonRepairedKeys, 60);
+        assertOnDiskState(store, 10);
     }
 
     private void shouldMutate(UUID parentRepairSession, long repairedAt, UUID pendingRepair) throws InterruptedException, IOException
@@ -324,6 +328,7 @@ public class AntiCompactionTest
         assertThat(Iterables.get(store.getLiveSSTables(), 0).isPendingRepair(), is(pendingRepair != NO_PENDING_REPAIR));
         assertThat(Iterables.get(store.getLiveSSTables(), 0).selfRef().globalCount(), is(1));
         assertThat(store.getTracker().getCompacting().size(), is(0));
+        assertOnDiskState(store, 1);
     }
 
     @Test
@@ -374,6 +379,7 @@ public class AntiCompactionTest
         assertThat(store.getLiveSSTables().size(), is(10));
         assertThat(Iterables.get(store.getLiveSSTables(), 0).isRepaired(), is(false));
         assertEquals(refCountBefore, Iterables.get(store.getLiveSSTables(), 0).selfRef().globalCount());
+        assertOnDiskState(store, 10);
     }
 
     private ColumnFamilyStore prepareColumnFamilyStore()
@@ -531,4 +537,26 @@ public class AntiCompactionTest
     {
         return new Murmur3Partitioner.LongToken(t);
     }
+
+    static void assertOnDiskState(ColumnFamilyStore cfs, int expectedSSTableCount)
+    {
+        LifecycleTransaction.waitForDeletions();
+        assertEquals(expectedSSTableCount, cfs.getLiveSSTables().size());
+        Set<Integer> liveGenerations = cfs.getLiveSSTables().stream().map(sstable -> sstable.descriptor.generation).collect(Collectors.toSet());
+        int fileCount = 0;
+        for (File f : cfs.getDirectories().getCFDirectories())
+        {
+            for (File sst : f.listFiles())
+            {
+                if (sst.getName().contains("Data"))
+                {
+                    Descriptor d = Descriptor.fromFilename(sst.getAbsolutePath());
+                    assertTrue(liveGenerations.contains(d.generation));
+                    fileCount++;
+                }
+            }
+        }
+        assertEquals(expectedSSTableCount, fileCount);
+    }
+
 }
