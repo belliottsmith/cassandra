@@ -1322,6 +1322,7 @@ public class CompactionManager implements CompactionManagerMBean
             public SharedTxn(ILifecycleTransaction delegate) { super(delegate); }
             public Throwable commit(Throwable accumulate) { return accumulate; }
             public void prepareToCommit() {}
+            public void checkpoint() {}
             public void obsoleteOriginals() {}
             public void close() {}
         }
@@ -1364,6 +1365,7 @@ public class CompactionManager implements CompactionManagerMBean
             // (since it indicates misuse). We call permitRedundantTransitions so that calls that transition to a state already occupied are permitted.
             repairedSSTableWriter.setRepairedAt(repairedAt).prepareToCommit();
             unRepairedSSTableWriter.prepareToCommit();
+            anticompactionGroup.checkpoint();
             anticompactionGroup.obsoleteOriginals();
             anticompactionGroup.prepareToCommit();
             anticompactedSSTables.addAll(repairedSSTableWriter.finished());
