@@ -16,36 +16,18 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed;
+package org.apache.cassandra.distributed.api;
 
-import org.apache.logging.log4j.core.LogEvent;
-import org.apache.logging.log4j.core.config.plugins.Plugin;
-import org.apache.logging.log4j.core.lookup.StrLookup;
+import org.apache.cassandra.locator.InetAddressAndPort;
 
 /**
- * Used by logback to find/define property value, see logback-dtest.xml
+ * A cross-version interface for delivering internode messages via message sinks
  */
-@Plugin(name="instance_id", category = StrLookup.CATEGORY)
-public class InstanceIDDefiner implements StrLookup
+public interface IMessage
 {
-    // Instantiated per classloader, set by Instance
-    public static int instanceId = -1;
-
-    public String lookup(String s)
-    {
-        return lookup();
-    }
-
-    public String lookup(LogEvent logEvent, String s)
-    {
-        return lookup();
-    }
-
-    private String lookup()
-    {
-        if (instanceId == -1)
-            return "<main>";
-        else
-            return "INSTANCE" + instanceId;
-    }
+    int verb();
+    byte[] bytes();
+    int id();
+    int version();
+    InetAddressAndPort from();
 }

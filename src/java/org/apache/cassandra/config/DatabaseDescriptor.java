@@ -151,10 +151,6 @@ public class DatabaseDescriptor
             {
                 conf = new Config();
             }
-            else if (Config.getOverrideLoadConfig() != null)
-            {
-                applyConfig(Config.getOverrideLoadConfig().get());
-            }
             else
             {
                 applyConfig(loadConfig());
@@ -166,9 +162,11 @@ public class DatabaseDescriptor
         }
     }
 
-    @VisibleForTesting
     public static Config loadConfig() throws ConfigurationException
     {
+        if (Config.getOverrideLoadConfig() != null)
+            return Config.getOverrideLoadConfig().get();
+
         String loaderClass = System.getProperty("cassandra.config.loader");
         ConfigurationLoader loader = loaderClass == null
                                      ? new YamlConfigurationLoader()
