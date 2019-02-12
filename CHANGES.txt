@@ -1,5 +1,8 @@
-3.0.17.12 (open)
+3.0.17.13 (open)
+
+3.0.17.12
 * <rdar://problem/47723470> CASSANDRA-15004: Anti-compaction briefly removes sstables from the read path
+* <rdar://problem/47299991> Backport CASSANDRA 14991 - SSL Hot Reloading fixes
 
 3.0.17.11
 * <rdar://problem/47671030> Backport CASSANDRA-15002: Avoid leaking threads when anticompaction fails
