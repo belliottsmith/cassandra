@@ -30,6 +30,8 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -40,12 +42,15 @@ import javax.net.ssl.SSLSocket;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 
+import io.netty.handler.ssl.OpenSsl;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.EncryptionOptions;
 import org.apache.cassandra.io.util.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -59,12 +64,14 @@ import com.google.common.collect.Sets;
 public final class SSLFactory
 {
     private static final Logger logger = LoggerFactory.getLogger(SSLFactory.class);
+
     private static boolean checkedExpiry = false;
 
+
     /**
-     * A cached reference of the {@link SSLContext} for client-facing, native protocol connections
+     * Cached references of SSL Contexts
      */
-    private static final AtomicReference<SSLContext> nativeProtocolSslContext = new AtomicReference<>();
+    private static final ConcurrentHashMap<EncryptionOptions, SSLContext> cachedSslContexts = new ConcurrentHashMap<>();
 
     /**
      * List of files that trigger hot reloading of SSL certificates
@@ -271,19 +278,20 @@ public final class SSLFactory
         return ret;
     }
 
-    public static SSLContext getSslContext(EncryptionOptions options, boolean buildTruststore) throws IOException {
+    public static SSLContext getOrCreateSslContext(EncryptionOptions options, boolean buildTruststore) throws IOException {
         SSLContext sslContext;
 
-        if ((sslContext = nativeProtocolSslContext.get()) != null)
+        sslContext = cachedSslContexts.get(options);
+        if (sslContext != null)
             return sslContext;
 
-        SSLContext ctx = createSSLContext(options, buildTruststore);
+        sslContext = createSSLContext(options, buildTruststore);
 
-        if (nativeProtocolSslContext.compareAndSet(null, ctx)) {
-            return ctx;
-        }
+        SSLContext previous = cachedSslContexts.putIfAbsent(options, sslContext);
+        if (previous == null)
+            return sslContext;
 
-        return nativeProtocolSslContext.get();
+        return previous;
     }
 
 
@@ -293,17 +301,25 @@ public final class SSLFactory
      * @throws IllegalStateException if {@link #initHotReloading(EncryptionOptions.ServerEncryptionOptions, EncryptionOptions, boolean)}
      * is not called first
      */
-    public static void checkCertFilesForHotReloading()
+    public static void checkCertFilesForHotReloading(EncryptionOptions.ServerEncryptionOptions serverOpts, EncryptionOptions clientOpts)
     {
         if (!isHotReloadingInitialized)
             throw new IllegalStateException("Hot reloading functionality has not been initialized.");
 
         logger.trace("Checking whether certificates have been updated");
 
-        if (hotReloadableFiles.stream().anyMatch(f -> f.shouldReload()))
+        if (hotReloadableFiles.stream().anyMatch(HotReloadableFile::shouldReload))
         {
             logger.info("Server ssl certificates have been updated. Reseting the context for new peer connections.");
-            nativeProtocolSslContext.set(null);
+            try
+            {
+                validateSslCerts(serverOpts, clientOpts);
+                cachedSslContexts.clear();
+            }
+            catch(Exception e)
+            {
+                logger.error("Failed to hot reload the SSL Certificates! Please check the certificate files.", e);
+            }
         }
     }
 
@@ -315,12 +331,14 @@ public final class SSLFactory
      */
     public static synchronized void initHotReloading(EncryptionOptions.ServerEncryptionOptions serverEncryptionOptions,
                                                      EncryptionOptions clientEncryptionOptions,
-                                                     boolean force)
+                                                     boolean force) throws IOException
     {
         if (isHotReloadingInitialized && !force)
             return;
 
         logger.debug("Initializing hot reloading SSLContext");
+
+        validateSslCerts(serverEncryptionOptions, clientEncryptionOptions);
 
         List<HotReloadableFile> fileList = new ArrayList<>();
 
@@ -328,6 +346,10 @@ public final class SSLFactory
         {
             fileList.add(new HotReloadableFile(serverEncryptionOptions.keystore));
             fileList.add(new HotReloadableFile(serverEncryptionOptions.truststore));
+        }
+
+        if (clientEncryptionOptions.enabled)
+        {
             fileList.add(new HotReloadableFile(clientEncryptionOptions.keystore));
             fileList.add(new HotReloadableFile(clientEncryptionOptions.truststore));
         }
@@ -336,12 +358,50 @@ public final class SSLFactory
 
         if (!isHotReloadingInitialized)
         {
-            ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(SSLFactory::checkCertFilesForHotReloading,
-                                                                     DEFAULT_HOT_RELOAD_INITIAL_DELAY_SEC,
-                                                                     DEFAULT_HOT_RELOAD_PERIOD_SEC, TimeUnit.SECONDS);
+            ScheduledExecutors.scheduledTasks
+                .scheduleWithFixedDelay(() -> checkCertFilesForHotReloading(
+                                                DatabaseDescriptor.getServerEncryptionOptions(),
+                                                DatabaseDescriptor.getClientEncryptionOptions()),
+                                        DEFAULT_HOT_RELOAD_INITIAL_DELAY_SEC,
+                                        DEFAULT_HOT_RELOAD_PERIOD_SEC, TimeUnit.SECONDS);
         }
 
         isHotReloadingInitialized = true;
     }
 
+    /**
+     * Sanity checks all certificates to ensure we can actually load them
+     */
+    public static void validateSslCerts(EncryptionOptions.ServerEncryptionOptions serverOpts, EncryptionOptions clientOpts) throws IOException
+    {
+        try
+        {
+            // Ensure we're able to create both server & client SslContexts
+            if (serverOpts != null && serverOpts.enabled)
+            {
+                SSLContext ctx = createSSLContext(serverOpts, true);
+                Preconditions.checkNotNull(ctx);
+                ctx.createSSLEngine();
+            }
+        }
+        catch (Exception e)
+        {
+            throw new IOException("Failed to create SSL context using server_encryption_options!", e);
+        }
+
+        try
+        {
+            // Ensure we're able to create both server & client SslContexts
+            if (clientOpts != null && clientOpts.enabled)
+            {
+                SSLContext ctx = createSSLContext(clientOpts, clientOpts.require_client_auth);
+                Preconditions.checkNotNull(ctx);
+                ctx.createSSLEngine();
+            }
+        }
+        catch (Exception e)
+        {
+            throw new IOException("Failed to create SSL context using client_encryption_options!", e);
+        }
+    }
 }

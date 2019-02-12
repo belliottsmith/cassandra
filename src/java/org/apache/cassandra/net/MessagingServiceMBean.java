@@ -19,6 +19,7 @@ package org.apache.cassandra.net;
 
 
 
+import java.io.IOException;
 import java.net.UnknownHostException;
 import java.util.Map;
 
@@ -90,5 +91,5 @@ public interface MessagingServiceMBean
 
     public int getVersion(String address) throws UnknownHostException;
 
-    void reloadSslCertificates();
+    void reloadSslCertificates() throws IOException;
 }

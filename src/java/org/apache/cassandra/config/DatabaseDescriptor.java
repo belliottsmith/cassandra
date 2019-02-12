@@ -305,7 +305,14 @@ public class DatabaseDescriptor
 
     public static void applySslContextHotReload()
     {
-        SSLFactory.initHotReloading(conf.server_encryption_options, conf.client_encryption_options, false);
+        try
+        {
+            SSLFactory.initHotReloading(conf.server_encryption_options, conf.client_encryption_options, false);
+        }
+        catch(IOException e)
+        {
+            throw new ConfigurationException("Failed to initialize SSL hot reloading", e);
+        }
     }
 
     public static void applyConfig(Config config) throws ConfigurationException

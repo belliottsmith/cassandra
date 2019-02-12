@@ -432,10 +432,11 @@ public class Server implements CassandraDaemon.Server
             this.encryptionOptions = encryptionOptions;
         }
 
-        protected final SslHandler createSslHandler() {
+        protected final SslHandler createSslHandler()
+        {
             try
             {
-                SSLEngine sslEngine = SSLFactory.getSslContext(encryptionOptions, encryptionOptions.require_client_auth).createSSLEngine();
+                SSLEngine sslEngine = SSLFactory.getOrCreateSslContext(encryptionOptions, encryptionOptions.require_client_auth).createSSLEngine();
                 sslEngine.setUseClientMode(false);
                 String[] suites = SSLFactory.filterCipherSuites(sslEngine.getSupportedCipherSuites(), encryptionOptions.cipher_suites);
                 sslEngine.setEnabledCipherSuites(suites);

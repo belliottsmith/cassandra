@@ -50,6 +50,7 @@ import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.concurrent.LocalAwareExecutorService;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.EncryptionOptions;
 import org.apache.cassandra.config.EncryptionOptions.ServerEncryptionOptions;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.batchlog.Batch;
@@ -1427,8 +1428,11 @@ public final class MessagingService implements MessagingServiceMBean
 
 
     @Override
-    public void reloadSslCertificates()
+    public void reloadSslCertificates() throws IOException
     {
-        SSLFactory.checkCertFilesForHotReloading();
+        final ServerEncryptionOptions serverOpts = DatabaseDescriptor.getServerEncryptionOptions();
+        final EncryptionOptions clientOpts = DatabaseDescriptor.getClientEncryptionOptions();
+        SSLFactory.validateSslCerts(serverOpts, clientOpts);
+        SSLFactory.checkCertFilesForHotReloading(serverOpts, clientOpts);
     }
 }
