@@ -32,11 +32,15 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.cql3.statements.IndexTarget;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.repair.AbstractRepairTest;
+import org.apache.cassandra.schema.IndexMetadata;
+import org.apache.cassandra.schema.Indexes;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.ActiveRepairService;
 
@@ -71,7 +75,14 @@ public abstract class AbstractPendingAntiCompactionTest
     {
         ks = "ks_" + System.currentTimeMillis();
         cfm = CFMetaData.compile(String.format("CREATE TABLE %s.%s (k INT PRIMARY KEY, v INT)", ks, tbl), ks);
+
         CFMetaData cfm2 = CFMetaData.compile(String.format("CREATE TABLE %s.%s (k INT PRIMARY KEY, v INT)", ks, tbl2), ks);
+        cfm2.indexes(cfm2.getIndexes().with(IndexMetadata.fromIndexTargets(cfm2,
+                                                                           Collections.singletonList(new IndexTarget(new ColumnIdentifier("v", true),
+                                                                                                                     IndexTarget.Type.VALUES)),
+                                                                           tbl2 + "_idx",
+                                                                           IndexMetadata.Kind.COMPOSITES, Collections.emptyMap())));
+
         SchemaLoader.createKeyspace(ks, KeyspaceParams.simple(1), cfm, cfm2);
         cfs = Schema.instance.getColumnFamilyStoreInstance(cfm.cfId);
         cfs2 = Schema.instance.getColumnFamilyStoreInstance(cfm2.cfId);
@@ -95,6 +106,11 @@ public abstract class AbstractPendingAntiCompactionTest
     }
 
     UUID prepareSession()
+    {
+        return prepareSession(cfs);
+    }
+
+    UUID prepareSession(ColumnFamilyStore cfs)
     {
         UUID sessionID = AbstractRepairTest.registerSession(cfs, true, true);
         LocalSessionAccessor.prepareUnsafe(sessionID, AbstractRepairTest.COORDINATOR, Sets.newHashSet(AbstractRepairTest.COORDINATOR));
