@@ -556,7 +556,7 @@ public class LocalSessions
 
                 try
                 {
-                    logger.debug("Prepare phase for incremental repair session {} completed", sessionID);
+                    logger.info("Prepare phase for incremental repair session {} completed", sessionID);
                     if (session.getState() != FAILED)
                     {
                         setStateAndSave(session, PREPARED);
@@ -564,7 +564,7 @@ public class LocalSessions
                     }
                     else
                     {
-                        logger.debug("Session {} failed before anticompaction completed", sessionID);
+                        logger.info("Session {} failed before anticompaction completed", sessionID);
                     }
                 }
                 finally
