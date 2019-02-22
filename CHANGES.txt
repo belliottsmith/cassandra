@@ -1,4 +1,10 @@
-3.0.17.13 (open)
+3.0.17.14 (open)
+
+3.0.17.13
+* <rdar://problem/48113316> CASSANDRA-15024: Don't try to cancel 2i compactions when starting anticompaction
+* <rdar://problem/48113314> CASSANDRA-15025: Avoid NPE in RepairRunnable.recordFailure
+* <rdar://problem/48072203> (Apple Internal) Bump log level for Prepare phase for incremental repair session {} completed again
+* <rdar://problem/48156138> CASSANDRA-15027: Fix IR prepare anti-compaction race
 
 3.0.17.12
 * <rdar://problem/47723470> CASSANDRA-15004: Anti-compaction briefly removes sstables from the read path
