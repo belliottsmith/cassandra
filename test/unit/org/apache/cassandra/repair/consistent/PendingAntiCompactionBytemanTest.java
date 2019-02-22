@@ -63,7 +63,7 @@ public class PendingAntiCompactionBytemanTest extends AbstractPendingAntiCompact
         UUID prsid = prepareSession();
         try
         {
-            PendingAntiCompaction pac = new PendingAntiCompaction(prsid, ranges, es);
+            PendingAntiCompaction pac = new PendingAntiCompaction(prsid, ranges, es, () -> false);
             pac.run().get();
             fail("PAC should throw exception when anticompaction throws exception!");
         }

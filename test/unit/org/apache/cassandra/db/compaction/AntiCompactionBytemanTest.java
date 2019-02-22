@@ -114,7 +114,7 @@ public class AntiCompactionBytemanTest extends CQLTester
 
         try (LifecycleTransaction txn = getCurrentColumnFamilyStore().getTracker().tryModify(getCurrentColumnFamilyStore().getLiveSSTables(), OperationType.ANTICOMPACTION))
         {
-            CompactionManager.instance.antiCompactGroup(getCurrentColumnFamilyStore(), Collections.singleton(toRepair), txn, 123, null);
+            CompactionManager.instance.antiCompactGroup(getCurrentColumnFamilyStore(), Collections.singleton(toRepair), txn, 123, null, () -> false);
         }
         finished.set(true);
         t.join();

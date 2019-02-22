@@ -253,7 +253,7 @@ public class CancelCompactionsTest extends CQLTester
             UUID prsid = UUID.randomUUID();
             ActiveRepairService.instance.registerParentRepairSession(prsid, FBUtilities.getBroadcastAddress(), Collections.singletonList(cfs), Collections.singleton(range), true, 1, true, PreviewKind.NONE);
 
-            PendingAntiCompaction pac = new PendingAntiCompaction(prsid, Collections.singleton(range), Executors.newSingleThreadExecutor());
+            PendingAntiCompaction pac = new PendingAntiCompaction(prsid, Collections.singleton(range), Executors.newSingleThreadExecutor(), () -> false);
             Future<?> fut = pac.run();
             Thread.sleep(600);
             List<TestCompactionTask> toAbort = new ArrayList<>();

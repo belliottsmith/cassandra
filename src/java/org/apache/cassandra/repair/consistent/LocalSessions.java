@@ -32,6 +32,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
@@ -485,11 +486,17 @@ public class LocalSessions
 
     public void failSession(UUID sessionID, boolean sendMessage)
     {
-        logger.info("Failing local repair session {}", sessionID);
         LocalSession session = getSession(sessionID);
         if (session != null)
         {
-            setStateAndSave(session, FAILED);
+            synchronized (session)
+            {
+                if (session.getState() != FAILED)
+                {
+                    logger.info("Failing local repair session {}", sessionID);
+                    setStateAndSave(session, FAILED);
+                }
+            }
             if (sendMessage)
             {
                 sendMessage(session.coordinator, new FailSession(sessionID));
@@ -508,9 +515,9 @@ public class LocalSessions
     }
 
     @VisibleForTesting
-    ListenableFuture submitPendingAntiCompaction(LocalSession session, ExecutorService executor)
+    ListenableFuture submitPendingAntiCompaction(LocalSession session, ExecutorService executor, BooleanSupplier isCancelled)
     {
-        PendingAntiCompaction pac = new PendingAntiCompaction(session.sessionID, session.ranges, executor);
+        PendingAntiCompaction pac = new PendingAntiCompaction(session.sessionID, session.ranges, executor, isCancelled);
         return pac.run();
     }
 
@@ -537,8 +544,8 @@ public class LocalSessions
         }
         catch (Throwable e)
         {
-            logger.trace("Error retrieving ParentRepairSession for session {}, responding with failure", sessionID);
-            sendMessage(coordinator, new FailSession(sessionID));
+            logger.error("Error retrieving ParentRepairSession for session {}, responding with failure", sessionID);
+            sendMessage(coordinator, new PrepareConsistentResponse(sessionID, getBroadcastAddress(), false));
             return;
         }
 
@@ -548,7 +555,7 @@ public class LocalSessions
 
         ExecutorService executor = Executors.newFixedThreadPool(parentSession.getColumnFamilyStores().size());
 
-        ListenableFuture pendingAntiCompaction = submitPendingAntiCompaction(session, executor);
+        ListenableFuture pendingAntiCompaction = submitPendingAntiCompaction(session, executor, () -> session.getState() != PREPARING);
         Futures.addCallback(pendingAntiCompaction, new FutureCallback()
         {
             public void onSuccess(@Nullable Object result)
@@ -565,6 +572,7 @@ public class LocalSessions
                     else
                     {
                         logger.info("Session {} failed before anticompaction completed", sessionID);
+                        sendMessage(coordinator, new PrepareConsistentResponse(sessionID, getBroadcastAddress(), false));
                     }
                 }
                 finally

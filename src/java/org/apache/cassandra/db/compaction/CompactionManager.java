@@ -24,6 +24,7 @@ import java.util.*;
 import java.util.concurrent.*;
 //import java.util.function.Predicate;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
@@ -595,7 +596,7 @@ public class CompactionManager implements CompactionManagerMBean
         }, jobs, OperationType.CLEANUP);
     }
 
-    public ListenableFuture<?> submitPendingAntiCompaction(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, Refs<SSTableReader> sstables, LifecycleTransaction txn, UUID pendingRepair, UUID parentRepairSession)
+    public ListenableFuture<?> submitPendingAntiCompaction(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, Refs<SSTableReader> sstables, LifecycleTransaction txn, UUID pendingRepair, UUID parentRepairSession, BooleanSupplier isCancelled)
     {
         Runnable runnable = new WrappedRunnable()
         {
@@ -603,7 +604,7 @@ public class CompactionManager implements CompactionManagerMBean
             {
                 try (TableMetrics.TableTimer.Context ctx = cfs.metric.anticompactionTime.time())
                 {
-                    performAnticompaction(cfs, ranges, sstables, txn, ActiveRepairService.UNREPAIRED_SSTABLE, pendingRepair, parentRepairSession);
+                    performAnticompaction(cfs, ranges, sstables, txn, ActiveRepairService.UNREPAIRED_SSTABLE, pendingRepair, parentRepairSession, isCancelled);
                 }
             }
         };
@@ -642,7 +643,8 @@ public class CompactionManager implements CompactionManagerMBean
                                       LifecycleTransaction txn,
                                       long repairedAt,
                                       UUID pendingRepair,
-                                      UUID parentRepairSession) throws InterruptedException, IOException
+                                      UUID parentRepairSession,
+                                      BooleanSupplier isCancelled) throws InterruptedException, IOException
     {
         try
         {
@@ -664,7 +666,7 @@ public class CompactionManager implements CompactionManagerMBean
             validatedForRepair.release(fullyContainedSSTables);
             assert txn.originals().equals(sstables);
             if (!sstables.isEmpty())
-                doAntiCompaction(cfs, ranges, txn, repairedAt, pendingRepair);
+                doAntiCompaction(cfs, ranges, txn, repairedAt, pendingRepair, isCancelled);
             txn.finish();
         }
         finally
@@ -1517,7 +1519,7 @@ public class CompactionManager implements CompactionManagerMBean
      * @param ranges Repaired ranges to be placed into one of the new sstables. The repaired table will be tracked via
      * the {@link org.apache.cassandra.io.sstable.metadata.StatsMetadata#repairedAt} field.
      */
-    private void doAntiCompaction(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, LifecycleTransaction repaired, long repairedAt, UUID pendingRepair)
+    private void doAntiCompaction(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, LifecycleTransaction repaired, long repairedAt, UUID pendingRepair, BooleanSupplier isCancelled)
     {
         int originalCount = repaired.originals().size();
         logger.info("Performing anticompaction on {} sstables", originalCount);
@@ -1539,7 +1541,7 @@ public class CompactionManager implements CompactionManagerMBean
         {
             try (LifecycleTransaction txn = repaired.split(sstableGroup))
             {
-                int antiCompacted = antiCompactGroup(cfs, ranges, txn, repairedAt, pendingRepair);
+                int antiCompacted = antiCompactGroup(cfs, ranges, txn, repairedAt, pendingRepair, isCancelled);
                 antiCompactedSSTableCount += antiCompacted;
             }
         }
@@ -1549,8 +1551,12 @@ public class CompactionManager implements CompactionManagerMBean
     }
 
     @VisibleForTesting
-    int antiCompactGroup(ColumnFamilyStore cfs, Collection<Range<Token>> ranges,
-                             LifecycleTransaction anticompactionGroup, long repairedAt, UUID pendingRepair)
+    int antiCompactGroup(ColumnFamilyStore cfs,
+                         Collection<Range<Token>> ranges,
+                         LifecycleTransaction anticompactionGroup,
+                         long repairedAt,
+                         UUID pendingRepair,
+                         BooleanSupplier isCancelled)
     {
         long groupMaxDataAge = -1;
 
@@ -1615,7 +1621,7 @@ public class CompactionManager implements CompactionManagerMBean
              SSTableRewriter unRepairedSSTableWriter = new SSTableRewriter(sharedTxn, groupMaxDataAge, false, false);
              AbstractCompactionStrategy.ScannerList scanners = strategy.getScanners(anticompactionGroup.originals());
              CompactionController controller = new CompactionController(cfs, sstableAsSet, getDefaultGcBefore(cfs, nowInSec));
-             CompactionIterator ci = getAntiCompactionIterator(scanners.scanners, controller, nowInSec, UUIDGen.getTimeUUID(), active))
+             CompactionIterator ci = getAntiCompactionIterator(scanners.scanners, controller, nowInSec, UUIDGen.getTimeUUID(), active, isCancelled))
         {
             int expectedBloomFilterSize = Math.max(cfs.metadata.params.minIndexInterval, (int)(SSTableReader.getApproximateKeyCount(sstableAsSet)));
 
@@ -1663,16 +1669,30 @@ public class CompactionManager implements CompactionManagerMBean
         }
         catch (Throwable e)
         {
-            JVMStabilityInspector.inspectThrowable(e);
-            logger.error("Error anticompacting " + anticompactionGroup, e);
+            if (e instanceof CompactionInterruptedException && isCancelled.getAsBoolean())
+            {
+                logger.info("Anticompaction has been canceled for session {}", pendingRepair);
+                logger.trace(e.getMessage(), e);
+            }
+            else
+            {
+                JVMStabilityInspector.inspectThrowable(e);
+                logger.error("Error anticompacting " + anticompactionGroup + " for " + pendingRepair, e);
+            }
             throw e;
         }
     }
 
     @VisibleForTesting
-    public static CompactionIterator getAntiCompactionIterator(List<ISSTableScanner> scanners, CompactionController controller, int nowInSec, UUID timeUUID, ActiveCompactionsTracker activeCompactions)
+    public static CompactionIterator getAntiCompactionIterator(List<ISSTableScanner> scanners, CompactionController controller, int nowInSec, UUID timeUUID, ActiveCompactionsTracker activeCompactions, BooleanSupplier isCancelled)
     {
-        return new CompactionIterator(OperationType.ANTICOMPACTION, scanners, controller, nowInSec, timeUUID, activeCompactions);
+        return new CompactionIterator(OperationType.ANTICOMPACTION, scanners, controller, nowInSec, timeUUID, activeCompactions) {
+
+            public boolean isStopRequested()
+            {
+                return super.isStopRequested() || isCancelled.getAsBoolean();
+            }
+        };
     }
 
     @VisibleForTesting

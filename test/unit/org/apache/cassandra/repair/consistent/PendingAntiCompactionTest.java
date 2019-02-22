@@ -33,6 +33,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
@@ -47,15 +48,11 @@ import com.google.common.util.concurrent.ListenableFutureTask;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import org.junit.Assert;
-import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.MockSchema;
-import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.compaction.AbstractPendingRepairTest;
@@ -74,9 +71,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.repair.AbstractRepairTest;
 import org.apache.cassandra.streaming.PreviewKind;
-import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
@@ -104,9 +99,9 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
 
     private static class InstrumentedAcquisitionCallback extends PendingAntiCompaction.AcquisitionCallback
     {
-        public InstrumentedAcquisitionCallback(UUID parentRepairSession, Collection<Range<Token>> ranges)
+        public InstrumentedAcquisitionCallback(UUID parentRepairSession, Collection<Range<Token>> ranges, BooleanSupplier isCancelled)
         {
-            super(parentRepairSession, ranges);
+            super(parentRepairSession, ranges, isCancelled);
         }
 
         Set<UUID> submittedCompactions = new HashSet<>();
@@ -153,7 +148,7 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try
         {
-            pac = new PendingAntiCompaction(sessionID, ranges, executor);
+            pac = new PendingAntiCompaction(sessionID, ranges, executor, () -> false);
             pac.run().get();
         }
         finally
@@ -309,7 +304,7 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
         PendingAntiCompaction.AcquireResult result = acquisitionCallable.call();
         Assert.assertNotNull(result);
 
-        InstrumentedAcquisitionCallback cb = new InstrumentedAcquisitionCallback(UUIDGen.getTimeUUID(), FULL_RANGE);
+        InstrumentedAcquisitionCallback cb = new InstrumentedAcquisitionCallback(UUIDGen.getTimeUUID(), FULL_RANGE, () -> false);
         Assert.assertTrue(cb.submittedCompactions.isEmpty());
         cb.apply(Lists.newArrayList(result));
 
@@ -333,7 +328,7 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
         Assert.assertNotNull(result);
         Assert.assertEquals(Transactional.AbstractTransactional.State.IN_PROGRESS, result.txn.state());
 
-        InstrumentedAcquisitionCallback cb = new InstrumentedAcquisitionCallback(UUIDGen.getTimeUUID(), FULL_RANGE);
+        InstrumentedAcquisitionCallback cb = new InstrumentedAcquisitionCallback(UUIDGen.getTimeUUID(), FULL_RANGE, () -> false);
         Assert.assertTrue(cb.submittedCompactions.isEmpty());
         cb.apply(Lists.newArrayList(result, null));
 
@@ -358,7 +353,7 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
         ColumnFamilyStore cfs2 = Schema.instance.getColumnFamilyStoreIncludingIndexes(Pair.create("system", "peers"));
         PendingAntiCompaction.AcquireResult fakeResult = new PendingAntiCompaction.AcquireResult(cfs2, null, null);
 
-        InstrumentedAcquisitionCallback cb = new InstrumentedAcquisitionCallback(UUIDGen.getTimeUUID(), FULL_RANGE);
+        InstrumentedAcquisitionCallback cb = new InstrumentedAcquisitionCallback(UUIDGen.getTimeUUID(), FULL_RANGE, () -> false);
         Assert.assertTrue(cb.submittedCompactions.isEmpty());
         cb.apply(Lists.newArrayList(result, fakeResult));
 
@@ -385,10 +380,35 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
                                                                  true,
                                                                  PreviewKind.NONE);
         CompactionManager.instance.performAnticompaction(result.cfs, FULL_RANGE, result.refs, result.txn,
-                                                         ActiveRepairService.UNREPAIRED_SSTABLE, sessionID, sessionID);
+                                                         ActiveRepairService.UNREPAIRED_SSTABLE, sessionID, sessionID, () -> false);
 
     }
 
+    @Test (expected = CompactionInterruptedException.class)
+    public void cancelledAntiCompaction() throws Exception
+    {
+        cfs.disableAutoCompaction();
+        makeSSTables(1);
+
+        PendingAntiCompaction.AcquisitionCallable acquisitionCallable = new PendingAntiCompaction.AcquisitionCallable(cfs, FULL_RANGE, UUIDGen.getTimeUUID(), 0, 0);
+        PendingAntiCompaction.AcquireResult result = acquisitionCallable.call();
+        UUID sessionID = UUIDGen.getTimeUUID();
+        ActiveRepairService.instance.registerParentRepairSession(sessionID,
+                                                                 InetAddress.getByName("127.0.0.1"),
+                                                                 Lists.newArrayList(cfs),
+                                                                 FULL_RANGE,
+                                                                 true,0,
+                                                                 true,
+                                                                 PreviewKind.NONE);
+
+        // attempt to anti-compact the sstable in half
+        SSTableReader sstable = Iterables.getOnlyElement(cfs.getLiveSSTables());
+        Token left = cfs.getPartitioner().midpoint(sstable.first.getToken(), sstable.last.getToken());
+        Token right = sstable.last.getToken();
+        CompactionManager.instance.performAnticompaction(result.cfs, Collections.singleton(new Range<>(left, right)),
+                                                         result.refs, result.txn, ActiveRepairService.UNREPAIRED_SSTABLE,
+                                                         sessionID, sessionID, () -> true);
+    }
 
     /**
      * Makes sure that PendingAntiCompaction fails when anticompaction throws exception
@@ -400,11 +420,11 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
         makeSSTables(2);
         UUID prsid = prepareSession();
         ListeningExecutorService es = MoreExecutors.listeningDecorator(MoreExecutors.newDirectExecutorService());
-        PendingAntiCompaction pac = new PendingAntiCompaction(prsid, FULL_RANGE, es) {
+        PendingAntiCompaction pac = new PendingAntiCompaction(prsid, FULL_RANGE, es, () -> false) {
             @Override
             protected AcquisitionCallback getAcquisitionCallback(UUID prsId, Collection<Range<Token>> tokenRanges)
             {
-                return new AcquisitionCallback(prsid, tokenRanges)
+                return new AcquisitionCallback(prsid, tokenRanges, () -> false)
                 {
                     @Override
                     ListenableFuture<?> submitPendingAntiCompaction(AcquireResult result)
@@ -447,13 +467,13 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
         {
             try (LifecycleTransaction txn = cfs.getTracker().tryModify(sstables, OperationType.ANTICOMPACTION);
                  CompactionController controller = new CompactionController(cfs, sstables, 0);
-                 CompactionIterator ci = CompactionManager.getAntiCompactionIterator(scanners, controller, 0, UUID.randomUUID(), CompactionManager.instance.active))
+                 CompactionIterator ci = CompactionManager.getAntiCompactionIterator(scanners, controller, 0, UUID.randomUUID(), CompactionManager.instance.active, () -> false))
             {
                 // `ci` is our imaginary ongoing anticompaction which makes no progress until after 30s
                 // now we try to start a new AC, which will try to cancel all ongoing compactions
 
                 CompactionManager.instance.active.beginCompaction(ci);
-                PendingAntiCompaction pac = new PendingAntiCompaction(prsid, FULL_RANGE, 0, 0, es);
+                PendingAntiCompaction pac = new PendingAntiCompaction(prsid, FULL_RANGE, 0, 0, es, () -> false);
                 ListenableFuture fut = pac.run();
                 try
                 {
@@ -509,7 +529,7 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
                 // now we try to start a new AC, which will try to cancel all ongoing compactions
 
                 CompactionManager.instance.active.beginCompaction(ci);
-                PendingAntiCompaction pac = new PendingAntiCompaction(prsid, FULL_RANGE, es);
+                PendingAntiCompaction pac = new PendingAntiCompaction(prsid, FULL_RANGE, es, () -> false);
                 ListenableFuture fut = pac.run();
                 try
                 {
@@ -712,7 +732,7 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
             // mark the sstables pending, with a 2i compaction going, which should be untouched;
             try (LifecycleTransaction txn = idx.getTracker().tryModify(idx.getLiveSSTables(), OperationType.COMPACTION))
             {
-                PendingAntiCompaction pac = new PendingAntiCompaction(prsid, FULL_RANGE, es);
+                PendingAntiCompaction pac = new PendingAntiCompaction(prsid, FULL_RANGE, es, () -> false);
                 pac.run().get();
             }
             // and make sure it succeeded;

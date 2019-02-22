@@ -26,6 +26,7 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
@@ -240,16 +241,18 @@ public class PendingAntiCompaction
     {
         private final UUID parentRepairSession;
         private final Collection<Range<Token>> tokenRanges;
+        private final BooleanSupplier isCancelled;
 
-        public AcquisitionCallback(UUID parentRepairSession, Collection<Range<Token>> tokenRanges)
+        public AcquisitionCallback(UUID parentRepairSession, Collection<Range<Token>> tokenRanges, BooleanSupplier isCancelled)
         {
             this.parentRepairSession = parentRepairSession;
             this.tokenRanges = tokenRanges;
+            this.isCancelled = isCancelled;
         }
 
         ListenableFuture<?> submitPendingAntiCompaction(AcquireResult result)
         {
-            return CompactionManager.instance.submitPendingAntiCompaction(result.cfs, tokenRanges, result.refs, result.txn, parentRepairSession, parentRepairSession);
+            return CompactionManager.instance.submitPendingAntiCompaction(result.cfs, tokenRanges, result.refs, result.txn, parentRepairSession, parentRepairSession, isCancelled);
         }
 
         private static boolean shouldAbort(AcquireResult result)
@@ -308,25 +311,29 @@ public class PendingAntiCompaction
     private final ExecutorService executor;
     private final int acquireRetrySeconds;
     private final int acquireSleepMillis;
+    private final BooleanSupplier isCancelled;
 
     public PendingAntiCompaction(UUID prsId,
                                  Collection<Range<Token>> ranges,
-                                 ExecutorService executor)
+                                 ExecutorService executor,
+                                 BooleanSupplier isCancelled)
     {
-        this(prsId, ranges, ACQUIRE_RETRY_SECONDS, ACQUIRE_SLEEP_MS, executor);
+        this(prsId, ranges, ACQUIRE_RETRY_SECONDS, ACQUIRE_SLEEP_MS, executor, isCancelled);
     }
 
     public PendingAntiCompaction(UUID prsId,
                                  Collection<Range<Token>> ranges,
                                  int acquireRetrySeconds,
                                  int acquireSleepMillis,
-                                 ExecutorService executor)
+                                 ExecutorService executor,
+                                 BooleanSupplier isCancelled)
     {
         this.prsId = prsId;
         this.ranges = ranges;
         this.acquireRetrySeconds = acquireRetrySeconds;
         this.acquireSleepMillis = acquireSleepMillis;
         this.executor = executor;
+        this.isCancelled = isCancelled;
     }
 
     public ListenableFuture run()
@@ -354,6 +361,6 @@ public class PendingAntiCompaction
     @VisibleForTesting
     protected AcquisitionCallback getAcquisitionCallback(UUID prsId, Collection<Range<Token>> tokenRanges)
     {
-        return new AcquisitionCallback(prsId, tokenRanges);
+        return new AcquisitionCallback(prsId, tokenRanges, isCancelled);
     }
 }
