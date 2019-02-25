@@ -27,13 +27,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 import org.apache.log4j.LogManager;
-import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
@@ -68,6 +68,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.net.IMessageSink;
 import org.apache.cassandra.net.MessageDeliveryTask;
 import org.apache.cassandra.net.MessageIn;
@@ -356,9 +357,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         }
     }
 
-    public void shutdown()
+    public Future<Void> shutdown()
     {
-        sync((ExecutorService executor) -> {
+        Future<?> future = async((ExecutorService executor) -> {
             Throwable error = null;
             error = parallelRun(error, executor,
                     Gossiper.instance::stop,
@@ -388,7 +389,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             LogManager.shutdown();
             super.shutdown();
             Throwables.maybeFail(error);
-        }).accept(isolatedExecutor);
+        }).apply(isolatedExecutor);
+
+        return CompletableFuture.runAsync(ThrowingRunnable.toRunnable(future::get), isolatedExecutor)
+                                .thenRun(super::shutdown);
     }
 
     private static Throwable parallelRun(Throwable accumulate, ExecutorService runOn, ThrowingRunnable ... runnables)
@@ -422,10 +426,5 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             }
         }
         return accumulate;
-    }
-
-    public static interface ThrowingRunnable
-    {
-        public void run() throws Throwable;
     }
 }
