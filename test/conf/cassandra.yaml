@@ -52,5 +52,8 @@ enable_sasi_indexes: true
 enable_materialized_views: true
 file_cache_enabled: true
 disable_schema_drop_check: true
+custom_functions:
+    - com.example.SomeCustomFcts
+    - com.example.MoreCustomFcts
 enable_secondary_index: true
 enable_christmas_patch: false
