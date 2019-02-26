@@ -57,5 +57,8 @@ client_track_warnings_enabled: true
 client_large_read_warn_threshold_kb: 1024
 client_large_read_abort_threshold_kb: 4096
 disable_schema_drop_check: true
+custom_functions:
+    - com.example.SomeCustomFcts
+    - com.example.MoreCustomFcts
 enable_secondary_index: true
 enable_christmas_patch: false
