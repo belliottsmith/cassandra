@@ -3228,6 +3228,11 @@ public class DatabaseDescriptor
         }
     }
 
+    public static Set<String> getCustomFunctions()
+    {
+        return conf.custom_functions;
+    }
+
     public static boolean disableIncrementalRepair()
     {
         return conf.disable_incremental_repair;
