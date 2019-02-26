@@ -59,6 +59,7 @@ import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.functions.AggregateFcts;
 import org.apache.cassandra.cql3.functions.BytesConversionFcts;
 import org.apache.cassandra.cql3.functions.CastFcts;
+import org.apache.cassandra.cql3.functions.CustomFcts;
 import org.apache.cassandra.cql3.functions.OperationFcts;
 import org.apache.cassandra.cql3.functions.TimeFcts;
 import org.apache.cassandra.cql3.functions.UuidFcts;
@@ -598,6 +599,7 @@ public final class SystemKeyspace
                         .add(AggregateFcts.all())
                         .add(CastFcts.all())
                         .add(OperationFcts.all())
+                        .add(CustomFcts.all())
                         .build();
     }
 
