@@ -20,6 +20,7 @@ package org.apache.cassandra.config;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -519,6 +520,12 @@ public class Config
     public Boolean enable_shadow_christmas_patch = false;
 
     public volatile boolean compact_biggest_stcs_bucket_l0 = false;
+
+    /**
+     * Class names to look for custom functions in.  They must define a static @code{Collection<Function> all()}
+     * that returns the custom functions to add.
+     */
+    public Set<String> custom_functions = new HashSet<>();
 
     public volatile boolean enable_secondary_index = Boolean.getBoolean("cassandra.enable_secondary_index");
 
