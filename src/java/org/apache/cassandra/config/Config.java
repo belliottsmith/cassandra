@@ -20,6 +20,7 @@ package org.apache.cassandra.config;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -439,6 +440,12 @@ public class Config
     public volatile boolean skip_single_sstable_scheduled_compactions = true;
     public volatile long max_scheduled_compaction_sstable_size_bytes = 10240 * 1024L * 1024L;
     public volatile int max_scheduled_compaction_sstable_count = 40;
+
+    /**
+     * Class names to look for custom functions in.  They must define a static @code{Collection<Function> all()}
+     * that returns the custom functions to add.
+     */
+    public Set<String> custom_functions = new HashSet<>();
 
     public static boolean getOutboundBindAny()
     {

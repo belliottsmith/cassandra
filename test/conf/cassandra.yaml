@@ -43,3 +43,6 @@ enable_user_defined_functions: true
 enable_scripted_user_defined_functions: true
 disable_schema_drop_check: true
 corrupted_tombstone_strategy: exception
+custom_functions:
+    - com.example.SomeCustomFcts
+    - com.example.MoreCustomFcts

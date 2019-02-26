@@ -2754,4 +2754,9 @@ public class DatabaseDescriptor
     {
         return strictRuntimeChecks;
     }
+
+    public static Set<String> getCustomFunctions()
+    {
+        return conf.custom_functions;
+    }
 }
