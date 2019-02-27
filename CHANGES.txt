@@ -1,4 +1,7 @@
-3.0.17.14 (open)
+3.0.17.15 (open)
+
+3.0.17.14
+* <rdar://problem/48394821> Backport CASSANDRA-15036: Avoid ConcurrentModificationException when cancelling compactions
 
 3.0.17.13
 * <rdar://problem/48113316> CASSANDRA-15024: Don't try to cancel 2i compactions when starting anticompaction
