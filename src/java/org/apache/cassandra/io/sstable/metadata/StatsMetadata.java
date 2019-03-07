@@ -110,7 +110,7 @@ public class StatsMetadata extends MetadataComponent
         this.totalRows = totalRows;
         this.pendingRepair = pendingRepair;
         this.isTransient = isTransient;
-        encodingStats = new EncodingStats(minTimestamp, minLocalDeletionTime, minTTL);
+        this.encodingStats = new EncodingStats(minTimestamp, minLocalDeletionTime, minTTL);
     }
 
     public MetadataType getType()
