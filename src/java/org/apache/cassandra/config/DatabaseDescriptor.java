@@ -2829,4 +2829,15 @@ public class DatabaseDescriptor
     {
         conf.report_unconfirmed_repaired_data_mismatches = enabled;
     }
+
+    public static boolean useOffheapMerkleTrees()
+    {
+        return conf.use_offheap_merkle_trees;
+    }
+
+    public static void useOffheapMerkleTrees(boolean value)
+    {
+        logger.info("Setting use_offheap_merkle_trees to {}", value);
+        conf.use_offheap_merkle_trees = value;
+    }
 }

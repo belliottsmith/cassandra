@@ -208,7 +208,9 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
                 syncTasks.add(task);
                 taskExecutor.submit(task);
             }
+            trees.get(i).trees.release();
         }
+        trees.get(trees.size() - 1).trees.release();
         logger.info("Created {} sync tasks based on {} merkle tree responses (took: {}ms)", syncTasks.size(), trees.size(), System.currentTimeMillis() - startedAt);
         return syncTasks;
     }

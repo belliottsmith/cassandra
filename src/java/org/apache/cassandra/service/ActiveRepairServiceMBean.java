@@ -30,4 +30,7 @@ public interface ActiveRepairServiceMBean
 
     public boolean getDebugValidationPreviewEnabled();
     public void setDebugValidationPreviewEnabled(boolean enabled);
+
+    public boolean getUseOffheapMerkleTrees();
+    public void setUseOffheapMerkleTrees(boolean value);
 }

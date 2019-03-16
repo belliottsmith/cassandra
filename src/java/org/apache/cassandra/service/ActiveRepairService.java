@@ -260,6 +260,16 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         return session;
     }
 
+    public boolean getUseOffheapMerkleTrees()
+    {
+        return DatabaseDescriptor.useOffheapMerkleTrees();
+    }
+
+    public void setUseOffheapMerkleTrees(boolean value)
+    {
+        DatabaseDescriptor.useOffheapMerkleTrees(value);
+    }
+
     private <T extends AbstractFuture &
                IEndpointStateChangeSubscriber &
                IFailureDetectionEventListener> void registerOnFdAndGossip(final T task)

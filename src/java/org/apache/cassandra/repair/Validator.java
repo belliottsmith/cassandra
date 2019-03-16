@@ -19,11 +19,10 @@ package org.apache.cassandra.repair;
 
 import java.net.InetAddress;
 import java.security.MessageDigest;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-
-import com.google.common.annotations.VisibleForTesting;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +37,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.ValidationComplete;
 import org.apache.cassandra.streaming.PreviewKind;
+import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTree;
@@ -144,7 +144,7 @@ public class Validator implements Runnable
             }
         }
         logger.debug("Prepared AEService trees of size {} for {}", trees.size(), desc);
-        ranges = tree.invalids();
+        ranges = tree.rangeIterator();
     }
 
     /**
@@ -165,7 +165,7 @@ public class Validator implements Runnable
         if (!findCorrectRange(lastKey.getToken()))
         {
             // add the empty hash, and move to the next range
-            ranges = trees.invalids();
+            ranges = trees.rangeIterator();
             findCorrectRange(lastKey.getToken());
         }
 
@@ -244,9 +244,7 @@ public class Validator implements Runnable
      */
     public void complete()
     {
-        completeTree();
-
-        StageManager.getStage(Stage.ANTI_ENTROPY).execute(this);
+        assert ranges != null : "Validator was not prepared()";
 
         if (logger.isDebugEnabled())
         {
@@ -256,20 +254,8 @@ public class Validator implements Runnable
             logger.debug("Validated {} partitions for {}.  Partition sizes are:", validated, desc.sessionId);
             trees.logRowSizePerLeaf(logger);
         }
-    }
 
-    @VisibleForTesting
-    public void completeTree()
-    {
-        assert ranges != null : "Validator was not prepared()";
-
-        ranges = trees.invalids();
-
-        while (ranges.hasNext())
-        {
-            range = ranges.next();
-            range.ensureHashInitialised();
-        }
+        StageManager.getStage(Stage.ANTI_ENTROPY).execute(this);
     }
 
     /**
@@ -280,8 +266,7 @@ public class Validator implements Runnable
     public void fail()
     {
         logger.error("Failed creating a merkle tree for {}, {} (see log for details)", desc, initiator);
-        // send fail message only to nodes >= version 2.0
-        MessagingService.instance().sendOneWay(new ValidationComplete(desc).createMessage(), initiator);
+        respond(new ValidationComplete(desc));
     }
 
     /**
@@ -289,12 +274,51 @@ public class Validator implements Runnable
      */
     public void run()
     {
-        // respond to the request that triggered this validation
-        if (!initiator.equals(FBUtilities.getBroadcastAddress()))
+        if (initiatorIsRemote())
         {
             logger.info("{} Sending completed merkle tree to {} for {}.{}", previewKind.logPrefix(desc.sessionId), initiator, desc.keyspace, desc.columnFamily);
             Tracing.traceRepair("Sending completed merkle tree to {} for {}.{}", initiator, desc.keyspace, desc.columnFamily);
         }
-        MessagingService.instance().sendOneWay(new ValidationComplete(desc, trees).createMessage(), initiator);
+        else
+        {
+            logger.info("{} Local completed merkle tree for {} for {}.{}", previewKind.logPrefix(desc.sessionId), initiator, desc.keyspace, desc.columnFamily);
+            Tracing.traceRepair("Local completed merkle tree for {} for {}.{}", initiator, desc.keyspace, desc.columnFamily);
+
+        }
+        respond(new ValidationComplete(desc, trees));
+    }
+
+    private boolean initiatorIsRemote()
+    {
+        return !FBUtilities.getBroadcastAddress().equals(initiator);
+    }
+
+    private void respond(ValidationComplete response)
+    {
+        if (initiatorIsRemote())
+        {
+            MessagingService.instance().sendOneWay(response.createMessage(), initiator);
+            return;
+        }
+
+        /*
+         * For local initiators, DO NOT send the message to self over loopback. This is a wasted ser/de loop
+         * and a ton of garbage. Instead, move the trees off heap and invoke message handler. We could do it
+         * directly, since this method will only be called from {@code Stage.ENTI_ENTROPY}, but we do instead
+         * execute a {@code Runnable} on the stage - in case that assumption ever changes by accident.
+         */
+        StageManager.getStage(Stage.ANTI_ENTROPY).execute(() ->
+        {
+            ValidationComplete movedResponse = response;
+            try
+            {
+                movedResponse = response.tryMoveOffHeap();
+            }
+            catch (IOException e)
+            {
+                logger.error("Failed to move local merkle tree for {} off heap", desc, e);
+            }
+            ActiveRepairService.instance.handleMessage(initiator, movedResponse);
+        });
     }
 }
