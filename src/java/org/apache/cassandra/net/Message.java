@@ -70,6 +70,7 @@ public class Message<T>
      * The amount of prefix data, in bytes, before the serialized message.
      */
     private static final int PRE_40_MESSAGE_PREFIX_SIZE = 12;
+    private static final EnumMap<ParameterType, Object> NO_PARAMETERS = new EnumMap<>(ParameterType.class);
 
     /**
      * we preface every message with this number so the recipient can validate the sender is sane
@@ -271,16 +272,15 @@ public class Message<T>
 
     private static Map<ParameterType, Object> buildParameters(ParameterType type, Object value)
     {
-        Map<ParameterType, Object> parameters = Collections.emptyMap();
+        Map<ParameterType, Object> parameters = NO_PARAMETERS;
         if (Tracing.isTracing())
             parameters = Tracing.instance.addTraceHeaders(new EnumMap<>(ParameterType.class));
 
         if (type != null)
         {
             if (parameters.isEmpty())
-                parameters = Collections.singletonMap(type, value);
-            else
-                parameters.put(type, value);
+                parameters = new EnumMap<>(ParameterType.class);
+            parameters.put(type, value);
         }
 
         return parameters;
@@ -291,12 +291,9 @@ public class Message<T>
         if (type == null)
             return parameters;
 
-        if (parameters.isEmpty())
-            return Collections.singletonMap(type, value);
-
-        Map<ParameterType, Object> result = new EnumMap<>(parameters);
-        result.put(type, value);
-        return result;
+        parameters = new EnumMap<>(parameters);
+        parameters.put(type, value);
+        return parameters;
     }
 
     public Message<T> withFlag(MessageFlag flag)
@@ -940,7 +937,7 @@ public class Message<T>
                 : in.readInt();
 
             if (count == 0)
-                return Collections.emptyMap();
+                return NO_PARAMETERS;
 
             Map<ParameterType, Object> params = new EnumMap<>(ParameterType.class);
 
