@@ -326,7 +326,6 @@ public class NettyStreamingMessageSender implements StreamingMessageSender
                 try (DataOutputStreamPlus outPlus = new AsyncStreamingOutputPlus(channel))
                 {
                     StreamMessage.serialize(msg, outPlus, streamingVersion, session);
-                    channel.flush();
                 }
                 finally
                 {
