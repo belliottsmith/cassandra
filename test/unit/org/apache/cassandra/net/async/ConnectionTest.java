@@ -51,6 +51,7 @@ import io.netty.channel.ChannelPromise;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.EncryptionOptions;
 import org.apache.cassandra.exceptions.RequestFailureReason;
+import org.apache.cassandra.gms.GossipDigestSyn;
 import org.apache.cassandra.io.IVersionedAsymmetricSerializer;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
@@ -821,12 +822,20 @@ public class ConnectionTest
         Assert.assertTrue(outbound.isConnected());
     }
 
-    @Test
-    public void burnTest()
+    public void burnTest() throws Throwable
     {
+        int i = 0;
         while (true)
         {
-
+            System.out.println(++i);
+            doTest(Settings.SMALL, (inbound, outbound, endpoint) -> {
+                outbound.enqueue(Message.out(Verb.GOSSIP_DIGEST_SYN,
+                                             new GossipDigestSyn(DatabaseDescriptor.getClusterName(),
+                                                                 DatabaseDescriptor.getPartitionerName(),
+                                                                 new ArrayList<>())));
+                while (inbound.processedCount() < 1)
+                    Thread.sleep(1);
+            });
         }
     }
 
