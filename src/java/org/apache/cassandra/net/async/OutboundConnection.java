@@ -624,6 +624,8 @@ public class OutboundConnection
             if (!isWritable)
                 return false;
 
+            // queueSizeInBytes is updated before queue.size() (which triggers notEmpty, and begins delivery),
+            // so it is safe to use it here to exit delivery
             int maxSendBytes = (int) min(queueSizeInBytes - flushingBytes, LARGE_MESSAGE_THRESHOLD);
             if (maxSendBytes == 0)
                 return false;
