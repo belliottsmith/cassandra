@@ -19,7 +19,6 @@ package org.apache.cassandra.net;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -380,13 +379,6 @@ public class Message<T>
     private static int addFlag(int flags, MessageFlag flag)
     {
         return flags | (1 << flag.ordinal());
-    }
-
-    private static void forEachFlag(int flags, Consumer<MessageFlag> consumer)
-    {
-        for (MessageFlag flag : MessageFlag.ALL_VALUES)
-            if (containsFlag(flags, flag))
-                consumer.accept(flag);
     }
 
     /*
@@ -875,11 +867,19 @@ public class Message<T>
 
             Map<ParameterType, Object> extended = new EnumMap<>(ParameterType.class);
             extended.putAll(params);
-            forEachFlag(flags, f ->
+
+            for (MessageFlag flag : MessageFlag.ALL_VALUES)
             {
-                if (f.legacyParam != null)
-                    extended.put(f.legacyParam, f.legacyValue);
-            });
+                if (containsFlag(flags, flag))
+                {
+                    if (flag == MessageFlag.CALL_BACK_ON_FAILURE)
+                        extended.put(ParameterType.FAILURE_CALLBACK, ONE_BYTE);
+
+                    if (flag == MessageFlag.TRACK_REPAIRED_DATA)
+                        extended.put(ParameterType.TRACK_REPAIRED_DATA, ONE_BYTE);
+                }
+            }
+
             return extended;
         }
 
@@ -893,9 +893,16 @@ public class Message<T>
             while (iter.hasNext())
             {
                 ParameterType type = iter.next();
-                if (type.flagEquivalent != null)
+
+                if (type == ParameterType.FAILURE_CALLBACK)
                 {
-                    flags = addFlag(flags, type.flagEquivalent);
+                    flags = addFlag(flags, MessageFlag.CALL_BACK_ON_FAILURE);
+                    iter.remove();
+                }
+
+                if (type == ParameterType.TRACK_REPAIRED_DATA)
+                {
+                    flags = addFlag(flags, MessageFlag.TRACK_REPAIRED_DATA);
                     iter.remove();
                 }
             }
