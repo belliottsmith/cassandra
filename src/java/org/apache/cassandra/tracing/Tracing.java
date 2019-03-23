@@ -23,7 +23,6 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,7 +40,7 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.Message;
-import org.apache.cassandra.net.ParameterType;
+import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.UUIDGen;
@@ -303,12 +302,12 @@ public abstract class Tracing implements ExecutorLocal<TraceState>
         }
     }
 
-    public Map<ParameterType, Object> addTraceHeaders(Map<ParameterType, Object> addToMutable)
+    public Map<ParamType, Object> addTraceHeaders(Map<ParamType, Object> addToMutable)
     {
         assert isTracing();
 
-        addToMutable.put(ParameterType.TRACE_SESSION, Tracing.instance.getSessionId());
-        addToMutable.put(ParameterType.TRACE_TYPE, Tracing.instance.getTraceType());
+        addToMutable.put(ParamType.TRACE_SESSION, Tracing.instance.getSessionId());
+        addToMutable.put(ParamType.TRACE_TYPE, Tracing.instance.getTraceType());
         return addToMutable;
     }
 

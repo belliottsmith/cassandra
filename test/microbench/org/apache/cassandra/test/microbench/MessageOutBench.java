@@ -35,7 +35,7 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.NoPayload;
-import org.apache.cassandra.net.ParameterType;
+import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.utils.UUIDGen;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -72,11 +72,11 @@ public class MessageOutBench
         DatabaseDescriptor.daemonInitialization();
 
         UUID uuid = UUIDGen.getTimeUUID();
-        Map<ParameterType, Object> parameters = new EnumMap<>(ParameterType.class);
+        Map<ParamType, Object> parameters = new EnumMap<>(ParamType.class);
 
         if (withParams)
         {
-            parameters.put(ParameterType.TRACE_SESSION, uuid);
+            parameters.put(ParamType.TRACE_SESSION, uuid);
         }
 
         addr = InetAddressAndPort.getByAddress(InetAddresses.forString("127.0.73.101"));

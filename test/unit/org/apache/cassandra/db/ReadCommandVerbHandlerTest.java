@@ -37,7 +37,7 @@ import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessageFlag;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.net.ParameterType;
+import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.StorageService;
@@ -109,7 +109,7 @@ public class ReadCommandVerbHandlerTest
         handler.doVerb(Message.builder(READ_REQ, command)
                               .from(peer())
                               .withId(messageId())
-                              .withParameter(ParameterType.TRACE_SESSION, UUID.randomUUID())
+                              .withParam(ParamType.TRACE_SESSION, UUID.randomUUID())
                               .build());
         assertFalse(command.isTrackingRepairedStatus());
     }

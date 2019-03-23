@@ -33,7 +33,7 @@ import static java.lang.Math.max;
 /**
  * Type names and serializers for various parameters that
  */
-public enum ParameterType
+public enum ParamType
 {
     FORWARD_TO          (0, "FORWARD_TO",    ForwardToSerializer.instance),
     FORWARDED_FROM      (1, "FORWARD_FROM",  CompactEndpointSerializationHelper.instance),
@@ -55,38 +55,38 @@ public enum ParameterType
     public final String legacyAlias;
     public final IVersionedSerializer serializer;
 
-    private static final ParameterType[] idToTypeMap;
-    private static final Map<String, ParameterType> aliasToTypeMap;
+    private static final ParamType[] idToTypeMap;
+    private static final Map<String, ParamType> aliasToTypeMap;
 
     static
     {
-        ParameterType[] types = values();
+        ParamType[] types = values();
 
         int max = -1;
-        for (ParameterType t : types)
+        for (ParamType t : types)
             max = max(t.id, max);
 
-        ParameterType[] idMap = new ParameterType[max + 1];
-        Map<String, ParameterType> aliasMap = new HashMap<>();
+        ParamType[] idMap = new ParamType[max + 1];
+        Map<String, ParamType> aliasMap = new HashMap<>();
 
-        for (ParameterType type : types)
+        for (ParamType type : types)
         {
             if (idMap[type.id] != null)
-                throw new RuntimeException("Two ParamaterType-s that map to the same id: " + type.id);
+                throw new RuntimeException("Two ParamType-s that map to the same id: " + type.id);
             idMap[type.id] = type;
 
             if (aliasMap.put(type.legacyAlias, type) != null)
-                throw new RuntimeException("Two ParamaterType-s that map to the same legacy alias: " + type.legacyAlias);
+                throw new RuntimeException("Two ParamType-s that map to the same legacy alias: " + type.legacyAlias);
         }
 
         idToTypeMap = idMap;
         aliasToTypeMap = aliasMap;
     }
 
-    ParameterType(int id, String legacyAlias, IVersionedSerializer serializer)
+    ParamType(int id, String legacyAlias, IVersionedSerializer serializer)
     {
         if (id < 0)
-            throw new IllegalArgumentException("ParameterType id must be non-negative");
+            throw new IllegalArgumentException("ParamType id must be non-negative");
 
         this.id = id;
         this.legacyAlias = legacyAlias;
@@ -94,16 +94,16 @@ public enum ParameterType
     }
 
     @Nullable
-    public static ParameterType lookUpById(int id)
+    public static ParamType lookUpById(int id)
     {
         if (id < 0)
-            throw new IllegalArgumentException("ParameterType id must be non-negative (got " + id + ')');
+            throw new IllegalArgumentException("ParamType id must be non-negative (got " + id + ')');
 
         return id < idToTypeMap.length ? idToTypeMap[id] : null;
     }
 
     @Nullable
-    public static ParameterType lookUpByAlias(String alias)
+    public static ParamType lookUpByAlias(String alias)
     {
         return aliasToTypeMap.get(alias);
     }

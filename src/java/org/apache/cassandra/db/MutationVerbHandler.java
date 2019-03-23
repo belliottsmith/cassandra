@@ -73,7 +73,7 @@ public class MutationVerbHandler implements IVerbHandler<Mutation>
     private static void forwardToLocalNodes(Mutation mutation, Verb verb, ForwardToContainer forwardTo, InetAddressAndPort from)
     {
         // tell the recipients who to send their ack to
-        Message<Mutation> message = Message.outWithParameter(verb, mutation, ParameterType.FORWARDED_FROM, from);
+        Message<Mutation> message = Message.outWithParam(verb, mutation, ParamType.FORWARDED_FROM, from);
         Iterator<InetAddressAndPort> iterator = forwardTo.targets.iterator();
         // Send a message to each of the addresses on our Forward List
         for (int i = 0; i < forwardTo.targets.size(); i++)

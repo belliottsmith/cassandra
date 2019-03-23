@@ -1305,7 +1305,7 @@ public class StorageProxy implements StorageProxyMBean
             logger.trace("Adding FWD message to {}@{}", id, destination);
         }
 
-        message = message.withParameter(ParameterType.FORWARD_TO, new ForwardToContainer(targets.endpointList(), messageIds));
+        message = message.withParam(ParamType.FORWARD_TO, new ForwardToContainer(targets.endpointList(), messageIds));
         // send the combined message + forward headers
         long id = MessagingService.instance().sendWriteRR(message, target, handler, true);
         logger.trace("Sending message to {}@{}", id, target);

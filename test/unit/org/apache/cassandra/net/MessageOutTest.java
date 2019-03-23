@@ -30,7 +30,7 @@ import org.apache.cassandra.tracing.Tracing;
 
 import static org.apache.cassandra.net.NoPayload.noPayload;
 import static org.apache.cassandra.net.Verb.INTERNAL_RSP;
-import static org.apache.cassandra.net.ParameterType.TRACE_SESSION;
+import static org.apache.cassandra.net.ParamType.TRACE_SESSION;
 
 // TOOD: These tests don't really do much?
 public class MessageOutTest
@@ -47,7 +47,7 @@ public class MessageOutTest
     @Test
     public void captureTracingInfo_ForceException()
     {
-        Message message = Message.outWithParameter(0, INTERNAL_RSP, 0, noPayload, TRACE_SESSION, new byte[9]);
+        Message message = Message.outWithParam(0, INTERNAL_RSP, 0, noPayload, TRACE_SESSION, new byte[9]);
         Tracing.instance.traceOutgoingMessage(message, endpoint);
     }
 
@@ -55,7 +55,7 @@ public class MessageOutTest
     public void captureTracingInfo_UnknownSession()
     {
         UUID uuid = UUID.randomUUID();
-        Message message = Message.outWithParameter(0, INTERNAL_RSP, 0, noPayload, TRACE_SESSION, uuid);
+        Message message = Message.outWithParam(0, INTERNAL_RSP, 0, noPayload, TRACE_SESSION, uuid);
         Tracing.instance.traceOutgoingMessage(message, endpoint);
     }
 
@@ -63,7 +63,7 @@ public class MessageOutTest
     public void captureTracingInfo_KnownSession()
     {
         Tracing.instance.newSession(new HashMap<>());
-        Message message = Message.outWithParameter(0, Verb.REQUEST_RSP, 0, noPayload, null, null);
+        Message message = Message.outWithParam(0, Verb.REQUEST_RSP, 0, noPayload, null, null);
         Tracing.instance.traceOutgoingMessage(message, endpoint);
     }
 }

@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
 
 import javax.annotation.Nullable;
 
@@ -69,7 +68,7 @@ public class Message<T>
      * The amount of prefix data, in bytes, before the serialized message.
      */
     private static final int PRE_40_MESSAGE_PREFIX_SIZE = 12;
-    private static final EnumMap<ParameterType, Object> NO_PARAMETERS = new EnumMap<>(ParameterType.class);
+    private static final EnumMap<ParamType, Object> NO_PARAMS = new EnumMap<>(ParamType.class);
 
     /**
      * we preface every message with this number so the recipient can validate the sender is sane
@@ -87,12 +86,12 @@ public class Message<T>
     public final T payload;
 
     private final int flags;
-    private final Map<ParameterType, Object> parameters;
+    private final Map<ParamType, Object> params;
 
     private Message(InetAddressAndPort from,
                     T payload,
                     int flags,
-                    Map<ParameterType, Object> parameters,
+                    Map<ParamType, Object> params,
                     Verb verb,
                     long createdAtNanos,
                     long expiresAtNanos,
@@ -101,7 +100,7 @@ public class Message<T>
         this.from = from;
         this.payload = payload;
         this.flags = flags;
-        this.parameters = parameters;
+        this.params = params;
         this.verb = verb;
         this.createdAtNanos = createdAtNanos;
         this.expiresAtNanos = expiresAtNanos;
@@ -114,7 +113,7 @@ public class Message<T>
         private InetAddressAndPort from;
         private T payload;
         private int flags = noFlags();
-        private final Map<ParameterType, Object> parameters = new EnumMap<>(ParameterType.class);
+        private final Map<ParamType, Object> params = new EnumMap<>(ParamType.class);
         private long createdAtNanos;
         private long expiresAtNanos;
         private long id;
@@ -141,15 +140,15 @@ public class Message<T>
             return this;
         }
 
-        public Builder<T> withParameter(ParameterType type, Object value)
+        public Builder<T> withParam(ParamType type, Object value)
         {
-            parameters.put(type, value);
+            params.put(type, value);
             return this;
         }
 
-        public Builder<T> withParameters(Map<ParameterType, Object> parameters)
+        public Builder<T> withParams(Map<ParamType, Object> params)
         {
-            this.parameters.putAll(parameters);
+            this.params.putAll(params);
             return this;
         }
 
@@ -197,22 +196,22 @@ public class Message<T>
 
         public Message<T> buildUnsafe()
         {
-            return new Message<>(from, payload, flags, parameters, verb, createdAtNanos, expiresAtNanos, id);
+            return new Message<>(from, payload, flags, params, verb, createdAtNanos, expiresAtNanos, id);
         }
     }
 
     public static <T> Message<T> out(Verb verb, T payload)
     {
-        return outWithParameter(verb, payload, null, null);
+        return outWithParam(verb, payload, null, null);
     }
 
-    public static <T> Message<T> outWithParameter(Verb verb, T payload, ParameterType parameterType, Object parameterValue)
+    public static <T> Message<T> outWithParam(Verb verb, T payload, ParamType paramType, Object paramValue)
     {
         assert !verb.isResponse();
-        return outWithParameter(0, verb, 0, payload, parameterType, parameterValue);
+        return outWithParam(0, verb, 0, payload, paramType, paramValue);
     }
 
-    static <T> Message<T> outWithParameter(long id, Verb verb, long expiresAtNanos, T payload, ParameterType parameterType, Object parameterValue)
+    static <T> Message<T> outWithParam(long id, Verb verb, long expiresAtNanos, T payload, ParamType paramType, Object paramValue)
     {
         if (payload == null)
             throw new IllegalArgumentException();
@@ -222,23 +221,23 @@ public class Message<T>
         if (expiresAtNanos == 0)
             expiresAtNanos = verb.expiresAtNanos(createdAtNanos);
 
-        return new Message<>(from, payload, noFlags(), buildParameters(parameterType, parameterValue), verb, ApproximateTime.nanoTime(), expiresAtNanos, id);
+        return new Message<>(from, payload, noFlags(), buildParams(paramType, paramValue), verb, ApproximateTime.nanoTime(), expiresAtNanos, id);
     }
 
     public static Message<RequestFailureReason> failureResponse(long id, long expiresAtNanos, RequestFailureReason reason)
     {
-        return outWithParameter(id, Verb.FAILURE_RSP, expiresAtNanos, reason, null, null);
+        return outWithParam(id, Verb.FAILURE_RSP, expiresAtNanos, reason, null, null);
     }
 
     public static <T> Message<T> internalResponse(Verb verb, T payload)
     {
         assert verb.isResponse();
-        return outWithParameter(0, verb, 0, payload, null, null);
+        return outWithParam(0, verb, 0, payload, null, null);
     }
 
     public <T> Message<T> responseWith(T payload)
     {
-        return outWithParameter(id, verb.responseVerb, expiresAtNanos, payload, null, null);
+        return outWithParam(id, verb.responseVerb, expiresAtNanos, payload, null, null);
     }
 
     public Message<NoPayload> emptyResponse()
@@ -259,7 +258,7 @@ public class Message<T>
                                .withId(message.id)
                                .withExpiresAt(message.expiresAtNanos)
                                .withCreatedAt(message.createdAtNanos)
-                               .withParameters(message.parameters);
+                               .withParams(message.params);
     }
 
     public static <T> Builder<T> builder(Verb verb, T payload)
@@ -269,40 +268,40 @@ public class Message<T>
                                .withPayload(payload);
     }
 
-    private static Map<ParameterType, Object> buildParameters(ParameterType type, Object value)
+    private static Map<ParamType, Object> buildParams(ParamType type, Object value)
     {
-        Map<ParameterType, Object> parameters = NO_PARAMETERS;
+        Map<ParamType, Object> params = NO_PARAMS;
         if (Tracing.isTracing())
-            parameters = Tracing.instance.addTraceHeaders(new EnumMap<>(ParameterType.class));
+            params = Tracing.instance.addTraceHeaders(new EnumMap<>(ParamType.class));
 
         if (type != null)
         {
-            if (parameters.isEmpty())
-                parameters = new EnumMap<>(ParameterType.class);
-            parameters.put(type, value);
+            if (params.isEmpty())
+                params = new EnumMap<>(ParamType.class);
+            params.put(type, value);
         }
 
-        return parameters;
+        return params;
     }
 
-    private static Map<ParameterType, Object> addParameter(Map<ParameterType, Object> parameters, ParameterType type, Object value)
+    private static Map<ParamType, Object> addParam(Map<ParamType, Object> params, ParamType type, Object value)
     {
         if (type == null)
-            return parameters;
+            return params;
 
-        parameters = new EnumMap<>(parameters);
-        parameters.put(type, value);
-        return parameters;
+        params = new EnumMap<>(params);
+        params.put(type, value);
+        return params;
     }
 
     public Message<T> withFlag(MessageFlag flag)
     {
-        return new Message<>(from, payload, addFlag(flags, flag), parameters, verb, createdAtNanos, expiresAtNanos, id);
+        return new Message<>(from, payload, addFlag(flags, flag), params, verb, createdAtNanos, expiresAtNanos, id);
     }
 
-    public Message<T> withParameter(ParameterType type, Object value)
+    public Message<T> withParam(ParamType type, Object value)
     {
-        return new Message<>(from, payload, flags, addParameter(parameters, type, value), verb, createdAtNanos, expiresAtNanos, id);
+        return new Message<>(from, payload, flags, addParam(params, type, value), verb, createdAtNanos, expiresAtNanos, id);
     }
 
     static long nextId()
@@ -317,12 +316,12 @@ public class Message<T>
 
     public Message<T> withId(long id)
     {
-        return new Message<>(from, payload, flags, parameters, verb, createdAtNanos, expiresAtNanos, id);
+        return new Message<>(from, payload, flags, params, verb, createdAtNanos, expiresAtNanos, id);
     }
 
     public Message<T> withIdAndFlag(long id, MessageFlag flag)
     {
-        return new Message<>(from, payload, addFlag(flags, flag), parameters, verb, createdAtNanos, expiresAtNanos, id);
+        return new Message<>(from, payload, addFlag(flags, flag), params, verb, createdAtNanos, expiresAtNanos, id);
     }
 
     /**
@@ -382,31 +381,31 @@ public class Message<T>
     }
 
     /*
-     * Parameters
+     * Params
      */
 
     @Nullable
     public ForwardToContainer forwardTo()
     {
-        return (ForwardToContainer) parameters.get(ParameterType.FORWARD_TO);
+        return (ForwardToContainer) params.get(ParamType.FORWARD_TO);
     }
 
     @Nullable
     public InetAddressAndPort forwardedFrom()
     {
-        return (InetAddressAndPort) parameters.get(ParameterType.FORWARDED_FROM);
+        return (InetAddressAndPort) params.get(ParamType.FORWARDED_FROM);
     }
 
     @Nullable
     public UUID traceSession()
     {
-        return (UUID) parameters.get(ParameterType.TRACE_SESSION);
+        return (UUID) params.get(ParamType.TRACE_SESSION);
     }
 
     @Nullable
     public TraceType traceType()
     {
-        return (TraceType) parameters.getOrDefault(ParameterType.TRACE_TYPE, TraceType.QUERY);
+        return (TraceType) params.getOrDefault(ParamType.TRACE_TYPE, TraceType.QUERY);
     }
 
     public long getSlowQueryTimeout(TimeUnit units)
@@ -442,19 +441,19 @@ public class Message<T>
     }
 
     /**
-     * Each message contains a header with several fixed fields, an optional key-value parameters section, and then
+     * Each message contains a header with several fixed fields, an optional key-value params section, and then
      * the message payload itself. Below is a visualization of the layout.
      *
-     *  The parameters are prefixed by the count of key-value pairs; this value is encoded as unsigned vint.
-     *  An individual parameter has an unsvint id (more specifically, a {@link ParameterType}), and a byte array value.
-     *  The parameter value is prefixed with it's length, encoded as an unsigned vint, followed by by the value's bytes.
+     *  The params are prefixed by the count of key-value pairs; this value is encoded as unsigned vint.
+     *  An individual param has an unsvint id (more specifically, a {@link ParamType}), and a byte array value.
+     *  The param value is prefixed with it's length, encoded as an unsigned vint, followed by by the value's bytes.
      *
      * Legacy Notes (see {@link Serializer#serialize(Message, DataOutputPlus, int)} for complete details):
      * - pre 4.0, the IP address was sent along in the header, before the verb. The IP address may be either IPv4 (4 bytes) or IPv6 (16 bytes)
      * - pre-4.0, the verb was encoded as a 4-byte integer; in 4.0 and up it is an unsigned vint
      * - pre-4.0, the payloadSize was encoded as a 4-byte integer; in 4.0 and up it is an unsigned vint
-     * - pre-4.0, the count of a parameter values was encoded as a 4-byte integer; in 4.0 and up it is an unsigned vint
-     * - pre-4.0, parameter names were encoded as strings; in 4.0 they are encoded as enum id vints
+     * - pre-4.0, the count of param key-value pairs was encoded as a 4-byte integer; in 4.0 and up it is an unsigned vint
+     * - pre-4.0, param names were encoded as strings; in 4.0 they are encoded as enum id vints
      * - pre-4.0, expiry time wasn't encoded at all; in 4.0 it's an unsigned vint
      * - pre-4.0, message id was an int; in 4.0 and up it's an unsigned vint
      * - pre-4.0, messages included PROTOCOL MAGIC BYTES; post-4.0, we rely on frame CRCs instead
@@ -564,7 +563,7 @@ public class Message<T>
             out.writeUnsignedVInt(message.verb.id);
 
             out.writeUnsignedVInt(message.flags);
-            serializeParams(message.parameters, out, version);
+            serializeParams(message.params, out, version);
 
             int payloadSize = message.payloadSize(version);
             out.writeUnsignedVInt(payloadSize);
@@ -580,12 +579,12 @@ public class Message<T>
             Verb verb = Verb.fromId(Ints.checkedCast(in.readUnsignedVInt()));
 
             int flags = Ints.checkedCast(in.readUnsignedVInt());
-            Map<ParameterType, Object> parameters = deserializeParams(in, version);
+            Map<ParamType, Object> params = deserializeParams(in, version);
 
             VIntCoding.readUnsignedVInt(in); // payload size, not used here
             T payload = (T) verb.serializer().deserialize(in, version);
 
-            return new Message<>(peer, payload, flags, parameters, verb, creationTimeNanos, expiresAtNanos, id);
+            return new Message<>(peer, payload, flags, params, verb, creationTimeNanos, expiresAtNanos, id);
         }
 
         private <T> int serializedSizePost40(Message<T> message, int version)
@@ -598,7 +597,7 @@ public class Message<T>
             size += TypeSizes.sizeofUnsignedVInt(message.verb.id);
 
             size += TypeSizes.sizeofUnsignedVInt(message.flags);
-            size += serializedParamsSize(message.parameters, version);
+            size += serializedParamsSize(message.params, version);
 
             int payloadSize = message.payloadSize(version);
             size += TypeSizes.sizeofUnsignedVInt(payloadSize);
@@ -698,7 +697,7 @@ public class Message<T>
             CompactEndpointSerializationHelper.instance.serialize(message.from, out, version);
             out.writeInt(message.verb.toPre40Verb().id);
 
-            serializeParams(addFlagsToLegacyParams(message.parameters, message.flags), out, version);
+            serializeParams(addFlagsToLegacyParams(message.params, message.flags), out, version);
 
             if (message.payload != null && message.payload != NoPayload.noPayload)
             {
@@ -720,8 +719,8 @@ public class Message<T>
             InetAddressAndPort from = CompactEndpointSerializationHelper.instance.deserialize(in, version);
             Verb verb = Verb.fromId(in.readInt());
 
-            Map<ParameterType, Object> parameters = deserializeParams(in, version);
-            int flags = removeFlagsFromLegacyParams(parameters);
+            Map<ParamType, Object> params = deserializeParams(in, version);
+            int flags = removeFlagsFromLegacyParams(params);
 
             IVersionedAsymmetricSerializer<?, T> payloadSerializer = verb.serializer();
             if (null == payloadSerializer)
@@ -733,8 +732,8 @@ public class Message<T>
             int payloadSize = in.readInt();
             T payload = deserializePayloadPre40(in, version, payloadSerializer, payloadSize);
 
-            Message<T> message = new Message<>(from, payload, flags, parameters, verb, creationTimeNanos, verb.expiresAtNanos(creationTimeNanos), messageId);
-            return message.parameters.containsKey(ParameterType.FAILURE_RESPONSE)
+            Message<T> message = new Message<>(from, payload, flags, params, verb, creationTimeNanos, verb.expiresAtNanos(creationTimeNanos), messageId);
+            return message.params.containsKey(ParamType.FAILURE_RESPONSE)
                  ? (Message<T>) toPost40FailureResponse(message)
                  : message;
         }
@@ -763,7 +762,7 @@ public class Message<T>
             size += CompactEndpointSerializationHelper.instance.serializedSize(message.from, version);
             size += TypeSizes.sizeof(message.verb.id);
 
-            size += serializedParamsSize(addFlagsToLegacyParams(message.parameters, message.flags), version);
+            size += serializedParamsSize(addFlagsToLegacyParams(message.params, message.flags), version);
 
             int payloadSize = message.payloadSize(version);
             size += TypeSizes.sizeof(payloadSize);
@@ -833,23 +832,23 @@ public class Message<T>
 
         private Message<?> toPre40FailureResponse(Message<RequestFailureReason> post40)
         {
-            Map<ParameterType, Object> params = new EnumMap<>(ParameterType.class);
-            params.putAll(post40.parameters);
+            Map<ParamType, Object> params = new EnumMap<>(ParamType.class);
+            params.putAll(post40.params);
 
-            params.put(ParameterType.FAILURE_RESPONSE, ONE_BYTE);
-            params.put(ParameterType.FAILURE_REASON, post40.payload);
+            params.put(ParamType.FAILURE_RESPONSE, ONE_BYTE);
+            params.put(ParamType.FAILURE_REASON, post40.payload);
 
             return new Message<>(post40.from, NoPayload.noPayload, noFlags(), params, post40.verb.toPre40Verb(), post40.createdAtNanos, post40.expiresAtNanos, post40.id);
         }
 
         private Message<RequestFailureReason> toPost40FailureResponse(Message<?> pre40)
         {
-            Map<ParameterType, Object> params = new EnumMap<>(ParameterType.class);
-            params.putAll(pre40.parameters);
+            Map<ParamType, Object> params = new EnumMap<>(ParamType.class);
+            params.putAll(pre40.params);
 
-            params.remove(ParameterType.FAILURE_RESPONSE);
+            params.remove(ParamType.FAILURE_RESPONSE);
 
-            RequestFailureReason reason = (RequestFailureReason) params.remove(ParameterType.FAILURE_REASON);
+            RequestFailureReason reason = (RequestFailureReason) params.remove(ParamType.FAILURE_REASON);
             if (null == reason)
                 reason = RequestFailureReason.UNKNOWN;
 
@@ -860,12 +859,12 @@ public class Message<T>
          * param ser/deser
          */
 
-        private Map<ParameterType, Object> addFlagsToLegacyParams(Map<ParameterType, Object> params, int flags)
+        private Map<ParamType, Object> addFlagsToLegacyParams(Map<ParamType, Object> params, int flags)
         {
             if (flags == 0)
                 return params;
 
-            Map<ParameterType, Object> extended = new EnumMap<>(ParameterType.class);
+            Map<ParamType, Object> extended = new EnumMap<>(ParamType.class);
             extended.putAll(params);
 
             for (MessageFlag flag : MessageFlag.ALL_VALUES)
@@ -873,34 +872,34 @@ public class Message<T>
                 if (containsFlag(flags, flag))
                 {
                     if (flag == MessageFlag.CALL_BACK_ON_FAILURE)
-                        extended.put(ParameterType.FAILURE_CALLBACK, ONE_BYTE);
+                        extended.put(ParamType.FAILURE_CALLBACK, ONE_BYTE);
 
                     if (flag == MessageFlag.TRACK_REPAIRED_DATA)
-                        extended.put(ParameterType.TRACK_REPAIRED_DATA, ONE_BYTE);
+                        extended.put(ParamType.TRACK_REPAIRED_DATA, ONE_BYTE);
                 }
             }
 
             return extended;
         }
 
-        private int removeFlagsFromLegacyParams(Map<ParameterType, Object> params)
+        private int removeFlagsFromLegacyParams(Map<ParamType, Object> params)
         {
             if (params.isEmpty())
                 return 0;
 
             int flags = 0;
-            Iterator<ParameterType> iter = params.keySet().iterator();
+            Iterator<ParamType> iter = params.keySet().iterator();
             while (iter.hasNext())
             {
-                ParameterType type = iter.next();
+                ParamType type = iter.next();
 
-                if (type == ParameterType.FAILURE_CALLBACK)
+                if (type == ParamType.FAILURE_CALLBACK)
                 {
                     flags = addFlag(flags, MessageFlag.CALL_BACK_ON_FAILURE);
                     iter.remove();
                 }
 
-                if (type == ParameterType.TRACK_REPAIRED_DATA)
+                if (type == ParamType.TRACK_REPAIRED_DATA)
                 {
                     flags = addFlag(flags, MessageFlag.TRACK_REPAIRED_DATA);
                     iter.remove();
@@ -909,16 +908,16 @@ public class Message<T>
             return flags;
         }
 
-        private void serializeParams(Map<ParameterType, Object> params, DataOutputPlus out, int version) throws IOException
+        private void serializeParams(Map<ParamType, Object> params, DataOutputPlus out, int version) throws IOException
         {
             if (version >= VERSION_40)
                 out.writeUnsignedVInt(params.size());
             else
                 out.writeInt(params.size());
 
-            for (Map.Entry<ParameterType, Object> kv : params.entrySet())
+            for (Map.Entry<ParamType, Object> kv : params.entrySet())
             {
-                ParameterType type = kv.getKey();
+                ParamType type = kv.getKey();
                 if (version >= VERSION_40)
                     out.writeUnsignedVInt(type.id);
                 else
@@ -937,22 +936,22 @@ public class Message<T>
             }
         }
 
-        private Map<ParameterType, Object> deserializeParams(DataInputPlus in, int version) throws IOException
+        private Map<ParamType, Object> deserializeParams(DataInputPlus in, int version) throws IOException
         {
             int count = version >= VERSION_40
                 ? Ints.checkedCast(in.readUnsignedVInt())
                 : in.readInt();
 
             if (count == 0)
-                return NO_PARAMETERS;
+                return NO_PARAMS;
 
-            Map<ParameterType, Object> params = new EnumMap<>(ParameterType.class);
+            Map<ParamType, Object> params = new EnumMap<>(ParamType.class);
 
             for (int i = 0; i < count; i++)
             {
-                ParameterType type = version >= VERSION_40
-                    ? ParameterType.lookUpById(Ints.checkedCast(in.readUnsignedVInt()))
-                    : ParameterType.lookUpByAlias(in.readUTF());
+                ParamType type = version >= VERSION_40
+                    ? ParamType.lookUpById(Ints.checkedCast(in.readUnsignedVInt()))
+                    : ParamType.lookUpByAlias(in.readUTF());
 
                 int length = version >= VERSION_40
                     ? Ints.checkedCast(in.readUnsignedVInt())
@@ -967,15 +966,15 @@ public class Message<T>
             return params;
         }
 
-        private long serializedParamsSize(Map<ParameterType, Object> params, int version)
+        private long serializedParamsSize(Map<ParamType, Object> params, int version)
         {
             long size = version >= VERSION_40
                       ? VIntCoding.computeUnsignedVIntSize(params.size())
                       : TypeSizes.sizeof(params.size());
 
-            for (Map.Entry<ParameterType, Object> kv : params.entrySet())
+            for (Map.Entry<ParamType, Object> kv : params.entrySet())
             {
-                ParameterType type = kv.getKey();
+                ParamType type = kv.getKey();
                 Object value = kv.getValue();
 
                 long valueLength = type.serializer.serializedSize(value, version);
@@ -1028,13 +1027,13 @@ public class Message<T>
 
             for (int i = 0; i < paramsCount; i++)
             {
-                // try to read length and skip to the end of the parameter name
+                // try to read length and skip to the end of the param name
                 index += 2;
 
                 if (index > limit)
                     return -1;
                 index += buf.getShort(index - 2);
-                // try to read length and skip to the end of the parameter value
+                // try to read length and skip to the end of the param value
                 index += 4;
                 if (index > limit)
                 index += buf.getInt(index - 4);
