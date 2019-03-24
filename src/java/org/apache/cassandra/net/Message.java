@@ -20,7 +20,6 @@ package org.apache.cassandra.net;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.EnumMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -867,44 +866,25 @@ public class Message<T>
             Map<ParamType, Object> extended = new EnumMap<>(ParamType.class);
             extended.putAll(params);
 
-            for (MessageFlag flag : MessageFlag.ALL_VALUES)
-            {
-                if (containsFlag(flags, flag))
-                {
-                    if (flag == MessageFlag.CALL_BACK_ON_FAILURE)
-                        extended.put(ParamType.FAILURE_CALLBACK, ONE_BYTE);
+            if (containsFlag(flags, MessageFlag.CALL_BACK_ON_FAILURE))
+                extended.put(ParamType.FAILURE_CALLBACK, ONE_BYTE);
 
-                    if (flag == MessageFlag.TRACK_REPAIRED_DATA)
-                        extended.put(ParamType.TRACK_REPAIRED_DATA, ONE_BYTE);
-                }
-            }
+            if (containsFlag(flags, MessageFlag.TRACK_REPAIRED_DATA))
+                extended.put(ParamType.TRACK_REPAIRED_DATA, ONE_BYTE);
 
             return extended;
         }
 
         private int removeFlagsFromLegacyParams(Map<ParamType, Object> params)
         {
-            if (params.isEmpty())
-                return 0;
-
             int flags = 0;
-            Iterator<ParamType> iter = params.keySet().iterator();
-            while (iter.hasNext())
-            {
-                ParamType type = iter.next();
 
-                if (type == ParamType.FAILURE_CALLBACK)
-                {
-                    flags = addFlag(flags, MessageFlag.CALL_BACK_ON_FAILURE);
-                    iter.remove();
-                }
+            if (null != params.remove(ParamType.FAILURE_CALLBACK))
+                flags = addFlag(flags, MessageFlag.CALL_BACK_ON_FAILURE);
 
-                if (type == ParamType.TRACK_REPAIRED_DATA)
-                {
-                    flags = addFlag(flags, MessageFlag.TRACK_REPAIRED_DATA);
-                    iter.remove();
-                }
-            }
+            if (null != params.remove(ParamType.TRACK_REPAIRED_DATA))
+                flags = addFlag(flags, MessageFlag.TRACK_REPAIRED_DATA);
+
             return flags;
         }
 

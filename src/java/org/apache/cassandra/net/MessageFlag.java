@@ -17,16 +17,12 @@
  */
 package org.apache.cassandra.net;
 
-import com.google.common.collect.ImmutableList;
-
 public enum MessageFlag
 {
     /*
      * The order matters here, since we use enum ordinals to encode the flags.
      */
     CALL_BACK_ON_FAILURE,
-    TRACK_REPAIRED_DATA;
-
-    static final ImmutableList<MessageFlag> ALL_VALUES = ImmutableList.copyOf(values());
+    TRACK_REPAIRED_DATA
 }
 
