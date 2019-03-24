@@ -170,7 +170,7 @@ public class DistributedReadWritePathTest extends DistributedTestBase
     @Test
     public void readWithSchemaDisagreement() throws Throwable
     {
-        try (Cluster cluster = init(Cluster.build(3).withConfig(config -> config.with(NETWORK)).start()))
+        try (Cluster cluster = init(Cluster.create(3, config -> config.with(NETWORK))))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
 
