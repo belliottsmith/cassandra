@@ -127,17 +127,17 @@ public class OutboundConnection
      *  we allocate from here whenever queueSize > queueCapacity */
     private final ResourceLimits.EndpointAndGlobal reserveCapacityInBytes;
 
-    private volatile long submitted = 0;                    // updated with cas
-    private volatile long overloadCount = 0;         // updated with cas
+    private volatile long submitted = 0;        // updated with cas
+    private volatile long overloadCount = 0;    // updated with cas
     private volatile long overloadBytes = 0;    // updated with cas
-    private long expiredCount = 0;                   // updated with queue lock held
+    private long expiredCount = 0;              // updated with queue lock held
     private long expiredBytes = 0;              // updated with queue lock held
-    private long errorCount = 0;                     // updated only by delivery thread
+    private long errorCount = 0;                // updated only by delivery thread
     private long errorBytes = 0;                // updated by delivery thread only
-    private long sent;                                      // updated by delivery thread only
-    private long sentBytes;                                 // updated by delivery thread only
-    private long successfulConnections;                     // updated by event loop only
-    private long failedConnectionAttempts;                         // updated by event loop only
+    private long sent;                          // updated by delivery thread only
+    private long sentBytes;                     // updated by delivery thread only
+    private long successfulConnections;         // updated by event loop only
+    private long failedConnectionAttempts;      // updated by event loop only
 
     /*
      * The following four fields define our connection behaviour; the template contains the user-specified desired properties,
