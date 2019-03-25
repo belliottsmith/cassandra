@@ -189,15 +189,16 @@ public class OutboundMessageQueue
     /**
      * Call periodically if cannot expect to promptly invoke consume()
      */
-    void maybePruneExpired()
+    boolean maybePruneExpired()
     {
-        maybePruneExpired(System.nanoTime());
+        return maybePruneExpired(System.nanoTime());
     }
 
-    private void maybePruneExpired(long nowNanos)
+    private boolean maybePruneExpired(long nowNanos)
     {
         if (nowNanos > earliestExpiresAt && !isEmpty())
-            tryRun(() -> pruneWithLock(nowNanos));
+            return tryRun(() -> pruneWithLock(nowNanos));
+        return false;
     }
 
     /*

@@ -49,6 +49,7 @@ import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.async.OutboundConnectionInitiator.Result;
 import org.apache.cassandra.net.async.OutboundConnectionInitiator.Result.MessagingSuccess;
+import org.apache.cassandra.net.async.ResourceLimits.Outcome;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.CoalescingStrategies;
 import org.apache.cassandra.utils.FBUtilities;
@@ -62,6 +63,8 @@ import static org.apache.cassandra.net.MessagingService.current_version;
 import static org.apache.cassandra.net.async.NettyFactory.isConnectionResetException;
 import static org.apache.cassandra.net.async.OutboundConnectionInitiator.initiateMessaging;
 import static org.apache.cassandra.net.async.OutboundConnections.LARGE_MESSAGE_THRESHOLD;
+import static org.apache.cassandra.net.async.ResourceLimits.Outcome.INSUFFICIENT_ENDPOINT;
+import static org.apache.cassandra.net.async.ResourceLimits.Outcome.SUCCESS;
 
 /**
  * Represents a connection type to a peer, and handles the state transistions on the connection and the netty {@link Channel}.
@@ -217,22 +220,28 @@ public class OutboundConnection
             throw new ClosedChannelException();
 
         submittedUpdater.incrementAndGet(this);
-        if (!acquireCapacity(canonicalSize(message)))
+        switch (acquireCapacity(canonicalSize(message)))
         {
-            onOverload(message);
+            case INSUFFICIENT_ENDPOINT:
+                // if we're overloaded to one endpoint, we may be accumulating expirable messages, so
+                // attempt an expiry to see if this makes room for our newer message.
+                // this is an optimisation only; messages will be expired on ~100ms cycle, and by Delivery when it runs
+                if (queue.maybePruneExpired() &&
+                    SUCCESS == acquireCapacity(canonicalSize(message)))
+                    break;
+            case INSUFFICIENT_GLOBAL:
+                onOverload(message);
         }
-        else
-        {
-            queue.add(message);
 
-            // we might race with the channel closing; if this happens, to ensure this message eventually arrives
-            // we need to remove ourselves from the queue and throw a ClosedChannelException, so that another channel
-            // can be opened in our place to try and send on.
-            if (isClosed() && queue.undoAdd(message))
-            {
-                releaseCapacity(canonicalSize(message));
-                throw new ClosedChannelException();
-            }
+        queue.add(message);
+
+        // we might race with the channel closing; if this happens, to ensure this message eventually arrives
+        // we need to remove ourselves from the queue and throw a ClosedChannelException, so that another channel
+        // can be opened in our place to try and send on.
+        if (isClosed() && queue.undoAdd(message))
+        {
+            releaseCapacity(canonicalSize(message));
+            throw new ClosedChannelException();
         }
     }
 
@@ -254,29 +263,35 @@ public class OutboundConnection
      * In the happy path, this is still efficient as we simply CAS
      */
     @VisibleForTesting
-    boolean acquireCapacity(long amount)
+    Outcome acquireCapacity(long amount)
     {
         long unusedClaimedReserve = 0;
-        boolean success = false;
+        Outcome outcome = null;
         loop: while (true)
         {
             long currentQueueSize = queueSizeInBytes;
             long newQueueSize = currentQueueSize + amount;
             if (newQueueSize <= queueCapacityInBytes)
             {
-                if (success = queueSizeInBytesUpdater.compareAndSet(this, currentQueueSize, newQueueSize))
+                if (queueSizeInBytesUpdater.compareAndSet(this, currentQueueSize, newQueueSize))
+                {
+                    outcome = SUCCESS;
                     break;
+                }
                 continue;
             }
 
             if (isFailingToConnect)
+            {
+                outcome = INSUFFICIENT_ENDPOINT;
                 break;
+            }
 
             long requiredReserve = min(amount, newQueueSize - queueCapacityInBytes);
             if (unusedClaimedReserve < requiredReserve)
             {
                 long extraGlobalReserve = requiredReserve - unusedClaimedReserve;
-                switch (reserveCapacityInBytes.tryAllocate(extraGlobalReserve))
+                switch (outcome = reserveCapacityInBytes.tryAllocate(extraGlobalReserve))
                 {
                     case INSUFFICIENT_ENDPOINT:
                     case INSUFFICIENT_GLOBAL:
@@ -286,7 +301,7 @@ public class OutboundConnection
                 }
             }
 
-            if (success = queueSizeInBytesUpdater.compareAndSet(this, currentQueueSize, newQueueSize))
+            if (queueSizeInBytesUpdater.compareAndSet(this, currentQueueSize, newQueueSize))
             {
                 unusedClaimedReserve -= requiredReserve;
                 break;
@@ -296,7 +311,7 @@ public class OutboundConnection
         if (unusedClaimedReserve > 0)
             reserveCapacityInBytes.release(unusedClaimedReserve);
 
-        return success;
+        return outcome;
     }
 
     /**
@@ -1493,7 +1508,7 @@ public class OutboundConnection
     @VisibleForTesting
     boolean unsafeAcquireCapacity(long amount)
     {
-        return acquireCapacity(amount);
+        return SUCCESS == acquireCapacity(amount);
     }
 
     @VisibleForTesting
