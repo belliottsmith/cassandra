@@ -106,7 +106,7 @@ public final class InboundMessageHandlers implements MessageCallbacks
 
                                       this::onHandlerClosed,
                                       messageCallbacks,
-                                      messageProcessor);
+                                      this::process);
         handlers.add(handler);
         return handler;
     }
@@ -124,7 +124,7 @@ public final class InboundMessageHandlers implements MessageCallbacks
         pendingCountUpdater.incrementAndGet(this);
         pendingBytesUpdater.addAndGet(this, messageSize);
 
-        MessagingService.instance().process(message, messageSize, callbacks);
+        messageProcessor.process(message, messageSize, callbacks);
     }
 
     private void onHandlerClosed(InboundMessageHandler handler)
