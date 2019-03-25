@@ -664,7 +664,7 @@ public final class InboundMessageHandler extends ChannelInboundHandlerAdapter im
             }
             catch (IOException e)
             {
-                logger.error("Unexpected IOException caught while reading a small message from {}", peer, e);
+                logger.error("Unexpected IOException caught while reading a large message from {}", peer, e);
                 onFailedDeserialize(messageSize, id, expiresAtNanos, callBackOnFailure, e);
             }
             catch (Throwable t)

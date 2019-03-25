@@ -599,8 +599,7 @@ public class Message<T>
             size += serializedParamsSize(message.params, version);
 
             int payloadSize = message.payloadSize(version);
-            size += TypeSizes.sizeofUnsignedVInt(payloadSize);
-            size += payloadSize;
+            size += TypeSizes.sizeofUnsignedVInt(payloadSize) + payloadSize;
 
             return Ints.checkedCast(size);
         }
