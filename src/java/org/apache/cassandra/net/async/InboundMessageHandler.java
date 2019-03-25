@@ -613,7 +613,7 @@ public final class InboundMessageHandler extends ChannelInboundHandlerAdapter im
         private final long expiresAtNanos;
         private final boolean callBackOnFailure;
 
-        private final AsyncInputPlus input;
+        private final AsyncMessagingInputPlus input;
 
         private final int maxUnconsumedBytes;
 
@@ -624,7 +624,7 @@ public final class InboundMessageHandler extends ChannelInboundHandlerAdapter im
             this.expiresAtNanos = expiresAtNanos;
             this.callBackOnFailure = callBackOnFailure;
 
-            this.input = new AsyncInputPlus(this::onBufConsumed);
+            this.input = new AsyncMessagingInputPlus(this::onBufConsumed);
             /*
              * Allow up to 2x large message threshold bytes of ByteBufs in coprocessors' queues before pausing reads
              * from the channel. Signal the handler to resume reading from the channel once we've consumed enough

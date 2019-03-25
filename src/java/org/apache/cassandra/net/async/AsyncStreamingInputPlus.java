@@ -33,8 +33,8 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import org.apache.cassandra.io.util.RebufferingInputStream;
 
-// TODO:JEB add documentation!!
-public class AsyncChannelInputPlus extends RebufferingInputStream
+// TODO: rewrite
+public class AsyncStreamingInputPlus extends RebufferingInputStream
 {
     public static class InputTimeoutException extends IOException
     {
@@ -55,12 +55,12 @@ public class AsyncChannelInputPlus extends RebufferingInputStream
 
     private volatile boolean isClosed;
 
-    public AsyncChannelInputPlus(Channel channel)
+    public AsyncStreamingInputPlus(Channel channel)
     {
         this(channel, DEFAULT_REBUFFER_BLOCK_IN_MILLIS, TimeUnit.MILLISECONDS);
     }
 
-    AsyncChannelInputPlus(Channel channel, long rebufferTimeout, TimeUnit rebufferTimeoutUnit)
+    AsyncStreamingInputPlus(Channel channel, long rebufferTimeout, TimeUnit rebufferTimeoutUnit)
     {
         super(Unpooled.EMPTY_BUFFER.nioBuffer());
         currentBuf = Unpooled.EMPTY_BUFFER;

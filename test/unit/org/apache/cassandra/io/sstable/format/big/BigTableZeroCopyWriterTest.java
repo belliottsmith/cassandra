@@ -50,7 +50,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableReadsListener;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.FileHandle;
-import org.apache.cassandra.net.async.AsyncChannelInputPlus;
+import org.apache.cassandra.net.async.AsyncStreamingInputPlus;
 import org.apache.cassandra.schema.CachingParams;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.Schema;
@@ -130,7 +130,7 @@ public class BigTableZeroCopyWriterTest
     @Test
     public void writeDataFile_RebufferingByteBufDataInputPlus()
     {
-        try (AsyncChannelInputPlus input = new AsyncChannelInputPlus(new EmbeddedChannel()))
+        try (AsyncStreamingInputPlus input = new AsyncStreamingInputPlus(new EmbeddedChannel()))
         {
             writeDataTestCycle(buffer ->
             {

@@ -25,9 +25,7 @@ import java.util.function.IntConsumer;
 import org.apache.cassandra.io.util.RebufferingInputStream;
 import org.jctools.queues.SpscUnboundedArrayQueue;
 
-import static org.apache.cassandra.net.async.FrameDecoder.*;
-
-class AsyncInputPlus extends RebufferingInputStream
+class AsyncMessagingInputPlus extends RebufferingInputStream
 {
     /**
      * Exception thrown when closure was explicitly requested.
@@ -36,7 +34,7 @@ class AsyncInputPlus extends RebufferingInputStream
     {
     }
 
-    // EMPTY is used to signal AsyncInputPlus that it should close itself
+    // EMPTY is used to signal AsyncMessagingInputPlus that it should close itself
     private static final SharedBytes CLOSE_INPUT = SharedBytes.EMPTY;
 
     private final Queue<SharedBytes> queue;
@@ -49,7 +47,7 @@ class AsyncInputPlus extends RebufferingInputStream
     private volatile boolean isClosed;
     private volatile Thread parkedThread;
 
-    AsyncInputPlus(IntConsumer onReleased)
+    AsyncMessagingInputPlus(IntConsumer onReleased)
     {
         super(SharedBytes.EMPTY.get());
         this.current = SharedBytes.EMPTY;
@@ -103,7 +101,7 @@ class AsyncInputPlus extends RebufferingInputStream
     void supply(SharedBytes bytes)
     {
         if (isClosed)
-            throw new IllegalStateException("Cannot supply a buffer to a closed AsyncInputPlus");
+            throw new IllegalStateException("Cannot supply a buffer to a closed AsyncMessagingInputPlus");
 
         queue.add(bytes);
         maybeUnpark();
@@ -112,7 +110,7 @@ class AsyncInputPlus extends RebufferingInputStream
     void supplyAndCloseWithoutSignaling(SharedBytes bytes)
     {
         if (isClosed)
-            throw new IllegalStateException("Cannot supply a buffer to a closed AsyncInputPlus");
+            throw new IllegalStateException("Cannot supply a buffer to a closed AsyncMessagingInputPlus");
 
         queue.add(bytes);
         queue.add(CLOSE_INPUT);
@@ -129,14 +127,14 @@ class AsyncInputPlus extends RebufferingInputStream
     }
 
     /**
-     * Ask {@link AsyncInputPlus} to close itself.
+     * Ask {@link AsyncMessagingInputPlus} to close itself.
      *
      * This close method is designed to be invoked by the non-owning thread.
      */
     void requestClosure()
     {
         if (isClosed)
-            throw new IllegalStateException("Cannot close an already closed AsyncInputPlus");
+            throw new IllegalStateException("Cannot close an already closed AsyncMessagingInputPlus");
 
         queue.add(CLOSE_INPUT);
         maybeUnpark();

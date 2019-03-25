@@ -32,7 +32,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.net.async.AsyncChannelInputPlus;
+import org.apache.cassandra.net.async.AsyncStreamingInputPlus;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.streaming.StreamManager;
@@ -52,7 +52,7 @@ public class StreamingInboundHandlerTest
 
     private StreamingInboundHandler handler;
     private EmbeddedChannel channel;
-    private AsyncChannelInputPlus buffers;
+    private AsyncStreamingInputPlus buffers;
     private ByteBuf buf;
 
     @BeforeClass
@@ -66,7 +66,7 @@ public class StreamingInboundHandlerTest
     {
         handler = new StreamingInboundHandler(REMOTE_ADDR, VERSION, null);
         channel = new EmbeddedChannel(handler);
-        buffers = new AsyncChannelInputPlus(channel);
+        buffers = new AsyncStreamingInputPlus(channel);
         handler.setPendingBuffers(buffers);
     }
 

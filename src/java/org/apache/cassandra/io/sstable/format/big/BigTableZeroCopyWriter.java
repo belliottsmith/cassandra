@@ -43,7 +43,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.SequentialWriter;
 import org.apache.cassandra.io.util.SequentialWriterOption;
-import org.apache.cassandra.net.async.AsyncChannelInputPlus;
+import org.apache.cassandra.net.async.AsyncStreamingInputPlus;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadataRef;
 
@@ -202,13 +202,13 @@ public class BigTableZeroCopyWriter extends SSTable implements SSTableMultiWrite
     {
         logger.info("Writing component {} to {} length {}", type, componentWriters.get(type).getPath(), prettyPrintMemory(size));
 
-        if (in instanceof AsyncChannelInputPlus)
-            write((AsyncChannelInputPlus) in, size, componentWriters.get(type));
+        if (in instanceof AsyncStreamingInputPlus)
+            write((AsyncStreamingInputPlus) in, size, componentWriters.get(type));
         else
             write(in, size, componentWriters.get(type));
     }
 
-    private void write(AsyncChannelInputPlus in, long size, SequentialWriter writer)
+    private void write(AsyncStreamingInputPlus in, long size, SequentialWriter writer)
     {
         logger.info("Block Writing component to {} length {}", writer.getPath(), prettyPrintMemory(size));
 
@@ -218,7 +218,7 @@ public class BigTableZeroCopyWriter extends SSTable implements SSTableMultiWrite
             writer.sync();
         }
         // FIXME: handle ACIP exceptions properly
-        catch (EOFException | AsyncChannelInputPlus.InputTimeoutException e)
+        catch (EOFException | AsyncStreamingInputPlus.InputTimeoutException e)
         {
             in.close();
         }

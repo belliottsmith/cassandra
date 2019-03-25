@@ -51,7 +51,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.net.async.AsyncChannelInputPlus;
+import org.apache.cassandra.net.async.AsyncStreamingInputPlus;
 import org.apache.cassandra.net.async.AsyncStreamingOutputPlus;
 import org.apache.cassandra.schema.CachingParams;
 import org.apache.cassandra.schema.KeyspaceParams;
@@ -241,7 +241,7 @@ public class ZeroCopyStreamingBenchmark
     public void blockStreamReader(BenchmarkState state) throws Exception
     {
         EmbeddedChannel channel = createMockNettyChannel();
-        AsyncChannelInputPlus in = new AsyncChannelInputPlus(channel);
+        AsyncStreamingInputPlus in = new AsyncStreamingInputPlus(channel);
         in.append(state.serializedBlockStream.retainedDuplicate());
         SSTableMultiWriter sstableWriter = state.blockStreamReader.read(in);
         Collection<SSTableReader> newSstables = sstableWriter.finished();
@@ -265,7 +265,7 @@ public class ZeroCopyStreamingBenchmark
     public void partialStreamReader(BenchmarkState state) throws Exception
     {
         EmbeddedChannel channel = createMockNettyChannel();
-        AsyncChannelInputPlus in = new AsyncChannelInputPlus(channel);
+        AsyncStreamingInputPlus in = new AsyncStreamingInputPlus(channel);
         in.append(state.serializedPartialStream.retainedDuplicate());
         SSTableMultiWriter sstableWriter = state.partialStreamReader.read(in);
         Collection<SSTableReader> newSstables = sstableWriter.finished();

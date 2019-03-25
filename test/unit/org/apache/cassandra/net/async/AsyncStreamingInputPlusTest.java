@@ -33,14 +33,14 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
 import org.apache.cassandra.io.util.BufferedDataOutputStreamPlus;
-import org.apache.cassandra.net.async.AsyncChannelInputPlus.InputTimeoutException;
+import org.apache.cassandra.net.async.AsyncStreamingInputPlus.InputTimeoutException;
 
 import static org.junit.Assert.assertFalse;
 
-public class AsyncChannelInputPlusTest
+public class AsyncStreamingInputPlusTest
 {
     private EmbeddedChannel channel;
-    private AsyncChannelInputPlus inputPlus;
+    private AsyncStreamingInputPlus inputPlus;
     private ByteBuf buf;
 
     @Before
@@ -69,7 +69,7 @@ public class AsyncChannelInputPlusTest
     @Test
     public void append_closed()
     {
-        inputPlus = new AsyncChannelInputPlus(channel);
+        inputPlus = new AsyncStreamingInputPlus(channel);
         inputPlus.requestClosure();
         inputPlus.close();
         buf = channel.alloc().buffer(4);
@@ -79,7 +79,7 @@ public class AsyncChannelInputPlusTest
     @Test
     public void append_normal()
     {
-        inputPlus = new AsyncChannelInputPlus(channel);
+        inputPlus = new AsyncStreamingInputPlus(channel);
         int size = 4;
         buf = channel.alloc().buffer(size);
         buf.writerIndex(size);
@@ -90,7 +90,7 @@ public class AsyncChannelInputPlusTest
     @Test
     public void read() throws IOException
     {
-        inputPlus = new AsyncChannelInputPlus(channel);
+        inputPlus = new AsyncStreamingInputPlus(channel);
         // put two buffers of 8 bytes each into the queue.
         // then read an int, then a long. the latter tests offset into the inputPlus, as well as spanning across queued buffers.
         // the values of those int/long will both be '42', but spread across both queue buffers.
@@ -130,7 +130,7 @@ public class AsyncChannelInputPlusTest
     @Test
     public void available_closed()
     {
-        inputPlus = new AsyncChannelInputPlus(channel);
+        inputPlus = new AsyncStreamingInputPlus(channel);
         inputPlus.requestClosure();
         inputPlus.unsafeAvailable();
     }
@@ -138,7 +138,7 @@ public class AsyncChannelInputPlusTest
     @Test
     public void available_HappyPath()
     {
-        inputPlus = new AsyncChannelInputPlus(channel);
+        inputPlus = new AsyncStreamingInputPlus(channel);
         int size = 4;
         buf = channel.alloc().heapBuffer(size);
         buf.writerIndex(size);
@@ -149,7 +149,7 @@ public class AsyncChannelInputPlusTest
     @Test
     public void available_ClosedButWithBytes()
     {
-        inputPlus = new AsyncChannelInputPlus(channel);
+        inputPlus = new AsyncStreamingInputPlus(channel);
         int size = 4;
         buf = channel.alloc().heapBuffer(size);
         buf.writerIndex(size);
@@ -196,7 +196,7 @@ public class AsyncChannelInputPlusTest
 
     private void consumeUntilTestCycle(int nBuffs, int buffSize, int startOffset, int len) throws IOException
     {
-        inputPlus = new AsyncChannelInputPlus(channel);
+        inputPlus = new AsyncStreamingInputPlus(channel);
 
         byte[] expectedBytes = new byte[len];
         int count = 0;
@@ -260,7 +260,7 @@ public class AsyncChannelInputPlusTest
     public void rebufferTimeout() throws IOException
     {
         long timeoutMillis = 1000;
-        inputPlus = new AsyncChannelInputPlus(channel, timeoutMillis, TimeUnit.MILLISECONDS);
+        inputPlus = new AsyncStreamingInputPlus(channel, timeoutMillis, TimeUnit.MILLISECONDS);
 
         long startNanos = System.nanoTime();
         try

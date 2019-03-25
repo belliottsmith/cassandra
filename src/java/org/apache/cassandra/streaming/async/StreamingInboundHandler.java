@@ -37,8 +37,8 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.FastThreadLocalThread;
 import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.net.async.AsyncChannelInputPlus;
-import org.apache.cassandra.net.async.AsyncChannelInputPlus.InputTimeoutException;
+import org.apache.cassandra.net.async.AsyncStreamingInputPlus;
+import org.apache.cassandra.net.async.AsyncStreamingInputPlus.InputTimeoutException;
 import org.apache.cassandra.streaming.StreamManager;
 import org.apache.cassandra.streaming.StreamReceiveException;
 import org.apache.cassandra.streaming.StreamResultFuture;
@@ -72,10 +72,10 @@ public class StreamingInboundHandler extends ChannelInboundHandlerAdapter
      * structure, and then consumed.
      * <p>
      * For thread safety, this structure's resources are released on the consuming thread
-     * (via {@link AsyncChannelInputPlus#close()},
-     * but the producing side calls {@link AsyncChannelInputPlus#requestClosure()} to notify the input that is should close.
+     * (via {@link AsyncStreamingInputPlus#close()},
+     * but the producing side calls {@link AsyncStreamingInputPlus#requestClosure()} to notify the input that is should close.
      */
-    private AsyncChannelInputPlus buffers;
+    private AsyncStreamingInputPlus buffers;
 
     private volatile boolean closed;
 
@@ -90,7 +90,7 @@ public class StreamingInboundHandler extends ChannelInboundHandlerAdapter
     @SuppressWarnings("resource")
     public void handlerAdded(ChannelHandlerContext ctx)
     {
-        buffers = new AsyncChannelInputPlus(ctx.channel());
+        buffers = new AsyncStreamingInputPlus(ctx.channel());
         Thread blockingIOThread = new FastThreadLocalThread(new StreamDeserializingTask(DEFAULT_SESSION_PROVIDER, session, ctx.channel()),
                                                             String.format("Stream-Deserializer-%s-%s", remoteAddress.toString(), ctx.channel().id()));
         blockingIOThread.setDaemon(true);
@@ -130,7 +130,7 @@ public class StreamingInboundHandler extends ChannelInboundHandlerAdapter
     /**
      * For testing only!!
      */
-    void setPendingBuffers(AsyncChannelInputPlus bufChannel)
+    void setPendingBuffers(AsyncStreamingInputPlus bufChannel)
     {
         this.buffers = bufChannel;
     }
