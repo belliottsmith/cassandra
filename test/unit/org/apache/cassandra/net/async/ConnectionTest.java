@@ -20,6 +20,7 @@ package org.apache.cassandra.net.async;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -64,6 +65,7 @@ import org.apache.cassandra.net.MessagingService.AcceptVersions;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.utils.ApproximateTime;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -225,10 +227,10 @@ public class ConnectionTest
 
     private void doTestManual(Settings settings, ManualSendTest test) throws Throwable
     {
-        InboundConnectionSettings inboundSettings = settings.inbound.apply(new InboundConnectionSettings());
         InetAddressAndPort endpoint = FBUtilities.getBroadcastAddressAndPort();
-        MessagingService.instance().removeInbound(endpoint);
-        InboundSockets inbound = new InboundSockets(inboundSettings);
+        InboundConnectionSettings inboundSettings = settings.inbound.apply(new InboundConnectionSettings())
+                                                                    .withBindAddress(endpoint);
+        InboundSockets inbound = new InboundSockets(Collections.singletonList(inboundSettings));
         OutboundConnectionSettings outboundTemplate = settings.outbound.apply(new OutboundConnectionSettings(endpoint))
                                                                        .withDefaultReserveLimits();
         ResourceLimits.EndpointAndGlobal reserveCapacityInBytes = new ResourceLimits.EndpointAndGlobal(new ResourceLimits.Concurrent(outboundTemplate.applicationReserveSendQueueEndpointCapacityInBytes), outboundTemplate.applicationReserveSendQueueGlobalCapacityInBytes);

@@ -201,7 +201,7 @@ public class OutboundConnection
         this.eventLoop = NettyFactory.instance.defaultGroup().next();
         this.queueCapacityInBytes = settings.applicationSendQueueCapacityInBytes;
         this.reserveCapacityInBytes = reserveCapacityInBytes;
-        this.queue = new OutboundMessageQueue(this::onDroppedDueToTimeout, this::onNotEmpty);
+        this.queue = new OutboundMessageQueue(this::onTimeout, this::onNotEmpty);
         this.delivery = type == Type.LARGE_MESSAGE
                         ? new LargeMessageDelivery()
                         : new EventLoopDelivery();
@@ -211,7 +211,7 @@ public class OutboundConnection
     /**
      * This is the main entry point for enqueuing a message to be sent to the remote peer.
      */
-    void enqueue(Message message) throws ClosedChannelException
+    public void enqueue(Message message) throws ClosedChannelException
     {
         if (isClosed())
             throw new ClosedChannelException();
@@ -219,7 +219,7 @@ public class OutboundConnection
         submittedUpdater.incrementAndGet(this);
         if (!acquireCapacity(canonicalSize(message)))
         {
-            onDroppedDueToOverload(message);
+            onOverload(message);
         }
         else
         {
@@ -316,7 +316,7 @@ public class OutboundConnection
     /**
      * Take any necessary cleanup action after a message has been rejected before reaching the queue
      */
-    private boolean onDroppedDueToOverload(Message<?> msg)
+    private boolean onOverload(Message<?> msg)
     {
         droppedDueToOverloadUpdater.incrementAndGet(this);
         droppedBytesDueToOverloadUpdater.addAndGet(this, canonicalSize(msg));
@@ -335,7 +335,7 @@ public class OutboundConnection
      *
      * Only to be invoked while holding OutboundMessageQueue.WithLock
      */
-    private boolean onDroppedDueToTimeout(Message<?> msg)
+    private boolean onTimeout(Message<?> msg)
     {
         releaseCapacity(canonicalSize(msg));
         expiredCount += 1;
@@ -350,7 +350,7 @@ public class OutboundConnection
      *
      * Only to be invoked by the delivery thread
      */
-    private boolean onDroppedDueToError(Message<?> msg, Throwable t)
+    private boolean onError(Message<?> msg, Throwable t)
     {
         JVMStabilityInspector.inspectThrowable(t);
         releaseCapacity(canonicalSize(msg));
@@ -366,7 +366,7 @@ public class OutboundConnection
      * Note that this is only for messages that were queued prior to closing without graceful flush, OR
      * for those that are unceremoniously dropped when we decide close has been trying to complete for too long.
      */
-    private boolean onDroppedDueToClosing(Message<?> msg)
+    private boolean onDiscardOnClosing(Message<?> msg)
     {
         releaseCapacity(canonicalSize(msg));
         MessagingService.instance().callbacks.removeAndExpire(msg.id);
@@ -679,7 +679,7 @@ public class OutboundConnection
                     }
                     catch (Throwable t)
                     {
-                        onDroppedDueToError(next, t);
+                        onError(next, t);
                         assert sending != null;
                         // reset the buffer to ignore the message we failed to serialize
                         sending.trim(sendingBytes);
@@ -837,7 +837,7 @@ public class OutboundConnection
             }
             catch (Throwable t)
             {
-                onDroppedDueToError(send, t);
+                onError(send, t);
                 out.discard();
                 if (out.flushed() > 0)
                 {
@@ -1258,7 +1258,7 @@ public class OutboundConnection
          *  is between messages, that checks if the queue is empty; if it is, it schedules cleanup on the eventLoop.
          */
 
-        Runnable clearQueue = () -> queue.runEventually(System.nanoTime(), withLock -> withLock.consume(this::onDroppedDueToClosing));
+        Runnable clearQueue = () -> queue.runEventually(System.nanoTime(), withLock -> withLock.consume(this::onDiscardOnClosing));
         
         if (flushQueue)
         {
@@ -1415,7 +1415,7 @@ public class OutboundConnection
     }
 
     @VisibleForTesting
-    Type type()
+    public Type type()
     {
         return type;
     }

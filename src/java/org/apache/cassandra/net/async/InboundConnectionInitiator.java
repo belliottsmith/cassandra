@@ -419,7 +419,7 @@ public class InboundConnectionInitiator
                         NettyFactory.encryptionLogStatement(settings.encryption));
 
             InboundMessageHandler handler =
-                instance().getInbound(from).createHandler(frameDecoder, pipeline.channel(), useMessagingVersion);
+                settings.handlers.apply(from).createHandler(frameDecoder, pipeline.channel(), useMessagingVersion);
             pipeline.addLast("deserialize", handler);
 
             pipeline.remove(this);

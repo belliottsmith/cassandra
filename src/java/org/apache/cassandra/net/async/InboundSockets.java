@@ -35,7 +35,6 @@ import io.netty.util.concurrent.PromiseNotifier;
 import io.netty.util.concurrent.SucceededFuture;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.utils.FBUtilities;
 
 public class InboundSockets
@@ -140,35 +139,40 @@ public class InboundSockets
 
     private final List<InboundSocket> sockets;
 
-    public InboundSockets()
-    {
-        this.sockets = defaultBindings(new InboundConnectionSettings());
-    }
-
     public InboundSockets(InboundConnectionSettings template)
     {
-        this.sockets = defaultBindings(template);
+        this(withDefaultBindAddresses(template));
     }
 
-    private static List<InboundSocket> defaultBindings(InboundConnectionSettings template)
+    @VisibleForTesting
+    public InboundSockets(List<InboundConnectionSettings> templates)
+    {
+        this.sockets = bindings(templates);
+    }
+
+    private static List<InboundConnectionSettings> withDefaultBindAddresses(InboundConnectionSettings template)
+    {
+        ImmutableList.Builder<InboundConnectionSettings> templates = ImmutableList.builder();
+        templates.add(template.withBindAddress(FBUtilities.getLocalAddressAndPort()));
+        if (shouldListenOnBroadcastAddress())
+            templates.add(template.withBindAddress(FBUtilities.getBroadcastAddressAndPort()));
+        return templates.build();
+    }
+
+    private static List<InboundSocket> bindings(List<InboundConnectionSettings> templates)
     {
         ImmutableList.Builder<InboundSocket> sockets = ImmutableList.builder();
-        addDefaultBindingForAddress(FBUtilities.getLocalAddressAndPort(), template, sockets);
-        if (shouldListenOnBroadcastAddress())
-            addDefaultBindingForAddress(FBUtilities.getBroadcastAddressAndPort(), template, sockets);
+        for (InboundConnectionSettings template : templates)
+            addBindings(template, sockets);
         return sockets.build();
     }
 
-    private static void addDefaultBindingForAddress(InetAddressAndPort address, InboundConnectionSettings template, ImmutableList.Builder<InboundSocket> out)
+    private static void addBindings(InboundConnectionSettings template, ImmutableList.Builder<InboundSocket> out)
     {
-        InboundConnectionSettings settings = template.withBindAddress(address)
-                                                     .withDefaults();
+        InboundConnectionSettings settings = template.withDefaults();
         out.add(new InboundSocket(settings));
         if (settings.encryption.enable_legacy_ssl_storage_port && settings.encryption.enabled)
-        {
-            out.add(new InboundSocket(template.withBindAddress(address)
-                                              .withLegacyDefaults()));
-        }
+            out.add(new InboundSocket(template.withLegacyDefaults()));
     }
 
     public Future<Void> open()

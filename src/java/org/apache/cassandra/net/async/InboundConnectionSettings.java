@@ -19,6 +19,7 @@
 package org.apache.cassandra.net.async;
 
 import java.net.InetAddress;
+import java.util.function.Function;
 
 import com.google.common.base.Preconditions;
 
@@ -42,6 +43,7 @@ public class InboundConnectionSettings
     public final Integer applicationReceiveQueueCapacityInBytes;
     public final AcceptVersions acceptMessaging;
     public final AcceptVersions acceptStreaming;
+    public final Function<InetAddressAndPort, InboundMessageHandlers> handlers;
 
     private InboundConnectionSettings(IInternodeAuthenticator authenticator,
                                       InetAddressAndPort bindAddress,
@@ -49,7 +51,7 @@ public class InboundConnectionSettings
                                       Integer socketReceiveBufferSizeInBytes,
                                       Integer applicationReceiveQueueCapacityInBytes,
                                       AcceptVersions acceptMessaging,
-                                      AcceptVersions acceptStreaming)
+                                      AcceptVersions acceptStreaming, Function<InetAddressAndPort, InboundMessageHandlers> handlers)
     {
         this.authenticator = authenticator;
         this.bindAddress = bindAddress;
@@ -58,11 +60,12 @@ public class InboundConnectionSettings
         this.applicationReceiveQueueCapacityInBytes = applicationReceiveQueueCapacityInBytes;
         this.acceptMessaging = acceptMessaging;
         this.acceptStreaming = acceptStreaming;
+        this.handlers = handlers;
     }
 
     public InboundConnectionSettings()
     {
-        this(null, null, null, null, null, null, null);
+        this(null, null, null, null, null, null, null, null);
     }
 
     public boolean authenticate(InetAddressAndPort endpoint)
@@ -85,7 +88,7 @@ public class InboundConnectionSettings
     {
         return new InboundConnectionSettings(authenticator, bindAddress, encryption,
                                              socketReceiveBufferSizeInBytes, applicationReceiveQueueCapacityInBytes,
-                                             acceptMessaging, acceptStreaming);
+                                             acceptMessaging, acceptStreaming, handlers);
     }
 
     @SuppressWarnings("unused")
@@ -93,21 +96,21 @@ public class InboundConnectionSettings
     {
         return new InboundConnectionSettings(authenticator, bindAddress, encryption,
                                              socketReceiveBufferSizeInBytes, applicationReceiveQueueCapacityInBytes,
-                                             acceptMessaging, acceptStreaming);
+                                             acceptMessaging, acceptStreaming, handlers);
     }
 
     public InboundConnectionSettings withEncryption(ServerEncryptionOptions encryption)
     {
         return new InboundConnectionSettings(authenticator, bindAddress, encryption,
                                              socketReceiveBufferSizeInBytes, applicationReceiveQueueCapacityInBytes,
-                                             acceptMessaging, acceptStreaming);
+                                             acceptMessaging, acceptStreaming, handlers);
     }
 
     public InboundConnectionSettings withSocketReceiveBufferSizeInBytes(int socketReceiveBufferSizeInBytes)
     {
         return new InboundConnectionSettings(authenticator, bindAddress, encryption,
                                              socketReceiveBufferSizeInBytes, applicationReceiveQueueCapacityInBytes,
-                                             acceptMessaging, acceptStreaming);
+                                             acceptMessaging, acceptStreaming, handlers);
     }
 
     @SuppressWarnings("unused")
@@ -115,21 +118,28 @@ public class InboundConnectionSettings
     {
         return new InboundConnectionSettings(authenticator, bindAddress, encryption,
                                              socketReceiveBufferSizeInBytes, applicationReceiveQueueCapacityInBytes,
-                                             acceptMessaging, acceptStreaming);
+                                             acceptMessaging, acceptStreaming, handlers);
     }
 
     public InboundConnectionSettings withAcceptMessaging(AcceptVersions acceptMessaging)
     {
         return new InboundConnectionSettings(authenticator, bindAddress, encryption,
                                              socketReceiveBufferSizeInBytes, applicationReceiveQueueCapacityInBytes,
-                                             acceptMessaging, acceptStreaming);
+                                             acceptMessaging, acceptStreaming, handlers);
     }
 
     public InboundConnectionSettings withAcceptStreaming(AcceptVersions acceptMessaging)
     {
         return new InboundConnectionSettings(authenticator, bindAddress, encryption,
                                              socketReceiveBufferSizeInBytes, applicationReceiveQueueCapacityInBytes,
-                                             acceptStreaming, acceptStreaming);
+                                             acceptStreaming, acceptStreaming, handlers);
+    }
+
+    public InboundConnectionSettings withHandlers(Function<InetAddressAndPort, InboundMessageHandlers> handlers)
+    {
+        return new InboundConnectionSettings(authenticator, bindAddress, encryption,
+                                             socketReceiveBufferSizeInBytes, applicationReceiveQueueCapacityInBytes,
+                                             acceptStreaming, acceptStreaming, handlers);
     }
 
     public InboundConnectionSettings withLegacyDefaults()
@@ -158,6 +168,7 @@ public class InboundConnectionSettings
         Integer applicationReceiveQueueCapacityInBytes = this.applicationReceiveQueueCapacityInBytes;
         AcceptVersions acceptMessaging = this.acceptMessaging;
         AcceptVersions acceptStreaming = this.acceptStreaming;
+        Function<InetAddressAndPort, InboundMessageHandlers> handlersFactory = this.handlers;
 
         if (authenticator == null)
             authenticator = DatabaseDescriptor.getInternodeAuthenticator();
@@ -177,9 +188,12 @@ public class InboundConnectionSettings
         if (acceptStreaming == null)
             acceptStreaming = accept_streaming;
 
+        if (handlersFactory == null)
+            handlersFactory = MessagingService.instance()::getInbound;
+
         Preconditions.checkArgument(socketReceiveBufferSizeInBytes == 0 || socketReceiveBufferSizeInBytes >= 1 << 10, "illegal socket send buffer size: " + socketReceiveBufferSizeInBytes);
         Preconditions.checkArgument(applicationReceiveQueueCapacityInBytes >= 1 << 10, "illegal application receive queue capacity: " + applicationReceiveQueueCapacityInBytes);
 
-        return new InboundConnectionSettings(authenticator, bindAddress, encryption, socketReceiveBufferSizeInBytes, applicationReceiveQueueCapacityInBytes, acceptMessaging, acceptStreaming);
+        return new InboundConnectionSettings(authenticator, bindAddress, encryption, socketReceiveBufferSizeInBytes, applicationReceiveQueueCapacityInBytes, acceptMessaging, acceptStreaming, handlersFactory);
     }
 }

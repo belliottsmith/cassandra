@@ -22,16 +22,19 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
+import java.util.function.Function;
 import java.util.function.ToLongFunction;
 
+import com.google.common.base.Functions;
+
 import io.netty.channel.Channel;
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.metrics.InternodeInboundMetrics;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.Verb;
+import org.apache.cassandra.net.async.InboundMessageHandler.MessageProcessor;
 
 public final class InboundMessageHandlers implements MessageCallbacks
 {
@@ -47,15 +50,36 @@ public final class InboundMessageHandlers implements MessageCallbacks
     private final Collection<InboundMessageHandler> handlers;
     private final InternodeInboundMetrics metrics;
 
-    public InboundMessageHandlers(InetAddressAndPort peer, ResourceLimits.Limit globalReserveCapacity, InboundMessageHandler.WaitQueue globalWaitQueue)
+    private final MessageProcessor messageProcessor;
+    private final MessageCallbacks messageCallbacks;
+
+    public InboundMessageHandlers(InetAddressAndPort peer,
+                                  int queueCapacity,
+                                  long endpointReserveCapacity,
+                                  ResourceLimits.Limit globalReserveCapacity,
+                                  InboundMessageHandler.WaitQueue globalWaitQueue,
+                                  MessageProcessor messageProcessor)
+    {
+        this(peer, queueCapacity, endpointReserveCapacity, globalReserveCapacity, globalWaitQueue, messageProcessor, Functions.identity());
+    }
+
+    public InboundMessageHandlers(InetAddressAndPort peer,
+                                  int queueCapacity,
+                                  long endpointReserveCapacity,
+                                  ResourceLimits.Limit globalReserveCapacity,
+                                  InboundMessageHandler.WaitQueue globalWaitQueue,
+                                  MessageProcessor messageProcessor,
+                                  Function<MessageCallbacks, MessageCallbacks> messageCallbacks)
     {
         this.peer = peer;
+        this.messageProcessor = messageProcessor;
 
-        this.queueCapacity = DatabaseDescriptor.getInternodeApplicationReceiveQueueCapacityInBytes();
-        this.endpointReserveCapacity = new ResourceLimits.Concurrent(DatabaseDescriptor.getInternodeApplicationReserveReceiveQueueEndpointCapacityInBytes());
+        this.queueCapacity = queueCapacity;
+        this.endpointReserveCapacity = new ResourceLimits.Concurrent(endpointReserveCapacity);
         this.globalReserveCapacity = globalReserveCapacity;
+        this.messageCallbacks = messageCallbacks.apply(this);
 
-        this.endpointWaitQueue = new InboundMessageHandler.WaitQueue(endpointReserveCapacity);
+        this.endpointWaitQueue = new InboundMessageHandler.WaitQueue(this.endpointReserveCapacity);
         this.globalWaitQueue = globalWaitQueue;
 
         this.handlers = new CopyOnWriteArrayList<>();
@@ -81,8 +105,8 @@ public final class InboundMessageHandlers implements MessageCallbacks
                                       globalWaitQueue,
 
                                       this::onHandlerClosed,
-                                      this,
-                                      this::process);
+                                      messageCallbacks,
+                                      messageProcessor);
         handlers.add(handler);
         return handler;
     }
@@ -124,7 +148,7 @@ public final class InboundMessageHandlers implements MessageCallbacks
     }
 
     @Override
-    public void onExpired(int messageSize, Verb verb, long timeElapsed, TimeUnit unit)
+    public void onExpired(int messageSize, long id, Verb verb, long timeElapsed, TimeUnit unit)
     {
         pendingCountUpdater.decrementAndGet(this);
         pendingBytesUpdater.addAndGet(this, -messageSize);
@@ -136,7 +160,7 @@ public final class InboundMessageHandlers implements MessageCallbacks
     }
 
     @Override
-    public void onArrivedExpired(int messageSize, Verb verb, long timeElapsed, TimeUnit unit)
+    public void onArrivedExpired(int messageSize, long id, Verb verb, long timeElapsed, TimeUnit unit)
     {
         expiredCountUpdater.incrementAndGet(this);
         expiredBytesUpdater.addAndGet(this, messageSize);

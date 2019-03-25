@@ -43,6 +43,7 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.metrics.MessagingMetrics;
 import org.apache.cassandra.net.async.FutureCombiner;
+import org.apache.cassandra.net.async.InboundConnectionSettings;
 import org.apache.cassandra.net.async.InboundSockets;
 import org.apache.cassandra.net.async.InboundMessageHandler;
 import org.apache.cassandra.net.async.InboundMessageHandlers;
@@ -62,7 +63,6 @@ import org.apache.cassandra.utils.MBeanWrapper;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.concurrent.Stage.MUTATION;
 import static org.apache.cassandra.utils.Throwables.maybeFail;
 
@@ -112,7 +112,7 @@ public final class MessagingService extends MessagingServiceMBeanImpl
     public final LatencySubscribers latency = new LatencySubscribers();
     public final MessageSink messageSink = new MessageSink();
     public final Callbacks callbacks = new Callbacks(this);
-    public final InboundSockets inbound = new InboundSockets();
+    public final InboundSockets inbound = new InboundSockets(new InboundConnectionSettings().withHandlers(this::getInbound));
     public final ResourceLimits.Limit reserveSendQueueGlobalLimitInBytes =
         new ResourceLimits.Concurrent(DatabaseDescriptor.getInternodeApplicationReserveSendQueueGlobalCapacityInBytes());
 
@@ -460,7 +460,7 @@ public final class MessagingService extends MessagingServiceMBeanImpl
         long nowNanos = ApproximateTime.nanoTime();
         if (nowNanos > message.expiresAtNanos || !messageSink.allowInbound(message))
         {
-            callbacks.onExpired(messageSize, message.verb, nowNanos - message.createdAtNanos, NANOSECONDS);
+            callbacks.onExpired(messageSize, message.id, message.verb, nowNanos - message.createdAtNanos, NANOSECONDS);
             return;
         }
 
@@ -511,9 +511,13 @@ public final class MessagingService extends MessagingServiceMBeanImpl
             return handlers;
 
         return messageHandlers.computeIfAbsent(from, addr ->
-        {
-            return new InboundMessageHandlers(addr, reserveReceiveQueueGlobalLimitInBytes, inboundHandlerWaitQueue);
-        });
+            new InboundMessageHandlers(addr,
+                                       DatabaseDescriptor.getInternodeApplicationReceiveQueueCapacityInBytes(),
+                                       DatabaseDescriptor.getInternodeApplicationReserveReceiveQueueEndpointCapacityInBytes(),
+                                       reserveReceiveQueueGlobalLimitInBytes,
+                                       inboundHandlerWaitQueue,
+                                       this::process)
+        );
     }
 
     @VisibleForTesting

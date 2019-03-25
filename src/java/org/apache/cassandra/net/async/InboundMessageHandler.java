@@ -315,12 +315,13 @@ public final class InboundMessageHandler extends ChannelInboundHandlerAdapter im
         int size = serializer.messageSize(buf, buf.position(), buf.limit(), version);
 
         long currentTimeNanos = ApproximateTime.nanoTime();
+        long id = serializer.getId(buf, version);
         long createdAtNanos = serializer.getCreatedAtNanos(buf, peer, version);
         long expiresAtNanos = serializer.getExpiresAtNanos(buf, createdAtNanos, version);
 
         if (expiresAtNanos < currentTimeNanos)
         {
-            onArrivedExpired(size, serializer.getVerb(buf, version), currentTimeNanos - createdAtNanos, TimeUnit.NANOSECONDS);
+            onArrivedExpired(size, id, serializer.getVerb(buf, version), currentTimeNanos - createdAtNanos, TimeUnit.NANOSECONDS);
 
             int skipped = contained ? size : buf.remaining();
             receivedBytes += skipped;
@@ -344,7 +345,6 @@ public final class InboundMessageHandler extends ChannelInboundHandlerAdapter im
                 return false;
         }
 
-        long id = serializer.getId(buf, version);
         boolean callBackOnFailure = serializer.getCallBackOnFailure(buf, version);
 
         if (contained && size <= largeThreshold)
@@ -440,16 +440,16 @@ public final class InboundMessageHandler extends ChannelInboundHandlerAdapter im
     }
 
     @Override
-    public void onExpired(int messageSize, Verb verb, long timeElapsed, TimeUnit unit)
+    public void onExpired(int messageSize, long id, Verb verb, long timeElapsed, TimeUnit unit)
     {
         releaseCapacity(messageSize);
-        callbacks.onExpired(messageSize, verb, timeElapsed, unit);
+        callbacks.onExpired(messageSize, id, verb, timeElapsed, unit);
     }
 
     @Override
-    public void onArrivedExpired(int messageSize, Verb verb, long timeElapsed, TimeUnit unit)
+    public void onArrivedExpired(int messageSize, long id, Verb verb, long timeElapsed, TimeUnit unit)
     {
-        callbacks.onArrivedExpired(messageSize, verb, timeElapsed, unit);
+        callbacks.onArrivedExpired(messageSize, id, verb, timeElapsed, unit);
     }
 
     @Override
