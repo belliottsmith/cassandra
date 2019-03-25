@@ -15,7 +15,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.cassandra.exceptions;
 
 import java.io.IOException;
@@ -28,50 +27,53 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.vint.VIntCoding;
 
+import static java.lang.Math.max;
 import static org.apache.cassandra.net.MessagingService.VERSION_40;
 
 public enum RequestFailureReason
 {
-    /**
-     * The reason for the failure was none of the below reasons or was not recorded by the data node.
-     */
-    UNKNOWN                  (0, "Unknown error"),
-
-    /**
-     * The data node read too many tombstones when attempting to execute a read query (see tombstone_failure_threshold).
-     */
-    READ_TOO_MANY_TOMBSTONES (1, "Read too many tombstones"),
-
-    /**
-     * Unknown table id or column encountered, or otherwise incompatible schema.
-     */
-    INCOMPATIBLE_SCHEMA      (2, "Incompatible schema");
+    UNKNOWN                  (0),
+    READ_TOO_MANY_TOMBSTONES (1),
+    INCOMPATIBLE_SCHEMA      (2);
 
     public static final Serializer serializer = new Serializer();
 
     public final int code;
-    public final String description;
-    private static final RequestFailureReason[] VALUES = values();
 
-    RequestFailureReason(final int code, final String description)
+    RequestFailureReason(int code)
     {
         this.code = code;
-        this.description = description;
     }
 
-    public static RequestFailureReason fromCode(final int code)
+    private static final RequestFailureReason[] codeToReasonMap;
+
+    static
     {
-        for (RequestFailureReason reasonCode : VALUES)
+        RequestFailureReason[] reasons = values();
+
+        int max = -1;
+        for (RequestFailureReason r : reasons)
+            max = max(r.code, max);
+
+        RequestFailureReason[] codeMap = new RequestFailureReason[max + 1];
+
+        for (RequestFailureReason reason : reasons)
         {
-            if (reasonCode.code == code)
-                return reasonCode;
+            if (codeMap[reason.code] != null)
+                throw new RuntimeException("Two RequestFailureReason-s that map to the same code: " + reason.code);
+            codeMap[reason.code] = reason;
         }
-        throw new IllegalArgumentException("Unknown request failure reason error code: " + code);
+
+        codeToReasonMap = codeMap;
     }
 
-    public String toString()
+    public static RequestFailureReason fromCode(int code)
     {
-        return description;
+        if (code < 0)
+            throw new IllegalArgumentException("RequestFailureReason code must be non-negative (got " + code + ')');
+
+        // be forgiving and return UNKNOWN if we aren't aware of the code - for forward compatibility
+        return code < codeToReasonMap.length ? codeToReasonMap[code] : UNKNOWN;
     }
 
     public static RequestFailureReason forException(Throwable t)
