@@ -47,3 +47,6 @@ custom_functions:
     - com.example.SomeCustomFcts
     - com.example.MoreCustomFcts
     - com.apple.cie.cql3.functions.CappedSortedMap
+    - com.apple.cie.cql3.functions.Apns
+    - com.apple.cie.cql3.functions.Int32Literals
+    - com.apple.cie.cql3.functions.FakeTime # For testing only
