@@ -18,7 +18,6 @@
 package org.apache.cassandra.service;
 
 import java.io.*;
-import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
@@ -5345,19 +5344,19 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return DatabaseDescriptor.getPartitionerName();
     }
 
-    public void setSSTablePreempiveOpenIntervalInMB(int intervalInMB)
+    public void setSSTablePreemptiveOpenIntervalInMB(int intervalInMB)
     {
-        DatabaseDescriptor.setSSTablePreempiveOpenIntervalInMB(intervalInMB);
+        DatabaseDescriptor.setSSTablePreemptiveOpenIntervalInMB(intervalInMB);
     }
 
-    public int getSSTablePreempiveOpenIntervalInMB()
+    public int getSSTablePreemptiveOpenIntervalInMB()
     {
-        return DatabaseDescriptor.getSSTablePreempiveOpenIntervalInMB();
+        return DatabaseDescriptor.getSSTablePreemptiveOpenIntervalInMB();
     }
 
     public boolean getMigrateKeycacheOnCompaction()
     {
-        return DatabaseDescriptor.getMigrateKeycacheOnCompaction();
+        return DatabaseDescriptor.shouldMigrateKeycacheOnCompaction();
     }
 
     public void setMigrateKeycacheOnCompaction(boolean invalidateKeyCacheOnCompaction)

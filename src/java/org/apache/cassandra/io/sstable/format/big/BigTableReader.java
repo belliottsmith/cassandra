@@ -24,7 +24,6 @@ import java.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.cache.KeyCacheKey;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.columniterator.SSTableIterator;
 import org.apache.cassandra.db.columniterator.SSTableReversedIterator;

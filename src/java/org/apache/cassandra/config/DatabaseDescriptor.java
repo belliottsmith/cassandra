@@ -2238,7 +2238,7 @@ public class DatabaseDescriptor
         return conf.commitlog_total_space_in_mb;
     }
 
-    public static boolean getMigrateKeycacheOnCompaction()
+    public static boolean shouldMigrateKeycacheOnCompaction()
     {
         return conf.migrate_keycache_on_compaction;
     }
@@ -2248,11 +2248,11 @@ public class DatabaseDescriptor
         conf.migrate_keycache_on_compaction = invalidateOnCompaction;
     }
 
-    public static int getSSTablePreempiveOpenIntervalInMB()
+    public static int getSSTablePreemptiveOpenIntervalInMB()
     {
         return FBUtilities.isWindows ? -1 : conf.sstable_preemptive_open_interval_in_mb;
     }
-    public static void setSSTablePreempiveOpenIntervalInMB(int mb)
+    public static void setSSTablePreemptiveOpenIntervalInMB(int mb)
     {
         conf.sstable_preemptive_open_interval_in_mb = mb;
     }

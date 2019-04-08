@@ -403,7 +403,7 @@ public abstract class UnfilteredRowIterators
                   columns,
                   mergeStaticRows(iterators, columns.statics, listener, partitionDeletion),
                   reversed,
-                  EncodingStats.collect(iterators));
+                  EncodingStats.merge(iterators, UnfilteredRowIterator::stats));
 
             this.mergeIterator = MergeIterator.get(iterators,
                                                    reversed ? metadata.comparator.reversed() : metadata.comparator,

@@ -254,7 +254,7 @@ public class Config
     public int max_hints_file_size_in_mb = 128;
     public ParameterizedClass hints_compression;
     public volatile boolean migrate_keycache_on_compaction = true;
-    public int sstable_preemptive_open_interval_in_mb = 50;
+    public volatile int sstable_preemptive_open_interval_in_mb = 50;
 
     public volatile boolean incremental_backups = false;
     public boolean trickle_fsync = false;

@@ -18,15 +18,13 @@
 
 package org.apache.cassandra.db.rows;
 
-import com.google.common.collect.Lists;
+import java.util.function.Function;
+
+import com.google.common.collect.ImmutableList;
 import org.junit.Assert;
 import org.junit.Test;
 
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.LivenessInfo;
-import org.apache.cassandra.db.RegularAndStaticColumns;
-import org.apache.cassandra.schema.TableMetadata;
 
 import static org.quicktheories.QuickTheory.qt;
 import static org.quicktheories.generators.SourceDSL.integers;
@@ -34,81 +32,25 @@ import static org.quicktheories.generators.SourceDSL.longs;
 
 public class EncodingStatsTest
 {
-    private UnfilteredRowIterator emptyWithStats(final EncodingStats stats) {
-        return new UnfilteredRowIterator()
-        {
-
-            public boolean hasNext()
-            {
-                return false;
-            }
-
-            public Unfiltered next()
-            {
-                return null;
-            }
-
-            public void close()
-            {
-
-            }
-
-            public TableMetadata metadata()
-            {
-                return null;
-            }
-
-            public boolean isReverseOrder()
-            {
-                return false;
-            }
-
-            public RegularAndStaticColumns columns()
-            {
-                return null;
-            }
-
-            public DecoratedKey partitionKey()
-            {
-                return null;
-            }
-
-            public Row staticRow()
-            {
-                return null;
-            }
-
-            public DeletionTime partitionLevelDeletion()
-            {
-                return null;
-            }
-
-            public EncodingStats stats()
-            {
-                return stats;
-            }
-        };
-    }
-
     @Test
     public void testCollectWithNoStats()
     {
-        EncodingStats none = EncodingStats.collect(Lists.newArrayList(
-            emptyWithStats(EncodingStats.NO_STATS),
-            emptyWithStats(EncodingStats.NO_STATS),
-            emptyWithStats(EncodingStats.NO_STATS)
-        ));
+        EncodingStats none = EncodingStats.merge(ImmutableList.of(
+            EncodingStats.NO_STATS,
+            EncodingStats.NO_STATS,
+            EncodingStats.NO_STATS
+        ), Function.identity());
         Assert.assertEquals(none, EncodingStats.NO_STATS);
     }
 
     @Test
     public void testCollectWithNoStatsWithEmpty()
     {
-        EncodingStats none = EncodingStats.collect(Lists.newArrayList(
-            emptyWithStats(EncodingStats.NO_STATS),
-            emptyWithStats(EncodingStats.NO_STATS),
-            emptyWithStats(new EncodingStats(LivenessInfo.NO_TIMESTAMP, LivenessInfo.NO_EXPIRATION_TIME, 0))
-        ));
+        EncodingStats none = EncodingStats.merge(ImmutableList.of(
+            EncodingStats.NO_STATS,
+            EncodingStats.NO_STATS,
+            new EncodingStats(LivenessInfo.NO_TIMESTAMP, LivenessInfo.NO_EXPIRATION_TIME, 0)
+        ), Function.identity());
         Assert.assertEquals(none, EncodingStats.NO_STATS);
     }
 
@@ -116,12 +58,12 @@ public class EncodingStatsTest
     public void testCollectWithNoStatsWithTimestamp()
     {
         EncodingStats single = new EncodingStats(1, LivenessInfo.NO_EXPIRATION_TIME, 0);
-        EncodingStats result = EncodingStats.collect(Lists.newArrayList(
-            emptyWithStats(EncodingStats.NO_STATS),
-            emptyWithStats(EncodingStats.NO_STATS),
-            emptyWithStats(single),
-            emptyWithStats(EncodingStats.NO_STATS)
-        ));
+        EncodingStats result = EncodingStats.merge(ImmutableList.of(
+            EncodingStats.NO_STATS,
+            EncodingStats.NO_STATS,
+            single,
+            EncodingStats.NO_STATS
+        ), Function.identity());
         Assert.assertEquals(single, result);
     }
 
@@ -129,11 +71,11 @@ public class EncodingStatsTest
     public void testCollectWithNoStatsWithExpires()
     {
         EncodingStats single = new EncodingStats(LivenessInfo.NO_TIMESTAMP, 1, 0);
-        EncodingStats result = EncodingStats.collect(Lists.newArrayList(
-        emptyWithStats(EncodingStats.NO_STATS),
-        emptyWithStats(single),
-        emptyWithStats(EncodingStats.NO_STATS)
-        ));
+        EncodingStats result = EncodingStats.merge(ImmutableList.of(
+        EncodingStats.NO_STATS,
+        single,
+        EncodingStats.NO_STATS
+        ), Function.identity());
         Assert.assertEquals(single, result);
     }
 
@@ -141,11 +83,11 @@ public class EncodingStatsTest
     public void testCollectWithNoStatsWithTTL()
     {
         EncodingStats single = new EncodingStats(LivenessInfo.NO_TIMESTAMP, LivenessInfo.NO_EXPIRATION_TIME, 1);
-        EncodingStats result = EncodingStats.collect(Lists.newArrayList(
-            emptyWithStats(EncodingStats.NO_STATS),
-            emptyWithStats(single),
-            emptyWithStats(EncodingStats.NO_STATS)
-        ));
+        EncodingStats result = EncodingStats.merge(ImmutableList.of(
+            EncodingStats.NO_STATS,
+            single,
+            EncodingStats.NO_STATS
+        ), Function.identity());
         Assert.assertEquals(single, result);
     }
 
@@ -155,11 +97,11 @@ public class EncodingStatsTest
         EncodingStats tsp = new EncodingStats(1, LivenessInfo.NO_EXPIRATION_TIME, 0);
         EncodingStats exp = new EncodingStats(LivenessInfo.NO_TIMESTAMP, 1, 0);
         EncodingStats ttl = new EncodingStats(LivenessInfo.NO_TIMESTAMP, LivenessInfo.NO_EXPIRATION_TIME, 1);
-        EncodingStats result = EncodingStats.collect(Lists.newArrayList(
-        emptyWithStats(tsp),
-        emptyWithStats(exp),
-        emptyWithStats(ttl)
-        ));
+        EncodingStats result = EncodingStats.merge(ImmutableList.of(
+            tsp,
+            exp,
+            ttl
+        ), Function.identity());
         Assert.assertEquals(new EncodingStats(1, 1, 1), result);
     }
 
@@ -169,11 +111,11 @@ public class EncodingStatsTest
         EncodingStats one = new EncodingStats(1, LivenessInfo.NO_EXPIRATION_TIME, 0);
         EncodingStats two = new EncodingStats(2, LivenessInfo.NO_EXPIRATION_TIME, 0);
         EncodingStats thr = new EncodingStats(3, LivenessInfo.NO_EXPIRATION_TIME, 0);
-        EncodingStats result = EncodingStats.collect(Lists.newArrayList(
-            emptyWithStats(one),
-            emptyWithStats(two),
-            emptyWithStats(thr)
-        ));
+        EncodingStats result = EncodingStats.merge(ImmutableList.of(
+            one,
+            two,
+            thr
+        ), Function.identity());
         Assert.assertEquals(one, result);
     }
 
@@ -183,11 +125,11 @@ public class EncodingStatsTest
         EncodingStats one = new EncodingStats(LivenessInfo.NO_TIMESTAMP,1, 0);
         EncodingStats two = new EncodingStats(LivenessInfo.NO_TIMESTAMP,2, 0);
         EncodingStats thr = new EncodingStats(LivenessInfo.NO_TIMESTAMP,3, 0);
-        EncodingStats result = EncodingStats.collect(Lists.newArrayList(
-            emptyWithStats(one),
-            emptyWithStats(two),
-            emptyWithStats(thr)
-        ));
+        EncodingStats result = EncodingStats.merge(ImmutableList.of(
+            one,
+            two,
+            thr
+        ), Function.identity());
         Assert.assertEquals(one, result);
     }
 
@@ -197,11 +139,11 @@ public class EncodingStatsTest
         EncodingStats one = new EncodingStats(LivenessInfo.NO_TIMESTAMP, LivenessInfo.NO_EXPIRATION_TIME,1);
         EncodingStats two = new EncodingStats(LivenessInfo.NO_TIMESTAMP, LivenessInfo.NO_EXPIRATION_TIME,2);
         EncodingStats thr = new EncodingStats(LivenessInfo.NO_TIMESTAMP, LivenessInfo.NO_EXPIRATION_TIME,3);
-        EncodingStats result = EncodingStats.collect(Lists.newArrayList(
-            emptyWithStats(thr),
-            emptyWithStats(one),
-            emptyWithStats(two)
-        ));
+        EncodingStats result = EncodingStats.merge(ImmutableList.of(
+            thr,
+            one,
+            two
+        ), Function.identity());
         Assert.assertEquals(one, result);
     }
 
@@ -214,11 +156,11 @@ public class EncodingStatsTest
             .asWithPrecursor(EncodingStats::new)
             .check((timestamp, expires, ttl, stats) ->
                    {
-                       EncodingStats result = EncodingStats.collect(Lists.newArrayList(
-                           emptyWithStats(EncodingStats.NO_STATS),
-                           emptyWithStats(stats),
-                           emptyWithStats(EncodingStats.NO_STATS)
-                       ));
+                       EncodingStats result = EncodingStats.merge(ImmutableList.of(
+                           EncodingStats.NO_STATS,
+                           stats,
+                           EncodingStats.NO_STATS
+                       ), Function.identity());
                        return result.minTTL == ttl
                               && result.minLocalDeletionTime == expires
                               && result.minTimestamp == timestamp;

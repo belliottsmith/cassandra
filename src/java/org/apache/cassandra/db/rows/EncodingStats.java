@@ -19,6 +19,9 @@ package org.apache.cassandra.db.rows;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.function.Function;
+
+import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
@@ -108,15 +111,17 @@ public class EncodingStats
     }
 
     /**
-     * Create a single EncodingStats to represent min timestamp, deletion time, and ttl from multiple
-     * UnfilteredRowIterators
+     * Merge one or more EncodingStats, that are lazily materialized from some list of arbitrary type by the provided function
      */
-    public static EncodingStats collect(Collection<UnfilteredRowIterator> iterators)
+    public static <V, F extends Function<V, EncodingStats>> EncodingStats merge(List<V> values, F function)
     {
+        if (values.size() == 1)
+            return function.apply(values.get(0));
+
         Collector collector = new Collector();
-        for (UnfilteredRowIterator iter : iterators)
+        for (V v : values)
         {
-            EncodingStats stats = iter.stats();
+            EncodingStats stats = function.apply(v);
             if (stats.minTimestamp != TIMESTAMP_EPOCH)
                 collector.updateTimestamp(stats.minTimestamp);
             if(stats.minLocalDeletionTime != DELETION_TIME_EPOCH)

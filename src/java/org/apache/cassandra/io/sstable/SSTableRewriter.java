@@ -19,7 +19,6 @@ package org.apache.cassandra.io.sstable;
 
 import java.lang.ref.WeakReference;
 import java.util.*;
-import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -33,7 +32,6 @@ import org.apache.cassandra.db.lifecycle.ILifecycleTransaction;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
-import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.utils.NativeLibrary;
 import org.apache.cassandra.utils.concurrent.Transactional;
 
@@ -118,7 +116,7 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
 
     private static long calculateOpenInterval(boolean shouldOpenEarly)
     {
-        long interval = DatabaseDescriptor.getSSTablePreempiveOpenIntervalInMB() * (1L << 20);
+        long interval = DatabaseDescriptor.getSSTablePreemptiveOpenIntervalInMB() * (1L << 20);
         if (disableEarlyOpeningForTests || !shouldOpenEarly || interval < 0)
             interval = Long.MAX_VALUE;
         return interval;
@@ -135,7 +133,7 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
         DecoratedKey key = partition.partitionKey();
         maybeReopenEarly(key);
         RowIndexEntry index = writer.append(partition);
-        if (DatabaseDescriptor.getMigrateKeycacheOnCompaction())
+        if (DatabaseDescriptor.shouldMigrateKeycacheOnCompaction())
         {
             if (!transaction.isOffline() && index != null)
             {
