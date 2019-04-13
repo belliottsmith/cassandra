@@ -26,5 +26,5 @@ fi
 
 
 ant realclean
-ant test -Dtest.runners=2
+rio/unsu ant test -Dtest.runners=2
 ant build
