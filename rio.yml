@@ -133,8 +133,34 @@ builds:
       expression: cie-cassandra-3.0.17.14
     radar:
       annotate: true
+    pipelineChain:
+      - pipeline: release-3.0.17-docker-image
   trigger:
     gitPush: false
+
+- name: release-3.0.17-docker-image
+  branchName: cie-cassandra-3.0.17
+  build:
+    template: freestyle:v2:dockerfile
+    steps:
+      - ./rio/release.sh 3.0.17.14
+  trigger:
+    gitPush: false
+  machine:
+    docker:
+      baseImage: docker.apple.com/cpbuild/jdk1.8:latest
+    env:
+      CASSANDRA_VERSION: "3.0.17.14"
+  package:
+    version: "3.0.17.14"
+    dockerfile:
+      - dockerfilePath: "Dockerfile"
+        registry: "docker.apple.com"
+        namespace: "piedb"
+        repository: "cie-cassandra"
+        perApplication: false
+
+
 - name: dtest-3.0.17
   branchName: cie-cassandra-3.0.17
   build:
