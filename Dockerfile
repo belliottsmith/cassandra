@@ -1,5 +1,7 @@
 FROM docker.apple.com/piedb/jdk1.8:latest
 
+ARG CASSANDRA_VERSION
+
 COPY .dist/publishable/com/apple/cie/db/cassandra/cie-cassandra/$CASSANDRA_VERSION/cie-cassandra-$CASSANDRA_VERSION-bin.tar.gz /
 RUN tar -xvf cie-cassandra-$CASSANDRA_VERSION-bin.tar.gz
 RUN ln -s cie-cassandra-$CASSANDRA_VERSION cassandrajar
