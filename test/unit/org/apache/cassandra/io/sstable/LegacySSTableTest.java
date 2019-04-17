@@ -52,8 +52,6 @@ import org.apache.cassandra.db.compaction.AbstractCompactionTask;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.SinglePartitionSliceCommandTest;
 import org.apache.cassandra.db.compaction.Verifier;
-import org.apache.cassandra.db.SinglePartitionSliceCommandTest;
-import org.apache.cassandra.db.compaction.Verifier;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.marshal.UTF8Type;
@@ -78,6 +76,8 @@ import org.apache.cassandra.streaming.StreamSession;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
+import static org.apache.cassandra.cql3.CQLTester.assertRows;
+import static org.apache.cassandra.cql3.CQLTester.row;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -596,6 +596,40 @@ public class LegacySSTableTest
         // drop time forward so that it occurs before the collection timestamp
         cfm.recordColumnDrop(columnToDrop, 1543244999600000L);
         assertExpectedRowsWithDroppedCollection(false);
+    }
+
+    @Test
+    public void testReadingLegacyTablesWithIllegalCellNames() throws Exception {
+        /**
+         * The sstable can be generated externally with SSTableSimpleUnsortedWriter:
+         *
+         * [
+         * {"key": "1",
+         *  "cells": [["a:aa:c1","61",1555000750634000],
+         *            ["a:aa:c2","6161",1555000750634000],
+         *            ["a:aa:pk","00000001",1555000750634000],
+         *            ["a:aa:v1","aaa",1555000750634000]]},
+         * {"key": "2",
+         *  "cells": [["b:bb:c1","62",1555000750634000],
+         *            ["b:bb:c2","6262",1555000750634000],
+         *            ["b:bb:pk","00000002",1555000750634000],
+         *            ["b:bb:v1","bbb",1555000750634000]]}
+         * ]
+         *
+         */
+
+        QueryProcessor.executeInternal("CREATE TABLE legacy_tables.legacy_ka_with_illegal_cell_names (" +
+                                       " pk int," +
+                                       " c1 text," +
+                                       " c2 text," +
+                                       " v1 text," +
+                                       " PRIMARY KEY(pk, c1, c2))");
+        loadLegacyTable("legacy_%s_with_illegal_cell_names%s", "ka", "");
+        UntypedResultSet results =
+            QueryProcessor.executeOnceInternal(
+                String.format("SELECT * FROM legacy_tables.legacy_ka_with_illegal_cell_names"));
+
+        assertRows(results, row(1, "a", "aa", "aaa"), row(2, "b", "bb", "bbb"));
     }
 
     private void assertExpectedRowsWithDroppedCollection(boolean droppedCheckSuccessful)
