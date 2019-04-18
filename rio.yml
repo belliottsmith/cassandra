@@ -141,8 +141,7 @@ builds:
 - name: release-3.0.17-docker-image
   branchName: cie-cassandra-3.0.17
   machine:
-    docker:
-      baseImage: docker.apple.com/cpbuild/jdk1.8:latest
+    baseImage: docker.apple.com/cpbuild/jdk1.8:latest
     env:
       CASSANDRA_VERSION: "3.0.17.14"
   build:
