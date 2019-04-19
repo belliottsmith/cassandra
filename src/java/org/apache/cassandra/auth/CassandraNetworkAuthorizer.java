@@ -83,7 +83,7 @@ public class CassandraNetworkAuthorizer implements INetworkAuthorizer
 
     public DCPermissions authorize(RoleResource role)
     {
-        if (!DatabaseDescriptor.getRoleManager().canLogin(role))
+        if (!Roles.canLogin(role))
         {
             return DCPermissions.none();
         }
