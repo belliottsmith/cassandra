@@ -5,6 +5,7 @@
  * Improve `nodetool status -r` speed (CASSANDRA-14847)
  * Improve merkle tree size and time on heap (CASSANDRA-14096)
 Merged from 2.2:
+ * Support cross version messaging in in-jvm upgrade dtests (CASSANDRA-15078)
  * Refactor Circle CI configuration (CASSANDRA-14806)
  * Fixing invalid CQL in security documentation (CASSANDRA-15020)
  * Multi-version in-JVM dtests (CASSANDRA-14937)
