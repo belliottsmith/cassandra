@@ -29,4 +29,7 @@ public interface GossiperMBean
 
     public void assassinateEndpoint(String address) throws UnknownHostException;
 
+    public void setThreadCorrectionDisabled(boolean disabled);
+
+    public boolean isThreadCorrectionDisabled();
 }

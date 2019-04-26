@@ -117,6 +117,9 @@ public class DatabaseDescriptor
 
     private static boolean daemonInitialized;
 
+    // turns some warnings into exceptions for testing
+    private static final boolean strictRuntimeChecks = Boolean.getBoolean("cassandra.strict.runtime.checks");
+
     public static boolean isDaemonInitialized()
     {
         return daemonInitialized;
@@ -2717,5 +2720,10 @@ public class DatabaseDescriptor
             logger.info("Setting compact_biggest_stcs_bucket_in_l0 to {}", value);
             conf.compact_biggest_stcs_bucket_l0 = value;
         }
+    }
+
+    public static boolean strictRuntimeChecks()
+    {
+        return strictRuntimeChecks;
     }
 }

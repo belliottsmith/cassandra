@@ -719,7 +719,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 {
                     if (loadedHostIds.containsKey(ep))
                         tokenMetadata.updateHostId(loadedHostIds.get(ep), ep);
-                    Gossiper.instance.addSavedEndpoint(ep);
+                    Gossiper.runInGossipStageBlocking(() -> Gossiper.instance.addSavedEndpoint(ep));
                 }
             }
         }
@@ -1043,8 +1043,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 // remove the existing info about the replaced node.
                 if (!current.isEmpty())
                 {
-                    for (InetAddress existing : current)
-                        Gossiper.instance.replacedEndpoint(existing);
+                    Gossiper.runInGossipStageBlocking(() -> {
+                        for (InetAddress existing : current)
+                            Gossiper.instance.replacedEndpoint(existing);
+                    });
                 }
             }
             else
@@ -2529,7 +2531,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     /** unlike excise we just need this endpoint gone without going through any notifications **/
     private void removeEndpoint(InetAddress endpoint)
     {
-        Gossiper.instance.removeEndpoint(endpoint);
+        Gossiper.runInGossipStageBlocking(() -> Gossiper.instance.removeEndpoint(endpoint));
         SystemKeyspace.removeEndpoint(endpoint);
     }
 
