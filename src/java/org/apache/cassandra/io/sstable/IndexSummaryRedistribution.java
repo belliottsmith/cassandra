@@ -57,16 +57,22 @@ public class IndexSummaryRedistribution extends CompactionInfo.Holder
     static final double UPSAMPLE_THRESHOLD = 1.5;
     static final double DOWNSAMPLE_THESHOLD = 0.75;
 
-    private final List<SSTableReader> compacting;
     private final Map<UUID, LifecycleTransaction> transactions;
+    private final long nonRedistributingOffHeapSize;
     private final long memoryPoolBytes;
     private final UUID compactionId;
     private volatile long remainingSpace;
 
-    public IndexSummaryRedistribution(List<SSTableReader> compacting, Map<UUID, LifecycleTransaction> transactions, long memoryPoolBytes)
+    /**
+     *
+     * @param transactions the transactions for the different keyspaces/tables we are to redistribute
+     * @param nonRedistributingOffHeapSize the total index summary off heap size for all sstables we were not able to mark compacting (due to them being involved in other compactions)
+     * @param memoryPoolBytes size of the memory pool
+     */
+    public IndexSummaryRedistribution(Map<UUID, LifecycleTransaction> transactions, long nonRedistributingOffHeapSize, long memoryPoolBytes)
     {
-        this.compacting = compacting;
         this.transactions = transactions;
+        this.nonRedistributingOffHeapSize = nonRedistributingOffHeapSize;
         this.memoryPoolBytes = memoryPoolBytes;
         this.compactionId = UUID.randomUUID();
     }
@@ -92,8 +98,8 @@ public class IndexSummaryRedistribution extends CompactionInfo.Holder
             redistribute.addAll(txn.originals());
         }
 
-        long total = 0;
-        for (SSTableReader sstable : Iterables.concat(compacting, redistribute))
+        long total = nonRedistributingOffHeapSize;
+        for (SSTableReader sstable : redistribute)
             total += sstable.getIndexSummaryOffHeapSize();
 
         logger.trace("Beginning redistribution of index summaries for {} sstables with memory pool size {} MB; current spaced used is {} MB",
@@ -119,8 +125,8 @@ public class IndexSummaryRedistribution extends CompactionInfo.Holder
         List<SSTableReader> sstablesByHotness = new ArrayList<>(redistribute);
         Collections.sort(sstablesByHotness, new ReadRateComparator(readRates));
 
-        long remainingBytes = memoryPoolBytes;
-        for (SSTableReader sstable : Iterables.concat(compacting, oldFormatSSTables))
+        long remainingBytes = memoryPoolBytes - nonRedistributingOffHeapSize;
+        for (SSTableReader sstable : oldFormatSSTables)
             remainingBytes -= sstable.getIndexSummaryOffHeapSize();
 
         logger.trace("Index summaries for compacting SSTables are using {} MB of space",
@@ -133,8 +139,8 @@ public class IndexSummaryRedistribution extends CompactionInfo.Holder
             for (LifecycleTransaction txn : transactions.values())
                 txn.finish();
         }
-        total = 0;
-        for (SSTableReader sstable : Iterables.concat(compacting, oldFormatSSTables, newSSTables))
+        total = nonRedistributingOffHeapSize;
+        for (SSTableReader sstable : Iterables.concat(oldFormatSSTables, newSSTables))
             total += sstable.getIndexSummaryOffHeapSize();
         logger.trace("Completed resizing of index summaries; current approximate memory used: {} MB",
                      total / 1024.0 / 1024.0);
@@ -309,7 +315,7 @@ public class IndexSummaryRedistribution extends CompactionInfo.Holder
 
     public CompactionInfo getCompactionInfo()
     {
-        return new CompactionInfo(OperationType.INDEX_SUMMARY, (memoryPoolBytes - remainingSpace), memoryPoolBytes, Unit.BYTES, compactionId, compacting);
+        return CompactionInfo.withoutSSTables(null, OperationType.INDEX_SUMMARY, (memoryPoolBytes - remainingSpace), memoryPoolBytes, Unit.BYTES, compactionId);
     }
 
     /** Utility class for sorting sstables by their read rates. */
