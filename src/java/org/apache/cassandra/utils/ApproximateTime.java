@@ -18,8 +18,6 @@
 
 package org.apache.cassandra.utils;
 
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -29,7 +27,6 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.Config;
-import org.apache.cassandra.config.DatabaseDescriptor;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
@@ -49,6 +46,8 @@ public class ApproximateTime
     private static final int ALMOST_NOW_UPDATE_INTERVAL_MS = Math.max(1, Integer.parseInt(System.getProperty(Config.PROPERTY_PREFIX + "approximate_time_precision_ms", "2")));
     private static final String CONVERSION_UPDATE_INTERVAL_PROPERTY = Config.PROPERTY_PREFIX + "NANOTIMETOMILLIS_TIMESTAMP_UPDATE_INTERVAL";
     private static final long ALMOST_SAME_TIME_UPDATE_INTERVAL_MS = Long.getLong(CONVERSION_UPDATE_INTERVAL_PROPERTY, 10000);
+
+    private static long NANO_TIME_PRECISION = NANOSECONDS.convert(ALMOST_NOW_UPDATE_INTERVAL_MS, MILLISECONDS);
 
     public static class AlmostSameTime
     {
@@ -204,7 +203,7 @@ public class ApproximateTime
 
     public static long nanoTimePrecision()
     {
-        return almostNowPrecision(NANOSECONDS);
+        return NANO_TIME_PRECISION;
     }
 
     /*
