@@ -27,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 import javax.management.openmbean.CompositeData;
 import javax.management.openmbean.*;
 
+import com.google.common.base.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,6 +68,7 @@ public class FailureDetector implements IFailureDetector, FailureDetectorMBean
     }
 
     public static final IFailureDetector instance = new FailureDetector();
+    public static final Predicate<InetAddress> isAlivePredicate = instance::isAlive;
 
     // this is useless except to provide backwards compatibility in phi_convict_threshold,
     // because everyone seems pretty accustomed to the default of 8, and users who have

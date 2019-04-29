@@ -90,6 +90,22 @@ public enum ConsistencyLevel
         return codeIdx[code];
     }
 
+    public static Map<String, Integer> countPerDCEndpoints(Keyspace keyspace, Iterable<InetAddress> liveEndpoints)
+    {
+        NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
+
+        Map<String, Integer> dcEndpoints = new HashMap<>();
+        for (String dc: strategy.getDatacenters())
+            dcEndpoints.put(dc, 0);
+
+        for (InetAddress endpoint : liveEndpoints)
+        {
+            String dc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(endpoint);
+            dcEndpoints.put(dc, dcEndpoints.get(dc) + 1);
+        }
+        return dcEndpoints;
+    }
+
     private int quorumFor(Keyspace keyspace)
     {
         return (keyspace.getReplicationStrategy().getReplicationFactor() / 2) + 1;
@@ -166,22 +182,6 @@ public enum ConsistencyLevel
             if (isLocal(endpoint))
                 count++;
         return count;
-    }
-
-    private Map<String, Integer> countPerDCEndpoints(Keyspace keyspace, Iterable<InetAddress> liveEndpoints)
-    {
-        NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
-
-        Map<String, Integer> dcEndpoints = new HashMap<String, Integer>();
-        for (String dc: strategy.getDatacenters())
-            dcEndpoints.put(dc, 0);
-
-        for (InetAddress endpoint : liveEndpoints)
-        {
-            String dc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(endpoint);
-            dcEndpoints.put(dc, dcEndpoints.get(dc) + 1);
-        }
-        return dcEndpoints;
     }
 
     public List<InetAddress> filterForQuery(Keyspace keyspace, List<InetAddress> liveEndpoints)
@@ -294,14 +294,18 @@ public enum ConsistencyLevel
 
     public void assureSufficientLiveNodes(Keyspace keyspace, Iterable<InetAddress> liveEndpoints) throws UnavailableException
     {
-        int blockFor = blockFor(keyspace);
+        assureSufficientLiveNodes(keyspace, liveEndpoints, blockFor(keyspace));
+    }
+
+    public void assureSufficientLiveNodes(Keyspace keyspace, Iterable<InetAddress> liveEndpoints, int blockFor) throws UnavailableException
+    {
         switch (this)
         {
             case ANY:
                 // local hint is acceptable, and local node is always live
                 break;
             case LOCAL_ONE:
-                if (countLocalEndpoints(liveEndpoints) == 0)
+                if (countLocalEndpoints(liveEndpoints) < blockFor)
                     throw new UnavailableException(this, 1, 0);
                 break;
             case LOCAL_QUORUM:

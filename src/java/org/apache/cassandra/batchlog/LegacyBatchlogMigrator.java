@@ -33,6 +33,7 @@ import org.apache.cassandra.db.marshal.UUIDType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.exceptions.WriteFailureException;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
+import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.net.MessagingService;
@@ -144,7 +145,8 @@ public final class LegacyBatchlogMigrator
                                                                                      ConsistencyLevel.ANY,
                                                                                      Keyspace.open(SystemKeyspace.NAME),
                                                                                      null,
-                                                                                     WriteType.SIMPLE);
+                                                                                     WriteType.SIMPLE,
+                                                                                     FailureDetector.isAlivePredicate);
         Mutation mutation = getRemoveMutation(uuid);
 
         for (InetAddress target : endpoints)

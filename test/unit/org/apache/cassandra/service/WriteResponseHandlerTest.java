@@ -21,11 +21,22 @@ package org.apache.cassandra.service;
 
 import java.net.InetAddress;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.ImmutableList;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+
+import com.google.common.base.Predicate;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -36,6 +47,7 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.WriteType;
+import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.net.MessageIn;
@@ -43,12 +55,22 @@ import org.apache.cassandra.schema.KeyspaceParams;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import org.apache.cassandra.exceptions.UnavailableException;
+
+import static org.apache.cassandra.db.ConsistencyLevel.*;
+import static org.junit.Assert.fail;
 
 public class WriteResponseHandlerTest
 {
     static Keyspace ks;
     static ColumnFamilyStore cfs;
     static List<InetAddress> targets;
+    static EnumSet<ConsistencyLevel> writeCls = EnumSet.allOf(ConsistencyLevel.class);
+    static
+    {
+        writeCls.remove(SERIAL);
+        writeCls.remove(LOCAL_SERIAL);
+    }
 
     @BeforeClass
     public static void setUpClass() throws Throwable
@@ -114,6 +136,7 @@ public class WriteResponseHandlerTest
     {
         ks.metric.writeFailedIdealCL.dec(ks.metric.writeFailedIdealCL.getCount());
     }
+
 
     /**
      * Validate that a successful write at ideal CL logs latency information. Also validates
@@ -212,6 +235,160 @@ public class WriteResponseHandlerTest
         awr.expired();
         assertEquals(1, ks.metric.writeFailedIdealCL.getCount());
         assertEquals(startingCount, ks.metric.idealCLWriteLatency.latency.getCount());
+    }
+
+    @Test
+    public void verifyAvailabilityChecks() throws Exception
+    {
+        // natural endpoints models NTS with 2 DCs, each having RF=3
+        String local1  = "127.1.0.255";
+        String local2  = "127.1.0.254";
+        String local3  = "127.1.0.253";
+        String remote1 = "127.2.0.255";
+        String remote2 = "127.2.0.254";
+        String remote3 = "127.2.0.253";
+        Collection<InetAddress> natural = toAddresses(local1, local2, local3, remote1, remote2, remote3);
+
+        // These addresses will be used for pending endpoints
+        String local4  = "127.1.0.252";
+        String local5  = "127.1.0.251";
+        String local6  = "127.1.0.250";
+        String remote4 = "127.2.0.252";
+        String remote5 = "127.2.0.251";
+        String remote6 = "127.2.0.250";
+
+        // All replicas up & no pending endpoints
+        verifyConsistencyLevels(natural, pending(), failureDetector());
+
+        // All replicas up and 1 pending endpoint
+        verifyConsistencyLevels(natural, pending(local4), failureDetector());
+
+        // All replicas up and 1 pending endpoint per-dc
+        verifyConsistencyLevels(natural, pending(local4, remote4), failureDetector());
+
+        // One replica down in the local DC and no pending endpoints
+        Predicate<InetAddress> failureDetector = failureDetector(local1);
+        // ALL should fail, everything else should succeed
+        verifyConsistencyLevels(natural, pending(), failureDetector, ALL);
+
+        // One replica down and 1 pending node in the same DC
+        // Expect same as previous, ALL should throw UnavailableException, everything else should succeed
+        verifyConsistencyLevels(natural, pending(local4), failureDetector, ALL);
+
+        // Two replicas down in the same DC and none pending
+        // Expect ALL, LOCAL_QUORUM & EACH_QUORUM to throw UnavailableException
+        failureDetector = failureDetector(local1, local2);
+        verifyConsistencyLevels(natural, pending(), failureDetector, ALL, LOCAL_QUORUM, EACH_QUORUM);
+        // Add a pending replica in the local DC. Expectation remains the same as the pending endpoint increases
+        // the required endpoints for the consistency level. So a local quorum now requires 3 -> (rf=3/2 + 1) + 1
+        verifyConsistencyLevels(natural, pending(local4), failureDetector, ALL, LOCAL_QUORUM, EACH_QUORUM);
+
+        // All replicas in the local DC down, without any pending
+        // ANY & non-local ONE/TWO/THREE should succeed, everything else (i.e. ALL/LOCAL_QUORUM/EACH_QUORUM/
+        // LOCAL_ONE/QUORUM) should throw UnavailableException
+        failureDetector = failureDetector(local1, local2, local3);
+        verifyConsistencyLevels(natural, pending(), failureDetector, allWriteCLsExcept(ONE, TWO, THREE, ANY));
+
+        // Add one pending replica, results should be unchanged
+        verifyConsistencyLevels(natural, pending(local4), failureDetector, allWriteCLsExcept(ONE, TWO, THREE, ANY));
+
+        // Add 2 more pending replicas, results should still be unchanged
+        verifyConsistencyLevels(natural, pending(local4, local5, local6), failureDetector, allWriteCLsExcept(ONE, TWO, THREE, ANY));
+
+        // All replicas in both DCs are down. Everything except ANY should throw UnavailableException
+        failureDetector = failureDetector(local1, local2, local3, remote1, remote2, remote3);
+        verifyConsistencyLevels(natural, pending(), failureDetector, allWriteCLsExcept(ANY));
+
+        // Add 3 pending endpoints in each dc, everything except ANY should still fail
+        String[] allPending = new String[]{local4, local5, local6, remote4, remote5, remote6};
+        verifyConsistencyLevels(natural, pending(allPending), failureDetector, allWriteCLsExcept(ANY));
+    }
+
+    private static void verifyConsistencyLevels(Collection<InetAddress> naturalEndpoints,
+                                                Collection<InetAddress> pendingEndpoints,
+                                                Predicate<InetAddress> failureDetector,
+                                                ConsistencyLevel...expectedToFail)
+    {
+        EnumSet<ConsistencyLevel> expectedSuccesses = EnumSet.copyOf(writeCls);
+        EnumSet<ConsistencyLevel> expectedFailures = EnumSet.noneOf(ConsistencyLevel.class);
+        for (ConsistencyLevel cl : expectedToFail)
+        {
+            expectedSuccesses.remove(cl);
+            expectedFailures.add(cl);
+        }
+
+        Set<ConsistencyLevel> unexpectedSuccesses = EnumSet.noneOf(ConsistencyLevel.class);
+        Set<ConsistencyLevel> unexpectedFailures = EnumSet.noneOf(ConsistencyLevel.class);
+
+        for (ConsistencyLevel cl : writeCls)
+        {
+            for (WriteType type : WriteType.values())
+            {
+                AbstractWriteResponseHandler handler = createWriteResponseHandler(cl, naturalEndpoints, pendingEndpoints, WriteType.SIMPLE, failureDetector);
+                try
+                {
+                    handler.assureSufficientLiveNodes();
+                    if (!expectedSuccesses.contains(cl))
+                        unexpectedSuccesses.add(cl);
+                }
+                catch (UnavailableException e)
+                {
+                    if (!expectedFailures.contains(cl))
+                        unexpectedFailures.add(cl);
+                }
+            }
+        }
+
+        if (!unexpectedSuccesses.isEmpty() || !unexpectedFailures.isEmpty())
+        {
+            fail(String.format("Expectations not matched. Unexpected failures : %s, Unexpected successes: %s",
+                               unexpectedFailures.stream().map(ConsistencyLevel::name).collect(Collectors.joining(", ")),
+                               unexpectedSuccesses.stream().map(ConsistencyLevel::name).collect(Collectors.joining(", "))));
+        }
+    }
+
+    private static ConsistencyLevel[] allWriteCLsExcept(ConsistencyLevel...exclude)
+    {
+        EnumSet<ConsistencyLevel> cls = EnumSet.copyOf(writeCls);
+        for (ConsistencyLevel ex: exclude)
+            cls.remove(ex);
+        return cls.toArray(new ConsistencyLevel[cls.size()]);
+    }
+
+    private static AbstractWriteResponseHandler createWriteResponseHandler(ConsistencyLevel cl,
+                                                                           Collection<InetAddress> naturalEndpoints,
+                                                                           Collection<InetAddress> pendingEndpoints,
+                                                                           WriteType type,
+                                                                           Predicate<InetAddress> isAlive)
+    {
+        return ks.getReplicationStrategy().getWriteResponseHandler(naturalEndpoints,
+                                                                   pendingEndpoints,
+                                                                   cl,
+                                                                   () -> {},
+                                                                   type,
+                                                                   isAlive);
+    }
+
+    private Collection<InetAddress> pending(final String...endpoints) throws UnknownHostException
+    {
+        return toAddresses(endpoints);
+    }
+
+    private Collection<InetAddress> toAddresses(final String...endpoints) throws UnknownHostException
+    {
+        List<InetAddress> pending = Lists.newArrayListWithCapacity(endpoints.length);
+        for (String ep : endpoints)
+            pending.add(InetAddress.getByName(ep));
+        return pending;
+    }
+
+    private Predicate<InetAddress> failureDetector(final String...deadNodes) throws UnknownHostException
+    {
+        Set<InetAddress> down = Sets.newHashSetWithExpectedSize(deadNodes.length);
+        for (String deadNode : deadNodes)
+            down.add(InetAddress.getByName(deadNode));
+
+        return inetAddress -> !down.contains(inetAddress);
     }
 
     private static AbstractWriteResponseHandler createWriteResponseHandler(ConsistencyLevel cl, ConsistencyLevel ideal)

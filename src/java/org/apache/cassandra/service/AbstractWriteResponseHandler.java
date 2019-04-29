@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
+import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +55,8 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
         = AtomicIntegerFieldUpdater.newUpdater(AbstractWriteResponseHandler.class, "failures");
     private volatile int failures = 0;
 
+    protected final Predicate<InetAddress> isAlive;
+
     /**
       * Delegate to another WriteReponseHandler or possibly this one to track if the ideal consistency level was reached.
       * Will be set to null if ideal CL was not configured
@@ -71,7 +74,8 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
                                            Collection<InetAddress> pendingEndpoints,
                                            ConsistencyLevel consistencyLevel,
                                            Runnable callback,
-                                           WriteType writeType)
+                                           WriteType writeType,
+                                           Predicate<InetAddress> isAlive)
     {
         this.keyspace = keyspace;
         this.pendingEndpoints = pendingEndpoints;
@@ -80,6 +84,7 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
         this.naturalEndpoints = naturalEndpoints;
         this.callback = callback;
         this.writeType = writeType;
+        this.isAlive = isAlive;
     }
 
     public void get() throws WriteTimeoutException, WriteFailureException
@@ -213,7 +218,12 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
 
     public void assureSufficientLiveNodes() throws UnavailableException
     {
-        consistencyLevel.assureSufficientLiveNodes(keyspace, Iterables.filter(Iterables.concat(naturalEndpoints, pendingEndpoints), isAlive));
+        // For writes we use totalBlockFor as any pending endpoints should also be considered
+        // The exception is for EACH_QUORUM where the calculation has to be per-dc. See the
+        // override in DatacenterSyncWriteResponseHandler for that.
+        consistencyLevel.assureSufficientLiveNodes(keyspace,
+                                                   Iterables.filter(Iterables.concat(naturalEndpoints, pendingEndpoints), isAlive),
+                                                   totalBlockFor());
     }
 
     protected void signal()

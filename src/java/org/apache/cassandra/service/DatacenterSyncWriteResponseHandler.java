@@ -23,8 +23,12 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.locator.NetworkTopologyStrategy;
 import org.apache.cassandra.net.MessageIn;
@@ -46,10 +50,11 @@ public class DatacenterSyncWriteResponseHandler<T> extends AbstractWriteResponse
                                               ConsistencyLevel consistencyLevel,
                                               Keyspace keyspace,
                                               Runnable callback,
-                                              WriteType writeType)
+                                              WriteType writeType,
+                                              Predicate<InetAddress> isAlive)
     {
         // Response is been managed by the map so make it 1 for the superclass.
-        super(keyspace, naturalEndpoints, pendingEndpoints, consistencyLevel, callback, writeType);
+        super(keyspace, naturalEndpoints, pendingEndpoints, consistencyLevel, callback, writeType, isAlive);
         assert consistencyLevel == ConsistencyLevel.EACH_QUORUM;
 
         NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
@@ -92,6 +97,28 @@ public class DatacenterSyncWriteResponseHandler<T> extends AbstractWriteResponse
         {
             //Must be last after all subclass processing
             logResponseToIdealCLDelegate(message);
+        }
+    }
+
+    public void assureSufficientLiveNodes() throws UnavailableException
+    {
+        // It only makes sense for this method to be called prior to sending requests
+        // so we can use the expected response counts per-dc to check this property
+        // as they won't yet have been decremented by any received responses.
+        assert ackCount() == 0;
+        Map<String, Integer> endpointsByDc =
+            ConsistencyLevel.countPerDCEndpoints(keyspace,
+                                                 Iterables.filter(Iterables.concat(naturalEndpoints, pendingEndpoints),
+                                                 isAlive));
+
+        for (Map.Entry<String, AtomicInteger> required : responses.entrySet())
+        {
+            Integer live = endpointsByDc.get(required.getKey());
+            if (null == live || live < required.getValue().get())
+                throw new UnavailableException(ConsistencyLevel.EACH_QUORUM,
+                                               required.getKey(),
+                                               live == null ? 0 : live,
+                                               required.getValue().get());
         }
     }
 

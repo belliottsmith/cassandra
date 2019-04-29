@@ -479,7 +479,7 @@ public class BatchlogManager implements BatchlogManagerMBean
 
             ReplayWriteResponseHandler(Collection<InetAddress> writeEndpoints)
             {
-                super(writeEndpoints, Collections.<InetAddress>emptySet(), null, null, null, WriteType.UNLOGGED_BATCH);
+                super(writeEndpoints, Collections.emptySet(), null, null, null, WriteType.UNLOGGED_BATCH, FailureDetector.isAlivePredicate);
                 undelivered.addAll(writeEndpoints);
             }
 
