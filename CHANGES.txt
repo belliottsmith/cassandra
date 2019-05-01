@@ -1,4 +1,16 @@
-3.0.17.15 (open)
+3.0.17.16 (open)
+
+3.0.17.15
+* <rdar://problem/49484414> (CASSANDRA-15072) Incomplete range results during 2.X -> 3.11.4 upgrade
+* <rdar://problem/49120367> (CASSANDRA-15059) Gossiper#markAlive can race with Gossiper#markDead
+* (no radar) PR #1249 drop root capabilities before running tests and reenable FQL tests
+* <rdar://problem/48670257> (CASSANDRA-15045) Fix index summary redistribution compaction cancellation issues
+* <rdar://problem/49900065> (CASSANDRA-15089) CassandraNetworkAuthorizer::authorize should get role details from Roles, not directly from IRoleManager
+* <rdar://problem/49938329> (CASSANDRA-15086) Illegal column names make legacy sstables unreadable in 3.0/3.x
+* <rdar://problem/44970349> (CASSANDRA-14802) CalculatePendingRanges assigns more pending ranges than necessary
+* <rdar://problem/49271378> (Apple Internal) Skip FullQueryLogger tests that fail when running as root
+* <rdar://problem/49755710> (Apple Internal) Add rio docker image release when we release cie-cassandra every time
+* <rdar://problem/47113811> (CASSANDRA-14993) Catch CorruptSSTableExceptions and FSErrors in ALAExecutorService
 
 3.0.17.14
 * <rdar://problem/48394821> Backport CASSANDRA-15036: Avoid ConcurrentModificationException when cancelling compactions
