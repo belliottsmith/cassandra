@@ -158,6 +158,17 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         }
 
         @Override
+        public synchronized Future<Void> shutdownHard()
+        {
+            if (isShutdown)
+                throw new IllegalStateException();
+            isShutdown = true;
+            Future<Void> future = delegate.shutdownHard();
+            delegate = null;
+            return future;
+        }
+
+        @Override
         public void receiveMessage(IMessage message)
         {
             IInvokableInstance delegate = this.delegate;
@@ -325,9 +336,9 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         get(instance).schemaChangeInternal(statement);
     }
 
-    void startup()
+    public void startup()
     {
-        parallelForEach(I::startup, 0, null);
+        forEach(I::startup);
     }
 
     protected interface Factory<I extends IInstance, C extends AbstractCluster<I>>
@@ -371,7 +382,6 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         }
 
         C cluster = factory.newCluster(root, version, configs, sharedClassLoader);
-        cluster.startup();
         return cluster;
     }
 

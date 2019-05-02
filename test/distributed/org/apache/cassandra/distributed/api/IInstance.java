@@ -38,6 +38,7 @@ public interface IInstance extends IIsolatedExecutor
 
     void startup();
     Future<Void> shutdown();
+    Future<Void> shutdownHard();
 
     // these methods are not for external use, but for simplicity we leave them public and on the normal IInstance interface
     void startup(ICluster cluster);

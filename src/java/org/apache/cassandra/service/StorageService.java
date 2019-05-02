@@ -718,7 +718,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return DatabaseDescriptor.isAutoBootstrap() && !SystemKeyspace.bootstrapComplete() && !DatabaseDescriptor.getSeeds().contains(FBUtilities.getBroadcastAddress());
     }
 
-    private void prepareToJoin() throws ConfigurationException
+    @VisibleForTesting
+    public void prepareToJoin() throws ConfigurationException
     {
         if (!joined)
         {
@@ -787,7 +788,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
-    private void joinTokenRing(int delay) throws ConfigurationException
+    @VisibleForTesting
+    public void joinTokenRing(int delay) throws ConfigurationException
     {
         joined = true;
 

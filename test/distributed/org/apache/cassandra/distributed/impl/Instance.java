@@ -98,6 +98,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         this.config = config;
         InstanceIDDefiner.setInstanceId(config.num());
         FBUtilities.setBroadcastInetAddress(config.broadcastAddressAndPort().address);
+        acceptsOnInstance((IInstanceConfig override) -> {
+            Config.setOverrideLoadConfig(() -> loadConfig(override));
+            DatabaseDescriptor.setDaemonInitialized();
+        }).accept(config);
     }
 
     public IInstanceConfig config()
@@ -255,12 +259,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             try
             {
                 mkdirs();
-
                 Config.setOverrideLoadConfig(() -> loadConfig(config));
                 DatabaseDescriptor.setDaemonInitialized();
                 DatabaseDescriptor.createAllDirectories();
 
-                // We need to persist this as soon as possible after startup checks.
+                // We need to  persist this as soon as possible after startup checks.
                 // This should be the first write to SystemKeyspace (CASSANDRA-11742)
                 SystemKeyspace.persistLocalMetadata();
                 LegacySchemaMigrator.migrate();
@@ -287,8 +290,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     throw new RuntimeException(e);
                 }
 
-                initializeRing(cluster);
-                registerMockMessaging(cluster);
+                StorageService.instance.prepareToJoin();
+                StorageService.instance.joinTokenRing(1000);
+//                initializeRing(cluster);
+//                registerMockMessaging(cluster);
 
                 SystemKeyspace.finishStartup();
 
@@ -383,7 +388,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     CompactionManager.instance::forceShutdown,
                     BatchlogManager.instance::shutdown,
                     HintsService.instance::shutdownBlocking,
-                    CommitLog.instance::shutdownBlocking,
                     SecondaryIndexManager::shutdownExecutors,
                     ColumnFamilyStore::shutdownFlushExecutor,
                     ColumnFamilyStore::shutdownPostFlushExecutor,
@@ -401,7 +405,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             );
             error = parallelRun(error, executor,
                                 StageManager::shutdownAndWait,
-                                SharedExecutorPool.SHARED::shutdown
+                                SharedExecutorPool.SHARED::shutdownAndWait
+            );
+            error = parallelRun(error, executor,
+                                CommitLog.instance::shutdownBlocking
             );
 
             LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
@@ -411,6 +418,12 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
         return CompletableFuture.runAsync(ThrowingRunnable.toRunnable(future::get), isolatedExecutor)
                                 .thenRun(super::shutdown);
+    }
+
+    public Future<Void> shutdownHard()
+    {
+        MessagingService.instance().shutdown(false);
+        return shutdown();
     }
 
     private static Throwable parallelRun(Throwable accumulate, ExecutorService runOn, ThrowingRunnable ... runnables)
