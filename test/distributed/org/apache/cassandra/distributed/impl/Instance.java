@@ -149,6 +149,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         throw new UnsupportedOperationException();
     }
 
+    public boolean isShutdown()
+    {
+        throw new UnsupportedOperationException();
+    }
+
     @Override
     public void schemaChangeInternal(String query)
     {

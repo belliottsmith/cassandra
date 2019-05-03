@@ -136,6 +136,11 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
             return config;
         }
 
+        public boolean isShutdown()
+        {
+            return isShutdown;
+        }
+
         @Override
         public synchronized void startup()
         {
@@ -408,6 +413,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
     public void close()
     {
         FBUtilities.waitOnFutures(instances.stream()
+                                           .filter(i -> !i.isShutdown())
                                            .map(IInstance::shutdown)
                                            .collect(Collectors.toList()),
                                   1L, TimeUnit.MINUTES);

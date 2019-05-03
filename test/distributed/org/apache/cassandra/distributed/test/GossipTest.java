@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
+import java.util.stream.Collectors;
 
 import com.google.common.collect.Iterables;
 import org.junit.Assert;
@@ -53,8 +54,9 @@ public class GossipTest extends DistributedTestBase
             for (int i = 1 ; i <= liveCount ; ++i)
                 cluster.get(i).startup();
             cluster.get(fail).startup();
-            Collection<Token> expectTokens = cluster.get(fail).callsOnInstance(() ->
+            Collection<String> expectTokens = cluster.get(fail).callsOnInstance(() ->
                 StorageService.instance.getTokenMetadata().getTokens(FBUtilities.getBroadcastAddress())
+                                       .stream().map(Object::toString).collect(Collectors.toList())
             ).call();
 //            cluster.get(3).startup();
 //            cluster.get(5).startup();
@@ -97,8 +99,9 @@ public class GossipTest extends DistributedTestBase
                     LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10L));
             }).accept(failAddress);
 
-            Collection<Token> tokens = cluster.get(late).appliesOnInstance((InetAddress endpoint) ->
+            Collection<String> tokens = cluster.get(late).appliesOnInstance((InetAddress endpoint) ->
                 StorageService.instance.getTokenMetadata().getTokens(failAddress)
+                                       .stream().map(Object::toString).collect(Collectors.toList())
             ).apply(failAddress);
 
             Assert.assertEquals(expectTokens, tokens);

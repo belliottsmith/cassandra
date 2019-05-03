@@ -37,6 +37,7 @@ public interface IInstance extends IIsolatedExecutor
     UUID schemaVersion();
 
     void startup();
+    boolean isShutdown();
     Future<Void> shutdown();
     Future<Void> shutdownHard();
 
