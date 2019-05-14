@@ -151,6 +151,10 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
                     for (int j = i + 1; j < trees.size(); ++j)
                     {
                         TreeResponse r2 = trees.get(j);
+
+                        r1.trees.acquire();
+                        r2.trees.acquire();
+
                         SyncTask task;
                         if (r1.endpoint.equals(local) || r2.endpoint.equals(local))
                         {
@@ -164,9 +168,9 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
                             session.waitForSync(Pair.create(desc, new NodePair(r1.endpoint, r2.endpoint)), (RemoteSyncTask) task);
                         }
                         syncTasks.add(task);
-                        taskExecutor.submit(task);
                     }
                 }
+                syncTasks.forEach(taskExecutor::submit);
                 return Futures.allAsList(syncTasks);
             }
         }, taskExecutor);

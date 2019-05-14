@@ -1082,15 +1082,24 @@ public class MerkleTree implements Serializable
         /**
          * Mixes the given value into our hash. If our hash is null,
          * our hash will become the given value.
+         *
+         * Rather than returning a new byte array for the hash, we
+         * xor in place.
          */
-        void addHash(byte[] righthash, long sizeOfRow)
+        void addHash(byte[] partitionHash, long partitionSize)
         {
             if (hash == null)
-                hash = righthash;
+            {
+                if (null != partitionHash)
+                    hash = partitionHash;
+            }
             else
-                hash = binaryHash(hash, righthash);
-            this.sizeOfRange += sizeOfRow;
+            {
+                FBUtilities.xorOntoLeft(hash, partitionHash);
+            }
+
             this.rowsInRange += 1;
+            this.sizeOfRange += partitionSize;
         }
 
         /**

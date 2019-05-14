@@ -64,6 +64,10 @@ public abstract class SyncTask extends AbstractFuture<SyncStat> implements Runna
         // compare trees, and collect differences
         List<Range<Token>> differences = MerkleTrees.difference(r1.trees, r2.trees);
 
+        // at this stage we won't need the trees anymore and shouldn't be holding the memory
+        r1.trees.release();
+        r2.trees.release();
+
         stat = new SyncStat(new NodePair(r1.endpoint, r2.endpoint), differences.size());
 
         // choose a repair method based on the significance of the difference
