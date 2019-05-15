@@ -21,6 +21,7 @@ package org.apache.cassandra.distributed.test;
 import java.net.InetAddress;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Collectors;
@@ -32,6 +33,7 @@ import org.junit.Test;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
@@ -47,7 +49,7 @@ public class GossipTest extends DistributedTestBase
     {
         int liveCount = 1;
         System.setProperty("cassandra.consistent.rangemovement", "false");
-        try (Cluster cluster = Cluster.create(2 + liveCount))
+        try (Cluster cluster = Cluster.create(2 + liveCount, EnumSet.of(Feature.GOSSIP)))
         {
             int fail = liveCount + 1;
             int late = fail + 1;
@@ -58,8 +60,6 @@ public class GossipTest extends DistributedTestBase
                 StorageService.instance.getTokenMetadata().getTokens(FBUtilities.getBroadcastAddress())
                                        .stream().map(Object::toString).collect(Collectors.toList())
             ).call();
-//            cluster.get(3).startup();
-//            cluster.get(5).startup();
 
             InetAddress failAddress = cluster.get(fail).broadcastAddressAndPort().address;
             // wait for NORMAL state
@@ -68,6 +68,7 @@ public class GossipTest extends DistributedTestBase
                 cluster.get(i).acceptsOnInstance((InetAddress endpoint) -> {
                     EndpointState ep;
                     while (null == (ep = Gossiper.instance.getEndpointStateForEndpoint(endpoint))
+                           || ep.getApplicationState(ApplicationState.STATUS) == null
                            || !ep.getApplicationState(ApplicationState.STATUS).value.startsWith("NORMAL"))
                         LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10L));
                 }).accept(failAddress);
@@ -85,12 +86,13 @@ public class GossipTest extends DistributedTestBase
                 cluster.get(i).acceptsOnInstance((InetAddress endpoint) -> {
                     EndpointState ep;
                     while (null == (ep = Gossiper.instance.getEndpointStateForEndpoint(endpoint))
-                           || !ep.getApplicationState(ApplicationState.STATUS).value.startsWith("MOVING"))
+                           || (ep.getApplicationState(ApplicationState.STATUS) == null
+                               || !ep.getApplicationState(ApplicationState.STATUS).value.startsWith("MOVING")))
                         LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10L));
                 }).accept(failAddress);
             }
 
-            cluster.get(fail).shutdownHard().get();
+            cluster.get(fail).shutdown(false).get();
             cluster.get(late).startup();
             cluster.get(late).acceptsOnInstance((InetAddress endpoint) -> {
                 EndpointState ep;

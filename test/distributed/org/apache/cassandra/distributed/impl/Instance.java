@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -36,7 +37,6 @@ import java.util.function.Function;
 import org.slf4j.LoggerFactory;
 
 import ch.qos.logback.classic.LoggerContext;
-import com.codahale.metrics.MetricFilter;
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.concurrent.SharedExecutorPool;
@@ -56,6 +56,7 @@ import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
@@ -258,7 +259,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     }
 
     @Override
-    public void startup(ICluster cluster)
+    public void startup(ICluster cluster, Set<Feature> with)
     {
         sync(() -> {
             try
@@ -295,10 +296,17 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     throw new RuntimeException(e);
                 }
 
-                StorageService.instance.prepareToJoin();
-                StorageService.instance.joinTokenRing(1000);
-//                initializeRing(cluster);
-//                registerMockMessaging(cluster);
+                // TODO: support each separately
+                if (with.contains(Feature.GOSSIP) || with.contains(Feature.NETWORK))
+                {
+                    StorageService.instance.prepareToJoin();
+                    StorageService.instance.joinTokenRing(1000);
+                }
+                else
+                {
+                    initializeRing(cluster);
+                    registerMockMessaging(cluster);
+                }
 
                 SystemKeyspace.finishStartup();
 
@@ -386,6 +394,14 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
     public Future<Void> shutdown()
     {
+        return shutdown(true);
+    }
+
+    public Future<Void> shutdown(boolean graceful)
+    {
+        if (!graceful)
+            MessagingService.instance().shutdown(false);
+
         Future<?> future = async((ExecutorService executor) -> {
             Throwable error = null;
             error = parallelRun(error, executor,
@@ -423,12 +439,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
         return CompletableFuture.runAsync(ThrowingRunnable.toRunnable(future::get), isolatedExecutor)
                                 .thenRun(super::shutdown);
-    }
-
-    public Future<Void> shutdownHard()
-    {
-        MessagingService.instance().shutdown(false);
-        return shutdown();
     }
 
     private static Throwable parallelRun(Throwable accumulate, ExecutorService runOn, ThrowingRunnable ... runnables)
