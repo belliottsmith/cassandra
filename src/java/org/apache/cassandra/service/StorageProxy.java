@@ -2385,6 +2385,13 @@ public class StorageProxy implements StorageProxyMBean
         {
             PartitionRangeReadCommand rangeCommand = command.forSubRange(toQuery.range);
 
+            // If enabled, request repaired data tracking info from full replicas
+            if (DatabaseDescriptor.getRepairedDataTrackingForRangeReadsEnabled())
+            {
+                command.trackRepairedStatus();
+                rangeCommand.trackRepairedStatus();
+            }
+
             DataResolver resolver = new DataResolver(keyspace, rangeCommand, consistency, toQuery.filteredEndpoints.size());
 
             int blockFor = consistency.blockFor(keyspace);
@@ -2394,10 +2401,6 @@ public class StorageProxy implements StorageProxyMBean
 
             handler.assureSufficientLiveNodes();
 
-            // If enabled, request repaired data tracking info from full replicas but
-            // only if there are multiple full replicas to compare results from
-            if (DatabaseDescriptor.getRepairedDataTrackingForPartitionReadsEnabled())
-                command.trackRepairedStatus();
 
             if (toQuery.filteredEndpoints.size() == 1 && canDoLocalRequest(toQuery.filteredEndpoints.get(0)))
             {
