@@ -295,12 +295,27 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                 Set<InetAddress> neighbors = ActiveRepairService.filterNeighbors(unfilteredNeighbors, range,
                                                                               options.getDataCenters(),
                                                                               options.getHosts());
+                if (neighbors.isEmpty())
+                {
+                    if (options.ignoreUnreplicatedKeyspaces())
+                    {
+                        logger.info("{} Found no neighbors for range {} for {} - ignoring since repairing with --ignore-unreplicated-keyspaces", parentSession, range, keyspace);
+                        continue;
+                    }
+                    else
+                    {
+                        String errorMessage = String.format("Nothing to repair for %s in %s - aborting", range, keyspace);
+                        logger.error("Repair {} {}", parentSession, errorMessage);
+                        fireErrorAndComplete(progress.get(), totalProgress, errorMessage);
+                        return;
+                    }
+                }
+
                 boolean allReplicas = unfilteredNeighbors.equals(neighbors);
                 if (!allReplicas && allReplicaMap.containsKey(neighbors))
                     allReplicaMap.put(neighbors, false);
                 else if (!allReplicaMap.containsKey(neighbors))
                     allReplicaMap.put(neighbors, allReplicas);
-
                 addRangeToNeighbors(commonRanges, range, neighbors);
                 allNeighbors.addAll(neighbors);
             }
@@ -311,6 +326,20 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         {
             logger.error("Repair {} failed:", parentSession, e);
             fireErrorAndComplete(progress.get(), totalProgress, e.getMessage());
+            return;
+        }
+
+        if (options.ignoreUnreplicatedKeyspaces() && allNeighbors.isEmpty())
+        {
+            String ignoreUnreplicatedMessage = String.format("Nothing to repair for %s in %s - unreplicated keyspace is ignored since repair was called with --ignore-unreplicated-keyspaces",
+                                                             options.getRanges(),
+                                                             keyspace);
+
+            logger.info("Repair {} {}", parentSession, ignoreUnreplicatedMessage);
+            fireProgressEvent(new ProgressEvent(ProgressEventType.COMPLETE,
+                                                    progress.get(),
+                                                    totalProgress,
+                                                    ignoreUnreplicatedMessage));
             return;
         }
 
