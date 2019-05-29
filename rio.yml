@@ -1,7 +1,7 @@
 schemaVersion: '2.0'
 builds:
-- name: base-docker-3.0.17
-  branchName: cie-cassandra-3.0.17
+- name: base-docker-3.0.19
+  branchName: cie-cassandra-3.0.19
   build:
     template: dockerfile:v1:publish
     buildFilePath: rio/
@@ -13,8 +13,8 @@ builds:
       registry: docker.apple.com
       tag: latest
   timeout: 30
-- name: ghprb-3.0.17
-  branchName: cie-cassandra-3.0.17
+- name: ghprb-3.0.19
+  branchName: cie-cassandra-3.0.19
   jenkins:
     concurrentBuild: true
     maxConcurrentTotal: 8
@@ -29,8 +29,8 @@ builds:
     reports:
       junit: true
   timeout: 60
-- name: build-3.0.17
-  branchName: cie-cassandra-3.0.17
+- name: build-3.0.19
+  branchName: cie-cassandra-3.0.19
   build:
     template: freestyle:v2:build
     steps:
@@ -44,13 +44,13 @@ builds:
   timeout: 60
   finally:
     pipelineChain:
-        - pipeline: snapshot-3.0.17
-- name: snapshot-3.0.17
-  branchName: cie-cassandra-3.0.17
+        - pipeline: snapshot-3.0.19
+- name: snapshot-3.0.19
+  branchName: cie-cassandra-3.0.19
   build:
     template: freestyle:v2:snapshot
     steps:
-        - ./rio/release.sh 3.0.17-SNAPSHOT
+        - ./rio/release.sh 3.0.19-SNAPSHOT
   machine:
     docker:
       baseImage: docker.apple.com/cpbuild/jdk1.8:latest
@@ -63,15 +63,15 @@ builds:
     tag:
       enabled: false
     pipelineChain:
-        - pipeline: snapshot-carnival-3.0.17
+        - pipeline: snapshot-carnival-3.0.19
   trigger:
     gitPush: false
-- name: snapshot-carnival-3.0.17
-  branchName: cie-cassandra-3.0.17
+- name: snapshot-carnival-3.0.19
+  branchName: cie-cassandra-3.0.19
   build:
     template: freestyle:v2:carnival
     steps:
-    - ./rio/carnival.sh 3.0.17
+    - ./rio/carnival.sh 3.0.19
   machine:
     docker:
       baseImage: docker.apple.com/cpbuild/jdk1.8:latest
@@ -80,22 +80,22 @@ builds:
       junit: false
     carnival:
       packageName: CIEDb
-      packageSuffix: three-zero-seventeen-snapshot
+      packageSuffix: three-zero-nineteen-snapshot
       packagePath: CIEDb/Updates/
     releaseTrain: 1BUILD
   trigger:
     gitPush: false
   finally:
     tag:
-      expression: cie-cassandra-3.0.17-$RIO_BUILD_NUMBER.$CODE_VERSION
+      expression: cie-cassandra-3.0.19-$RIO_BUILD_NUMBER.$CODE_VERSION
     radar:
       annotate: true
-- name: release-3.0.17
-  branchName: cie-cassandra-3.0.17
+- name: release-3.0.19
+  branchName: cie-cassandra-3.0.19
   build:
     template: freestyle:v2:release
     steps:
-    - ./rio/release.sh 3.0.17.15
+    - ./rio/release.sh 3.0.19.0
   machine:
     docker:
       baseImage: docker.apple.com/cpbuild/jdk1.8:latest
@@ -108,15 +108,15 @@ builds:
     tag:
       enabled: false
     pipelineChain:
-      - pipeline: carnival-3.0.17
+      - pipeline: carnival-3.0.19
   trigger:
     gitPush: false
-- name: carnival-3.0.17
-  branchName: cie-cassandra-3.0.17
+- name: carnival-3.0.19
+  branchName: cie-cassandra-3.0.19
   build:
     template: freestyle:v2:carnival
     steps:
-    - ./rio/carnival.sh 3.0.17.15
+    - ./rio/carnival.sh 3.0.19.0
   machine:
     docker:
       baseImage: docker.apple.com/cpbuild/jdk1.8:latest
@@ -125,25 +125,25 @@ builds:
       junit: false
     carnival:
       packageName: CIEDb
-      packageSuffix: three-zero-seventeen-fifteen
+      packageSuffix: three-zero-nineteen-zero
       packagePath: CIEDb/Updates/
     releaseTrain: 1BUILD
   finally:
     tag:
-      expression: cie-cassandra-3.0.17.15
+      expression: cie-cassandra-3.0.19.0
     radar:
       annotate: true
     pipelineChain:
-      - pipeline: release-3.0.17-docker-image
+      - pipeline: release-3.0.19-docker-image
   trigger:
     gitPush: false
 
-- name: release-3.0.17-docker-image
-  branchName: cie-cassandra-3.0.17
+- name: release-3.0.19-docker-image
+  branchName: cie-cassandra-3.0.19
   machine:
     baseImage: docker.apple.com/cpbuild/jdk1.8:latest
     env:
-      CASSANDRA_VERSION: "3.0.17.15"
+      CASSANDRA_VERSION: "3.0.19.0"
   build:
     template: freestyle:v4:publish
     steps:
@@ -160,8 +160,8 @@ builds:
         perApplication: false
 
 
-- name: dtest-3.0.17
-  branchName: cie-cassandra-3.0.17
+- name: dtest-3.0.19
+  branchName: cie-cassandra-3.0.19
   build:
     template: freestyle:v2:build
     steps:
@@ -177,8 +177,8 @@ builds:
   timeout: 600
   trigger:
     gitPush: true
-- name: dtest-3.0.17-fast
-  branchName: cie-cassandra-3.0.17
+- name: dtest-3.0.19-fast
+  branchName: cie-cassandra-3.0.19
   build:
     template: freestyle:v2:build
     steps:
@@ -196,9 +196,9 @@ builds:
   timeout: 480
   trigger:
     gitPush: true
-- name: ghprb-dtest-3.0.17
+- name: ghprb-dtest-3.0.19
   disabled: true
-  branchName: cie-cassandra-3.0.17
+  branchName: cie-cassandra-3.0.19
   build:
     template: freestyle:v2:prb
     steps:
