@@ -112,9 +112,9 @@ public class OutboundConnectionInitiator<SuccessType extends OutboundConnectionI
      * if the other node supports a newer version, or doesn't support this version, we will fail to connect
      * and try again with the version they reported
      */
-    public static Future<Result<MessagingSuccess>> initiateMessaging(EventLoop eventLoop, ConnectionType type, OutboundConnectionSettings settings, int requestMessagingVersion)
+    public static Future<Result<MessagingSuccess>> initiateMessaging(EventLoop eventLoop, ConnectionType type, OutboundConnectionSettings settings, int requestMessagingVersion, Promise<Result<MessagingSuccess>> result)
     {
-        return new OutboundConnectionInitiator<MessagingSuccess>(type, settings, requestMessagingVersion, new AsyncPromise<>(eventLoop))
+        return new OutboundConnectionInitiator<>(type, settings, requestMessagingVersion, result)
                .initiate(eventLoop);
     }
 
@@ -136,15 +136,17 @@ public class OutboundConnectionInitiator<SuccessType extends OutboundConnectionI
         Future<Void> bootstrap = createBootstrap(eventLoop)
                                  .connect()
                                  .addListener(future -> {
-                                     if (!future.isSuccess())
-                                     {
-                                         if (future.isCancelled() && !timedout.get())
-                                             resultPromise.cancel(true);
-                                         else if (future.isCancelled())
-                                             resultPromise.tryFailure(new IOException("Timeout handshaking with " + settings.connectTo));
-                                         else
-                                             resultPromise.tryFailure(future.cause());
-                                     }
+                                     eventLoop.execute(() -> {
+                                         if (!future.isSuccess())
+                                         {
+                                             if (future.isCancelled() && !timedout.get())
+                                                 resultPromise.cancel(true);
+                                             else if (future.isCancelled())
+                                                 resultPromise.tryFailure(new IOException("Timeout handshaking with " + settings.connectTo));
+                                             else
+                                                 resultPromise.tryFailure(future.cause());
+                                         }
+                                     });
                                  });
 
         ScheduledFuture<?> timeout = eventLoop.schedule(() -> {
@@ -330,7 +332,8 @@ public class OutboundConnectionInitiator<SuccessType extends OutboundConnectionI
                     pipeline.close();
                 }
 
-                resultPromise.trySuccess(result);
+                if (!resultPromise.trySuccess(result) && result.isSuccess())
+                    result.success().channel.close();
             }
             catch (Throwable t)
             {

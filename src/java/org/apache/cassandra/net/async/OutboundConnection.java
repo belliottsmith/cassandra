@@ -30,6 +30,8 @@ import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
+import javax.annotation.Nullable;
+
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -149,20 +151,12 @@ public class OutboundConnection
         return (pendingCount << pendingByteBits) | pendingBytes;
     }
 
-    /*
-     * The following four fields define our connection behaviour; the template contains the user-specified desired properties,
-     * and the settings are produced by combining those specifications with any system defaults and knowledge about the endpoint.
-     *
-     * New templates may be provided by external calls, at which point we will disconnect reconnect to enact any modifications.
-     * The messaging version is negotiated on each connection attempt, as it may change at any time.
-     * The settings are generated from the template on every connection attempt, as any system-wide properties,
-     * as well as implied defaults based on messagingVersion (e.g. port to connect on with encryption) may change.
-     */
-
     private final ConnectionType type;
 
-    // settings is updated whenever template is, which may occur in advance of a reconnection attempt;
-    // in this scenario, they briefly do not represent those currently in use, but those we intend to use imminently
+    /**
+     * Contains the user-specified properties for the connection, with defaults filled in at connection time.
+     * New templates may be provided by external calls, at which point we will disconnect reconnect to enact any modifications.
+     */
     private OutboundConnectionSettings template;
 
     private static class State
@@ -243,21 +237,32 @@ public class OutboundConnection
          * This variable may be _read_ outside of the eventLoop, with the possibility of seeing a stale value,
          * but may only be written by the eventLoop.
          */
+        final Future<Result<MessagingSuccess>> attempt;
+        @Nullable
         final Future<?> scheduled;
         final boolean isFailingToConnect;
 
-        Connecting(Disconnected previous, Future<?> connection)
+        Connecting(Disconnected previous, Future<Result<MessagingSuccess>> attempt)
         {
-            super(Kind.CONNECTING, previous.maintenance);
-            this.scheduled = connection;
-            this.isFailingToConnect = previous.isConnecting() && previous.connecting().isFailingToConnect;
+            this(previous, attempt, null);
         }
 
-        Connecting(Disconnected previous, Future<?> connection, boolean isFailingToConnect)
+        Connecting(Disconnected previous, Future<Result<MessagingSuccess>> attempt, Future<?> scheduled)
         {
             super(Kind.CONNECTING, previous.maintenance);
-            this.scheduled = connection;
-            this.isFailingToConnect = isFailingToConnect;
+            this.attempt = attempt;
+            this.scheduled = scheduled;
+            this.isFailingToConnect = scheduled != null || (previous.isConnecting() && previous.connecting().isFailingToConnect);
+        }
+
+        void cancel()
+        {
+            if (scheduled != null)
+                scheduled.cancel(true);
+
+            // we guarantee that attempt is only ever completed by the eventLoop
+            boolean cancelled = attempt.cancel(true);
+            assert cancelled;
         }
     }
 
@@ -1048,14 +1053,17 @@ public class OutboundConnection
 
             JVMStabilityInspector.inspectThrowable(cause, false);
 
-            // TODO: expose a Future that only runs after connection attempt completes?
             if (hasPending())
-                // TODO: should we only conditionally attempt if hasPending?
-                state = new Connecting(state.disconnected(), eventLoop.schedule(this::attempt, max(100, retryRateMillis), MILLISECONDS), true);
-            else // TODO: abstract this?
+            {
+                Promise<Result<MessagingSuccess>> result = new AsyncPromise<>(eventLoop);
+                state = new Connecting(state.disconnected(), result, eventLoop.schedule(() -> attempt(result), max(100, retryRateMillis), MILLISECONDS));
+                retryRateMillis = min(1000, retryRateMillis * 2);
+            }
+            else
+            {
+                // this Initiate will be discarded
                 state = Disconnected.dormant(state.disconnected().maintenance);
-
-            retryRateMillis = min(1000, retryRateMillis * 2);
+            }
         }
 
         void onCompletedHandshake(Result<MessagingSuccess> result)
@@ -1077,15 +1085,12 @@ public class OutboundConnection
                     FrameEncoder.PayloadAllocator payloadAllocator = success.allocator;
                     Channel channel = success.channel;
                     Established established = new Established(messagingVersion, channel, payloadAllocator, settings);
+                    state = established;
                     channel.pipeline().addLast("handleExceptionalStates", new ChannelInboundHandlerAdapter() {
                         @Override
                         public void channelInactive(ChannelHandlerContext ctx)
                         {
-                            if (state == established)
-                            {
-                                logger.info("{} channel closed by provider", id());
-                                disconnectNow(established);
-                            }
+                            invalidateChannel(established, new ClosedChannelException());
                             ctx.fireChannelInactive();
                         }
 
@@ -1095,8 +1100,6 @@ public class OutboundConnection
                             invalidateChannel(established, cause);
                         }
                     });
-
-                    state = established;
                     ++successfulConnections;
 
                     logger.info("{} successfully connected, version = {}, compress = {}, encryption = {}",
@@ -1113,7 +1116,10 @@ public class OutboundConnection
                     messagingVersion = result.retry().withMessagingVersion;
                     settings = template.withDefaults(type, messagingVersion);
                     settings.endpointToVersion.set(settings.to, messagingVersion);
-                    attempt();
+
+                    Promise<Result<MessagingSuccess>> promise = new AsyncPromise<>(eventLoop);
+                    state = new Connecting(state.disconnected(), promise);
+                    attempt(promise);
                     break;
 
                 case INCOMPATIBLE:
@@ -1137,8 +1143,10 @@ public class OutboundConnection
          *
          * Note: this should only be invoked on the event loop.
          */
-        void attempt()
+        private void attempt(Promise<Result<MessagingSuccess>> result)
         {
+            // TODO: should we only conditionally attempt if hasPending?
+
             ++connectionAttempts;
             // system defaults etc might have changed, so refresh before connect
             messagingVersion = template.endpointToVersion().get(template.to);
@@ -1149,16 +1157,25 @@ public class OutboundConnection
                 settings = template.withDefaults(type, messagingVersion);
                 assert messagingVersion <= settings.acceptVersions.max;
             }
-            state = new Connecting(state.disconnected(), initiateMessaging(eventLoop, type, settings, messagingVersion)
-                         .addListener(future -> {
-                             if (future.isCancelled())
-                                 return;
-                             if (future.isSuccess()) //noinspection unchecked
-                                 onCompletedHandshake((Result<MessagingSuccess>) future.getNow());
-                             else
-                                 onFailure(future.cause());
-                         }));
+
+            initiateMessaging(eventLoop, type, settings, messagingVersion, result)
+            .addListener(future -> {
+                if (future.isCancelled())
+                    return;
+                if (future.isSuccess()) //noinspection unchecked
+                    onCompletedHandshake((Result<MessagingSuccess>) future.getNow());
+                else
+                    onFailure(future.cause());
+            });
         }
+    }
+
+    Future<?> initiate()
+    {
+        Promise<Result<MessagingSuccess>> result = new AsyncPromise<>(eventLoop);
+        state = new Connecting(state.disconnected(), result);
+        new Initiate().attempt(result);
+        return result;
     }
 
     /**
@@ -1175,7 +1192,7 @@ public class OutboundConnection
         {
             State state = this.state;
             if (state.isConnecting())
-                return state.connecting().scheduled;
+                return state.connecting().attempt;
         }
 
         Promise<Object> promise = AsyncPromise.uncancellable(eventLoop);
@@ -1194,9 +1211,12 @@ public class OutboundConnection
                 {
                     assert eventLoop.inEventLoop();
                     assert !isConnected();
-                    new Initiate().attempt();
+                    initiate().addListener(new PromiseNotifier<>(promise));
                 }
-                state.connecting().scheduled.addListener(new PromiseNotifier<>(promise));
+                else
+                {
+                    state.connecting().attempt.addListener(new PromiseNotifier<>(promise));
+                }
             }
         });
         return promise;
@@ -1231,11 +1251,9 @@ public class OutboundConnection
             }
             else if (state.isConnecting())
             {
-                // TODO: cancelling this may not close an already established (but yet-to-handshake) connection
                 // cancel any in-flight connection attempt and restart with new template
-                // TODO: set to dormant
-                state.connecting().scheduled.cancel(true);
-                new Initiate().attempt();
+                state.connecting().cancel();
+                new Initiate();
             }
             done.setSuccess(null);
         });
@@ -1296,10 +1314,6 @@ public class OutboundConnection
      */
     private Future<?> disconnectNow(Established closeIfIs)
     {
-        // TODO: we only really are required to wait until the close completes for Verifier purposes
-        //       however, it might be semantically good to do this anyway, as it means we cannot spin
-        //       a thousand connections that all have failing operations in flight.
-        //       but this is not probably a realistic scenario, and it potentially delays (slightly) reconnection
         Promise<?> onClose = AsyncPromise.uncancellable(eventLoop, future -> {
             // ensure we will run delivery again at some point, if we have work
             // (could have multiple rounds of exceptions, with many waiting messages and no new ones)
@@ -1435,8 +1449,8 @@ public class OutboundConnection
                 // stop any in-flight connection attempts; these should be running on the eventLoop, so we should
                 // be able to cleanly cancel them, but executing on a listener guarantees correct semantics either way
                 Connecting connecting = state.connecting();
-                connecting.scheduled.cancel(true);
-                connecting.scheduled.addListener(future -> onceNotConnecting.run());
+                connecting.cancel();
+                connecting.attempt.addListener(future -> onceNotConnecting.run());
             }
             else
             {
