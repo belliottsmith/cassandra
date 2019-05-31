@@ -1025,157 +1025,167 @@ public class OutboundConnection
     /**
      *  Attempt to open a new channel to the remote endpoint.
      *
-     *  Most of the actual work is performed by OutboundConnectionInitiator, this class just manages
+     *  Most of the actual work is performed by OutboundConnectionInitiator, this method just manages
      *  our book keeping on either success or failure.
      *
-     *  All methods and state in this class are intended only to be accessed by the eventLoop
+     *  This method is only to be invoked by the eventLoop, and the inner class' methods should only be evaluated by the eventtLoop
      */
-    class Initiate
-    {
-        /**
-         * If we fail to connect, we want to try and connect again before any messages timeout.
-         * However, we update this each time to ensure we do not retry unreasonably often, and settle on a periodicity
-         * that might lead to timeouts in some aggressive systems.
-         */
-        private long retryRateMillis = DatabaseDescriptor.getMinRpcTimeout(MILLISECONDS) / 2;
-        int messagingVersion;
-        OutboundConnectionSettings settings;
-
-        /**
-         * If we failed for any reason, try again
-         */
-        void onFailure(Throwable cause)
-        {
-            if (cause instanceof ConnectException)
-                noSpamLogger.info("{} failed to connect", id(), cause);
-            else
-                noSpamLogger.error("{} failed to connect", id(), cause);
-
-            JVMStabilityInspector.inspectThrowable(cause, false);
-
-            if (hasPending())
-            {
-                Promise<Result<MessagingSuccess>> result = new AsyncPromise<>(eventLoop);
-                state = new Connecting(state.disconnected(), result, eventLoop.schedule(() -> attempt(result), max(100, retryRateMillis), MILLISECONDS));
-                retryRateMillis = min(1000, retryRateMillis * 2);
-            }
-            else
-            {
-                // this Initiate will be discarded
-                state = Disconnected.dormant(state.disconnected().maintenance);
-            }
-        }
-
-        void onCompletedHandshake(Result<MessagingSuccess> result)
-        {
-            switch (result.outcome)
-            {
-                case SUCCESS:
-                    // it is expected that close, if successful, has already cancelled us; so we do not need to worry about leaking connections
-                    // TODO: confirm this state cannot be reached, as we now set state = new Closed() before cancelling this
-                    assert !state.isClosed();
-
-                    MessagingSuccess success = result.success();
-                    if (messagingVersion != success.messagingVersion)
-                        settings = template.withDefaults(type, messagingVersion);
-                    debug.onConnect(messagingVersion, settings);
-
-                    state.disconnected().maintenance.cancel(false);
-
-                    FrameEncoder.PayloadAllocator payloadAllocator = success.allocator;
-                    Channel channel = success.channel;
-                    Established established = new Established(messagingVersion, channel, payloadAllocator, settings);
-                    state = established;
-                    channel.pipeline().addLast("handleExceptionalStates", new ChannelInboundHandlerAdapter() {
-                        @Override
-                        public void channelInactive(ChannelHandlerContext ctx)
-                        {
-                            invalidateChannel(established, new ClosedChannelException());
-                            ctx.fireChannelInactive();
-                        }
-
-                        @Override
-                        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause)
-                        {
-                            invalidateChannel(established, cause);
-                        }
-                    });
-                    ++successfulConnections;
-
-                    logger.info("{} successfully connected, version = {}, compress = {}, encryption = {}",
-                                id(true),
-                                messagingVersion,
-                                settings.withCompression,
-                                encryptionLogStatement(settings.encryption));
-                    break;
-
-                case RETRY:
-                    if (logger.isTraceEnabled())
-                        logger.trace("{} incorrect legacy peer version predicted; reconnecting", id());
-                    // the messaging version we connected with was incorrect; try again with the one supplied by the remote host
-                    messagingVersion = result.retry().withMessagingVersion;
-                    settings = template.withDefaults(type, messagingVersion);
-                    settings.endpointToVersion.set(settings.to, messagingVersion);
-
-                    Promise<Result<MessagingSuccess>> promise = new AsyncPromise<>(eventLoop);
-                    state = new Connecting(state.disconnected(), promise);
-                    attempt(promise);
-                    break;
-
-                case INCOMPATIBLE:
-                    // we cannot communicate with this peer given its messaging version; mark this as any other failure, and continue trying
-                    Throwable t = new IOException(String.format("Incompatible peer: %s, messaging version: %s",
-                                                                settings.to, result.incompatible().maxMessagingVersion));
-                    t.fillInStackTrace();
-                    onFailure(t);
-                    break;
-
-                default:
-                    throw new AssertionError();
-            }
-        }
-
-        /**
-         * Initiate all the actions required to establish a working, valid connection. This includes
-         * opening the socket, negotiating the internode messaging handshake, and setting up the working
-         * Netty {@link Channel}. However, this method will not block for all those actions: it will only
-         * kick off the connection attempt, setting the @{link #connecting} future to track its completion.
-         *
-         * Note: this should only be invoked on the event loop.
-         */
-        private void attempt(Promise<Result<MessagingSuccess>> result)
-        {
-            // TODO: should we only conditionally attempt if hasPending?
-
-            ++connectionAttempts;
-            // system defaults etc might have changed, so refresh before connect
-            messagingVersion = template.endpointToVersion().get(template.to);
-            settings = template.withDefaults(type, messagingVersion);
-            if (messagingVersion > settings.acceptVersions.max)
-            {
-                messagingVersion = settings.acceptVersions.max;
-                settings = template.withDefaults(type, messagingVersion);
-                assert messagingVersion <= settings.acceptVersions.max;
-            }
-
-            initiateMessaging(eventLoop, type, settings, messagingVersion, result)
-            .addListener(future -> {
-                if (future.isCancelled())
-                    return;
-                if (future.isSuccess()) //noinspection unchecked
-                    onCompletedHandshake((Result<MessagingSuccess>) future.getNow());
-                else
-                    onFailure(future.cause());
-            });
-        }
-    }
-
     Future<?> initiate()
     {
-        Promise<Result<MessagingSuccess>> result = new AsyncPromise<>(eventLoop);
-        state = new Connecting(state.disconnected(), result);
-        new Initiate().attempt(result);
-        return result;
+        class Initiate
+        {
+            /**
+             * If we fail to connect, we want to try and connect again before any messages timeout.
+             * However, we update this each time to ensure we do not retry unreasonably often, and settle on a periodicity
+             * that might lead to timeouts in some aggressive systems.
+             */
+            long retryRateMillis = DatabaseDescriptor.getMinRpcTimeout(MILLISECONDS) / 2;
+
+            // our connection settings, possibly updated on retry
+            int messagingVersion;
+            OutboundConnectionSettings settings;
+
+            Initiate()
+            {
+            }
+
+            /**
+             * If we failed for any reason, try again
+             */
+            void onFailure(Throwable cause)
+            {
+                if (cause instanceof ConnectException)
+                    noSpamLogger.info("{} failed to connect", id(), cause);
+                else
+                    noSpamLogger.error("{} failed to connect", id(), cause);
+
+                JVMStabilityInspector.inspectThrowable(cause, false);
+
+                if (hasPending())
+                {
+                    Promise<Result<MessagingSuccess>> result = new AsyncPromise<>(eventLoop);
+                    state = new Connecting(state.disconnected(), result, eventLoop.schedule(() -> attempt(result), max(100, retryRateMillis), MILLISECONDS));
+                    retryRateMillis = min(1000, retryRateMillis * 2);
+                }
+                else
+                {
+                    // this Initiate will be discarded
+                    state = Disconnected.dormant(state.disconnected().maintenance);
+                }
+            }
+
+            void onCompletedHandshake(Result<MessagingSuccess> result)
+            {
+                switch (result.outcome)
+                {
+                    case SUCCESS:
+                        // it is expected that close, if successful, has already cancelled us; so we do not need to worry about leaking connections
+                        // TODO: confirm this state cannot be reached, as we now set state = new Closed() before cancelling this
+                        assert !state.isClosed();
+
+                        MessagingSuccess success = result.success();
+                        if (messagingVersion != success.messagingVersion)
+                        {
+                            settings = template.withDefaults(type, messagingVersion);
+                            messagingVersion = success.messagingVersion;
+                        }
+                        debug.onConnect(messagingVersion, settings);
+
+                        state.disconnected().maintenance.cancel(false);
+
+                        FrameEncoder.PayloadAllocator payloadAllocator = success.allocator;
+                        Channel channel = success.channel;
+                        Established established = new Established(messagingVersion, channel, payloadAllocator, settings);
+                        state = established;
+                        channel.pipeline().addLast("handleExceptionalStates", new ChannelInboundHandlerAdapter() {
+                            @Override
+                            public void channelInactive(ChannelHandlerContext ctx)
+                            {
+                                invalidateChannel(established, new ClosedChannelException());
+                                ctx.fireChannelInactive();
+                            }
+
+                            @Override
+                            public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause)
+                            {
+                                invalidateChannel(established, cause);
+                            }
+                        });
+                        ++successfulConnections;
+
+                        logger.info("{} successfully connected, version = {}, compress = {}, encryption = {}",
+                                    id(true),
+                                    messagingVersion,
+                                    settings.withCompression,
+                                    encryptionLogStatement(settings.encryption));
+                        break;
+
+                    case RETRY:
+                        if (logger.isTraceEnabled())
+                            logger.trace("{} incorrect legacy peer version predicted; reconnecting", id());
+
+                        // the messaging version we connected with was incorrect; try again with the one supplied by the remote host
+                        messagingVersion = result.retry().withMessagingVersion;
+                        settings.endpointToVersion.set(settings.to, messagingVersion);
+
+                        initiate();
+                        break;
+
+                    case INCOMPATIBLE:
+                        // we cannot communicate with this peer given its messaging version; mark this as any other failure, and continue trying
+                        Throwable t = new IOException(String.format("Incompatible peer: %s, messaging version: %s",
+                                                                    settings.to, result.incompatible().maxMessagingVersion));
+                        t.fillInStackTrace();
+                        onFailure(t);
+                        break;
+
+                    default:
+                        throw new AssertionError();
+                }
+            }
+
+            /**
+             * Initiate all the actions required to establish a working, valid connection. This includes
+             * opening the socket, negotiating the internode messaging handshake, and setting up the working
+             * Netty {@link Channel}. However, this method will not block for all those actions: it will only
+             * kick off the connection attempt, setting the @{link #connecting} future to track its completion.
+             *
+             * Note: this should only be invoked on the event loop.
+             */
+            private void attempt(Promise<Result<MessagingSuccess>> result)
+            {
+                // TODO: should we only conditionally attempt if hasPending?
+
+                ++connectionAttempts;
+                settings = template.withDefaults(type, messagingVersion);
+                if (messagingVersion > settings.acceptVersions.max)
+                {
+                    messagingVersion = settings.acceptVersions.max;
+                    settings = template.withDefaults(type, messagingVersion);
+                    assert messagingVersion <= settings.acceptVersions.max;
+                }
+
+                initiateMessaging(eventLoop, type, settings, messagingVersion, result)
+                .addListener(future -> {
+                    if (future.isCancelled())
+                        return;
+                    if (future.isSuccess()) //noinspection unchecked
+                        onCompletedHandshake((Result<MessagingSuccess>) future.getNow());
+                    else
+                        onFailure(future.cause());
+                });
+            }
+
+            Future<Result<MessagingSuccess>> initiate()
+            {
+                Promise<Result<MessagingSuccess>> result = new AsyncPromise<>(eventLoop);
+                state = new Connecting(state.disconnected(), result);
+                attempt(result);
+                return result;
+            }
+        }
+
+        return new Initiate().initiate();
     }
 
     /**
@@ -1253,7 +1263,7 @@ public class OutboundConnection
             {
                 // cancel any in-flight connection attempt and restart with new template
                 state.connecting().cancel();
-                new Initiate();
+                initiate();
             }
             done.setSuccess(null);
         });
