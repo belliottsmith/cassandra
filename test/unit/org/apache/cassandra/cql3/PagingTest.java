@@ -59,6 +59,7 @@ public class PagingTest
     @BeforeClass
     public static void setup() throws Exception
     {
+        System.setProperty("cassandra.allow_simplestrategy", "true");
         DatabaseDescriptor.setPartitionerUnsafe(Murmur3Partitioner.instance);
         EmbeddedCassandraService cassandra = new EmbeddedCassandraService();
         cassandra.start();

@@ -119,6 +119,7 @@ public class MigrationManagerTest
             DataInputBuffer in = new DataInputBuffer(out.buffer(), false);
             EndpointState newEndpointState = EndpointState.serializer.deserialize(in, MessagingService.current_version);
             newEndpointState.addApplicationState(ApplicationState.SCHEMA, StorageService.instance.valueFactory.schema(schemaVersion));
+            newEndpointState.addApplicationState(ApplicationState.RELEASE_VERSION, StorageService.instance.valueFactory.releaseVersion());
             return newEndpointState;
         }
         catch (IOException e)
