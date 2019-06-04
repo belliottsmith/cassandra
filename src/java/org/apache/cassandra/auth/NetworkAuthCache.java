@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.utils.MBeanWrapper;
 
 public class NetworkAuthCache implements WarmableCache<RoleResource, DCPermissions>, NetworkAuthCacheMBean
 {
@@ -60,15 +61,7 @@ public class NetworkAuthCache implements WarmableCache<RoleResource, DCPermissio
     {
         this.authorizer = authorizer;
         this.cache = initCache(null, authorizer.requireAuthorization());
-        try
-        {
-            MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-            mbs.registerMBean(this, new ObjectName(MBEAN_NAME));
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException(e);
-        }
+        MBeanWrapper.instance.registerMBean(this, MBEAN_NAME);
     }
 
     @VisibleForTesting

@@ -84,6 +84,7 @@ import org.apache.cassandra.repair.messages.*;
 import org.apache.cassandra.utils.CassandraVersion;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.MBeanWrapper;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
 
@@ -180,15 +181,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                              Long.getLong("cassandra.parent_repair_status_expiry_seconds",
                                                           TimeUnit.SECONDS.convert(1, TimeUnit.DAYS)), TimeUnit.SECONDS).build();
 
-        MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-        try
-        {
-            mbs.registerMBean(this, new ObjectName(MBEAN_NAME));
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException(e);
-        }
+        MBeanWrapper.instance.registerMBean(this, MBEAN_NAME);
     }
 
     public void start()

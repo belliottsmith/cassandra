@@ -406,14 +406,14 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
     {
         try
         {
-            String testConfPath = "test/conf/logback-dtest.xml";
-            Path logConfPath = Paths.get(root.getPath(), "/logback-dtest.xml");
+            String testConfPath = "test/conf/log4j2-dtest.xml";
+            Path logConfPath = Paths.get(root.getPath(), "/log4j2-dtest.xml");
             if (!logConfPath.toFile().exists())
             {
                 Files.copy(new File(testConfPath).toPath(),
                            logConfPath);
             }
-            System.setProperty("logback.configurationFile", "file://" + logConfPath);
+            System.setProperty("log4j.configurationFile", "file://" + logConfPath);
         }
         catch (IOException e)
         {
