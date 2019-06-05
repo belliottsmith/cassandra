@@ -31,6 +31,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
@@ -76,6 +77,7 @@ import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.LegacySchemaMigrator;
+import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.QueryState;
@@ -416,7 +418,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     Ref::shutdownReferenceReaper,
                     Memtable.MEMORY_POOL::shutdown,
                     ScheduledExecutors::shutdownAndWait,
-                    SSTableReader::shutdownBlocking
+                    SSTableReader::shutdownBlocking,
+                    () -> shutdownAndWait(ActiveRepairService.repairCommandExecutor)
             );
             error = parallelRun(error, executor,
                                 MessagingService.instance()::shutdown
@@ -435,6 +438,20 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
         return CompletableFuture.runAsync(ThrowingRunnable.toRunnable(future::get), isolatedExecutor)
                                 .thenRun(super::shutdown);
+    }
+
+    private static void shutdownAndWait(ExecutorService executor)
+    {
+        try
+        {
+            executor.shutdownNow();
+            executor.awaitTermination(20, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException e)
+        {
+            throw new RuntimeException(e);
+        }
+        assert executor.isTerminated() && executor.isShutdown() : executor;
     }
 
     private static Throwable parallelRun(Throwable accumulate, ExecutorService runOn, ThrowingRunnable ... runnables)
