@@ -75,11 +75,29 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
             {
                 case PREPARE_MESSAGE:
                     PrepareMessage prepareMessage = (PrepareMessage) message.payload;
-                    if (acceptMessage(prepareMessage, message.from))
-                        doPrepare(prepareMessage, message.from, id);
-                    else
-                        rejectPrepareRequest(message.from, id);
-
+                    logger.debug("Preparing, {}", prepareMessage);
+                    List<ColumnFamilyStore> columnFamilyStores = new ArrayList<>(prepareMessage.cfIds.size());
+                    for (UUID cfId : prepareMessage.cfIds)
+                    {
+                        ColumnFamilyStore columnFamilyStore = ColumnFamilyStore.getIfExists(cfId);
+                        if (columnFamilyStore == null)
+                        {
+                            logErrorAndSendFailureResponse(String.format("Table with id %s was dropped during prepare phase of repair",
+                                                                         cfId.toString()), message.from, id);
+                            return;
+                        }
+                        columnFamilyStores.add(columnFamilyStore);
+                    }
+                    ActiveRepairService.instance.registerParentRepairSession(prepareMessage.parentRepairSession,
+                                                                             message.from,
+                                                                             columnFamilyStores,
+                                                                             prepareMessage.ranges,
+                                                                             prepareMessage.isIncremental,
+                                                                             prepareMessage.timestamp,
+                                                                             prepareMessage.isGlobal,
+                                                                             prepareMessage.previewKind);
+                    MessageOut msgOut = new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE);
+                    MessagingService.instance().sendReply(msgOut, id, message.from);
                     break;
 
                 case SNAPSHOT:
@@ -208,29 +226,7 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
         MessagingService.instance().sendReply(reply, id, to);
     }
 
-    private static boolean acceptMessage(PrepareMessage prepareMessage, InetAddress from)
-    {
-        return acceptMessage(prepareMessage.parentRepairSession,
-                             getKeyspaces(prepareMessage),
-                             prepareMessage.ranges,
-                             "prepare request",
-                             from);
-    }
-
     private static boolean acceptMessage(ValidationRequest validationRequest, InetAddress from)
-    {
-        return acceptMessage(validationRequest.desc.parentSessionId,
-                             Collections.singleton(validationRequest.desc.keyspace),
-                             validationRequest.desc.ranges,
-                             "validation request",
-                             from);
-    }
-
-    private static boolean acceptMessage(UUID sessionId,
-                                         Collection<String> keyspaces,
-                                         Collection<Range<Token>> ranges,
-                                         String requestType,
-                                         InetAddress from)
     {
         boolean outOfRangeTokenLogging = StorageService.instance.isOutOfTokenRangeRequestLoggingEnabled();
         boolean outOfRangeTokenRejection = StorageService.instance.isOutOfTokenRangeRequestRejectionEnabled();
@@ -238,54 +234,11 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
         if (!outOfRangeTokenLogging && !outOfRangeTokenRejection)
             return true;
 
-        boolean accept = true;
-        for (String keyspace : keyspaces)
-        {
-            accept &= StorageService.instance
-                                    .getNormalizedLocalRanges(keyspace)
-                                    .validateRangeRequest(ranges, "RepairSession #" + sessionId, requestType, from);
-        }
-        return accept;
-    }
-
-    private static Collection<String> getKeyspaces(PrepareMessage prepareMessage)
-    {
-        return prepareMessage.cfIds.stream()
-                                   .map(cfId -> Schema.instance.getCFMetaData(cfId).ksName)
-                                   .collect(Collectors.toSet());
-    }
-
-    private static void rejectPrepareRequest(InetAddress replyTo, int id)
-    {
-        MessageOut reply = new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE)
-                                    .withParameter(MessagingService.FAILURE_RESPONSE_PARAM, MessagingService.ONE_BYTE);
-        MessagingService.instance().sendReply(reply, id, replyTo);
-    }
-
-    private static void doPrepare(PrepareMessage prepareMessage, InetAddress from, int id)
-    {
-        logger.debug("Preparing, {}", prepareMessage);
-        List<ColumnFamilyStore> columnFamilyStores = new ArrayList<>(prepareMessage.cfIds.size());
-        for (UUID cfId : prepareMessage.cfIds)
-        {
-            ColumnFamilyStore columnFamilyStore = ColumnFamilyStore.getIfExists(cfId);
-            if (columnFamilyStore == null)
-            {
-                logErrorAndSendFailureResponse(String.format("Table with id %s was dropped during prepare phase of repair",
-                                                             cfId.toString()), from, id);
-                return;
-            }
-            columnFamilyStores.add(columnFamilyStore);
-        }
-        ActiveRepairService.instance.registerParentRepairSession(prepareMessage.parentRepairSession,
-                                                                 from,
-                                                                 columnFamilyStores,
-                                                                 prepareMessage.ranges,
-                                                                 prepareMessage.isIncremental,
-                                                                 prepareMessage.timestamp,
-                                                                 prepareMessage.isGlobal,
-                                                                 prepareMessage.previewKind);
-        MessageOut msgOut = new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE);
-        MessagingService.instance().sendReply(msgOut, id, from);
+        return StorageService.instance
+                             .getNormalizedLocalRanges(validationRequest.desc.keyspace)
+                             .validateRangeRequest(validationRequest.desc.ranges,
+                                                   "RepairSession #" + validationRequest.desc.parentSessionId,
+                                                   "validation request",
+                                                   from);
     }
 }

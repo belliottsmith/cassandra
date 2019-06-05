@@ -49,10 +49,10 @@ import org.apache.cassandra.repair.messages.ValidationRequest;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.PreviewKind;
-import org.apache.cassandra.utils.FBUtilities;
 
 import static org.apache.cassandra.utils.TokenRangeTestUtil.*;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 public class RepairMessageVerbHandlerTest
 {
@@ -110,10 +110,10 @@ public class RepairMessageVerbHandlerTest
     {
         setLocalTokens(100);
         PrepareMessage prepare = prepareMsg(generateRanges(10, 20));
-        tryPrepareExpectingSuccess(prepare, false);
+        tryPrepareExpectingSuccess(prepare);
 
         DatabaseDescriptor.setRejectOutOfTokenRangeRequests(false);
-        tryPrepareExpectingSuccess(prepare, false);
+        tryPrepareExpectingSuccess(prepare);
     }
 
     @Test
@@ -121,10 +121,10 @@ public class RepairMessageVerbHandlerTest
     {
         setLocalTokens(100);
         PrepareMessage prepare = prepareMsg(generateRanges(110, 120));
-        tryPrepareExpectingFailure(prepare);
+        tryPrepareExpectingSuccess(prepare);
 
         DatabaseDescriptor.setRejectOutOfTokenRangeRequests(false);
-        tryPrepareExpectingSuccess(prepare, true);
+        tryPrepareExpectingSuccess(prepare);
     }
 
     @Test
@@ -132,10 +132,10 @@ public class RepairMessageVerbHandlerTest
     {
         setLocalTokens(100);
         PrepareMessage prepare = prepareMsg(generateRanges(10, 20, 110, 120));
-        tryPrepareExpectingFailure(prepare);
+        tryPrepareExpectingSuccess(prepare);
 
         DatabaseDescriptor.setRejectOutOfTokenRangeRequests(false);
-        tryPrepareExpectingSuccess(prepare, true);
+        tryPrepareExpectingSuccess(prepare);
     }
 
     @Test
@@ -206,17 +206,7 @@ public class RepairMessageVerbHandlerTest
         assertEquals(startMetricCount + (isOutOfRange ? 1 : 0), StorageMetrics.totalOpsForInvalidToken.getCount());
     }
 
-    private static void tryPrepareExpectingFailure(PrepareMessage prepare) throws Exception
-    {
-        tryPrepare(prepare, true, false);
-    }
-
-    private static void tryPrepareExpectingSuccess(PrepareMessage prepare, boolean isOutOfRange) throws Exception
-    {
-        tryPrepare(prepare, isOutOfRange, true);
-    }
-
-    private static void tryPrepare(PrepareMessage prepare, boolean isOutOfRange, boolean expectSuccess) throws Exception
+    private static void tryPrepareExpectingSuccess(PrepareMessage prepare) throws Exception
     {
         long startMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
         MessagingService.instance().clearMessageSinks();
@@ -236,8 +226,8 @@ public class RepairMessageVerbHandlerTest
         assertEquals(broadcastAddress, response.message.from);
         assertEquals(messageId, response.id);
         assertEquals(node1, response.to);
-        assertEquals(!expectSuccess, response.message.parameters.containsKey(MessagingService.FAILURE_RESPONSE_PARAM));
-        assertEquals(startMetricCount + (isOutOfRange ? 1 : 0), StorageMetrics.totalOpsForInvalidToken.getCount());
+        assertFalse(response.message.parameters.containsKey(MessagingService.FAILURE_RESPONSE_PARAM));
+        assertEquals(startMetricCount, StorageMetrics.totalOpsForInvalidToken.getCount());
     }
 
     private static PrepareMessage prepareMsg(Collection<Range<Token>> ranges)
