@@ -20,6 +20,7 @@
             <AppenderRef ref="STDOUT" />
         </Async>
     </Appenders>
+
     <Loggers>
         <Root level="DEBUG">
             <AppenderRef ref="ASYNC" />
