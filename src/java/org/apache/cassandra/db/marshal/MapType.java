@@ -63,7 +63,7 @@ public class MapType<K, V> extends CollectionType<Map<K, V>>
              : t;
     }
 
-    private MapType(AbstractType<K> keys, AbstractType<V> values, boolean isMultiCell)
+    protected MapType(AbstractType<K> keys, AbstractType<V> values, boolean isMultiCell)
     {
         super(ComparisonType.CUSTOM, Kind.MAP);
         this.keys = keys;
