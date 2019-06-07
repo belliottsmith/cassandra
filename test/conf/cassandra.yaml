@@ -46,3 +46,4 @@ corrupted_tombstone_strategy: exception
 custom_functions:
     - com.example.SomeCustomFcts
     - com.example.MoreCustomFcts
+    - com.apple.cie.cql3.functions.CappedSortedMap
