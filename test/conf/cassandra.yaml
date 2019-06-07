@@ -64,6 +64,10 @@ row_index_read_size_fail_threshold: 8192KiB
 custom_functions:
     - com.example.SomeCustomFcts
     - com.example.MoreCustomFcts
+    - com.apple.cie.cql3.functions.CappedSortedMap
+    - com.apple.cie.cql3.functions.Apns
+    - com.apple.cie.cql3.functions.Int32Literals
+    - com.apple.cie.cql3.functions.FakeTime # For testing only
 disable_schema_drop_check: true
 secondary_indexes_enabled: true
 enable_christmas_patch: false
