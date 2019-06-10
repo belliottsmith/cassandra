@@ -359,6 +359,7 @@ public class Scrubber implements Closeable
      * Only wrap with {@link FixNegativeLocalDeletionTimeIterator} if {@link #reinsertOverflowedTTLRows} option
      * is specified
      */
+    @SuppressWarnings("resource")
     private UnfilteredRowIterator getIterator(DecoratedKey key)
     {
         RowMergingSSTableIterator rowMergingIterator = new RowMergingSSTableIterator(sstable, dataFile, key);

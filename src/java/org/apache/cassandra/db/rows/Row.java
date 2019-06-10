@@ -540,6 +540,7 @@ public interface Row extends Unfiltered, Iterable<ColumnData>
             lastRowSet = i;
         }
 
+        @SuppressWarnings("resource")
         public Row merge(DeletionTime activeDeletion)
         {
             // If for this clustering we have only one row version and have no activeDeletion (i.e. nothing to filter out),
@@ -651,6 +652,7 @@ public interface Row extends Unfiltered, Iterable<ColumnData>
                 return AbstractTypeVersionComparator.INSTANCE.compare(column.type, dataColumn.type) < 0;
             }
 
+            @SuppressWarnings("resource")
             protected ColumnData getReduced()
             {
                 if (column.isSimple())

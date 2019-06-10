@@ -64,6 +64,7 @@ public class Memtable implements Comparable<Memtable>
 
     @VisibleForTesting
     public static final MemtablePool MEMORY_POOL = DatabaseDescriptor.getMemtableAllocatorPool();
+
     private static final int ROW_OVERHEAD_HEAP_SIZE = estimateRowOverhead(Integer.parseInt(System.getProperty("cassandra.memtable_row_overhead_computation_step", "100000")));
 
     private final MemtableAllocator allocator;

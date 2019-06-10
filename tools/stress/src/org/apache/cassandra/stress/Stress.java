@@ -28,6 +28,11 @@ import org.apache.cassandra.utils.WindowsTimer;
 public final class Stress
 {
 
+    static
+    {
+        FBUtilities.preventIllegalAccessWarnings();
+    }
+
     /**
      * Known issues:
      * - uncertainty/stderr assumes op-rates are normally distributed. Due to GC (and possibly latency stepping from

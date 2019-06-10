@@ -189,6 +189,8 @@ public class CompositesSearcher extends CassandraIndexSearcher
                                      writeOp));
     }
 
+    // We assume all rows in dataIter belong to the same partition.
+    @SuppressWarnings("resource")
     private UnfilteredRowIterator filterStaleEntries(UnfilteredRowIterator dataIter,
                                                      final ByteBuffer indexValue,
                                                      final List<IndexEntry> entries,

@@ -83,7 +83,7 @@ public final class UDFByteCodeVerifier
     public Set<String> verify(byte[] bytes)
     {
         Set<String> errors = new TreeSet<>(); // it's a TreeSet for unit tests
-        ClassVisitor classVisitor = new ClassVisitor(Opcodes.ASM5)
+        ClassVisitor classVisitor = new ClassVisitor(Opcodes.ASM7)
         {
             public FieldVisitor visitField(int access, String name, String desc, String signature, Object value)
             {

@@ -95,56 +95,27 @@ JVM_ON_OUT_OF_MEMORY_ERROR_OPT=${JVM_ON_OUT_OF_MEMORY_ERROR_OPT:-"-XX:OnOutOfMem
 if [ "x${LAUNCHED_BY_WD40}" != "x" ] ; then
     return
 fi
-
-# Determine the sort of JVM we'll be running on.
-java_ver_output=`"${JAVA:-java}" -version 2>&1`
-jvmver=`echo "$java_ver_output" | grep '[openjdk|java] version' | awk -F'"' 'NR==1 {print $2}'`
-JVM_VERSION=${jvmver%_*}
-JVM_PATCH_VERSION=${jvmver#*_}
-
-if [ "$JVM_VERSION" \< "1.8" ] ; then
-    echo "Cassandra 3.0 and later require Java 8u40 or later."
-    exit 1;
-fi
-
-if [ "$JVM_VERSION" \< "1.8" ] && [ "$JVM_PATCH_VERSION" -lt 40 ] ; then
-    echo "Cassandra 3.0 and later require Java 8u40 or later."
-    exit 1;
-fi
-
-jvm=`echo "$java_ver_output" | grep -A 1 'java version' | awk 'NR==2 {print $1}'`
-case "$jvm" in
-    OpenJDK)
-        JVM_VENDOR=OpenJDK
-        # this will be "64-Bit" or "32-Bit"
-        JVM_ARCH=`echo "$java_ver_output" | awk 'NR==3 {print $2}'`
-        ;;
-    "Java(TM)")
-        JVM_VENDOR=Oracle
-        # this will be "64-Bit" or "32-Bit"
-        JVM_ARCH=`echo "$java_ver_output" | awk 'NR==3 {print $3}'`
-        ;;
-    *)
-        # Help fill in other JVM values
-        JVM_VENDOR=other
-        JVM_ARCH=unknown
-        ;;
-esac
-
 #GC log path has to be defined here because it needs to access CASSANDRA_HOME
-JVM_OPTS="$JVM_OPTS -Xloggc:${CASSANDRA_HOME}/logs/gc.log"
+if [ $JAVA_VERSION -ge 11 ] ; then
+    # See description of https://bugs.openjdk.java.net/browse/JDK-8046148 for details about the syntax
+    # The following is the equivalent to -XX:+PrintGCDetails -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=10 -XX:GCLogFileSize=10M
+    echo "$JVM_OPTS" | grep -q "^-[X]log:gc"
+    if [ "$?" = "1" ] ; then # [X] to prevent ccm from replacing this line
+        # only add -Xlog:gc if it's not mentioned in jvm-server.options file
+        mkdir -p ${CASSANDRA_HOME}/logs
+        JVM_OPTS="$JVM_OPTS -Xlog:gc=info,heap*=trace,age*=debug,safepoint=info,promotion*=trace:file=${CASSANDRA_HOME}/logs/gc.log:time,uptime,pid,tid,level:filecount=10,filesize=10485760"
+    fi
+else
+    # Java 8
+    echo "$JVM_OPTS" | grep -q "^-[X]loggc"
+    if [ "$?" = "1" ] ; then # [X] to prevent ccm from replacing this line
+        # only add -Xlog:gc if it's not mentioned in jvm-server.options file
+        mkdir -p ${CASSANDRA_HOME}/logs
+        JVM_OPTS="$JVM_OPTS -Xloggc:${CASSANDRA_HOME}/logs/gc.log"
+    fi
+fi
 
-# Here we create the arguments that will get passed to the jvm when
-# starting cassandra.
-
-# Read user-defined JVM options from jvm.options file
-JVM_OPTS_FILE=$CASSANDRA_CONF/jvm.options
-for opt in `grep "^-" $JVM_OPTS_FILE`
-do
-  JVM_OPTS="$JVM_OPTS $opt"
-done
-
-# Check what parameters were defined on jvm.options file to avoid conflicts
+# Check what parameters were defined on jvm-server.options file to avoid conflicts
 echo $JVM_OPTS | grep -q Xmn
 DEFINED_XMN=$?
 echo $JVM_OPTS | grep -q Xmx
@@ -189,21 +160,21 @@ if [ "x$MALLOC_ARENA_MAX" = "x" ] ; then
     export MALLOC_ARENA_MAX=4
 fi
 
-# We only set -Xms and -Xmx if they were not defined on jvm.options file
+# We only set -Xms and -Xmx if they were not defined on jvm-server.options file
 # If defined, both Xmx and Xms should be defined together.
 if [ $DEFINED_XMX -ne 0 ] && [ $DEFINED_XMS -ne 0 ]; then
      JVM_OPTS="$JVM_OPTS -Xms${MAX_HEAP_SIZE}"
      JVM_OPTS="$JVM_OPTS -Xmx${MAX_HEAP_SIZE}"
 elif [ $DEFINED_XMX -ne 0 ] || [ $DEFINED_XMS -ne 0 ]; then
-     echo "Please set or unset -Xmx and -Xms flags in pairs on jvm.options file."
+     echo "Please set or unset -Xmx and -Xms flags in pairs on jvm-server.options file."
      exit 1
 fi
 
-# We only set -Xmn flag if it was not defined in jvm.options file
+# We only set -Xmn flag if it was not defined in jvm-server.options file
 # and if the CMS GC is being used
 # If defined, both Xmn and Xmx should be defined together.
 if [ $DEFINED_XMN -eq 0 ] && [ $DEFINED_XMX -ne 0 ]; then
-    echo "Please set or unset -Xmx and -Xmn flags in pairs on jvm.options file."
+    echo "Please set or unset -Xmx and -Xmn flags in pairs on jvm-server.options file."
     exit 1
 elif [ $DEFINED_XMN -ne 0 ] && [ $USING_CMS -eq 0 ]; then
     JVM_OPTS="$JVM_OPTS -Xmn${HEAP_NEWSIZE}"
@@ -245,14 +216,11 @@ JVM_OPTS="$JVM_OPTS -XX:+UseTLAB -XX:+ResizeTLAB"
 JVM_OPTS="$JVM_OPTS -XX:CompileCommandFile=$CASSANDRA_CONF/hotspot_compiler"
 
 # add the jamm javaagent
-JVM_OPTS="$JVM_OPTS -javaagent:$CASSANDRA_HOME/lib/jamm-0.3.0.jar"
+JVM_OPTS="$JVM_OPTS -javaagent:$CASSANDRA_HOME/lib/jamm-0.3.2.jar"
 
 # enable thread priorities, primarily so we can give periodic tasks
 # a lower priority to avoid interfering with client workload
 JVM_OPTS="$JVM_OPTS -XX:+UseThreadPriorities"
-# allows lowering thread priority without being root.  see
-# http://tech.stolsvik.com/2010/01/linux-java-thread-priorities-workaround.html
-JVM_OPTS="$JVM_OPTS -XX:ThreadPriorityPolicy=42"
 
 # set jvm HeapDumpPath with CASSANDRA_HEAPDUMP_DIR
 JVM_OPTS="$JVM_OPTS -XX:+HeapDumpOnOutOfMemoryError"

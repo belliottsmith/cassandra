@@ -73,8 +73,21 @@ public final class NativeLibrary
     private static final NativeLibraryWrapper wrappedLibrary;
     private static boolean jnaLockable = false;
 
+    private static final Field FILE_DESCRIPTOR_FD_FIELD;
+    private static final Field FILE_CHANNEL_FD_FIELD;
+
     static
     {
+        FILE_DESCRIPTOR_FD_FIELD = FBUtilities.getProtectedField(FileDescriptor.class, "fd");
+        try
+        {
+            FILE_CHANNEL_FD_FIELD = FBUtilities.getProtectedField(Class.forName("sun.nio.ch.FileChannelImpl"), "fd");
+        }
+        catch (ClassNotFoundException e)
+        {
+            throw new RuntimeException(e);
+        }
+
         // detect the OS type the JVM is running on and then set the CLibraryWrapper
         // instance to a compatable implementation of CLibraryWrapper for that OS type
         osType = getOsType();
@@ -352,11 +365,9 @@ public final class NativeLibrary
 
     public static int getfd(FileChannel channel)
     {
-        Field field = FBUtilities.getProtectedField(channel.getClass(), "fd");
-
         try
         {
-            return getfd((FileDescriptor)field.get(channel));
+            return getfd((FileDescriptor)FILE_CHANNEL_FD_FIELD.get(channel));
         }
         catch (IllegalArgumentException|IllegalAccessException e)
         {
@@ -372,11 +383,9 @@ public final class NativeLibrary
      */
     public static int getfd(FileDescriptor descriptor)
     {
-        Field field = FBUtilities.getProtectedField(descriptor.getClass(), "fd");
-
         try
         {
-            return field.getInt(descriptor);
+            return FILE_DESCRIPTOR_FD_FIELD.getInt(descriptor);
         }
         catch (Exception e)
         {

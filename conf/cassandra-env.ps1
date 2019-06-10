@@ -380,11 +380,7 @@ Function SetCassandraEnvironment
     $env:JVM_OPTS = "$env:JVM_OPTS -XX:CompileCommandFile=$env:CASSANDRA_CONF\hotspot_compiler"
 
     # add the jamm javaagent
-    if (($env:JVM_VENDOR -ne "OpenJDK") -or ($env:JVM_VERSION.CompareTo("1.6.0") -eq 1) -or
-        (($env:JVM_VERSION -eq "1.6.0") -and ($env:JVM_PATCH_VERSION.CompareTo("22") -eq 1)))
-    {
-        $env:JVM_OPTS = "$env:JVM_OPTS -javaagent:""$env:CASSANDRA_HOME\lib\jamm-0.3.0.jar"""
-    }
+    $env:JVM_OPTS = "$env:JVM_OPTS -javaagent:""$env:CASSANDRA_HOME\lib\jamm-0.3.2.jar"""
 
     # set jvm HeapDumpPath with CASSANDRA_HEAPDUMP_DIR
     if ($env:CASSANDRA_HEAPDUMP_DIR)
@@ -392,6 +388,34 @@ Function SetCassandraEnvironment
         $unixTimestamp = [int64](([datetime]::UtcNow)-(get-date "1/1/1970")).TotalSeconds
         $env:JVM_OPTS="$env:JVM_OPTS -XX:HeapDumpPath=$env:CASSANDRA_HEAPDUMP_DIR\cassandra-$unixTimestamp-pid$pid.hprof"
     }
+
+    $env:JAVA_VERSION=11
+    if ($env:JVM_VERSION.CompareTo("1.8.0") -eq -1 -or [convert]::ToInt32($env:JVM_PATCH_VERSION) -lt 151)
+    {
+        echo "Cassandra 4.0 requires either Java 8 (update 151 or newer) or Java 11 (or newer). Java $env:JVM_VERSION is not supported."
+        exit
+    }
+
+    # enable assertions.  disabling this in production will give a modest
+    # performance benefit (around 5%).
+    $env:JVM_OPTS = "$env:JVM_OPTS -ea"
+
+    # Specifies the default port over which Cassandra will be available for
+    # JMX connections.
+    $JMX_PORT="7199"
+
+    # store in env to check if it's avail in verification
+    $env:JMX_PORT=$JMX_PORT
+
+    # enable thread priorities, primarily so we can give periodic tasks
+    # a lower priority to avoid interfering with client workload
+    $env:JVM_OPTS="$env:JVM_OPTS -XX:+UseThreadPriorities"
+    # allows lowering thread priority without being root on linux - probably
+    # not necessary on Windows but doesn't harm anything.
+    # see http://tech.stolsvik.com/2010/01/linux-java-thread-priorities-workar
+    $env:JVM_OPTS="$env:JVM_OPTS -XX:ThreadPriorityPolicy=42"
+
+    $env:JVM_OPTS="$env:JVM_OPTS -XX:+HeapDumpOnOutOfMemoryError"
 
     # stop the jvm on OutOfMemoryError as it can result in some data corruption
     # uncomment the preferred option

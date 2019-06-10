@@ -60,6 +60,7 @@ public class BigTableReader extends SSTableReader
         super(desc, components, metadata, maxDataAge, sstableMetadata, openReason, header);
     }
 
+    @SuppressWarnings("resource")
     public SliceableUnfilteredRowIterator iterator(DecoratedKey key,
                                                    ColumnFilter selectedColumns,
                                                    boolean reversed,
@@ -71,6 +72,7 @@ public class BigTableReader extends SSTableReader
              : new SSTableIterator(this, key, selectedColumns, isForThrift, listener);
     }
 
+    @SuppressWarnings("resource")
     public SliceableUnfilteredRowIterator iterator(FileDataInput file, DecoratedKey key, RowIndexEntry indexEntry, ColumnFilter selectedColumns, boolean reversed, boolean isForThrift)
     {
         return reversed

@@ -212,6 +212,7 @@ public class PartitionUpdate extends AbstractBTreePartition
      * Warning: this method does not close the provided iterator, it is up to
      * the caller to close it.
      */
+    @SuppressWarnings("resource")
     public static PartitionUpdate fromIterator(UnfilteredRowIterator iterator)
     {
         Holder holder = build(iterator, 16);
@@ -219,6 +220,7 @@ public class PartitionUpdate extends AbstractBTreePartition
         return new PartitionUpdate(iterator.metadata(), iterator.partitionKey(), holder, deletionInfo, false);
     }
 
+    @SuppressWarnings("resource")
     public static PartitionUpdate fromIterator(RowIterator iterator)
     {
         MutableDeletionInfo deletionInfo = MutableDeletionInfo.live();
@@ -241,6 +243,7 @@ public class PartitionUpdate extends AbstractBTreePartition
      *
      * @return the deserialized update or {@code null} if {@code bytes == null}.
      */
+    @SuppressWarnings("resource")
     public static PartitionUpdate fromBytes(ByteBuffer bytes, int version, DecoratedKey key)
     {
         if (bytes == null)

@@ -103,8 +103,7 @@ public class MemoryMappedSegment extends CommitLogSegment
     @Override
     protected void internalClose()
     {
-        if (FileUtils.isCleanerAvailable())
-            FileUtils.clean(buffer);
+        FileUtils.clean(buffer);
         super.internalClose();
     }
 }

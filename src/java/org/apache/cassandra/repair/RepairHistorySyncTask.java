@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.AbstractFuture;
+import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -586,7 +587,8 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
             sendRequest(request, entry.getKey(), callback);
         }
 
-        Futures.addCallback(Futures.transform(callback, this::processHistory), new FutureCallback<Object>()
+        AsyncFunction<Map<InetAddress, RangeTimes>, Object> processFunc = this::processHistory;
+        Futures.addCallback(Futures.transform(callback, processFunc), new FutureCallback<Object>()
         {
             public void onSuccess(@Nullable Object result)
             {

@@ -69,8 +69,7 @@
     <property name="dist.dir" value="${build.dir}/dist"/>
     <property name="tmp.dir" value="${java.io.tmpdir}"/>
 
-    <property name="source.version" value="1.8"/>
-    <property name="target.version" value="1.8"/>
+    <property name="doc.dir" value="${basedir}/doc"/>
 
     <condition property="version" value="${base.version}">
       <isset property="release"/>
@@ -114,10 +113,12 @@
     <property name="jacoco.finalexecfile" value="${jacoco.export.dir}/jacoco.exec" />
     <property name="jacoco.version" value="0.7.5.201505241946"/>
 
-    <property name="byteman.version" value="3.0.3"/>
+    <property name="byteman.version" value="4.0.6"/>
+    <property name="jamm.version" value="0.3.2"/>
+    <property name="ecj.version" value="4.6.1"/>
+    <property name="ohc.version" value="0.5.1"/>
+    <property name="asm.version" value="7.1"/>
     <property name="caffeine.version" value="2.3.5" />
-
-    <property name="ecj.version" value="4.4.2"/>
 
     <!-- https://mvnrepository.com/artifact/net.openhft/chronicle-bom/1.15.6 -->
     <property name="chronicle-queue.version" value="4.6.55" />
@@ -156,6 +157,65 @@
         }
     </script>
 
+    <condition property="java.version.8">
+        <equals arg1="${ant.java.version}" arg2="1.8"/>
+    </condition>
+    <condition property="java.version.11">
+        <not><isset property="java.version.8"/></not>
+    </condition>
+    <fail><condition><not><or>
+        <isset property="java.version.8"/>
+        <isset property="java.version.11"/>
+    </or></not></condition></fail>
+
+    <resources id="_jvm11_arg_items">
+        <string>-Djdk.attach.allowAttachSelf=true</string>
+
+        <string>-XX:+UseConcMarkSweepGC</string>
+        <string>-XX:+CMSParallelRemarkEnabled</string>
+        <string>-XX:SurvivorRatio=8</string>
+        <string>-XX:MaxTenuringThreshold=1</string>
+        <string>-XX:CMSInitiatingOccupancyFraction=75</string>
+        <string>-XX:+UseCMSInitiatingOccupancyOnly</string>
+        <string>-XX:CMSWaitDuration=10000</string>
+        <string>-XX:+CMSParallelInitialMarkEnabled</string>
+        <string>-XX:+CMSEdenChunksRecordAlways</string>
+
+        <string>--add-exports java.base/jdk.internal.misc=ALL-UNNAMED</string>
+        <string>--add-exports java.base/jdk.internal.ref=ALL-UNNAMED</string>
+        <string>--add-exports java.base/sun.nio.ch=ALL-UNNAMED</string>
+        <string>--add-exports java.management.rmi/com.sun.jmx.remote.internal.rmi=ALL-UNNAMED</string>
+        <string>--add-exports java.rmi/sun.rmi.registry=ALL-UNNAMED</string>
+        <string>--add-exports java.rmi/sun.rmi.server=ALL-UNNAMED</string>
+        <string>--add-exports java.sql/java.sql=ALL-UNNAMED</string>
+
+        <string>--add-opens java.base/java.lang.module=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.loader=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.ref=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.reflect=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.math=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.module=ALL-UNNAMED</string>
+        <string>--add-opens java.base/jdk.internal.util.jar=ALL-UNNAMED</string>
+        <string>--add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED</string>
+    </resources>
+    <pathconvert property="_jvm_args_concat" refid="_jvm11_arg_items" pathsep=" "/>
+    <condition property="java11-jvmargs" value="${_jvm_args_concat}" else="">
+        <not>
+            <equals arg1="${ant.java.version}" arg2="1.8"/>
+        </not>
+    </condition>
+
+    <condition property="build.java.11">
+        <istrue value="${use.jdk11}"/>
+    </condition>
+
+    <condition property="source.version" value="8" else="11">
+        <equals arg1="${java.version.8}" arg2="true"/>
+    </condition>
+    <condition property="target.version" value="8" else="11">
+        <equals arg1="${java.version.8}" arg2="true"/>
+    </condition>
+
     <!--
          Add all the dependencies.
     -->
@@ -189,10 +249,57 @@
     </sequential>
   </macrodef>
 
+    <target name="validate-build-conf">
+        <condition property="use-jdk11">
+            <or>
+                <isset property="build.java.11"/>
+                <istrue value="${env.CASSANDRA_USE_JDK11}"/>
+            </or>
+        </condition>
+        <fail message="Inconsistent JDK11 options set">
+            <condition>
+                    <and>
+                        <istrue value="${env.CASSANDRA_USE_JDK11}"/>
+                        <isset property="use.jdk11"/>
+                        <not>
+                            <istrue value="${use.jdk11}"/>
+                        </not>
+                    </and>
+            </condition>
+                </fail>
+        <fail message="Inconsistent JDK11 options set">
+            <condition>
+                    <and>
+                        <isset property="env.CASSANDRA_USE_JDK11"/>
+                        <not>
+                            <istrue value="${env.CASSANDRA_USE_JDK11}"/>
+                        </not>
+                        <istrue value="${use.jdk11}"/>
+                    </and>
+            </condition>
+        </fail>
+        <fail message="-Duse.jdk11=true or $CASSANDRA_USE_JDK11=true cannot be set when building from java 8">
+            <condition>
+                <not><or>
+                    <not><isset property="java.version.8"/></not>
+                    <not><isset property="use-jdk11"/></not>
+                </or></not>
+            </condition>
+        </fail>
+        <fail message="-Duse.jdk11=true or $CASSANDRA_USE_JDK11=true must be set when building from java 11">
+            <condition>
+                <not><or>
+                    <isset property="java.version.8"/>
+                    <isset property="use-jdk11"/>
+                </or></not>
+            </condition>
+        </fail>
+    </target>
+
     <!--
         Setup the output directories.
     -->
-    <target name="init">
+    <target name="init" depends="validate-build-conf">
         <fail unless="is.source.artifact"
             message="Not a source artifact, stopping here." />
         <mkdir dir="${build.classes.main}"/>
@@ -372,7 +479,7 @@
           <dependency groupId="org.codehaus.jackson" artifactId="jackson-mapper-asl" version="1.9.2"/>
           <dependency groupId="com.googlecode.json-simple" artifactId="json-simple" version="1.1"/>
           <dependency groupId="com.boundary" artifactId="high-scale-lib" version="1.0.6"/>
-          <dependency groupId="com.github.jbellis" artifactId="jamm" version="0.3.0"/>
+          <dependency groupId="com.github.jbellis" artifactId="jamm" version="${jamm.version}"/>
 
           <dependency groupId="com.thinkaurelius.thrift" artifactId="thrift-server" version="0.3.7">
             <exclusion groupId="org.slf4j" artifactId="slf4j-log4j12"/>
@@ -387,13 +494,16 @@
              <exclusion groupId="commons-lang" artifactId="commons-lang"/>
           </dependency>
           <dependency groupId="org.apache.hadoop" artifactId="hadoop-core" version="1.0.3">
-          	<exclusion groupId="org.mortbay.jetty" artifactId="servlet-api"/>
-          	<exclusion groupId="commons-logging" artifactId="commons-logging"/>
-          	<exclusion groupId="org.eclipse.jdt" artifactId="core"/>
-		    <exclusion groupId="ant" artifactId="ant"/>
+            <exclusion groupId="org.mortbay.jetty" artifactId="servlet-api"/>
+            <exclusion groupId="commons-logging" artifactId="commons-logging"/>
+            <exclusion groupId="org.eclipse.jdt" artifactId="core"/>
+            <exclusion groupId="ant" artifactId="ant"/>
+            <exclusion groupId="junit" artifactId="junit"/>
+            <exclusion groupId="org.slf4j" artifactId="slf4j-api"/>
           </dependency>
           <dependency groupId="org.apache.hadoop" artifactId="hadoop-minicluster" version="1.0.3">
-		    <exclusion groupId="asm" artifactId="asm"/> <!-- this is the outdated version 3.1 -->
+            <exclusion groupId="asm" artifactId="asm"/> <!-- this is the outdated version 3.1 -->
+            <exclusion groupId="org.slf4j" artifactId="slf4j-api"/>
           </dependency>
           <dependency groupId="net.java.dev.jna" artifactId="jna" version="4.2.2"/>
 
@@ -404,8 +514,9 @@
           <dependency groupId="org.jboss.byteman" artifactId="byteman" version="${byteman.version}"/>
           <dependency groupId="org.jboss.byteman" artifactId="byteman-submit" version="${byteman.version}"/>
           <dependency groupId="org.jboss.byteman" artifactId="byteman-bmunit" version="${byteman.version}"/>
-          <dependency groupId="org.openjdk.jmh" artifactId="jmh-core" version="1.1.1"/>
-          <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess" version="1.1.1"/>
+
+          <dependency groupId="org.openjdk.jmh" artifactId="jmh-core" version="1.21"/>
+          <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess" version="1.21"/>
 
           <dependency groupId="org.apache.cassandra" artifactId="cassandra-all" version="${version}" />
           <dependency groupId="org.apache.cassandra" artifactId="cassandra-thrift" version="${version}" />
@@ -423,15 +534,15 @@
           <dependency groupId="com.google.code.findbugs" artifactId="jsr305" version="2.0.2" />
           <dependency groupId="com.clearspring.analytics" artifactId="stream" version="2.5.2" />
           <dependency groupId="com.datastax.cassandra" artifactId="cassandra-driver-core" version="3.0.1" classifier="shaded" />
-          <dependency groupId="org.eclipse.jdt.core.compiler" artifactId="ecj" version="4.4.2" />
-          <dependency groupId="org.caffinitas.ohc" artifactId="ohc-core" version="0.4.3" />
-          <dependency groupId="org.caffinitas.ohc" artifactId="ohc-core-j8" version="0.4.3" />
+          <dependency groupId="org.eclipse.jdt.core.compiler" artifactId="ecj" version="${ecj.version}" />
+          <dependency groupId="org.caffinitas.ohc" artifactId="ohc-core" version="${ohc.version}" />
+          <dependency groupId="org.caffinitas.ohc" artifactId="ohc-core-j8" version="${ohc.version}" />
           <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations" version="1.2.0" />
           <dependency groupId="org.fusesource" artifactId="sigar" version="1.6.4">
-          	<exclusion groupId="log4j" artifactId="log4j"/>
+            <exclusion groupId="log4j" artifactId="log4j"/>
           </dependency>
           <dependency groupId="joda-time" artifactId="joda-time" version="2.4" />
-          <dependency groupId="org.ow2.asm" artifactId="asm" version="5.0.4" />
+          <dependency groupId="org.ow2.asm" artifactId="asm" version="${asm.version}" />
 
         </dependencyManagement>
         <developer id="adelapena" name="Andres de la Peña"/>
@@ -492,8 +603,8 @@
         <dependency groupId="org.psjava" artifactId="psjava" version="0.1.19" />
         <dependency groupId="org.apache.rat" artifactId="apache-rat"/>
         <dependency groupId="org.apache.hadoop" artifactId="hadoop-core"/>
-      	<dependency groupId="org.apache.hadoop" artifactId="hadoop-minicluster"/>
-      	<dependency groupId="com.google.code.findbugs" artifactId="jsr305"/>
+        <dependency groupId="org.apache.hadoop" artifactId="hadoop-minicluster"/>
+        <dependency groupId="com.google.code.findbugs" artifactId="jsr305"/>
         <dependency groupId="org.antlr" artifactId="antlr"/>
         <dependency groupId="com.datastax.cassandra" artifactId="cassandra-driver-core" classifier="shaded"/>
         <dependency groupId="org.eclipse.jdt.core.compiler" artifactId="ecj"/>
@@ -502,7 +613,7 @@
         <dependency groupId="org.openjdk.jmh" artifactId="jmh-core"/>
         <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess"/>
         <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations"/>
-        <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.4" />
+        <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.7" />
         <dependency groupId="com.github.ben-manes.caffeine" artifactId="caffeine" version="${caffeine.version}" />
       </artifact:pom>
       <!-- this build-deps-pom-sources "artifact" is the same as build-deps-pom but only with those
@@ -519,7 +630,7 @@
         <dependency groupId="org.openjdk.jmh" artifactId="jmh-core"/>
         <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess"/>
         <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations"/>
-        <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.4" />
+        <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.7" />
       </artifact:pom>
 
       <artifact:pom id="coverage-deps-pom"
@@ -691,6 +802,14 @@
         </patternset>
         <mapper type="flatten"/>
       </unzip>
+
+      <!-- Need to delete some dependencies from build/lib/jars as non-matching versions may get in there
+      due to transitive dependencies -->
+      <delete>
+          <fileset dir="${build.dir.lib}/jars">
+              <include name="asm-*" />
+          </fileset>
+      </delete>
     </target>
 
     <target name="maven-ant-tasks-retrieve-test" depends="maven-ant-tasks-init">
@@ -769,7 +888,7 @@
       </propertyfile>
     </target>
 
-    <target name="test-run" depends="build"
+    <target name="test-run" depends="jar"
             description="Run in test mode.  Not for production use!">
       <java classname="org.apache.cassandra.service.CassandraDaemon" fork="true">
         <classpath>
@@ -777,10 +896,11 @@
           <pathelement location="${test.conf}"/>
         </classpath>
         <jvmarg value="-Dstorage-config=${test.conf}"/>
-        <jvmarg value="-javaagent:${basedir}/lib/jamm-0.3.0.jar" />
+        <jvmarg value="-javaagent:${basedir}/lib/jamm-${jamm.version}.jar" />
         <jvmarg value="-Dcie-cassandra.sizeTieredDefault=true"/>
         <jvmarg value="-Dcie-cassandra.disable_schema_drop_log=true"/>
         <jvmarg value="-ea"/>
+        <jvmarg line="${java11-jvmargs}"/>
       </java>
     </target>
 
@@ -791,9 +911,10 @@
         depends="maven-ant-tasks-retrieve-build,build-project" description="Compile Cassandra classes"/>
     <target name="codecoverage" depends="jacoco-run,jacoco-report" description="Create code coverage report"/>
 
-    <target depends="init,gen-cql3-grammar,generate-cql-html"
-            name="build-project">
-        <echo message="${ant.project.name}: ${ant.file}"/>
+    <target name="_build_java">
+        <!-- Note: we cannot use javac's 'release' option, as that does not allow accessing sun.misc.Unsafe nor
+        Nashorn's ClassFilter class as any javac modules option is invalid for relase 8. -->
+        <echo message="Compiling for Java ${target.version}..."/>
         <!-- Order matters! -->
         <javac fork="true"
                debug="true" debuglevel="${debuglevel}" encoding="utf-8"
@@ -809,14 +930,22 @@
             <src path="${build.src.java}"/>
             <src path="${build.src.gen-java}"/>
             <compilerarg value="-XDignore.symbol.file"/>
-            <compilerarg value="-Xbootclasspath/p:${build.src.jdkoverride}"/>
-            <classpath refid="cassandra.classpath"/>
+            <classpath>
+                <path refid="cassandra.classpath"/>
+            </classpath>
         </javac>
+    </target>
+
+    <target depends="init,gen-cql3-grammar,generate-cql-html"
+            name="build-project">
+        <echo message="${ant.project.name}: ${ant.file}"/>
+        <!-- Order matters! -->
+        <antcall target="_build_java"/>
         <antcall target="createVersionPropFile"/>
         <copy todir="${build.classes.main}">
             <fileset dir="${build.src.resources}" />
         </copy>
-	<copy todir="${basedir}/conf" file="${build.classes.main}/META-INF/hotspot_compiler"/>
+        <copy todir="${basedir}/conf" file="${build.classes.main}/META-INF/hotspot_compiler"/>
     </target>
 
     <!-- Stress build file -->
@@ -829,7 +958,9 @@
     </path>
     <target name="stress-build" depends="build" description="build stress tool">
     	<mkdir dir="${stress.build.classes}" />
-        <javac debug="true" debuglevel="${debuglevel}" encoding="utf-8" destdir="${stress.build.classes}" includeantruntime="true" source="${source.version}" target="${target.version}">
+        <javac compiler="modern" debug="true" debuglevel="${debuglevel}"
+               source="${source.version}" target="${target.version}"
+               encoding="utf-8" destdir="${stress.build.classes}" includeantruntime="true">
             <src path="${stress.build.src}" />
             <classpath>
                 <path refid="cassandra.classes" />
@@ -858,8 +989,8 @@
     <!--
         The jar target makes cassandra.jar output.
     -->
-    <target name="jar"
-            depends="build, build-test, stress-build, write-poms"
+    <target name="_main-jar"
+            depends="build"
             description="Assemble Cassandra JAR files">
       <mkdir dir="${build.classes.main}/META-INF" />
       <mkdir dir="${build.classes.thrift}/META-INF" />
@@ -894,48 +1025,17 @@
         </fileset>
         <manifest>
         <!-- <section name="org/apache/cassandra/infrastructure"> -->
+          <attribute name="Multi-Release" value="true"/>
           <attribute name="Implementation-Title" value="Cassandra"/>
           <attribute name="Implementation-Version" value="${version}"/>
           <attribute name="Implementation-Vendor" value="Apache"/>
-          <attribute name="Premain-Class"
-                     value="org.apache.cassandra.infrastructure.continuations.CAgent"/>
-          <attribute name="Class-Path"
-                     value="${ant.project.name}-clientutil-${version}.jar ${ant.project.name}-thrift-${version}.jar" />
         <!-- </section> -->
         </manifest>
       </jar>
-
-      <!-- Test Jar -->
-      <jar jarfile="${build.dir}/${ant.project.name}-test-${version}.jar">
-        <fileset dir="${test.classes}"/>
-        <manifest>
-          <attribute name="Implementation-Title" value="Cassandra"/>
-          <attribute name="Implementation-Version" value="${version}"/>
-          <attribute name="Implementation-Vendor" value="Apache"/>
-        </manifest>
-      </jar>
-
-      <!-- Clientutil Jar -->
-      <!-- TODO: write maven pom here -->
-      <jar jarfile="${build.dir}/${ant.project.name}-clientutil-${version}.jar">
-        <fileset dir="${build.classes.main}">
-          <include name="org/apache/cassandra/serializers/*" />
-          <include name="org/apache/cassandra/utils/ByteBufferUtil*.class" />
-          <include name="org/apache/cassandra/utils/Hex.class" />
-          <include name="org/apache/cassandra/utils/UUIDGen*.class" />
-          <include name="org/apache/cassandra/utils/FBUtilities*.class" />
-          <include name="org/apache/cassandra/exceptions/*.class" />
-          <include name="org/apache/cassandra/utils/CloseableIterator.class" />
-          <include name="org/apache/cassandra/io/util/*.class" />
-          <include name="org/apache/cassandra/utils/SigarLibrary.class" />
-        </fileset>
-        <manifest>
-          <attribute name="Implementation-Title" value="Cassandra"/>
-          <attribute name="Implementation-Version" value="${version}"/>
-          <attribute name="Implementation-Vendor" value="Apache"/>
-        </manifest>
-      </jar>
-
+    </target>
+    <target name="jar"
+            depends="_main-jar, build-test, stress-build, write-poms"
+            description="Assemble Cassandra JAR files">
       <!-- Stress jar -->
       <manifest file="${stress.manifest}">
         <attribute name="Built-By" value="Pavel Yaskevich"/>
@@ -1022,6 +1122,7 @@
 
     <!-- creates release tarballs -->
     <target name="artifacts" depends="jar,javadoc"
+            unless="java.version.8"
             description="Create Cassandra release artifacts">
       <mkdir dir="${dist.dir}"/>
       <!-- fix the control linefeed so that builds on windows works on linux -->
@@ -1168,8 +1269,14 @@
       </rat:report>
     </target>
 
-  <target name="build-test" depends="build" description="Compile test classes">
+  <target name="build-test" depends="_main-jar, stress-build, write-poms" description="Compile test classes">
+    <antcall target="_build-test"/>
+  </target>
+
+  <target name="_build-test">
     <javac
+     fork="true"
+     compiler="modern"
      debug="true"
      debuglevel="${debuglevel}"
      destdir="${test.classes}"
@@ -1229,7 +1336,7 @@
         <jvmarg value="-Dstorage-config=${test.conf}"/>
         <jvmarg value="-Djava.awt.headless=true"/>
         <!-- Cassandra 3.0+ needs <jvmarg line="... ${additionalagent}" /> here! (not value=) -->
-        <jvmarg line="-javaagent:${basedir}/lib/jamm-0.3.0.jar ${additionalagent}" />
+        <jvmarg line="-javaagent:${basedir}/lib/jamm-${jamm.version}.jar ${additionalagent}" />
         <jvmarg value="-ea"/>
         <jvmarg value="-Dcassandra.debugrefcount=true"/>
         <jvmarg value="-Xss256k"/>
@@ -1249,6 +1356,7 @@
         <jvmarg value="-Dcassandra.testtag=@{testtag}"/>
         <jvmarg value="-Dcassandra.keepBriefBrief=${cassandra.keepBriefBrief}" />
         <jvmarg value="-Dcassandra.strict.runtime.checks=true" />
+        <jvmarg line="${java11-jvmargs}"/>
 	<optjvmargs/>
         <classpath>
           <pathelement path="${java.class.path}"/>
@@ -1276,7 +1384,7 @@
     reason we use the classes from the jar, and a carefully constructed
     classpath which only contains what we expect users to need.
   -->
-  <target name="test-clientutil-jar" depends="build-test,jar" description="Test clientutil jar">
+  <target name="test-clientutil-jar" depends="build-test,_main-jar" description="Test clientutil jar">
     <mkdir dir="${build.test.dir}/output"/>
     <junit fork="on" forkmode="perTest" failureproperty="testfailed" maxmemory="1024m" timeout="${test.timeout}">
       <!-- Note that the test pass without that next line, but it prints an ugly error message -->
@@ -1473,7 +1581,7 @@
         <formatter type="brief" usefile="false"/>
         <jvmarg value="-Dstorage-config=${test.conf}"/>
         <jvmarg value="-Djava.awt.headless=true"/>
-        <jvmarg value="-javaagent:${basedir}/lib/jamm-0.3.0.jar" />
+        <jvmarg value="-javaagent:${basedir}/lib/jamm-${jamm.version}.jar" />
         <jvmarg value="-ea"/>
         <jvmarg value="-Xss256k"/>
         <jvmarg value="-Dcassandra.memtable_row_overhead_computation_step=100"/>
@@ -1515,7 +1623,7 @@
         <formatter type="brief" usefile="false"/>
         <jvmarg value="-Dstorage-config=${test.conf}"/>
         <jvmarg value="-Djava.awt.headless=true"/>
-        <jvmarg value="-javaagent:${basedir}/lib/jamm-0.3.0.jar" />
+        <jvmarg value="-javaagent:${basedir}/lib/jamm-${jamm.version}.jar" />
         <jvmarg value="-ea"/>
         <jvmarg value="-Xss256k"/>
         <jvmarg value="-Dcassandra.test.use_prepared=${cassandra.test.use_prepared}"/>
@@ -1881,13 +1989,24 @@
       </java>
   </target>
 
+  <target name="_maybe_update_idea_to_java11" if="java.version.11">
+    <replace file="${eclipse.project.name}.iml" token="JDK_1_8" value="JDK_11"/>
+    <replace file=".idea/misc.xml" token="JDK_1_8" value="JDK_11"/>
+    <replace file=".idea/misc.xml" token="1.8" value="11"/>
+    <replaceregexp file=".idea/workspace.xml"
+                   match="name=&quot;VM_PARAMETERS&quot; value=&quot;(.*)&quot;"
+                   replace="name=&quot;VM_PARAMETERS&quot; value=&quot;\1 ${java11-jvmargs}&quot;"
+                   byline="true"/>
+  </target>
+
   <!-- Generate IDEA project description files -->
   <target name="generate-idea-files" depends="build-test" description="Generate IDEA files">
     <mkdir dir=".idea"/>
     <mkdir dir=".idea/libraries"/>
-    <copy todir=".idea">
+    <copy todir=".idea" overwrite="true">
         <fileset dir="ide/idea"/>
     </copy>
+    <replace file=".idea/workspace.xml" token="trunk" value="${eclipse.project.name}"/>
     <copy tofile="${eclipse.project.name}.iml" file="ide/idea-iml-file.xml"/>
     <echo file=".idea/.name">Apache Cassandra ${eclipse.project.name}</echo>
     <echo file=".idea/modules.xml"><![CDATA[<?xml version="1.0" encoding="UTF-8"?>
@@ -1898,6 +2017,7 @@
     </modules>
   </component>
 </project>]]></echo>
+      <antcall target="_maybe_update_idea_to_java11"/>
   </target>
 
   <!-- Generate Eclipse project description files -->
@@ -1989,7 +2109,8 @@
   </target>
 
 
-  <target name="eclipse-warnings" depends="build" description="Run eclipse compiler code analysis">
+  <!-- ECJ 4.6.1 in standalone mode does not work with JPMS, so we skip this target for Java 11 -->
+  <target name="eclipse-warnings" depends="build" description="Run eclipse compiler code analysis" if="java.version.8">
         <property name="ecj.log.dir" value="${build.dir}/ecj" />
         <property name="ecj.warnings.file" value="${ecj.log.dir}/eclipse_compiler_checks.txt"/>
         <mkdir  dir="${ecj.log.dir}" />

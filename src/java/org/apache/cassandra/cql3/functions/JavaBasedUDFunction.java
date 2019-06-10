@@ -61,7 +61,7 @@ final class JavaBasedUDFunction extends UDFunction
 {
     private static final String BASE_PACKAGE = "org.apache.cassandra.cql3.udf.gen";
 
-    static final Logger logger = LoggerFactory.getLogger(JavaBasedUDFunction.class);
+    private static final Logger logger = LoggerFactory.getLogger(JavaBasedUDFunction.class);
 
     private static final AtomicInteger classSequence = new AtomicInteger();
 
@@ -244,11 +244,11 @@ final class JavaBasedUDFunction extends UDFunction
         {
             EcjCompilationUnit compilationUnit = new EcjCompilationUnit(javaSource, targetClassName);
 
-            org.eclipse.jdt.internal.compiler.Compiler compiler = new Compiler(compilationUnit,
-                                                                               errorHandlingPolicy,
-                                                                               compilerOptions,
-                                                                               compilationUnit,
-                                                                               problemFactory);
+            Compiler compiler = new Compiler(compilationUnit,
+                                             errorHandlingPolicy,
+                                             compilerOptions,
+                                             compilationUnit,
+                                             problemFactory);
             compiler.compile(new ICompilationUnit[]{ compilationUnit });
 
             if (compilationUnit.problemList != null && !compilationUnit.problemList.isEmpty())
@@ -541,6 +541,7 @@ final class JavaBasedUDFunction extends UDFunction
             return findType(result.toString());
         }
 
+        @SuppressWarnings("resource")
         private NameEnvironmentAnswer findType(String className)
         {
             if (className.equals(this.className))

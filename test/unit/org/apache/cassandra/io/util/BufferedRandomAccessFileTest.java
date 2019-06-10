@@ -129,7 +129,7 @@ public class BufferedRandomAccessFileTest
     @Test
     public void testReadAndWriteOnCapacity() throws IOException
     {
-        File tmpFile = File.createTempFile("readtest", "bin");
+        File tmpFile = FileUtils.createTempFile("readtest", "bin");
         SequentialWriter w = SequentialWriter.open(tmpFile);
 
         // Fully write the file and sync..
@@ -155,7 +155,7 @@ public class BufferedRandomAccessFileTest
     @Test
     public void testLength() throws IOException
     {
-        File tmpFile = File.createTempFile("lengthtest", "bin");
+        File tmpFile = FileUtils.createTempFile("lengthtest", "bin");
         SequentialWriter w = SequentialWriter.open(tmpFile);
         assertEquals(0, w.length());
 
@@ -397,7 +397,7 @@ public class BufferedRandomAccessFileTest
     @Test
     public void testBytesPastMark() throws IOException
     {
-        File tmpFile = File.createTempFile("overflowtest", "bin");
+        File tmpFile = FileUtils.createTempFile("overflowtest", "bin");
         tmpFile.deleteOnExit();
 
         // Create the BRAF by filename instead of by file.
@@ -560,7 +560,7 @@ public class BufferedRandomAccessFileTest
     @Test (expected=IllegalArgumentException.class)
     public void testSetNegativeLength() throws IOException, IllegalArgumentException
     {
-        File tmpFile = File.createTempFile("set_negative_length", "bin");
+        File tmpFile = FileUtils.createTempFile("set_negative_length", "bin");
         try (SequentialWriter file = SequentialWriter.open(tmpFile))
         {
             file.truncate(-8L);
@@ -569,7 +569,7 @@ public class BufferedRandomAccessFileTest
 
     private SequentialWriter createTempFile(String name) throws IOException
     {
-        File tempFile = File.createTempFile(name, null);
+        File tempFile = FileUtils.createTempFile(name, null);
         tempFile.deleteOnExit();
 
         return SequentialWriter.open(tempFile);
@@ -577,7 +577,7 @@ public class BufferedRandomAccessFileTest
 
     private File writeTemporaryFile(byte[] data) throws IOException
     {
-        File f = File.createTempFile("BRAFTestFile", null);
+        File f = FileUtils.createTempFile("BRAFTestFile", null);
         f.deleteOnExit();
         FileOutputStream fout = new FileOutputStream(f);
         fout.write(data);

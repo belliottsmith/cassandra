@@ -358,6 +358,7 @@ public class SecondaryIndexManager implements IndexRegistry
         return StringUtils.substringAfter(cfName, Directories.SECONDARY_INDEX_NAME_SEPARATOR);
     }
 
+    @SuppressWarnings("resource")
     private void buildIndexesBlocking(Collection<SSTableReader> sstables, Set<Index> indexes)
     {
         if (indexes.isEmpty())

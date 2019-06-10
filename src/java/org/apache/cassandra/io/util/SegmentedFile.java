@@ -143,6 +143,7 @@ public abstract class SegmentedFile extends SharedCloseableImpl
     /**
      * @return A SegmentedFile.Builder.
      */
+    @SuppressWarnings("resource")
     public static Builder getBuilder(Config.DiskAccessMode mode, boolean compressed)
     {
         return compressed ? new CompressedSegmentedFile.Builder(null)
