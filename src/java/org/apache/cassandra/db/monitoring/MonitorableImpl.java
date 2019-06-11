@@ -18,8 +18,6 @@
 
 package org.apache.cassandra.db.monitoring;
 
-import org.apache.cassandra.utils.ApproximateTime;
-
 import static org.apache.cassandra.utils.MonotonicClock.approxTime;
 
 public abstract class MonitorableImpl implements Monitorable

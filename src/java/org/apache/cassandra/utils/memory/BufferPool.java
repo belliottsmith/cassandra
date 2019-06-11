@@ -404,7 +404,7 @@ public class BufferPool
             {
                 return;
             }
-            // whatever we do, the last element myst be null
+            // whatever we do, the last element must be null
             chunk2 = null;
             --count;
         }

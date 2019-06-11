@@ -80,7 +80,7 @@ class FrameDecoderLegacy extends FrameDecoder
                         stash = ensureCapacity(stash, length);
 
                     stash.limit(length);
-                    allocator.putUnusedPortion(stash); // we may be overcapacity from earlier doubling
+                    allocator.putUnusedPortion(stash); // we may be over capacity from earlier doubling
                     if (!copyToSize(in, stash, length))
                         return;
                 }
