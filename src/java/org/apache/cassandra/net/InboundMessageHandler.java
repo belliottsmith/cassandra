@@ -760,9 +760,7 @@ public class InboundMessageHandler extends ChannelInboundHandlerAdapter implemen
                     buffers.add(frame.contents.sliceAndConsume(frame.frameSize).share());
                     return;
                 }
-
-                releaseBuffers();
-                releaseCapacity(size);
+                releaseBuffersAndCapacity(); // release resources once we transition from normal state to expired
             }
             frame.consume();
             isExpired |= expires;
@@ -771,10 +769,7 @@ public class InboundMessageHandler extends ChannelInboundHandlerAdapter implemen
         private void onCorruptFrame()
         {
             if (!isExpired && !isCorrupt)
-            {
-                releaseBuffers();
-                releaseCapacity(size);
-            }
+                releaseBuffersAndCapacity(); // release resources once we transition from normal state to corrupt
             isCorrupt = true;
             isExpired |= approxTime.isAfter(header.expiresAtNanos);
         }
@@ -801,16 +796,18 @@ public class InboundMessageHandler extends ChannelInboundHandlerAdapter implemen
         private void abort()
         {
             if (!isExpired && !isCorrupt)
-            {
-                releaseBuffers();
-                releaseCapacity(size);
-            }
+                releaseBuffersAndCapacity(); // release resources if in normal state when abort() is invoked
             callbacks.onClosedBeforeArrival(size, header, received, isCorrupt, isExpired);
         }
 
         private void releaseBuffers()
         {
             buffers.forEach(ShareableBytes::release); buffers.clear();
+        }
+
+        private void releaseBuffersAndCapacity()
+        {
+            releaseBuffers(); releaseCapacity(size);
         }
 
         private Message deserialize()

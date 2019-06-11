@@ -22,6 +22,10 @@ import java.nio.ByteBuffer;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 
+/**
+ * A no-op frame encoder: legacy format doesn't support framing. Instead, the byte stream
+ * contains messages, serialized back to back.
+ */
 @ChannelHandler.Sharable
 class FrameEncoderLegacy extends FrameEncoder
 {

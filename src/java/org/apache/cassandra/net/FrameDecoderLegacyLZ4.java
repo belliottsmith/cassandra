@@ -38,6 +38,12 @@ import static java.lang.String.format;
 import static org.apache.cassandra.net.LegacyLZ4Constants.*;
 import static org.apache.cassandra.utils.ByteBufferUtil.copyBytes;
 
+/**
+ * A {@link FrameDecoder} consisting of two chained handlers:
+ *  1. A legacy LZ4 block decoder, described below in the description of {@link LZ4Decoder}, followed by
+ *  2. An instance of {@link FrameDecoderLegacy} - transforming the raw messages in the uncompressed stream
+ *     into properly formed frames expected by {@link InboundMessageHandler}
+ */
 class FrameDecoderLegacyLZ4 extends FrameDecoderLegacy
 {
     FrameDecoderLegacyLZ4(BufferPoolAllocator allocator, int messagingVersion)
@@ -57,13 +63,38 @@ class FrameDecoderLegacyLZ4 extends FrameDecoderLegacy
      *
      * Netty's provided implementation - {@link Lz4FrameDecoder} couldn't be reused for
      * two reasons:
-     *   1. It has very poor performance when coupled with xxhash, which we use for legacy connections -
+     *   1. It has very poor performance when coupled with xxHash, which we use for legacy connections -
      *      allocating a single-byte array and making a JNI call <em>for every byte of the payload</em>
      *   2. It was tricky to efficiently integrate with upstream {@link FrameDecoder}, and impossible
      *      to make it play nicely with flow control - Netty's implementation, based on
      *      {@link io.netty.handler.codec.ByteToMessageDecoder}, would potentially keep triggering
      *      reads on its own volition for as long as its last read had no completed frames to supply
      *      - defying our goal to only ever trigger channel reads when explicitly requested
+     *
+     * Since the original LZ4 block format does not contains size of compressed block and size of original data
+     * this encoder uses format like <a href="https://github.com/idelpivnitskiy/lz4-java">LZ4 Java</a> library
+     * written by Adrien Grand and approved by Yann Collet (author of original LZ4 library), as implemented by
+     * Netty's {@link Lz4FrameDecoder}, but adapted for our interaction model.
+     *
+     *  0                   1                   2                   3
+     *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |                                                               |
+     * +                             Magic                             +
+     * |                                                               |
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     * |T|                      Compressed Length
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     *   |                     Uncompressed Length
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     *   |               xxHash32 of Uncompressed Payload
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     *   |                                                             |
+     * +-+                                                             +
+     * |                                                               |
+     * +                            Payload                            +
+     * |                                                               |
+     * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
      */
     private static class LZ4Decoder extends ChannelInboundHandlerAdapter
     {

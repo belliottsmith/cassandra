@@ -25,6 +25,14 @@ import io.netty.channel.ChannelPipeline;
 import static java.lang.Math.max;
 import static org.apache.cassandra.net.OutboundConnections.LARGE_MESSAGE_THRESHOLD;
 
+/**
+ * {@link InboundMessageHandler} operates on frames that adhere to a certain contract
+ * (see {@link FrameDecoder.IntactFrame} and {@link FrameDecoder.CorruptFrame} javadoc).
+ *
+ * Legacy (pre-4.0) messaging protocol does not natively support framing, however. The job
+ * of {@link FrameDecoderLegacy} is turn a raw stream of messages, serialized back to back,
+ * into a sequence of frames that adhere to 4.0+ conventions.
+ */
 class FrameDecoderLegacy extends FrameDecoder
 {
     private final int messagingVersion;

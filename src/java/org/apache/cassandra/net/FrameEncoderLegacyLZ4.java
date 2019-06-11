@@ -40,8 +40,11 @@ import static org.apache.cassandra.net.LegacyLZ4Constants.*;
  * for two reasons:
  *   1. It notifies flushes as successful when they may not be, by flushing an empty buffer ahead
  *      of the compressed buffer
- *   2. It has very poor performance when coupled with xxhash, which we use for legacy connections -
+ *   2. It has very poor performance when coupled with xxHash, which we use for legacy connections -
  *      allocating a single-byte array and making a JNI call <em>for every byte of the payload</em>
+ *
+ * Please see {@link FrameDecoderLegacyLZ4} for the description of the on-wire format of the LZ4 blocks
+ * used by this encoder.
  */
 @ChannelHandler.Sharable
 class FrameEncoderLegacyLZ4 extends FrameEncoder

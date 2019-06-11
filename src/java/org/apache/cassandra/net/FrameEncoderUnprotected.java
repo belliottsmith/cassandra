@@ -30,6 +30,8 @@ import static org.apache.cassandra.net.FrameEncoderCrc.writeHeader;
  * A frame encoder that writes frames, just without any modification or payload protection.
  * This is non-standard, and useful for systems that have a trusted transport layer that want
  * to avoid incurring the (very low) cost of computing a CRC.
+ *
+ * Please see {@link FrameDecoderUnprotected} for description of the framing produced by this encoder.
  */
 @ChannelHandler.Sharable
 class FrameEncoderUnprotected extends FrameEncoder

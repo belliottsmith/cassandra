@@ -27,6 +27,9 @@ import org.apache.cassandra.utils.memory.BufferPool;
 
 import static org.apache.cassandra.net.Crc.*;
 
+/**
+ * Please see {@link FrameDecoderCrc} for description of the framing produced by this encoder.
+ */
 @ChannelHandler.Sharable
 class FrameEncoderCrc extends FrameEncoder
 {
