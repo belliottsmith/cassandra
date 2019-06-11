@@ -36,6 +36,11 @@ import static java.lang.Math.max;
  *
  * The correctness of this class depends on the ChannelPromise we create against a Channel always being completed,
  * which appears to be a guarantee provided by Netty so long as the event loop is running.
+ *
+ * There are two logical threads accessing the state in this class: the eventLoop of the channel, and the writer
+ * (the writer thread may change, so long as only one utilises the class at any time).
+ * Each thread has exclusive write access to certain state in the class, with the other thread only viewing the state,
+ * simplifying concurrency considerations.
  */
 public abstract class AsyncChannelOutputPlus extends BufferedDataOutputStreamPlus
 {
@@ -54,13 +59,13 @@ public abstract class AsyncChannelOutputPlus extends BufferedDataOutputStreamPlu
 
     final Channel channel;
 
-    /** the number of bytes we have begun flushing, written exclusively by the writer */
+    /** the number of bytes we have begun flushing; updated only by writer */
     private volatile long flushing;
-    /** the number of bytes we have finished flushing, successfully or otherwise, written exclusively by the channel eventLoop */
+    /** the number of bytes we have finished flushing, successfully or otherwise; updated only by eventLoop */
     private volatile long flushed;
-    /** the number of bytes we have finished flushing to the network, written exclusively by the channel eventLoop */
+    /** the number of bytes we have finished flushing to the network; updated only by eventLoop */
     private          long flushedToNetwork;
-    /** any error that has been thrown during a flush */
+    /** any error that has been thrown during a flush; updated only by eventLoop */
     private volatile Throwable flushFailed;
 
     /**
@@ -70,8 +75,8 @@ public abstract class AsyncChannelOutputPlus extends BufferedDataOutputStreamPlu
      *
      * This works exactly like using a WaitQueue, except that we only need to manage a single waiting thread.
      */
-    private volatile long signalWhenFlushed;
-    private volatile Thread waiting;
+    private volatile long signalWhenFlushed; // updated only by writer
+    private volatile Thread waiting; // updated only by writer
 
     public AsyncChannelOutputPlus(Channel channel)
     {
@@ -132,7 +137,7 @@ public abstract class AsyncChannelOutputPlus extends BufferedDataOutputStreamPlu
         // we are always writable if we have lowWaterMark or fewer bytes, no matter how many bytes we are flushing
         // our callers should not be supplying more than (highWaterMark - lowWaterMark) bytes, but we must work correctly if they do
         int wakeUpWhenFlushing = highWaterMark - bytesToWrite;
-        waitUntilFlushed(lowWaterMark, max(lowWaterMark, wakeUpWhenFlushing));
+        waitUntilFlushed(max(lowWaterMark, wakeUpWhenFlushing), lowWaterMark);
         flushing += bytesToWrite;
     }
 
@@ -142,7 +147,7 @@ public abstract class AsyncChannelOutputPlus extends BufferedDataOutputStreamPlu
      *
      * This may only be invoked by the writer thread, never by the eventLoop.
      */
-    void waitUntilFlushed(int signalWhenExcessBytesWritten, int wakeUpWhenExcessBytesWritten) throws IOException
+    void waitUntilFlushed(int wakeUpWhenExcessBytesWritten, int signalWhenExcessBytesWritten) throws IOException
     {
         // we assume that we are happy to wake up at least as early as we will be signalled; otherwise we will never exit
         assert signalWhenExcessBytesWritten <= wakeUpWhenExcessBytesWritten;

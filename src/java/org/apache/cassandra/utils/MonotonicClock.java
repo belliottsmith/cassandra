@@ -336,7 +336,7 @@ public interface MonotonicClock
             almostNowUpdater = ScheduledExecutors.scheduledFastTasks.scheduleWithFixedDelay(() -> almostNow = precise.now(), UPDATE_INTERVAL_MS, UPDATE_INTERVAL_MS, MILLISECONDS);
         }
 
-        public void refreshNow()
+        public synchronized void refreshNow()
         {
             pauseNowSampling();
             resumeNowSampling();

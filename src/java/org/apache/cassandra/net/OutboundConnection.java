@@ -572,7 +572,7 @@ public class OutboundConnection
         {
              // if we are already executing, set EXECUTING_AGAIN and leave scheduling to the currently running one.
              // otherwise, set ourselves unconditionally to EXECUTING and schedule ourselves immediately
-            if (!isExecuting(getAndUpdate(i -> isExecuting(i) ? EXECUTING : EXECUTING_AGAIN)))
+            if (!isExecuting(getAndUpdate(i -> !isExecuting(i) ? EXECUTING : EXECUTING_AGAIN)))
                 executor.execute(this);
         }
 

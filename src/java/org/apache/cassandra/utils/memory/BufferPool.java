@@ -351,9 +351,12 @@ public class BufferPool
                 case 3:
                 {
                     Chunk release;
-                    if (chunk0.free() < chunk1.free())
+                    int chunk0Free = chunk0.freeSlotCount();
+                    int chunk1Free = chunk1.freeSlotCount();
+                    int chunk2Free = chunk2.freeSlotCount();
+                    if (chunk0Free < chunk1Free)
                     {
-                        if (chunk0.free() < chunk2.free())
+                        if (chunk0Free < chunk2Free)
                         {
                             release = chunk0;
                             chunk0 = chunk;
@@ -366,7 +369,7 @@ public class BufferPool
                     }
                     else
                     {
-                        if (chunk1.free() < chunk2.free())
+                        if (chunk1Free < chunk2Free)
                         {
                             release = chunk1;
                             chunk1 = chunk;
@@ -485,6 +488,7 @@ public class BufferPool
             switch (count)
             {
                 case 2:
+                    // Find the only null item, and shift non-null so that null is at chunk2
                     if (chunk0 == null)
                     {
                         chunk0 = chunk1;
@@ -498,6 +502,7 @@ public class BufferPool
                     }
                     break;
                 case 1:
+                    // Find the only non-null item, and shift it to chunk0
                     if (chunk1 != null)
                     {
                         chunk0 = chunk1;
@@ -996,6 +1001,11 @@ public class BufferPool
         int free()
         {
             return Long.bitCount(freeSlots) * unit();
+        }
+
+        int freeSlotCount()
+        {
+            return Long.bitCount(freeSlots);
         }
 
         ByteBuffer get(int size)
