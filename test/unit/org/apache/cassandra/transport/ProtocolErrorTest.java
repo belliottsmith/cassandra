@@ -41,6 +41,54 @@ public class ProtocolErrorTest {
 
     }
 
+    @Test
+    public void testOverrideMaxProtocolVersion() throws Exception
+    {
+        // try overriding the max protocol version to something outside the min/current versions
+        try
+        {
+            Server.setMaxSupportedVersion(Server.CURRENT_VERSION + 1);
+            Assert.fail("Expected exception");
+        } catch (IllegalArgumentException e) {
+            // expected
+        }
+
+        // try overriding the max protocol version to something outside the min/current versions
+        try
+        {
+            Server.setMaxSupportedVersion(Server.MIN_SUPPORTED_VERSION - 1);
+            Assert.fail("Expected exception");
+        } catch (IllegalArgumentException e) {
+            // expected
+        }
+
+        // assert that setting the max version overrides the default
+        Assert.assertEquals(Server.CURRENT_VERSION, Server.getMaxSupportedVersion());
+        testValidProtocolVersion(Server.CURRENT_VERSION);
+
+        Server.setMaxSupportedVersion(Server.CURRENT_VERSION - 1);
+        testInvalidProtocolVersion(Server.CURRENT_VERSION);
+
+        Server.setMaxSupportedVersion(Server.CURRENT_VERSION);
+        testValidProtocolVersion(Server.CURRENT_VERSION);
+    }
+
+    public void testValidProtocolVersion(int version) throws Exception
+    {
+        Frame.Decoder dec = new Frame.Decoder(null);
+
+        List<Object> results = new ArrayList<>();
+        byte[] frame = new byte[]{
+            (byte) REQUEST.addToVersion(version),  // direction & version
+            0x00,  // flags
+            0x01,  // stream ID
+            0x09,  // opcode
+            0x00, 0x00, 0x00, 0x21,  // body length
+        };
+        ByteBuf buf = Unpooled.wrappedBuffer(frame);
+        dec.decode(null, buf, results);
+    }
+
     public void testInvalidProtocolVersion(int version) throws Exception
     {
         Frame.Decoder dec = new Frame.Decoder(null);

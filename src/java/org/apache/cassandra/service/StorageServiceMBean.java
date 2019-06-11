@@ -731,4 +731,7 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     public String getCorruptedTombstoneStrategy();
     public void setCorruptedTombstoneStrategy(String strategy);
+
+    public void setMaxNativeProtocolVersion(int version);
+    public int getMaxNativeProtocolVersion();
 }

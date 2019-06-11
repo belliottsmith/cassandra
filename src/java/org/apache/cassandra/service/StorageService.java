@@ -549,6 +549,24 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return daemon.isNativeTransportRunning();
     }
 
+    public void setMaxNativeProtocolVersion(int version)
+    {
+        if (daemon == null)
+        {
+            throw new IllegalStateException("No configured daemon");
+        }
+        daemon.setMaxNativeProtocolVersion(version);
+    }
+
+    public int getMaxNativeProtocolVersion()
+    {
+        if (daemon == null)
+        {
+            throw new IllegalStateException("No configured daemon");
+        }
+        return daemon.getMaxNativeProtocolVersion();
+    }
+
     public void stopTransports()
     {
         if (isInitialized())
