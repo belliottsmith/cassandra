@@ -19,8 +19,10 @@ package org.apache.cassandra.net;
 
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
-/*
- * TODO: consider adding padding to prevent false sharing
+/**
+ * Aggregates counters for (from, connection type) for the duration of host uptime.
+ *
+ * If contention/false sharing ever become a problem, consider introducing padding.
  */
 class InboundCounters
 {

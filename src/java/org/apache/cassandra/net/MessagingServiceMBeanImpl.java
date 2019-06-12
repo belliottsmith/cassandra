@@ -44,7 +44,6 @@ public class MessagingServiceMBeanImpl implements MessagingServiceMBean
     public final EndpointMessagingVersions versions = new EndpointMessagingVersions();
     public final MessagingMetrics metrics = new MessagingMetrics();
 
-    // TODO: should we add all of the new metrics here, too?
     MessagingServiceMBeanImpl(boolean testOnly)
     {
         if (!testOnly)
