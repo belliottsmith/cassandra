@@ -136,7 +136,7 @@ import static org.apache.cassandra.utils.Throwables.maybeFail;
  *
  * Every individual connection gets an exclusive permit quota to use - 4MiB by default; every endpoint
  * (group of large, small, and urgent connection) is capped at, by default, at 128MiB of undelivered messages,
- * and a global limit of 1GiB is imposed on all endpoints combined.
+ * and a global limit of 512MiB is imposed on all endpoints combined.
  *
  * On an attempt to {@link OutboundConnection#enqueue(Message)}, the connection will attempt to allocate
  * permits for message-size number of bytes from its exclusive quota; if successful, it will add the
@@ -170,7 +170,7 @@ import static org.apache.cassandra.utils.Throwables.maybeFail;
  *
  * Every individual connection gets an exclusive permit quota to use - 4MiB by default; every endpoint
  * (group of large, small, and urgent connection) is capped at, by default, at 128MiB of unprocessed messages,
- * and a global limit of 1GiB is imposed on all endpoints combined.
+ * and a global limit of 512MiB is imposed on all endpoints combined.
  *
  * On arrival of a message header, the handler will attempt to allocate permits for message-size number
  * of bytes from its exclusive quota; if successful, it will proceed to deserializing and processing the message.
