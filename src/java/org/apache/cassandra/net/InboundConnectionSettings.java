@@ -188,7 +188,7 @@ public class InboundConnectionSettings
             encryption = DatabaseDescriptor.getInternodeMessagingEncyptionOptions();
 
         if (socketReceiveBufferSizeInBytes == null)
-            socketReceiveBufferSizeInBytes = DatabaseDescriptor.getInternodeSocketRecvBufferSizeInBytes();
+            socketReceiveBufferSizeInBytes = DatabaseDescriptor.getInternodeSocketReceiveBufferSizeInBytes();
 
         if (applicationReceiveQueueCapacityInBytes == null)
             applicationReceiveQueueCapacityInBytes = DatabaseDescriptor.getInternodeApplicationReceiveQueueCapacityInBytes();

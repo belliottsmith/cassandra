@@ -152,7 +152,8 @@ public class Config
 
     public Integer internode_max_message_size_in_bytes;
 
-    public int internode_send_buff_size_in_bytes = 0;
+    public int internode_socket_send_buffer_size_in_bytes = 0;
+    public int internode_socket_receive_buffer_size_in_bytes = 0;
 
     public int internode_application_send_queue_capacity_in_bytes = 1 << 22; // 4MiB
     public int internode_application_reserve_send_queue_endpoint_capacity_in_bytes = 1 << 27; // 128MiB
@@ -162,7 +163,6 @@ public class Config
     public int internode_application_reserve_receive_queue_endpoint_capacity_in_bytes = 1 << 27; // 128MiB
     public int internode_application_reserve_receive_queue_global_capacity_in_bytes = 1 << 29; // 512MiB
 
-    public int internode_recv_buff_size_in_bytes = 0;
     // Defensive settings for protecting Cassandra from true network partitions. See (CASSANDRA-14358) for details.
     // The amount of time to wait for internode tcp connections to establish.
     public int internode_tcp_connect_timeout_in_ms = 2000;

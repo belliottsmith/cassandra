@@ -1865,8 +1865,12 @@ public class DatabaseDescriptor
 
     public static int getInternodeSocketSendBufferSizeInBytes()
     {
-        // TODO: rename?
-        return conf.internode_send_buff_size_in_bytes;
+        return conf.internode_socket_send_buffer_size_in_bytes;
+    }
+
+    public static int getInternodeSocketReceiveBufferSizeInBytes()
+    {
+        return conf.internode_socket_receive_buffer_size_in_bytes;
     }
 
     public static int getInternodeApplicationSendQueueCapacityInBytes()
@@ -1897,11 +1901,6 @@ public class DatabaseDescriptor
     public static int getInternodeApplicationReserveReceiveQueueGlobalCapacityInBytes()
     {
         return conf.internode_application_reserve_receive_queue_global_capacity_in_bytes;
-    }
-
-    public static int getInternodeSocketRecvBufferSizeInBytes()
-    {
-        return conf.internode_recv_buff_size_in_bytes;
     }
 
     public static int getInternodeTcpConnectTimeoutInMS()
