@@ -94,6 +94,9 @@ public class Repair extends NodeToolCmd
     @Option(title = "force", name = {"-force", "--force"}, description = "Use -force to filter out down endpoints")
     private boolean force = false;
 
+    @Option(title = "ignore_unreplicated_keyspaces", name = {"-iuk","--ignore-unreplicated-keyspaces"}, description = "Use --ignore-unreplicated-keyspaces to ignore keyspaces which are not replicated, otherwise the repair will fail")
+    private boolean ignoreUnreplicatedKeyspaces = false;
+
     private PreviewKind getPreviewKind()
     {
         if (validate)
@@ -144,6 +147,7 @@ public class Repair extends NodeToolCmd
             options.put(RepairOption.PULL_REPAIR_KEY, Boolean.toString(pullRepair));
             options.put(RepairOption.FORCE_REPAIR_KEY, Boolean.toString(force));
             options.put(RepairOption.PREVIEW, getPreviewKind().toString());
+            options.put(RepairOption.IGNORE_UNREPLICATED_KS, Boolean.toString(ignoreUnreplicatedKeyspaces));
 
             if (!startToken.isEmpty() || !endToken.isEmpty())
             {
