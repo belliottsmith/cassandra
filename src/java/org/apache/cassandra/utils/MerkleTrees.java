@@ -20,7 +20,6 @@ package org.apache.cassandra.utils;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.AbstractIterator;
@@ -48,10 +47,6 @@ public class MerkleTrees implements Iterable<Map.Entry<Range<Token>, MerkleTree>
     private Map<Range<Token>, MerkleTree> merkleTrees = new TreeMap<>(new TokenRangeComparator());
 
     private IPartitioner partitioner;
-
-    private volatile int referenceCount;
-    private static final AtomicIntegerFieldUpdater<MerkleTrees> referenceCountUpdater =
-        AtomicIntegerFieldUpdater.newUpdater(MerkleTrees.class, "referenceCount");
 
     /**
      * Creates empty MerkleTrees object.
@@ -144,19 +139,6 @@ public class MerkleTrees implements Iterable<Map.Entry<Range<Token>, MerkleTree>
         for (Range<Token> range : merkleTrees.keySet())
         {
             init(range);
-        }
-    }
-
-    public void acquire()
-    {
-        referenceCountUpdater.incrementAndGet(this);
-    }
-
-    public void release()
-    {
-        if (referenceCountUpdater.decrementAndGet(this) == 0)
-        {
-            merkleTrees.clear();
         }
     }
 
