@@ -17,6 +17,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
+import com.apple.cie.db.marshal.CappedCoalescingMapType;
 import com.apple.cie.db.marshal.CappedSortedMapType;
 import org.apache.cassandra.cql3.functions.Function;
 import org.apache.cassandra.cql3.functions.NativeScalarFunction;
@@ -44,7 +45,8 @@ import org.apache.cassandra.serializers.MapSerializer;
  *
  * The schema needs to contain fields of the following types for storing the events and delivery history.
  * <pre>
- *     events 'com.apple.cie.db.marshal.CappedSortedMapType(BytesType)',
+       cevents 'com.apple.cie.db.marshal.CappedCoalescingMapType(BytesType)', -- OR
+       qevents 'com.apple.cie.db.marshal.CappedSortedMapType(BytesType)', -- AND
        deliveries map<timeuuid,frozen<tuple<tinyint,timestamp>>>,
  * </pre>
  *
@@ -75,35 +77,46 @@ public abstract class Apns
         TimestampType.instance // 2: deliverable after timestamp
     );
 
-    /* CappedSortedMapType of events */
-    private static final CappedSortedMapType<ByteBuffer> eventsType = new CappedSortedMapType<>(BytesType.instance);
+    /* Types for events */
+    private static final CappedSortedMapType<ByteBuffer> sortedEventsType = new CappedSortedMapType<>(BytesType.instance);
+    private static final CappedCoalescingMapType<ByteBuffer> coalescingEventsType = new CappedCoalescingMapType<>(BytesType.instance);
 
     /* Map of deliveries for the events */
     private static final MapType<UUID, ByteBuffer> deliveriesMapType = MapType.getInstance(TimeUUIDType.instance, deliveryType, true);
 
-    /* Tuple type returned by oldestdeliverable */
+    /* Tuple type returned by oldestdeliverable for CappedSortedMaps */
     @VisibleForTesting
-    static final TupleType oldestDeliverableType = tupleType
-    (
+    static final TupleType sortedOldestDeliverableType = tupleType(
         Int32Type.instance,       // 0: undeliverable
         Int32Type.instance,       // 1: deliveries left
-        eventsType.getKeysType(), // 2: oldest deliverable messageid
-        BytesType.instance,       // 3: oldest deliverable message
+        sortedEventsType.getKeysType(),  // 2: oldest deliverable messageid
+        sortedEventsType.getValuesType(),// 3: oldest deliverable message
+        ByteType.instance,        // 4: oldest deliverable delivery attempts
+        TimestampType.instance    // 5: oldest deliverable deliverable after
+    );
+
+    /* Tuple type returned by oldestdeliverable for CappedCoalescingMaps */
+    @VisibleForTesting
+    static final TupleType coalescingOldestDeliverableType = tupleType(
+        Int32Type.instance,       // 0: undeliverable
+        Int32Type.instance,       // 1: deliveries left
+        coalescingEventsType.getKeysType(), // 2: oldest deliverable messageid
+        coalescingEventsType.getValuesType(), // 3: oldest deliverable tuple
         ByteType.instance,        // 4: oldest deliverable delivery attempts
         TimestampType.instance    // 5: oldest deliverable deliverable after
     );
 
     /* Map returned by deliverable - map<uuid,tuple<blob,tinyint,timestamp>> */
     @VisibleForTesting
-    static final MapType<UUID, ByteBuffer> deliverableMapType = MapType.getInstance(eventsType.getKeysType(), deliverableType, true);
+    static final MapType<UUID, ByteBuffer> sortedDeliverableMapType = MapType.getInstance(sortedEventsType.getKeysType(), deliverableType, true);
 
     /* Tuple type returned by koldestdeliverable */
     @VisibleForTesting
-    static final TupleType kOldestDeliverableType = tupleType
+    static final TupleType sortedKOldestDeliverableType = tupleType
     (
         Int32Type.instance, // 0: undeliverable
         Int32Type.instance, // 1: deliveries left
-        deliverableMapType  // 2: k oldest deliverable messages
+        sortedDeliverableMapType  // 2: k oldest deliverable messages
     );
 
     private static final MapSerializer<ByteBuffer, ByteBuffer> bytesBytesMapSerializer =
@@ -171,99 +184,106 @@ public abstract class Apns
         return makeTuple(message, deliveryInfo[0], deliveryInfo[1]);
     }
 
-    private static final Function deliverableFct =
-        new NativeScalarFunction("deliverable", deliverableMapType, eventsType, deliveriesMapType, TimestampType.instance)
+    private static Function makeDeliverable(MapType<?,?> eventsType)
     {
-        public ByteBuffer execute(int protocolVersion, List<ByteBuffer> parameters)
+        return new NativeScalarFunction("deliverable", sortedDeliverableMapType, eventsType, deliveriesMapType, TimestampType.instance)
         {
-            ByteBuffer eventsBB     = parameters.get(0);
-            ByteBuffer deliveriesBB = parameters.get(1);
-            ByteBuffer afterBB      = parameters.get(2);
-
-            Map<ByteBuffer, ByteBuffer> events = deserializeMap(eventsBB);
-            Map<ByteBuffer, ByteBuffer> deliveries = deserializeMap(deliveriesBB);
-
-            Map<ByteBuffer, ByteBuffer> deliverables = Maps.newHashMapWithExpectedSize(events.size());// new HashMap<>(events.size());
-            for (Map.Entry<ByteBuffer,ByteBuffer>e : events.entrySet())
+            public ByteBuffer execute(int protocolVersion, List<ByteBuffer> parameters)
             {
-                ByteBuffer delivery = deliveries.get(e.getKey());
-                if (null == delivery || isDeliverable(delivery, afterBB))
+                ByteBuffer eventsBB = parameters.get(0);
+                ByteBuffer deliveriesBB = parameters.get(1);
+                ByteBuffer afterBB = parameters.get(2);
+
+                Map<ByteBuffer, ByteBuffer> events = deserializeMap(eventsBB);
+                Map<ByteBuffer, ByteBuffer> deliveries = deserializeMap(deliveriesBB);
+
+                Map<ByteBuffer, ByteBuffer> deliverables = Maps.newHashMapWithExpectedSize(events.size());
+                for (Map.Entry<ByteBuffer, ByteBuffer> e : events.entrySet())
                 {
-                    deliverables.put(e.getKey(), makeDeliverable(e.getValue(), deliveries.get(e.getKey())));
+                    ByteBuffer delivery = deliveries.get(e.getKey());
+                    if (null == delivery || isDeliverable(delivery, afterBB))
+                    {
+                        deliverables.put(e.getKey(), makeDeliverable(e.getValue(), deliveries.get(e.getKey())));
+                    }
                 }
+
+                return deliverables.isEmpty() ? null : bytesBytesMapSerializer.serialize(deliverables);
             }
+        };
+    }
 
-            return deliverables.isEmpty() ? null : bytesBytesMapSerializer.serialize(deliverables);
-        }
-    };
-
-    private static final Function oldestDeliverableFct =
-        new NativeScalarFunction("oldestdeliverable", oldestDeliverableType, eventsType, deliveriesMapType, TimestampType.instance)
+    private static Function makeOldestDeliverable(MapType<?,?> eventsType, TupleType oldestDeliverableType)
     {
-        public ByteBuffer execute(int protocolVersion, List<ByteBuffer> parameters)
+        return new NativeScalarFunction("oldestdeliverable", oldestDeliverableType, eventsType, deliveriesMapType, TimestampType.instance)
         {
-            Map<ByteBuffer, ByteBuffer> events = deserializeMap(parameters.get(0));
-            Map<ByteBuffer, ByteBuffer> deliveries = deserializeMap(parameters.get(1));
-            ByteBuffer after = parameters.get(2);
-
-            Deliverability d = partitionByDeliverability(events, deliveries, after);
-
-            if (d.deliverableCount == 0)
-                return makeTuple(makeInt32(d.undeliverableCount), makeInt32(d.deliverableCount), null, null, null, null);
-
-            Map.Entry<ByteBuffer, ByteBuffer> oldest = d.deliverable.get(d.deliverable.size() - 1);
-            ByteBuffer delivery = deliveries.get(oldest.getKey());
-
-            if (delivery != null)
+            public ByteBuffer execute(int protocolVersion, List<ByteBuffer> parameters)
             {
-                ByteBuffer[] splitDelivery = deliveryType.split(delivery);
+                Map<ByteBuffer, ByteBuffer> events = deserializeMap(parameters.get(0));
+                Map<ByteBuffer, ByteBuffer> deliveries = deserializeMap(parameters.get(1));
+                ByteBuffer after = parameters.get(2);
+
+                Deliverability d = partitionByDeliverability(events, deliveries, after);
+
+                if (d.deliverableCount == 0)
+                    return makeTuple(makeInt32(d.undeliverableCount), makeInt32(d.deliverableCount), null, null, null, null);
+
+                Map.Entry<ByteBuffer, ByteBuffer> oldest = d.deliverable.get(d.deliverable.size() - 1);
+                ByteBuffer delivery = deliveries.get(oldest.getKey());
+
+                if (delivery != null)
+                {
+                    ByteBuffer[] splitDelivery = deliveryType.split(delivery);
+                    return makeTuple(makeInt32(d.undeliverableCount),
+                                     makeInt32(d.deliverableCount - 1),
+                                     oldest.getKey(),
+                                     oldest.getValue(),
+                                     splitDelivery[0],
+                                     splitDelivery[1]);
+                }
+
                 return makeTuple(makeInt32(d.undeliverableCount),
                                  makeInt32(d.deliverableCount - 1),
                                  oldest.getKey(),
                                  oldest.getValue(),
-                                 splitDelivery[0],
-                                 splitDelivery[1]);
+                                 null,
+                                 null);
             }
+        };
+    }
 
-            return makeTuple(makeInt32(d.undeliverableCount),
-                             makeInt32(d.deliverableCount - 1),
-                             oldest.getKey(),
-                             oldest.getValue(),
-                             null,
-                             null);
-        }
-    };
-
-    private static final Function kOldestDeliverableFct =
-        new NativeScalarFunction("koldestdeliverable", kOldestDeliverableType, eventsType, deliveriesMapType, TimestampType.instance, Int32Type.instance)
+    private static final Function makeKOldestDeliverable(MapType<?,?> eventsType)
     {
-        public ByteBuffer execute(int protocolVersion, List<ByteBuffer> parameters)
+        return new NativeScalarFunction("koldestdeliverable", sortedKOldestDeliverableType, eventsType, deliveriesMapType, TimestampType.instance, Int32Type.instance)
         {
-            Map<ByteBuffer, ByteBuffer> events = deserializeMap(parameters.get(0));
-            Map<ByteBuffer, ByteBuffer> deliveries = deserializeMap(parameters.get(1));
-            ByteBuffer after = parameters.get(2);
-            int k = Int32Type.instance.compose(parameters.get(3));
-
-            Deliverability d = partitionByDeliverability(events, deliveries, after);
-
-            if (d.deliverableCount == 0)
-                return makeTuple(makeInt32(d.undeliverableCount), makeInt32(d.deliverableCount), null);
-
-            int delivering = Integer.min(k, d.deliverableCount);
-
-            Map<ByteBuffer, ByteBuffer> deliverable = Maps.newHashMapWithExpectedSize(delivering);
-            for (Map.Entry<ByteBuffer, ByteBuffer> e : d.deliverable.subList(d.deliverable.size() - delivering, d.deliverable.size()))
+            public ByteBuffer execute(int protocolVersion, List<ByteBuffer> parameters)
             {
-                deliverable.put(e.getKey(), makeDeliverable(e.getValue(), deliveries.get(e.getKey())));
+                Map<ByteBuffer, ByteBuffer> events = deserializeMap(parameters.get(0));
+                Map<ByteBuffer, ByteBuffer> deliveries = deserializeMap(parameters.get(1));
+                ByteBuffer after = parameters.get(2);
+                int k = Int32Type.instance.compose(parameters.get(3));
+
+                Deliverability d = partitionByDeliverability(events, deliveries, after);
+
+                if (d.deliverableCount == 0)
+                    return makeTuple(makeInt32(d.undeliverableCount), makeInt32(d.deliverableCount), null);
+
+                int delivering = Integer.min(k, d.deliverableCount);
+
+                Map<ByteBuffer, ByteBuffer> deliverable = Maps.newHashMapWithExpectedSize(delivering);
+                for (Map.Entry<ByteBuffer, ByteBuffer> e : d.deliverable.subList(d.deliverable.size() - delivering, d.deliverable.size()))
+                {
+                    deliverable.put(e.getKey(), makeDeliverable(e.getValue(), deliveries.get(e.getKey())));
+                }
+
+                return makeTuple(makeInt32(d.undeliverableCount),
+                                 makeInt32(d.deliverableCount - deliverable.size()),
+                                 deliverable.isEmpty() ? null : bytesBytesMapSerializer.serialize(deliverable));
             }
+        };
+    }
 
-            return makeTuple(makeInt32(d.undeliverableCount),
-                             makeInt32(d.deliverableCount - deliverable.size()),
-                             deliverable.isEmpty() ? null : bytesBytesMapSerializer.serialize(deliverable));
-        }
-    };
-
-    private static TupleType tupleType(AbstractType<?>... types)
+    @VisibleForTesting
+    public static TupleType tupleType(AbstractType<?>... types)
     {
         return new TupleType(Arrays.asList(types));
     }
@@ -286,9 +306,20 @@ public abstract class Apns
             return bytesBytesMapSerializer.deserialize(bb);
     }
 
+    private static final Function sortedDeliverableFct = makeDeliverable(sortedEventsType);
+    private static final Function sortedOldestDeliverableFct = makeOldestDeliverable(sortedEventsType,
+                                                                                     sortedOldestDeliverableType);
+    private static final Function sortedKOldestDeliverableFct = makeKOldestDeliverable(sortedEventsType);
+    private static final Function coalescingDeliverableFct = makeDeliverable(coalescingEventsType);
+    private static final Function coalescingOldestDeliverableFct = makeOldestDeliverable(coalescingEventsType,
+                                                                                         coalescingOldestDeliverableType);
+    private static final Function coalescingKOldestDeliverableFct = makeKOldestDeliverable(coalescingEventsType);
+
     @SuppressWarnings("unused")
     public static Collection<Function> all()
     {
-        return ImmutableList.of(deliverableFct, oldestDeliverableFct, kOldestDeliverableFct);
+        return ImmutableList.of(sortedDeliverableFct,        coalescingDeliverableFct,
+                                sortedOldestDeliverableFct,  coalescingOldestDeliverableFct,
+                                sortedKOldestDeliverableFct, coalescingKOldestDeliverableFct);
     }
 }

@@ -94,7 +94,7 @@ public abstract class FakeTime
         synchronized (FakeTime.class)
         {
             assert (fakeCentiNanos < 10_000_000);
-            return UUIDGen.getTimeUUID(fakeInstant.toEpochMilli(), fakeCentiNanos++);
+            return UUIDGen.getTimeUUID(fakeInstant.toEpochMilli(), fakeCentiNanos++, 0l);
         }
     }
 
