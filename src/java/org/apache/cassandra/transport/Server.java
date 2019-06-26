@@ -342,7 +342,7 @@ public class Server implements CassandraDaemon.Server
         private final AtomicInteger refCount = new AtomicInteger(0);
         private final InetAddress endpoint;
 
-        public ResourceLimits.EndpointAndGlobal endpointAndGlobalPayloadsInFlight = new ResourceLimits.EndpointAndGlobal(new ResourceLimits.Concurrent(DatabaseDescriptor.getNativeTransportMaxConcurrentRequestsInBytesPerIp()),
+        final ResourceLimits.EndpointAndGlobal endpointAndGlobalPayloadsInFlight = new ResourceLimits.EndpointAndGlobal(new ResourceLimits.Concurrent(DatabaseDescriptor.getNativeTransportMaxConcurrentRequestsInBytesPerIp()),
                                                                                                                          globalRequestPayloadInFlight);
 
         private EndpointPayloadTracker(InetAddress endpoint)
@@ -352,61 +352,25 @@ public class Server implements CassandraDaemon.Server
 
         public static EndpointPayloadTracker get(InetAddress endpoint)
         {
-            EndpointPayloadTracker endpointPayloadTracker;
             while (true)
             {
-                endpointPayloadTracker = requestPayloadInFlightPerEndpoint.computeIfAbsent(endpoint, (newEndpointPayloadTracker) -> new EndpointPayloadTracker(endpoint));
-                if (endpointPayloadTracker.tryRef() != null)
-                {
-                    break;
-                }
-                else
-                {
-                    requestPayloadInFlightPerEndpoint.remove(endpoint, endpointPayloadTracker);
-                }
-            }
+                EndpointPayloadTracker result = requestPayloadInFlightPerEndpoint.computeIfAbsent(endpoint, EndpointPayloadTracker::new);
+                if (result.acquire())
+                    return result;
 
-            return endpointPayloadTracker;
+                requestPayloadInFlightPerEndpoint.remove(endpoint, result);
+            }
         }
 
-        // should never return an EndpointPayloadTracker that has been removed from the map
-        private EndpointPayloadTracker tryRef()
+        private boolean acquire()
         {
-            int current;
-            int next;
-            do
-            {
-                current = refCount.get();
-                if (current < 0)
-                {
-                    return null;
-                }
-                next = current + 1;
-            } while (!refCount.compareAndSet(current, next));
-
-            return this;
+            return 0 < refCount.updateAndGet(i -> i < 0 ? i : i + 1);
         }
 
         public void release()
         {
-            int current;
-            int next;
-            do
-            {
-                current = refCount.get();
-                next = current - 1;
-                if (next == 0)
-                {
-                    // this is to ensure we do not mint more refs once refCount falls to 0
-                    next = -1;
-                }
-            } while (!refCount.compareAndSet(current, next));
-            // this is a safe point to remove tracker from the map, since the logic in tryRef() ensures we do not return
-            // this instance of tracker if refCount falls below 0.
-            if (refCount.get() < 0)
-            {
+            if (-1 == refCount.updateAndGet(i -> i == 1 ? -1 : i - 1))
                 requestPayloadInFlightPerEndpoint.remove(endpoint, this);
-            }
         }
     }
 

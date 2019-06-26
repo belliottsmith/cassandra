@@ -19,6 +19,7 @@
 package org.apache.cassandra.metrics;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Meter;
@@ -40,7 +41,8 @@ public final class ClientMetrics
     private Meter authSuccess;
     private Meter authFailure;
 
-    private Meter backpressureDeployed;
+    private AtomicInteger pausedConnections;
+    private Gauge<Integer> pausedConnectionsGauge;
     private Meter requestDiscarded;
 
     private ClientMetrics()
@@ -57,7 +59,8 @@ public final class ClientMetrics
         authFailure.mark();
     }
 
-    public void markBackpressureDeployed() { backpressureDeployed.mark(); }
+    public void pauseConnection() { pausedConnections.incrementAndGet(); }
+    public void unpauseConnection() { pausedConnections.decrementAndGet(); }
 
     public void markRequestDiscarded() { requestDiscarded.mark(); }
 
@@ -86,7 +89,8 @@ public final class ClientMetrics
         authSuccess = registerMeter("AuthSuccess");
         authFailure = registerMeter("AuthFailure");
 
-        backpressureDeployed = registerMeter("BackpressureDeployed");
+        pausedConnections = new AtomicInteger();
+        pausedConnectionsGauge = registerGauge("PausedConnections", pausedConnections::get);
         requestDiscarded = registerMeter("RequestDiscarded");
 
         initialized = true;

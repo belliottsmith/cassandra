@@ -664,7 +664,7 @@ public abstract class Message
                     // set backpressure on the channel, and handle the request
                     endpointAndGlobalPayloadsInFlight.allocate(frameSize);
                     ctx.channel().config().setAutoRead(false);
-                    ClientMetrics.instance.markBackpressureDeployed();
+                    ClientMetrics.instance.pauseConnection();
                 }
             }
 
@@ -696,6 +696,7 @@ public abstract class Message
                 && (channelPayloadBytesInFlight == 0 || endpointGlobalReleaseOutcome == ResourceLimits.Outcome.BELOW_LIMIT))
             {
                 config.setAutoRead(true);
+                ClientMetrics.instance.unpauseConnection();
             }
         }
 

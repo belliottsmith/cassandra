@@ -83,14 +83,8 @@ public abstract class ResourceLimits
     {
         Outcome endpointReleaseOutcome = endpoint.release(amount);
         Outcome globalReleaseOutcome = global.release(amount);
-        if (endpointReleaseOutcome == Outcome.ABOVE_LIMIT || globalReleaseOutcome == Outcome.ABOVE_LIMIT)
-        {
-            return Outcome.ABOVE_LIMIT;
-        }
-        else
-        {
-            return Outcome.BELOW_LIMIT;
-        }
+        return (endpointReleaseOutcome == Outcome.ABOVE_LIMIT || globalReleaseOutcome == Outcome.ABOVE_LIMIT)
+               ? Outcome.ABOVE_LIMIT : Outcome.BELOW_LIMIT;
     }
 
     public static class Concurrent implements Limit
@@ -151,14 +145,7 @@ public abstract class ResourceLimits
             assert amount >= 0;
             long using = usingUpdater.addAndGet(this, -amount);
             assert using >= 0;
-            if (using > limit)
-            {
-                return Outcome.ABOVE_LIMIT;
-            }
-            else
-            {
-                return Outcome.BELOW_LIMIT;
-            }
+            return using >= limit ? Outcome.ABOVE_LIMIT : Outcome.BELOW_LIMIT;
         }
     }
 
@@ -205,14 +192,7 @@ public abstract class ResourceLimits
         {
             assert amount >= 0 && amount <= using;
             using -= amount;
-            if (using > limit)
-            {
-                return Outcome.ABOVE_LIMIT;
-            }
-            else
-            {
-                return Outcome.BELOW_LIMIT;
-            }
+            return using >= limit ? Outcome.ABOVE_LIMIT : Outcome.BELOW_LIMIT;
         }
     }
 }
