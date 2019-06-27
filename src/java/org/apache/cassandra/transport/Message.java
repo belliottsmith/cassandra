@@ -17,8 +17,6 @@
  */
 package org.apache.cassandra.transport;
 
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -477,6 +475,8 @@ public abstract class Message
 
         private final Server.EndpointPayloadTracker endpointPayloadTracker;
 
+        private boolean paused;
+
         private static class FlushItem
         {
             final ChannelHandlerContext ctx;
@@ -665,6 +665,7 @@ public abstract class Message
                     endpointAndGlobalPayloadsInFlight.allocate(frameSize);
                     ctx.channel().config().setAutoRead(false);
                     ClientMetrics.instance.pauseConnection();
+                    paused = true;
                 }
             }
 
@@ -692,11 +693,11 @@ public abstract class Message
             // 2) there's no other events following this one (becuase we're at zero bytes in flight),
             // so no successive to trigger the other clause in this if-block
             ChannelConfig config = item.ctx.channel().config();
-            if (!config.isAutoRead()
-                && (channelPayloadBytesInFlight == 0 || endpointGlobalReleaseOutcome == ResourceLimits.Outcome.BELOW_LIMIT))
+            if (paused && (channelPayloadBytesInFlight == 0 || endpointGlobalReleaseOutcome == ResourceLimits.Outcome.BELOW_LIMIT))
             {
-                config.setAutoRead(true);
+                paused = false;
                 ClientMetrics.instance.unpauseConnection();
+                config.setAutoRead(true);
             }
         }
 
@@ -746,6 +747,11 @@ public abstract class Message
         public void channelInactive(ChannelHandlerContext ctx)
         {
             endpointPayloadTracker.release();
+            if (paused)
+            {
+                paused = false;
+                ClientMetrics.instance.unpauseConnection();
+            }
             ctx.fireChannelInactive();
         }
 
