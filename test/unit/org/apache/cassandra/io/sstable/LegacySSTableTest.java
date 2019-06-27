@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -75,6 +76,7 @@ import org.apache.cassandra.streaming.StreamPlan;
 import org.apache.cassandra.streaming.StreamSession;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 
 import static org.apache.cassandra.cql3.CQLTester.assertRows;
 import static org.apache.cassandra.cql3.CQLTester.row;
@@ -630,6 +632,66 @@ public class LegacySSTableTest
                 String.format("SELECT * FROM legacy_tables.legacy_ka_with_illegal_cell_names"));
 
         assertRows(results, row(1, "a", "aa", "aaa"), row(2, "b", "bb", "bbb"));
+    }
+
+    @Test
+    public void testReadingIndexedLegacyTablesWithIllegalCellNames() throws Exception {
+        /**
+         * The sstable can be generated externally with SSTableSimpleUnsortedWriter:
+         * column_index_size_in_kb: 1
+         * [
+         *   {"key": "key",
+         *    "cells": [
+         *               ["00000:000000:a","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0],
+         *               ["00000:000000:b","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0]
+         *               ["00000:000000:c","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0]
+         *               ["00000:000000:z","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0]
+         *               ["00001:000001:a","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0],
+         *               ["00001:000001:b","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0]
+         *               ["00001:000001:c","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0]
+         *               ["00001:000001:z","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0]
+         *               .
+         *               .
+         *               .
+         *               ["00010:000010:a","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0],
+         *               ["00010:000010:b","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0]
+         *               ["00010:000010:c","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0]
+         *               ["00010:000010:z","00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",0]
+         *           ]
+         *   }
+         * ]
+         * Each row in the partition contains only 1 valid cell. The ones with the column name components 'a', 'b' & 'z' are illegal as they refer to PRIMARY KEY
+         * columns, but SSTables such as this can be generated with offline tools and loaded via SSTableLoader or nodetool refresh (see CASSANDRA-15086) (see
+         * CASSANDRA-15086) Only 'c' is a valid REGULAR column in the table schema.
+         * In the initial fix for CASSANDRA-15086, the bytes read by OldFormatDeserializer for these invalid cells are not correctly accounted for, causing
+         * ReverseIndexedReader to assert that the end of a block has been reached earlier than it actually has, which in turn causes rows to be incorrectly
+         * ommitted from the results.
+         *
+         * This sstable has been crafted to hit a further potential error condition. Rows 00001:00001 and 00008:00008 interact with the index block boundaries
+         * in a very specific way; for both of these rows, the (illegal) cells 'a' & 'b', along with the valid 'c' cell are at the end of an index block, but
+         * the 'z' cell is over the boundary, in the following block. We need to ensure that the bytes consumed for the 'z' cell are properly accounted for and
+         * not counted toward those for the next row on disk.
+         */
+        QueryProcessor.executeInternal("CREATE TABLE legacy_tables.legacy_ka_with_illegal_cell_names_indexed (" +
+                                       " a text," +
+                                       " b text," +
+                                       " z text," +
+                                       " c text," +
+                                       " PRIMARY KEY(a, b, z))");
+        loadLegacyTable("legacy_%s_with_illegal_cell_names_indexed%s", "ka", "");
+        String queryForward = "SELECT * FROM legacy_tables.legacy_ka_with_illegal_cell_names_indexed WHERE a = 'key'";
+        String queryReverse = queryForward + " ORDER BY b DESC, z DESC";
+
+        List<String> forward = new ArrayList<>();
+        QueryProcessor.executeOnceInternal(queryForward).forEach(r -> forward.add(r.getString("b") + ":" +  r.getString("z")));
+
+        List<String> reverse = new ArrayList<>();
+        QueryProcessor.executeOnceInternal(queryReverse).forEach(r -> reverse.add(r.getString("b") + ":" +  r.getString("z")));
+
+        assertEquals(11, reverse.size());
+        assertEquals(11, forward.size());
+        for (int i=0; i < 11; i++)
+            assertEquals(forward.get(i), reverse.get(10 - i));
     }
 
     private void assertExpectedRowsWithDroppedCollection(boolean droppedCheckSuccessful)
