@@ -186,9 +186,9 @@ public class Frame
             int firstByte = buffer.getByte(idx++);
             Message.Direction direction = Message.Direction.extractFromVersion(firstByte);
             int version = firstByte & PROTOCOL_VERSION_MASK;
-            if (version < Server.MIN_SUPPORTED_VERSION || version > Server.getMaxSupportedVersion())
+            if (version < Server.MIN_SUPPORTED_VERSION || version > Server.CURRENT_VERSION)
                 throw new ProtocolException(String.format("Invalid or unsupported protocol version (%d); the lowest supported version is %d and the greatest is %d",
-                                                          version, Server.MIN_SUPPORTED_VERSION, Server.getMaxSupportedVersion()),
+                                                          version, Server.MIN_SUPPORTED_VERSION, Server.CURRENT_VERSION),
                                             version);
 
             // Wait until we have the complete header

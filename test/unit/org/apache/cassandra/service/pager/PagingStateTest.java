@@ -34,31 +34,46 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import static org.apache.cassandra.transport.Server.VERSION_3;
 import static org.apache.cassandra.transport.Server.VERSION_4;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class PagingStateTest
 {
+    ByteBuffer pk = ByteBufferUtil.bytes("someKey");
+
     private PagingState makeSomePagingState(int protocolVersion)
     {
-        return makeSomePagingState(protocolVersion, 0);
+        return makeSomePagingState(protocolVersion, 0, false);
     }
 
     private PagingState makeSomePagingState(int protocolVersion, int remainingInPartition)
     {
-        CFMetaData metadata = CFMetaData.Builder.create("ks", "tbl")
-                                                .addPartitionKey("k", AsciiType.instance)
-                                                .addClusteringColumn("c1", AsciiType.instance)
-                                                .addClusteringColumn("c1", Int32Type.instance)
-                                                .addRegularColumn("myCol", AsciiType.instance)
-                                                .build();
+        return makeSomePagingState(protocolVersion, remainingInPartition, false);
+    }
 
-        ByteBuffer pk = ByteBufferUtil.bytes("someKey");
+    private PagingState makeSomePagingState(int protocolVersion, int remainingInPartition, boolean forceLegacy)
+    {
+        CFMetaData metadata = metadata();
+        Row row = makeRow(metadata);
+        PagingState.RowMark mark = PagingState.RowMark.create(metadata, row, protocolVersion, forceLegacy);
+        return new PagingState(pk, mark, 10, remainingInPartition, forceLegacy);
+    }
 
+    private Row makeRow(CFMetaData metadata)
+    {
         ColumnDefinition def = metadata.getColumnDefinition(new ColumnIdentifier("myCol", false));
         Clustering c = new Clustering(ByteBufferUtil.bytes("c1"), ByteBufferUtil.bytes(42));
-        Row row = BTreeRow.singleCellRow(c, BufferCell.live(metadata, def, 0, ByteBufferUtil.EMPTY_BYTE_BUFFER));
-        PagingState.RowMark mark = PagingState.RowMark.create(metadata, row, protocolVersion);
-        return new PagingState(pk, mark, 10, remainingInPartition);
+        return BTreeRow.singleCellRow(c, BufferCell.live(metadata, def, 0, ByteBufferUtil.EMPTY_BYTE_BUFFER));
+    }
+
+    private CFMetaData metadata()
+    {
+        return CFMetaData.Builder.create("ks", "tbl")
+                                 .addPartitionKey("k", AsciiType.instance)
+                                 .addClusteringColumn("c1", AsciiType.instance)
+                                 .addClusteringColumn("c1", Int32Type.instance)
+                                 .addRegularColumn("myCol", AsciiType.instance)
+                                 .build();
     }
 
     @Test
@@ -137,5 +152,81 @@ public class PagingStateTest
         ByteBuffer serialized = state.legacySerialize(false);
         assertEquals(serialized.remaining(), state.legacySerializedSize(false));
         assertEquals(state, PagingState.deserialize(serialized, VERSION_4));
+    }
+
+    @Test
+    public void testRoundTripWithForcedLegacySerialization() throws IOException
+    {
+        CFMetaData metadata = metadata();
+        Row row = makeRow(metadata);
+
+        PagingState.RowMark mark = PagingState.RowMark.create(metadata, row, VERSION_4, true);
+        PagingState state = new PagingState(pk, mark, 10, 0, true);
+        ByteBuffer serialized = state.serialize(VERSION_4);
+
+        // Even though the protocol version specified for the serialization was V4, the force legacy
+        // flag was set on both the state and row mark, so we should be able to deserialize this as a V3 state
+        assertTrue(PagingState.isLegacySerialized(serialized));
+        PagingState roundTripped = PagingState.deserialize(serialized, VERSION_3);
+        assertEquals(state, roundTripped);
+        assertEquals(state.rowMark.clustering(metadata), roundTripped.rowMark.clustering(metadata));
+    }
+
+    @Test
+    public void forceLegacySerializationIfRowMarkIsV3() throws IOException
+    {
+        // Handles the case where the force legacy flag is set to true in between the construction
+        // of the RowMark and its enclosing PagingState. The serialization of the PagingState must
+        // always match that of the RowMark. In this case that's V3, having been overridden by the
+        // force legacy flag when the RowMark was created.
+        CFMetaData metadata = metadata();
+        Row row = makeRow(metadata);
+        // Force legacy is true
+        PagingState.RowMark mark = PagingState.RowMark.create(metadata, row, VERSION_4, true);
+        // Force legacy is false
+        PagingState state = new PagingState(pk, mark, 10, 0, false);
+        // serializing for a V4 connection should still use the V3 format because of the RowMark
+        ByteBuffer serialized = state.serialize(VERSION_4);
+        assertTrue(PagingState.isLegacySerialized(serialized));
+        PagingState roundTripped = PagingState.deserialize(serialized, VERSION_3);
+        assertEquals(state, roundTripped);
+        assertEquals(state.rowMark.clustering(metadata), roundTripped.rowMark.clustering(metadata));
+    }
+
+    @Test
+    public void ignoreForceLegacyFlagIfRowMarkIsV4() throws IOException
+    {
+        // Handles the case where the force legacy flag is set to true in between the construction
+        // of the RowMark and its enclosing PagingState. The serialization of the PagingState must
+        // always match that of the RowMark, so in this case we must ignore the flag and serialize
+        // the PagingState for V4.
+        // In practical terms, this shouldn't be an issue as we'll enable the option in yaml to
+        // ensure it's in place from startup. The hot property is only intended to be used for
+        // disabling the feature once a rolling upgrade is complete. Also, if enabling on a
+        // running system, the result would be indistinguishable from a PagingState fully
+        // constructed before the flag was flipped.
+        CFMetaData metadata = metadata();
+        Row row = makeRow(metadata);
+        // Force legacy is false
+        PagingState.RowMark mark = PagingState.RowMark.create(metadata, row, VERSION_4, false);
+        // Force legacy is true
+        PagingState state = new PagingState(pk, mark, 10, 0, true);
+        // serializing for a V4 connection should actually use that format despite the override flag
+        ByteBuffer serialized = state.serialize(VERSION_4);
+        assertFalse(PagingState.isLegacySerialized(serialized));
+        PagingState roundTripped = PagingState.deserialize(serialized, VERSION_4);
+        assertEquals(state, roundTripped);
+        assertEquals(state.rowMark.clustering(metadata), roundTripped.rowMark.clustering(metadata));
+    }
+
+    @Test
+    public void forceLegacySerializationWithNullRowMark() throws IOException
+    {
+        PagingState state = new PagingState(pk, null, 10, 0, true);
+        // serializing for a V4 connection should use the V3 format due to the override flag
+        ByteBuffer serialized = state.serialize(VERSION_4);
+        assertTrue(PagingState.isLegacySerialized(serialized));
+        PagingState roundTripped = PagingState.deserialize(serialized, VERSION_3);
+        assertEquals(state, roundTripped);
     }
 }

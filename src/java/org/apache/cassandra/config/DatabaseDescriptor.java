@@ -61,8 +61,6 @@ import org.apache.cassandra.scheduler.NoScheduler;
 import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.thrift.ThriftServer;
-import org.apache.cassandra.transport.ProtocolException;
-import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.memory.*;
 
@@ -829,16 +827,6 @@ public class DatabaseDescriptor
             throw new ConfigurationException("column_index_max_target_size_in_kb must be between 1 and 2097152", false);
 
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
-
-        // If max protocol version has been set, just validate it's within an acceptable range
-        if (conf.native_transport_max_protocol_version != Integer.MIN_VALUE)
-            try
-            {
-                ProtocolVersion.decode(conf.native_transport_max_protocol_version);
-            } catch (ProtocolException e) {
-                throw new ConfigurationException("Invalid setting for native_transport_max_protocol_version: " +
-                                                 ProtocolVersion.invalidVersionMessage(conf.native_transport_max_protocol_version));
-            }
 
     }
 
@@ -1732,6 +1720,15 @@ public class DatabaseDescriptor
     public static boolean useNativeTransportLegacyFlusher()
     {
         return conf.native_transport_flush_in_batches_legacy;
+    }
+    public static void setForceLegacyPagingStateSerialization(boolean enabled)
+    {
+        conf.force_paging_state_legacy_serialization = enabled;
+    }
+
+    public static boolean forcePagingStateLegacySerialization()
+    {
+        return conf.force_paging_state_legacy_serialization;
     }
 
     public static double getCommitLogSyncBatchWindow()

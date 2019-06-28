@@ -41,13 +41,10 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.Future;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.metrics.AuthMetrics;
 import org.apache.cassandra.metrics.ClientMetrics;
-import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.transport.RequestThreadPoolExecutor;
 import org.apache.cassandra.transport.Server;
-import org.apache.logging.log4j.core.net.Protocol;
 
 /**
  * Handles native transport server lifecycle and associated resources. Lazily initialized.
@@ -183,16 +180,6 @@ public class NativeTransportService
     public void stop()
     {
         servers.forEach(Server::stop);
-    }
-
-    public void setMaxProtocolVersion(int version)
-    {
-        Server.setMaxSupportedVersion(version);
-    }
-
-    public int getMaxProtocolVersion()
-    {
-        return Server.getMaxSupportedVersion();
     }
 
     /**

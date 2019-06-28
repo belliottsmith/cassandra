@@ -72,26 +72,6 @@ public class Server implements CassandraDaemon.Server
     public static final int CURRENT_VERSION = VERSION_4;
     public static final int MIN_SUPPORTED_VERSION = VERSION_3;
 
-    private static volatile int maxSupportedVersion = DatabaseDescriptor.getNativeProtocolMaxVersionOverride() == Integer.MIN_VALUE
-                                                      ? CURRENT_VERSION
-                                                      : DatabaseDescriptor.getNativeProtocolMaxVersionOverride();
-
-    public static void setMaxSupportedVersion(int version) {
-        if (version == maxSupportedVersion)
-            return;
-
-        if (version > CURRENT_VERSION || version < MIN_SUPPORTED_VERSION)
-            throw new IllegalArgumentException(String.format("Cannot set max protocol version %s, " +
-                                                             "lowest/highest supported versions are %s/%s ",
-                                                             version, MIN_SUPPORTED_VERSION, Server.CURRENT_VERSION));
-        logger.info("Setting max protocol version for client connections to {}", version);
-        maxSupportedVersion = version;
-    }
-
-    public static int getMaxSupportedVersion() {
-        return maxSupportedVersion;
-    }
-
     private final ConnectionTracker connectionTracker = new ConnectionTracker();
 
     private final Connection.Factory connectionFactory = new Connection.Factory()

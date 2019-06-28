@@ -25,6 +25,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.primitives.Ints;
 
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.LegacyLayout;
 import org.apache.cassandra.db.marshal.AbstractType;
@@ -52,21 +53,30 @@ public class PagingState
     public final RowMark rowMark;          // Can be null if not needed.
     public final int remaining;
     public final int remainingInPartition;
+    private final boolean forceLegacySerialization;
 
     public PagingState(ByteBuffer partitionKey, RowMark rowMark, int remaining, int remainingInPartition)
+    {
+        this(partitionKey, rowMark, remaining, remainingInPartition, DatabaseDescriptor.forcePagingStateLegacySerialization());
+    }
+
+    @VisibleForTesting
+    PagingState(ByteBuffer partitionKey, RowMark rowMark, int remaining, int remainingInPartition, boolean forceLegacySerialization)
     {
         this.partitionKey = partitionKey;
         this.rowMark = rowMark;
         this.remaining = remaining;
         this.remainingInPartition = remainingInPartition;
+        this.forceLegacySerialization = forceLegacySerialization;
     }
 
     public ByteBuffer serialize(int protocolVersion)
     {
-        assert rowMark == null || protocolVersion == rowMark.protocolVersion;
         try
         {
-            return protocolVersion > VERSION_3 ? modernSerialize() : legacySerialize(true);
+            return useLegacySerialization(protocolVersion)
+                   ? legacySerialize(true)
+                   : modernSerialize();
         }
         catch (IOException e)
         {
@@ -76,9 +86,16 @@ public class PagingState
 
     public int serializedSize(int protocolVersion)
     {
-        assert rowMark == null || protocolVersion == rowMark.protocolVersion;
+        return useLegacySerialization(protocolVersion)
+               ? legacySerializedSize(true)
+               : modernSerializedSize();
+    }
 
-        return protocolVersion > VERSION_3 ? modernSerializedSize() : legacySerializedSize(true);
+    private boolean useLegacySerialization(int protocolVersion)
+    {
+        return protocolVersion <= VERSION_3
+               || (rowMark != null && rowMark.protocolVersion <= VERSION_3)
+               || (rowMark == null && forceLegacySerialization);
     }
 
     /**
@@ -215,7 +232,8 @@ public class PagingState
         return out.buffer(false);
     }
 
-    private static boolean isLegacySerialized(ByteBuffer bytes)
+    @VisibleForTesting
+    static boolean isLegacySerialized(ByteBuffer bytes)
     {
         int index = bytes.position();
         int limit = bytes.limit();
@@ -349,6 +367,15 @@ public class PagingState
 
         public static RowMark create(CFMetaData metadata, Row row, int protocolVersion)
         {
+            return create(metadata, row, protocolVersion, DatabaseDescriptor.forcePagingStateLegacySerialization());
+        }
+
+        @VisibleForTesting
+        static RowMark create(CFMetaData metadata, Row row, int protocolVersion, boolean forceLegacySerialization)
+        {
+            if (forceLegacySerialization)
+                protocolVersion = VERSION_3;
+
             ByteBuffer mark;
             if (protocolVersion <= VERSION_3)
             {

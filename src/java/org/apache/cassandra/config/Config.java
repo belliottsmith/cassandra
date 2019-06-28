@@ -195,7 +195,8 @@ public class Config
     public volatile Long native_transport_max_concurrent_connections = -1L;
     public volatile Long native_transport_max_concurrent_connections_per_ip = -1L;
     public boolean native_transport_flush_in_batches_legacy = true;
-    public Integer native_transport_max_protocol_version = Integer.MIN_VALUE;
+
+    public volatile boolean force_paging_state_legacy_serialization = false;
 
     @Deprecated
     public Integer thrift_max_message_length_in_mb = 16;
