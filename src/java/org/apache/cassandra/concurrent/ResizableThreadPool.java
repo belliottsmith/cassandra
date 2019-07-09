@@ -15,22 +15,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.concurrent;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.TimeUnit;
-
-public class JMXConfigurableThreadPoolExecutor extends JMXEnabledThreadPoolExecutor implements JMXConfigurableThreadPoolExecutorMBean
+public interface ResizableThreadPool
 {
+    /**
+     * Returns maximum pool size of thread pool.
+     */
+    public int getCorePoolSize();
 
-    public JMXConfigurableThreadPoolExecutor(int corePoolSize,
-                                             long keepAliveTime,
-                                             TimeUnit unit,
-                                             BlockingQueue<Runnable> workQueue,
-                                             NamedThreadFactory threadFactory,
-                                             String jmxPath)
-    {
-        super(corePoolSize, keepAliveTime, unit, workQueue, threadFactory, jmxPath);
-    }
+    /**
+     * Allows user to resize maximum size of the thread pool.
+     */
+    public void setCorePoolSize(int number);
 
+    /**
+     * Returns maximum pool size of thread pool.
+     */
+    public int getMaximumPoolSize();
+
+    /**
+     * Allows user to resize maximum size of the thread pool.
+     */
+    public void setMaximumPoolSize(int number);
 }
