@@ -826,6 +826,12 @@ public class DatabaseDescriptor
         if (conf.column_index_max_target_size_in_kb <= 0 || conf.column_index_max_target_size_in_kb > Integer.MAX_VALUE / 1024)
             throw new ConfigurationException("column_index_max_target_size_in_kb must be between 1 and 2097152", false);
 
+        if (conf.force_paging_state_legacy_serialization)
+            logger.info("forcing legacy paging state serialization");
+
+        if (conf.native_transport_max_protocol_version != null)
+            logger.warn("native_transport_max_protocol_version set to {}. native_transport_max_protocol_version is deprecated and has no effect", conf.native_transport_max_protocol_version);
+
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
 
     }
