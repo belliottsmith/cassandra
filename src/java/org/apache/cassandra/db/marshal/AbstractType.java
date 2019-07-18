@@ -313,9 +313,11 @@ public abstract class AbstractType<T> implements Comparator<ByteBuffer>, Assignm
      *
      * Note that a type should be compatible with at least itself.
      */
-    public boolean isValueCompatibleWith(AbstractType<?> otherType)
+    public boolean isValueCompatibleWith(AbstractType<?> previous)
     {
-        return isValueCompatibleWithInternal((otherType instanceof ReversedType) ? ((ReversedType) otherType).baseType : otherType);
+        AbstractType<?> thisType =          isReversed() ? ((ReversedType<?>)     this).baseType : this;
+        AbstractType<?> thatType = previous.isReversed() ? ((ReversedType<?>) previous).baseType : previous;
+        return thisType.isValueCompatibleWithInternal(thatType);
     }
 
     /**
@@ -325,6 +327,18 @@ public abstract class AbstractType<T> implements Comparator<ByteBuffer>, Assignm
     protected boolean isValueCompatibleWithInternal(AbstractType<?> otherType)
     {
         return isCompatibleWith(otherType);
+    }
+
+    /**
+     * Similar to {@link #isValueCompatibleWith(AbstractType)}, but takes into account {@link Cell} encoding.
+     * In particular, this method doesn't consider two types serialization compatible if one of them has fixed
+     * length (overrides {@link #valueLengthIfFixed()}, and the other one doesn't.
+     */
+    public boolean isSerializationCompatibleWith(AbstractType<?> previous)
+    {
+        return isValueCompatibleWith(previous)
+            && valueLengthIfFixed() == previous.valueLengthIfFixed()
+            && isMultiCell() == previous.isMultiCell();
     }
 
     /**
