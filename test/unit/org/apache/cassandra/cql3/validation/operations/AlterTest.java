@@ -455,6 +455,30 @@ public class AlterTest extends CQLTester
         execute("alter table %s add v uuid");
     }
 
+    @Test(expected = InvalidRequestException.class)
+    public void testDropFixedAddVariable() throws Throwable
+    {
+        createTable("create table %s (k int, c int, v int, PRIMARY KEY (k, c))");
+        execute("alter table %s drop v");
+        execute("alter table %s add v varint");
+    }
+
+    @Test(expected = InvalidRequestException.class)
+    public void testDropFixedCollectionAddVariableCollection() throws Throwable
+    {
+        createTable("create table %s (k int, c int, v list<int>, PRIMARY KEY (k, c))");
+        execute("alter table %s drop v");
+        execute("alter table %s add v list<varint>");
+    }
+
+    @Test(expected = InvalidRequestException.class)
+    public void testDropSimpleAddComplex() throws Throwable
+    {
+        createTable("create table %s (k int, c int, v set<text>, PRIMARY KEY (k, c))");
+        execute("alter table %s drop v");
+        execute("alter table %s add v blob");
+    }
+
     @Test(expected = SyntaxException.class)
     public void renameToEmptyTest() throws Throwable
     {
