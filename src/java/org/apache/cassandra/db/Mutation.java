@@ -194,7 +194,7 @@ public class Mutation implements IMutation
 
     public void apply(boolean durableWrites)
     {
-        apply(durableWrites, true);
+            apply(durableWrites, true);
     }
 
     /*
