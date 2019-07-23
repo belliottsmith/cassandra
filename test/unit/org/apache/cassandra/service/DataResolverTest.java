@@ -41,7 +41,11 @@ import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.partitions.*;
+import org.apache.cassandra.dht.ByteOrderedPartitioner;
+import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.reads.RepairedDataTracker;
@@ -61,18 +65,26 @@ import static org.apache.cassandra.db.RangeTombstone.Bound.Kind;
 public class DataResolverTest
 {
     public static final String KEYSPACE1 = "DataResolverTest";
+    public static final String KEYSPACE3 = "DataResolverTest3";
     public static final String CF_STANDARD = "Standard1";
     public static final String CF_COLLECTION = "Collection1";
 
     // counter to generate the last byte of the respondent's address in a ReadResponse message
     private int addressSuffix = 10;
 
-    private DecoratedKey dk;
     private Keyspace ks;
     private ColumnFamilyStore cfs;
-    private ColumnFamilyStore cfs2;
     private CFMetaData cfm;
+
+    private DecoratedKey dk;
+    private Keyspace ks1;
+    private Keyspace ks3;
+    private ColumnFamilyStore cfs1;
+    private ColumnFamilyStore cfs2;
+    private ColumnFamilyStore cfs3;
+    private CFMetaData cfm1;
     private CFMetaData cfm2;
+    private CFMetaData cfm3;
     private ColumnDefinition m;
     private int nowInSec;
     private ReadCommand command;
@@ -91,30 +103,84 @@ public class DataResolverTest
                                                   .addRegularColumn("two", AsciiType.instance)
                                                   .build();
 
-        CFMetaData cfMetaData2 = CFMetaData.Builder.create(KEYSPACE1, CF_COLLECTION)
+        CFMetaData cfMetadata2 = CFMetaData.Builder.create(KEYSPACE1, CF_COLLECTION)
                                                    .addPartitionKey("k", ByteType.instance)
                                                    .addRegularColumn("m", MapType.getInstance(IntegerType.instance, IntegerType.instance, true))
                                                    .build();
+        CFMetaData cfMetadata3 = CFMetaData.Builder.create(KEYSPACE3, CF_STANDARD)
+                                                  .addPartitionKey("key", BytesType.instance)
+                                                  .addClusteringColumn("col1", AsciiType.instance)
+                                                  .addRegularColumn("c1", AsciiType.instance)
+                                                  .addRegularColumn("c2", AsciiType.instance)
+                                                  .addRegularColumn("one", AsciiType.instance)
+                                                  .addRegularColumn("two", AsciiType.instance)
+                                                  .build();
+
         SchemaLoader.prepareServer();
         SchemaLoader.createKeyspace(KEYSPACE1,
-                                    KeyspaceParams.simple(1),
-                                    cfMetadata, cfMetaData2);
+                                    KeyspaceParams.simple(2),
+                                    cfMetadata, cfMetadata2);
+        SchemaLoader.createKeyspace(KEYSPACE3,
+                                    KeyspaceParams.simple(4),
+                                    cfMetadata3);
     }
 
     @Before
     public void setup()
     {
         dk = Util.dk("key1");
-        ks = Keyspace.open(KEYSPACE1);
-        cfs = ks.getColumnFamilyStore(CF_STANDARD);
-        cfm = cfs.metadata;
-        cfs2 = ks.getColumnFamilyStore(CF_COLLECTION);
+        ks1 = Keyspace.open(KEYSPACE1);
+        cfs1 = ks1.getColumnFamilyStore(CF_STANDARD);
+        cfm1 = cfs1.metadata;
+        cfs2 = ks1.getColumnFamilyStore(CF_COLLECTION);
         cfm2 = cfs2.metadata;
+        ks3 = Keyspace.open(KEYSPACE3);
+        cfs3 = ks3.getColumnFamilyStore(CF_STANDARD);
+        cfm3 = cfs3.metadata;
         m = cfm2.getColumnDefinition(new ColumnIdentifier("m", false));
 
         nowInSec = FBUtilities.nowInSeconds();
+    }
+
+    private InetAddress[] peers(int count)
+    {
+        StorageService.instance.getTokenMetadata().clearUnsafe();
+//        Token token = Murmur3Partitioner.instance.getMinimumToken();
+        InetAddress[] result = new InetAddress[count];
+        for (int i = 0 ; i < count ; ++i)
+        {
+            try
+            {
+                result[i] = InetAddress.getByAddress(new byte[]{ 127, 0, 0, (byte) addressSuffix++ });
+            }
+            catch (UnknownHostException e)
+            {
+                throw new RuntimeException(e);
+            }
+//            StorageService.instance.getTokenMetadata().updateNormalToken(token = token.increaseSlightly(), result[i]);
+            StorageService.instance.getTokenMetadata().updateNormalToken(ByteOrderedPartitioner.instance.getToken(ByteBuffer.wrap(new byte[] { (byte) addressSuffix })), result[i]);
+            Gossiper.instance.initializeNodeUnsafe(result[i], UUID.randomUUID(), 1);
+        }
+
+
+        switch (count)
+        {
+            case 2:
+                ks = ks1;
+                cfs = cfs1;
+                cfm = cfm1;
+                break;
+            case 4:
+                ks = ks3;
+                cfs = cfs3;
+                cfm = cfm3;
+                break;
+            default:
+                throw new IllegalStateException("This test needs refactoring to cleanly support different replication factors");
+        }
         command = Util.cmd(cfs, dk).withNowInSeconds(nowInSec).build();
         command.trackRepairedStatus();
+        return result;
     }
 
     @Before
@@ -165,13 +231,12 @@ public class DataResolverTest
     @Test
     public void testResolveNewerSingleRow() throws UnknownHostException
     {
+        InetAddress[] peers = peers(2);
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 2);
-        InetAddress peer1 = peer();
-        resolver.preprocess(readResponseMessage(peer1, iter(new RowUpdateBuilder(cfm, nowInSec, 0L, dk).clustering("1")
+        resolver.preprocess(readResponseMessage(peers[0], iter(new RowUpdateBuilder(cfm, nowInSec, 0L, dk).clustering("1")
                                                                                                        .add("c1", "v1")
                                                                                                        .buildUpdate())));
-        InetAddress peer2 = peer();
-        resolver.preprocess(readResponseMessage(peer2, iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1")
+        resolver.preprocess(readResponseMessage(peers[1], iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1")
                                                                                                        .add("c1", "v2")
                                                                                                        .buildUpdate())));
 
@@ -188,7 +253,7 @@ public class DataResolverTest
 
         assertEquals(1, messageRecorder.sent.size());
         // peer 1 just needs to repair with the row from peer 2
-        MessageOut msg = getSentMessage(peer1);
+        MessageOut msg = getSentMessage(peers[0]);
         assertRepairMetadata(msg);
         assertRepairContainsNoDeletions(msg);
         assertRepairContainsColumn(msg, "1", "c1", "v2", 1);
@@ -197,14 +262,13 @@ public class DataResolverTest
     @Test
     public void testResolveDisjointSingleRow()
     {
+        InetAddress[] peers = peers(2);
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 2);
-        InetAddress peer1 = peer();
-        resolver.preprocess(readResponseMessage(peer1, iter(new RowUpdateBuilder(cfm, nowInSec, 0L, dk).clustering("1")
+        resolver.preprocess(readResponseMessage(peers[0], iter(new RowUpdateBuilder(cfm, nowInSec, 0L, dk).clustering("1")
                                                                                                        .add("c1", "v1")
                                                                                                        .buildUpdate())));
 
-        InetAddress peer2 = peer();
-        resolver.preprocess(readResponseMessage(peer2, iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1")
+        resolver.preprocess(readResponseMessage(peers[1], iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1")
                                                                                                        .add("c2", "v2")
                                                                                                        .buildUpdate())));
 
@@ -222,11 +286,11 @@ public class DataResolverTest
 
         assertEquals(2, messageRecorder.sent.size());
         // each peer needs to repair with each other's column
-        MessageOut msg = getSentMessage(peer1);
+        MessageOut msg = getSentMessage(peers[0]);
         assertRepairMetadata(msg);
         assertRepairContainsColumn(msg, "1", "c2", "v2", 1);
 
-        msg = getSentMessage(peer2);
+        msg = getSentMessage(peers[1]);
         assertRepairMetadata(msg);
         assertRepairContainsColumn(msg, "1", "c1", "v1", 0);
     }
@@ -234,14 +298,13 @@ public class DataResolverTest
     @Test
     public void testResolveDisjointMultipleRows() throws UnknownHostException
     {
+        InetAddress[] peers = peers(2);
 
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 2);
-        InetAddress peer1 = peer();
-        resolver.preprocess(readResponseMessage(peer1, iter(new RowUpdateBuilder(cfm, nowInSec, 0L, dk).clustering("1")
+        resolver.preprocess(readResponseMessage(peers[0], iter(new RowUpdateBuilder(cfm, nowInSec, 0L, dk).clustering("1")
                                                                                                        .add("c1", "v1")
                                                                                                        .buildUpdate())));
-        InetAddress peer2 = peer();
-        resolver.preprocess(readResponseMessage(peer2, iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("2")
+        resolver.preprocess(readResponseMessage(peers[1], iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("2")
                                                                                                        .add("c2", "v2")
                                                                                                        .buildUpdate())));
 
@@ -268,12 +331,12 @@ public class DataResolverTest
 
         assertEquals(2, messageRecorder.sent.size());
         // each peer needs to repair the row from the other
-        MessageOut msg = getSentMessage(peer1);
+        MessageOut msg = getSentMessage(peers[0]);
         assertRepairMetadata(msg);
         assertRepairContainsNoDeletions(msg);
         assertRepairContainsColumn(msg, "2", "c2", "v2", 1);
 
-        msg = getSentMessage(peer2);
+        msg = getSentMessage(peers[1]);
         assertRepairMetadata(msg);
         assertRepairContainsNoDeletions(msg);
         assertRepairContainsColumn(msg, "1", "c1", "v1", 0);
@@ -282,6 +345,7 @@ public class DataResolverTest
     @Test
     public void testResolveDisjointMultipleRowsWithRangeTombstones()
     {
+        InetAddress[] peers = peers(4);
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 4);
 
         RangeTombstone tombstone1 = tombstone("1", "11", 1, nowInSec);
@@ -290,29 +354,25 @@ public class DataResolverTest
                                                                                   .addRangeTombstone(tombstone2)
                                                                                   .buildUpdate();
 
-        InetAddress peer1 = peer();
         UnfilteredPartitionIterator iter1 = iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).addRangeTombstone(tombstone1)
                                                                                   .addRangeTombstone(tombstone2)
                                                                                   .buildUpdate());
-        resolver.preprocess(readResponseMessage(peer1, iter1));
+        resolver.preprocess(readResponseMessage(peers[0], iter1));
         // not covered by any range tombstone
-        InetAddress peer2 = peer();
         UnfilteredPartitionIterator iter2 = iter(new RowUpdateBuilder(cfm, nowInSec, 0L, dk).clustering("0")
                                                                                   .add("c1", "v0")
                                                                                   .buildUpdate());
-        resolver.preprocess(readResponseMessage(peer2, iter2));
+        resolver.preprocess(readResponseMessage(peers[1], iter2));
         // covered by a range tombstone
-        InetAddress peer3 = peer();
         UnfilteredPartitionIterator iter3 = iter(new RowUpdateBuilder(cfm, nowInSec, 0L, dk).clustering("10")
                                                                                   .add("c2", "v1")
                                                                                   .buildUpdate());
-        resolver.preprocess(readResponseMessage(peer3, iter3));
+        resolver.preprocess(readResponseMessage(peers[2], iter3));
         // range covered by rt, but newer
-        InetAddress peer4 = peer();
         UnfilteredPartitionIterator iter4 = iter(new RowUpdateBuilder(cfm, nowInSec, 2L, dk).clustering("3")
                                                                                   .add("one", "A")
                                                                                   .buildUpdate());
-        resolver.preprocess(readResponseMessage(peer4, iter4));
+        resolver.preprocess(readResponseMessage(peers[3], iter4));
         try (PartitionIterator data = resolver.resolve())
         {
             try (RowIterator rows = data.next())
@@ -333,28 +393,28 @@ public class DataResolverTest
         }
 
         assertEquals(4, messageRecorder.sent.size());
-        // peer1 needs the rows from peers 2 and 4
-        MessageOut msg = getSentMessage(peer1);
+        // peers[0] needs the rows from peers 2 and 4
+        MessageOut msg = getSentMessage(peers[0]);
         assertRepairMetadata(msg);
         assertRepairContainsNoDeletions(msg);
         assertRepairContainsColumn(msg, "0", "c1", "v0", 0);
         assertRepairContainsColumn(msg, "3", "one", "A", 2);
 
-        // peer2 needs to get the row from peer4 and the RTs
-        msg = getSentMessage(peer2);
+        // peers[1] needs to get the row from peers[3] and the RTs
+        msg = getSentMessage(peers[1]);
         assertRepairMetadata(msg);
         assertRepairContainsDeletions(msg, null, tombstone1, tombstone2);
         assertRepairContainsColumn(msg, "3", "one", "A", 2);
 
         // peer 3 needs both rows and the RTs
-        msg = getSentMessage(peer3);
+        msg = getSentMessage(peers[2]);
         assertRepairMetadata(msg);
         assertRepairContainsDeletions(msg, null, tombstone1, tombstone2);
         assertRepairContainsColumn(msg, "0", "c1", "v0", 0);
         assertRepairContainsColumn(msg, "3", "one", "A", 2);
 
-        // peer4 needs the row from peer2  and the RTs
-        msg = getSentMessage(peer4);
+        // peers[3] needs the row from peers[1]  and the RTs
+        msg = getSentMessage(peers[3]);
         assertRepairMetadata(msg);
         assertRepairContainsDeletions(msg, null, tombstone1, tombstone2);
         assertRepairContainsColumn(msg, "0", "c1", "v0", 0);
@@ -363,13 +423,12 @@ public class DataResolverTest
     @Test
     public void testResolveWithOneEmpty()
     {
+        InetAddress[] peers = peers(2);
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 2);
-        InetAddress peer1 = peer();
-        resolver.preprocess(readResponseMessage(peer1, iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1")
+        resolver.preprocess(readResponseMessage(peers[0], iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1")
                                                                                                        .add("c2", "v2")
                                                                                                        .buildUpdate())));
-        InetAddress peer2 = peer();
-        resolver.preprocess(readResponseMessage(peer2, EmptyIterators.unfilteredPartition(cfm, false)));
+        resolver.preprocess(readResponseMessage(peers[1], EmptyIterators.unfilteredPartition(cfm, false)));
 
         try(PartitionIterator data = resolver.resolve())
         {
@@ -384,7 +443,7 @@ public class DataResolverTest
 
         assertEquals(1, messageRecorder.sent.size());
         // peer 2 needs the row from peer 1
-        MessageOut msg = getSentMessage(peer2);
+        MessageOut msg = getSentMessage(peers[1]);
         assertRepairMetadata(msg);
         assertRepairContainsNoDeletions(msg);
         assertRepairContainsColumn(msg, "1", "c2", "v2", 1);
@@ -393,9 +452,10 @@ public class DataResolverTest
     @Test
     public void testResolveWithBothEmpty()
     {
+        InetAddress[] peers = peers(2);
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 2);
-        resolver.preprocess(readResponseMessage(peer(), EmptyIterators.unfilteredPartition(cfm, false)));
-        resolver.preprocess(readResponseMessage(peer(), EmptyIterators.unfilteredPartition(cfm, false)));
+        resolver.preprocess(readResponseMessage(peers[0], EmptyIterators.unfilteredPartition(cfm, false)));
+        resolver.preprocess(readResponseMessage(peers[1], EmptyIterators.unfilteredPartition(cfm, false)));
 
         try(PartitionIterator data = resolver.resolve())
         {
@@ -409,14 +469,13 @@ public class DataResolverTest
     @Test
     public void testResolveDeleted()
     {
+        InetAddress[] peers = peers(2);
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 2);
         // one response with columns timestamped before a delete in another response
-        InetAddress peer1 = peer();
-        resolver.preprocess(readResponseMessage(peer1, iter(new RowUpdateBuilder(cfm, nowInSec, 0L, dk).clustering("1")
+        resolver.preprocess(readResponseMessage(peers[0], iter(new RowUpdateBuilder(cfm, nowInSec, 0L, dk).clustering("1")
                                                                                                        .add("one", "A")
                                                                                                        .buildUpdate())));
-        InetAddress peer2 = peer();
-        resolver.preprocess(readResponseMessage(peer2, fullPartitionDelete(cfm, dk, 1, nowInSec)));
+        resolver.preprocess(readResponseMessage(peers[1], fullPartitionDelete(cfm, dk, 1, nowInSec)));
 
         try (PartitionIterator data = resolver.resolve())
         {
@@ -424,9 +483,9 @@ public class DataResolverTest
             assertRepairFuture(resolver, 1);
         }
 
-        // peer1 should get the deletion from peer2
+        // peers[0] should get the deletion from peers[1]
         assertEquals(1, messageRecorder.sent.size());
-        MessageOut msg = getSentMessage(peer1);
+        MessageOut msg = getSentMessage(peers[0]);
         assertRepairMetadata(msg);
         assertRepairContainsDeletions(msg, new DeletionTime(1, nowInSec));
         assertRepairContainsNoColumns(msg);
@@ -435,23 +494,20 @@ public class DataResolverTest
     @Test
     public void testResolveMultipleDeleted()
     {
+        InetAddress[] peers = peers(4);
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 4);
         // deletes and columns with interleaved timestamp, with out of order return sequence
-        InetAddress peer1 = peer();
-        resolver.preprocess(readResponseMessage(peer1, fullPartitionDelete(cfm, dk, 0, nowInSec)));
+        resolver.preprocess(readResponseMessage(peers[0], fullPartitionDelete(cfm, dk, 0, nowInSec)));
         // these columns created after the previous deletion
-        InetAddress peer2 = peer();
-        resolver.preprocess(readResponseMessage(peer2, iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1")
-                                                                                                       .add("one", "A")
-                                                                                                       .add("two", "A")
-                                                                                                       .buildUpdate())));
+        resolver.preprocess(readResponseMessage(peers[1], iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1")
+                                                                                                          .add("one", "A")
+                                                                                                          .add("two", "A")
+                                                                                                          .buildUpdate())));
         //this column created after the next delete
-        InetAddress peer3 = peer();
-        resolver.preprocess(readResponseMessage(peer3, iter(new RowUpdateBuilder(cfm, nowInSec, 3L, dk).clustering("1")
-                                                                                                       .add("two", "B")
-                                                                                                       .buildUpdate())));
-        InetAddress peer4 = peer();
-        resolver.preprocess(readResponseMessage(peer4, fullPartitionDelete(cfm, dk, 2, nowInSec)));
+        resolver.preprocess(readResponseMessage(peers[2], iter(new RowUpdateBuilder(cfm, nowInSec, 3L, dk).clustering("1")
+                                                                                                          .add("two", "B")
+                                                                                                          .buildUpdate())));
+        resolver.preprocess(readResponseMessage(peers[3], fullPartitionDelete(cfm, dk, 2, nowInSec)));
 
         try(PartitionIterator data = resolver.resolve())
         {
@@ -466,25 +522,25 @@ public class DataResolverTest
 
         // peer 1 needs to get the partition delete from peer 4 and the row from peer 3
         assertEquals(4, messageRecorder.sent.size());
-        MessageOut msg = getSentMessage(peer1);
+        MessageOut msg = getSentMessage(peers[0]);
         assertRepairMetadata(msg);
         assertRepairContainsDeletions(msg, new DeletionTime(2, nowInSec));
         assertRepairContainsColumn(msg, "1", "two", "B", 3);
 
         // peer 2 needs the deletion from peer 4 and the row from peer 3
-        msg = getSentMessage(peer2);
+        msg = getSentMessage(peers[1]);
         assertRepairMetadata(msg);
         assertRepairContainsDeletions(msg, new DeletionTime(2, nowInSec));
         assertRepairContainsColumn(msg, "1", "two", "B", 3);
 
         // peer 3 needs just the deletion from peer 4
-        msg = getSentMessage(peer3);
+        msg = getSentMessage(peers[2]);
         assertRepairMetadata(msg);
         assertRepairContainsDeletions(msg, new DeletionTime(2, nowInSec));
         assertRepairContainsNoColumns(msg);
 
         // peer 4 needs just the row from peer 3
-        msg = getSentMessage(peer4);
+        msg = getSentMessage(peers[3]);
         assertRepairMetadata(msg);
         assertRepairContainsNoDeletions(msg);
         assertRepairContainsColumn(msg, "1", "two", "B", 3);
@@ -520,9 +576,8 @@ public class DataResolverTest
      */
     private void resolveRangeTombstonesOnBoundary(long timestamp1, long timestamp2)
     {
+        InetAddress[] peers = peers(2);
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 2);
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
 
         // 1st "stream"
         RangeTombstone one_two    = tombstone("1", true , "2", false, timestamp1, nowInSec);
@@ -540,8 +595,8 @@ public class DataResolverTest
                                                                                             .addRangeTombstone(four_five)
                                                                                             .buildUpdate());
 
-        resolver.preprocess(readResponseMessage(peer1, iter1));
-        resolver.preprocess(readResponseMessage(peer2, iter2));
+        resolver.preprocess(readResponseMessage(peers[0], iter1));
+        resolver.preprocess(readResponseMessage(peers[1], iter2));
 
         // No results, we've only reconciled tombstones.
         try (PartitionIterator data = resolver.resolve())
@@ -552,11 +607,11 @@ public class DataResolverTest
 
         assertEquals(2, messageRecorder.sent.size());
 
-        MessageOut msg1 = getSentMessage(peer1);
+        MessageOut msg1 = getSentMessage(peers[0]);
         assertRepairMetadata(msg1);
         assertRepairContainsNoColumns(msg1);
 
-        MessageOut msg2 = getSentMessage(peer2);
+        MessageOut msg2 = getSentMessage(peers[1]);
         assertRepairMetadata(msg2);
         assertRepairContainsNoColumns(msg2);
 
@@ -565,10 +620,10 @@ public class DataResolverTest
         // So for a given stream, unless the other stream has a strictly higher timestamp, the value 4 will be excluded
         // from whatever range it receives as repair since the stream already covers it.
 
-        // Message to peer1 contains peer2 ranges
+        // Message to peers[0] contains peers[1] ranges
         assertRepairContainsDeletions(msg1, null, two_three, withExclusiveStartIf(four_five, timestamp1 >= timestamp2));
 
-        // Message to peer2 contains peer1 ranges
+        // Message to peers[1] contains peers[0] ranges
         assertRepairContainsDeletions(msg2, null, one_two, withExclusiveEndIf(three_four, timestamp2 >= timestamp1), five_six);
     }
 
@@ -594,9 +649,8 @@ public class DataResolverTest
      */
     private void testRepairRangeTombstoneBoundary(int timestamp1, int timestamp2, int timestamp3) throws UnknownHostException
     {
+        InetAddress[] peers = peers(2);
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 2);
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
 
         // 1st "stream"
         RangeTombstone one_nine = tombstone("0", true , "9", true, timestamp1, nowInSec);
@@ -610,8 +664,8 @@ public class DataResolverTest
         RangeTombstoneBoundMarker close_nine = marker("9", false, true, timestamp3, nowInSec);
         UnfilteredPartitionIterator iter2 = iter(dk, open_one, boundary_five, close_nine);
 
-        resolver.preprocess(readResponseMessage(peer1, iter1));
-        resolver.preprocess(readResponseMessage(peer2, iter2));
+        resolver.preprocess(readResponseMessage(peers[0], iter1));
+        resolver.preprocess(readResponseMessage(peers[1], iter2));
 
         boolean shouldHaveRepair = timestamp1 != timestamp2 || timestamp1 != timestamp3;
 
@@ -627,7 +681,7 @@ public class DataResolverTest
         if (!shouldHaveRepair)
             return;
 
-        MessageOut msg = getSentMessage(peer2);
+        MessageOut msg = getSentMessage(peers[1]);
         assertRepairMetadata(msg);
         assertRepairContainsNoColumns(msg);
 
@@ -646,9 +700,8 @@ public class DataResolverTest
     @Test
     public void testRepairRangeTombstoneWithPartitionDeletion()
     {
+        InetAddress[] peers = peers(2);
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 2);
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
 
         // 1st "stream": just a partition deletion
         UnfilteredPartitionIterator iter1 = iter(PartitionUpdate.fullPartitionDelete(cfm, dk, 10, nowInSec));
@@ -659,8 +712,8 @@ public class DataResolverTest
                                                  .addRangeTombstone(rt)
                                                  .buildUpdate());
 
-        resolver.preprocess(readResponseMessage(peer1, iter1));
-        resolver.preprocess(readResponseMessage(peer2, iter2));
+        resolver.preprocess(readResponseMessage(peers[0], iter1));
+        resolver.preprocess(readResponseMessage(peers[1], iter2));
 
         // No results, we've only reconciled tombstones.
         try (PartitionIterator data = resolver.resolve())
@@ -672,7 +725,7 @@ public class DataResolverTest
 
         assertEquals(1, messageRecorder.sent.size());
 
-        MessageOut msg = getSentMessage(peer2);
+        MessageOut msg = getSentMessage(peers[1]);
         assertRepairMetadata(msg);
         assertRepairContainsNoColumns(msg);
 
@@ -685,9 +738,8 @@ public class DataResolverTest
     @Test
     public void testRepairRangeTombstoneWithPartitionDeletion2()
     {
+        InetAddress[] peers = peers(2);
         DataResolver resolver = new DataResolver(ks, command, ConsistencyLevel.ALL, 2);
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
 
         // 1st "stream": a partition deletion and a range tombstone
         RangeTombstone rt1 = tombstone("0", true , "9", true, 11, nowInSec);
@@ -705,8 +757,8 @@ public class DataResolverTest
                                                  .addRangeTombstone(rt3)
                                                  .buildUpdate());
 
-        resolver.preprocess(readResponseMessage(peer1, iter1));
-        resolver.preprocess(readResponseMessage(peer2, iter2));
+        resolver.preprocess(readResponseMessage(peers[0], iter1));
+        resolver.preprocess(readResponseMessage(peers[1], iter2));
 
         // No results, we've only reconciled tombstones.
         try (PartitionIterator data = resolver.resolve())
@@ -718,7 +770,7 @@ public class DataResolverTest
 
         assertEquals(1, messageRecorder.sent.size());
 
-        MessageOut msg = getSentMessage(peer2);
+        MessageOut msg = getSentMessage(peers[1]);
         assertRepairMetadata(msg);
         assertRepairContainsNoColumns(msg);
 
@@ -759,6 +811,7 @@ public class DataResolverTest
     @Test
     public void testResolveComplexDelete()
     {
+        InetAddress[] peers = peers(2);
         ReadCommand cmd = Util.cmd(cfs2, dk).withNowInSeconds(nowInSec).build();
         DataResolver resolver = new DataResolver(ks, cmd, ConsistencyLevel.ALL, 2);
 
@@ -769,8 +822,7 @@ public class DataResolverTest
         builder.addComplexDeletion(m, new DeletionTime(ts[0] - 1, nowInSec));
         builder.addCell(mapCell(0, 0, ts[0]));
 
-        InetAddress peer1 = peer();
-        resolver.preprocess(readResponseMessage(peer1, iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
+        resolver.preprocess(readResponseMessage(peers[0], iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
 
         builder.newRow(Clustering.EMPTY);
         DeletionTime expectedCmplxDelete = new DeletionTime(ts[1] - 1, nowInSec);
@@ -778,8 +830,7 @@ public class DataResolverTest
         Cell expectedCell = mapCell(1, 1, ts[1]);
         builder.addCell(expectedCell);
 
-        InetAddress peer2 = peer();
-        resolver.preprocess(readResponseMessage(peer2, iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
+        resolver.preprocess(readResponseMessage(peers[1], iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
 
         try(PartitionIterator data = resolver.resolve())
         {
@@ -794,7 +845,7 @@ public class DataResolverTest
         }
 
         MessageOut<Mutation> msg;
-        msg = getSentMessage(peer1);
+        msg = getSentMessage(peers[0]);
         Iterator<Row> rowIter = msg.payload.getPartitionUpdate(cfm2.cfId).iterator();
         assertTrue(rowIter.hasNext());
         Row row = rowIter.next();
@@ -805,13 +856,13 @@ public class DataResolverTest
         assertEquals(Collections.singleton(expectedCell), Sets.newHashSet(cd));
         assertEquals(expectedCmplxDelete, cd.complexDeletion());
 
-        Assert.assertNull(messageRecorder.sent.get(peer2));
+        Assert.assertNull(messageRecorder.sent.get(peers[1]));
     }
 
     @Test
     public void testResolveDeletedCollection()
     {
-
+        InetAddress[] peers = peers(2);
         ReadCommand cmd = Util.cmd(cfs2, dk).withNowInSeconds(nowInSec).build();
         DataResolver resolver = new DataResolver(ks, cmd, ConsistencyLevel.ALL, 2);
 
@@ -822,15 +873,13 @@ public class DataResolverTest
         builder.addComplexDeletion(m, new DeletionTime(ts[0] - 1, nowInSec));
         builder.addCell(mapCell(0, 0, ts[0]));
 
-        InetAddress peer1 = peer();
-        resolver.preprocess(readResponseMessage(peer1, iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
+        resolver.preprocess(readResponseMessage(peers[0], iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
 
         builder.newRow(Clustering.EMPTY);
         DeletionTime expectedCmplxDelete = new DeletionTime(ts[1] - 1, nowInSec);
         builder.addComplexDeletion(m, expectedCmplxDelete);
 
-        InetAddress peer2 = peer();
-        resolver.preprocess(readResponseMessage(peer2, iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
+        resolver.preprocess(readResponseMessage(peers[1], iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
 
         try(PartitionIterator data = resolver.resolve())
         {
@@ -839,7 +888,7 @@ public class DataResolverTest
         }
 
         MessageOut<Mutation> msg;
-        msg = getSentMessage(peer1);
+        msg = getSentMessage(peers[0]);
         Iterator<Row> rowIter = msg.payload.getPartitionUpdate(cfm2.cfId).iterator();
         assertTrue(rowIter.hasNext());
         Row row = rowIter.next();
@@ -850,12 +899,13 @@ public class DataResolverTest
         assertEquals(Collections.emptySet(), Sets.newHashSet(cd));
         assertEquals(expectedCmplxDelete, cd.complexDeletion());
 
-        Assert.assertNull(messageRecorder.sent.get(peer2));
+        Assert.assertNull(messageRecorder.sent.get(peers[1]));
     }
 
     @Test
     public void testResolveNewCollection()
     {
+        InetAddress[] peers = peers(2);
         ReadCommand cmd = Util.cmd(cfs2, dk).withNowInSeconds(nowInSec).build();
         DataResolver resolver = new DataResolver(ks, cmd, ConsistencyLevel.ALL, 2);
 
@@ -870,11 +920,9 @@ public class DataResolverTest
         builder.addCell(expectedCell);
 
         // empty map column
-        InetAddress peer1 = peer();
-        resolver.preprocess(readResponseMessage(peer1, iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
+        resolver.preprocess(readResponseMessage(peers[0], iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
 
-        InetAddress peer2 = peer();
-        resolver.preprocess(readResponseMessage(peer2, iter(PartitionUpdate.emptyUpdate(cfm2, dk))));
+        resolver.preprocess(readResponseMessage(peers[1], iter(PartitionUpdate.emptyUpdate(cfm2, dk))));
 
         try(PartitionIterator data = resolver.resolve())
         {
@@ -888,10 +936,10 @@ public class DataResolverTest
             assertRepairFuture(resolver, 1);
         }
 
-        Assert.assertNull(messageRecorder.sent.get(peer1));
+        Assert.assertNull(messageRecorder.sent.get(peers[0]));
 
         MessageOut<Mutation> msg;
-        msg = getSentMessage(peer2);
+        msg = getSentMessage(peers[1]);
         Iterator<Row> rowIter = msg.payload.getPartitionUpdate(cfm2.cfId).iterator();
         assertTrue(rowIter.hasNext());
         Row row = rowIter.next();
@@ -906,6 +954,7 @@ public class DataResolverTest
     @Test
     public void testResolveNewCollectionOverwritingDeleted()
     {
+        InetAddress[] peers = peers(2);
         ReadCommand cmd = Util.cmd(cfs2, dk).withNowInSeconds(nowInSec).build();
         DataResolver resolver = new DataResolver(ks, cmd, ConsistencyLevel.ALL, 2);
 
@@ -916,8 +965,7 @@ public class DataResolverTest
         builder.newRow(Clustering.EMPTY);
         builder.addComplexDeletion(m, new DeletionTime(ts[0] - 1, nowInSec));
 
-        InetAddress peer1 = peer();
-        resolver.preprocess(readResponseMessage(peer1, iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
+        resolver.preprocess(readResponseMessage(peers[0], iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
 
         // newer, overwritten map column
         builder.newRow(Clustering.EMPTY);
@@ -926,8 +974,7 @@ public class DataResolverTest
         Cell expectedCell = mapCell(1, 1, ts[1]);
         builder.addCell(expectedCell);
 
-        InetAddress peer2 = peer();
-        resolver.preprocess(readResponseMessage(peer2, iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
+        resolver.preprocess(readResponseMessage(peers[1], iter(PartitionUpdate.singleRowUpdate(cfm2, dk, builder.build())), cmd));
 
         try(PartitionIterator data = resolver.resolve())
         {
@@ -942,7 +989,7 @@ public class DataResolverTest
         }
 
         MessageOut<Mutation> msg;
-        msg = getSentMessage(peer1);
+        msg = getSentMessage(peers[0]);
         Row row = Iterators.getOnlyElement(msg.payload.getPartitionUpdate(cfm2.cfId).iterator());
 
         ComplexColumnData cd = row.getComplexColumnData(m);
@@ -950,7 +997,7 @@ public class DataResolverTest
         assertEquals(Collections.singleton(expectedCell), Sets.newHashSet(cd));
         assertEquals(expectedCmplxDelete, cd.complexDeletion());
 
-        Assert.assertNull(messageRecorder.sent.get(peer2));
+        Assert.assertNull(messageRecorder.sent.get(peers[1]));
     }
 
     /** Tests for repaired data tracking */
@@ -958,17 +1005,16 @@ public class DataResolverTest
     @Test
     public void trackMatchingEmptyDigestsWithAllConclusive()
     {
+        InetAddress[] peers = peers(2);
         ByteBuffer digest1 = ByteBufferUtil.EMPTY_BYTE_BUFFER;
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, true);
-        verifier.expectDigest(peer2, digest1, true);
+        verifier.expectDigest(peers[0], digest1, true);
+        verifier.expectDigest(peers[1], digest1, true);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
-        resolver.preprocess(response(peer2, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
+        resolver.preprocess(response(peers[0], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
+        resolver.preprocess(response(peers[1], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
 
         resolveAndConsume(resolver);
         assertTrue(verifier.verified);
@@ -977,17 +1023,16 @@ public class DataResolverTest
     @Test
     public void trackMatchingEmptyDigestsWithSomeConclusive()
     {
+        InetAddress[] peers = peers(2);
         ByteBuffer digest1 = ByteBufferUtil.EMPTY_BYTE_BUFFER;
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, false);
-        verifier.expectDigest(peer2, digest1, true);
+        verifier.expectDigest(peers[0], digest1, false);
+        verifier.expectDigest(peers[1], digest1, true);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
-        resolver.preprocess(response(peer2, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
+        resolver.preprocess(response(peers[0], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
+        resolver.preprocess(response(peers[1], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
 
         resolveAndConsume(resolver);
         assertTrue(verifier.verified);
@@ -996,17 +1041,16 @@ public class DataResolverTest
     @Test
     public void trackMatchingEmptyDigestsWithNoneConclusive()
     {
+        InetAddress[] peers = peers(2);
         ByteBuffer digest1 = ByteBufferUtil.EMPTY_BYTE_BUFFER;
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, false);
-        verifier.expectDigest(peer2, digest1, false);
+        verifier.expectDigest(peers[0], digest1, false);
+        verifier.expectDigest(peers[1], digest1, false);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
-        resolver.preprocess(response(peer2, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
+        resolver.preprocess(response(peers[0], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
+        resolver.preprocess(response(peers[1], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
 
         resolveAndConsume(resolver);
         assertTrue(verifier.verified);
@@ -1015,17 +1059,16 @@ public class DataResolverTest
     @Test
     public void trackMatchingDigestsWithAllConclusive()
     {
+        InetAddress[] peers = peers(2);
         ByteBuffer digest1 = ByteBufferUtil.bytes("digest1");
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, true);
-        verifier.expectDigest(peer2, digest1, true);
+        verifier.expectDigest(peers[0], digest1, true);
+        verifier.expectDigest(peers[1], digest1, true);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(PartitionUpdate.emptyUpdate(cfm,dk)), digest1, true, command));
-        resolver.preprocess(response(peer2, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
+        resolver.preprocess(response(peers[0], iter(PartitionUpdate.emptyUpdate(cfm,dk)), digest1, true, command));
+        resolver.preprocess(response(peers[1], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
 
         resolveAndConsume(resolver);
         assertTrue(verifier.verified);
@@ -1034,17 +1077,16 @@ public class DataResolverTest
     @Test
     public void trackMatchingDigestsWithSomeConclusive()
     {
+        InetAddress[] peers = peers(2);
         ByteBuffer digest1 = ByteBufferUtil.bytes("digest1");
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, true);
-        verifier.expectDigest(peer2, digest1, false);
+        verifier.expectDigest(peers[0], digest1, true);
+        verifier.expectDigest(peers[1], digest1, false);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(PartitionUpdate.emptyUpdate(cfm,dk)), digest1, true, command));
-        resolver.preprocess(response(peer2, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
+        resolver.preprocess(response(peers[0], iter(PartitionUpdate.emptyUpdate(cfm,dk)), digest1, true, command));
+        resolver.preprocess(response(peers[1], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
 
         resolveAndConsume(resolver);
         assertTrue(verifier.verified);
@@ -1053,17 +1095,16 @@ public class DataResolverTest
     @Test
     public void trackMatchingDigestsWithNoneConclusive()
     {
+        InetAddress[] peers = peers(2);
         ByteBuffer digest1 = ByteBufferUtil.bytes("digest1");
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, false);
-        verifier.expectDigest(peer2, digest1, false);
+        verifier.expectDigest(peers[0], digest1, false);
+        verifier.expectDigest(peers[1], digest1, false);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
-        resolver.preprocess(response(peer2, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
+        resolver.preprocess(response(peers[0], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
+        resolver.preprocess(response(peers[1], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
 
         resolveAndConsume(resolver);
         assertTrue(verifier.verified);
@@ -1072,18 +1113,17 @@ public class DataResolverTest
     @Test
     public void trackMatchingRepairedDigestsWithDifferentData()
     {
+        InetAddress[] peers = peers(2);
         // As far as repaired data tracking is concerned, the actual data in the response is not relevant
         ByteBuffer digest1 = ByteBufferUtil.bytes("digest1");
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, true);
-        verifier.expectDigest(peer2, digest1, true);
+        verifier.expectDigest(peers[0], digest1, true);
+        verifier.expectDigest(peers[1], digest1, true);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1") .buildUpdate()), digest1, true, command));
-        resolver.preprocess(response(peer2, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
+        resolver.preprocess(response(peers[0], iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1") .buildUpdate()), digest1, true, command));
+        resolver.preprocess(response(peers[1], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
 
         resolveAndConsume(resolver);
         assertTrue(verifier.verified);
@@ -1092,18 +1132,17 @@ public class DataResolverTest
     @Test
     public void trackMismatchingRepairedDigestsWithAllConclusive()
     {
+        InetAddress[] peers = peers(2);
         ByteBuffer digest1 = ByteBufferUtil.bytes("digest1");
         ByteBuffer digest2 = ByteBufferUtil.bytes("digest2");
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, true);
-        verifier.expectDigest(peer2, digest2, true);
+        verifier.expectDigest(peers[0], digest1, true);
+        verifier.expectDigest(peers[1], digest2, true);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
-        resolver.preprocess(response(peer2, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest2, true, command));
+        resolver.preprocess(response(peers[0], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, true, command));
+        resolver.preprocess(response(peers[1], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest2, true, command));
 
         resolveAndConsume(resolver);
         assertTrue(verifier.verified);
@@ -1112,18 +1151,17 @@ public class DataResolverTest
     @Test
     public void trackMismatchingRepairedDigestsWithSomeConclusive()
     {
+        InetAddress[] peers = peers(2);
         ByteBuffer digest1 = ByteBufferUtil.bytes("digest1");
         ByteBuffer digest2 = ByteBufferUtil.bytes("digest2");
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, false);
-        verifier.expectDigest(peer2, digest2, true);
+        verifier.expectDigest(peers[0], digest1, false);
+        verifier.expectDigest(peers[1], digest2, true);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
-        resolver.preprocess(response(peer2, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest2, true, command));
+        resolver.preprocess(response(peers[0], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
+        resolver.preprocess(response(peers[1], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest2, true, command));
 
         resolveAndConsume(resolver);
         assertTrue(verifier.verified);
@@ -1132,18 +1170,17 @@ public class DataResolverTest
     @Test
     public void trackMismatchingRepairedDigestsWithNoneConclusive()
     {
+        InetAddress[] peers = peers(2);
         ByteBuffer digest1 = ByteBufferUtil.bytes("digest1");
         ByteBuffer digest2 = ByteBufferUtil.bytes("digest2");
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, false);
-        verifier.expectDigest(peer2, digest2, false);
+        verifier.expectDigest(peers[0], digest1, false);
+        verifier.expectDigest(peers[1], digest2, false);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
-        resolver.preprocess(response(peer2, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest2, false, command));
+        resolver.preprocess(response(peers[0], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest1, false, command));
+        resolver.preprocess(response(peers[1], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest2, false, command));
 
         resolveAndConsume(resolver);
         assertTrue(verifier.verified);
@@ -1152,18 +1189,17 @@ public class DataResolverTest
     @Test
     public void trackMismatchingRepairedDigestsWithDifferentData()
     {
+        InetAddress[] peers = peers(2);
         ByteBuffer digest1 = ByteBufferUtil.bytes("digest1");
         ByteBuffer digest2 = ByteBufferUtil.bytes("digest2");
-        InetAddress peer1 = peer();
-        InetAddress peer2 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, true);
-        verifier.expectDigest(peer2, digest2, true);
+        verifier.expectDigest(peers[0], digest1, true);
+        verifier.expectDigest(peers[1], digest2, true);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1") .buildUpdate()), digest1, true, command));
-        resolver.preprocess(response(peer2, iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest2, true, command));
+        resolver.preprocess(response(peers[0], iter(new RowUpdateBuilder(cfm, nowInSec, 1L, dk).clustering("1") .buildUpdate()), digest1, true, command));
+        resolver.preprocess(response(peers[1], iter(PartitionUpdate.emptyUpdate(cfm, dk)), digest2, true, command));
 
         resolveAndConsume(resolver);
         assertTrue(verifier.verified);
@@ -1172,16 +1208,16 @@ public class DataResolverTest
     @Test
     public void noVerificationForSingletonResponse()
     {
+        InetAddress[] peers = peers(2);
         // for CL <= 1 a coordinator shouldn't request repaired data tracking but we
         // can easily assert that the verification isn't attempted even if it did
         ByteBuffer digest1 = ByteBufferUtil.bytes("digest1");
-        InetAddress peer1 = peer();
         TestRepairedDataVerifier verifier = new TestRepairedDataVerifier();
-        verifier.expectDigest(peer1, digest1, true);
+        verifier.expectDigest(peers[0], digest1, true);
 
         DataResolver resolver = resolverWithVerifier(ConsistencyLevel.ALL, 2, verifier);
 
-        resolver.preprocess(response(peer1, iter(PartitionUpdate.emptyUpdate(cfm,dk)), digest1, true, command));
+        resolver.preprocess(response(peers[0], iter(PartitionUpdate.emptyUpdate(cfm,dk)), digest1, true, command));
 
         resolveAndConsume(resolver);
         assertFalse(verifier.verified);
@@ -1223,18 +1259,6 @@ public class DataResolverTest
         }
 
         return new TestableDataResolver(command, cl, maxResponses);
-    }
-
-    private InetAddress peer()
-    {
-        try
-        {
-            return InetAddress.getByAddress(new byte[]{ 127, 0, 0, (byte) addressSuffix++ });
-        }
-        catch (UnknownHostException e)
-        {
-            throw new RuntimeException(e);
-        }
     }
 
     private MessageOut<Mutation> getSentMessage(InetAddress target)
