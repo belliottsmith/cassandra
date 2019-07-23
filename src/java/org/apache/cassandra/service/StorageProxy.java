@@ -582,10 +582,12 @@ public class StorageProxy implements StorageProxyMBean
                     responseHandler.onFailure(FBUtilities.getBroadcastAddressAndPort(), RequestFailureReason.forException(ex));
                 }
             }
+
             public String debug()
             {
                 return "Paxos" + message.payload.toString();
             }
+
             @Override
             protected Verb verb()
             {
@@ -1014,7 +1016,7 @@ public class StorageProxy implements StorageProxyMBean
                 logger.trace("Sending batchlog remove request {} to {}", uuid, target);
 
             if (target.isSelf())
-                performLocally(Stage.MUTATION, target, () -> BatchlogManager.remove(uuid), "Batchlog remove "+ uuid);
+                performLocally(Stage.MUTATION, target, () -> BatchlogManager.remove(uuid), "Batchlog remove");
             else
                 MessagingService.instance().send(message, target.endpoint());
         }
@@ -1254,7 +1256,7 @@ public class StorageProxy implements StorageProxyMBean
         if (insertLocal)
         {
             Preconditions.checkNotNull(localReplica);
-            performLocally(stage, localReplica, mutation::apply, responseHandler, mutation.toString());
+            performLocally(stage, localReplica, mutation::apply, responseHandler, mutation);
         }
 
         if (localDc != null)
@@ -1346,7 +1348,7 @@ public class StorageProxy implements StorageProxyMBean
     }
 
     private static void performLocally(Stage stage, Replica localReplica, final Runnable runnable,
-                                       final RequestCallback<?> handler, String description)
+                                       final RequestCallback<?> handler, Object description)
     {
         StageManager.getStage(stage).maybeExecuteImmediately(new LocalMutationRunnable(localReplica)
         {
@@ -1367,7 +1369,9 @@ public class StorageProxy implements StorageProxyMBean
 
             public String debug()
             {
-                return description;
+                // description is an Object and toString() called so we do not have to evaluate the Mutation.toString()
+                // unless expliclitly checked
+                return description.toString();
             }
 
             @Override
