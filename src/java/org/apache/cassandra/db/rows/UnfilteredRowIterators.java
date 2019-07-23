@@ -421,7 +421,7 @@ public abstract class UnfilteredRowIterators
                   columns,
                   mergeStaticRows(iterators, columns.statics, nowInSec, listener, partitionDeletion),
                   reversed,
-                  mergeStats(iterators));
+                  EncodingStats.merge(iterators, UnfilteredRowIterator::stats));
 
             this.mergeIterator = MergeIterator.get(iterators,
                                                    reversed ? metadata.comparator.reversed() : metadata.comparator,
@@ -530,14 +530,6 @@ public abstract class UnfilteredRowIterators
             return statics == first.statics && regulars == first.regulars
                  ? first
                  : new PartitionColumns(statics, regulars);
-        }
-
-        private static EncodingStats mergeStats(List<UnfilteredRowIterator> iterators)
-        {
-            EncodingStats stats = EncodingStats.NO_STATS;
-            for (UnfilteredRowIterator iter : iterators)
-                stats = stats.mergeWith(iter.stats());
-            return stats;
         }
 
         protected Unfiltered computeNext()

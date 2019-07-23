@@ -11,6 +11,8 @@ Merged from 2.2:
  * Refactor Circle CI configuration (CASSANDRA-14806)
  * Fixing invalid CQL in security documentation (CASSANDRA-15020)
  * Multi-version in-JVM dtests (CASSANDRA-14937)
+ * Reduce heap pressure during compactions (CASSANDRA-14654)
+ * Avoid creating KeyCacheKey instance when key cache is disabled (CASSANDRA-13084)
 
 3.0.18.0
  * Add a script to make running the cqlsh tests in cassandra repo easier (CASSANDRA-14951)

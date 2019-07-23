@@ -785,7 +785,7 @@ public class SSTableRewriterTest extends SSTableWriterTestBase
         Collection<SSTableReader> allSSTables = cfs.getLiveSSTables();
         assertEquals(1, allSSTables.size());
         final Token firstToken = allSSTables.iterator().next().first.getToken();
-        DatabaseDescriptor.setSSTablePreempiveOpenIntervalInMB(1);
+        DatabaseDescriptor.setSSTablePreemptiveOpenIntervalInMB(1);
 
         List<StreamSession.SSTableStreamingSections> sectionsBeforeRewrite = StreamSession.getSSTableSectionsForRanges(
             Collections.singleton(new Range<Token>(firstToken, firstToken)),
@@ -823,7 +823,7 @@ public class SSTableRewriterTest extends SSTableWriterTestBase
         }
         finally
         {
-            DatabaseDescriptor.setSSTablePreempiveOpenIntervalInMB(50);
+            DatabaseDescriptor.setSSTablePreemptiveOpenIntervalInMB(50);
             done.set(true);
             t.join(20);
         }

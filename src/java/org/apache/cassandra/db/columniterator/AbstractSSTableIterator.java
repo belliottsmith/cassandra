@@ -212,9 +212,7 @@ abstract class AbstractSSTableIterator implements SliceableUnfilteredRowIterator
 
     public EncodingStats stats()
     {
-        // We could return sstable.header.stats(), but this may not be as accurate than the actual sstable stats (see
-        // SerializationHeader.make() for details) so we use the latter instead.
-        return new EncodingStats(sstable.getMinTimestamp(), sstable.getMinLocalDeletionTime(), sstable.getMinTTL());
+        return sstable.stats();
     }
 
     public boolean hasNext()

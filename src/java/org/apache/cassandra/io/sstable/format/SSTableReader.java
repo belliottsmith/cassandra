@@ -47,6 +47,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.SliceableUnfilteredRowIterator;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
@@ -698,16 +699,15 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         // under normal operation we can do this at any time, but SSTR is also used outside C* proper,
         // e.g. by BulkLoader, which does not initialize the cache.  As a kludge, we set up the cache
         // here when we know we're being wired into the rest of the server infrastructure.
-        keyCache = CacheService.instance.keyCache;
+        InstrumentingCache<KeyCacheKey, RowIndexEntry> maybeKeyCache = CacheService.instance.keyCache;
+        if (maybeKeyCache.getCapacity() > 0)
+            keyCache = maybeKeyCache;
+
         final ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreInstance(metadata.cfId);
         if (cfs != null)
             setCrcCheckChance(cfs.getCrcCheckChance());
     }
 
-    public boolean isKeyCacheSetup()
-    {
-        return keyCache != null;
-    }
 
     /**
      * See {@link #load(boolean, boolean)}
@@ -1129,7 +1129,8 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
 
             if (ifile != null)
                 ifile.dropPageCache(ifilePosition);
-            andThen.run();
+            if (andThen != null)
+                andThen.run();
         }
     }
 
@@ -1561,12 +1562,14 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
 
     public RowIndexEntry getCachedPosition(DecoratedKey key, boolean updateStats)
     {
-        return getCachedPosition(new KeyCacheKey(metadata.ksAndCFName, descriptor, key.getKey()), updateStats);
+        if (isKeyCacheEnabled())
+            return getCachedPosition(new KeyCacheKey(metadata.ksAndCFName, descriptor, key.getKey()), updateStats);
+        return null;
     }
 
     protected RowIndexEntry getCachedPosition(KeyCacheKey unifiedKey, boolean updateStats)
     {
-        if (keyCache != null && keyCache.getCapacity() > 0 && metadata.params.caching.cacheKeys()) {
+        if (isKeyCacheEnabled()) {
             if (updateStats)
             {
                 RowIndexEntry cachedEntry = keyCache.get(unifiedKey);
@@ -1584,6 +1587,11 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
             }
         }
         return null;
+    }
+
+    public boolean isKeyCacheEnabled()
+    {
+        return keyCache != null && metadata.params.caching.cacheKeys();
     }
 
     /**
@@ -2101,6 +2109,11 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
     {
         if (readMeter != null)
             readMeter.mark();
+    }
+
+    public EncodingStats stats()
+    {
+        return sstableMetadata.encodingStats;
     }
 
     /**

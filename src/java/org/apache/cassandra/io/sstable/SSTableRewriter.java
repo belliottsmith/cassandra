@@ -32,7 +32,6 @@ import org.apache.cassandra.db.lifecycle.ILifecycleTransaction;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
-import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.utils.NativeLibrary;
 import org.apache.cassandra.utils.concurrent.Transactional;
 
@@ -107,7 +106,7 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
 
     private static long calculateOpenInterval(boolean shouldOpenEarly)
     {
-        long interval = DatabaseDescriptor.getSSTablePreempiveOpenIntervalInMB() * (1L << 20);
+        long interval = DatabaseDescriptor.getSSTablePreemptiveOpenIntervalInMB() * (1L << 20);
         if (disableEarlyOpeningForTests || !shouldOpenEarly || interval < 0)
             interval = Long.MAX_VALUE;
         return interval;
@@ -124,19 +123,19 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
         DecoratedKey key = partition.partitionKey();
         maybeReopenEarly(key);
         RowIndexEntry index = writer.append(partition);
-        if (!isOffline && index != null)
+        if (DatabaseDescriptor.shouldMigrateKeycacheOnCompaction())
         {
-            boolean save = false;
-            for (SSTableReader reader : transaction.originals())
+            if (!isOffline && index != null)
             {
-                if (reader.getCachedPosition(key, false) != null)
+                for (SSTableReader reader : transaction.originals())
                 {
-                    save = true;
-                    break;
+                    if (reader.getCachedPosition(key, false) != null)
+                    {
+                        cachedKeys.put(key, index);
+                        break;
+                    }
                 }
             }
-            if (save)
-                cachedKeys.put(key, index);
         }
         return index;
     }
@@ -216,18 +215,22 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
      */
     private void moveStarts(SSTableReader newReader, DecoratedKey lowerbound)
     {
-        if (isOffline)
-            return;
-        if (preemptiveOpenInterval == Long.MAX_VALUE)
+        if (isOffline || preemptiveOpenInterval == Long.MAX_VALUE)
             return;
 
-        final List<DecoratedKey> invalidateKeys = new ArrayList<>();
-        invalidateKeys.addAll(cachedKeys.keySet());
         newReader.setupOnline();
-        for (Map.Entry<DecoratedKey, RowIndexEntry> cacheKey : cachedKeys.entrySet())
-            newReader.cacheKey(cacheKey.getKey(), cacheKey.getValue());
+        List<DecoratedKey> invalidateKeys = null;
+        if (!cachedKeys.isEmpty())
+        {
+            invalidateKeys = new ArrayList<>(cachedKeys.size());
+            for (Map.Entry<DecoratedKey, RowIndexEntry> cacheKey : cachedKeys.entrySet())
+            {
+                invalidateKeys.add(cacheKey.getKey());
+                newReader.cacheKey(cacheKey.getKey(), cacheKey.getValue());
+            }
+        }
 
-        cachedKeys = new HashMap<>();
+        cachedKeys.clear();
         for (SSTableReader sstable : transaction.originals())
         {
             // we call getCurrentReplacement() to support multiple rewriters operating over the same source readers at once.
@@ -238,12 +241,15 @@ public class SSTableRewriter extends Transactional.AbstractTransactional impleme
             if (latest.first.compareTo(lowerbound) > 0)
                 continue;
 
-            Runnable runOnClose = new InvalidateKeys(latest, invalidateKeys);
+            Runnable runOnClose = invalidateKeys != null ? new InvalidateKeys(latest, invalidateKeys) : null;
             if (lowerbound.compareTo(latest.last) >= 0)
             {
                 if (!transaction.isObsolete(latest))
                 {
-                    latest.runOnClose(runOnClose);
+                    if (runOnClose != null)
+                    {
+                        latest.runOnClose(runOnClose);
+                    }
                     transaction.obsolete(latest);
                 }
                 continue;

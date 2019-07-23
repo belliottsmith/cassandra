@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -162,10 +163,28 @@ public class MockSchema
         return newCFS(ks.getName());
     }
 
+    public static ColumnFamilyStore newCFS(Consumer<CFMetaData> updateMetadata)
+    {
+        return newCFS(ks.getName(), updateMetadata);
+    }
+
     public static ColumnFamilyStore newCFS(String ksname)
     {
         String cfname = "mockcf" + (id.incrementAndGet());
+        return newCFS(ksname, cfname, newCFMetaData(ksname, cfname));
+    }
+
+    public static ColumnFamilyStore newCFS(String ksname, Consumer<CFMetaData> updateMetadata)
+    {
+        String cfname = "mockcf" + (id.incrementAndGet());
         CFMetaData metadata = newCFMetaData(ksname, cfname);
+        updateMetadata.accept(metadata);
+        return newCFS(ksname, cfname, metadata);
+
+    }
+
+    private static ColumnFamilyStore newCFS(String ksname, String cfname, CFMetaData metadata)
+    {
         Keyspace keyspace = Keyspace.mockKS(KeyspaceMetadata.create(ksname, KeyspaceParams.simpleTransient(2)));
         return new ColumnFamilyStore(keyspace, cfname, 0, metadata, new Directories(metadata), false, false);
     }
