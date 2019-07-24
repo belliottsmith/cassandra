@@ -143,6 +143,8 @@ public class DatabaseDescriptor
     private static volatile boolean aggressiveGC = Boolean.getBoolean("cassandra.aggressivegcls.enabled");
     private static volatile long scheduledCompactionCycleTimeSeconds;
 
+    private static volatile boolean disableSTCSInL0 = Boolean.getBoolean("cassandra.disable_stcs_in_l0");
+
     public static String getFullQueryLogPath()
     {
         return  conf.full_query_log_dir;
@@ -1465,7 +1467,12 @@ public class DatabaseDescriptor
 
     public static boolean getDisableSTCSInL0()
     {
-        return Boolean.getBoolean("cassandra.disable_stcs_in_l0");
+        return disableSTCSInL0;
+    }
+
+    public static void setDisableSTCSInL0(boolean disabled)
+    {
+        disableSTCSInL0 = disabled;
     }
 
     public static int getStreamThroughputOutboundMegabitsPerSec()

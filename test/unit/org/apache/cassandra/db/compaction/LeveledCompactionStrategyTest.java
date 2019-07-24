@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.compaction;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1032,6 +1033,62 @@ public class LeveledCompactionStrategyTest
         // if min threshold is large
         best = LeveledManifest.bestBucket(buckets, 55, 64);
         assertEquals(0, best.size());
+    }
+
+    @Test
+    public void testDisableSTCSInL0() throws IOException
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        Map<String, String> localOptions = new HashMap<>();
+        localOptions.put("class", "LeveledCompactionStrategy");
+        localOptions.put("sstable_size_in_mb", "1");
+        cfs.setCompactionParameters(localOptions);
+        List<SSTableReader> sstables = new ArrayList<>();
+        for (int i = 0; i < 11; i++)
+        {
+            SSTableReader l1sstable = MockSchema.sstable(i, 1 * 1024 * 1024, cfs);
+            l1sstable.descriptor.getMetadataSerializer().mutateLevel(l1sstable.descriptor, 1);
+            l1sstable.reloadSSTableMetadata();
+            sstables.add(l1sstable);
+        }
+
+        for (int i = 100; i < 150; i++)
+            sstables.add(MockSchema.sstable(i, 1 * 1024 * 1024, cfs));
+        cfs.disableAutoCompaction();
+        cfs.addSSTables(sstables);
+        assertEquals(0, getTaskLevel(cfs));
+
+        try
+        {
+            CompactionManager.instance.setDisableSTCSInL0(true);
+            assertTrue(getTaskLevel(cfs) > 0);
+        }
+        finally
+        {
+            CompactionManager.instance.setDisableSTCSInL0(false);
+        }
+    }
+
+    private int getTaskLevel(ColumnFamilyStore cfs)
+    {
+        for (AbstractCompactionStrategy strategy : cfs.getCompactionStrategyManager().getStrategies())
+        {
+            AbstractCompactionTask task = strategy.getNextBackgroundTask(0);
+            if (task != null)
+            {
+                try
+                {
+                    assertTrue(task instanceof LeveledCompactionTask);
+                    LeveledCompactionTask lcsTask = (LeveledCompactionTask) task;
+                    return lcsTask.getLevel();
+                }
+                finally
+                {
+                    task.transaction.abort();
+                }
+            }
+        }
+        return -1;
     }
 
     private static SSTableReader sstable(ColumnFamilyStore cfs, int generation, long startToken, long endToken)
