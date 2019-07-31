@@ -112,6 +112,12 @@ public interface CompactionManagerMBean
     public boolean getEnableAggressiveGCCompaction();
 
     /**
+     * Enable / disable STCS in L0
+     */
+    public boolean getDisableSTCSInL0();
+    public void setDisableSTCSInL0(boolean disabled);
+
+    /**
      *
      * Column Index Tuning
      */
