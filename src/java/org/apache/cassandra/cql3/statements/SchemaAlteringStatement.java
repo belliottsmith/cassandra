@@ -25,6 +25,7 @@ import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.RequestValidationException;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.thrift.ThriftValidation;
@@ -152,5 +153,21 @@ public abstract class SchemaAlteringStatement extends CFStatement implements CQL
     {
         Event.SchemaChange ce = announceMigration(state, true);
         return ce == null ? new ResultMessage.Void() : new ResultMessage.SchemaChange(ce);
+    }
+
+    /**
+     * Return false unless SimpleStrategy has been allowed via passing true for {@link #SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY}
+     * and the provided replicationStrategy class name contains SimpleStrategy (regardless of case).
+     *
+     */
+    protected boolean rejectReplicationStrategy(String replicationStrategyClass)
+    {
+        if (!Boolean.parseBoolean(System.getProperty(SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY)) )
+        {
+            String matchOn = replicationStrategyClass.toLowerCase();
+            if (matchOn.contains(SimpleStrategy.class.getSimpleName().toLowerCase()))
+                return true;
+        }
+        return false;
     }
 }

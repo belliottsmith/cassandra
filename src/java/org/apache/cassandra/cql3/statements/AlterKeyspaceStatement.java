@@ -72,9 +72,8 @@ public class AlterKeyspaceStatement extends SchemaAlteringStatement
         if (attrs.getReplicationStrategyClass() != null)
         {
             // Accept KeySpace query with SimpleStrategy only when environment variable is set.
-            if (SimpleStrategy.class != ksm.params.replication.klass &&                                           // Current strategy is not SimpleStrategy
-                attrs.getReplicationStrategyClass().equalsIgnoreCase(SimpleStrategy.class.getSimpleName()) &&     // Expected future strategy is SimpleStrategy
-                !Boolean.parseBoolean(System.getProperty(SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false")))        // Option to allow SimpleStrategy is not set
+            if (SimpleStrategy.class != ksm.params.replication.klass &&                     // Current strategy is not SimpleStrategy
+                rejectReplicationStrategy(attrs.getReplicationStrategyClass()))       // Option to allow SimpleStrategy is not set
             {
                 throw new ConfigurationException("Error while altering keyspace " + name + " : SimpleStrategy is not allowed.");
             }

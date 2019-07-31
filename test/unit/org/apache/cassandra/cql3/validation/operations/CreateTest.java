@@ -356,6 +356,9 @@ public class CreateTest extends CQLTester
             System.setProperty(SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY, "false");
 
             assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'SimpleStrategy', 'replication_factor' : 2 }");
+            // now we check for the whole classname
+            assertInvalidThrow(ConfigurationException.class, "CREATE KEYSPACE testABC WITH replication = { 'class' : 'org.apache.cassandra.locator.SimpleStrategy', 'replication_factor' : 2 }");
+
         }
         finally
         {
