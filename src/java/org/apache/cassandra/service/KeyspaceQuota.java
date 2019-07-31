@@ -24,13 +24,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.ScheduledExecutors;
-import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 
 /**
@@ -78,6 +76,10 @@ public class KeyspaceQuota
                 if (!DatabaseDescriptor.getEnableKeyspaceQuotas())
                 {
                     return; // note that we don't need to set ks.disableForWrites to false since we check the enabled flag in ModificationStatement#checkAccess
+                }
+                if (StorageService.instance.isBootstrapMode())
+                {
+                    return; // unless we have completed bootstrapping, it doesnt make sense to check. rdar://problem/53222565
                 }
 
                 for (Keyspace ks : Keyspace.nonSystem())

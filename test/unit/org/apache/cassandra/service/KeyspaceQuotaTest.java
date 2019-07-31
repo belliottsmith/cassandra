@@ -18,11 +18,7 @@
 
 package org.apache.cassandra.service;
 
-import java.net.UnknownHostException;
-
-import org.junit.After;
 import org.junit.AfterClass;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -45,7 +41,7 @@ public class KeyspaceQuotaTest extends CQLTester
     {
         DatabaseDescriptor.setKeyspaceQuotasEnabled(true);
         DatabaseDescriptor.setKeyspaceQuotaRefreshTimeInSec(1);
-
+        
         Gossiper.instance.start((int) (System.currentTimeMillis() / 1000));
         StorageService.instance.getTokenMetadata().updateNormalToken(DatabaseDescriptor.getPartitioner().getRandomToken(), FBUtilities.getBroadcastAddress());
         MigrationManager.announceNewKeyspace(CIEInternalKeyspace.metadata(), false);
