@@ -139,13 +139,9 @@ public class TableMetricTables
          */
         public void add(SimpleDataSet result, String column, double value)
         {
-            switch(column)
-            {
-                case MEDIAN:
-                case P99:
-                case MAX:
-                    value = value / NS_TO_MS;
-            }
+            if (column.equals(MEDIAN + suffix) || column.equals(P99 + suffix) || column.equals(MAX + suffix))
+                value = value / NS_TO_MS;
+
             super.add(result, column, value);
         }
     }
