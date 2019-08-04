@@ -55,8 +55,8 @@ public class TableMetricTables
     private final static String P99 = "99th";
     private final static String MAX = "max";
     private final static String RATE = "per_second";
-    private final static long BYTES_TO_MIB = 1024 * 1024;
-    private final static double NS_TO_MS = 1_000_000.0;
+    private final static double BYTES_TO_MIB = 1.0 / (1024 * 1024);
+    private final static double NS_TO_MS = 0.000001;
 
     private final static AbstractType<?> TYPE = CompositeType.getInstance(UTF8Type.instance,
                                                                           UTF8Type.instance);
@@ -95,7 +95,7 @@ public class TableMetricTables
          */
         public void add(SimpleDataSet result, String column, long value)
         {
-            result.column(column, (long) Math.ceil((double) value / BYTES_TO_MIB));
+            result.column(column, (long) Math.ceil(value * BYTES_TO_MIB));
         }
     }
 
@@ -140,7 +140,7 @@ public class TableMetricTables
         public void add(SimpleDataSet result, String column, double value)
         {
             if (column.equals(MEDIAN + suffix) || column.equals(P99 + suffix) || column.equals(MAX + suffix))
-                value = value / NS_TO_MS;
+                value *= NS_TO_MS;
 
             super.add(result, column, value);
         }
