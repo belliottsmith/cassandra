@@ -22,17 +22,23 @@ import io.airlift.command.Command;
 import java.io.IOError;
 import java.io.IOException;
 
+import io.airlift.command.Option;
 import org.apache.cassandra.tools.NodeProbe;
 import org.apache.cassandra.tools.NodeTool.NodeToolCmd;
 
 @Command(name = "resume", description = "Resume bootstrap streaming")
 public class BootstrapResume extends NodeToolCmd
 {
+    @Option(title = "force", name = {"-f", "--force"}, description = "Use --force to resume bootstrap - UNTESTED, POTENTIALLY DANGEROUS")
+    boolean force = false;
+
     @Override
     protected void execute(NodeProbe probe)
     {
         try
         {
+            if (!force)
+                throw new RuntimeException("'nodetool bootstrap resume' is disabled.");
             probe.resumeBootstrap(System.out);
         }
         catch (IOException e)
