@@ -698,13 +698,21 @@ public class RangeStreamer
                     return true;
                 };
 
-                List<FetchReplica> remaining = fetchReplicas.stream().filter(not(isAvailable)).collect(Collectors.toList());
-
-                if (remaining.size() < available.full.size() + available.trans.size())
+                List<FetchReplica> remaining;
+                if (Boolean.getBoolean("cassandra.enable_resumable_bootstrap"))
                 {
-                    List<FetchReplica> skipped = fetchReplicas.stream().filter(isAvailable).collect(Collectors.toList());
-                    logger.info("Some ranges of {} are already available. Skipping streaming those ranges. Skipping {}. Fully available {} Transiently available {}",
-                                fetchReplicas, skipped, available.full, available.trans);
+                    remaining = fetchReplicas.stream().filter(not(isAvailable)).collect(Collectors.toList());
+
+                    if (remaining.size() < available.full.size() + available.trans.size())
+                    {
+                        List<FetchReplica> skipped = fetchReplicas.stream().filter(isAvailable).collect(Collectors.toList());
+                        logger.info("Some ranges of {} are already available. Skipping streaming those ranges. Skipping {}. Fully available {} Transiently available {}",
+                                    fetchReplicas, skipped, available.full, available.trans);
+                    }
+                }
+                else
+                {
+                    remaining = new ArrayList(fetchReplicas);
                 }
 
                 if (logger.isTraceEnabled())
