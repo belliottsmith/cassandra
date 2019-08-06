@@ -67,7 +67,7 @@ import static org.quicktheories.generators.SourceDSL.integers;
 import static org.quicktheories.generators.SourceDSL.lists;
 import static org.quicktheories.impl.stateful.StatefulTheory.*;
 
-public class ApnsQtTest extends CQLTester
+public class ApnsSortedMapQtTest extends CQLTester
 {
     private int tok = 0;
 
@@ -394,7 +394,7 @@ public class ApnsQtTest extends CQLTester
             }
             else
             {
-                Map<UUID, ByteBuffer> m = Apns.deliverableMapType.compose(bb);
+                Map<UUID, ByteBuffer> m = Apns.sortedDeliverableMapType.compose(bb);
                 return m.entrySet().stream().map(e -> {
                     ByteBuffer[] deliverable = Apns.deliverableType.split(e.getValue());
                     return new ApnsEvent(e.getKey(), deliverable[0], deliverable[1], deliverable[2]);
@@ -476,7 +476,7 @@ public class ApnsQtTest extends CQLTester
                 lastTopicId = r.getBytes("topic");
                 ByteBuffer od = r.getBytes("oldestdeliverable");
                 assert (od != null);
-                ByteBuffer[] odParts = Apns.oldestDeliverableType.split(od);
+                ByteBuffer[] odParts = Apns.sortedOldestDeliverableType.split(od);
                 if (odParts[2] != null)
                 {
                     lastEvent = new ApnsEvent(TimeUUIDType.instance.compose(odParts[2]),
@@ -521,7 +521,7 @@ public class ApnsQtTest extends CQLTester
                 topicId = r.getBytes("topic");
                 ByteBuffer kod = r.getBytes("koldestdeliverable");
                 assert (kod != null);
-                ByteBuffer[] kodParts = Apns.kOldestDeliverableType.split(kod);
+                ByteBuffer[] kodParts = Apns.sortedKOldestDeliverableType.split(kod);
                 if (kodParts[2] != null)
                 {
                     result = deserializeDeliverableMap(kodParts[2]);
@@ -564,7 +564,7 @@ public class ApnsQtTest extends CQLTester
             ApnsEvent modelEvent = topic.events.get(lastEvent.eventId);
             if (modelEvent != null)
             {
-                // modelEvent may have been pushed out of the queue, in which case the TQT query
+                // modelEvent may have been pushed out of the queue, in which case the query
                 // will be a no-op, so no need to track anything in the model.
                 modelEvent.deliver(deliveriesLeft, deliverableAfter);
             }

@@ -26,25 +26,12 @@
             <AppenderRef ref="STDOUT" />
             <AppenderRef ref="STDERR" />
         </Async>
-        <Console name="TQTFILE">
-            <PatternLayout pattern="%-5level [%thread] %date{ISO8601} %F:%L - %msg%n"/>
-        </Console>
-        <Async name="TQTASYNC" includeLocation="true">
-            <AppenderRef ref="TQTFILE" />
-            <PatternLayout pattern="%-5level %date{HH:mm:ss,SSS} %msg%n"/>
-            <Filters>
-                <ThresholdFilter level="TRACE" onMatch="ACCEPT" onMismatch="DENY"/>
-            </Filters>
-        </Async>
     </Appenders>
 
     <Loggers>
         <Root level="DEBUG">
             <AppenderRef ref="ASYNC" />
         </Root>
-                <!--<logger name="org.apache.cassandra.cql3.CQLTester" level="trace" additivity="false">-->
-                    <!--<appender-ref ref="TQTASYNC"/>-->
-                <!--</logger>-->
     </Loggers>
 </Configuration>
 

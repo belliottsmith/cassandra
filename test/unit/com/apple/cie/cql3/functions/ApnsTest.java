@@ -55,11 +55,11 @@ public class ApnsTest extends CQLTester
         // Check msdIdx 3 is the oldest deliverable
         assertRows(execute("SELECT oldestdeliverable(events, deliveries, totimestamp(now())) " +
                            "FROM %s WHERE pk = 1"),
-                   row(Apns.oldestDeliverableType.fromString("0:2:" + UUIDs.startOf(start + 3).toString() + ":33:@:@")));
+                   row(Apns.sortedOldestDeliverableType.fromString("0:2:" + UUIDs.startOf(start + 3).toString() + ":33:@:@")));
 
         assertRows(execute("SELECT koldestdeliverable(events, deliveries, totimestamp(now()), int32literal1()) " +
                            "FROM %s WHERE pk = 1"),
-                   row(Apns.kOldestDeliverableType.fromString("0:2:00000001000000101381b5301dd211b280808080808080800000000d0000000133ffffffffffffffff")));
+                   row(Apns.sortedKOldestDeliverableType.fromString("0:2:00000001000000101381b5301dd211b280808080808080800000000d0000000133ffffffffffffffff")));
 
         assertRows(execute("SELECT deliverable(events, deliveries, totimestamp(now())) " +
                            "FROM %s WHERE pk = 1"),
@@ -76,15 +76,15 @@ public class ApnsTest extends CQLTester
         // Check msgIdx 4 is now the oldest deliverable, 1 more deliverable, 1 undeliverable
         assertRows(execute("SELECT oldestdeliverable(events, deliveries, totimestamp(now())) " +
                            "FROM %s WHERE pk = 1"),
-                   row(Apns.oldestDeliverableType.fromString("1:1:" + UUIDs.startOf(start + 4).toString() + ":34:@:@")));
+                   row(Apns.sortedOldestDeliverableType.fromString("1:1:" + UUIDs.startOf(start + 4).toString() + ":34:@:@")));
 
         assertRows(execute("SELECT koldestdeliverable(events, deliveries, totimestamp(now()), int32literal1()) " +
                            "FROM %s WHERE pk = 1"),
-                   row(Apns.kOldestDeliverableType.fromString("1:1:00000001000000101381dc401dd211b280808080808080800000000d0000000134ffffffffffffffff")));
+                   row(Apns.sortedKOldestDeliverableType.fromString("1:1:00000001000000101381dc401dd211b280808080808080800000000d0000000134ffffffffffffffff")));
 
         assertRows(execute("SELECT koldestdeliverable(events, deliveries, totimestamp(now()), int32literal2()) " +
                            "FROM %s WHERE pk = 1"),
-                   row(Apns.kOldestDeliverableType.fromString("1:0:00000002000000101381dc401dd211b280808080808080800000000d0000000134ffffffffffffffff00000010138203501dd211b280808080808080800000000d0000000135ffffffffffffffff")));
+                   row(Apns.sortedKOldestDeliverableType.fromString("1:0:00000002000000101381dc401dd211b280808080808080800000000d0000000134ffffffffffffffff00000010138203501dd211b280808080808080800000000d0000000135ffffffffffffffff")));
 
         // And that only 4 and 5 are deliverable
         assertRows(execute("SELECT deliverable(events, deliveries, totimestamp(now())) " +
@@ -101,13 +101,13 @@ public class ApnsTest extends CQLTester
         // Check msgIdx 5 is now the oldest deliverable
         assertRows(execute("SELECT oldestdeliverable(events, deliveries, totimestamp(now())) " +
                            "FROM %s WHERE pk = 1"),
-                   row(Apns.oldestDeliverableType.fromString("1:0:" + UUIDs.startOf(start + 5).toString() + ":35:@:@")));
+                   row(Apns.sortedOldestDeliverableType.fromString("1:0:" + UUIDs.startOf(start + 5).toString() + ":35:@:@")));
         assertRows(execute("SELECT koldestdeliverable(events, deliveries, totimestamp(now()), int32literal1()) " +
                            "FROM %s WHERE pk = 1"),
-                   row(Apns.kOldestDeliverableType.fromString("1:0:0000000100000010138203501dd211b280808080808080800000000d0000000135ffffffffffffffff")));
+                   row(Apns.sortedKOldestDeliverableType.fromString("1:0:0000000100000010138203501dd211b280808080808080800000000d0000000135ffffffffffffffff")));
         assertRows(execute("SELECT koldestdeliverable(events, deliveries, totimestamp(now()), int32literal2()) " +
                            "FROM %s WHERE pk = 1"),
-                   row(Apns.kOldestDeliverableType.fromString("1:0:0000000100000010138203501dd211b280808080808080800000000d0000000135ffffffffffffffff")));
+                   row(Apns.sortedKOldestDeliverableType.fromString("1:0:0000000100000010138203501dd211b280808080808080800000000d0000000135ffffffffffffffff")));
 
         // Only 5 is deliverable
         assertRows(execute("SELECT deliverable(events, deliveries, totimestamp(now())) " +
@@ -122,13 +122,13 @@ public class ApnsTest extends CQLTester
         // Check null is returned with the queue only containing undeliverables
         assertRows(execute("SELECT oldestdeliverable(events, deliveries, totimestamp(now())) " +
                            "FROM %s WHERE pk = 1"),
-                   row(Apns.oldestDeliverableType.fromString("1:0:@:@:@:@")));
+                   row(Apns.sortedOldestDeliverableType.fromString("1:0:@:@:@:@")));
         assertRows(execute("SELECT koldestdeliverable(events, deliveries, totimestamp(now()), int32literal1()) " +
                            "FROM %s WHERE pk = 1"),
-                   row(Apns.kOldestDeliverableType.fromString("1:0:@")));
+                   row(Apns.sortedKOldestDeliverableType.fromString("1:0:@")));
         assertRows(execute("SELECT koldestdeliverable(events, deliveries, totimestamp(now()), int32literal2()) " +
                            "FROM %s WHERE pk = 1"),
-                   row(Apns.kOldestDeliverableType.fromString("1:0:@")));
+                   row(Apns.sortedKOldestDeliverableType.fromString("1:0:@")));
 
         // Mark msgIdx 3 as acknowledged */
         execute("DELETE events[?], deliveries[?] FROM %s WHERE pk = ? AND ck = ?",
