@@ -24,7 +24,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
+import org.junit.AfterClass;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.distributed.Cluster;
@@ -43,6 +45,23 @@ import org.apache.cassandra.utils.Shared;
  */
 public class BootstrapBinaryDisabledTest extends TestBaseImpl
 {
+    static String originalRequireForcedResumableBootstrap = null;
+
+    @BeforeClass
+    public static void beforeClass() throws Throwable
+    {
+        TestBaseImpl.beforeClass();
+        originalRequireForcedResumableBootstrap = System.setProperty("cassandra.require_forced_resumable_bootstrap", "false");
+    }
+    @AfterClass
+    public static void afterClass()
+    {
+        if (originalRequireForcedResumableBootstrap != null)
+            System.setProperty("cassandra.require_forced_resumable_bootstrap", originalRequireForcedResumableBootstrap);
+        else
+            System.clearProperty("cassandra.require_forced_resumable_bootstrap");
+    }
+
     @Test
     public void test() throws IOException, TimeoutException
     {
