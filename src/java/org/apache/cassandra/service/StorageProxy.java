@@ -1822,7 +1822,7 @@ public class StorageProxy implements StorageProxyMBean
             }
         }
 
-        public long startTimeNanos()
+        public long approxStartNanos()
         {
             return approxCreationTimeNanos;
         }
@@ -2489,7 +2489,7 @@ public class StorageProxy implements StorageProxyMBean
     private static abstract class LocalMutationRunnable implements Runnable, DebuggableTask
     {
         private final long approxCreationTimeNanos = MonotonicClock.approxTime.now();
-        private long nowNanos;
+        private long approxStartNanos;
         private final Replica localReplica;
 
         LocalMutationRunnable(Replica localReplica)
@@ -2500,11 +2500,11 @@ public class StorageProxy implements StorageProxyMBean
         public final void run()
         {
             final Verb verb = verb();
-            nowNanos = MonotonicClock.approxTime.now();
+            approxStartNanos = MonotonicClock.approxTime.now();
             long expirationTimeNanos = verb.expiresAtNanos(approxCreationTimeNanos);
-            if (nowNanos > expirationTimeNanos)
+            if (approxStartNanos > expirationTimeNanos)
             {
-                long timeTakenNanos = nowNanos - approxCreationTimeNanos;
+                long timeTakenNanos = approxStartNanos - approxCreationTimeNanos;
                 MessagingService.instance().metrics.recordSelfDroppedMessage(Verb.MUTATION_REQ, timeTakenNanos, NANOSECONDS);
 
                 HintRunnable runnable = new HintRunnable(EndpointsForToken.of(localReplica.range().right, localReplica))
@@ -2528,9 +2528,11 @@ public class StorageProxy implements StorageProxyMBean
             }
         }
 
-        public long startTimeNanos()
+        public long approxStartNanos()
         {
-            return nowNanos;
+            long nanos = approxStartNanos;
+            if (nanos == 0) nanos = MonotonicClock.approxTime.now();
+            return nanos;
         }
 
         abstract public String debug();

@@ -760,7 +760,7 @@ public abstract class Message
                 flush(new FlushItem(ctx, response, request.getSourceFrame(), dispatcher));
             }
 
-            public long startTimeNanos()
+            public long approxStartNanos()
             {
                 return queryStartNanoTime;
             }
