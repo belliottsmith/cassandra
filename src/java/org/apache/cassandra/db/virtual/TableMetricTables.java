@@ -76,8 +76,8 @@ public class TableMetricTables
             new LatencyTableMetric(name, "coordinator_write_latency", t -> t.coordinatorWriteLatency),
             new HistogramTableMetric(name, "tombstones_per_read", t -> t.tombstoneScannedHistogram.cf),
             new HistogramTableMetric(name, "rows_per_read", t -> t.liveScannedHistogram.cf),
-            new StorageTableMetric(name, "disk_usage", t -> t.totalDiskSpaceUsed),
-            new StorageTableMetric(name, "max_partition_size", t -> t.maxPartitionSize));
+            new StorageTableMetric(name, "disk_usage", (TableMetrics t) -> t.totalDiskSpaceUsed),
+            new StorageTableMetric(name, "max_partition_size", (TableMetrics t) -> t.maxPartitionSize));
     }
 
     /**
@@ -85,7 +85,15 @@ public class TableMetricTables
      */
     private static class StorageTableMetric extends TableMetricTable
     {
-        StorageTableMetric(String keyspace, String table, Function<TableMetrics, Metric> func)
+        interface GaugeFunction extends Function<TableMetrics, Gauge<Long>> {}
+        interface CountingFunction<M extends Metric & Counting> extends Function<TableMetrics, M> {}
+
+        <M extends Metric & Counting> StorageTableMetric(String keyspace, String table, CountingFunction<M> func)
+        {
+            super(keyspace, table, func, "mebibytes", LongType.instance, "");
+        }
+
+        StorageTableMetric(String keyspace, String table, GaugeFunction func)
         {
             super(keyspace, table, func, "mebibytes", LongType.instance, "");
         }
@@ -104,12 +112,12 @@ public class TableMetricTables
      */
     private static class HistogramTableMetric extends TableMetricTable
     {
-        HistogramTableMetric(String keyspace, String table, Function<TableMetrics, Metric> func)
+        <M extends Metric & Sampling> HistogramTableMetric(String keyspace, String table, Function<TableMetrics, M> func)
         {
             this(keyspace, table, func, "");
         }
 
-        HistogramTableMetric(String keyspace, String table, Function<TableMetrics, Metric> func, String suffix)
+        <M extends Metric & Sampling> HistogramTableMetric(String keyspace, String table, Function<TableMetrics, M> func, String suffix)
         {
             super(keyspace, table, func, "count", LongType.instance, suffix);
         }
@@ -129,7 +137,7 @@ public class TableMetricTables
      */
     private static class LatencyTableMetric extends HistogramTableMetric
     {
-        LatencyTableMetric(String keyspace, String table, Function<TableMetrics, Metric> func)
+        <M extends Metric & Sampling> LatencyTableMetric(String keyspace, String table, Function<TableMetrics, M> func)
         {
             super(keyspace, table, func, "_ms");
         }
@@ -139,7 +147,7 @@ public class TableMetricTables
          */
         public void add(SimpleDataSet result, String column, double value)
         {
-            if (column.equals(MEDIAN + suffix) || column.equals(P99 + suffix) || column.equals(MAX + suffix))
+            if (column.endsWith(suffix))
                 value *= NS_TO_MS;
 
             super.add(result, column, value);
@@ -152,11 +160,11 @@ public class TableMetricTables
      */
     private static class TableMetricTable extends AbstractVirtualTable
     {
-        final Function<TableMetrics, Metric> func;
+        final Function<TableMetrics, ? extends Metric> func;
         final String columnName;
         final String suffix;
 
-        TableMetricTable(String keyspace, String table, Function<TableMetrics, Metric> func,
+        TableMetricTable(String keyspace, String table, Function<TableMetrics, ? extends Metric> func,
                                 String colName, AbstractType colType, String suffix)
         {
             super(buildMetadata(keyspace, table, func, colName, colType, suffix));
@@ -220,7 +228,7 @@ public class TableMetricTables
      *  and type for a counter/gauge is formatted differently based on the units (bytes/time) so allowed to
      *  be set.
      */
-    private static TableMetadata buildMetadata(String keyspace, String table, Function<TableMetrics, Metric> func,
+    private static TableMetadata buildMetadata(String keyspace, String table, Function<TableMetrics, ? extends Metric> func,
                                               String colName, AbstractType colType, String suffix)
     {
         TableMetadata.Builder metadata = TableMetadata.builder(keyspace, table)
@@ -233,7 +241,7 @@ public class TableMetricTables
         Keyspace system = Keyspace.system().iterator().next();
         Metric test = func.apply(system.getColumnFamilyStores().iterator().next().metric);
 
-        if(test instanceof Counting)
+        if (test instanceof Counting)
         {
             metadata.addRegularColumn(colName, colType);
             // if it has a Histogram include some information about distribution
@@ -254,5 +262,4 @@ public class TableMetricTables
         }
         return metadata.build();
     }
-
 }
