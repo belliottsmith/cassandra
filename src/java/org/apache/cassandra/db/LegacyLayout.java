@@ -478,7 +478,7 @@ public abstract class LegacyLayout
             }
         }
 
-        return new LegacyUnfilteredPartition(info.getPartitionDeletion(), rtl, cells);
+        return new LegacyUnfilteredPartition(iterator.metadata(), partition.partitionKey(), info.getPartitionDeletion(), rtl, cells);
     }
 
     public static void serializeAsLegacyPartition(ReadCommand command, UnfilteredRowIterator partition, DataOutputPlus out, int version) throws IOException
@@ -1435,12 +1435,16 @@ public abstract class LegacyLayout
 
     public static class LegacyUnfilteredPartition
     {
+        final CFMetaData cfMetaData;
+        final DecoratedKey partitionKey;
         public final DeletionTime partitionDeletion;
         public final LegacyRangeTombstoneList rangeTombstones;
         public final List<LegacyCell> cells;
 
-        private LegacyUnfilteredPartition(DeletionTime partitionDeletion, LegacyRangeTombstoneList rangeTombstones, List<LegacyCell> cells)
+        private LegacyUnfilteredPartition(CFMetaData cfMetaData, DecoratedKey partitionKey, DeletionTime partitionDeletion, LegacyRangeTombstoneList rangeTombstones, List<LegacyCell> cells)
         {
+            this.cfMetaData = cfMetaData;
+            this.partitionKey = partitionKey;
             this.partitionDeletion = partitionDeletion;
             this.rangeTombstones = rangeTombstones;
             this.cells = cells;
@@ -1476,7 +1480,17 @@ public abstract class LegacyLayout
                 digest.update(ByteBufferUtil.bytes(partitionDeletion.markedForDeleteAt()));
 
             if (!rangeTombstones.isEmpty())
-                rangeTombstones.updateDigest(digest);
+            {
+                try
+                {
+                    rangeTombstones.updateDigest(digest);
+                }
+                catch (Throwable t)
+                {
+                    logger.error("{} {} {}", cfMetaData.cfName, cfMetaData.getKeyValidator().getString(partitionKey.getKey()), rangeTombstones.toString(), t);
+                    throw t;
+                }
+            }
         }
     }
 

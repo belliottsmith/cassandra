@@ -26,6 +26,9 @@ import java.util.List;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -45,6 +48,8 @@ import org.apache.cassandra.utils.FBUtilities;
 
 public abstract class ReadResponse
 {
+    private static final Logger logger = LoggerFactory.getLogger(ReadResponse.class);
+
     // Serializer for single partition read response
     public static final IVersionedSerializer<ReadResponse> serializer = new Serializer();
     // Serializer for the pre-3.0 rang slice responses.
