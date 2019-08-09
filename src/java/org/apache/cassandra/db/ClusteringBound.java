@@ -23,6 +23,9 @@ package org.apache.cassandra.db;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.utils.memory.AbstractAllocator;
 
 /**
@@ -30,6 +33,8 @@ import org.apache.cassandra.utils.memory.AbstractAllocator;
  */
 public class ClusteringBound extends ClusteringBoundOrBoundary
 {
+    private static final Logger logger = LoggerFactory.getLogger(ClusteringBound.class);
+
     /** The smallest start bound, i.e. the one that starts before any row. */
     public static final ClusteringBound BOTTOM = new ClusteringBound(Kind.INCL_START_BOUND, EMPTY_VALUES_ARRAY);
     /** The biggest end bound, i.e. the one that ends after any row. */
@@ -38,6 +43,17 @@ public class ClusteringBound extends ClusteringBoundOrBoundary
     protected ClusteringBound(Kind kind, ByteBuffer[] values)
     {
         super(kind, values);
+        if (kind == Kind.INCL_END_BOUND && values.length == 2 && values[values.length - 1] == null)
+        {
+            try
+            {
+                throw new RuntimeException();
+            }
+            catch (Throwable t)
+            {
+                logger.error("", t);
+            }
+        }
     }
 
     public static ClusteringBound create(Kind kind, ByteBuffer[] values)
