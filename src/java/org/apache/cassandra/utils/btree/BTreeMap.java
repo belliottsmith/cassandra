@@ -83,6 +83,11 @@ public class BTreeMap<K, V> implements NavigableMap<K, V>
         return update(BTree.update(tree, entryComparator, updateWith, UpdateFunction.noOp()));
     }
 
+    public BTreeMap<K, V> without(K remove)
+    {
+        return update(BTreeRemoval.remove(tree, entryToKeyComparator, remove));
+    }
+
     @Override
     public Comparator<? super K> comparator()
     {

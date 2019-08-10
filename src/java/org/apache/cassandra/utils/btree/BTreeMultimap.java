@@ -92,6 +92,24 @@ public class BTreeMultimap<K, V> implements SortedSetMultimap<K, V>
         return update(BTree.update(tree, entryComparator, updateWith, UpdateFunction.noOp()));
     }
 
+    public BTreeMultimap<K, V> without(K remove, V value)
+    {
+        return without(new SimpleEntry<>(remove, value));
+    }
+
+    public BTreeMultimap<K, V> without(Entry<K, V> remove)
+    {
+        return update(BTreeRemoval.remove(tree, entryComparator, remove));
+    }
+
+    public BTreeMultimap<K, V> without(K key)
+    {
+        Object[] tree = this.tree;
+        for (V value : get(key))
+            tree = BTreeRemoval.remove(tree, entryComparator, new SimpleEntry<>(key, value));
+        return update(tree);
+    }
+
     public Object[] tree()
     {
         return tree;
