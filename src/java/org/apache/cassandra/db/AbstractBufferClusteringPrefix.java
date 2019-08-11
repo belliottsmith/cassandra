@@ -19,10 +19,15 @@ package org.apache.cassandra.db;
 
 import java.nio.ByteBuffer;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.utils.ObjectSizes;
 
 public abstract class AbstractBufferClusteringPrefix extends AbstractClusteringPrefix
 {
+    private static final Logger logger = LoggerFactory.getLogger(AbstractBufferClusteringPrefix.class);
+
     public static final ByteBuffer[] EMPTY_VALUES_ARRAY = new ByteBuffer[0];
     private static final long EMPTY_SIZE = ObjectSizes.measure(Clustering.make(EMPTY_VALUES_ARRAY));
 
@@ -33,6 +38,17 @@ public abstract class AbstractBufferClusteringPrefix extends AbstractClusteringP
     {
         this.kind = kind;
         this.values = values;
+        if (kind == Kind.INCL_END_BOUND && values.length == 2 && values[1] == null)
+        {
+            try
+            {
+                throw new RuntimeException();
+            }
+            catch (Throwable t)
+            {
+                logger.error("", t);
+            }
+        }
     }
 
     public Kind kind()

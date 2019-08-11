@@ -1487,7 +1487,7 @@ public abstract class LegacyLayout
                 }
                 catch (Throwable t)
                 {
-                    logger.error("V3: {} {} {}", cfMetaData.cfName, cfMetaData.getKeyValidator().getString(partitionKey.getKey()), rangeTombstones.toString(), t);
+                    logger.error("V4: {} {} {}", cfMetaData.cfName, cfMetaData.getKeyValidator().getString(partitionKey.getKey()), rangeTombstones.toString(), t);
                     throw t;
                 }
             }
