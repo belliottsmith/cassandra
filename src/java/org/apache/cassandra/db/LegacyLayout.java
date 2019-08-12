@@ -2425,18 +2425,30 @@ public abstract class LegacyLayout
             ByteBuffer longBuffer = ByteBuffer.allocate(8);
             for (int i = 0; i < size; i++)
             {
-                for (int j = 0; j < starts[i].bound.size(); j++)
-                    digest.update(starts[i].bound.get(j).duplicate());
-                if (starts[i].collectionName != null)
-                    digest.update(starts[i].collectionName.name.bytes.duplicate());
-                for (int j = 0; j < ends[i].bound.size(); j++)
-                    digest.update(ends[i].bound.get(j).duplicate());
-                if (ends[i].collectionName != null)
-                    digest.update(ends[i].collectionName.name.bytes.duplicate());
+                update(digest, starts[i].bound);
+                update(digest, starts[i].collectionName);
+                update(digest, ends[i].bound);
+                update(digest, ends[i].collectionName);
 
                 longBuffer.putLong(0, markedAts[i]);
                 digest.update(longBuffer.array(), 0, 8);
             }
+        }
+
+        private static void update(MessageDigest digest, ClusteringBound bound)
+        {
+            for (int i = 0 ; i < bound.size() ; ++i)
+            {
+                ByteBuffer bb = bound.get(i);
+                if (bb != null)
+                    digest.update(bb.duplicate());
+            }
+        }
+
+        private static void update(MessageDigest digest, ColumnDefinition collectionName)
+        {
+            if (collectionName != null)
+                digest.update(collectionName.name.bytes.duplicate());
         }
 
         public void serialize(DataOutputPlus out, CFMetaData metadata) throws IOException
