@@ -488,6 +488,16 @@ public final class SchemaKeyspace
         return mutation;
     }
 
+    /**
+     * A variant that doesn't create a keyspace row, only the table itself.
+     */
+    public static Mutation makeCreateTableOnlyMutation(CFMetaData table, long timestamp)
+    {
+        Mutation mutation = new Mutation(NAME, Tables.decorateKey(getSchemaKSKey(table.ksName)));
+        addTableToSchemaMutation(table, timestamp, true, mutation);
+        return mutation;
+    }
+
     static void addTableToSchemaMutation(CFMetaData table, long timestamp, boolean withColumnsAndTriggers, Mutation mutation)
     {
         RowUpdateBuilder adder = new RowUpdateBuilder(Tables, timestamp, mutation).clustering(table.cfName);

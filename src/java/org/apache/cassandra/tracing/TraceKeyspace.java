@@ -38,6 +38,16 @@ public final class TraceKeyspace
 
     public static final String NAME = "system_traces";
 
+    /**
+     * Generation is used as a timestamp for automatic table creation on startup.
+     * If you make any changes to the tables below, make sure to increment the
+     * generation and document your change here.
+     *
+     * gen 0: original definition
+     * gen 1: removal of default_time_to_live (3.0)
+     */
+    public static final long GENERATION = 1;
+
     public static final String SESSIONS = "sessions";
     public static final String EVENTS = "events";
 

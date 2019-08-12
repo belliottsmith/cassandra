@@ -57,6 +57,15 @@ public final class SystemDistributedKeyspace
 
     public static final String NAME = "system_distributed";
 
+    /**
+     * Generation is used as a timestamp for automatic table creation on startup.
+     * If you make any changes to the tables below, make sure to increment the
+     * generation and document your change here.
+     *
+     * gen 0: original definition
+     */
+    public static final long GENERATION = 0;
+
     public static final String REPAIR_HISTORY = "repair_history";
 
     public static final String PARENT_REPAIR_HISTORY = "parent_repair_history";

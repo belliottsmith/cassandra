@@ -583,7 +583,7 @@ public class MigrationManager
      * actively announce a new version to active hosts via rpc
      * @param schema The schema mutation to be applied
      */
-    private static void announce(Mutation schema, boolean announceLocally)
+    static void announce(Mutation schema, boolean announceLocally)
     {
         if (announceLocally)
             SchemaKeyspace.mergeSchema(Collections.singletonList(schema));

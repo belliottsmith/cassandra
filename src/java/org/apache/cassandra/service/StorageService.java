@@ -1074,9 +1074,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             }
         }
 
-        // if we don't have system_traces keyspace at this point, then create it manually
-        maybeAddOrUpdateKeyspace(TraceKeyspace.metadata(), false);
-        maybeAddOrUpdateKeyspace(SystemDistributedKeyspace.metadata(), false);
+        maybeAddOrUpdateKeyspace(            TraceKeyspace.metadata(),             TraceKeyspace.GENERATION);
+        maybeAddOrUpdateKeyspace(SystemDistributedKeyspace.metadata(), SystemDistributedKeyspace.GENERATION);
+
         maybeAddOrUpdateKeyspace(CIEInternalKeyspace.metadata(), true);
         maybeAddOrUpdateKeyspace(CIEInternalLocalKeyspace.metadata(), true);
 
@@ -1242,6 +1242,35 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             CFMetaData definedTable = defined.tables.get(expectedTable.cfName).orElse(null);
             if (definedTable == null || !definedTable.equals(expectedTable))
                 MigrationManager.forceAnnounceNewColumnFamily(expectedTable);
+        }
+    }
+
+    private void maybeAddOrUpdateKeyspace(KeyspaceMetadata keyspace, long generation)
+    {
+        KeyspaceMetadata definedKeyspace = Schema.instance.getKSMetaData(keyspace.name);
+        if (null == definedKeyspace)
+        {
+            // if the keyspace doesn't exist, create it - excluding tables and types, just the keyspace itself
+            // for the keyspace itself we always use timestamp of 0, so that we always yield to and never conflict
+            // with manual changes to keyspace RF and durability
+            try
+            {
+                MigrationManager.announceNewKeyspace(KeyspaceMetadata.create(keyspace.name, keyspace.params), 0, false);
+            }
+            catch (AlreadyExistsException e)
+            {
+                // no-op extremely unlikely race
+            }
+            definedKeyspace = Schema.instance.getKSMetaData(keyspace.name);
+        }
+
+        // deal with all the new and changed tables; here, use provided generation as timestamp, to enable table evolution;
+        // when distributed system tables change definitions, their generation must be bumped for changes to take.
+        for (CFMetaData table : keyspace.tables)
+        {
+            CFMetaData definedTable = definedKeyspace.tables.getNullable(table.cfName);
+            if (!table.equals(definedTable))
+                MigrationManager.announce(SchemaKeyspace.makeCreateTableOnlyMutation(table, generation), false);
         }
     }
 
