@@ -58,15 +58,13 @@ public class Schema
 
     /* system keyspace names (the ones with LocalStrategy replication strategy) */
     public static final Set<String> LOCAL_SYSTEM_KEYSPACE_NAMES =
-        ImmutableSet.of(SystemKeyspace.NAME, SchemaKeyspace.NAME);
+        ImmutableSet.of(SystemKeyspace.NAME, SchemaKeyspace.NAME,
+                        CIEInternalLocalKeyspace.NAME);
 
     /* replicate system keyspace names (the ones with a "true" replication strategy) */
     public static final Set<String> REPLICATED_SYSTEM_KEYSPACE_NAMES =
-        ImmutableSet.of(TraceKeyspace.NAME, AuthKeyspace.NAME, SystemDistributedKeyspace.NAME);
-
-    /* Apple internal keyspaces */
-    public static final Set<String> APPLE_INTERNAL_SYSTEM_KEYSPACE_NAMES = ImmutableSet.of(CIEInternalKeyspace.NAME,
-                                                                                           CIEInternalLocalKeyspace.NAME);
+        ImmutableSet.of(TraceKeyspace.NAME, AuthKeyspace.NAME, SystemDistributedKeyspace.NAME,
+                        CIEInternalKeyspace.NAME);
 
     /**
      * longest permissible KS or CF name.  Our main concern is that filename not be more than 255 characters;
@@ -112,6 +110,8 @@ public class Schema
         {
             load(SchemaKeyspace.metadata());
             load(SystemKeyspace.metadata());
+
+            load(CIEInternalLocalKeyspace.metadata());
         }
     }
 
@@ -120,8 +120,7 @@ public class Schema
      */
     public static boolean isInternalKeyspace(String keyspaceName)
     {
-        return LOCAL_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase()) || REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase())
-        || APPLE_INTERNAL_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase());
+        return LOCAL_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase()) || REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(keyspaceName.toLowerCase());
     }
 
     /**

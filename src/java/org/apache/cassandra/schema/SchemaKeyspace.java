@@ -273,22 +273,21 @@ public final class SchemaKeyspace
      */
     public static void saveSystemKeyspacesSchema()
     {
-        KeyspaceMetadata system = Schema.instance.getKSMetaData(SystemKeyspace.NAME);
-        KeyspaceMetadata schema = Schema.instance.getKSMetaData(NAME);
-
         long timestamp = FBUtilities.timestampMicros();
 
-        // delete old, possibly obsolete entries in schema tables
-        for (String schemaTable : ALL)
+        for (String systemKeyspace : Schema.LOCAL_SYSTEM_KEYSPACE_NAMES)
         {
-            String query = String.format("DELETE FROM %s.%s USING TIMESTAMP ? WHERE keyspace_name = ?", NAME, schemaTable);
-            for (String systemKeyspace : Schema.LOCAL_SYSTEM_KEYSPACE_NAMES)
+            // delete old, possibly obsolete entries in schema tables
+            for (String schemaTable : ALL)
+            {
+                String query = String.format("DELETE FROM %s.%s USING TIMESTAMP ? WHERE keyspace_name = ?", NAME, schemaTable);
                 executeOnceInternal(query, timestamp, systemKeyspace);
-        }
+            }
 
-        // (+1 to timestamp to make sure we don't get shadowed by the tombstones we just added)
-        makeCreateKeyspaceMutation(system, timestamp + 1).apply();
-        makeCreateKeyspaceMutation(schema, timestamp + 1).apply();
+            KeyspaceMetadata metadata = Schema.instance.getKSMetaData(systemKeyspace);
+            // +1 to timestamp to make sure we don't get shadowed by the tombstones we just added
+            makeCreateKeyspaceMutation(metadata, timestamp + 1).apply();
+        }
     }
 
     public static void truncate()

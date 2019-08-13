@@ -1078,7 +1078,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         maybeAddOrUpdateKeyspace(SystemDistributedKeyspace.metadata(), SystemDistributedKeyspace.GENERATION);
 
         maybeAddOrUpdateKeyspace(CIEInternalKeyspace.metadata(), true);
-        maybeAddOrUpdateKeyspace(CIEInternalLocalKeyspace.metadata(), true);
 
         if (!isSurveyMode)
         {

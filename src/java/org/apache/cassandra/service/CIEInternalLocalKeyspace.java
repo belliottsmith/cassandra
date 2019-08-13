@@ -15,10 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.cassandra.service;
-
-import java.util.concurrent.TimeUnit;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.schema.KeyspaceMetadata;
@@ -54,6 +51,4 @@ public class CIEInternalLocalKeyspace
     {
         return KeyspaceMetadata.create(NAME, KeyspaceParams.local(), Tables.of(HealthCheckLocal));
     }
-
-
 }
