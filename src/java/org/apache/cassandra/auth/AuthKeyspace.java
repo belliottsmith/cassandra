@@ -88,8 +88,7 @@ public final class AuthKeyspace
     {
         return CFMetaData.compile(String.format(schema, name), NAME)
                          .comment(description)
-                         .gcGraceSeconds((int) TimeUnit.DAYS.toSeconds(90))
-                         .readRepairChance(1);
+                         .gcGraceSeconds((int) TimeUnit.DAYS.toSeconds(90));
     }
 
     public static KeyspaceMetadata metadata()
