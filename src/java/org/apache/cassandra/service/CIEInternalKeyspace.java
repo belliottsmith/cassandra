@@ -33,6 +33,16 @@ public class CIEInternalKeyspace
 
     public static final String NAME = "cie_internal";
 
+    /**
+     * Generation is used as a timestamp for automatic table creation on startup.
+     * If you make any changes to the tables below, make sure to increment the
+     * generation and document your change here.
+     *
+     * gen 1577836800000000: original modern definition in 3.0.19; maps to Jan 1 2020, the date it's assumed we
+     *                       will have no more fresh 2.1 or 3.0.17 clusters going up, or upgrades from 2.1 to 3.0.17.
+     */
+    public static final long GENERATION = 1577836800000000L;
+
     public static final String SCHEMA_DROP_LOG = "schema_drop_log";
 
     private static final CFMetaData SchemaDropLog =
