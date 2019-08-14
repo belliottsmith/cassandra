@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Test;
 
 import org.apache.cassandra.MockSchema;
@@ -58,6 +59,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class CancelCompactionsTest extends CQLTester
 {
@@ -442,6 +444,70 @@ public class CancelCompactionsTest extends CQLTester
         {
             IPartitioner partitioner = getCurrentColumnFamilyStore().getPartitioner();
             getCurrentColumnFamilyStore().forceCompactionForTokenRange(Collections.singleton(new Range<>(partitioner.getMinimumToken(), partitioner.getMinimumToken())));
+        }
+    }
+
+    @Test
+    public void testStandardCompactionTaskCancellation() throws Throwable
+    {
+        createTable("create table %s (id int primary key, something int)");
+        getCurrentColumnFamilyStore().disableAutoCompaction();
+
+        for (int i = 0; i < 10; i++)
+        {
+            execute("insert into %s (id, something) values (?,?)", i, i);
+            getCurrentColumnFamilyStore().forceBlockingFlush();
+        }
+        AbstractCompactionTask ct = null;
+
+        for (AbstractCompactionStrategy cs : getCurrentColumnFamilyStore().getCompactionStrategyManager().getStrategies())
+        {
+            ct = cs.getNextBackgroundTask(0);
+            if (ct != null)
+                break;
+        }
+        assertNotNull(ct);
+
+        CountDownLatch waitForBeginCompaction = new CountDownLatch(1);
+        CountDownLatch waitForStart = new CountDownLatch(1);
+        Iterable<CFMetaData> metadatas = Collections.singleton(getCurrentColumnFamilyStore().metadata);
+        /*
+        Here we ask strategies to pause & interrupt compactions right before calling beginCompaction in CompactionTask
+        The code running in the separate thread below mimics CFS#runWithCompactionsDisabled but we only allow
+        the real beginCompaction to be called after pausing & interrupting.
+         */
+        Thread t = new Thread(() -> {
+            Uninterruptibles.awaitUninterruptibly(waitForBeginCompaction);
+            getCurrentColumnFamilyStore().getCompactionStrategyManager().pause();
+            CompactionManager.instance.interruptCompactionFor(metadatas, (s) -> true, false);
+            waitForStart.countDown();
+            CompactionManager.instance.waitForCessation(Collections.singleton(getCurrentColumnFamilyStore()), (s) -> true);
+            getCurrentColumnFamilyStore().getCompactionStrategyManager().resume();
+        });
+        t.start();
+
+        try
+        {
+            ct.execute(new ActiveCompactions()
+            {
+                @Override
+                public void beginCompaction(CompactionInfo.Holder ci)
+                {
+                    waitForBeginCompaction.countDown();
+                    Uninterruptibles.awaitUninterruptibly(waitForStart);
+                    super.beginCompaction(ci);
+                }
+            });
+            fail("execute should throw CompactionInterruptedException");
+        }
+        catch (CompactionInterruptedException cie)
+        {
+            // expected
+        }
+        finally
+        {
+            ct.transaction.abort();
+            t.join();
         }
     }
 

@@ -172,10 +172,17 @@ public final class CompactionInfo
             stopRequested = true;
         }
 
+        /**
+         * if this compaction involves several/all tables we can safely check globalCompactionsPaused
+         * in isStopRequested() below
+         */
+        public abstract boolean isGlobal();
+
         public boolean isStopRequested()
         {
-            return stopRequested;
+            return stopRequested || (isGlobal() && CompactionManager.instance.globalCompactionsPaused());
         }
+
         /**
          * report event on the size of the compaction.
          */

@@ -223,6 +223,8 @@ public class IndexSummaryManager implements IndexSummaryManagerMBean
 
     public void redistributeSummaries() throws IOException
     {
+        if (CompactionManager.instance.globalCompactionsPaused())
+            return;
         Pair<Long, Map<UUID, LifecycleTransaction>> redistributionTransactionInfo = getRestributionTransactions();
         Map<UUID, LifecycleTransaction> transactions = redistributionTransactionInfo.right;
         long nonRedistributingOffHeapSize = redistributionTransactionInfo.left;

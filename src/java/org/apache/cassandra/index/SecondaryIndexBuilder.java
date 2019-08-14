@@ -78,4 +78,9 @@ public class SecondaryIndexBuilder extends CompactionInfo.Holder
             iter.close();
         }
     }
+
+    public boolean isGlobal()
+    {
+        return false;
+    }
 }

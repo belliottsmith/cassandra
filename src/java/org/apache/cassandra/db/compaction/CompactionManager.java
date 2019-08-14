@@ -131,6 +131,9 @@ public class CompactionManager implements CompactionManagerMBean
 
     public final ActiveCompactions active = new ActiveCompactions();
 
+    // used to temporarily pause non-strategy managed compactions (like index summary redistribution)
+    private final AtomicInteger globalCompactionsPauseCount = new AtomicInteger(0);
+
     private final RateLimiter compactionRateLimiter = RateLimiter.create(Double.MAX_VALUE);
 
     @VisibleForTesting
@@ -2336,5 +2339,27 @@ public class CompactionManager implements CompactionManagerMBean
             else
                 break;
         }
+    }
+
+    /**
+     * Return whether "global" compactions should be paused, used by ColumnFamilyStore#runWithCompactionsDisabled
+     *
+     * a global compaction is one that includes several/all tables, currently only IndexSummaryBuilder
+     */
+    public boolean globalCompactionsPaused()
+    {
+        return globalCompactionsPauseCount.get() > 0;
+    }
+
+    public CompactionPauser pauseGlobalCompactions()
+    {
+        CompactionPauser pauser = globalCompactionsPauseCount::decrementAndGet;
+        globalCompactionsPauseCount.incrementAndGet();
+        return pauser;
+    }
+
+    public interface CompactionPauser extends AutoCloseable
+    {
+        public void close();
     }
 }

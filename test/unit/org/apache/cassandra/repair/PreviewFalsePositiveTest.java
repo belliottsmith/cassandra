@@ -86,6 +86,11 @@ public class PreviewFalsePositiveTest extends AbstractRepairTest
             {
                 return null;
             }
+
+            public boolean isGlobal()
+            {
+                return false;
+            }
         };
     }
 
