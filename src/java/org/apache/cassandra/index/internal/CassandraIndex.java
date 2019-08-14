@@ -278,6 +278,8 @@ public abstract class CassandraIndex implements Index
 
     public long getEstimatedResultRows()
     {
+        // These two calculations can be mixed because there is one cell per row in the index cfs.
+        // See RegularColumnIndex/ClusteringColumnIndex
         long totalRows = 0;
         long totalPartitions = 0;
         for (SSTableReader sstable : indexCfs.getSSTables(SSTableSet.CANONICAL))
