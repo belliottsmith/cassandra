@@ -1937,15 +1937,29 @@
       </jar>
   </target>
 
-  <target name="test-jvm-dtest" depends="build-test" description="Execute unit tests">
-    <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true" filter="**/test/*Test.java">
-      <jvmarg value="-Dlog4j.configurationFile=test/conf/log4j2-dtest.xml"/>
-      <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
-      <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
-      <jvmarg value="-Djava.io.tmpdir=${tmp.dir}"/>
-      <jvmarg value="-Dcassandra.skip_sync=true" />
-    </testmacro>
-  </target>
+    <target name="test-jvm-dtest" depends="build-test" description="Execute in-jvm dtests">
+        <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true" filter="**/test/*Test.java">
+            <jvmarg value="-Dlog4j.configurationFile=test/conf/log4j2-dtest.xml"/>
+            <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
+            <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
+            <jvmarg value="-Djava.io.tmpdir=${tmp.dir}"/>
+            <jvmarg value="-Dcassandra.skip_sync=true" />
+        </testmacro>
+    </target>
+
+    <!-- Use this with an FQDN for test class, and a csv list of methods like this:
+        ant test-jvm-dtest-some -Dtest.name=org.apache.cassandra.distributed.test.ResourceLeakTest -Dtest.methods=looperTest
+      -->
+    <target name="test-jvm-dtest-some" depends="build-test" description="Execute some in-jvm dtests">
+        <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true">
+            <test name="${test.name}" methods="${test.methods}" outfile="build/test/output/TEST-${test.name}-${test.methods}"/>
+            <jvmarg value="-Dlog4j.configurationFile=test/conf/log4j2-dtest.xml"/>
+            <jvmarg value="-Dcassandra.ring_delay_ms=10000"/>
+            <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
+            <jvmarg value="-Djava.io.tmpdir=${tmp.dir}"/>
+            <jvmarg value="-Dcassandra.skip_sync=true" />
+        </testmacro>
+    </target>
 
   <!-- run microbenchmarks suite -->
   <target name="microbench" depends="build-test">
