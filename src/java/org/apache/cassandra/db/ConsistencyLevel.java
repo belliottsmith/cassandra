@@ -19,11 +19,16 @@ package org.apache.cassandra.db;
 
 import java.net.InetAddress;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +41,9 @@ import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.NetworkTopologyStrategy;
 import org.apache.cassandra.transport.ProtocolException;
-import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.concurrent.SimpleCondition;
+
+import static com.google.common.collect.Iterables.*;
 
 public enum ConsistencyLevel
 {
@@ -90,6 +97,151 @@ public enum ConsistencyLevel
         return codeIdx[code];
     }
 
+    public static interface ResponseTracker
+    {
+        int blockFor();
+
+        /**
+         *
+         * @return
+         */
+        int waitingOn();
+
+        /**
+         * @return true iff sufficient responses have been received, i.e. waitingOn() == 0
+         */
+        boolean await(long timeout, TimeUnit units) throws InterruptedException;
+
+        /**
+         * @return true iff we were waiting for the response
+         */
+        boolean receive(InetAddress address);
+
+        /**
+         * @return true iff we are waiting for a response from this node
+         */
+        boolean waitsOn(InetAddress address);
+    }
+
+    public static class SimpleResponseTracker implements ResponseTracker
+    {
+        final int blockFor;
+        final CountDownLatch latch;
+        @VisibleForTesting
+        protected SimpleResponseTracker(int blockFor)
+        {
+            this.blockFor = blockFor;
+            this.latch = new CountDownLatch(blockFor);
+        }
+
+        public int blockFor()
+        {
+            return blockFor;
+        }
+
+        public int waitingOn()
+        {
+            return (int) latch.getCount();
+        }
+
+        public boolean await(long timeout, TimeUnit units) throws InterruptedException
+        {
+            return latch.await(timeout, units);
+        }
+
+        public boolean receive(InetAddress address)
+        {
+            if (!waitsOn(address))
+                return false;
+
+            latch.countDown();
+            return true;
+        }
+
+        public boolean waitsOn(InetAddress address)
+        {
+            return true;
+        }
+    }
+
+    public static class LocalResponseTracker extends SimpleResponseTracker
+    {
+        private LocalResponseTracker(int blockFor)
+        {
+            super(blockFor);
+        }
+
+        public boolean waitsOn(InetAddress address)
+        {
+            return isLocal(address);
+        }
+    }
+
+    public static class EachQuorumResponseTracker extends SimpleResponseTracker
+    {
+        final Map<String, AtomicInteger> perDc;
+        private EachQuorumResponseTracker(int blockFor, Map<String, AtomicInteger> perDc)
+        {
+            super(blockFor);
+            this.perDc = perDc;
+        }
+
+        public boolean receive(InetAddress address)
+        {
+            if (0 <= perDc.get(DatabaseDescriptor.getEndpointSnitch().getDatacenter(address)).decrementAndGet())
+                latch.countDown();
+            return true;
+        }
+    }
+
+    public ResponseTracker trackWrite(Keyspace keyspace, Collection<InetAddress> live, Collection<InetAddress> allPending)
+    {
+        switch (this)
+        {
+            case LOCAL_ONE:
+            case LOCAL_QUORUM:
+            case LOCAL_SERIAL:
+            {
+                int blockFor = blockFor(keyspace) + size(filter(allPending, ConsistencyLevel::isLocal));
+                assureSufficientLiveNodes(keyspace, live, blockFor);
+                return new LocalResponseTracker(blockFor);
+            }
+            case EACH_QUORUM:
+            {
+                if ((keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy))
+                {
+                    NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
+
+                    Map<String, Integer> pendingByDc = ConsistencyLevel.countPerDCEndpoints(keyspace, allPending);
+                    Map<String, Integer> endpointsByDc = ConsistencyLevel.countPerDCEndpoints(keyspace, live);
+                    Map<String, AtomicInteger> blockForByDc = new HashMap<>();
+
+                    int totalBlockFor = 0;
+                    for (String dc : strategy.getDatacenters())
+                    {
+                        int dcBlockFor = ConsistencyLevel.localQuorumFor(keyspace, dc)
+                                         + pendingByDc.getOrDefault(dc, 0);
+
+                        int liveForDc = endpointsByDc.getOrDefault(dc, 0);
+                        if (liveForDc < dcBlockFor)
+                            throw new UnavailableException(ConsistencyLevel.EACH_QUORUM, dc, dcBlockFor, liveForDc);
+
+                        blockForByDc.put(dc, new AtomicInteger(dcBlockFor));
+                        totalBlockFor += dcBlockFor;
+                    }
+
+                    return new EachQuorumResponseTracker(totalBlockFor, blockForByDc);
+                }
+            }
+            default:
+            {
+                int blockFor = blockFor(keyspace) + allPending.size();
+                assureSufficientLiveNodes(keyspace, live, blockFor);
+                return new SimpleResponseTracker(blockFor);
+            }
+        }
+    }
+
     public static Map<String, Integer> countPerDCEndpoints(Keyspace keyspace, Iterable<InetAddress> liveEndpoints)
     {
         NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
@@ -106,12 +258,12 @@ public enum ConsistencyLevel
         return dcEndpoints;
     }
 
-    private int quorumFor(Keyspace keyspace)
+    private static int quorumFor(Keyspace keyspace)
     {
         return (keyspace.getReplicationStrategy().getReplicationFactor() / 2) + 1;
     }
 
-    private int localQuorumFor(Keyspace keyspace, String dc)
+    public static int localQuorumFor(Keyspace keyspace, String dc)
     {
         return (keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
              ? (((NetworkTopologyStrategy) keyspace.getReplicationStrategy()).getReplicationFactor(dc) / 2) + 1
@@ -234,7 +386,7 @@ public enum ConsistencyLevel
         }
     }
 
-    private List<InetAddress> filterForEachQuorum(Keyspace keyspace, List<InetAddress> liveEndpoints, ReadRepairDecision readRepair)
+    public static List<InetAddress> filterForEachQuorum(Keyspace keyspace, List<InetAddress> liveEndpoints, ReadRepairDecision readRepair)
     {
         NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
 
@@ -288,7 +440,7 @@ public enum ConsistencyLevel
                 }
                 // Fallthough on purpose for SimpleStrategy
             default:
-                return Iterables.size(liveEndpoints) >= blockFor(keyspace);
+                return size(liveEndpoints) >= blockFor(keyspace);
         }
     }
 
@@ -340,7 +492,7 @@ public enum ConsistencyLevel
                 }
                 // Fallthough on purpose for SimpleStrategy
             default:
-                int live = Iterables.size(liveEndpoints);
+                int live = size(liveEndpoints);
                 if (live < blockFor)
                 {
                     logger.trace("Live nodes {} do not satisfy ConsistencyLevel ({} required)", Iterables.toString(liveEndpoints), blockFor);

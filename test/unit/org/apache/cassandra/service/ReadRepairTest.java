@@ -19,7 +19,9 @@
 package org.apache.cassandra.service;
 
 import java.net.InetAddress;
-import java.util.Collection;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,9 +67,14 @@ public class ReadRepairTest
 
     private static class InstrumentedReadRepairHandler extends ReadRepairHandler
     {
-        public InstrumentedReadRepairHandler(Keyspace keyspace, DecoratedKey key, ConsistencyLevel consistency, Map<InetAddress, Mutation> repairs, int maxBlockFor, InetAddress[] participants)
+        public InstrumentedReadRepairHandler(ConsistencyLevel consistency, Map<InetAddress, Mutation> repairs, int maxBlockFor, List<InetAddress> initial)
         {
-            super(keyspace, key, consistency, repairs, maxBlockFor, participants);
+            super(consistency, repairs, new Tracker(maxBlockFor), initial, getAdditionalEndpoints(initial));
+        }
+
+        public InstrumentedReadRepairHandler(ConsistencyLevel consistency, Map<InetAddress, Mutation> repairs, int maxBlockFor, List<InetAddress> initial, List<InetAddress> additional)
+        {
+            super(consistency, repairs, new Tracker(maxBlockFor), initial, additional);
         }
 
         Map<InetAddress, Mutation> mutationsSent = new HashMap<>();
@@ -77,17 +84,24 @@ public class ReadRepairTest
             mutationsSent.put(endpoint, message.payload);
         }
 
-        List<InetAddress> candidates = targets;
-
-        protected List<InetAddress> getCandidateEndpoints()
+        private static List<InetAddress> getAdditionalEndpoints(List<InetAddress> initial)
         {
-            return candidates;
+            List<InetAddress> result = new ArrayList<>(targets);
+            result.removeAll(initial);
+            return result;
         }
 
-        @Override
-        boolean isLocal(InetAddress endpoint)
+        private static class Tracker extends ConsistencyLevel.SimpleResponseTracker
         {
-            return targets.contains(endpoint);
+            private Tracker(int blockFor)
+            {
+                super(blockFor);
+            }
+
+            public boolean waitsOn(InetAddress address)
+            {
+                return targets.contains(address);
+            }
         }
     }
 
@@ -164,16 +178,19 @@ public class ReadRepairTest
         return new Mutation(PartitionUpdate.singleRowUpdate(cfm, key, builder.build()));
     }
 
-    private static InstrumentedReadRepairHandler createRepairHandler(Map<InetAddress, Mutation> repairs, int maxBlockFor, Collection<InetAddress> participants)
+    private static InstrumentedReadRepairHandler createRepairHandler(Map<InetAddress, Mutation> repairs, int maxBlockFor, List<InetAddress> participants)
     {
-        InetAddress[] participantArray = new InetAddress[participants.size()];
-        participants.toArray(participantArray);
-        return new InstrumentedReadRepairHandler(ks, key, ConsistencyLevel.LOCAL_QUORUM, repairs, maxBlockFor, participantArray);
+        return new InstrumentedReadRepairHandler(ConsistencyLevel.LOCAL_QUORUM, repairs, maxBlockFor, participants);
+    }
+
+    private static InstrumentedReadRepairHandler createRepairHandler(Map<InetAddress, Mutation> repairs, int maxBlockFor, List<InetAddress> participants, List<InetAddress> additional)
+    {
+        return new InstrumentedReadRepairHandler(ConsistencyLevel.LOCAL_QUORUM, repairs, maxBlockFor, participants, additional);
     }
 
     private static InstrumentedReadRepairHandler createRepairHandler(Map<InetAddress, Mutation> repairs, int maxBlockFor)
     {
-        return createRepairHandler(repairs, maxBlockFor, repairs.keySet());
+        return createRepairHandler(repairs, maxBlockFor, new ArrayList<>(repairs.keySet()));
     }
 
     @Test
@@ -265,11 +282,10 @@ public class ReadRepairTest
         repairs.put(target1, mutation(cell2));
         repairs.put(target2, mutation(cell1));
 
-        InstrumentedReadRepairHandler handler = createRepairHandler(repairs, 2);
+        InstrumentedReadRepairHandler handler = createRepairHandler(repairs, 2, Lists.newArrayList(target1, target2), Collections.emptyList());
         handler.sendInitialRepairs();
 
         // we've already sent mutations to all candidates, so we shouldn't send any more
-        handler.candidates = Lists.newArrayList(target1, target2);
         handler.mutationsSent.clear();
         handler.maybeSendAdditionalRepairs(0, TimeUnit.NANOSECONDS);
         Assert.assertTrue(handler.mutationsSent.isEmpty());
@@ -286,7 +302,7 @@ public class ReadRepairTest
 
         Map<InetAddress, Mutation> repairs = new HashMap<>();
         repairs.put(target1, repair1);
-        Collection<InetAddress> participants = Lists.newArrayList(target1, target2);
+        List<InetAddress> participants = Lists.newArrayList(target1, target2);
 
         // check that the correct initial mutations are sent out
         InstrumentedReadRepairHandler handler = createRepairHandler(repairs, 2, participants);
@@ -337,7 +353,7 @@ public class ReadRepairTest
         InetAddress remote2 = InetAddress.getByName("10.0.0.2");
         repairs.put(remote1, mutation(cell1));
 
-        Collection<InetAddress> participants = Lists.newArrayList(target1, target2, remote1, remote2);
+        List<InetAddress> participants = Lists.newArrayList(target1, target2, remote1, remote2);
 
         InstrumentedReadRepairHandler handler = createRepairHandler(repairs, 2, participants);
         handler.sendInitialRepairs();

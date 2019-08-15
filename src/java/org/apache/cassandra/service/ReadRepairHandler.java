@@ -21,16 +21,13 @@ package org.apache.cassandra.service;
 import java.net.InetAddress;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -48,58 +45,39 @@ import org.apache.cassandra.tracing.Tracing;
 
 public class ReadRepairHandler implements IAsyncCallback
 {
-
-    private final Keyspace keyspace;
-    private final DecoratedKey key;
     private final ConsistencyLevel consistency;
-    private final InetAddress[] participants;
+    private final ConsistencyLevel.ResponseTracker blockFor;
+    private final List<InetAddress> additional;
     private final Map<InetAddress, Mutation> pendingRepairs;
-    private final CountDownLatch latch;
 
     private volatile long mutationsSentTime;
 
-    public ReadRepairHandler(Keyspace keyspace, DecoratedKey key, ConsistencyLevel consistency, Map<InetAddress, Mutation> repairs, int maxBlockFor, InetAddress[] participants)
+    public ReadRepairHandler(ConsistencyLevel consistency,
+                             Map<InetAddress, Mutation> repairs,
+                             ConsistencyLevel.ResponseTracker blockFor,
+                             List<InetAddress> initial,
+                             List<InetAddress> additional)
     {
-        this.keyspace = keyspace;
-        this.key = key;
         this.consistency = consistency;
         this.pendingRepairs = new ConcurrentHashMap<>(repairs);
-        this.participants = participants;
+        this.additional = additional;
 
+        this.blockFor = blockFor;
         // here we remove empty repair mutations from the block for total, since
         // we're not sending them mutations
-        int blockFor = maxBlockFor;
-        for (InetAddress participant: participants)
+        for (InetAddress participant : initial)
         {
             // remote dcs can sometimes get involved in dc-local reads. We want to repair
             // them if they do, but they shouldn't interfere with blocking the client read.
-            if (!repairs.containsKey(participant) && shouldBlockOn(participant))
-                blockFor--;
+            if (!repairs.containsKey(participant))
+                this.blockFor.receive(participant);
         }
-
-        // there are some cases where logically identical data can return different digests
-        // For read repair, this would result in ReadRepairHandler being called with a map of
-        // empty mutations. If we'd also speculated on either of the read stages, the number
-        // of empty mutations would be greater than blockFor, causing the latch ctor to throw
-        // an illegal argument exception due to a negative start value. So here we clamp it 0
-        latch = new CountDownLatch(Math.max(blockFor, 0));
     }
 
     @VisibleForTesting
-    long waitingOn()
+    int waitingOn()
     {
-        return latch.getCount();
-    }
-
-    @VisibleForTesting
-    boolean isLocal(InetAddress endpoint)
-    {
-        return ConsistencyLevel.isLocal(endpoint);
-    }
-
-    private boolean shouldBlockOn(InetAddress endpoint)
-    {
-        return !consistency.isDatacenterLocal() || isLocal(endpoint);
+        return blockFor.waitingOn();
     }
 
     @VisibleForTesting
@@ -108,14 +86,16 @@ public class ReadRepairHandler implements IAsyncCallback
         return pendingRepairs.size();
     }
 
+    int blockFor()
+    {
+        return blockFor.blockFor();
+    }
+
     @VisibleForTesting
     void ack(InetAddress from)
     {
-        if (shouldBlockOn(from))
-        {
-            pendingRepairs.remove(from);
-            latch.countDown();
-        }
+        pendingRepairs.remove(from);
+        blockFor.receive(from);
     }
 
     public void response(MessageIn msg)
@@ -158,7 +138,7 @@ public class ReadRepairHandler implements IAsyncCallback
             sendRR(mutation.createMessage(MessagingService.Verb.READ_REPAIR), destination);
             ColumnFamilyStore.metricsFor(cfId).readRepairRequests.mark();
 
-            if (!shouldBlockOn(destination))
+            if (!blockFor.waitsOn(destination))
                 pendingRepairs.remove(destination);
         }
     }
@@ -170,7 +150,7 @@ public class ReadRepairHandler implements IAsyncCallback
 
         try
         {
-            return latch.await(remaining, TimeUnit.NANOSECONDS);
+            return blockFor.await(remaining, TimeUnit.NANOSECONDS);
         }
         catch (InterruptedException e)
         {
@@ -197,9 +177,7 @@ public class ReadRepairHandler implements IAsyncCallback
 
         ReadRepairMetrics.speculatedDataRepair.mark();
 
-        Set<InetAddress> exclude = Sets.newHashSet(participants);
-        Iterable<InetAddress> candidates = Iterables.filter(getCandidateEndpoints(), e -> !exclude.contains(e));
-        if (Iterables.isEmpty(candidates))
+        if (additional.isEmpty())
             return;
 
         PartitionUpdate update = mergeUnackedUpdates();
@@ -210,7 +188,7 @@ public class ReadRepairHandler implements IAsyncCallback
 
         Mutation[] versionedMutations = new Mutation[msgVersionIdx(MessagingService.current_version) + 1];
 
-        for (InetAddress endpoint: candidates)
+        for (InetAddress endpoint : additional)
         {
             int versionIdx = msgVersionIdx(MessagingService.instance().getVersion(endpoint));
 
@@ -236,12 +214,6 @@ public class ReadRepairHandler implements IAsyncCallback
     public boolean isLatencyForSnitch()
     {
         return false;
-    }
-
-    @VisibleForTesting
-    protected Iterable<InetAddress> getCandidateEndpoints()
-    {
-        return getCandidateEndpoints(keyspace, key, consistency);
     }
 
     /**

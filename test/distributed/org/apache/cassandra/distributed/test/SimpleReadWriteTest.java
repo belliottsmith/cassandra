@@ -28,7 +28,7 @@ import org.apache.cassandra.distributed.impl.IInvokableInstance;
 
 import static org.junit.Assert.assertEquals;
 
-public class DistributedReadWritePathTest extends DistributedTestBase
+public class SimpleReadWriteTest extends DistributedTestBase
 {
     @Test
     public void coordinatorReadTest() throws Throwable
@@ -68,28 +68,6 @@ public class DistributedReadWritePathTest extends DistributedTestBase
 
             assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
                                                      ConsistencyLevel.QUORUM),
-                       row(1, 1, 1));
-        }
-    }
-
-    @Test
-    public void readRepairTest() throws Throwable
-    {
-        try (Cluster cluster = init(Cluster.create(3)))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1)");
-            cluster.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1)");
-
-            assertRows(cluster.get(3).executeInternal("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1"));
-
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
-                                                     ConsistencyLevel.QUORUM),
-                       row(1, 1, 1));
-
-            // Verify that data got repaired to the third node
-            assertRows(cluster.get(3).executeInternal("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1"),
                        row(1, 1, 1));
         }
     }

@@ -22,6 +22,8 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -41,7 +43,11 @@ import org.apache.cassandra.db.transform.*;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.ExcludingBounds;
 import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
+import org.apache.cassandra.exceptions.UnavailableException;
+import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.locator.NetworkTopologyStrategy;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.service.reads.RepairedDataTracker;
 import org.apache.cassandra.service.reads.RepairedDataVerifier;
@@ -83,9 +89,9 @@ public class DataResolver extends ResponseResolver
         }
     }
 
-    private void repairPartition(DecoratedKey key, Map<InetAddress, Mutation> mutations, InetAddress[] destinations)
+    private void repairPartition(Map<InetAddress, Mutation> mutations, ConsistencyLevel.ResponseTracker blockFor, List<InetAddress> initial, List<InetAddress> additional)
     {
-        ReadRepairHandler handler = new ReadRepairHandler(keyspace, key, consistency, mutations, consistency.blockFor(keyspace), destinations);
+        ReadRepairHandler handler = new ReadRepairHandler(consistency, mutations, blockFor, initial, additional);
         handler.sendInitialRepairs();
         repairResults.add(handler);
     }
@@ -101,24 +107,20 @@ public class DataResolver extends ResponseResolver
 
     public void awaitRepairs()
     {
-        boolean timedOut = false;
+        ReadRepairHandler timeOut = null;
         for (ReadRepairHandler repairHandler: repairResults)
-        {
             if (!repairHandler.awaitRepairs(DatabaseDescriptor.getWriteRpcTimeout(), TimeUnit.MILLISECONDS))
-            {
-                timedOut = true;
-            }
-        }
-        if (timedOut)
+                timeOut = repairHandler;
+        if (timeOut != null)
         {
             // We got all responses, but timed out while repairing
-            int blockFor = consistency.blockFor(keyspace);
+            int blockFor = timeOut.blockFor();
             if (Tracing.isTracing())
                 Tracing.trace("Timed out while read-repairing after receiving all {} data and digest responses", blockFor);
             else
                 logger.debug("Timeout while read-repairing after receiving all {} data and digest responses", blockFor);
 
-            throw new ReadTimeoutException(consistency, blockFor-1, blockFor, true);
+            throw new ReadTimeoutException(consistency, Math.min(blockFor - 1, blockFor - timeOut.waitingOn()), blockFor, true);
         }
     }
 
@@ -275,7 +277,20 @@ public class DataResolver extends ResponseResolver
             private final DecoratedKey partitionKey;
             private final PartitionColumns columns;
             private final boolean isReversed;
-            private final PartitionUpdate[] repairs = new PartitionUpdate[sources.length];
+            // the updates we will send to each source we read from (or null if none)
+            // plus one tail entry for any repair we will send to non-participants of the read phase
+            private PartitionUpdate[] repairs;
+            // bits, one for each source, indicating if we intend to build a mutation in response (before knowing if one is warranted)
+            private BitSet shouldWriteBackTo;
+            // true iff writing to node that did not participate in read phase; implies repairs.length == 1 + sources.length
+            private boolean shouldBuildFullDiff;
+            // the index in sources and repairs of the response from a given address, if any
+            private Map<InetAddress, Integer> sourceIdxLookup;
+            // those nodes we will initially send any mutations to
+            private List<InetAddress> initialRecipients;
+            // those nodes we haven't written to, but could if we had to speculate
+            private List<InetAddress> additionalRecipients;
+            private ConsistencyLevel.ResponseTracker blockFor;
 
             private final Row.Builder[] currentRows = new Row.Builder[sources.length];
             private final RowDiffListener diffListener;
@@ -320,15 +335,85 @@ public class DataResolver extends ResponseResolver
                         if (merged != null && !merged.equals(original))
                             currentRow(i, clustering).addCell(merged);
                     }
-
                 };
             }
 
-            private PartitionUpdate update(int i)
+            private void initialise()
             {
-                if (repairs[i] == null)
-                    repairs[i] = new PartitionUpdate(command.metadata(), partitionKey, columns, 1);
-                return repairs[i];
+                sourceIdxLookup = Maps.newHashMapWithExpectedSize(sources.length);
+                for (int i = 0 ; i < sources.length ; ++i)
+                    sourceIdxLookup.put(sources[i], i);
+
+                Token token = partitionKey.getToken();
+
+                // grab the natural endpoints, since they could have changed
+                // (we ignore the possibility they changed during the read portion of read-repair)
+                List<InetAddress> candidates = StorageProxy.getLiveSortedEndpoints(keyspace, token);
+                Collection<InetAddress> pending = StorageService.instance.getTokenMetadata().pendingEndpointsFor(token, keyspace.getName());
+                for (InetAddress endpoint : pending)
+                    if (FailureDetector.instance.isAlive(endpoint))
+                        candidates.add(endpoint);
+
+                blockFor = consistency.trackWrite(keyspace, candidates, pending);
+                int blockForCount = blockFor.blockFor();
+
+                // sort the nodes we contacted originally to the front
+                candidates.sort(Comparator.comparingInt(e ->
+                    sourceIdxLookup.get(e) != null ? -1 : 0
+                ));
+
+                switch (consistency)
+                {
+                    case EACH_QUORUM:
+                        if (keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
+                        {
+                            initialRecipients = ConsistencyLevel.filterForEachQuorum(keyspace, candidates, ReadRepairDecision.NONE);
+                            candidates.removeAll(new HashSet<>(initialRecipients));
+                            additionalRecipients = candidates;
+                            break;
+                        }
+                    case LOCAL_QUORUM:
+                    case LOCAL_ONE:
+                    case LOCAL_SERIAL:
+                        if (keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
+                            candidates.removeIf(inet -> !ConsistencyLevel.isLocal(inet));
+
+                    default:
+                        initialRecipients = candidates.subList(0, blockForCount);
+                        additionalRecipients = candidates.subList(blockForCount, candidates.size());
+                        break;
+                }
+
+                shouldWriteBackTo = new BitSet(sources.length);
+                for (InetAddress e : initialRecipients)
+                {
+                    Integer idx = sourceIdxLookup.get(e);
+                    if (idx != null)
+                        shouldWriteBackTo.set(idx);
+                }
+
+                shouldBuildFullDiff = shouldWriteBackTo.cardinality() < initialRecipients.size();
+                repairs = new PartitionUpdate[sources.length + (shouldBuildFullDiff ? 1 : 0)];
+            }
+
+            private void applyToPartition(int i, Consumer<PartitionUpdate> apply)
+            {
+                if (repairs == null)
+                    initialise();
+
+                if (shouldWriteBackTo.get(i))
+                {
+                    if (repairs[i] == null)
+                        repairs[i] = new PartitionUpdate(command.metadata(), partitionKey, columns, 1);
+                    apply.accept(repairs[i]);
+                }
+
+                if (shouldBuildFullDiff)
+                {
+                    if (repairs[repairs.length - 1] == null)
+                        repairs[repairs.length - 1] = new PartitionUpdate(command.metadata(), partitionKey, columns, 1);
+                    apply.accept(repairs[repairs.length - 1]);
+                }
             }
 
             /**
@@ -339,6 +424,9 @@ public class DataResolver extends ResponseResolver
              */
             private DeletionTime partitionLevelRepairDeletion(int i)
             {
+                if (repairs == null)
+                    initialise();
+
                 return repairs[i] == null ? DeletionTime.LIVE : repairs[i].partitionLevelDeletion();
             }
 
@@ -358,7 +446,7 @@ public class DataResolver extends ResponseResolver
                 for (int i = 0; i < versions.length; i++)
                 {
                     if (mergedDeletion.supersedes(versions[i]))
-                        update(i).addPartitionDeletion(mergedDeletion);
+                        applyToPartition(i, p -> p.addPartitionDeletion(mergedDeletion));
                 }
             }
 
@@ -374,7 +462,10 @@ public class DataResolver extends ResponseResolver
                 for (int i = 0; i < currentRows.length; i++)
                 {
                     if (currentRows[i] != null)
-                        update(i).add(currentRows[i].build());
+                    {
+                        Row row = currentRows[i].build();
+                        applyToPartition(i, p -> p.add(row));
+                    }
                 }
                 Arrays.fill(currentRows, null);
             }
@@ -520,32 +611,37 @@ public class DataResolver extends ResponseResolver
             private void closeOpenMarker(int i, Slice.Bound close)
             {
                 Slice.Bound open = markerToRepair[i];
-                update(i).add(new RangeTombstone(Slice.make(isReversed ? close : open, isReversed ? open : close), currentDeletion()));
+                RangeTombstone rt = new RangeTombstone(Slice.make(isReversed ? close : open, isReversed ? open : close), currentDeletion());
+                applyToPartition(i, p -> p.add(rt));
                 markerToRepair[i] = null;
             }
 
             public void close()
             {
-                HashMap<InetAddress, Mutation> mutations = null;
-                for (int i = 0; i < repairs.length; i++)
-                {
-                    if (repairs[i] == null)
-                        continue;
+                if (repairs == null)
+                    return;
 
-                    Mutation mutation = createRepairMutation(repairs[i], consistency, sources[i], false);
+                boolean hasRepairs = false;
+                for (int i = 0 ; !hasRepairs && i < repairs.length ; ++i)
+                    hasRepairs = repairs[i] != null;
+                if (!hasRepairs)
+                    return;
+
+                PartitionUpdate fullDiffRepair = shouldBuildFullDiff ? repairs[repairs.length - 1] : null;
+                HashMap<InetAddress, Mutation> mutations = Maps.newHashMapWithExpectedSize(initialRecipients.size());
+                for (InetAddress endpoint : initialRecipients)
+                {
+                    Integer idx = sourceIdxLookup.get(endpoint);
+                    PartitionUpdate repair = idx == null ? fullDiffRepair : repairs[idx];
+
+                    Mutation mutation = createRepairMutation(repair, consistency, endpoint, false);
                     if (mutation == null)
                         continue;
 
-                    if (mutations == null)
-                        mutations = Maps.newHashMapWithExpectedSize(sources.length);
-
-                    mutations.put(sources[i], mutation);
+                    mutations.put(endpoint, mutation);
                 }
 
-                if (mutations != null)
-                {
-                    repairPartition(partitionKey, mutations, sources);
-                }
+                repairPartition(mutations, blockFor, initialRecipients, additionalRecipients);
             }
         }
     }

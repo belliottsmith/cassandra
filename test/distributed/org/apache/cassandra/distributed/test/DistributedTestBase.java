@@ -49,21 +49,26 @@ public class DistributedTestBase
 
     protected static <C extends AbstractCluster<?>> C init(C cluster)
     {
+        return init(cluster, Math.min(3, cluster.size()));
+    }
+
+    protected static <C extends AbstractCluster<?>> C init(C cluster, int replicationFactor)
+    {
         cluster.startup();
-        cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': " + cluster.size() + "};");
+        cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': " + replicationFactor + "};");
         return cluster;
     }
 
     public static void assertRows(Object[][] actual, Object[]... expected)
     {
-        Assert.assertEquals(rowsNotEqualErrorMessage(actual, expected),
+        Assert.assertEquals(rowsNotEqualErrorMessage(expected, actual),
                             expected.length, actual.length);
 
         for (int i = 0; i < expected.length; i++)
         {
             Object[] expectedRow = expected[i];
             Object[] actualRow = actual[i];
-            Assert.assertTrue(rowsNotEqualErrorMessage(actual, expected),
+            Assert.assertTrue(rowsNotEqualErrorMessage(expected, actual),
                               Arrays.equals(expectedRow, actualRow));
         }
     }
