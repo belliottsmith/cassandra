@@ -48,7 +48,8 @@ public class PingMessage
     {
         public void serialize(PingMessage t, DataOutputPlus out, int version) throws IOException
         {
-            out.writeByte(t.connectionType.getId());
+            if (version >= MessagingService.VERSION_3014)
+                out.writeByte(t.connectionType.getId());
         }
 
         public PingMessage deserialize(DataInputPlus in, int version) throws IOException
@@ -74,7 +75,7 @@ public class PingMessage
 
         public long serializedSize(PingMessage t, int version)
         {
-            return 1;
+            return version >= MessagingService.VERSION_3014 ? 1 : 0;
         }
     }
 }
