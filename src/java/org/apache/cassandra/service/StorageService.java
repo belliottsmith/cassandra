@@ -21,7 +21,6 @@ import java.io.*;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.sql.Time;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.*;
@@ -4477,7 +4476,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             AsyncOneResponse<UpdateRepairedRangesResponse> response = MessagingService.instance().sendRR(request.createMessage(true), address);
             try
             {
-                UpdateRepairedRangesResponse payload = response.get(1, TimeUnit.MINUTES);
+                UpdateRepairedRangesResponse payload = response.get(1, MINUTES);
                 if (payload.success)
                     return;
                 else

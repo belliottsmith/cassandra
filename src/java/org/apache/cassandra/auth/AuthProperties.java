@@ -25,6 +25,7 @@ import javax.management.ObjectName;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.utils.MBeanWrapper;
 
 public class AuthProperties implements AuthPropertiesMXBean
 {
@@ -44,7 +45,7 @@ public class AuthProperties implements AuthPropertiesMXBean
         {
             try
             {
-                MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+                MBeanWrapper mbs = MBeanWrapper.instance;
                 mbs.registerMBean(this, new ObjectName("org.apache.cassandra.auth:type=AuthProperties"));
             }
             catch (Exception e)

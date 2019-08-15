@@ -35,8 +35,8 @@ import com.google.common.util.concurrent.ListenableFutureTask;
 
 import io.netty.util.concurrent.FastThreadLocal;
 import org.apache.cassandra.utils.ExecutorUtils;
-import org.apache.cassandra.utils.MBeanWrapper;
 import org.apache.cassandra.utils.NoSpamLogger;
+import org.apache.cassandra.utils.MBeanWrapper;
 import org.apache.cassandra.utils.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

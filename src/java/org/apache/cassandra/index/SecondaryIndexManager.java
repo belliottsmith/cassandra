@@ -61,6 +61,7 @@ import org.apache.cassandra.schema.Indexes;
 import org.apache.cassandra.service.pager.SinglePartitionPager;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.Server;
+import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.concurrent.Refs;
@@ -1153,8 +1154,6 @@ public class SecondaryIndexManager implements IndexRegistry
     @VisibleForTesting
     public static void shutdownAndWait(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException
     {
-        ExecutorService[] executors = new ExecutorService[]{ asyncExecutor, blockingExecutor };
-        shutdown(executors);
-        awaitTermination(timeout, unit, executors);
+        ExecutorUtils.shutdownAndWait(timeout, unit, asyncExecutor, blockingExecutor);
     }
 }

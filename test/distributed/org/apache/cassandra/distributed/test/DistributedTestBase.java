@@ -62,7 +62,12 @@ public class DistributedTestBase
     @BeforeClass
     public static void setup()
     {
+        System.setProperty("log4j2.disableJmx", "true"); // setting both ways as changes between versions
+        System.setProperty("log4j2.disable.jmx", "true");
+        System.setProperty("log4j.shutdownHookEnabled", "false");
         System.setProperty("org.apache.cassandra.disable_mbean_registration", "true");
+
+        System.setProperty("cassandra.minimum_replication_factor", "0"); // makes easier to share OSS tests without RF limits
         nativeLibraryWorkaround();
         processReaperWorkaround();
     }

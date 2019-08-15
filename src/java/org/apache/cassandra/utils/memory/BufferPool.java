@@ -845,7 +845,6 @@ public class BufferPool
     @VisibleForTesting
     public static void shutdownLocalCleaner(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException
     {
-        shutdownNow(Arrays.asList(EXEC));
-        awaitTermination(timeout, unit, Arrays.asList(EXEC));
+        ExecutorUtils.shutdownNowAndWait(timeout, unit, EXEC);
     }
 }

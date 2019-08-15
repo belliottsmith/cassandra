@@ -53,8 +53,6 @@ public class InstanceClassLoader extends URLClassLoader
             || name.startsWith("javax.")
             || name.startsWith("jdk.")
             || name.startsWith("netscape.")
-            || name.startsWith("org.apache.logging.")
-            || name.startsWith("org.slf4j.")
             || name.startsWith("org.xml.sax.")
             || name.startsWith("org.w3c.dom");
 

@@ -39,6 +39,7 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.Sets;
 
+import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,7 +56,6 @@ import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.api.ICluster;
-import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.utils.FBUtilities;
@@ -450,7 +450,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
     }
 
     @Override
-    public void close()
+    public void close() throws IOException
     {
         FBUtilities.waitOnFutures(instances.stream()
                                            .filter(i -> !i.isShutdown())
@@ -460,8 +460,8 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
 
         instances.clear();
         instanceMap.clear();
-        // Make sure to only delete directory when threads are stopped
-        FileUtils.deleteRecursive(root);
+        // Make sure to only delete directory when threads are stopped - use Apache Commons version to avoid CIE C*
+        FileUtils.deleteDirectory(root); // call to StorageService.instance.isSetupCompleted on the JVM dtest runner.
 
         //withThreadLeakCheck(futures);
     }

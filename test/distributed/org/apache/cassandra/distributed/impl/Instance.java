@@ -32,6 +32,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
@@ -83,6 +84,7 @@ import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.StreamCoordinator;
 import org.apache.cassandra.transport.messages.ResultMessage;
+import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NanoTimeToCurrentTimeMillis;
 import org.apache.cassandra.utils.Throwables;
@@ -92,6 +94,7 @@ import org.apache.cassandra.utils.memory.BufferPool;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
+import static org.apache.cassandra.utils.ExecutorUtils.shutdownAndWait;
 
 public class Instance extends IsolatedExecutor implements IInvokableInstance
 {
@@ -502,7 +505,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                 () -> Ref.shutdownReferenceReaper(1L, MINUTES),
                                 () -> Memtable.MEMORY_POOL.shutdownAndWait(1L, MINUTES),
                                 () -> SSTableReader.shutdownBlocking(1L, MINUTES),
-                                () -> shutdownAndWait(ActiveRepairService.repairCommandExecutor)
+                                () -> shutdownAndWait(1L, MINUTES, ActiveRepairService.repairCommandExecutor)
             );
             error = parallelRun(error, executor,
                                 () -> ScheduledExecutors.shutdownAndWait(1L, MINUTES),
@@ -515,26 +518,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             error = parallelRun(error, executor,
                                 CommitLog.instance::shutdownBlocking
             );
-
             Throwables.maybeFail(error);
         }).apply(isolatedExecutor);
 
         return CompletableFuture.runAsync(ThrowingRunnable.toRunnable(future::get), isolatedExecutor)
                                 .thenRun(super::shutdown);
-    }
-
-    private static void shutdownAndWait(ExecutorService executor)
-    {
-        try
-        {
-            executor.shutdownNow();
-            executor.awaitTermination(20, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException e)
-        {
-            throw new RuntimeException(e);
-        }
-        assert executor.isTerminated() && executor.isShutdown() : executor;
     }
 
     private static Throwable parallelRun(Throwable accumulate, ExecutorService runOn, ThrowingRunnable ... runnables)

@@ -27,8 +27,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.codahale.metrics.Timer;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.metrics.DefaultNameFactory;
-import org.apache.cassandra.utils.concurrent.WaitQueue;
 import org.apache.cassandra.utils.ExecutorUtils;
+import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 
 /**
