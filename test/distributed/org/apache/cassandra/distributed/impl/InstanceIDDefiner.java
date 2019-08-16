@@ -26,7 +26,7 @@ import org.apache.cassandra.concurrent.NamedThreadFactory;
 /**
  * Used by logback to find/define property value, see logback-dtest.xml
  */
-@Plugin(name="instance_id", category = StrLookup.CATEGORY)
+@Plugin(name="instance", category = StrLookup.CATEGORY)
 public class InstanceIDDefiner implements StrLookup
 {
     // Instantiated per classloader, set by Instance
