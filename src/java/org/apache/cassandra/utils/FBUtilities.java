@@ -856,42 +856,6 @@ public class FBUtilities
         return HAS_PROCFS;
     }
 
-    public static void updateWithShort(MessageDigest digest, int val)
-    {
-        digest.update((byte) ((val >> 8) & 0xFF));
-        digest.update((byte) (val & 0xFF));
-    }
-
-    public static void updateWithByte(MessageDigest digest, int val)
-    {
-        digest.update((byte) (val & 0xFF));
-    }
-
-    public static void updateWithInt(MessageDigest digest, int val)
-    {
-        digest.update((byte) ((val >>> 24) & 0xFF));
-        digest.update((byte) ((val >>> 16) & 0xFF));
-        digest.update((byte) ((val >>>  8) & 0xFF));
-        digest.update((byte) ((val >>> 0) & 0xFF));
-    }
-
-    public static void updateWithLong(MessageDigest digest, long val)
-    {
-        digest.update((byte) ((val >>> 56) & 0xFF));
-        digest.update((byte) ((val >>> 48) & 0xFF));
-        digest.update((byte) ((val >>> 40) & 0xFF));
-        digest.update((byte) ((val >>> 32) & 0xFF));
-        digest.update((byte) ((val >>> 24) & 0xFF));
-        digest.update((byte) ((val >>> 16) & 0xFF));
-        digest.update((byte) ((val >>>  8) & 0xFF));
-        digest.update((byte)  ((val >>> 0) & 0xFF));
-    }
-
-    public static void updateWithBoolean(MessageDigest digest, boolean val)
-    {
-        updateWithByte(digest, val ? 0 : 1);
-    }
-
     public static void closeAll(Iterable<? extends AutoCloseable> l) throws Exception
     {
         Exception toThrow = null;

@@ -18,8 +18,6 @@
 package org.apache.cassandra.db.rows;
 
 import java.nio.ByteBuffer;
-import java.util.*;
-import java.security.MessageDigest;
 
 import org.junit.Test;
 
@@ -28,13 +26,11 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CounterId;
-import org.apache.cassandra.utils.FBUtilities;
 
 import static org.junit.Assert.assertEquals;
 
@@ -61,7 +57,7 @@ public class DigestBackwardCompatibilityTest extends CQLTester
 
         ReadCommand cmd = Util.cmd(getCurrentColumnFamilyStore(), partitionKey).build();
         ImmutableBTreePartition partition = Util.getOnlyPartitionUnfiltered(cmd);
-        MessageDigest digest = FBUtilities.threadLocalMD5Digest();
+        Digest digest = Digest.forReadResponse();
         UnfilteredRowIterators.digest(cmd, partition.unfilteredIterator(), digest, MessagingService.VERSION_22);
         return ByteBuffer.wrap(digest.digest());
     }

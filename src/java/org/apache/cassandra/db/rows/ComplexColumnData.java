@@ -18,7 +18,6 @@
 package org.apache.cassandra.db.rows;
 
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 import java.util.*;
 import java.util.function.BiFunction;
 
@@ -28,6 +27,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.DeletionPurger;
+import org.apache.cassandra.db.Digest;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.ByteType;
 import org.apache.cassandra.db.marshal.SetType;
@@ -128,7 +128,7 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
             cell.validate();
     }
 
-    public void digest(MessageDigest digest)
+    public void digest(Digest digest)
     {
         if (!complexDeletion.isLive())
             complexDeletion.digest(digest);

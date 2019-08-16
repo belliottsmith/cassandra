@@ -390,6 +390,15 @@ public class RowUpdateBuilder
         return this;
     }
 
+    public RowUpdateBuilder addLegacyCounterCell(String columnName, long value)
+    {
+        ColumnDefinition c = getDefinition(columnName);
+        assert c.isCounterColumn();
+        ByteBuffer val = CounterContext.instance().createLocal(value);
+        builder(c).addCell(makeCell(c, val, null));
+        return this;
+    }
+
     private ColumnDefinition getDefinition(String name)
     {
         return update.metadata().getColumnDefinition(new ColumnIdentifier(name, true));

@@ -17,11 +17,11 @@
  */
 package org.apache.cassandra.db.rows;
 
-import java.security.MessageDigest;
 import java.util.Comparator;
 
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.DeletionPurger;
+import org.apache.cassandra.db.Digest;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.serializers.MarshalException;
 
@@ -74,9 +74,9 @@ public abstract class ColumnData
     /**
      * Adds the data to the provided digest.
      *
-     * @param digest the {@code MessageDigest} to add the data to.
+     * @param digest the {@code Digest} to add the data to.
      */
-    public abstract void digest(MessageDigest digest);
+    public abstract void digest(Digest digest);
 
     /**
      * Returns a copy of the data where all timestamps for live data have replaced by {@code newTimestamp} and

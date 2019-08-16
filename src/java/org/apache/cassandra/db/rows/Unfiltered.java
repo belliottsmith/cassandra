@@ -17,10 +17,9 @@
  */
 package org.apache.cassandra.db.rows;
 
-import java.security.MessageDigest;
-
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.Clusterable;
+import org.apache.cassandra.db.Digest;
 
 /**
  * Unfiltered is the common class for the main constituent of an unfiltered partition.
@@ -39,11 +38,11 @@ public interface Unfiltered extends Clusterable
     public Kind kind();
 
     /**
-     * Digest the atom using the provided {@code MessageDigest}.
+     * Digest the atom using the provided {@code Digest}.
      *
-     * @param digest the {@code MessageDigest} to use.
+     * @param digest the {@code Digest} to use.
      */
-    public void digest(MessageDigest digest);
+    public void digest(Digest digest);
 
     /**
      * Validate the data of this atom.

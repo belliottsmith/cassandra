@@ -19,7 +19,6 @@ package org.apache.cassandra.db;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 import java.util.*;
 
 import org.apache.cassandra.cache.IMeasurableMemory;
@@ -217,7 +216,7 @@ public interface ClusteringPrefix extends IMeasurableMemory, Clusterable
      *
      * @param digest the digest to which to add this prefix.
      */
-    public void digest(MessageDigest digest);
+    public void digest(Digest digest);
 
     /**
      * The size of the data hold by this prefix.

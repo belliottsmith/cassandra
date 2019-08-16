@@ -17,8 +17,6 @@
  */
 package org.apache.cassandra.config;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -31,6 +29,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.cql3.functions.*;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.Digest;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.commitlog.CommitLog;
@@ -86,20 +85,7 @@ public class Schema
     private volatile UUID version;
 
     // 59adb24e-f3cd-3e02-97f0-5b395827453f
-    public static final UUID emptyVersion;
-
-
-    static
-    {
-        try
-        {
-            emptyVersion = UUID.nameUUIDFromBytes(MessageDigest.getInstance("MD5").digest());
-        }
-        catch (NoSuchAlgorithmException e)
-        {
-            throw new AssertionError();
-        }
-    }
+    public static final UUID emptyVersion = UUID.nameUUIDFromBytes(Digest.forSchema().digest());
 
     /**
      * Initialize empty schema object and load the hardcoded system tables

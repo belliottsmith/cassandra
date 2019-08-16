@@ -21,7 +21,6 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.io.IOError;
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -1457,29 +1456,29 @@ public abstract class LegacyLayout
             this.cells = cells;
         }
 
-        public void digest(CFMetaData metadata, MessageDigest digest)
+        public void digest(CFMetaData metadata, Digest digest)
         {
             for (LegacyCell cell : cells)
             {
-                digest.update(cell.name.encode(metadata).duplicate());
+                digest.update(cell.name.encode(metadata));
 
                 if (cell.isCounter())
-                    CounterContext.instance().updateDigest(digest, cell.value);
+                    digest.updateWithCounterContext(cell.value);
                 else
-                    digest.update(cell.value.duplicate());
+                    digest.update(cell.value);
 
-                FBUtilities.updateWithLong(digest, cell.timestamp);
-                FBUtilities.updateWithByte(digest, cell.serializationFlags());
+                digest.updateWithLong(cell.timestamp)
+                      .updateWithByte(cell.serializationFlags());
 
                 if (cell.isExpiring())
-                    FBUtilities.updateWithInt(digest, cell.ttl);
+                    digest.updateWithInt(cell.ttl);
 
                 if (cell.isCounter())
                 {
                     // Counters used to have the timestampOfLastDelete field, which we stopped using long ago and has been hard-coded
                     // to Long.MIN_VALUE but was still taken into account in 2.2 counter digests (to maintain backward compatibility
                     // in the first place).
-                    FBUtilities.updateWithLong(digest, Long.MIN_VALUE);
+                    digest.updateWithLong(Long.MIN_VALUE);
                 }
             }
 
@@ -2431,19 +2430,19 @@ public abstract class LegacyLayout
             delTimes[i] = delTime;
         }
 
-        public void updateDigest(MessageDigest digest)
+        public void updateDigest(Digest digest)
         {
             ByteBuffer longBuffer = ByteBuffer.allocate(8);
             for (int i = 0; i < size; i++)
             {
                 for (int j = 0; j < starts[i].bound.size(); j++)
-                    digest.update(starts[i].bound.get(j).duplicate());
+                    digest.update(starts[i].bound.get(j));
                 if (starts[i].collectionName != null)
-                    digest.update(starts[i].collectionName.name.bytes.duplicate());
+                    digest.update(starts[i].collectionName.name.bytes);
                 for (int j = 0; j < ends[i].bound.size(); j++)
-                    digest.update(ends[i].bound.get(j).duplicate());
+                    digest.update(ends[i].bound.get(j));
                 if (ends[i].collectionName != null)
-                    digest.update(ends[i].collectionName.name.bytes.duplicate());
+                    digest.update(ends[i].collectionName.name.bytes);
 
                 longBuffer.putLong(0, markedAts[i]);
                 digest.update(longBuffer.array(), 0, 8);

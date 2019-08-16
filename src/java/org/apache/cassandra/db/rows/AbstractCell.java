@@ -17,15 +17,14 @@
  */
 package org.apache.cassandra.db.rows;
 
-import java.security.MessageDigest;
 import java.util.Objects;
 
 import org.apache.cassandra.config.ColumnDefinition;
+import org.apache.cassandra.db.Digest;
 import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.CollectionType;
 import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.FBUtilities;
 
 /**
  * Base abstract class for {@code Cell} implementations.
@@ -40,20 +39,17 @@ public abstract class AbstractCell extends Cell
         super(column);
     }
 
-    public void digest(MessageDigest digest)
+    public void digest(Digest digest)
     {
         if (isCounterCell())
-        {
-            CounterContext.instance().updateDigest(digest, value());
-        }
+            digest.updateWithCounterContext(value());
         else
-        {
-            digest.update(value().duplicate());
-        }
+            digest.update(value());
 
-        FBUtilities.updateWithLong(digest, timestamp());
-        FBUtilities.updateWithInt(digest, ttl());
-        FBUtilities.updateWithBoolean(digest, isCounterCell());
+        digest.updateWithLong(timestamp())
+              .updateWithInt(ttl())
+              .updateWithBoolean(isCounterCell());
+
         if (path() != null)
             path().digest(digest);
     }

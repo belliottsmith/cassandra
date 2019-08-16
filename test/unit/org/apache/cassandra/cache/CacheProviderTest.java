@@ -19,17 +19,13 @@
 package org.apache.cassandra.cache;
 
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
-
 import java.util.ArrayList;
 import java.util.List;
-
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -99,18 +95,13 @@ public class CacheProviderTest
     private void assertDigests(IRowCacheEntry one, CachedBTreePartition two)
     {
         assertTrue(one instanceof CachedBTreePartition);
-        try
-        {
-            MessageDigest d1 = MessageDigest.getInstance("MD5");
-            MessageDigest d2 = MessageDigest.getInstance("MD5");
-            UnfilteredRowIterators.digest(null, ((CachedBTreePartition) one).unfilteredIterator(), d1, MessagingService.current_version);
-            UnfilteredRowIterators.digest(null, ((CachedBTreePartition) two).unfilteredIterator(), d2, MessagingService.current_version);
-            assertTrue(MessageDigest.isEqual(d1.digest(), d2.digest()));
-        }
-        catch (NoSuchAlgorithmException e)
-        {
-            throw new RuntimeException(e);
-        }
+        Digest d1 = Digest.forReadResponse();
+        UnfilteredRowIterators.digest(null, ((CachedBTreePartition) one).unfilteredIterator(), d1, MessagingService.current_version);
+        byte[] digest1 = d1.digest();
+        Digest d2 = Digest.forReadResponse();
+        UnfilteredRowIterators.digest(null, ((CachedBTreePartition) two).unfilteredIterator(), d2, MessagingService.current_version);
+        byte[] digest2 = d2.digest();
+        assertArrayEquals(digest1, digest2);
     }
 
     private void concurrentCase(final CachedBTreePartition partition, final ICache<MeasureableString, IRowCacheEntry> cache) throws InterruptedException

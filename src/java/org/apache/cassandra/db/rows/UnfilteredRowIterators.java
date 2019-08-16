@@ -18,7 +18,6 @@
 package org.apache.cassandra.db.rows;
 
 import java.util.*;
-import java.security.MessageDigest;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -183,10 +182,10 @@ public abstract class UnfilteredRowIterators
      * @param command the command that has yield {@code iterator}. This can be null if {@code version >= MessagingService.VERSION_30}
      * as this is only used when producing digest to be sent to legacy nodes.
      * @param iterator the iterator to digest.
-     * @param digest the {@code MessageDigest} to use for the digest.
+     * @param digest the {@code Digest} to use for the digest.
      * @param version the messaging protocol to use when producing the digest.
      */
-    public static void digest(ReadCommand command, UnfilteredRowIterator iterator, MessageDigest digest, int version)
+    public static void digest(ReadCommand command, UnfilteredRowIterator iterator, Digest digest, int version)
     {
         if (version < MessagingService.VERSION_30)
         {
@@ -194,7 +193,7 @@ public abstract class UnfilteredRowIterators
             return;
         }
 
-        digest.update(iterator.partitionKey().getKey().duplicate());
+        digest.update(iterator.partitionKey().getKey());
         iterator.partitionLevelDeletion().digest(digest);
         iterator.columns().regulars.digest(digest);
         // When serializing an iterator, we skip the static columns if the iterator has not static row, even if the
@@ -209,7 +208,7 @@ public abstract class UnfilteredRowIterators
         // upgrade) so we can only do on the next protocol version bump.
         if (iterator.staticRow() != Rows.EMPTY_STATIC_ROW)
             iterator.columns().statics.digest(digest);
-        FBUtilities.updateWithBoolean(digest, iterator.isReverseOrder());
+        digest.updateWithBoolean(iterator.isReverseOrder());
         iterator.staticRow().digest(digest);
 
         while (iterator.hasNext())

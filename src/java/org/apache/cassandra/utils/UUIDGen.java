@@ -363,11 +363,11 @@ public class UUIDGen
             long pid = NativeLibrary.getProcessID();
             if (pid < 0)
                 pid = new Random(System.currentTimeMillis()).nextLong();
-            FBUtilities.updateWithLong(messageDigest, pid);
+            updateWithLong(messageDigest, pid);
 
             ClassLoader loader = UUIDGen.class.getClassLoader();
             int loaderId = loader != null ? System.identityHashCode(loader) : 0;
-            FBUtilities.updateWithInt(messageDigest, loaderId);
+            updateWithInt(messageDigest, loaderId);
 
             return messageDigest.digest();
         }
@@ -375,6 +375,26 @@ public class UUIDGen
         {
             throw new RuntimeException("MD5 digest algorithm is not available", nsae);
         }
+    }
+
+    private static void updateWithInt(MessageDigest digest, int val)
+    {
+        digest.update((byte) ((val >>> 24) & 0xFF));
+        digest.update((byte) ((val >>> 16) & 0xFF));
+        digest.update((byte) ((val >>>  8) & 0xFF));
+        digest.update((byte) ((val >>> 0) & 0xFF));
+    }
+
+    private static void updateWithLong(MessageDigest digest, long val)
+    {
+        digest.update((byte) ((val >>> 56) & 0xFF));
+        digest.update((byte) ((val >>> 48) & 0xFF));
+        digest.update((byte) ((val >>> 40) & 0xFF));
+        digest.update((byte) ((val >>> 32) & 0xFF));
+        digest.update((byte) ((val >>> 24) & 0xFF));
+        digest.update((byte) ((val >>> 16) & 0xFF));
+        digest.update((byte) ((val >>>  8) & 0xFF));
+        digest.update((byte)  ((val >>> 0) & 0xFF));
     }
 }
 

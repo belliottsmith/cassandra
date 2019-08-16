@@ -28,6 +28,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.Digest;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -50,9 +51,11 @@ public class MerkleTreeTest
 {
     private static final byte[] DUMMY = digest("dummy");
 
-    private static byte[] digest(String string)
+    static byte[] digest(String string)
     {
-        return FBUtilities.newMessageDigest("SHA-256").digest(string.getBytes());
+        return Digest.forValidator()
+                     .update(string.getBytes(), 0, string.getBytes().length)
+                     .digest();
     }
 
     /**

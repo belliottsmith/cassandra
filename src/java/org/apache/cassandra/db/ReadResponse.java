@@ -19,7 +19,6 @@ package org.apache.cassandra.db;
 
 import java.io.*;
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -136,7 +135,7 @@ public abstract class ReadResponse
 
     protected static ByteBuffer makeDigest(UnfilteredPartitionIterator iterator, ReadCommand command)
     {
-        MessageDigest digest = FBUtilities.threadLocalMD5Digest();
+        Digest digest = Digest.forReadResponse();
         UnfilteredPartitionIterators.digest(command, iterator, digest, command.digestVersion());
         return ByteBuffer.wrap(digest.digest());
     }

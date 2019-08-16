@@ -18,7 +18,6 @@
 package org.apache.cassandra.db.rows;
 
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 import java.util.Objects;
 
 import org.apache.cassandra.config.CFMetaData;
@@ -137,7 +136,7 @@ public class RangeTombstoneBoundMarker extends AbstractRangeTombstoneMarker
         return new RangeTombstoneBoundMarker(clustering(), newDeletionTime);
     }
 
-    public void digest(MessageDigest digest)
+    public void digest(Digest digest)
     {
         bound.digest(digest);
         deletion.digest(digest);

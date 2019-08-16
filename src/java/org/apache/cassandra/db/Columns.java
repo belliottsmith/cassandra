@@ -21,7 +21,6 @@ import java.io.IOException;
 import java.util.*;
 import java.util.function.Predicate;
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
@@ -371,10 +370,10 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
         return column -> iter.next(column) != null;
     }
 
-    public void digest(MessageDigest digest)
+    public void digest(Digest digest)
     {
         for (ColumnDefinition c : this)
-            digest.update(c.name.bytes.duplicate());
+            digest.update(c.name.bytes);
     }
 
     @Override

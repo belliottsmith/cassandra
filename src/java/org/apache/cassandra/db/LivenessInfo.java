@@ -18,12 +18,10 @@
 package org.apache.cassandra.db;
 
 import java.util.Objects;
-import java.security.MessageDigest;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.FBUtilities;
 
 /**
  * Stores the information relating to the liveness of the primary key columns of a row.
@@ -159,9 +157,9 @@ public class LivenessInfo
      *
      * @param digest the digest to add this liveness information to.
      */
-    public void digest(MessageDigest digest)
+    public void digest(Digest digest)
     {
-        FBUtilities.updateWithLong(digest, timestamp());
+        digest.updateWithLong(timestamp());
     }
 
     /**
@@ -335,11 +333,11 @@ public class LivenessInfo
         }
 
         @Override
-        public void digest(MessageDigest digest)
+        public void digest(Digest digest)
         {
             super.digest(digest);
-            FBUtilities.updateWithInt(digest, localExpirationTime);
-            FBUtilities.updateWithInt(digest, ttl);
+            digest.updateWithInt(localExpirationTime)
+                  .updateWithInt(ttl);
         }
 
         @Override

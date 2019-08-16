@@ -19,8 +19,6 @@
 package org.apache.cassandra.db;
 
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
-import java.util.Arrays;
 
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -264,9 +262,6 @@ public class CounterCellTest
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(COUNTER1);
         ByteBuffer col = ByteBufferUtil.bytes("val");
 
-        MessageDigest digest1 = MessageDigest.getInstance("md5");
-        MessageDigest digest2 = MessageDigest.getInstance("md5");
-
         CounterContext.ContextState state = CounterContext.ContextState.allocate(0, 2, 2);
         state.writeRemote(CounterId.fromInt(1), 4L, 4L);
         state.writeLocal(CounterId.fromInt(2), 4L, 4L);
@@ -278,10 +273,15 @@ public class CounterCellTest
         ColumnDefinition cDef = cfs.metadata.getColumnDefinition(col);
         Cell cleared = BufferCell.live(cfs.metadata, cDef, 5, CounterContext.instance().clearAllLocal(state.context));
 
-        original.digest(digest1);
-        cleared.digest(digest2);
+        Digest digest = Digest.forReadResponse();
+        original.digest(digest);
+        byte[] originalDigest = digest.digest();
 
-        assert Arrays.equals(digest1.digest(), digest2.digest());
+        digest = Digest.forReadResponse();
+        cleared.digest(digest);
+        byte[] clearedDigest = digest.digest();
+
+        assertArrayEquals(originalDigest, clearedDigest);
     }
 
     @Test
@@ -298,7 +298,7 @@ public class CounterCellTest
         builder.addCell(emptyCell);
         Row row = builder.build();
 
-        MessageDigest digest = MessageDigest.getInstance("md5");
+        Digest digest = Digest.forReadResponse();
         row.digest(digest);
         assertNotNull(digest.digest());
     }

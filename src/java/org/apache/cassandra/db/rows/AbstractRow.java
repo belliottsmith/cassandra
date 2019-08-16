@@ -17,9 +17,6 @@
 package org.apache.cassandra.db.rows;
 
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
-import java.util.AbstractCollection;
-import java.util.Collection;
 import java.util.Objects;
 
 import com.google.common.collect.Iterables;
@@ -28,7 +25,6 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.CollectionType;
 import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.utils.FBUtilities;
 
 /**
  * Base abstract class for {@code Row} implementations.
@@ -58,9 +54,9 @@ public abstract class AbstractRow implements Row
         return clustering() == Clustering.STATIC_CLUSTERING;
     }
 
-    public void digest(MessageDigest digest)
+    public void digest(Digest digest)
     {
-        FBUtilities.updateWithByte(digest, kind().ordinal());
+        digest.updateWithByte(kind().ordinal());
         clustering().digest(digest);
 
         deletion().digest(digest);

@@ -19,7 +19,6 @@ package org.apache.cassandra.db;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 import java.util.*;
 import java.util.function.Predicate;
 
@@ -775,7 +774,7 @@ public abstract class ReadCommand implements ReadQuery
 
     private static class RepairedDataInfo
     {
-        private MessageDigest hasher;
+        private Digest hasher;
         private boolean isConclusive = true;
         private ByteBuffer calculatedDigest = null;
 
@@ -803,7 +802,7 @@ public abstract class ReadCommand implements ReadQuery
 
         void trackPartitionKey(DecoratedKey key)
         {
-            updateBytes(getHasher(), key.getKey().duplicate());
+            getHasher().update(key.getKey());
         }
 
         void trackDeletion(DeletionTime deletion)
@@ -821,41 +820,12 @@ public abstract class ReadCommand implements ReadQuery
             row.digest(getHasher());
         }
 
-        private MessageDigest getHasher()
+        private Digest getHasher()
         {
             if (hasher == null)
-                hasher = FBUtilities.threadLocalMD5Digest();
+                hasher = Digest.forRepairedDataTracking();
 
             return hasher;
-        }
-
-        public static void updateBytes(MessageDigest hasher, ByteBuffer input)
-        {
-            if (!input.hasRemaining())
-                return;
-
-            if (input.hasArray())
-            {
-                byte[] b = input.array();
-                int ofs = input.arrayOffset();
-                int pos = input.position();
-                int lim = input.limit();
-                hasher.update(b, ofs + pos, lim - pos);
-                input.position(lim);
-            }
-            else
-            {
-                int len = input.remaining();
-                int n = Math.min(len, 1 << 12); // either the remaining amount or 4kb
-                byte[] tempArray = new byte[n];
-                while (len > 0)
-                {
-                    int chunk = Math.min(len, tempArray.length);
-                    input.get(tempArray, 0, chunk);
-                    hasher.update(tempArray, 0, chunk);
-                    len -= chunk;
-                }
-            }
         }
     }
 

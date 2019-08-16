@@ -18,14 +18,12 @@
 package org.apache.cassandra.db.rows;
 
 import java.util.*;
-import java.security.MessageDigest;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.service.paxos.Commit;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MergeIterator;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
@@ -370,10 +368,10 @@ public interface Row extends Unfiltered, Iterable<ColumnData>
             return time.deletes(cell);
         }
 
-        public void digest(MessageDigest digest)
+        public void digest(Digest digest)
         {
             time.digest(digest);
-            FBUtilities.updateWithBoolean(digest, isShadowable);
+            digest.updateWithBoolean(isShadowable);
         }
 
         public int dataSize()

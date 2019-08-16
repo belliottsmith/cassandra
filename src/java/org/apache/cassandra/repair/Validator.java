@@ -18,7 +18,6 @@
 package org.apache.cassandra.repair;
 
 import java.net.InetAddress;
-import java.security.MessageDigest;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +29,7 @@ import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.Digest;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.dht.Range;
@@ -188,54 +188,15 @@ public class Validator implements Runnable
         return range.contains(t);
     }
 
-    static class CountingDigest extends MessageDigest
-    {
-        private long count;
-        private MessageDigest underlying;
-
-        public CountingDigest(MessageDigest underlying)
-        {
-            super(underlying.getAlgorithm());
-            this.underlying = underlying;
-        }
-
-        @Override
-        protected void engineUpdate(byte input)
-        {
-            underlying.update(input);
-            count += 1;
-        }
-
-        @Override
-        protected void engineUpdate(byte[] input, int offset, int len)
-        {
-            underlying.update(input, offset, len);
-            count += len;
-        }
-
-        @Override
-        protected byte[] engineDigest()
-        {
-            return underlying.digest();
-        }
-
-        @Override
-        protected void engineReset()
-        {
-            underlying.reset();
-        }
-
-    }
-
     private MerkleTree.RowHash rowHash(UnfilteredRowIterator partition)
     {
         validated++;
         // MerkleTree uses XOR internally, so we want lots of output bits here
-        CountingDigest digest = new CountingDigest(FBUtilities.newMessageDigest("SHA-256"));
+        Digest digest = Digest.forValidator();
         UnfilteredRowIterators.digest(null, partition, digest, MessagingService.current_version);
         // only return new hash for merkle tree in case digest was updated - see CASSANDRA-8979
-        return digest.count > 0
-             ? new MerkleTree.RowHash(partition.partitionKey().getToken(), digest.digest(), digest.count)
+        return digest.inputBytes() > 0
+             ? new MerkleTree.RowHash(partition.partitionKey().getToken(), digest.digest(), digest.inputBytes())
              : null;
     }
 

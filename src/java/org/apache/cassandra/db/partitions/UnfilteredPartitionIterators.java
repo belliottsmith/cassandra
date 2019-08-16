@@ -19,7 +19,6 @@ package org.apache.cassandra.db.partitions;
 
 import java.io.IOError;
 import java.io.IOException;
-import java.security.MessageDigest;
 import java.util.*;
 
 import org.apache.cassandra.config.CFMetaData;
@@ -251,10 +250,10 @@ public abstract class UnfilteredPartitionIterators
      * @param command the command that has yield {@code iterator}. This can be null if {@code version >= MessagingService.VERSION_30}
      * as this is only used when producing digest to be sent to legacy nodes.
      * @param iterator the iterator to digest.
-     * @param digest the {@code MessageDigest} to use for the digest.
+     * @param digest the {@code Digest} to use for the digest.
      * @param version the messaging protocol to use when producing the digest.
      */
-    public static void digest(ReadCommand command, UnfilteredPartitionIterator iterator, MessageDigest digest, int version)
+    public static void digest(ReadCommand command, UnfilteredPartitionIterator iterator, Digest digest, int version)
     {
         while (iterator.hasNext())
         {

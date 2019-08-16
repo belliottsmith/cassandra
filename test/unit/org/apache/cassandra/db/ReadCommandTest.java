@@ -35,6 +35,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.BytesType;
+import org.apache.cassandra.db.marshal.CounterColumnType;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -59,6 +60,7 @@ public class ReadCommandTest
     private static final String KEYSPACE = "ReadCommandTest";
     private static final String CF1 = "Standard1";
     private static final String CF2 = "Standard2";
+    private static final String CF3 = "Counter1";
 
     private static final InetAddress REPAIR_COORDINATOR;
     static {
@@ -94,12 +96,17 @@ public class ReadCommandTest
                           .addRegularColumn("b", AsciiType.instance)
                           .build()
                           .caching(CachingParams.CACHE_EVERYTHING);
+        CFMetaData metadata3 =
+        CFMetaData.Builder.create(KEYSPACE, CF3, false, true, false, true)
+                          .addPartitionKey("key", BytesType.instance)
+                          .addClusteringColumn("col", AsciiType.instance)
+                          .addRegularColumn("c", CounterColumnType.instance)
+                          .build();
 
         SchemaLoader.prepareServer();
         SchemaLoader.createKeyspace(KEYSPACE,
                                     KeyspaceParams.simple(1),
-                                    metadata1,
-                                    metadata2);
+                                    metadata1, metadata2, metadata3);
 
         ActiveRepairService.instance.start();
     }
@@ -175,6 +182,66 @@ public class ReadCommandTest
         Util.getAll(readCommand.copy());
         assertEquals(2, readCount(sstables.get(0)));
         assertEquals(1, readCount(sstables.get(1)));
+    }
+
+    @Test
+    public void dontIncludeLegacyCounterContextInDigest() throws IOException
+    {
+        // Serializations of a CounterContext containing legacy (pre-2.1) shards
+        // can legitmately differ across replicas. For this reason, the context
+        // bytes are omitted from the repaired digest if they contain legacy shards.
+        // This clearly has a tradeoff with the efficacy of the digest, without doing
+        // so false positive digest mismatches will be reported for scenarios where
+        // there is nothing that can be done to "fix" the replicas
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF3);
+        cfs.truncateBlocking();
+        cfs.disableAutoCompaction();
+
+        // insert a row with the counter column having value 0, in a legacy shard.
+        new RowUpdateBuilder(cfs.metadata, 0, ByteBufferUtil.bytes("key"))
+                .clustering("aa")
+                .addLegacyCounterCell("c", 0L)
+                .build()
+                .apply();
+        cfs.forceBlockingFlush();
+        cfs.getLiveSSTables().forEach(sstable -> mutateRepaired(cfs, sstable, 111, null));
+
+        // execute a read and capture the digest
+        ReadCommand readCommand = Util.cmd(cfs, Util.dk("key")).build();
+        ByteBuffer digestWithLegacyCounter0 = performReadAndVerifyRepairedInfo(readCommand, 1, 1, true);
+        assertFalse(ByteBufferUtil.EMPTY_BYTE_BUFFER.equals(digestWithLegacyCounter0));
+
+        // truncate, then re-insert the same partition, but this time with a legacy
+        // shard having the value 1. The repaired digest should match the previous, as
+        // the values (context) are not included, only the cell metadata (ttl, timestamp, etc)
+        cfs.truncateBlocking();
+        new RowUpdateBuilder(cfs.metadata, 0, ByteBufferUtil.bytes("key"))
+                .clustering("aa")
+                .addLegacyCounterCell("c", 1L)
+                .build()
+                .apply();
+        cfs.forceBlockingFlush();
+        cfs.getLiveSSTables().forEach(sstable -> mutateRepaired(cfs, sstable, 111, null));
+
+        ByteBuffer digestWithLegacyCounter1 = performReadAndVerifyRepairedInfo(readCommand, 1, 1, true);
+        assertEquals(digestWithLegacyCounter0, digestWithLegacyCounter1);
+
+        // truncate, then re-insert the same partition, but this time with a non-legacy
+        // counter cell present. The repaired digest should not match the previous ones
+        // as this time the value (context) is included.
+        cfs.truncateBlocking();
+        new RowUpdateBuilder(cfs.metadata, 0, ByteBufferUtil.bytes("key"))
+                .clustering("aa")
+                .add("c", 1L)
+                .build()
+                .apply();
+        cfs.forceBlockingFlush();
+        cfs.getLiveSSTables().forEach(sstable -> mutateRepaired(cfs, sstable, 111, null));
+
+        ByteBuffer digestWithCounterCell = performReadAndVerifyRepairedInfo(readCommand, 1, 1, true);
+        assertFalse(ByteBufferUtil.EMPTY_BYTE_BUFFER.equals(digestWithCounterCell));
+        assertFalse(digestWithLegacyCounter0.equals(digestWithCounterCell));
+        assertFalse(digestWithLegacyCounter1.equals(digestWithCounterCell));
     }
 
     private long readCount(SSTableReader sstable)
@@ -300,26 +367,33 @@ public class ReadCommandTest
         }
     }
 
-    private void mutateRepaired(ColumnFamilyStore cfs, SSTableReader sstable, long repairedAt, UUID pendingSession) throws IOException
+    private void mutateRepaired(ColumnFamilyStore cfs, SSTableReader sstable, long repairedAt, UUID pendingSession)
     {
-        sstable.descriptor.getMetadataSerializer().mutateRepaired(sstable.descriptor, repairedAt, pendingSession);
-        sstable.reloadSSTableMetadata();
-        if (pendingSession != null)
+        try
         {
-            // setup a minimal repair session. This is necessary because we
-            // check for sessions which have exceeded timeout and been purged
-            Range<Token> range = new Range<>(cfs.metadata.partitioner.getMinimumToken(),
-                                             cfs.metadata.partitioner.getRandomToken());
-            ActiveRepairService.instance.registerParentRepairSession(pendingSession,
-                                                                     REPAIR_COORDINATOR,
-                                                                     Lists.newArrayList(cfs),
-                                                                     Sets.newHashSet(range),
-                                                                     true,
-                                                                     repairedAt,
-                                                                     true,
-                                                                     PreviewKind.NONE);
+            sstable.descriptor.getMetadataSerializer().mutateRepaired(sstable.descriptor, repairedAt, pendingSession);
+            sstable.reloadSSTableMetadata();
+            if (pendingSession != null)
+            {
+                // setup a minimal repair session. This is necessary because we
+                // check for sessions which have exceeded timeout and been purged
+                Range<Token> range = new Range<>(cfs.metadata.partitioner.getMinimumToken(),
+                                                 cfs.metadata.partitioner.getRandomToken());
+                ActiveRepairService.instance.registerParentRepairSession(pendingSession,
+                                                                         REPAIR_COORDINATOR,
+                                                                         Lists.newArrayList(cfs),
+                                                                         Sets.newHashSet(range),
+                                                                         true,
+                                                                         repairedAt,
+                                                                         true,
+                                                                         PreviewKind.NONE);
 
-            LocalSessionAccessor.prepareUnsafe(pendingSession, null, Sets.newHashSet(REPAIR_COORDINATOR));
+                LocalSessionAccessor.prepareUnsafe(pendingSession, null, Sets.newHashSet(REPAIR_COORDINATOR));
+            }
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
         }
     }
 
