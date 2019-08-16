@@ -596,17 +596,31 @@ public abstract class ReadCommand implements ReadQuery
                 return applyToRow(row);
             }
 
+            /**
+             * Count the number of live rows returned by the read command and the number of tombstones.
+             *
+             * Tombstones come in two forms on rows :
+             * - cells that aren't live anymore (either expired through TTL or deleted) : 1 tombstone per cell
+             * - Rows that aren't live and have no cell (DELETEs performed on the primary key) : 1 tombstone per row
+             * We avoid counting rows as tombstones if they contain nothing but expired cells.
+             */
             @Override
             public Row applyToRow(Row row)
             {
-                if (row.hasLiveData(ReadCommand.this.nowInSec(), enforceStrictLiveness))
-                    ++liveRows;
-
                 for (Cell cell : row.cells())
                 {
                     if (!cell.isLive(ReadCommand.this.nowInSec()))
                         countTombstone(row.clustering());
                 }
+
+                if (row.hasLiveData(ReadCommand.this.nowInSec(), enforceStrictLiveness))
+                    ++liveRows;
+
+                // we might have already counted a cell tombstone here, that would mean it was
+                // written after the row tombstone was written and we should count both.
+                if (!row.deletion().isLive())
+                    countTombstone(row.clustering());
+
                 return row;
             }
 
@@ -640,7 +654,10 @@ public abstract class ReadCommand implements ReadQuery
                 boolean warnTombstones = tombstones > warningThreshold && respectTombstoneThresholds;
                 if (warnTombstones)
                 {
-                    String msg = String.format("Read %d live rows and %d tombstone cells for query %1.512s (see tombstone_warn_threshold)", liveRows, tombstones, ReadCommand.this.toCQLString());
+
+                    String msg = String.format(
+                            "Read %d live rows and %d tombstone cells for query %1.512s (see tombstone_warn_threshold)",
+                            liveRows, tombstones, ReadCommand.this.toCQLString());
                     ClientWarn.instance.warn(msg);
                     if (tombstones < failureThreshold)
                     {
@@ -650,7 +667,9 @@ public abstract class ReadCommand implements ReadQuery
                     logger.warn(msg);
                 }
 
-                Tracing.trace("Read {} live and {} tombstone cells{}", liveRows, tombstones, (warnTombstones ? " (see tombstone_warn_threshold)" : ""));
+                Tracing.trace("Read {} live rows and {} tombstone cells{}",
+                        liveRows, tombstones,
+                        (warnTombstones ? " (see tombstone_warn_threshold)" : ""));
             }
         };
 

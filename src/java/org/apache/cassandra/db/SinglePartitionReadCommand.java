@@ -20,10 +20,13 @@ package org.apache.cassandra.db;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import com.google.common.collect.Iterables;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.lang3.tuple.Pair;
 
 import org.apache.cassandra.cache.IRowCacheEntry;
 import org.apache.cassandra.cache.RowCacheKey;
@@ -1236,10 +1239,25 @@ public class SinglePartitionReadCommand extends ReadCommand
             // they applied.
             boolean enforceStrictLiveness = commands.get(0).metadata().enforceStrictLiveness();
             // Because we only have enforce the limit per command, we need to enforce it globally.
+
             return limits.filter(PartitionIterators.concat(partitions),
                                  nowInSec,
                                  selectsFullPartitions,
                                  enforceStrictLiveness);
+        }
+
+        public UnfilteredPartitionIterator executeLocally(ReadOrderGroup  orderGroup)
+        {
+            List<Pair<DecoratedKey, UnfilteredPartitionIterator>> partitions = new ArrayList<>();
+            for (SinglePartitionReadCommand command : commands)
+            {
+                UnfilteredPartitionIterator iter = command.executeLocally(orderGroup);
+                partitions.add(Pair.of(command.partitionKey, iter));
+            }
+
+            Collections.sort(partitions, Comparator.comparing(Pair::getLeft));
+
+            return UnfilteredPartitionIterators.concat(partitions.stream().map(p -> p.getRight()).collect(Collectors.toList()));
         }
 
         public QueryPager getPager(PagingState pagingState, int protocolVersion)

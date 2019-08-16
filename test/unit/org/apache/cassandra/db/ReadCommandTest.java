@@ -33,14 +33,22 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
+import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.filter.DataLimits;
+import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.CounterColumnType;
 import org.apache.cassandra.db.partitions.*;
+import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.io.util.DataInputBuffer;
+import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.consistent.LocalSessionAccessor;
 import org.apache.cassandra.schema.CachingParams;
 import org.apache.cassandra.schema.KeyspaceParams;
@@ -60,7 +68,9 @@ public class ReadCommandTest
     private static final String KEYSPACE = "ReadCommandTest";
     private static final String CF1 = "Standard1";
     private static final String CF2 = "Standard2";
-    private static final String CF3 = "Counter1";
+    private static final String CF3 = "Standard3";
+    private static final String CF4 = "Standard4";
+    private static final String CF5 = "Counter1";
 
     private static final InetAddress REPAIR_COORDINATOR;
     static {
@@ -96,17 +106,45 @@ public class ReadCommandTest
                           .addRegularColumn("b", AsciiType.instance)
                           .build()
                           .caching(CachingParams.CACHE_EVERYTHING);
-        CFMetaData metadata3 =
-        CFMetaData.Builder.create(KEYSPACE, CF3, false, true, false, true)
+        CFMetaData metadata5 =
+        CFMetaData.Builder.create(KEYSPACE, CF5, false, true, false, true)
                           .addPartitionKey("key", BytesType.instance)
                           .addClusteringColumn("col", AsciiType.instance)
                           .addRegularColumn("c", CounterColumnType.instance)
                           .build();
 
+        CFMetaData metadata3 =
+        CFMetaData.Builder.create(KEYSPACE, CF3)
+                          .addPartitionKey("key", BytesType.instance)
+                          .addClusteringColumn("col", AsciiType.instance)
+                          .addRegularColumn("a", AsciiType.instance)
+                          .addRegularColumn("b", AsciiType.instance)
+                          .addRegularColumn("c", AsciiType.instance)
+                          .addRegularColumn("d", AsciiType.instance)
+                          .addRegularColumn("e", AsciiType.instance)
+                          .addRegularColumn("f", AsciiType.instance)
+                          .build();
+
+        CFMetaData metadata4 =
+        CFMetaData.Builder.create(KEYSPACE, CF4)
+                          .addPartitionKey("key", BytesType.instance)
+                          .addClusteringColumn("col", AsciiType.instance)
+                          .addRegularColumn("a", AsciiType.instance)
+                          .addRegularColumn("b", AsciiType.instance)
+                          .addRegularColumn("c", AsciiType.instance)
+                          .addRegularColumn("d", AsciiType.instance)
+                          .addRegularColumn("e", AsciiType.instance)
+                          .addRegularColumn("f", AsciiType.instance)
+                          .build();
+
         SchemaLoader.prepareServer();
         SchemaLoader.createKeyspace(KEYSPACE,
                                     KeyspaceParams.simple(1),
-                                    metadata1, metadata2, metadata3);
+                                    metadata1,
+                                    metadata2,
+                                    metadata3,
+                                    metadata4,
+                                    metadata5);
 
         ActiveRepairService.instance.start();
     }
@@ -193,7 +231,7 @@ public class ReadCommandTest
         // This clearly has a tradeoff with the efficacy of the digest, without doing
         // so false positive digest mismatches will be reported for scenarios where
         // there is nothing that can be done to "fix" the replicas
-        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF3);
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF5);
         cfs.truncateBlocking();
         cfs.disableAutoCompaction();
 
@@ -282,6 +320,145 @@ public class ReadCommandTest
         withRepairedInfo.trackRepairedStatus();
         Util.getAll(withRepairedInfo);
         assertEquals(cacheHits, cfs.metric.rowCacheHit.getCount());
+    }
+
+    /**
+     * This test will create several partitions with several rows each. Then, it will perform up to 5 row deletions on
+     * some partitions. We check that when reading the partitions, the maximum number of tombstones reported in the
+     * metrics is indeed equal to 5.
+     */
+    @Test
+    public void testCountDeletedRows() throws Exception
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF3);
+
+        String[][][] groups = new String[][][]{
+        new String[][]{ new String[]{ "1", "key1", "aa", "a" }, // "1" indicates to create the data, "-1" to delete the row
+                        new String[]{ "1", "key2", "bb", "b" },
+                        new String[]{ "1", "key3", "cc", "c" } },
+        new String[][]{ new String[]{ "1", "key3", "dd", "d" },
+                        new String[]{ "1", "key2", "ee", "e" },
+                        new String[]{ "1", "key1", "ff", "f" } },
+        new String[][]{ new String[]{ "1", "key6", "aa", "a" },
+                        new String[]{ "1", "key5", "bb", "b" },
+                        new String[]{ "1", "key4", "cc", "c" } },
+        new String[][]{ new String[]{ "1", "key2", "aa", "a" },
+                        new String[]{ "1", "key2", "cc", "c" },
+                        new String[]{ "1", "key2", "dd", "d" } },
+        new String[][]{ new String[]{ "-1", "key6", "aa", "a" },
+                        new String[]{ "-1", "key2", "bb", "b" },
+                        new String[]{ "-1", "key2", "ee", "e" },
+                        new String[]{ "-1", "key2", "aa", "a" },
+                        new String[]{ "-1", "key2", "cc", "c" },
+                        new String[]{ "-1", "key2", "dd", "d" } } };
+        int nowInSeconds = FBUtilities.nowInSeconds();
+
+        writeAndThenReadPartitions(cfs, groups, nowInSeconds);
+
+        assertEquals(5, cfs.metric.tombstoneScannedHistogram.cf.getSnapshot().getMax());
+    }
+
+    /**
+     * This test will create several partitions with several rows each and no deletions. We check that when reading the
+     * partitions, the maximum number of tombstones reported in the metrics is equal to 1, which is apparently the
+     * default max value for histograms in the metrics lib (equivalent to having no element reported).
+     */
+    @Test
+    public void testCountWithNoDeletedRow() throws Exception
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF4);
+
+        String[][][] groups = new String[][][]{
+        new String[][]{ new String[]{ "1", "key1", "aa", "a" }, // "1" indicates to create the data, "-1" to delete the row
+                        new String[]{ "1", "key2", "bb", "b" },
+                        new String[]{ "1", "key3", "cc", "c" } },
+        new String[][]{ new String[]{ "1", "key3", "dd", "d" },
+                        new String[]{ "1", "key2", "ee", "e" },
+                        new String[]{ "1", "key1", "ff", "f" } },
+        new String[][]{ new String[]{ "1", "key6", "aa", "a" },
+                        new String[]{ "1", "key5", "bb", "b" },
+                        new String[]{ "1", "key4", "cc", "c" } } };
+
+        int nowInSeconds = FBUtilities.nowInSeconds();
+
+        writeAndThenReadPartitions(cfs, groups, nowInSeconds);
+
+        assertEquals(1, cfs.metric.tombstoneScannedHistogram.cf.getSnapshot().getMax());
+    }
+
+    /**
+     * Writes rows to the column family store using the groups as input and then reads them. Returns the iterators from
+     * the read.
+     */
+    private List<UnfilteredPartitionIterator> writeAndThenReadPartitions(ColumnFamilyStore cfs, String[][][] groups,
+                                                                         int nowInSeconds) throws IOException
+    {
+        List<ByteBuffer> buffers = new ArrayList<>(groups.length);
+        ColumnFilter columnFilter = ColumnFilter.allColumnsBuilder(cfs.metadata).build();
+        RowFilter rowFilter = RowFilter.create();
+        Slice slice = Slice.make(Slice.Bound.BOTTOM, Slice.Bound.TOP);
+        ClusteringIndexSliceFilter sliceFilter = new ClusteringIndexSliceFilter(Slices.with(cfs.metadata.comparator, slice),
+                                                                                false);
+
+        for (String[][] group : groups)
+        {
+            cfs.truncateBlocking();
+            List<SinglePartitionReadCommand> commands = new ArrayList<>(group.length);
+
+            for (String[] data : group)
+            {
+                if (data[0].equals("1"))
+                {
+                    new RowUpdateBuilder(cfs.metadata, 0, ByteBufferUtil.bytes(data[1]))
+                    .clustering(data[2])
+                    .add(data[3], ByteBufferUtil.bytes("blah"))
+                    .build()
+                    .apply();
+                }
+                else
+                {
+                    RowUpdateBuilder.deleteRow(cfs.metadata, FBUtilities.timestampMicros(),
+                                               ByteBufferUtil.bytes(data[1]), data[2]).apply();
+                }
+                commands.add(SinglePartitionReadCommand.create(cfs.metadata, nowInSeconds,
+                                                               columnFilter, rowFilter,
+                                                               DataLimits.NONE,
+                                                               Util.dk(data[1]), sliceFilter));
+            }
+
+            cfs.forceBlockingFlush();
+
+            SinglePartitionReadCommand.Group query = new SinglePartitionReadCommand.Group(commands,
+                                                                                          DataLimits.NONE);
+
+            try (ReadOrderGroup orderGroup = query.startOrderGroup();
+                 UnfilteredPartitionIterator iter = query.executeLocally(orderGroup);
+                 DataOutputBuffer buffer = new DataOutputBuffer())
+            {
+                UnfilteredPartitionIterators.serializerForIntraNode().serialize(iter,
+                                                                                columnFilter,
+                                                                                buffer,
+                                                                                MessagingService.current_version);
+                buffers.add(buffer.buffer());
+            }
+        }
+
+        // deserialize, merge and check the results are all there
+        List<UnfilteredPartitionIterator> iterators = new ArrayList<>();
+
+        for (ByteBuffer buffer : buffers)
+        {
+            try (DataInputBuffer in = new DataInputBuffer(buffer, true))
+            {
+                iterators.add(UnfilteredPartitionIterators.serializerForIntraNode().deserialize(in,
+                                                                                                MessagingService.current_version,
+                                                                                                cfs.metadata,
+                                                                                                columnFilter,
+                                                                                                SerializationHelper.Flag.LOCAL));
+            }
+        }
+
+        return iterators;
     }
 
     private void testRepairedDataTracking(ColumnFamilyStore cfs, ReadCommand readCommand) throws IOException
