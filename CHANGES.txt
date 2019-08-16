@@ -1,5 +1,44 @@
+3.0.19.000
+ * <rdar://problem/50199618> K8s / Silk Road: Verify correct ownership of attached locations on disk at C* startup
+ * <rdar://problem/28809414> CASSANDRA-8527:  range tombstones should count towards tombstone warn/fail limit
+ * <rdar://problem/54305825> (Apple Internal) For 2.1->3.0 upgraded nodes cie_internal tables creation is attempted on every node start
+ * <rdar://problem/53496811> (Apple Internal) Legacy counter shards cause false positives when checking repaired data set on the read path
+ * <rdar://problem/51862236> CASSANDRA-15170: In-JVM dtests free instance classloaders
+ * <rdar://problem/53556744> CASSANDRA-14740: BlockingReadRepair does not maintain monotonicity during range movements
+ * <rdar://problem/52680469> (Apple Internal) CASSANDRA-13993 backport causes timeouts during upgrade to 3.0
+ * <rdar://problem/54251214> (Apple Internal) Fix cie_internal_local keyspace creation
+ * <rdar://problem/54254435> (Apple Internal) Undo read_repair_chance of 1.0 on system_auth tables
+ * <rdar://problem/52199665> CASSANDRA-15265: Index summary redistribution can start even when compactions are paused
+ * <rdar://problem/54209093> (Apple Internal) update system_traces tables in 3.0 properly
+ * <rdar://problem/52004580> CASSANDRA-15204: Toughen up column drop/recreate type validations
+ * <rdar://problem/53873807> CASSANDRA-15259: Use mean row count instead of mean column count for index selectivity calculation
+ * <rdar://problem/48766343> CASSANDRA-15202: Make repair coordination less expensive by moving MerkleTrees off heap
+ * <rdar://problem/51990128> Add a coalescing capped map to support APNs features
+ * <rdar://problem/49109568> CASSANDRA-15264: Disable resumable bootstrap in 3.0
+ * <rdar://problem/51023556> Fix errors on repairing empty keyspace
+ * <rdar://problem/50156177> CASSANDRA-15100: fix no-op cleanup perf regression
+ * <rdar://problem/50556550> CASSANDRA-15123: Unable to force compact or upgrade sstables in 3.0
+ * <rdar://problem/52084488> When the canonical classname is provided, we do not block SimpleStrategy
+ * <rdar://problem/52704141> (Apple Internal) Make option to enable/disable stcs in LO a hot prop
+ * <rdar://problem/53222565> KeyspaceQuota check will run its check even if node is Bootstrapping
+ * <rdar://problem/53449989> CASSANDRA-14654/13084/12062 - Compaction Heap Usage Improvements
+ * <rdar://problem/51719758> CASSANDRA-1516 ConnectionLimitHandler should use NoSpamLogger
+ * <rdar://problem/51664087> CASSANDRA-15178 Skipping illegal legacy cells can break reverse iteration of indexed partitions
+ * <rdar://problem/47836494> (Apple Internal) Cass: check behavior of writes at CL:ALL with a replacement in progress
+ * <rdar://problem/50875035> Repairing keyspace from a DC that keyspace is not replicated in fails.
+ * <rdar://problem/48000556> CASSANDRA-15019: Repaired data tracking isn't working for range queries
+ * <rdar://problem/41966474> CASSANDRA-14145: Detecting Data Resurrection on the Read Pat
+ * <rdar://problem/49534277> (Apple Internal) Make max protocol version a hot prop
+ * <rdar://problem/46736901> JDK 11 Support: cie-cassandra (server) CASSANDRA-15108, CASSANDRA-14607, CASSANDRA-9608
+ * <rdar://problem/48562620> APNS ndeepq use case support functions
+ * <rdar://problem/48523128> APNs nDeepQ, plus supporting CappedSortedMap/CellResolvers
+ * <rdar://problem/48562466> Support for multi-cell wrapping builders
+ * <rdar://problem/48563792> CASSANDRA-15005 Allow custom functions
+ * <rdar://problem/51060248> (Apple Internal) Remove token range check for PREPARE repair messages
+ * <rdar://problem/50721377> Apparent direct buffer leak causing OOMs on low traffic clusters (CASSANDRA-15126)
+ * <rdar://problem/54408043> Gemini performance fixes for hadoop mapreduce
+
 3.0.19
- * Add JDK11 Support (CASSANDRA-15108, CASSANDRA-14607, CASSANDRA-9608)
  * Update token metadata when handling MOVING/REMOVING_TOKEN events (CASSANDRA-15120)
  * cassandra-stress works with frozen collections: list and set (CASSANDRA-14907)
  * Fix handling FS errors on writing and reading flat files - LogTransaction and hints (CASSANDRA-15053)
@@ -40,6 +79,26 @@ Merged from 2.2:
  * Returns null instead of NaN or Infinity in JSON strings (CASSANDRA-14377)
  * Don't skip entire sstables when reading backwards with mixed clustering column order (CASSANDRA-14910)
  * Cannot perform slice reads in reverse direction against tables with clustering columns in mixed order (CASSANDRA-14899)
+
+ 3.0.17.20
+ * <rdar://problem/53266164> Restrict column recreation on fixed/variable length mismatch and simple/complex mismatch
+ * Backport CASSANDRA-14948 - Prevent recreation of previously dropped columns with a different kind
+
+ 3.0.17.19
+ * <rdar://problem/52004580> Backport CASSANDRA-15204 - Toughen up column drop/recreate type validations
+
+ 3.0.17.18
+ * <rdar://problem/53029528> native_transport_max_protocol_version should be added back to Config
+ * <rdar://problem/53029475> force legacy paging state should default to true
+
+ 3.0.17.17
+ * <rdar://problem/52188877> Add option to pin paging state version
+ * (revert) <rdar://problem/49534277> (Apple Internal) Make max protocol version a hot prop
+ * <rdar://problem/52055238> Backport CASSANDRA-15176 - Fix PagingState deserialization when the state was serialized using protocol version different from current session's
+
+ 3.0.17.16
+ * <rdar://problem/49534277> (Apple Internal) Make max protocol version a hot prop
+ * (no radar) PR #1249 drop root capabilities before running tests
 
 3.0.17.15
 * <rdar://problem/49484414> (CASSANDRA-15072) Incomplete range results during 2.X -> 3.11.4 upgrade
