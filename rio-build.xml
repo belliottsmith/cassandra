@@ -1122,7 +1122,6 @@
 
     <!-- creates release tarballs -->
     <target name="artifacts" depends="jar,javadoc"
-            unless="java.version.8"
             description="Create Cassandra release artifacts">
       <mkdir dir="${dist.dir}"/>
       <!-- fix the control linefeed so that builds on windows works on linux -->
