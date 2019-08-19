@@ -1945,7 +1945,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
 
     public EstimatedHistogram getEstimatedColumnCount()
     {
-        return sstableMetadata.estimatedColumnCount;
+        return sstableMetadata.estimatedCellPerPartitionCount;
     }
 
     public double getEstimatedDroppableTombstoneRatio(int gcBefore)
