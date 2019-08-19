@@ -1,4 +1,4 @@
-3.0.19.000
+3.0.19.001
  * <rdar://problem/50199618> K8s / Silk Road: Verify correct ownership of attached locations on disk at C* startup
  * <rdar://problem/28809414> CASSANDRA-8527:  range tombstones should count towards tombstone warn/fail limit
  * <rdar://problem/54305825> (Apple Internal) For 2.1->3.0 upgraded nodes cie_internal tables creation is attempted on every node start
