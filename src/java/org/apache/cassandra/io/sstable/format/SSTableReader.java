@@ -1943,7 +1943,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         return sstableMetadata.estimatedPartitionSize;
     }
 
-    public EstimatedHistogram getEstimatedColumnCount()
+    public EstimatedHistogram getEstimatedCellPerPartitionCount()
     {
         return sstableMetadata.estimatedCellPerPartitionCount;
     }
