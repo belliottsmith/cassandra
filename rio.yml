@@ -158,6 +158,8 @@ builds:
         publish:
           - repo: docker.apple.com/piedb/cie-cassandra
         perApplication: false
+    mirror:
+      target: silkroad
 
 
 - name: dtest-3.0.19
