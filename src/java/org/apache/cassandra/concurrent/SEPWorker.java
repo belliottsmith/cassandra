@@ -45,7 +45,7 @@ final class SEPWorker extends AtomicReference<SEPWorker.Work> implements Runnabl
     long prevStopCheck = 0;
     long soleSpinnerSpinTime = 0;
 
-    AtomicReference<AbstractLocalAwareExecutorService.FutureTask> currentTask = new AtomicReference<>();
+    AbstractLocalAwareExecutorService.FutureTask currentTask = null;
 
     SEPWorker(Long workerId, Work initialState, SharedExecutorPool pool)
     {
@@ -63,7 +63,7 @@ final class SEPWorker extends AtomicReference<SEPWorker.Work> implements Runnabl
     public DebuggableTask debuggableTask()
     {
         // this.task can change after null check so go off local reference
-        AbstractLocalAwareExecutorService.FutureTask task = currentTask.get();
+        AbstractLocalAwareExecutorService.FutureTask task = this.currentTask;
         return task == null ? null : task.debuggableTask();
     }
 
@@ -80,7 +80,6 @@ final class SEPWorker extends AtomicReference<SEPWorker.Work> implements Runnabl
          *      with invariant (1) ensures that if any thread was spinning when a task was added to any executor, that
          *      task will be processed immediately if work permits are available
          */
-
 
         AbstractLocalAwareExecutorService.FutureTask task = null;
         SEPExecutor assigned = null;
@@ -133,11 +132,9 @@ final class SEPWorker extends AtomicReference<SEPWorker.Work> implements Runnabl
                     if ((shutdown = assigned.shuttingDown) || !assigned.takeTaskPermit())
                         break;
                     task = assigned.tasks.poll();
-                    currentTask.lazySet(task);
                 }
 
                 // return our work permit, and maybe signal shutdown
-                currentTask.lazySet(null);
                 assigned.returnWorkPermit();
                 if (shutdown)
                 {
@@ -174,7 +171,6 @@ final class SEPWorker extends AtomicReference<SEPWorker.Work> implements Runnabl
         }
         finally
         {
-            currentTask.lazySet(null);
             pool.workerEnded(this);
         }
     }
