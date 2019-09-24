@@ -44,6 +44,7 @@ import javax.management.openmbean.TabularData;
 import javax.management.openmbean.TabularDataSupport;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.*;
 import com.google.common.util.concurrent.*;
@@ -879,6 +880,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             else if (shouldBootstrap())
             {
                 checkForEndpointCollision();
+            }
+            else if (SystemKeyspace.bootstrapComplete())
+            {
+                Preconditions.checkState(!Config.isClientMode());
+                // tokens are only ever saved to system.local after bootstrap has completed and we're joining the ring,
+                // or when token update operations (move, decom) are completed
+                Collection<Token> savedTokens = SystemKeyspace.getSavedTokens();
+                if (!savedTokens.isEmpty())
+                    appStates.put(ApplicationState.TOKENS, valueFactory.tokens(savedTokens));
             }
 
             // have to start the gossip service before we can see any info on other nodes.  this is necessary
