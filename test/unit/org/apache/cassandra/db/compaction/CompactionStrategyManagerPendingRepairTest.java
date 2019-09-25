@@ -18,10 +18,14 @@
 
 package org.apache.cassandra.db.compaction;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -33,6 +37,8 @@ import org.apache.cassandra.notifications.SSTableRepairStatusChanged;
 import org.apache.cassandra.repair.consistent.LocalSessionAccessor;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.FBUtilities;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * Tests CompactionStrategyManager's handling of pending repair sstables
@@ -174,7 +180,7 @@ public class CompactionStrategyManagerPendingRepairTest extends AbstractPendingR
         UUID repairID = registerSession(cfs, true, true);
         LocalSessionAccessor.prepareUnsafe(repairID, COORDINATOR, PARTICIPANTS);
         List<AbstractCompactionStrategy> strategies = csm.getStrategies();
-        Assert.assertEquals(2, strategies.size());
+        assertEquals(2, strategies.size());
         Assert.assertTrue(strategies.contains(csm.getRepaired()));
         Assert.assertTrue(strategies.contains(csm.getUnrepaired()));
 
@@ -183,7 +189,7 @@ public class CompactionStrategyManagerPendingRepairTest extends AbstractPendingR
         csm.handleNotification(new SSTableAddedNotification(Collections.singleton(sstable)), cfs.getTracker());
 
         strategies = csm.getStrategies();
-        Assert.assertEquals(3, strategies.size());
+        assertEquals(3, strategies.size());
         Assert.assertTrue(strategies.contains(csm.getRepaired()));
         Assert.assertTrue(strategies.contains(csm.getUnrepaired()));
         Assert.assertTrue(strategies.contains(csm.getForPendingRepair(repairID)));
@@ -203,7 +209,7 @@ public class CompactionStrategyManagerPendingRepairTest extends AbstractPendingR
         csm.handleNotification(new SSTableAddedNotification(Collections.singleton(sstable)), cfs.getTracker());
         LocalSessionAccessor.finalizeUnsafe(repairID);
         Assert.assertNotNull(csm.getForPendingRepair(repairID));
-        Assert.assertNotNull(csm.getForPendingRepair(repairID).getSSTables().contains(sstable));
+        Assert.assertTrue(csm.getForPendingRepair(repairID).getSSTables().contains(sstable));
         Assert.assertTrue(sstable.isPendingRepair());
         Assert.assertFalse(sstable.isRepaired());
 
@@ -222,7 +228,52 @@ public class CompactionStrategyManagerPendingRepairTest extends AbstractPendingR
         long expectedRepairedAt = ActiveRepairService.instance.getParentRepairSession(repairID).repairedAt;
         Assert.assertFalse(sstable.isPendingRepair());
         Assert.assertTrue(sstable.isRepaired());
-        Assert.assertEquals(expectedRepairedAt, sstable.getSSTableMetadata().repairedAt);
+        assertEquals(expectedRepairedAt, sstable.getSSTableMetadata().repairedAt);
+    }
+
+    @Test
+    public void testMultipleReloads() throws IOException
+    {
+        cfs.setCompactionParameters(ImmutableMap.of("class", "LeveledCompactionStrategy"));
+        UUID repairID = registerSession(cfs, true, true);
+        LocalSessionAccessor.prepareUnsafe(repairID, COORDINATOR, PARTICIPANTS);
+        SSTableReader sstable = makeSSTable(true);
+        SSTableReader sstable2 = makeSSTable(true);
+        mutateRepaired(sstable, repairID);
+        mutateRepaired(sstable2, repairID);
+
+        // change level to confuse LCS when getting the same sstable multiple times
+        sstable.descriptor.getMetadataSerializer().mutateLevel(sstable.descriptor, 2);
+        sstable.reloadSSTableMetadata();
+        csm.handleNotification(new SSTableAddedNotification(Sets.newHashSet(sstable, sstable2)), cfs.getTracker());
+
+        csm.reloadWithWriteLock(cfs.metadata);
+        csm.reloadWithWriteLock(cfs.metadata);
+        csm.reloadWithWriteLock(cfs.metadata);
+
+        int foundStrategies = 0;
+        for (AbstractCompactionStrategy strat : csm.getPendingRepairManager().getStrategies())
+        {
+            foundStrategies++;
+            if (strat.getSSTables().size() == 2)
+                assertEquals(ImmutableSet.of(sstable, sstable2), strat.getSSTables());
+            else if (strat.getSSTables().size() != 0)
+                Assert.fail("there should only be 2 sstables in total in the strategies, not "+strat.getSSTables());
+        }
+        assertEquals(1, foundStrategies);
+        LocalSessionAccessor.finalizeUnsafe(repairID);
+        int compactionCount = 0;
+
+        while (csm.getForPendingRepair(repairID) != null)
+        {
+            AbstractCompactionTask compactionTask = csm.getNextBackgroundTask(FBUtilities.nowInSeconds());
+            Assert.assertNotNull(compactionTask);
+            Assert.assertSame(PendingRepairManager.RepairFinishedCompactionTask.class, compactionTask.getClass());
+            // run the compaction
+            compactionTask.execute(ActiveCompactionsTracker.NOOP);
+            compactionCount++;
+        }
+        assertEquals(1, compactionCount);
     }
 
     /**
@@ -258,6 +309,6 @@ public class CompactionStrategyManagerPendingRepairTest extends AbstractPendingR
         // sstable should have pendingRepair cleared, and repairedAt set correctly
         Assert.assertFalse(sstable.isPendingRepair());
         Assert.assertFalse(sstable.isRepaired());
-        Assert.assertEquals(ActiveRepairService.UNREPAIRED_SSTABLE, sstable.getSSTableMetadata().repairedAt);
+        assertEquals(ActiveRepairService.UNREPAIRED_SSTABLE, sstable.getSSTableMetadata().repairedAt);
     }
 }

@@ -70,6 +70,7 @@ public class CompactionStrategyManager implements INotificationConsumer
     private final ColumnFamilyStore cfs;
     private volatile AbstractCompactionStrategy repaired;
     private volatile AbstractCompactionStrategy unrepaired;
+    private volatile PendingRepairManager pendingRepairs;
     private volatile boolean enabled = true;
     private volatile boolean isActive = true;
     private volatile CompactionParams params;
@@ -86,7 +87,6 @@ public class CompactionStrategyManager implements INotificationConsumer
      */
     private volatile CompactionParams schemaCompactionParams;
 
-    private final PendingRepairManager pendingRepairs;
     private boolean shouldDefragment;
 
     public CompactionStrategyManager(ColumnFamilyStore cfs)
@@ -94,7 +94,7 @@ public class CompactionStrategyManager implements INotificationConsumer
         cfs.getTracker().subscribe(this);
         logger.trace("{} subscribed to the data tracker.", this);
         this.cfs = cfs;
-        pendingRepairs = new PendingRepairManager(cfs);
+
         reload(cfs.metadata);
         params = cfs.metadata.params.compaction;
         enabled = params.isEnabled();
@@ -315,6 +315,12 @@ public class CompactionStrategyManager implements INotificationConsumer
         if (metadata.params.compaction.equals(schemaCompactionParams))
             return;
 
+        reloadWithWriteLock(metadata);
+    }
+
+    @VisibleForTesting
+    void reloadWithWriteLock(CFMetaData metadata)
+    {
         writeLock.lock();
         try
         {
@@ -890,9 +896,12 @@ public class CompactionStrategyManager implements INotificationConsumer
             repaired.shutdown();
         if (unrepaired != null)
             unrepaired.shutdown();
+        if (pendingRepairs != null)
+            pendingRepairs.shutdown();
+
         repaired = CFMetaData.createCompactionStrategyInstance(cfs, params);
         unrepaired = CFMetaData.createCompactionStrategyInstance(cfs, params);
-        pendingRepairs.setParams(params);
+        pendingRepairs = new PendingRepairManager(cfs, params);
         this.params = params;
     }
 

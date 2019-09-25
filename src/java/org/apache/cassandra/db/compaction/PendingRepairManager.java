@@ -63,11 +63,12 @@ class PendingRepairManager
     private static final Logger logger = LoggerFactory.getLogger(PendingRepairManager.class);
 
     private final ColumnFamilyStore cfs;
-    private volatile CompactionParams params;
+    private final CompactionParams params;
     private volatile ImmutableMap<UUID, AbstractCompactionStrategy> strategies = ImmutableMap.of();
 
-    PendingRepairManager(ColumnFamilyStore cfs)
+    PendingRepairManager(ColumnFamilyStore cfs, CompactionParams params)
     {
+        this.params = params;
         this.cfs = cfs;
     }
 
@@ -87,11 +88,6 @@ class PendingRepairManager
         return ImmutableMap.builder();
     }
 
-    void setParams(CompactionParams params)
-    {
-        this.params = params;
-    }
-
     AbstractCompactionStrategy get(UUID id)
     {
         return strategies.get(id);
@@ -106,7 +102,6 @@ class PendingRepairManager
     AbstractCompactionStrategy getOrCreate(UUID id)
     {
         checkPendingID(id);
-        assert id != null;
         AbstractCompactionStrategy strategy = get(id);
         if (strategy == null)
         {
@@ -117,6 +112,7 @@ class PendingRepairManager
                 {
                     logger.debug("Creating {}.{} compaction strategy for pending repair: {}", cfs.metadata.ksName, cfs.metadata.cfName, id);
                     strategy = CFMetaData.createCompactionStrategyInstance(cfs, params);
+                    strategy.startup(); // for built-in startegies this is a noop, but someone might have a custom strategy with this implemented
                     strategies = mapBuilder().putAll(strategies).put(id, strategy).build();
                 }
             }

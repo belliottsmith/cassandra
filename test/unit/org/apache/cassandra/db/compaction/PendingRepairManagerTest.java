@@ -94,7 +94,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
     public void needsCleanupNoSession()
     {
         UUID fakeID = UUIDGen.getTimeUUID();
-        PendingRepairManager prm = new PendingRepairManager(cfs);
+        PendingRepairManager prm = new PendingRepairManager(cfs, null);
         Assert.assertTrue(prm.canCleanup(fakeID));
     }
 
