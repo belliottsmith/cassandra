@@ -51,6 +51,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.PartitionSizeVerbHandler;
 import org.apache.cassandra.db.RangeSliceVerbHandler;
 import org.apache.cassandra.db.ReadCommandVerbHandler;
@@ -100,7 +101,6 @@ import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token.TokenFactory;
-import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.hints.HintVerbHandler;
 import org.apache.cassandra.hints.HintsService;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -804,7 +804,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 states.add(Pair.create(ApplicationState.STATUS, valueFactory.hibernate(true)));
                 Gossiper.instance.addLocalApplicationStates(states);
             }
-            doAuthSetup();
+            doAuthSetup(true);
             logger.info("Not joining ring as requested. Use JMX (StorageService->joinRing()) to initiate ring joining");
         }
     }
@@ -1059,9 +1059,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             }
         }
 
-        maybeAddOrUpdateKeyspace(            TraceKeyspace.metadata(),             TraceKeyspace.GENERATION);
-        maybeAddOrUpdateKeyspace(SystemDistributedKeyspace.metadata(), SystemDistributedKeyspace.GENERATION);
-        maybeAddOrUpdateKeyspace(      CIEInternalKeyspace.metadata(),       CIEInternalKeyspace.GENERATION);
+        setUpDistributedSystemKeyspaces();
 
         if (!isSurveyMode)
         {
@@ -1152,14 +1150,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         setTokens(tokens);
 
         assert tokenMetadata.sortedTokens().size() > 0;
-        doAuthSetup();
+        doAuthSetup(false);
     }
 
-    private void doAuthSetup()
+    private void doAuthSetup(boolean setUpSchema)
     {
         if (!authSetupCalled.getAndSet(true))
         {
-            maybeAddOrUpdateKeyspace(AuthKeyspace.metadata(), false);
+            if (setUpSchema)
+                maybeAddOrUpdateAuthKeyspace();
 
             DatabaseDescriptor.getRoleManager().setup();
             DatabaseDescriptor.getAuthenticator().setup();
@@ -1170,91 +1169,55 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
-    private void maybeAddKeyspace(KeyspaceMetadata ksm, boolean useCurrentTime)
+    private void maybeAddOrUpdateAuthKeyspace()
     {
-        try
-        {
-            /*
-             * MJK (2/26/18): Leaving comment below as is from OSS while merging. Our branch has useCurrentTime
-             * to enable "to stop drop and recreate of tables". Comment for why "0" still applies though.
-             *
-             * We use timestamp of 0, intentionally, so that varying timestamps wouldn't cause schema mismatches on
-             * newly added nodes.
-             *
-             * Having the initial/default timestamp as 0 also allows users to make and persist changes to replication
-             * of our replicated system keyspaces.
-             *
-             * In case that we need to make incompatible changes to those kesypaces/tables, we'd need to bump the timestamp
-             * on per-keyspace/per-table basis. So far we've never needed to.
-             */
-            MigrationManager.announceNewKeyspace(ksm, useCurrentTime? FBUtilities.timestampMicros() : 0, false);
-        }
-        catch (AlreadyExistsException e)
-        {
-            logger.debug("Attempted to create new keyspace {}, but it already exists", ksm.name);
-        }
+        List<Mutation> changes = new ArrayList<>(1);
+        maybeAddOrUpdateKeyspace(changes, AuthKeyspace.metadata(), AuthKeyspace.GENERATION);
+        if (!changes.isEmpty())
+            MigrationManager.announce(changes, false);
     }
 
-    /**
-     * Ensure the schema of a pseudo-system keyspace (a distributed system keyspace: traces, auth and the so-called distributedKeyspace),
-     * is up to date with what we expected (creating it if it doesn't exist and updating tables that may have been upgraded).
-     */
-    private void maybeAddOrUpdateKeyspace(KeyspaceMetadata expected, boolean useCurrentTime)
+    private void setUpDistributedSystemKeyspaces()
     {
-        // Note that want to deal with the keyspace and its table a bit differently: for the keyspace definition
-        // itself, we want to create it if it doesn't exist yet, but if it does exist, we don't want to modify it,
-        // because user can modify the definition to change the replication factor (#6016) and we don't want to
-        // override it. For the tables however, we have to deal with the fact that new version can add new columns
-        // (#8162 being an example), so even if the table definition exists, we still need to force the "current"
-        // version of the schema, the one the node will be expecting.
+        Collection<Mutation> changes = new ArrayList<>(4);
 
-        KeyspaceMetadata defined = Schema.instance.getKSMetaData(expected.name);
-        // If the keyspace doesn't exist, create it
-        if (defined == null)
-        {
-            maybeAddKeyspace(expected, useCurrentTime);
-            defined = Schema.instance.getKSMetaData(expected.name);
-        }
+        maybeAddOrUpdateKeyspace(changes,             TraceKeyspace.metadata(),             TraceKeyspace.GENERATION);
+        maybeAddOrUpdateKeyspace(changes, SystemDistributedKeyspace.metadata(), SystemDistributedKeyspace.GENERATION);
+        maybeAddOrUpdateKeyspace(changes,       CIEInternalKeyspace.metadata(),       CIEInternalKeyspace.GENERATION);
+        maybeAddOrUpdateKeyspace(changes,              AuthKeyspace.metadata(),              AuthKeyspace.GENERATION);
 
-        // While the keyspace exists, it might miss table or have outdated one
-        // There is also the potential for a race, as schema migrations add the bare
-        // keyspace into Schema.instance before adding its tables, so double check that
-        // all the expected tables are present
-        for (CFMetaData expectedTable : expected.tables)
-        {
-            CFMetaData definedTable = defined.tables.get(expectedTable.cfName).orElse(null);
-            if (definedTable == null || !definedTable.equals(expectedTable))
-                MigrationManager.forceAnnounceNewColumnFamily(expectedTable);
-        }
+        if (!changes.isEmpty())
+            MigrationManager.announce(changes, false);
     }
 
-    private void maybeAddOrUpdateKeyspace(KeyspaceMetadata keyspace, long generation)
+    private void maybeAddOrUpdateKeyspace(Collection<Mutation> changes, KeyspaceMetadata keyspace, long generation)
     {
+        Mutation change = null;
+
         KeyspaceMetadata definedKeyspace = Schema.instance.getKSMetaData(keyspace.name);
         if (null == definedKeyspace)
-        {
-            // if the keyspace doesn't exist, create it - excluding tables and types, just the keyspace itself
-            // for the keyspace itself we always use timestamp of 0, so that we always yield to and never conflict
-            // with manual changes to keyspace RF and durability
-            try
-            {
-                MigrationManager.announceNewKeyspace(KeyspaceMetadata.create(keyspace.name, keyspace.params), 0, false);
-            }
-            catch (AlreadyExistsException e)
-            {
-                // no-op extremely unlikely race
-            }
-            definedKeyspace = Schema.instance.getKSMetaData(keyspace.name);
-        }
+            definedKeyspace = KeyspaceMetadata.create(keyspace.name, keyspace.params);
 
-        // deal with all the new and changed tables; here, use provided generation as timestamp, to enable table evolution;
-        // when distributed system tables change definitions, their generation must be bumped for changes to take.
         for (CFMetaData table : keyspace.tables)
         {
-            CFMetaData definedTable = definedKeyspace.tables.getNullable(table.cfName);
-            if (!table.equals(definedTable))
-                MigrationManager.announce(SchemaKeyspace.makeCreateTableOnlyMutation(table, generation), false);
+            if (table.equals(definedKeyspace.tables.getNullable(table.cfName)))
+                continue;
+
+            if (null == change)
+            {
+                 // for the keyspace definition itself (name, replication, durability) always use generation 0;
+                 // this ensures that any changes made to replication by the user will never be overwritten.
+                change = SchemaKeyspace.makeCreateKeyspaceMutation(keyspace.name, keyspace.params, 0);
+            }
+
+            // for table definitions always use the provided generation; these tables, unlike their containing
+            // keyspaces, are *NOT* meant to be altered by the user; if their definitions need to change,
+            // the schema must be updated in code, and the appropriate generation must be bumped.
+            SchemaKeyspace.addTableToSchemaMutation(table, generation, true, change);
         }
+
+        if (null != change)
+            changes.add(change);
     }
 
     public boolean isJoined()

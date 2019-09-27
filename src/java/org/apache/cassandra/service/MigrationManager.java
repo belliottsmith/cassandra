@@ -354,21 +354,6 @@ public class MigrationManager
         announceNewColumnFamily(cfm, announceLocally, true);
     }
 
-    /**
-     * Announces the table even if the definition is already know locally.
-     * This should generally be avoided but is used internally when we want to force the most up to date version of
-     * a system table schema (Note that we don't know if the schema we force _is_ the most recent version or not, we
-     * just rely on idempotency to basically ignore that announce if it's not. That's why we can't use announceUpdateColumnFamily,
-     * it would for instance delete new columns if this is not called with the most up-to-date version)
-     *
-     * Note that this is only safe for system tables where we know the cfId is fixed and will be the same whatever version
-     * of the definition is used.
-     */
-    public static void forceAnnounceNewColumnFamily(CFMetaData cfm) throws ConfigurationException
-    {
-        announceNewColumnFamily(cfm, false, false, 0);
-    }
-
     private static void announceNewColumnFamily(CFMetaData cfm, boolean announceLocally, boolean throwOnDuplicate) throws ConfigurationException
     {
         announceNewColumnFamily(cfm, announceLocally, throwOnDuplicate, FBUtilities.timestampMicros());
@@ -583,12 +568,21 @@ public class MigrationManager
      * actively announce a new version to active hosts via rpc
      * @param schema The schema mutation to be applied
      */
-    static void announce(Mutation schema, boolean announceLocally)
+    public static void announce(Mutation schema, boolean announceLocally)
+    {
+        announce(Collections.singleton(schema), announceLocally);
+    }
+
+    /**
+     * actively announce a new version to active hosts via rpc
+     * @param schema The schema mutations to be applied
+     */
+    public static void announce(Collection<Mutation> schema, boolean announceLocally)
     {
         if (announceLocally)
-            SchemaKeyspace.mergeSchema(Collections.singletonList(schema));
+            SchemaKeyspace.mergeSchema(schema);
         else
-            FBUtilities.waitOnFuture(announce(Collections.singletonList(schema)));
+            FBUtilities.waitOnFuture(announce(schema));
     }
 
     private static void pushSchemaMutation(InetAddress endpoint, Collection<Mutation> schema)
