@@ -1179,12 +1179,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private void setUpDistributedSystemKeyspaces()
     {
-        Collection<Mutation> changes = new ArrayList<>(4);
+        Collection<Mutation> changes = new ArrayList<>(5);
 
+        maybeAddOrUpdateKeyspace(changes,              AuthKeyspace.metadata(),              AuthKeyspace.GENERATION);
         maybeAddOrUpdateKeyspace(changes,             TraceKeyspace.metadata(),             TraceKeyspace.GENERATION);
         maybeAddOrUpdateKeyspace(changes, SystemDistributedKeyspace.metadata(), SystemDistributedKeyspace.GENERATION);
         maybeAddOrUpdateKeyspace(changes,       CIEInternalKeyspace.metadata(),       CIEInternalKeyspace.GENERATION);
-        maybeAddOrUpdateKeyspace(changes,              AuthKeyspace.metadata(),              AuthKeyspace.GENERATION);
+        maybeAddOrUpdateKeyspace(changes,  CIEInternalLocalKeyspace.metadata(),  CIEInternalLocalKeyspace.GENERATION);
 
         if (!changes.isEmpty())
             MigrationManager.announce(changes, false);

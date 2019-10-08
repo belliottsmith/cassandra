@@ -55,15 +55,24 @@ public class Schema
 
     public static final Schema instance = new Schema();
 
-    /* system keyspace names (the ones with LocalStrategy replication strategy) */
+    /*
+     * system keyspace names (the ones with LocalStrategy replication strategy)
+     *
+     * cie_internal_local *SHOULD* also be here, but making it so would affect schema version
+     * calculation in a way that would make it incompatible with 3.0.17.
+     */
     public static final Set<String> LOCAL_SYSTEM_KEYSPACE_NAMES =
-        ImmutableSet.of(SystemKeyspace.NAME, SchemaKeyspace.NAME,
-                        CIEInternalLocalKeyspace.NAME);
+        ImmutableSet.of(SystemKeyspace.NAME, SchemaKeyspace.NAME);
 
-    /* replicate system keyspace names (the ones with a "true" replication strategy) */
+    /*
+     * replicate system keyspace names (the ones with a "true" replication strategy)
+     *
+     * cie_internal_local *SHOULD NOT* be here, but making it so would affect schema version
+     * calculation in a way that would make it incompatible with 3.0.17.
+     */
     public static final Set<String> REPLICATED_SYSTEM_KEYSPACE_NAMES =
         ImmutableSet.of(TraceKeyspace.NAME, AuthKeyspace.NAME, SystemDistributedKeyspace.NAME,
-                        CIEInternalKeyspace.NAME);
+                        CIEInternalLocalKeyspace.NAME, CIEInternalKeyspace.NAME);
 
     /**
      * longest permissible KS or CF name.  Our main concern is that filename not be more than 255 characters;
@@ -96,8 +105,6 @@ public class Schema
         {
             load(SchemaKeyspace.metadata());
             load(SystemKeyspace.metadata());
-
-            load(CIEInternalLocalKeyspace.metadata());
         }
     }
 
