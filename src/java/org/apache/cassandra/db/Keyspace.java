@@ -533,11 +533,10 @@ public class Keyspace
         try (OpOrder.Group opGroup = writeOrder.start())
         {
             // write the mutation to the commitlog and memtables
-            ReplayPosition replayPosition = null;
             if (writeCommitLog)
             {
                 Tracing.trace("Appending to commitlog");
-                replayPosition = CommitLog.instance.add(mutation);
+                CommitLog.instance.add(mutation);
             }
 
             for (PartitionUpdate upd : mutation.getPartitionUpdates())
@@ -570,7 +569,7 @@ public class Keyspace
                 UpdateTransaction indexTransaction = updateIndexes
                                                      ? cfs.indexManager.newUpdateTransaction(upd, opGroup, nowInSec)
                                                      : UpdateTransaction.NO_OP;
-                cfs.apply(upd, indexTransaction, opGroup, replayPosition);
+                cfs.apply(upd, indexTransaction, opGroup);
                 if (requiresViewUpdate)
                     baseComplete.set(System.currentTimeMillis());
             }
