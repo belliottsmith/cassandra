@@ -70,9 +70,25 @@ public abstract class Apns
 
     /* Tuple type for returning deliverable events. CQL type tuple<blob,tinyint,timestamp> */
     @VisibleForTesting
-    static final TupleType deliverableType = tupleType
+    static final TupleType sortedDeliverableType = tupleType
     (
         BytesType.instance,    // 0: event (value from the events CappedSortedMap)
+        ByteType.instance,     // 1: number of deliveries left
+        TimestampType.instance // 2: deliverable after timestamp
+    );
+
+    @VisibleForTesting
+    static final TupleType coalescingKeyAndMessageType = tupleType
+    (
+        BytesType.instance,    // 0: coalescing key
+        BytesType.instance      // 1: message
+    );
+
+    /* Tuple type for returning deliverable events. CQL type tuple<tuple<blob,blob>,tinyint,timestamp> */
+    @VisibleForTesting
+    static final TupleType coalescingDeliverableType = tupleType
+    (
+        coalescingKeyAndMessageType, // 0: event (value from the events CappedSortedMap)
         ByteType.instance,     // 1: number of deliveries left
         TimestampType.instance // 2: deliverable after timestamp
     );
@@ -108,15 +124,28 @@ public abstract class Apns
 
     /* Map returned by deliverable - map<uuid,tuple<blob,tinyint,timestamp>> */
     @VisibleForTesting
-    static final MapType<UUID, ByteBuffer> sortedDeliverableMapType = MapType.getInstance(sortedEventsType.getKeysType(), deliverableType, true);
+    static final MapType<UUID, ByteBuffer> sortedDeliverableMapType = MapType.getInstance(sortedEventsType.getKeysType(), sortedDeliverableType, true);
 
-    /* Tuple type returned by koldestdeliverable */
+    /* Map returned by deliverable - map<uuid,tuple<tuple<,blob>,tinyint,timestamp>> */
+    @VisibleForTesting
+    static final MapType<UUID, ByteBuffer> coalescingDeliverableMapType = MapType.getInstance(coalescingEventsType.getKeysType(), coalescingDeliverableType, true);
+
+    /* Tuple type returned by koldestdeliverable on sortedmap */
     @VisibleForTesting
     static final TupleType sortedKOldestDeliverableType = tupleType
     (
         Int32Type.instance, // 0: undeliverable
         Int32Type.instance, // 1: deliveries left
         sortedDeliverableMapType  // 2: k oldest deliverable messages
+    );
+
+    /* Tuple type returned by koldestdeliverable on coalescingmap */
+    @VisibleForTesting
+    static final TupleType coalescingKOldestDeliverableType = tupleType
+    (
+        Int32Type.instance, // 0: undeliverable
+        Int32Type.instance, // 1: deliveries left
+        coalescingDeliverableMapType  // 2: k oldest deliverable messages
     );
 
     private static final MapSerializer<ByteBuffer, ByteBuffer> bytesBytesMapSerializer =
@@ -184,9 +213,9 @@ public abstract class Apns
         return makeTuple(message, deliveryInfo[0], deliveryInfo[1]);
     }
 
-    private static Function makeDeliverable(MapType<?,?> eventsType)
+    private static Function makeDeliverable(MapType<?,?> eventsType, MapType<UUID, ByteBuffer> deliverableMapType)
     {
-        return new NativeScalarFunction("deliverable", sortedDeliverableMapType, eventsType, deliveriesMapType, TimestampType.instance)
+        return new NativeScalarFunction("deliverable", deliverableMapType, eventsType, deliveriesMapType, TimestampType.instance)
         {
             public ByteBuffer execute(int protocolVersion, List<ByteBuffer> parameters)
             {
@@ -251,9 +280,9 @@ public abstract class Apns
         };
     }
 
-    private static final Function makeKOldestDeliverable(MapType<?,?> eventsType)
+    private static final Function makeKOldestDeliverable(MapType<?,?> eventsType, TupleType koldestDeliverableType)
     {
-        return new NativeScalarFunction("koldestdeliverable", sortedKOldestDeliverableType, eventsType, deliveriesMapType, TimestampType.instance, Int32Type.instance)
+        return new NativeScalarFunction("koldestdeliverable", koldestDeliverableType, eventsType, deliveriesMapType, TimestampType.instance, Int32Type.instance)
         {
             public ByteBuffer execute(int protocolVersion, List<ByteBuffer> parameters)
             {
@@ -306,14 +335,16 @@ public abstract class Apns
             return bytesBytesMapSerializer.deserialize(bb);
     }
 
-    private static final Function sortedDeliverableFct = makeDeliverable(sortedEventsType);
+    private static final Function sortedDeliverableFct = makeDeliverable(sortedEventsType, sortedDeliverableMapType);
     private static final Function sortedOldestDeliverableFct = makeOldestDeliverable(sortedEventsType,
                                                                                      sortedOldestDeliverableType);
-    private static final Function sortedKOldestDeliverableFct = makeKOldestDeliverable(sortedEventsType);
-    private static final Function coalescingDeliverableFct = makeDeliverable(coalescingEventsType);
+    private static final Function sortedKOldestDeliverableFct = makeKOldestDeliverable(sortedEventsType,
+                                                                                       sortedKOldestDeliverableType);
+    private static final Function coalescingDeliverableFct = makeDeliverable(coalescingEventsType, coalescingDeliverableMapType);
     private static final Function coalescingOldestDeliverableFct = makeOldestDeliverable(coalescingEventsType,
                                                                                          coalescingOldestDeliverableType);
-    private static final Function coalescingKOldestDeliverableFct = makeKOldestDeliverable(coalescingEventsType);
+    private static final Function coalescingKOldestDeliverableFct = makeKOldestDeliverable(coalescingEventsType,
+                                                                                           coalescingKOldestDeliverableType);
 
     @SuppressWarnings("unused")
     public static Collection<Function> all()
