@@ -26,6 +26,8 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -393,5 +395,11 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
         {
             allocator.onHeap().adjust(heapSize, writeOp);
         }
+    }
+
+    @VisibleForTesting
+    public void markContended()
+    {
+        wasteTracker = TRACKER_PESSIMISTIC_LOCKING;
     }
 }

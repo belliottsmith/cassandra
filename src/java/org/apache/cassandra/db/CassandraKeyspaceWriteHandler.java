@@ -49,7 +49,7 @@ public class CassandraKeyspaceWriteHandler implements KeyspaceWriteHandler
                 Tracing.trace("Appending to commitlog");
                 position = CommitLog.instance.add(mutation);
             }
-            return new CassandraWriteContext(group, position);
+            return new CassandraWriteContext(group);
         }
         catch (Throwable t)
         {
@@ -68,7 +68,7 @@ public class CassandraKeyspaceWriteHandler implements KeyspaceWriteHandler
         try
         {
             group = Keyspace.writeOrder.start();
-            return new CassandraWriteContext(group, null);
+            return new CassandraWriteContext(group);
         }
         catch (Throwable t)
         {

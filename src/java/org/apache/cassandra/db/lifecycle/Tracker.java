@@ -296,7 +296,7 @@ public class Tracker
     /**
      * get the Memtable that the ordered writeOp should be directed to
      */
-    public Memtable getMemtableFor(OpOrder.Group opGroup, CommitLogPosition commitLogPosition)
+    public Memtable getMemtableFor(OpOrder.Group opGroup)
     {
         // since any new memtables appended to the list after we fetch it will be for operations started
         // after us, we can safely assume that we will always find the memtable that 'accepts' us;
@@ -307,7 +307,7 @@ public class Tracker
         // assign operations to a memtable that was retired/queued before we started)
         for (Memtable memtable : view.get().liveMemtables)
         {
-            if (memtable.accepts(opGroup, commitLogPosition))
+            if (memtable.accepts(opGroup))
                 return memtable;
         }
         throw new AssertionError(view.get().liveMemtables.toString());

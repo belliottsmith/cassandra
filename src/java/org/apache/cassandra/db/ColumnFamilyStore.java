@@ -400,7 +400,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // Create Memtable only on online
         Memtable initialMemtable = null;
         if (DatabaseDescriptor.isDaemonInitialized())
-            initialMemtable = new Memtable(new AtomicReference<>(CommitLog.instance.getCurrentPosition()), this);
+            initialMemtable = new Memtable(CommitLog.instance.getCurrentPosition(), this);
         data = new Tracker(initialMemtable, loadSSTables);
 
         // scan for sstables corresponding to this cf and load them
@@ -898,8 +898,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         // commitLogLowerBound has been set (as this it is set with the upper bound of the preceding memtable)
         final Memtable current = data.getView().getCurrentMemtable();
         ListenableFutureTask<CommitLogPosition> task = ListenableFutureTask.create(() -> {
-            logger.debug("forceFlush requested but everything is clean in {}", name);
-            return current.getCommitLogLowerBound();
+            {
+                logger.debug("forceFlush requested but everything is clean in {}", name);
+                return current.prevCommitLogContiguousUpperBound();
+            }
         });
         postFlushExecutor.execute(task);
         return task;
@@ -913,6 +915,17 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     /**
      * Both synchronises custom secondary indexes and provides ordering guarantees for futures on switchMemtable/flush
      * etc, which expect to be able to wait until the flush (and all prior flushes) requested have completed.
+     *
+     * The ordering is absolutely critical to safely discarding CommitLog segments, and is imposed by postFlushExecutor
+     * having only a single thread, ensuring older flushes are notified before newer ones.
+     *
+     * TODO This is however present _not_ guaranteed if the flush fails, unless by a disk failure and with the relevant
+     *      disk failure policies set, since we otherwise continue to notify later flushes.
+     *
+     * A Memtable cannot provide a guarantee of the true lower bound it is able to invalidate, as operations from an older
+     * Memtable may mix with those of the newer Memtable within the CommitLog during the transition, and are attributable
+     * to the newer Memtable's owned range, so that we require an unbroken chain of Memtables to ensure those operations
+     * from the prior Memtable are not invalidated early.
      */
     private final class PostFlush implements Callable<CommitLogPosition>
     {
@@ -929,8 +942,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         {
             try
             {
-                // we wait on the latch for the commitLogUpperBound to be set, and so that waiters
-                // on this task can rely on all prior flushes being complete
+                // we wait on the latch to ensure all prior flushes are complete, which callers rely on for correctness
                 latch.await();
             }
             catch (InterruptedException e)
@@ -938,13 +950,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 throw new IllegalStateException();
             }
 
-            CommitLogPosition commitLogUpperBound = CommitLogPosition.NONE;
+            CommitLogPosition commitLogContiguousUpperBound = CommitLogPosition.NONE;
             // If a flush errored out but the error was ignored, make sure we don't discard the commit log.
             if (flushFailure == null && !memtables.isEmpty())
             {
                 Memtable memtable = memtables.get(0);
-                commitLogUpperBound = memtable.getCommitLogUpperBound();
-                CommitLog.instance.discardCompletedSegments(metadata.id, memtable.getCommitLogLowerBound(), commitLogUpperBound);
+                commitLogContiguousUpperBound = memtable.commitLogContiguousUpperBound();
+                CommitLog.instance.discardCompletedSegments(metadata.id, memtable.prevCommitLogContiguousUpperBound(), commitLogContiguousUpperBound);
             }
 
             metric.pendingFlushes.dec();
@@ -952,7 +964,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             if (flushFailure != null)
                 throw Throwables.propagate(flushFailure);
 
-            return commitLogUpperBound;
+            return commitLogContiguousUpperBound;
         }
     }
 
@@ -984,32 +996,37 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
              * that all write operations register themselves with, and assigning this barrier to the memtables,
              * after which we *.issue()* the barrier. This barrier is used to direct write operations started prior
              * to the barrier.issue() into the memtable we have switched out, and any started after to its replacement.
-             * In doing so it also tells the write operations to update the commitLogUpperBound of the memtable, so
-             * that we know the CL position we are dirty to, which can be marked clean when we complete.
              */
-            writeBarrier = keyspace.writeOrder.newBarrier();
+            writeBarrier = Keyspace.writeOrder.newBarrier();
 
+            List<Memtable> newMemtables = new ArrayList<>(1 + indexManager.indexCount());
             // submit flushes for the memtable for any indexed sub-cfses, and our own
-            AtomicReference<CommitLogPosition> commitLogUpperBound = new AtomicReference<>();
             for (ColumnFamilyStore cfs : concatWithIndexes())
             {
                 // switch all memtables, regardless of their dirty status, setting the barrier
                 // so that we can reach a coordinated decision about cleanliness once they
                 // are no longer possible to be modified
-                Memtable newMemtable = new Memtable(commitLogUpperBound, cfs);
+                Memtable newMemtable = new Memtable(cfs);
                 Memtable oldMemtable = cfs.data.switchMemtable(truncate, newMemtable);
-                oldMemtable.setDiscarding(writeBarrier, commitLogUpperBound);
+                oldMemtable.setDiscarding(writeBarrier);
                 memtables.add(oldMemtable);
+                newMemtables.add(newMemtable);
             }
 
-            // we then ensure an atomic decision is made about the upper bound of the continuous range of commit log
-            // records owned by this memtable
-            setCommitLogUpperBound(commitLogUpperBound);
-
-            // we then issue the barrier; this lets us wait for all operations started prior to the barrier to complete;
-            // since this happens after wiring up the commitLogUpperBound, we also know all operations with earlier
-            // commit log segment position have also completed, i.e. the memtables are done and ready to flush
+            // Select a point in the CommitLog to which we can guarantee mutations occur contiguously in the
+            // flushing memtable, i.e. that while later mutations in the CommitLog may occur they may be mixed
+            // in the CommitLog with mutations that occur in the following Memtable.
+            // This is guaranteed because all operations are still routing to this Memtable
+            // until we issue our barrier below.
+            CommitLogPosition commitLogBoundary = CommitLog.instance.getCurrentPosition();
+            // Then issue the barrier; this will cause all new operations to route to the new memtable, and provides
+            // the mechanism that guarantees all necessary operations have terminated before we flush the memtable.
             writeBarrier.issue();
+            for (Memtable memtable : memtables)
+                memtable.setCommitLogContiguousUpperBound(commitLogBoundary);
+            for (Memtable memtable : newMemtables)
+                memtable.setPrevCommitLogContiguousUpperBound(commitLogBoundary);
+
             postFlush = new PostFlush(memtables);
             postFlushTask = ListenableFutureTask.create(postFlush);
         }
@@ -1166,23 +1183,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
     }
 
-    // atomically set the upper bound for the commit log
-    private static void setCommitLogUpperBound(AtomicReference<CommitLogPosition> commitLogUpperBound)
-    {
-        // we attempt to set the holder to the current commit log context. at the same time all writes to the memtables are
-        // also maintaining this value, so if somebody sneaks ahead of us somehow (should be rare) we simply retry,
-        // so that we know all operations prior to the position have not reached it yet
-        CommitLogPosition lastReplayPosition;
-        while (true)
-        {
-            lastReplayPosition = new Memtable.LastCommitLogPosition((CommitLog.instance.getCurrentPosition()));
-            CommitLogPosition currentLast = commitLogUpperBound.get();
-            if ((currentLast == null || currentLast.compareTo(lastReplayPosition) <= 0)
-                && commitLogUpperBound.compareAndSet(currentLast, lastReplayPosition))
-                break;
-        }
-    }
-
     /**
      * Finds the largest memtable, as a percentage of *either* on- or off-heap memory limits, and immediately
      * queues it for flushing. If the memtable selected is flushed before this completes, no work is done.
@@ -1253,13 +1253,13 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * param @ key - key for update/insert
      * param @ columnFamily - columnFamily changes
      */
-    public void apply(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup, CommitLogPosition commitLogPosition)
+    public void apply(PartitionUpdate update, UpdateTransaction indexer, OpOrder.Group opGroup)
 
     {
         long start = System.nanoTime();
         try
         {
-            Memtable mt = data.getMemtableFor(opGroup, commitLogPosition);
+            Memtable mt = data.getMemtableFor(opGroup);
             long timeDelta = mt.put(update, indexer, opGroup);
             DecoratedKey key = update.partitionKey();
             invalidateCachedPartition(key);
@@ -2080,7 +2080,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             {
                 public Void call()
                 {
-                    cfs.data.reset(new Memtable(new AtomicReference<>(CommitLogPosition.NONE), cfs));
+                    cfs.data.reset(new Memtable(CommitLog.instance.getCurrentPosition(), cfs));
                     return null;
                 }
             }, true, false);

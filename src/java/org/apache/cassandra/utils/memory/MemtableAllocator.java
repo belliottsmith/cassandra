@@ -20,6 +20,8 @@ package org.apache.cassandra.utils.memory;
 
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.utils.concurrent.OpOrder;
@@ -209,6 +211,20 @@ public abstract class MemtableAllocator
             if (Float.isNaN(r))
                 return 0;
             return r;
+        }
+
+        @VisibleForTesting
+        public void consumeAllMemory()
+        {
+            while (true)
+            {
+                long consume = parent.limit - parent.allocated;
+                if (parent.tryAllocate(consume))
+                {
+                    ownsUpdater.addAndGet(this, consume);
+                    return;
+                }
+            }
         }
 
         private static final AtomicLongFieldUpdater<SubAllocator> ownsUpdater = AtomicLongFieldUpdater.newUpdater(SubAllocator.class, "owns");

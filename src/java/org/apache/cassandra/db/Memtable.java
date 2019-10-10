@@ -93,26 +93,74 @@ public class Memtable implements Comparable<Memtable>
 
     // the write barrier for directing writes to this memtable during a switch
     private volatile OpOrder.Barrier writeBarrier;
-    // the precise upper bound of CommitLogPosition owned by this memtable
-    private volatile AtomicReference<CommitLogPosition> commitLogUpperBound;
-    // the precise lower bound of CommitLogPosition owned by this memtable; equal to its predecessor's commitLogUpperBound
-    private AtomicReference<CommitLogPosition> commitLogLowerBound;
+    /**
+     * The CommitLogPosition <i>up to which</i> we can guarantee a contiguous range of CommitLogPosition whose
+     * mutations occur exclusively in this Memtable.  There is no precise <i>start</i> to this contiguous range;
+     * there is an indeterminate region between this point in the previous Memtable, and in this Memtable,
+     * during which operations from both Memtable occur in the CommitLog.
+     *
+     * In the CommitLog (number representing records for a Memtable, created in numerical order):
+     * [111110101111111111111121111212122222222223]  Records that _appear_ in (and are flushed by) the Memtable
+     * [111111111111111111111122222222222222222223]  Records that are invalidated by the Memtable
+     *                        ^                  ^
+     *                        |                  |
+     *                      pCUB                CUB
+     *
+     * NOTE this means that those records marked {@code 1} that occur after pCUB will not be invalidated after
+     * the flush of {@code Memtable 1}, so they will be replayed and applied redundantly if {@code Memtable 2}
+     * does not flush before the process terminates.
+     * 
+     * i.e., Given:
+     *  CUB:  contiguous upper bound; no operations before this land in the next Memtable
+     *        commitLogContiguousUpperBound
+     *  LB:   strict lower bound; no operations before this occur in this Memtable
+     *        occurs at an unknown position, such that pCUB<=LB<=CUB
+     *  CLB:  contiguous lower bound; no operations from the prior Memtable occur after this
+     *        occurs at an unknown position, such that LB<=CLB<=CUB and pUB==CLB
+     *  UB:   strict upper bound; no operations after this occur in this Memtable
+     *        occurs at an unknown position, such that CUB<=UB<=nCLB and nCLB==UB
+     *  pX:   prevX (the value of X for the prior Memtable)
+     *  nX:   nextX (the value of X for the following Memtable)
+     * ..?:   occurs at an unknown position following (or equal to) the preceding named position;
+     *        can occur at any point up to (and potentially including) the next named position
+     *        (see the list immediately above for inequality relationships)
+     *
+     * We have a contiguous region of CommitLogPosition exclusively occurring in:
+     * [...pCUB]                   Prior Memtable
+     *        (..?)[CLB......CUB]  This Memtable
+     *        [..............CUB]  Invalidated by this Memtable
+     *
+     * We have at least one write with a CommitLogPosition in the range:
+     * [...pCUB............pUB]                 Prior Memtable
+     *        (..?)[LB(..?)CLB(..?)CUB(..?)UB]  This Memtable
+     *        [....................CUB]         Invalidated by this Memtable
+     */
+    private volatile CommitLogPosition commitLogContiguousUpperBound;
+    /**
+     * The previous Memtable's {@link #commitLogContiguousUpperBound}
+     * Note that this is <i>not</i> guaranteed to be the "contiguousLowerBound" - there may be a region at the beginning
+     * where operations from the prior Memtable can be found, however this is the earliest point in the commit log
+     * that any mutations that occur in this Memtable may be found, and also the point from which we are responsible
+     * for invalidating the CommitLog
+     */
+    private CommitLogPosition prevCommitLogContiguousUpperBound;
 
-    // The approximate lower bound by this memtable; must be <= commitLogLowerBound once our predecessor
-    // has been finalised, and this is enforced in the ColumnFamilyStore.setCommitLogUpperBound
-    private final CommitLogPosition approximateCommitLogLowerBound = CommitLog.instance.getCurrentPosition();
+    /**
+     * Must be <= prevCommitLogContiguousUpperBound once our predecessor
+     * has been finalised, and this is enforced in {@link #setPrevCommitLogContiguousUpperBound}
+     *
+     * The Memtable cannot hold any mutations with positions in the commit log less than this, and nor
+     * can it hold any mutations between this and {@link #prevCommitLogContiguousUpperBound}, however
+     * this value can be known in advance of {@link #prevCommitLogContiguousUpperBound}.
+     *
+     * This is used for sorting and inequality operations wrt flushing commit log bounds where
+     * {@link #prevCommitLogContiguousUpperBound} cannot be guaranteed to be known.
+     */
+    private final CommitLogPosition beforeCommitLogLowerBound;
 
     public int compareTo(Memtable that)
     {
-        return this.approximateCommitLogLowerBound.compareTo(that.approximateCommitLogLowerBound);
-    }
-
-    public static final class LastCommitLogPosition extends CommitLogPosition
-    {
-        public LastCommitLogPosition(CommitLogPosition copy)
-        {
-            super(copy.segmentId, copy.position);
-        }
+        return this.beforeCommitLogLowerBound.compareTo(that.beforeCommitLogLowerBound);
     }
 
     // We index the memtable by PartitionPosition only for the purpose of being able
@@ -133,13 +181,34 @@ public class Memtable implements Comparable<Memtable>
     private final ColumnsCollector columnsCollector;
     private final StatsCollector statsCollector = new StatsCollector();
 
-    // only to be used by init(), to setup the very first memtable for the cfs
-    public Memtable(AtomicReference<CommitLogPosition> commitLogLowerBound, ColumnFamilyStore cfs)
+    // Used during flush. New MTs are created without a previousCommitLogContiguousUpperBound
+    // as this isn't known until we issue the barrier that causes subsequent write operations
+    // to be directed to the new memtable.
+    public Memtable(ColumnFamilyStore cfs)
+    {
+        this(null, cfs);
+    }
+
+    // Used when creating the initial MT for a CFS (and when performing an unsafe reset from
+    // CFS::clearUnsafe, for testing only).
+    public Memtable(CommitLogPosition prevCommitLogContiguousUpperBound, ColumnFamilyStore cfs)
     {
         this.cfs = cfs;
-        this.commitLogLowerBound = commitLogLowerBound;
         this.allocator = MEMORY_POOL.newAllocator();
         this.initialComparator = cfs.metadata().comparator;
+
+        // if we actually know the lower bound for this memtable then use it for
+        // beforeCommitLogLowerBound, if not then grab the current position from
+        // the commit log
+        if (prevCommitLogContiguousUpperBound != null)
+        {
+            beforeCommitLogLowerBound = prevCommitLogContiguousUpperBound;
+            setPrevCommitLogContiguousUpperBound(prevCommitLogContiguousUpperBound);
+        }
+        else
+        {
+            beforeCommitLogLowerBound = CommitLog.instance.getCurrentPosition();
+        }
         this.cfs.scheduleFlush();
         this.columnsCollector = new ColumnsCollector(cfs.metadata().regularAndStaticColumns());
     }
@@ -152,6 +221,7 @@ public class Memtable implements Comparable<Memtable>
         this.cfs = null;
         this.allocator = null;
         this.columnsCollector = new ColumnsCollector(metadata.regularAndStaticColumns());
+        this.beforeCommitLogLowerBound = CommitLog.instance.getCurrentPosition();
     }
 
     public MemtableAllocator getAllocator()
@@ -170,12 +240,43 @@ public class Memtable implements Comparable<Memtable>
     }
 
     @VisibleForTesting
-    public void setDiscarding(OpOrder.Barrier writeBarrier, AtomicReference<CommitLogPosition> commitLogUpperBound)
+    public void setDiscarding(OpOrder.Barrier writeBarrier)
     {
         assert this.writeBarrier == null;
-        this.commitLogUpperBound = commitLogUpperBound;
         this.writeBarrier = writeBarrier;
         allocator.setDiscarding();
+    }
+
+    /**
+     * Note: This Memtable's contiguous commit log region does NOT actually start here
+     * See {@link #commitLogContiguousUpperBound}
+     */
+    CommitLogPosition prevCommitLogContiguousUpperBound()
+    {
+        return prevCommitLogContiguousUpperBound;
+    }
+
+    /**
+     * Note: This Memtable's contents extend past this point in the commit log
+     * See {@link #commitLogContiguousUpperBound}
+     */
+    @VisibleForTesting
+    public CommitLogPosition commitLogContiguousUpperBound()
+    {
+        return commitLogContiguousUpperBound;
+    }
+
+    public void setPrevCommitLogContiguousUpperBound(CommitLogPosition lowerBound)
+    {
+        assert prevCommitLogContiguousUpperBound == null;
+        assert lowerBound.compareTo(beforeCommitLogLowerBound) >= 0;
+        this.prevCommitLogContiguousUpperBound = lowerBound;
+    }
+
+    public void setCommitLogContiguousUpperBound(CommitLogPosition upperBound)
+    {
+        assert commitLogContiguousUpperBound == null;
+        this.commitLogContiguousUpperBound = upperBound;
     }
 
     void setDiscarded()
@@ -183,44 +284,45 @@ public class Memtable implements Comparable<Memtable>
         allocator.setDiscarded();
     }
 
-    // decide if this memtable should take the write, or if it should go to the next memtable
-    public boolean accepts(OpOrder.Group opGroup, CommitLogPosition commitLogPosition)
+    /**
+     * Decide if this Memtable should take the write, or if it should go to a later {@link Memtable}.
+     *
+     * This decision is based <i>exclusively</i> on {@code opGroup} and {@link #writeBarrier}.
+     *
+     * If {@link #writeBarrier} is unset, this {@link Memtable} is not flushing and can accept all writes,
+     * so {@code opGroup} is not relevant to the decision (so long as this method is invoked on
+     * earlier {@link Memtable} first).
+     *
+     * If {@link #writeBarrier} is set, this {@link Memtable} is flushing and will wait until all operations
+     * earlier than {@link #writeBarrier} have completed before doing so.
+     * All operations older than {@link #writeBarrier} will be marked such that {@link OpOrder.Group#isBlocking()}
+     * returns {@code true}.  This will permit them to ignore memory limits, so that they may proceed unhindered,
+     * permitting flush to reclaim their associated memory.
+     *
+     * It was previously permitted for some of these operations to fall through to later {@link Memtable}
+     * in order to ensure a <i>precise</i> upper bound to the {@link CommitLogPosition} for mutations
+     * occurring in this {@link Memtable}, however:
+     * If any of these deferred operations mixed with a future {@link OpOrder.Group} in the later {@link Memtable},
+     * memory limits that apply to this future {@link OpOrder.Group} may transitively affect to the operations
+     * that block the flush of this {@link Memtable}, by blocking an operation in the later {@link OpOrder.Group}
+     * while it holds some shared mutually exclusive resource (specifically, the {@link AtomicBTreePartition}
+     * contended update lock) that the deferred operations need to execute.
+     *
+     * This is no longer possible because this method now considers only {@link Memtable#writeBarrier}
+     * and the provided {@link OpOrder.Group}, such that a {@link Memtable} contains _only_ those operations that
+     * were started before its {@link Memtable#writeBarrier} was issued, and after the prior {@link Memtable}'s
+     * {@link Memtable#writeBarrier} was issued.
+     *
+     * @return true if the operation should be written to this Memtable
+     */
+    public boolean accepts(OpOrder.Group opGroup)
     {
         // if the barrier hasn't been set yet, then this memtable is still taking ALL writes
         OpOrder.Barrier barrier = this.writeBarrier;
         if (barrier == null)
             return true;
-        // if the barrier has been set, but is in the past, we are definitely destined for a future memtable
-        if (!barrier.isAfter(opGroup))
-            return false;
-        // if we aren't durable we are directed only by the barrier
-        if (commitLogPosition == null)
-            return true;
-        while (true)
-        {
-            // otherwise we check if we are in the past/future wrt the CL boundary;
-            // if the boundary hasn't been finalised yet, we simply update it to the max of
-            // its current value and ours; if it HAS been finalised, we simply accept its judgement
-            // this permits us to coordinate a safe boundary, as the boundary choice is made
-            // atomically wrt our max() maintenance, so an operation cannot sneak into the past
-            CommitLogPosition currentLast = commitLogUpperBound.get();
-            if (currentLast instanceof LastCommitLogPosition)
-                return currentLast.compareTo(commitLogPosition) >= 0;
-            if (currentLast != null && currentLast.compareTo(commitLogPosition) >= 0)
-                return true;
-            if (commitLogUpperBound.compareAndSet(currentLast, commitLogPosition))
-                return true;
-        }
-    }
-
-    public CommitLogPosition getCommitLogLowerBound()
-    {
-        return commitLogLowerBound.get();
-    }
-
-    public CommitLogPosition getCommitLogUpperBound()
-    {
-        return commitLogUpperBound.get();
+        // if the barrier has been set, but is in the past, we are destined for a future memtable
+        return barrier.isAfter(opGroup);
     }
 
     public boolean isLive()
@@ -235,7 +337,7 @@ public class Memtable implements Comparable<Memtable>
 
     public boolean mayContainDataBefore(CommitLogPosition position)
     {
-        return approximateCommitLogLowerBound.compareTo(position) < 0;
+        return beforeCommitLogLowerBound.compareTo(position) < 0;
     }
 
     /**
@@ -483,7 +585,7 @@ public class Memtable implements Comparable<Memtable>
                 logger.debug("Completed flushing {} ({}) for commitlog position {}",
                              writer.getFilename(),
                              FBUtilities.prettyPrintMemory(bytesFlushed),
-                             commitLogUpperBound);
+                             commitLogContiguousUpperBound);
             // Update the metrics
             cfs.metric.bytesFlushed.inc(bytesFlushed);
 
@@ -497,7 +599,7 @@ public class Memtable implements Comparable<Memtable>
                                                     EncodingStats stats)
         {
             MetadataCollector sstableMetadataCollector = new MetadataCollector(cfs.metadata().comparator)
-                    .commitLogIntervals(new IntervalSet<>(commitLogLowerBound.get(), commitLogUpperBound.get()));
+                    .commitLogIntervals(new IntervalSet<>(prevCommitLogContiguousUpperBound, commitLogContiguousUpperBound));
 
             return cfs.createSSTableMultiWriter(descriptor,
                                                 toFlush.size(),
@@ -644,5 +746,18 @@ public class Memtable implements Comparable<Memtable>
         {
             return stats.get();
         }
+    }
+
+    @VisibleForTesting
+    public void markContended(DecoratedKey key)
+    {
+        AtomicBTreePartition partition = partitions.get(key);
+        if (partition == null)
+        {
+            AtomicBTreePartition prev = partitions.putIfAbsent(key, partition = new AtomicBTreePartition(cfs.metadata, key, allocator));
+            if (prev != null)
+                partition = prev;
+        }
+        partition.markContended();
     }
 }

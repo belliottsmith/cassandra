@@ -1113,6 +1113,11 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         return ImmutableSet.copyOf(indexes.values());
     }
 
+    public int indexCount()
+    {
+        return indexes.size();
+    }
+
     /**
      * Handling of index updates.
      * Implementations of the various IndexTransaction interfaces, for keeping indexes in sync with base data
