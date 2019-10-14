@@ -40,8 +40,13 @@ public class CIEInternalKeyspace
      *
      * gen 1577836800000000: original modern definition in 3.0.19; maps to Jan 1 2020, the date it's assumed we
      *                       will have no more fresh 2.1 or 3.0.17 clusters going up, or upgrades from 2.1 to 3.0.17.
+     *
+     * gen                1: downgrading the generation to 1 in order to prevent the override of table id for
+     *                       partition_blacklist table - which used to be created manually in 2.1 initially, and
+     *                       as such, doesn't have a deterministic id. See rdar://56101440. Until we find a good way
+     *                       to resolve that issue permanently, the tables in this keyspace can only be evolved manually.
      */
-    public static final long GENERATION = 1577836800000000L;
+    public static final long GENERATION = 1;
 
     public static final String SCHEMA_DROP_LOG = "schema_drop_log";
 
