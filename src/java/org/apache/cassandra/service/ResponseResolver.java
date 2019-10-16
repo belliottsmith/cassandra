@@ -77,8 +77,8 @@ public abstract class ResponseResolver
 
     public void preprocess(MessageIn<ReadResponse> message)
     {
-        boolean overflow = !responses.addIfNotFull(message);
-        if (overflow && !isResponseOverflowPermitted)
+        boolean added = responses.addIfNotFull(message);
+        if (!added && !isResponseOverflowPermitted)
             throw new IllegalStateException();
     }
 
