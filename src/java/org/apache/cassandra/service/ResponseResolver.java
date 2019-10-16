@@ -70,4 +70,9 @@ public abstract class ResponseResolver
     {
         return responses;
     }
+
+    public int maximumResponseCount()
+    {
+        return responses.capacity();
+    }
 }
