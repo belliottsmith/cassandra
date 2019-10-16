@@ -75,8 +75,6 @@ import org.apache.cassandra.triggers.TriggerExecutor;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.AbstractIterator;
 
-import static com.google.common.collect.Iterables.*;
-
 public class StorageProxy implements StorageProxyMBean
 {
     public static final String MBEAN_NAME = "org.apache.cassandra.db:type=StorageProxy";
@@ -410,12 +408,12 @@ public class StorageProxy implements StorageProxyMBean
             // Restrict naturalEndpoints and pendingEndpoints to node in the local DC only
             String localDc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddress());
             Predicate<InetAddress> isLocalDc = sameDCPredicateFor(localDc);
-            naturalEndpoints = ImmutableList.copyOf(filter(naturalEndpoints, isLocalDc));
-            pendingEndpoints = ImmutableList.copyOf(filter(pendingEndpoints, isLocalDc));
+            naturalEndpoints = ImmutableList.copyOf(Iterables.filter(naturalEndpoints, isLocalDc));
+            pendingEndpoints = ImmutableList.copyOf(Iterables.filter(pendingEndpoints, isLocalDc));
         }
         int participants = pendingEndpoints.size() + naturalEndpoints.size();
         int requiredParticipants = participants / 2 + 1; // See CASSANDRA-8346, CASSANDRA-833
-        List<InetAddress> liveEndpoints = ImmutableList.copyOf(filter(concat(naturalEndpoints, pendingEndpoints), FailureDetector.isAlivePredicate));
+        List<InetAddress> liveEndpoints = ImmutableList.copyOf(Iterables.filter(Iterables.concat(naturalEndpoints, pendingEndpoints), FailureDetector.isAlivePredicate));
         if (liveEndpoints.size() < requiredParticipants)
             throw new UnavailableException(consistencyForPaxos, requiredParticipants, liveEndpoints.size());
 
@@ -518,7 +516,7 @@ public class StorageProxy implements StorageProxyMBean
             // mean we lost messages), we pro-actively "repair" those nodes, and retry.
             int nowInSec = Ints.checkedCast(TimeUnit.MICROSECONDS.toSeconds(ballotMicros));
             Iterable<InetAddress> missingMRC = summary.replicasMissingMostRecentCommit(metadata, nowInSec);
-            if (size(missingMRC) > 0)
+            if (Iterables.size(missingMRC) > 0)
             {
                 Tracing.trace("Repairing replicas that missed the most recent commit");
                 sendCommit(mostRecent, missingMRC);
@@ -592,7 +590,7 @@ public class StorageProxy implements StorageProxyMBean
         }
 
         MessageOut<Commit> message = new MessageOut<Commit>(MessagingService.Verb.PAXOS_COMMIT, proposal, Commit.serializer);
-        for (InetAddress destination : concat(naturalEndpoints, pendingEndpoints))
+        for (InetAddress destination : Iterables.concat(naturalEndpoints, pendingEndpoints))
         {
             if (FailureDetector.instance.isAlive(destination))
             {
@@ -769,7 +767,7 @@ public class StorageProxy implements StorageProxyMBean
         Token token = mutation.key().getToken();
 
         Iterable<InetAddress> endpoints = StorageService.instance.getNaturalAndPendingEndpoints(keyspaceName, token);
-        ArrayList<InetAddress> endpointsToHint = new ArrayList<>(size(endpoints));
+        ArrayList<InetAddress> endpointsToHint = new ArrayList<>(Iterables.size(endpoints));
 
         // local writes can timeout, but cannot be dropped (see LocalMutationRunnable and CASSANDRA-6510),
         // so there is no need to hint or retry.
@@ -1105,7 +1103,7 @@ public class StorageProxy implements StorageProxyMBean
     {
         for (WriteResponseHandlerWrapper wrapper : wrappers)
         {
-            Iterable<InetAddress> endpoints = concat(wrapper.handler.naturalEndpoints, wrapper.handler.pendingEndpoints);
+            Iterable<InetAddress> endpoints = Iterables.concat(wrapper.handler.naturalEndpoints, wrapper.handler.pendingEndpoints);
 
             try
             {
@@ -1123,7 +1121,7 @@ public class StorageProxy implements StorageProxyMBean
     {
         for (WriteResponseHandlerWrapper wrapper : wrappers)
         {
-            Iterable<InetAddress> endpoints = concat(wrapper.handler.naturalEndpoints, wrapper.handler.pendingEndpoints);
+            Iterable<InetAddress> endpoints = Iterables.concat(wrapper.handler.naturalEndpoints, wrapper.handler.pendingEndpoints);
             sendToHintedEndpoints(wrapper.mutation, endpoints, wrapper.handler, localDataCenter, stage);
         }
 
@@ -1166,7 +1164,7 @@ public class StorageProxy implements StorageProxyMBean
         // exit early if we can't fulfill the CL at this time
         responseHandler.assureSufficientLiveNodes();
 
-        performer.apply(mutation, concat(naturalEndpoints, pendingEndpoints), responseHandler, localDataCenter, consistency_level);
+        performer.apply(mutation, Iterables.concat(naturalEndpoints, pendingEndpoints), responseHandler, localDataCenter, consistency_level);
         return responseHandler;
     }
 
@@ -1352,7 +1350,7 @@ public class StorageProxy implements StorageProxyMBean
                 if (shouldHint(destination))
                 {
                     if (endpointsToHint == null)
-                        endpointsToHint = new ArrayList<>(size(targets));
+                        endpointsToHint = new ArrayList<>(Iterables.size(targets));
                     endpointsToHint.add(destination);
                 }
             }
@@ -1978,7 +1976,7 @@ public class StorageProxy implements StorageProxyMBean
                     command.trackRepairedStatus();
 
                 Keyspace keyspace = Keyspace.open(command.metadata().ksName);
-                dataResolver = new DataResolver(keyspace, command, consistency, executor.handler.endpoints.size() + executor.handler.endpoints.size()/2);
+                dataResolver = new DataResolver(keyspace, command, consistency, executor.handler.endpoints.size());
                 repairHandler = new ReadCallback(dataResolver,
                                                  consistency,
                                                  executor.getBlockFor(),
@@ -2027,9 +2025,10 @@ public class StorageProxy implements StorageProxyMBean
 
             if (executor.shouldSpeculateReadRepair() && !repairHandler.await(executor.speculateWaitNanos(), TimeUnit.NANOSECONDS))
             {
+                dataResolver.setResponseOverflowPermitted();
                 ReadRepairMetrics.speculatedDataRequest.mark();
                 Set<InetAddress> contacted = Sets.newHashSet(executor.getContactedReplicas());
-                for (InetAddress endpoint: limit(filter(ReadRepairHandler.getCandidateEndpoints(executor), e -> !contacted.contains(e)), dataResolver.maximumResponseCount() - contacted.size()))
+                for (InetAddress endpoint: Iterables.filter(ReadRepairHandler.getCandidateEndpoints(executor), e -> !contacted.contains(e)))
                 {
                     Tracing.trace("Enqueuing speculative full data read to {}", endpoint);
                     MessagingService.instance().sendRR(executor.command.createMessage(MessagingService.instance().getVersion(endpoint)), endpoint, repairHandler);
@@ -2552,7 +2551,7 @@ public class StorageProxy implements StorageProxyMBean
 
         // maps versions to hosts that are on that version.
         Map<String, List<String>> results = new HashMap<String, List<String>>();
-        Iterable<InetAddress> allHosts = concat(Gossiper.instance.getLiveMembers(), Gossiper.instance.getUnreachableMembers());
+        Iterable<InetAddress> allHosts = Iterables.concat(Gossiper.instance.getLiveMembers(), Gossiper.instance.getUnreachableMembers());
         for (InetAddress host : allHosts)
         {
             UUID version = versions.get(host);

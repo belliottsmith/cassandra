@@ -20,6 +20,7 @@ package org.apache.cassandra.utils.concurrent;
 
 import java.util.Iterator;
 
+import org.junit.Assert;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
@@ -31,20 +32,13 @@ public class AccumulatorTest
     {
         Accumulator<Integer> accu = new Accumulator(4);
 
-        accu.add(1);
-        accu.add(2);
-        accu.add(3);
-        accu.add(4);
+        assertTrue(accu.addIfNotFull(1));
+        assertTrue(accu.addIfNotFull(2));
+        assertTrue(accu.addIfNotFull(3));
+        assertTrue(accu.addIfNotFull(4));
+        assertFalse(accu.addIfNotFull(5));
 
-        try
-        {
-            accu.add(5);
-            fail();
-        }
-        catch (IllegalStateException e)
-        {
-            // Expected
-        }
+        Assert.assertEquals(4, accu.size());
     }
 
     @Test
@@ -55,14 +49,14 @@ public class AccumulatorTest
         assertTrue(accu.isEmpty());
         assertEquals(0, accu.size());
 
-        accu.add(1);
-        accu.add(2);
+        accu.addIfNotFull(1);
+        accu.addIfNotFull(2);
 
         assertTrue(!accu.isEmpty());
         assertEquals(2, accu.size());
 
-        accu.add(3);
-        accu.add(4);
+        accu.addIfNotFull(3);
+        accu.addIfNotFull(4);
 
         assertTrue(!accu.isEmpty());
         assertEquals(4, accu.size());
@@ -73,9 +67,9 @@ public class AccumulatorTest
     {
         Accumulator<String> accu = new Accumulator(4);
 
-        accu.add("3");
-        accu.add("2");
-        accu.add("4");
+        accu.addIfNotFull("3");
+        accu.addIfNotFull("2");
+        accu.addIfNotFull("4");
 
         assertEquals("3", accu.get(0));
         assertEquals("2", accu.get(1));
@@ -91,7 +85,7 @@ public class AccumulatorTest
             // Expected
         }
 
-        accu.add("0");
+        accu.addIfNotFull("0");
 
         assertEquals("0", accu.get(3));
 
