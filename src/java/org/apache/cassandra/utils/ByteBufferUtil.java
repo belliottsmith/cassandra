@@ -560,8 +560,16 @@ public class ByteBufferUtil
         };
     }
 
+    /*
+     * Does not modify position or limit of buffer even temporarily
+     * so this is safe even without duplication.
+     */
     public static String bytesToHex(ByteBuffer bytes)
     {
+        if (bytes.hasArray()) {
+            return Hex.bytesToHex(bytes.array(), bytes.arrayOffset() + bytes.position(), bytes.remaining());
+        }
+
         final int offset = bytes.position();
         final int size = bytes.remaining();
         final char[] c = new char[size * 2];
