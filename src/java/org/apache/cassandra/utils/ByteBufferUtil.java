@@ -707,6 +707,7 @@ public class ByteBufferUtil
             {
                 int length = next.limit() - next.position();
                 ret.putShort((short) length);
+                assert next.arrayOffset() == 0;
                 byte[] backingBuf = next.array();
                 ret.put(backingBuf, next.position(), length);
             }

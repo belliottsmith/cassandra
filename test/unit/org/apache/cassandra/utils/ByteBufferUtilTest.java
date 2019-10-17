@@ -30,6 +30,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.io.util.FileUtils;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -267,6 +268,35 @@ public class ByteBufferUtilTest
         ByteBuffer[] resplitBuffers = ByteBufferUtil.splitSegmentedByteBuffer(mergedBuffer);
 
         Assert.assertArrayEquals(buffers, resplitBuffers);
+    }
+
+    @Test
+    public void testMergeOffsetNot0()
+    {
+        // +2 to ensure we always have *at least* 2
+        // because we want to ensure we merge/split multiple buffers
+        int numBuffersToGenerate = RANDOM.nextInt(6 + 2);
+        ByteBuffer[] buffers = new ByteBuffer[numBuffersToGenerate];
+        for (int i = 0; i < numBuffersToGenerate; i++)
+        {
+            byte[] bytes = generateRandomWord(RANDOM.nextInt(10 + 1)).getBytes();
+            byte[] extraBytes = new byte[bytes.length + 1];
+            System.arraycopy(bytes, 0, extraBytes, 1, bytes.length);
+            ByteBuffer bb = ByteBuffer.wrap(extraBytes, 1, bytes.length);
+            bb.position(1);
+            bb = bb.slice();
+            buffers[i] = bb;
+        }
+
+        boolean failed = false;
+        try {
+            ByteBufferUtil.merge(buffers);
+        }
+        catch (AssertionError e)
+        {
+            failed = true;
+        }
+        Assert.assertTrue("merge requires a array with offset=0", failed);
     }
 
     private static String generateRandomWord(int length)
