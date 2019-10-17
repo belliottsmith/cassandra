@@ -1291,6 +1291,10 @@ public abstract class LegacyLayout
         private LegacyRangeTombstone rowDeletion;
         private LegacyRangeTombstone collectionDeletion;
 
+        // used to track if we need to add a pk liveness info, see CASSANDRA-XYZ
+        private boolean hasValidCells = false;
+        private LivenessInfo invalidLivenessInfo = null;
+
         public CellGrouper(CFMetaData metadata, SerializationHelper helper)
         {
             this(metadata, helper, false);
@@ -1317,6 +1321,8 @@ public abstract class LegacyLayout
             this.clustering = null;
             this.rowDeletion = null;
             this.collectionDeletion = null;
+            this.invalidLivenessInfo = null;
+            this.hasValidCells = false;
         }
 
         public boolean addAtom(LegacyAtom atom)
@@ -1326,7 +1332,7 @@ public abstract class LegacyLayout
                  : addRangeTombstone(atom.asRangeTombstone());
         }
 
-        public boolean addCell(LegacyCell cell)
+        private boolean addCell(LegacyCell cell)
         {
             if (clustering == null)
             {
@@ -1359,21 +1365,38 @@ public abstract class LegacyLayout
                     builder.addRowDeletion(Row.Deletion.regular(new DeletionTime(cell.timestamp, cell.localDeletionTime)));
                 else
                     builder.addPrimaryKeyLivenessInfo(LivenessInfo.create(cell.timestamp, FAKE_TTL, cell.localDeletionTime));
+                hasValidCells = true;
+            }
+            else if (column.isPrimaryKeyColumn() && metadata.isCQLTable())
+            {
+                // SSTables generated offline and side-loaded may include invalid cells which have the column name
+                // of a primary key column. So that we don't fail when encountering these cells, we treat them the
+                // same way as 2.1 did, namely we include their clusterings in the new CQL row, but drop the invalid
+                // column part of the cell
+                noSpamLogger.warn("Illegal cell name for CQL3 table {}.{}. {} is defined as a primary key column",
+                                  metadata.ksName, metadata.cfName, column.name);
+
+                if (invalidLivenessInfo != null)
+                {
+                    // when we have several invalid cells we follow the logic in LivenessInfo#supersedes when picking the PKLI to keep:
+                    LivenessInfo newInvalidLiveness = LivenessInfo.create(cell.timestamp, cell.isTombstone() ? FAKE_TTL : cell.ttl, cell.localDeletionTime);
+                    if (newInvalidLiveness.supersedes(invalidLivenessInfo))
+                        invalidLivenessInfo = newInvalidLiveness;
+                }
+                else
+                {
+                    invalidLivenessInfo = LivenessInfo.create(cell.timestamp, cell.isTombstone() ? FAKE_TTL : cell.ttl, cell.localDeletionTime);
+                }
+                return true;
             }
             else
             {
                 if (collectionDeletion != null && collectionDeletion.start.collectionName.name.equals(column.name) && collectionDeletion.deletionTime.deletes(cell.timestamp))
                     return true;
 
-                if (column.isPrimaryKeyColumn() && metadata.isCQLTable())
-                {
-                    noSpamLogger.warn("Illegal cell name for CQL3 table {}.{}. {} is defined as a primary key column",
-                                      metadata.ksName, metadata.cfName, column.name);
-                    return true;
-                }
-
                 if (helper.includes(column))
                 {
+                    hasValidCells = true;
                     CellPath path = null;
                     if (column.isComplex())
                     {
@@ -1422,6 +1445,7 @@ public abstract class LegacyLayout
                     {
                         builder.addRowDeletion(Row.Deletion.regular(tombstone.deletionTime));
                         rowDeletion = tombstone;
+                        hasValidCells = true;
                     }
                     return true;
                 }
@@ -1434,6 +1458,7 @@ public abstract class LegacyLayout
             builder.newRow(clustering);
             builder.addRowDeletion(Row.Deletion.regular(tombstone.deletionTime));
             rowDeletion = tombstone;
+            hasValidCells = true;
 
             return true;
         }
@@ -1464,6 +1489,7 @@ public abstract class LegacyLayout
             builder.addComplexDeletion(tombstone.start.collectionName, tombstone.deletionTime);
             if (rowDeletion == null || tombstone.deletionTime.supersedes(rowDeletion.deletionTime))
                 collectionDeletion = tombstone;
+            hasValidCells = true;
 
             return true;
         }
@@ -1488,6 +1514,8 @@ public abstract class LegacyLayout
 
         public Row getRow()
         {
+            if (!hasValidCells && invalidLivenessInfo != null)
+                builder.addPrimaryKeyLivenessInfo(invalidLivenessInfo);
             return builder.build();
         }
     }
