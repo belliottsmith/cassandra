@@ -84,7 +84,16 @@ public class ReadRepairTest extends DistributedTestBase
     @Test
     public void movingTokenReadRepairTest() throws Throwable
     {
-        try (Cluster cluster = init(Cluster.create(4), 3))
+        try (Cluster cluster = init(Cluster.build(4)
+                                           // Set the write request timeout > cfs.sampleLatencyNanos
+                                           // which starts initialized to 2500 milliseconds so that
+                                           // DataResolver.maybeSendAdditionalRepairs will decide to
+                                           // transmit additional read repairs so that it meets the blockFor.
+                                           // The pending endpoint for node1 is in in the additionalRecipient
+                                           // due to how DataResolver.initialise builds the  initialRecipients
+                                           // and additionalRecipients list.
+                                           .withConfig(config -> config.set("write_request_timeout_in_ms", 5000l))
+                                           .start(), 3))
         {
             List<Token> tokens = cluster.tokens();
 
