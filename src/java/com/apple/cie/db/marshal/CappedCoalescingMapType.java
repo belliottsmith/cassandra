@@ -74,7 +74,6 @@ import org.apache.cassandra.exceptions.SyntaxException;
  */
 public class CappedCoalescingMapType<E> extends CappedSortedMapType<ByteBuffer>
 {
-//    final private static AbstractType<UUID> keyType = ReversedType.getInstance(TimeUUIDType.instance);
     final private AbstractType<E> elementType;
 
     public CappedCoalescingMapType(AbstractType<E> elementType)

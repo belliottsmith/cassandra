@@ -396,7 +396,7 @@ public class ApnsSortedMapQtTest extends CQLTester
             {
                 Map<UUID, ByteBuffer> m = Apns.sortedDeliverableMapType.compose(bb);
                 return m.entrySet().stream().map(e -> {
-                    ByteBuffer[] deliverable = Apns.deliverableType.split(e.getValue());
+                    ByteBuffer[] deliverable = Apns.sortedDeliverableType.split(e.getValue());
                     return new ApnsEvent(e.getKey(), deliverable[0], deliverable[1], deliverable[2]);
                 }).collect(Collectors.toSet());
             }
