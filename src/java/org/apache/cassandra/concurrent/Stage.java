@@ -29,7 +29,6 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -55,9 +54,9 @@ public enum Stage
     VIEW_MUTATION     ("ViewMutationStage",     "request",  getConcurrentViewWriters(),    DatabaseDescriptor::setConcurrentViewWriters,    Stage::multiThreadedLowSignalStage),
     GOSSIP            ("GossipStage",           "internal", 1,                             null,                                            Stage::singleThreadedStage),
     REQUEST_RESPONSE  ("RequestResponseStage",  "request",  getAvailableProcessors(),      null,                                            Stage::multiThreadedLowSignalStage),
-    ANTI_ENTROPY      ("AntiEntropyStage",      "internal", 1,                             null,                                            Stage::multiThreadedStage),
-    MIGRATION         ("MigrationStage",        "internal", 1,                             null,                                            Stage::multiThreadedStage),
-    MISC              ("MiscStage",             "internal", 1,                             null,                                            Stage::multiThreadedStage), //TODO: ANTI_ENTROPY, MIGRATION & MISC can use Stage::singleThreadedStage
+    ANTI_ENTROPY      ("AntiEntropyStage",      "internal", 1,                             null,                                            Stage::singleThreadedStage),
+    MIGRATION         ("MigrationStage",        "internal", 1,                             null,                                            Stage::singleThreadedStage),
+    MISC              ("MiscStage",             "internal", 1,                             null,                                            Stage::singleThreadedStage),
     TRACING           ("TracingStage",          "internal", 1,                             null,                                            Stage::tracingExecutor),
     INTERNAL_RESPONSE ("InternalResponseStage", "internal", getAvailableProcessors(),      null,                                            Stage::multiThreadedStage),
     IMMEDIATE         ("ImmediateStage",        "internal", 0,                             null,                                            Stage::immediateExecutor);
@@ -66,7 +65,7 @@ public enum Stage
     public final String jmxName;
     public final LocalAwareExecutorService executor;
 
-    Stage(String jmxName, String jmxType, int numThreads, Consumer<Integer> setNumThreads, ExecutorServiceInitialiser initialiser)
+    Stage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads, ExecutorServiceInitialiser initialiser)
     {
         this.jmxName = jmxName;
         this.executor = initialiser.init(jmxName, jmxType, numThreads, setNumThreads);
@@ -142,7 +141,7 @@ public enum Stage
         ExecutorUtils.awaitTermination(timeout, units, executors);
     }
 
-    static LocalAwareExecutorService tracingExecutor(String jmxName, String jmxType, int numThreads, Consumer<Integer> setNumThreads)
+    static LocalAwareExecutorService tracingExecutor(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads)
     {
         RejectedExecutionHandler reh = (r, executor) -> MessagingService.instance().metrics.recordSelfDroppedMessage(Verb._TRACE);
         return new TracingExecutor(1,
@@ -154,7 +153,7 @@ public enum Stage
                                    reh);
     }
 
-    static LocalAwareExecutorService multiThreadedStage(String jmxName, String jmxType, int numThreads, Consumer<Integer> setNumThreads)
+    static LocalAwareExecutorService multiThreadedStage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads)
     {
         return new JMXEnabledThreadPoolExecutor(numThreads,
                                                 KEEP_ALIVE_SECONDS,
@@ -164,17 +163,17 @@ public enum Stage
                                                 jmxType);
     }
 
-    static LocalAwareExecutorService multiThreadedLowSignalStage(String jmxName, String jmxType, int numThreads, Consumer<Integer> setNumThreads)
+    static LocalAwareExecutorService multiThreadedLowSignalStage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads)
     {
         return SharedExecutorPool.SHARED.newExecutor(numThreads, setNumThreads, Integer.MAX_VALUE, jmxType, jmxName);
     }
 
-    static LocalAwareExecutorService singleThreadedStage(String jmxName, String jmxType, int numThreads, Consumer<Integer> setNumThreads)
+    static LocalAwareExecutorService singleThreadedStage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads)
     {
         return new JMXEnabledSingleThreadExecutor(jmxName, jmxType);
     }
 
-    static LocalAwareExecutorService immediateExecutor(String jmxName, String jmxType, int numThreads, Consumer<Integer> setNumThreads)
+    static LocalAwareExecutorService immediateExecutor(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads)
     {
         return ImmediateExecutor.INSTANCE;
     }
@@ -182,7 +181,7 @@ public enum Stage
     @FunctionalInterface
     public interface ExecutorServiceInitialiser
     {
-        public LocalAwareExecutorService init(String jmxName, String jmxType, int numThreads, Consumer<Integer> setNumThreads);
+        public LocalAwareExecutorService init(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads);
     }
 
     /**
