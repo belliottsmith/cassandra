@@ -59,7 +59,7 @@ public class Coordinator implements ICoordinator
             {
                 boundBBValues.add(ByteBufferUtil.objectToBytes(boundValue));
             }
-
+            prepared.checkAccess(clientState);
             ResultMessage res = prepared.execute(QueryState.forInternalCalls(),
                                                  QueryOptions.create(consistencyLevel,
                                                                      boundBBValues,
