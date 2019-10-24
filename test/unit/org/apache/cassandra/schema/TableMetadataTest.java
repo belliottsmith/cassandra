@@ -26,14 +26,18 @@ import org.junit.Test;
 
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.marshal.BooleanType;
+import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.FloatType;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.db.marshal.TupleType;
 import org.apache.cassandra.db.marshal.UTF8Type;
+import org.apache.cassandra.dht.ByteOrderedPartitioner;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class TableMetadataTest
 {
@@ -136,5 +140,29 @@ public class TableMetadataTest
                      metadata.primaryKeyAsCQLLiteral(composite.decompose(1, true), Clustering.EMPTY));
         assertEquals("(2, true)",
                      metadata.primaryKeyAsCQLLiteral(composite.decompose(2, true), Clustering.STATIC_CLUSTERING));
+    }
+
+    @Test
+    public void equalsWithoutId()
+    {
+        TableId id1 = TableId.generate();
+        TableId id2 = TableId.generate();
+
+        TableMetadata table1 =
+        TableMetadata.builder("keyspace", "table")
+                     .id(id1)
+                     .partitioner(ByteOrderedPartitioner.instance)
+                     .addPartitionKeyColumn("pk", BytesType.instance)
+                     .addClusteringColumn("cc", Int32Type.instance)
+                     .addRegularColumn("rc", UTF8Type.instance)
+                     .build();
+        TableMetadata table2 = table1.unbuild().id(id2).build();
+        TableMetadata table3 = table2.unbuild().comment("non-empty comment").build();
+
+        assertFalse(table1.equals(table2));
+        assertTrue (table1.equalsWithoutId(table2));
+
+        assertFalse(table2.equals(table3));
+        assertFalse(table2.equalsWithoutId(table3));
     }
 }
