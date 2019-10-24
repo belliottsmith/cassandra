@@ -573,11 +573,31 @@ public final class TableMetadata implements SchemaElement
         return equalsWithoutColumns(tm) && columns.equals(tm.columns);
     }
 
+    /**
+     * Compare two {@link TableMetadata} objects without taking into account their table ID. See rdar://56247982.
+     */
+    public boolean equalsWithoutId(Object o)
+    {
+        if (this == o)
+            return true;
+
+        if (!(o instanceof TableMetadata))
+            return false;
+
+        TableMetadata tm = (TableMetadata) o;
+
+        return equalsWithoutColumnsAndId(tm) && columns.equals(tm.columns);
+    }
+
     private boolean equalsWithoutColumns(TableMetadata tm)
+    {
+        return id.equals(tm.id) && equalsWithoutColumnsAndId(tm);
+    }
+
+    private boolean equalsWithoutColumnsAndId(TableMetadata tm)
     {
         return keyspace.equals(tm.keyspace)
             && name.equals(tm.name)
-            && id.equals(tm.id)
             && partitioner.equals(tm.partitioner)
             && kind == tm.kind
             && params.equals(tm.params)
