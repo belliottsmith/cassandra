@@ -112,6 +112,7 @@ public class Coordinator implements ICoordinator
             boundBBValues.add(ByteBufferUtil.objectToBytes(boundValue));
 
         prepared.validate(QueryState.forInternalCalls().getClientState());
+        prepared.validate(clientState);
 
         // Start capturing warnings on this thread. Note that this will implicitly clear out any previous 
         // warnings as it sets a new State instance on the ThreadLocal.
