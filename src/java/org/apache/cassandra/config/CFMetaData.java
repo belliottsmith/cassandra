@@ -826,6 +826,24 @@ public final class CFMetaData
                : ColumnDefinition.regularDef(this, name, type);
     }
 
+    /**
+     * Compare two {@link CFMetaData} objects without taking into account their table ID. See rdar://56247982.
+     */
+    public boolean equalsWithoutId(CFMetaData other)
+    {
+        return null != other
+            && Objects.equal(flags, other.flags)
+            && Objects.equal(ksName, other.ksName)
+            && Objects.equal(cfName, other.cfName)
+            && Objects.equal(params, other.params)
+            && Objects.equal(comparator, other.comparator)
+            && Objects.equal(keyValidator, other.keyValidator)
+            && Objects.equal(columnMetadata, other.columnMetadata)
+            && Objects.equal(droppedColumns, other.droppedColumns)
+            && Objects.equal(triggers, other.triggers)
+            && Objects.equal(indexes, other.indexes);
+    }
+
     @Override
     public boolean equals(Object o)
     {
@@ -837,17 +855,7 @@ public final class CFMetaData
 
         CFMetaData other = (CFMetaData) o;
 
-        return Objects.equal(cfId, other.cfId)
-            && Objects.equal(flags, other.flags)
-            && Objects.equal(ksName, other.ksName)
-            && Objects.equal(cfName, other.cfName)
-            && Objects.equal(params, other.params)
-            && Objects.equal(comparator, other.comparator)
-            && Objects.equal(keyValidator, other.keyValidator)
-            && Objects.equal(columnMetadata, other.columnMetadata)
-            && Objects.equal(droppedColumns, other.droppedColumns)
-            && Objects.equal(triggers, other.triggers)
-            && Objects.equal(indexes, other.indexes);
+        return Objects.equal(cfId, other.cfId) && equalsWithoutId(other);
     }
 
     @Override

@@ -27,6 +27,7 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.marshal.AsciiType;
+import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
@@ -44,11 +45,14 @@ import org.apache.cassandra.thrift.IndexType;
 import org.apache.cassandra.thrift.ThriftConversion;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.UUIDGen;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
 
 public class CFMetaDataTest
 {
@@ -172,5 +176,29 @@ public class CFMetaDataTest
 
         assertEquals(cfm.params, params);
         assertEquals(new HashSet<>(cfm.allColumns()), columns);
+    }
+
+    @Test
+    public void testEqualsWithoutID()
+    {
+        UUID id1 = UUIDGen.getTimeUUID();
+        UUID id2 = UUIDGen.getTimeUUID();
+
+        CFMetaData table1 =
+            CFMetaData.Builder
+                      .create("keyspace", "table")
+                      .withId(id1)
+                      .addPartitionKey("pk", BytesType.instance)
+                      .addClusteringColumn("cc", Int32Type.instance)
+                      .addRegularColumn("rc", UTF8Type.instance)
+                      .build();
+        CFMetaData table2 = table1.copy(id2);
+        CFMetaData table3 = table2.copy().comment("non-empty comment");
+
+        assertFalse(table1.equals(table2));
+        assertTrue (table1.equalsWithoutId(table2));
+
+        assertFalse(table2.equals(table3));
+        assertFalse(table2.equalsWithoutId(table3));
     }
 }

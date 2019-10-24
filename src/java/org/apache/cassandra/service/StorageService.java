@@ -1201,7 +1201,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         for (CFMetaData table : keyspace.tables)
         {
-            if (table.equals(definedKeyspace.tables.getNullable(table.cfName)))
+            /*
+             * Compare without taking into account tables' IDs; need to do this because for various
+             * historical reasons we've created some of our system-like tables manually - as part
+             * of upgrade workflows or otherwise. See rdar://56247982 for context.
+             */
+            if (table.equalsWithoutId(definedKeyspace.tables.getNullable(table.cfName)))
                 continue;
 
             if (null == change)
