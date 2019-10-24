@@ -90,7 +90,8 @@ public class Coordinator implements ICoordinator
         for (Object boundValue : boundValues)
             boundBBValues.add(ByteBufferUtil.objectToBytes(boundValue));
 
-        prepared.validate(QueryState.forInternalCalls().getClientState());
+        prepared.authorize(clientState);
+        prepared.validate(clientState);
         ResultMessage res = prepared.execute(QueryState.forInternalCalls(),
                                              QueryOptions.create(toCassandraCL(consistencyLevel),
                                                                  boundBBValues,
