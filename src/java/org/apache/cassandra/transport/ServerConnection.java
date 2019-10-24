@@ -17,19 +17,25 @@
  */
 package org.apache.cassandra.transport;
 
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-
+import com.codahale.metrics.Counter;
+import io.netty.handler.ssl.SslHandler;
 import io.netty.channel.Channel;
 import org.apache.cassandra.auth.IAuthenticator;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import com.codahale.metrics.Counter;
+import javax.net.ssl.SSLPeerUnverifiedException;
+import javax.security.cert.X509Certificate;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public class ServerConnection extends Connection
 {
+    private static final Logger logger = LoggerFactory.getLogger(ServerConnection.class);
+
     private enum State { UNINITIALIZED, AUTHENTICATION, READY }
 
     private volatile IAuthenticator.SaslNegotiator saslNegotiator;
@@ -121,7 +127,30 @@ public class ServerConnection extends Connection
     public IAuthenticator.SaslNegotiator getSaslNegotiator(QueryState queryState)
     {
         if (saslNegotiator == null)
-            saslNegotiator = DatabaseDescriptor.getAuthenticator().newSaslNegotiator(queryState.getClientAddress());
+            saslNegotiator = DatabaseDescriptor.getAuthenticator()
+                                               .newSaslNegotiator(queryState.getClientAddress(), certificates());
         return saslNegotiator;
+    }
+
+    private X509Certificate[] certificates()
+    {
+        SslHandler sslHandler = (SslHandler) channel().pipeline()
+                                                      .get("ssl");
+        X509Certificate[] certificates = null;
+
+        if (sslHandler != null)
+        {
+            try
+            {
+                certificates = sslHandler.engine()
+                                         .getSession()
+                                         .getPeerCertificateChain();
+            }
+            catch (SSLPeerUnverifiedException e)
+            {
+                logger.error("Failed to get peer certificates for peer {}", channel().remoteAddress(), e);
+            }
+        }
+        return certificates;
     }
 }

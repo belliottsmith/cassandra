@@ -125,6 +125,7 @@ public class NodeTool
                 StatusThrift.class,
                 StatusBackup.class,
                 StatusHandoff.class,
+                StatusAutoCompaction.class,
                 Stop.class,
                 StopDaemon.class,
                 Version.class,

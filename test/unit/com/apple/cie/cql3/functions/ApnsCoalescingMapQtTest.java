@@ -270,10 +270,6 @@ public class ApnsCoalescingMapQtTest extends CQLTester
         }
     }
 
-    private static final TupleType coalescingKeyAndMessageType = tupleType(
-        BytesType.instance,    // 0: coalescing key
-        ByteType.instance      // 1: message
-    );
     class Model extends StepBased
     {
         /* Generator parameters */
@@ -438,10 +434,10 @@ public class ApnsCoalescingMapQtTest extends CQLTester
             }
             else
             {
-                Map<UUID, ByteBuffer> m = Apns.sortedDeliverableMapType.compose(bb);
+                Map<UUID, ByteBuffer> m = Apns.coalescingDeliverableMapType.compose(bb);
                 return m.entrySet().stream().map(e -> {
-                    ByteBuffer[] deliverable = Apns.deliverableType.split(e.getValue());
-                    ByteBuffer[] cmParts = coalescingKeyAndMessageType.split(deliverable[0]);
+                    ByteBuffer[] deliverable = Apns.coalescingDeliverableType.split(e.getValue());
+                    ByteBuffer[] cmParts = Apns.coalescingKeyAndMessageType.split(deliverable[0]);
                     return new ApnsEvent(e.getKey(), cmParts[0], cmParts[1],
                                          deliverable[1], deliverable[2]);
                 }).collect(Collectors.toSet());
@@ -522,10 +518,10 @@ public class ApnsCoalescingMapQtTest extends CQLTester
                 lastTopicId = r.getBytes("topic");
                 ByteBuffer od = r.getBytes("oldestdeliverable");
                 assert (od != null);
-                ByteBuffer[] odParts = Apns.sortedOldestDeliverableType.split(od);
+                ByteBuffer[] odParts = Apns.coalescingOldestDeliverableType.split(od);
                 if (odParts[2] != null)
                 {
-                    ByteBuffer[] cmParts = coalescingKeyAndMessageType.split(odParts[3]);
+                    ByteBuffer[] cmParts = Apns.coalescingKeyAndMessageType.split(odParts[3]);
                     lastEvent = new ApnsEvent(TimeUUIDType.instance.compose(odParts[2]),
                                               cmParts[0], cmParts[1], odParts[4], odParts[5]);
                 }
@@ -568,7 +564,7 @@ public class ApnsCoalescingMapQtTest extends CQLTester
                 topicId = r.getBytes("topic");
                 ByteBuffer kod = r.getBytes("koldestdeliverable");
                 assert (kod != null);
-                ByteBuffer[] kodParts = Apns.sortedKOldestDeliverableType.split(kod);
+                ByteBuffer[] kodParts = Apns.coalescingKOldestDeliverableType.split(kod);
                 if (kodParts[2] != null)
                 {
                     result = deserializeDeliverableMap(kodParts[2]);
