@@ -35,6 +35,7 @@ import org.apache.cassandra.auth.*;
 import org.apache.cassandra.db.virtual.VirtualSchemaKeyspace;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.exceptions.RequestValidationException;
+import org.apache.cassandra.schema.CIEInternalKeyspace;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -61,8 +62,10 @@ public class ClientState
 {
     private static final Logger logger = LoggerFactory.getLogger(ClientState.class);
 
+    /* FIXME: should assign the final fields in the static block */
     private static final Set<IResource> READABLE_SYSTEM_RESOURCES = new HashSet<>();
     private static final Set<IResource> PROTECTED_AUTH_RESOURCES = new HashSet<>();
+    private static final Set<String> ALTERABLE_SYSTEM_KEYSPACES = new HashSet<>();
 
     static
     {
@@ -84,6 +87,10 @@ public class ClientState
             PROTECTED_AUTH_RESOURCES.addAll(DatabaseDescriptor.getAuthorizer().protectedResources());
             PROTECTED_AUTH_RESOURCES.addAll(DatabaseDescriptor.getRoleManager().protectedResources());
         }
+
+        // allow users with sufficient privileges to alter all system_auth and cie_internal tables. See rdar://56247937.
+        ALTERABLE_SYSTEM_KEYSPACES.add(SchemaConstants.AUTH_KEYSPACE_NAME);
+        ALTERABLE_SYSTEM_KEYSPACES.add(CIEInternalKeyspace.NAME);
     }
 
     // Current user for the session
@@ -465,6 +472,10 @@ public class ClientState
         {
             // allow users with sufficient privileges to alter replication params of replicated system keyspaces
             if (perm == Permission.ALTER && resource.isKeyspaceLevel())
+                return;
+
+            // allow users with sufficient privileges to alter all system_auth and cie_internal tables. See rdar://56247937.
+            if (perm == Permission.ALTER && resource.isTableLevel() && ALTERABLE_SYSTEM_KEYSPACES.contains(keyspace))
                 return;
 
             // prevent all other modifications of replicated system keyspaces
