@@ -1291,7 +1291,19 @@ public abstract class LegacyLayout
         private LegacyRangeTombstone rowDeletion;
         private LegacyRangeTombstone collectionDeletion;
 
-        // used to track if we need to add a pk liveness info, see CASSANDRA-XYZ
+        /**
+         * Used to track if we need to add pk liveness info (row marker) when removing invalid legacy cells.
+         *
+         * In 2.1 these invalid cells existed but were not queryable, in this case specifically because they
+         * represented values for clustering key columns that were written as data cells.
+         *
+         * However, the presence (or not) of such cells on an otherwise empty CQL row (or partition) would decide
+         * if an empty result row were returned for the CQL row (or partition).  To maintain this behaviour we
+         * insert a row marker containing the liveness info of these invalid cells iff we have no other data
+         * on the row.
+         *
+         * See also CASSANDRA-15365
+         */
         private boolean hasValidCells = false;
         private LivenessInfo invalidLivenessInfo = null;
 
