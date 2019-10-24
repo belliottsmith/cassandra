@@ -41,7 +41,7 @@ public class Accumulator<E> implements Iterable<E>
     }
 
     /**
-     * Adds an item to the collection.
+     * Add an item to the collection and return true if there is room; otherwise discard the input and return false.
      *
      * Note it is not guaranteed to be visible on exiting the method, if another add was happening concurrently;
      * it will be visible once all concurrent adds (which are non-blocking) complete, but it is not guaranteed
@@ -49,14 +49,14 @@ public class Accumulator<E> implements Iterable<E>
      *
      * @param item add to collection
      */
-    public void add(E item)
+    public boolean addIfNotFull(E item)
     {
         int insertPos;
         while (true)
         {
             insertPos = nextIndex;
             if (insertPos >= values.length)
-                throw new IllegalStateException();
+                return false;
             if (nextIndexUpdater.compareAndSet(this, insertPos, insertPos + 1))
                 break;
         }
@@ -80,7 +80,7 @@ public class Accumulator<E> implements Iterable<E>
                     volatileWrite = true;
                     continue;
                 }
-                return;
+                return true;
             }
             presentCountUpdater.compareAndSet(this, cur, cur + 1);
             volatileWrite = true;

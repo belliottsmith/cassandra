@@ -35,6 +35,15 @@ public abstract class ResponseResolver
 
     // Accumulator gives us non-blocking thread-safety with optimal algorithmic constraints
     protected final Accumulator<MessageIn<ReadResponse>> responses;
+    /**
+     * Ordinarily we expect to receive no more responses than we requested.
+     * Since this would be a correctness error, we throw {@link IllegalStateException} if this occurs,
+     * however in {@link StorageProxy.SinglePartitionReadLifecycle#maybeSendAdditionalDataRequests()}
+     * we may submit additional requests to more nodes than we originally anticipated, and more than we need.
+     * If the original and extra requests all respond, we may overflow, so we permit this without complaint in this
+     * case only.
+     */
+    private boolean isResponseOverflowPermitted;
 
     public ResponseResolver(Keyspace keyspace, ReadCommand command, ConsistencyLevel consistency, int maxResponseCount)
     {
@@ -61,9 +70,16 @@ public abstract class ResponseResolver
 
     public abstract boolean isDataPresent();
 
+    public void setResponseOverflowPermitted()
+    {
+        isResponseOverflowPermitted = true;
+    }
+
     public void preprocess(MessageIn<ReadResponse> message)
     {
-        responses.add(message);
+        boolean added = responses.addIfNotFull(message);
+        if (!added && !isResponseOverflowPermitted)
+            throw new IllegalStateException();
     }
 
     public Iterable<MessageIn<ReadResponse>> getMessages()

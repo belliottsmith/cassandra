@@ -2025,6 +2025,7 @@ public class StorageProxy implements StorageProxyMBean
 
             if (executor.shouldSpeculateReadRepair() && !repairHandler.await(executor.speculateWaitNanos(), TimeUnit.NANOSECONDS))
             {
+                dataResolver.setResponseOverflowPermitted();
                 ReadRepairMetrics.speculatedDataRequest.mark();
                 Set<InetAddress> contacted = Sets.newHashSet(executor.getContactedReplicas());
                 for (InetAddress endpoint: Iterables.filter(ReadRepairHandler.getCandidateEndpoints(executor), e -> !contacted.contains(e)))
