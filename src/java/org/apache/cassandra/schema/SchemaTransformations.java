@@ -186,7 +186,12 @@ public class SchemaTransformations
                             // preserve exsiting tables which are missing in the new keyspace definition
                             updatedKeyspace = updatedKeyspace.withSwapped(updatedKeyspace.tables.with(curTable));
                         }
-                        else
+                        /*
+                         * Compare without taking into account tables' IDs; need to do this because for various
+                         * historical reasons we've created some of our system-like tables manually - as part
+                         * of upgrade workflows or otherwise. See rdar://56247982 for context.
+                         */
+                        else if (!desiredTable.equalsWithoutId(desiredTable))
                         {
                             updatedKeyspace = updatedKeyspace.withSwapped(updatedKeyspace.tables.without(desiredTable));
 
