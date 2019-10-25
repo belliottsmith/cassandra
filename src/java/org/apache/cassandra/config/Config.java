@@ -227,7 +227,9 @@ public class Config
     public volatile Integer compaction_large_partition_warning_threshold_mb = 100;
     public Integer min_free_space_per_drive_in_mb = 50;
 
+    //
     public volatile int concurrent_validations = 3;
+    public ValidationPoolFullStrategy validation_pool_full_strategy = ValidationPoolFullStrategy.queue;
 
     /**
      * @deprecated retry support removed on CASSANDRA-10992
@@ -469,7 +471,7 @@ public class Config
     public volatile int max_concurrent_automatic_sstable_upgrades = 1;
 
     public RepairCommandPoolFullStrategy repair_command_pool_full_strategy = RepairCommandPoolFullStrategy.queue;
-    public int repair_command_pool_size = concurrent_validations;
+    public int repair_command_pool_size;
 
     public CorruptedTombstoneStrategy corrupted_tombstone_strategy = CorruptedTombstoneStrategy.disabled;
 
@@ -588,6 +590,12 @@ public class Config
     }
 
     public enum RepairCommandPoolFullStrategy
+    {
+        queue,
+        reject
+    }
+
+    public enum ValidationPoolFullStrategy
     {
         queue,
         reject

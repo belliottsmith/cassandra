@@ -148,6 +148,8 @@ public class DatabaseDescriptor
         return  conf.full_query_log_dir;
     }
 
+    public static volatile boolean allowUnlimitedConcurrentValidations = Boolean.getBoolean("cassandra.allow_unlimited_concurrent_validations");
+
     static
     {
         // In client mode, we use a default configuration. Note that the fields of this class will be
@@ -689,11 +691,22 @@ public class DatabaseDescriptor
         if (conf.concurrent_compactors == null)
             conf.concurrent_compactors = Math.min(8, Math.max(2, Math.min(FBUtilities.getAvailableProcessors(), conf.data_file_directories.length)));
 
-        if (conf.concurrent_validations < 1)
-            conf.concurrent_validations = Integer.MAX_VALUE;
-
         if (conf.concurrent_compactors <= 0)
             throw new ConfigurationException("concurrent_compactors should be strictly greater than 0, but was " + conf.concurrent_compactors, false);
+
+        if (conf.concurrent_validations < 1)
+        {
+            conf.concurrent_validations = conf.concurrent_compactors;
+        }
+        else if (conf.concurrent_validations > conf.concurrent_compactors && !allowUnlimitedConcurrentValidations)
+        {
+            throw new ConfigurationException("To set concurrent_validations > concurrent_compactors, " +
+                                             "set the system property cassandra.allow_unlimited_concurrent_validations=true");
+
+        }
+
+        if (conf.repair_command_pool_size < 1)
+            conf.repair_command_pool_size = conf.concurrent_validations;
 
         if (conf.num_tokens == null)
             conf.num_tokens = 1;
@@ -1450,7 +1463,6 @@ public class DatabaseDescriptor
 
     public static void setConcurrentValidations(int value)
     {
-        value = value > 0 ? value : Integer.MAX_VALUE;
         conf.concurrent_validations = value;
     }
 
@@ -2595,6 +2607,11 @@ public class DatabaseDescriptor
     public static Config.RepairCommandPoolFullStrategy getRepairCommandPoolFullStrategy()
     {
         return conf.repair_command_pool_full_strategy;
+    }
+
+    public static Config.ValidationPoolFullStrategy getValidationPoolFullStrategy()
+    {
+        return conf.validation_pool_full_strategy;
     }
 
     public static boolean getLogOutOfTokenRangeRequests()

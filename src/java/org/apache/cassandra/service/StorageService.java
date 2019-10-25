@@ -1452,10 +1452,37 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return DatabaseDescriptor.getConcurrentValidations();
     }
 
+    public void setSettingUnlimitedConcurrentValidatorsAllowed(boolean allow)
+    {
+        logger.info("{} the ability to set concurrent validations to an unlimited value", allow ? "Enabling" : "Disabling");
+        DatabaseDescriptor.allowUnlimitedConcurrentValidations = allow ;
+    }
+
+    public boolean getSettingUnlimitedConcurrentValidatorsAllowed()
+    {
+        return DatabaseDescriptor.allowUnlimitedConcurrentValidations;
+    }
+
     public void setConcurrentValidators(int value)
     {
+        int concurrentCompactors = DatabaseDescriptor.getConcurrentCompactors();
+        if (value > concurrentCompactors && !DatabaseDescriptor.allowUnlimitedConcurrentValidations)
+            throw new IllegalArgumentException(
+                        String.format("Cannot set concurrent_validations greater than concurrent_compactors (%d)",
+                                      concurrentCompactors));
+
+        if (value <= 0)
+        {
+            logger.info("Using default value of concurrent_compactors ({}) for concurrent_validations", concurrentCompactors);
+            value = concurrentCompactors;
+        }
+        else
+        {
+            logger.info("Setting concurrent_validations to {}", value);
+        }
+
         DatabaseDescriptor.setConcurrentValidations(value);
-        CompactionManager.instance.setConcurrentValidations(DatabaseDescriptor.getConcurrentValidations());
+        CompactionManager.instance.setConcurrentValidations();
     }
 
     public boolean isIncrementalBackupsEnabled()
@@ -3629,7 +3656,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             return 0;
 
         int cmd = nextRepairCommand.incrementAndGet();
-        ActiveRepairService.repairCommandExecutor.execute(createRepairTask(cmd, keyspace, options, legacy));
+        ActiveRepairService.repairCommandExecutor().execute(createRepairTask(cmd, keyspace, options, legacy));
         return cmd;
     }
 

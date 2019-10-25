@@ -505,7 +505,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                 () -> Ref.shutdownReferenceReaper(1L, MINUTES),
                                 () -> Memtable.MEMORY_POOL.shutdownAndWait(1L, MINUTES),
                                 () -> SSTableReader.shutdownBlocking(1L, MINUTES),
-                                () -> shutdownAndWait(1L, MINUTES, ActiveRepairService.repairCommandExecutor)
+                                () -> shutdownAndWait(1L, MINUTES, ActiveRepairService.repairCommandExecutor())
             );
             error = parallelRun(error, executor,
                                 () -> ScheduledExecutors.shutdownAndWait(1L, MINUTES),

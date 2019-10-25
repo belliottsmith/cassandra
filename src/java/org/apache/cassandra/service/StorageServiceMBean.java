@@ -537,7 +537,8 @@ public interface StorageServiceMBean extends NotificationEmitter
     public int getCompactionThroughputMbPerSec();
     public void setCompactionThroughputMbPerSec(int value);
 
-
+    public void setSettingUnlimitedConcurrentValidatorsAllowed(boolean allow);
+    public boolean getSettingUnlimitedConcurrentValidatorsAllowed();
     public int getConcurrentValidators();
     public void setConcurrentValidators(int value);
 

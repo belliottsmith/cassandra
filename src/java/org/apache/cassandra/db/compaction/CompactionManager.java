@@ -33,6 +33,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.*;
 import com.google.common.util.concurrent.*;
+import org.apache.cassandra.config.*;
 import org.apache.cassandra.dht.AbstractBounds;
 
 import org.slf4j.Logger;
@@ -42,10 +43,7 @@ import org.apache.cassandra.cache.AutoSavingCache;
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
-import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.compaction.CompactionInfo.Holder;
 import org.apache.cassandra.db.lifecycle.ILifecycleTransaction;
@@ -122,7 +120,7 @@ public class CompactionManager implements CompactionManagerMBean
     }
 
     private final CompactionExecutor executor = new CompactionExecutor();
-    private final CompactionExecutor validationExecutor = new ValidationExecutor();
+    private final ValidationExecutor validationExecutor = new ValidationExecutor();
     private final CompactionExecutor cacheCleanupExecutor = new CacheCleanupExecutor();
 
     private final CompactionMetrics metrics = new CompactionMetrics(executor, validationExecutor);
@@ -2003,7 +2001,30 @@ public class CompactionManager implements CompactionManagerMBean
     {
         public ValidationExecutor()
         {
-            super(1, DatabaseDescriptor.getConcurrentValidations(), "ValidationExecutor", new SynchronousQueue<Runnable>());
+            super(corePoolSize(),
+                  DatabaseDescriptor.getConcurrentValidations(),
+                  "ValidationExecutor",
+                  workQueue());
+        }
+
+        private static int corePoolSize()
+        {
+            return DatabaseDescriptor.getValidationPoolFullStrategy() == Config.ValidationPoolFullStrategy.queue
+                   ? DatabaseDescriptor.getConcurrentValidations()
+                   : 1;
+        }
+
+        private static BlockingQueue<Runnable> workQueue()
+        {
+            return DatabaseDescriptor.getValidationPoolFullStrategy() == Config.ValidationPoolFullStrategy.queue
+               ? new LinkedBlockingQueue<>()
+               : new SynchronousQueue<>();
+        }
+
+        public void adjustPoolSize()
+        {
+            setCoreThreads(corePoolSize());
+            setMaximumThreads(DatabaseDescriptor.getConcurrentValidations());
         }
     }
 
@@ -2085,10 +2106,9 @@ public class CompactionManager implements CompactionManagerMBean
         }
     }
 
-    public void setConcurrentValidations(int value)
+    public void setConcurrentValidations()
     {
-        value = value > 0 ? value : Integer.MAX_VALUE;
-        validationExecutor.setMaximumPoolSize(value);
+        validationExecutor.adjustPoolSize();
     }
 
     public int getCoreCompactorThreads()

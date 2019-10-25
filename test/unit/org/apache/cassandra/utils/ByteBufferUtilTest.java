@@ -275,11 +275,11 @@ public class ByteBufferUtilTest
     {
         // +2 to ensure we always have *at least* 2
         // because we want to ensure we merge/split multiple buffers
-        int numBuffersToGenerate = RANDOM.nextInt(6 + 2);
+        int numBuffersToGenerate = RANDOM.nextInt(6) + 2;
         ByteBuffer[] buffers = new ByteBuffer[numBuffersToGenerate];
         for (int i = 0; i < numBuffersToGenerate; i++)
         {
-            byte[] bytes = generateRandomWord(RANDOM.nextInt(10 + 1)).getBytes();
+            byte[] bytes = generateRandomWord(RANDOM.nextInt(10) + 1).getBytes();
             byte[] extraBytes = new byte[bytes.length + 1];
             System.arraycopy(bytes, 0, extraBytes, 1, bytes.length);
             ByteBuffer bb = ByteBuffer.wrap(extraBytes, 1, bytes.length);
