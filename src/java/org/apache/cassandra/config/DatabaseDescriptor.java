@@ -696,7 +696,8 @@ public class DatabaseDescriptor
 
         if (conf.concurrent_validations < 1)
         {
-            conf.concurrent_validations = conf.concurrent_compactors;
+            // Apple internal: default to 3 in production
+            conf.concurrent_validations = Math.min(3, conf.concurrent_compactors);
         }
         else if (conf.concurrent_validations > conf.concurrent_compactors && !allowUnlimitedConcurrentValidations)
         {

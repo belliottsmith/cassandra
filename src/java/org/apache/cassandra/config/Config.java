@@ -227,9 +227,8 @@ public class Config
     public volatile Integer compaction_large_partition_warning_threshold_mb = 100;
     public Integer min_free_space_per_drive_in_mb = 50;
 
-    //
-    public volatile int concurrent_validations = 3;
     public ValidationPoolFullStrategy validation_pool_full_strategy = ValidationPoolFullStrategy.queue;
+    public volatile int concurrent_validations;
 
     /**
      * @deprecated retry support removed on CASSANDRA-10992
