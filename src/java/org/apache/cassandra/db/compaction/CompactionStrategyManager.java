@@ -589,7 +589,8 @@ public class CompactionStrategyManager implements INotificationConsumer
                 repaired.enable();
             if (unrepaired != null)
                 unrepaired.enable();
-            pendingRepairs.enable();
+            if (pendingRepairs != null)
+                pendingRepairs.enable();
             // enable this last to make sure the strategies are ready to get calls.
             enabled = true;
         }
@@ -610,7 +611,8 @@ public class CompactionStrategyManager implements INotificationConsumer
                 repaired.disable();
             if (unrepaired != null)
                 unrepaired.disable();
-            pendingRepairs.disable();
+            if (pendingRepairs != null)
+                pendingRepairs.disable();
         }
         finally
         {
