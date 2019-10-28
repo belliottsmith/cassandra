@@ -6,6 +6,7 @@
  * Untangle RepairMessage sub-hierarchy of messages, use new messaging (more) correctly (CASSANDRA-15163)
  * Add `allocate_tokens_for_local_replication_factor` option for token allocation (CASSANDRA-15260)
  * Add Alibaba Cloud Platform snitch (CASSANDRA-15092)
+ * Make it possible to resize concurrent read / write thread pools at runtime (CASSANDRA-15277)
 Merged from 3.0:
  * Add ability to cap max negotiable protocol version (CASSANDRA-15193)
  * Gossip tokens on startup if available (CASSANDRA-15335)
