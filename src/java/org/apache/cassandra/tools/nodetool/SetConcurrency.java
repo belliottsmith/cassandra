@@ -30,8 +30,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 @Command(name = "setconcurrency", description = "Set maximum concurrency for processing stage")
 public class SetConcurrency extends NodeToolCmd
 {
-    @Arguments(title = "<pool-name> <maximum-concurrency> | <pool-name> <core-pool> <maximum-concurrency>",
-    usage = "<pool-name> <maximum-concurrency> | <pool-name> <core-pool> <maximum-concurrency>",
+    @Arguments(title = "<pool-name> <maximum-concurrency> | <stage-name> <core-pool> <maximum-concurrency>",
+    usage = "<stage-name> <maximum-concurrency> | <stage-name> <core-pool> <maximum-concurrency>",
     description = "Set concurrency for processing stage",
     required = true)
     private List<String> args = new ArrayList<>();

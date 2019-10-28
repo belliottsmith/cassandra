@@ -1718,9 +1718,9 @@ public class NodeProbe implements AutoCloseable
         }
     }
 
-    public Map<String, List<Integer>> getMaximumPoolSizes(List<String> filter)
+    public Map<String, List<Integer>> getMaximumPoolSizes(List<String> stageNames)
     {
-        return ssProxy.getConcurrency(filter);
+        return ssProxy.getConcurrency(stageNames);
     }
 
     public void setConcurrency(String stageName, int coreThreads, int maxConcurrency)

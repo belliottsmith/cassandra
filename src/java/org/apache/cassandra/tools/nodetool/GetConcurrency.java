@@ -29,15 +29,15 @@ import org.apache.cassandra.tools.NodeTool.NodeToolCmd;
 @Command(name = "getconcurrency", description = "Get maximum concurrency for processing stages")
 public class GetConcurrency extends NodeToolCmd
 {
-    @Arguments(title = "[pool-names]",
-    usage = "[pool-names]",
-    description = "optionally filter by name")
+    @Arguments(title = "[stage-names]",
+    usage = "[stage-names]",
+    description = "optional list of stage names, otherwise display all stages")
     private List<String> args = new ArrayList<>();
 
     @Override
     public void execute(NodeProbe probe)
     {
-        System.out.printf("%-25s%16s%16s%n", "Pool Name", "CorePoolSize", "MaximumPoolSize");
+        System.out.printf("%-25s%16s%16s%n", "Stage", "CorePoolSize", "MaximumPoolSize");
         probe.getMaximumPoolSizes(args).entrySet().stream()
              .sorted(Map.Entry.comparingByKey())
              .forEach(entry ->

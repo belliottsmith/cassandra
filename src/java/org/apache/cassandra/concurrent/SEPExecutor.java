@@ -39,8 +39,8 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
     private static final Logger logger = LoggerFactory.getLogger(SEPExecutor.class);
     private final SharedExecutorPool pool;
 
-    public final AtomicInteger maxWorkers;
-    MaximumPoolSizeListener updatedMaxWorkers;
+    public final AtomicInteger maximumPoolSize;
+    final MaximumPoolSizeListener maximumPoolSizeListener;
     public final String name;
     private final String mbeanName;
     public final int maxTasksQueued;
@@ -48,7 +48,7 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
 
     // stores both a set of work permits and task permits:
     //  bottom 32 bits are number of queued tasks, in the range [0..maxTasksQueued]   (initially 0)
-    //  top 32 bits are number of work permits available in the range [-resizeDelta..maxWorkers]   (initially maxWorkers)
+    //  top 32 bits are number of work permits available in the range [-resizeDelta..maximumPoolSize]   (initially maximumPoolSize)
     private final AtomicLong permits = new AtomicLong();
 
     // producers wait on this when there is no room on the queue
@@ -63,20 +63,20 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
 
 
 
-    SEPExecutor(SharedExecutorPool pool, int maxWorkers, int maxTasksQueued, String jmxPath, String name)
+    SEPExecutor(SharedExecutorPool pool, int maximumPoolSize, int maxTasksQueued, String jmxPath, String name)
     {
-        this(pool, maxWorkers, i -> {}, maxTasksQueued, jmxPath, name);
+        this(pool, maximumPoolSize, i -> {}, maxTasksQueued, jmxPath, name);
     }
 
-    SEPExecutor(SharedExecutorPool pool, int maxWorkers, MaximumPoolSizeListener updatedMaxWorkers, int maxTasksQueued, String jmxPath, String name)
+    SEPExecutor(SharedExecutorPool pool, int maximumPoolSize, MaximumPoolSizeListener maximumPoolSizeListener, int maxTasksQueued, String jmxPath, String name)
     {
         this.pool = pool;
         this.name = name;
         this.mbeanName = "org.apache.cassandra." + jmxPath + ":type=" + name;
-        this.maxWorkers = new AtomicInteger(maxWorkers);
-        this.updatedMaxWorkers = updatedMaxWorkers;
+        this.maximumPoolSize = new AtomicInteger(maximumPoolSize);
+        this.maximumPoolSizeListener = maximumPoolSizeListener;
         this.maxTasksQueued = maxTasksQueued;
-        this.permits.set(combine(0, maxWorkers));
+        this.permits.set(combine(0, maximumPoolSize));
         this.metrics = new ThreadPoolMetrics(this, jmxPath, name).register();
         MBeanWrapper.instance.registerMBean(this, mbeanName);
     }
@@ -282,7 +282,7 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
 
     public int getActiveTaskCount()
     {
-        return maxWorkers.get() - workPermits(permits.get());
+        return maximumPoolSize.get() - workPermits(permits.get());
     }
 
     public int getCorePoolSize()
@@ -298,15 +298,13 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
     @Override
     public int getMaximumPoolSize()
     {
-        return maxWorkers.get();
+        return maximumPoolSize.get();
     }
 
     @Override
-    public void setMaximumPoolSize(int newMaximumPoolSize)
+    public synchronized void setMaximumPoolSize(int newMaximumPoolSize)
     {
-        final int oldMaxWorkers = maxWorkers.get();
-        long current;
-        int workPermits;
+        final int oldMaxWorkers = maximumPoolSize.get();
 
         if (newMaximumPoolSize < 0)
         {
@@ -314,7 +312,7 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
         }
 
         int deltaWorkPermits = newMaximumPoolSize - oldMaxWorkers;
-        if (!maxWorkers.compareAndSet(oldMaxWorkers, newMaximumPoolSize))
+        if (!maximumPoolSize.compareAndSet(oldMaxWorkers, newMaximumPoolSize))
         {
             throw new IllegalStateException("Maximum pool size has been changed while resizing");
         }
@@ -322,14 +320,9 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
         if (deltaWorkPermits == 0)
             return;
 
-        do
-        {
-            current = permits.get();
-            workPermits = workPermits(current);
-        }
-        while (!permits.compareAndSet(current, updateWorkPermits(current, workPermits + deltaWorkPermits)));
+        permits.updateAndGet(cur -> updateWorkPermits(cur, workPermits(cur) + deltaWorkPermits));
         logger.info("Resized {} maximum pool size from {} to {}", name, oldMaxWorkers, newMaximumPoolSize);
-        updatedMaxWorkers.onUpdateMaximumPoolSize(newMaximumPoolSize);
+        maximumPoolSizeListener.onUpdateMaximumPoolSize(newMaximumPoolSize);
     }
 
     private static int taskPermits(long both)

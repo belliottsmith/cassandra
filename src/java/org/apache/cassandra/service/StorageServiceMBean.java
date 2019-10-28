@@ -722,7 +722,7 @@ public interface StorageServiceMBean extends NotificationEmitter
         }
 
     }
-    public Map<String, List<Integer>> getConcurrency(List<String> filter);
+    public Map<String, List<Integer>> getConcurrency(List<String> stageNames);
 
     /** Sets the concurrency setting for processing stages */
     public void setConcurrency(String threadPoolName, int newCorePoolSize, int newMaximumPoolSize);

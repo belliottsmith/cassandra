@@ -1697,9 +1697,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
-    public Map<String,List<Integer>> getConcurrency(List<String> filter)
+    public Map<String,List<Integer>> getConcurrency(List<String> stageNames)
     {
-        Stream<Stage> stageStream = filter.isEmpty() ? stream(Stage.values()) : filter.stream().map(Stage::fromPoolName);
+        Stream<Stage> stageStream = stageNames.isEmpty() ? stream(Stage.values()) : stageNames.stream().map(Stage::fromPoolName);
         return stageStream.collect(toMap(s -> s.jmxName,
                                          s -> Arrays.asList(s.getCorePoolSize(), s.getMaximumPoolSize())));
     }
