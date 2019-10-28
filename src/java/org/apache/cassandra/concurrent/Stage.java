@@ -65,7 +65,7 @@ public enum Stage
     public final String jmxName;
     public final LocalAwareExecutorService executor;
 
-    Stage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads, ExecutorServiceInitialiser initialiser)
+    Stage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaximumPoolSizeListener setNumThreads, ExecutorServiceInitialiser initialiser)
     {
         this.jmxName = jmxName;
         this.executor = initialiser.init(jmxName, jmxType, numThreads, setNumThreads);
@@ -141,7 +141,7 @@ public enum Stage
         ExecutorUtils.awaitTermination(timeout, units, executors);
     }
 
-    static LocalAwareExecutorService tracingExecutor(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads)
+    static LocalAwareExecutorService tracingExecutor(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaximumPoolSizeListener setNumThreads)
     {
         RejectedExecutionHandler reh = (r, executor) -> MessagingService.instance().metrics.recordSelfDroppedMessage(Verb._TRACE);
         return new TracingExecutor(1,
@@ -153,7 +153,7 @@ public enum Stage
                                    reh);
     }
 
-    static LocalAwareExecutorService multiThreadedStage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads)
+    static LocalAwareExecutorService multiThreadedStage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaximumPoolSizeListener setNumThreads)
     {
         return new JMXEnabledThreadPoolExecutor(numThreads,
                                                 KEEP_ALIVE_SECONDS,
@@ -163,17 +163,17 @@ public enum Stage
                                                 jmxType);
     }
 
-    static LocalAwareExecutorService multiThreadedLowSignalStage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads)
+    static LocalAwareExecutorService multiThreadedLowSignalStage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaximumPoolSizeListener setNumThreads)
     {
         return SharedExecutorPool.SHARED.newExecutor(numThreads, setNumThreads, Integer.MAX_VALUE, jmxType, jmxName);
     }
 
-    static LocalAwareExecutorService singleThreadedStage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads)
+    static LocalAwareExecutorService singleThreadedStage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaximumPoolSizeListener setNumThreads)
     {
         return new JMXEnabledSingleThreadExecutor(jmxName, jmxType);
     }
 
-    static LocalAwareExecutorService immediateExecutor(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads)
+    static LocalAwareExecutorService immediateExecutor(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaximumPoolSizeListener setNumThreads)
     {
         return ImmediateExecutor.INSTANCE;
     }
@@ -181,7 +181,7 @@ public enum Stage
     @FunctionalInterface
     public interface ExecutorServiceInitialiser
     {
-        public LocalAwareExecutorService init(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaxWorkersListener setNumThreads);
+        public LocalAwareExecutorService init(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaximumPoolSizeListener setNumThreads);
     }
 
     /**

@@ -92,11 +92,11 @@ public interface LocalAwareExecutorService extends ExecutorService
         return -1;
     }
 
-    interface MaxWorkersListener
+    interface MaximumPoolSizeListener
     {
         /**
          * Listener to follow changes to the maximum pool size
          */
-        void onUpdateMaxWorkers(int maxWorkers);
+        void onUpdateMaximumPoolSize(int maximumPoolSize);
     }
 }

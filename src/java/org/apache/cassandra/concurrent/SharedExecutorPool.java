@@ -26,7 +26,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
-import java.util.function.Consumer;
 
 import static org.apache.cassandra.concurrent.SEPWorker.Work;
 
@@ -114,7 +113,7 @@ public class SharedExecutorPool
         return newExecutor(maxConcurrency, i -> {}, maxQueuedTasks, jmxPath, name);
     }
 
-    public LocalAwareExecutorService newExecutor(int maxConcurrency, LocalAwareExecutorService.MaxWorkersListener setMaxConcurrency, int maxQueuedTasks, String jmxPath, String name)
+    public LocalAwareExecutorService newExecutor(int maxConcurrency, LocalAwareExecutorService.MaximumPoolSizeListener setMaxConcurrency, int maxQueuedTasks, String jmxPath, String name)
     {
         SEPExecutor executor = new SEPExecutor(this, maxConcurrency, setMaxConcurrency, maxQueuedTasks, jmxPath, name);
         executors.add(executor);

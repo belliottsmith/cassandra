@@ -40,7 +40,7 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
     private final SharedExecutorPool pool;
 
     public final AtomicInteger maxWorkers;
-    MaxWorkersListener updatedMaxWorkers;
+    MaximumPoolSizeListener updatedMaxWorkers;
     public final String name;
     private final String mbeanName;
     public final int maxTasksQueued;
@@ -68,7 +68,7 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
         this(pool, maxWorkers, i -> {}, maxTasksQueued, jmxPath, name);
     }
 
-    SEPExecutor(SharedExecutorPool pool, int maxWorkers, MaxWorkersListener updatedMaxWorkers, int maxTasksQueued, String jmxPath, String name)
+    SEPExecutor(SharedExecutorPool pool, int maxWorkers, MaximumPoolSizeListener updatedMaxWorkers, int maxTasksQueued, String jmxPath, String name)
     {
         this.pool = pool;
         this.name = name;
@@ -329,7 +329,7 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
         }
         while (!permits.compareAndSet(current, updateWorkPermits(current, workPermits + deltaWorkPermits)));
         logger.info("Resized {} maximum pool size from {} to {}", name, oldMaxWorkers, newMaximumPoolSize);
-        updatedMaxWorkers.onUpdateMaxWorkers(newMaximumPoolSize);
+        updatedMaxWorkers.onUpdateMaximumPoolSize(newMaximumPoolSize);
     }
 
     private static int taskPermits(long both)
