@@ -32,6 +32,7 @@ import org.apache.cassandra.MockSchema;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Memtable;
+import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.commitlog.ReplayPosition;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction.ReaderState;
@@ -271,7 +272,7 @@ public class LifecycleTransactionTest extends AbstractTransactionalTest
 
         private static Tracker tracker(ColumnFamilyStore cfs, List<SSTableReader> readers)
         {
-            Tracker tracker = new Tracker(new Memtable(new AtomicReference<>(ReplayPosition.NONE), cfs), false);
+            Tracker tracker = new Tracker(new Memtable(CommitLog.instance.getContext(), cfs), false);
             tracker.addInitialSSTables(readers);
             return tracker;
         }

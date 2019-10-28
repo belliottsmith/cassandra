@@ -558,7 +558,7 @@ public abstract class CassandraIndex implements Index
                                                                cell));
         Row row = BTreeRow.noCellLiveRow(buildIndexClustering(rowKey, clustering, cell), info);
         PartitionUpdate upd = partitionUpdate(valueKey, row);
-        indexCfs.apply(upd, UpdateTransaction.NO_OP, opGroup, null);
+        indexCfs.apply(upd, UpdateTransaction.NO_OP, opGroup);
         logger.trace("Inserted entry into index for value {}", valueKey);
     }
 
@@ -604,7 +604,7 @@ public abstract class CassandraIndex implements Index
     {
         Row row = BTreeRow.emptyDeletedRow(indexClustering, Row.Deletion.regular(deletion));
         PartitionUpdate upd = partitionUpdate(indexKey, row);
-        indexCfs.apply(upd, UpdateTransaction.NO_OP, opGroup, null);
+        indexCfs.apply(upd, UpdateTransaction.NO_OP, opGroup);
         logger.trace("Removed index entry for value {}", indexKey);
     }
 
