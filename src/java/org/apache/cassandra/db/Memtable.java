@@ -135,7 +135,7 @@ public class Memtable implements Comparable<Memtable>
      * This is used for sorting and inequality operations wrt flushing commit log bounds where
      * {@link #prevCommitLogContiguousUpperBound} cannot be guaranteed to be known.
      */
-    private final ReplayPosition beforeCommitLogLowerBound = CommitLog.instance.getContext();
+    private final ReplayPosition beforeCommitLogLowerBound;
 
     public int compareTo(Memtable that)
     {
@@ -160,18 +160,34 @@ public class Memtable implements Comparable<Memtable>
     private final ColumnsCollector columnsCollector;
     private final StatsCollector statsCollector = new StatsCollector();
 
-    // only to be used by init(), to setup the very first memtable for the cfs
+    // Used during flush. New MTs are created without a previousCommitLogContiguousUpperBound
+    // as this isn't known until we issue the barrier that causes subsequent write operations
+    // to be directed to the new memtable.
     public Memtable(ColumnFamilyStore cfs)
     {
         this(null, cfs);
     }
+
+    // Used when creating the initial MT for a CFS (and when performing an unsafe reset from
+    // CFS::clearUnsafe, for testing only).
     public Memtable(ReplayPosition prevCommitLogContiguousUpperBound, ColumnFamilyStore cfs)
     {
         this.cfs = cfs;
         this.allocator = MEMORY_POOL.newAllocator();
         this.initialComparator = cfs.metadata.comparator;
+
+        // if we actually know the lower bound for this memtable then use it for
+        // beforeCommitLogLowerBound, if not then grab the current position from
+        // the commit log
         if (prevCommitLogContiguousUpperBound != null)
+        {
+            beforeCommitLogLowerBound = prevCommitLogContiguousUpperBound;
             setPrevCommitLogContiguousUpperBound(prevCommitLogContiguousUpperBound);
+        }
+        else
+        {
+            beforeCommitLogLowerBound = CommitLog.instance.getContext();
+        }
         this.cfs.scheduleFlush();
         this.columnsCollector = new ColumnsCollector(cfs.metadata.partitionColumns());
     }
@@ -184,6 +200,7 @@ public class Memtable implements Comparable<Memtable>
         this.cfs = null;
         this.allocator = null;
         this.columnsCollector = new ColumnsCollector(metadata.partitionColumns());
+        beforeCommitLogLowerBound = CommitLog.instance.getContext();
     }
 
     public MemtableAllocator getAllocator()
