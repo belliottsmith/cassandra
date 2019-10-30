@@ -39,8 +39,8 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
     private static final Logger logger = LoggerFactory.getLogger(SEPExecutor.class);
     private final SharedExecutorPool pool;
 
-    public final AtomicInteger maximumPoolSize;
-    final MaximumPoolSizeListener maximumPoolSizeListener;
+    private final AtomicInteger maximumPoolSize;
+    private final MaximumPoolSizeListener maximumPoolSizeListener;
     public final String name;
     private final String mbeanName;
     public final int maxTasksQueued;
@@ -153,6 +153,19 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
         }
     }
 
+    boolean shuttingDownOrResizing()
+    {
+        if (shuttingDown)
+            return true;
+
+        long current = permits.get();
+        int workPermits = workPermits(current);
+        if (workPermits < 0)
+            return true;
+
+        return false;
+    }
+
     // takes permission to perform a task, if any are available; once taken it is guaranteed
     // that a proceeding call to tasks.poll() will return some work
     boolean takeTaskPermit()
@@ -161,10 +174,7 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
         {
             long current = permits.get();
             int taskPermits = taskPermits(current);
-            int workPermits = workPermits(current);
             if (taskPermits == 0)
-                return false;
-            if (workPermits < 0)
                 return false;
             if (permits.compareAndSet(current, updateTaskPermits(current, taskPermits - 1)))
             {
