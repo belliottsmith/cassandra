@@ -153,19 +153,6 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
         }
     }
 
-    boolean shuttingDownOrResizing()
-    {
-        if (shuttingDown)
-            return true;
-
-        long current = permits.get();
-        int workPermits = workPermits(current);
-        if (workPermits < 0)
-            return true;
-
-        return false;
-    }
-
     // takes permission to perform a task, if any are available; once taken it is guaranteed
     // that a proceeding call to tasks.poll() will return some work
     boolean takeTaskPermit()
@@ -214,6 +201,23 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
             int workPermits = workPermits(current);
             if (permits.compareAndSet(current, updateWorkPermits(current, workPermits + 1)))
                 return;
+        }
+    }
+
+    // decide if a worker should exit due to resize
+    boolean shrinkingMaxWorkers()
+    {
+        // Work permits are negative when the pool is reducing in size.  Atomically
+        // adjust the number of work permits so there is no race of multiple SEPWorkers
+        // exiting.  On conflicting update, recheck.
+        while(true)
+        {
+            long current = permits.get();
+            int workPermits = workPermits(current);
+            if (workPermits >= 0)
+                return false;
+            if (permits.compareAndSet(current, updateWorkPermits(current, workPermits + 1)))
+                return true;
         }
     }
 

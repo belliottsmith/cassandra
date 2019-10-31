@@ -104,6 +104,7 @@ final class SEPWorker extends AtomicReference<SEPWorker.Work> implements Runnabl
                 // (which is also a state that will never be interrupted externally)
                 set(Work.WORKING);
                 boolean shutdown;
+                boolean shrinking;
                 while (true)
                 {
                     // before we process any task, we maybe schedule a new worker _to our executor only_; this
@@ -115,14 +116,20 @@ final class SEPWorker extends AtomicReference<SEPWorker.Work> implements Runnabl
                     task.run();
                     task = null;
 
-                    // if we're shutting down, or we fail to take a permit, we don't perform any more work
-                    if ((shutdown = assigned.shuttingDownOrResizing()) || !assigned.takeTaskPermit())
+                    // if we're shutting down, shrinking the max workers or we fail to take a permit, we don't
+                    // perform any more work
+                    shrinking = assigned.shrinkingMaxWorkers();
+                    if ((shutdown = assigned.shuttingDown) || shrinking || !assigned.takeTaskPermit())
                         break;
+
                     task = assigned.tasks.poll();
                 }
 
-                // return our work permit, and maybe signal shutdown
-                assigned.returnWorkPermit();
+                // return our work permit if not shrinking (on shrink the work permits are adjusted during the check)
+                // and maybe signal shutdown
+                if (!shrinking)
+                    assigned.returnWorkPermit();
+
                 if (shutdown)
                 {
                     if (assigned.getActiveTaskCount() == 0)
