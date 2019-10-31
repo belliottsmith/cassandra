@@ -38,7 +38,7 @@ builds:
     - ./rio/test.sh
   machine:
     docker:
-      baseImage: docker.apple.com/pie/cie_cassandra:latest
+      baseImage: docker.apple.com/pie/cie-cassandra-build-jdk-8:latest
   publish:
     reports:
       junit: true
@@ -51,7 +51,7 @@ builds:
     - ./rio/test.sh
   machine:
     docker:
-      baseImage: docker.apple.com/pie/cie_cassandra:latest
+      baseImage: docker.apple.com/pie/cie-cassandra-build-jdk-8:latest
   publish:
     reports:
       junit: true
@@ -67,7 +67,7 @@ builds:
         - ./rio/release.sh 3.0.19-SNAPSHOT
   machine:
     docker:
-      baseImage: docker.apple.com/cpbuild/jdk1.8:latest
+      baseImage: docker.apple.com/pie/cie-cassandra-build-jdk-8:latest
   publish:
     archives:
       includePattern: ".dist/publishable/**"
@@ -88,7 +88,7 @@ builds:
     - ./rio/carnival.sh 3.0.19
   machine:
     docker:
-      baseImage: docker.apple.com/cpbuild/jdk1.8:latest
+      baseImage: docker.apple.com/pie/cie-cassandra-build-jdk-8:latest
   publish:
     reports:
       junit: false
@@ -112,7 +112,7 @@ builds:
     - ./rio/release.sh 3.0.19.0
   machine:
     docker:
-      baseImage: docker.apple.com/cpbuild/jdk1.8:latest
+      baseImage: docker.apple.com/pie/cie-cassandra-build-jdk-8:latest
   publish:
     archives:
       includePattern: ".dist/publishable/**"
@@ -133,7 +133,7 @@ builds:
     - ./rio/carnival.sh 3.0.19.0
   machine:
     docker:
-      baseImage: docker.apple.com/cpbuild/jdk1.8:latest
+      baseImage: docker.apple.com/pie/cie-cassandra-build-jdk-8:latest
   publish:
     reports:
       junit: false
@@ -155,7 +155,7 @@ builds:
 - name: release-3.0.19-docker-image
   branchName: cie-cassandra-3.0.19
   machine:
-    baseImage: docker.apple.com/cpbuild/jdk1.8:latest
+    baseImage: docker.apple.com/pie/cie-cassandra-build-jdk-8:latest
     env:
       CASSANDRA_VERSION: "3.0.19.0"
   build:
