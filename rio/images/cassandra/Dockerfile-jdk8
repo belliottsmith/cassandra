@@ -1,0 +1,8 @@
+# Docker image for C* CI builds using JDK 1.8
+# As of this writing, the build is not triggered on commit, so any change to this file requires a
+# manual execution of the build; you can do this by running the build through the Rio UI
+FROM docker.apple.com/cpbuild/jdk1.8:latest
+
+CMD echo "No default command set"
+RUN yum -y clean all
+RUN yum -y install words

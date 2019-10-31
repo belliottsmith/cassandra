@@ -2,17 +2,31 @@ schemaVersion: '2.0'
 builds:
 - name: base-docker-3.0.19
   branchName: cie-cassandra-3.0.19
+  timeout: 30
   build:
-    template: dockerfile:v1:publish
-    buildFilePath: rio/
+    template: freestyle:v4:publish
+    steps:
+      - echo 'Running build'
   trigger:
     gitPush: false
-  publish:
-    docker:
-      namespace: pie
-      registry: docker.apple.com
-      tag: latest
-  timeout: 30
+  machine:
+    baseImage: docker.apple.com/pie/fuji
+    env:
+      RELEASE_VERSION: "3.0.19"
+      PACKAGE_VERSION: "${RELEASE_VERSION}-build.#{${RELEASE_VERSION}}"
+  package:
+    release: true
+    slug: false
+    libraries: false
+    dockerfile:
+      - dockerfilePath: "rio/images/cassandra/Dockerfile-jdk8"
+        version: "${PACKAGE_VERSION}"
+        perApplication: false
+        extraTags:
+          - latest
+        publish:
+          - repo: docker.apple.com/pie/cie-cassandra-build-jdk-8
+
 - name: ghprb-3.0.19
   branchName: cie-cassandra-3.0.19
   jenkins:
