@@ -113,9 +113,9 @@ public class SharedExecutorPool
         return newExecutor(maxConcurrency, i -> {}, maxQueuedTasks, jmxPath, name);
     }
 
-    public LocalAwareExecutorService newExecutor(int maxConcurrency, LocalAwareExecutorService.MaximumPoolSizeListener setMaxConcurrency, int maxQueuedTasks, String jmxPath, String name)
+    public LocalAwareExecutorService newExecutor(int maxConcurrency, LocalAwareExecutorService.MaximumPoolSizeListener maximumPoolSizeListener, int maxQueuedTasks, String jmxPath, String name)
     {
-        SEPExecutor executor = new SEPExecutor(this, maxConcurrency, setMaxConcurrency, maxQueuedTasks, jmxPath, name);
+        SEPExecutor executor = new SEPExecutor(this, maxConcurrency, maximumPoolSizeListener, maxQueuedTasks, jmxPath, name);
         executors.add(executor);
         return executor;
     }
