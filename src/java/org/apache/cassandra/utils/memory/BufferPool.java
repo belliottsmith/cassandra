@@ -51,6 +51,7 @@ import org.apache.cassandra.utils.concurrent.Ref;
 import static com.google.common.collect.ImmutableList.of;
 import static org.apache.cassandra.utils.ExecutorUtils.*;
 import static org.apache.cassandra.utils.FBUtilities.prettyPrintMemory;
+import static org.apache.cassandra.utils.memory.MemoryUtil.isExactlyDirect;
 
 /**
  * A pool of ByteBuffers that can be recycled.
@@ -149,14 +150,13 @@ public class BufferPool
 
     public static void put(ByteBuffer buffer)
     {
-        if (!(DISABLED || buffer.hasArray()))
+        if (!DISABLED && isExactlyDirect(buffer))
             localPool.get().put(buffer);
     }
 
     public static void putUnusedPortion(ByteBuffer buffer)
     {
-
-        if (!(DISABLED || buffer.hasArray()))
+        if (!DISABLED && isExactlyDirect(buffer))
         {
             LocalPool pool = localPool.get();
             if (buffer.limit() > 0)
@@ -890,7 +890,7 @@ public class BufferPool
 
         Chunk(Recycler recycler, ByteBuffer slab)
         {
-            assert !slab.hasArray();
+            assert MemoryUtil.isExactlyDirect(slab);
             this.recycler = recycler;
             this.slab = slab;
             this.baseAddress = MemoryUtil.getAddress(slab);
