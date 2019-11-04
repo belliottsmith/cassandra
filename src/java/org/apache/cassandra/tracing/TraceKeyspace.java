@@ -43,10 +43,17 @@ public final class TraceKeyspace
      * If you make any changes to the tables below, make sure to increment the
      * generation and document your change here.
      *
-     * gen 0: original definition
-     * gen 1: removal of default_time_to_live (3.0)
+     * gen                0: original definition*
+     * gen                1: removal of default_time_to_live (3.0)
+     * gen 1577836800000000: maps to Jan 1 2020; an arbitrary date by which we assume no nodes older than 2.0.2
+     *                       will ever start; see the note below for why this is necessary
+     *
+     * * See rdar://56815261 [Increase system_auth keyspace GENERATION to override pre-2.0.2 created table params]
+     *   TL;DR: until CASSANDRA-6016 (Oct 13, 2.0.2) and in all of 1.2, we used to create system_traces keyspace and
+     *   tables in the same way that we created the purely local 'system' keyspace - using current time on node bounce
+     *   (+1). For new definitions to take place, we need to bump the generation even further than that.
      */
-    public static final long GENERATION = 1;
+    public static final long GENERATION = 1577836800000000L;
 
     public static final String SESSIONS = "sessions";
     public static final String EVENTS = "events";
