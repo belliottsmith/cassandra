@@ -4606,9 +4606,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     protected synchronized void drain(boolean isFinalShutdown) throws IOException, InterruptedException, ExecutionException
     {
-        ExecutorService counterMutationStage = Stage.COUNTER_MUTATION.executor;
-        ExecutorService viewMutationStage = Stage.VIEW_MUTATION.executor;
-        ExecutorService mutationStage = Stage.MUTATION.executor;
+        ExecutorService counterMutationStage = Stage.COUNTER_MUTATION.getExecutor();
+        ExecutorService viewMutationStage = Stage.VIEW_MUTATION.getExecutor();
+        ExecutorService mutationStage = Stage.MUTATION.getExecutor();
 
         if (mutationStage.isTerminated()
             && counterMutationStage.isTerminated()

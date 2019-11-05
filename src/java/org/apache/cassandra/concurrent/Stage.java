@@ -29,6 +29,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -40,35 +41,33 @@ import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.utils.ExecutorUtils;
 
 import static java.util.stream.Collectors.toMap;
-import static org.apache.cassandra.config.DatabaseDescriptor.getConcurrentCounterWriters;
-import static org.apache.cassandra.config.DatabaseDescriptor.getConcurrentReaders;
-import static org.apache.cassandra.config.DatabaseDescriptor.getConcurrentViewWriters;
-import static org.apache.cassandra.config.DatabaseDescriptor.getConcurrentWriters;
 import static org.apache.cassandra.utils.FBUtilities.getAvailableProcessors;
 
 public enum Stage
 {
-    READ              ("ReadStage",             "request",  getConcurrentReaders(),        DatabaseDescriptor::setConcurrentReaders,        Stage::multiThreadedLowSignalStage),
-    MUTATION          ("MutationStage",         "request",  getConcurrentWriters(),        DatabaseDescriptor::setConcurrentWriters,        Stage::multiThreadedLowSignalStage),
-    COUNTER_MUTATION  ("CounterMutationStage",  "request",  getConcurrentCounterWriters(), DatabaseDescriptor::setConcurrentCounterWriters, Stage::multiThreadedLowSignalStage),
-    VIEW_MUTATION     ("ViewMutationStage",     "request",  getConcurrentViewWriters(),    DatabaseDescriptor::setConcurrentViewWriters,    Stage::multiThreadedLowSignalStage),
-    GOSSIP            ("GossipStage",           "internal", 1,                             null,                                            Stage::singleThreadedStage),
-    REQUEST_RESPONSE  ("RequestResponseStage",  "request",  getAvailableProcessors(),      null,                                            Stage::multiThreadedLowSignalStage),
-    ANTI_ENTROPY      ("AntiEntropyStage",      "internal", 1,                             null,                                            Stage::singleThreadedStage),
-    MIGRATION         ("MigrationStage",        "internal", 1,                             null,                                            Stage::singleThreadedStage),
-    MISC              ("MiscStage",             "internal", 1,                             null,                                            Stage::singleThreadedStage),
-    TRACING           ("TracingStage",          "internal", 1,                             null,                                            Stage::tracingExecutor),
-    INTERNAL_RESPONSE ("InternalResponseStage", "internal", getAvailableProcessors(),      null,                                            Stage::multiThreadedStage),
-    IMMEDIATE         ("ImmediateStage",        "internal", 0,                             null,                                            Stage::immediateExecutor);
+    READ              ("ReadStage",             "request",  DatabaseDescriptor::getConcurrentReaders,        DatabaseDescriptor::setConcurrentReaders,        Stage::multiThreadedLowSignalStage),
+    MUTATION          ("MutationStage",         "request",  DatabaseDescriptor::getConcurrentWriters,        DatabaseDescriptor::setConcurrentWriters,        Stage::multiThreadedLowSignalStage),
+    COUNTER_MUTATION  ("CounterMutationStage",  "request",  DatabaseDescriptor::getConcurrentCounterWriters, DatabaseDescriptor::setConcurrentCounterWriters, Stage::multiThreadedLowSignalStage),
+    VIEW_MUTATION     ("ViewMutationStage",     "request",  DatabaseDescriptor::getConcurrentViewWriters,    DatabaseDescriptor::setConcurrentViewWriters,    Stage::multiThreadedLowSignalStage),
+    GOSSIP            ("GossipStage",           "internal", () -> 1,                                         null,                                            Stage::singleThreadedStage),
+    REQUEST_RESPONSE  ("RequestResponseStage",  "request",  () -> getAvailableProcessors(),                  null,                                            Stage::multiThreadedLowSignalStage),
+    ANTI_ENTROPY      ("AntiEntropyStage",      "internal", () -> 1,                                         null,                                            Stage::singleThreadedStage),
+    MIGRATION         ("MigrationStage",        "internal", () -> 1,                                         null,                                            Stage::singleThreadedStage),
+    MISC              ("MiscStage",             "internal", () -> 1,                                         null,                                            Stage::singleThreadedStage),
+    TRACING           ("TracingStage",          "internal", () -> 1,                                         null,                                            Stage::tracingExecutor),
+    INTERNAL_RESPONSE ("InternalResponseStage", "internal", () -> getAvailableProcessors(),                  null,                                            Stage::multiThreadedStage),
+    IMMEDIATE         ("ImmediateStage",        "internal", () -> 0,                                         null,                                            Stage::immediateExecutor);
+
 
     public static final long KEEP_ALIVE_SECONDS = 60; // seconds to keep "extra" threads alive for when idle
     public final String jmxName;
-    public final LocalAwareExecutorService executor;
+    Supplier<LocalAwareExecutorService> initialiser;
+    private LocalAwareExecutorService executor = null;
 
-    Stage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorService.MaximumPoolSizeListener setNumThreads, ExecutorServiceInitialiser initialiser)
+    Stage(String jmxName, String jmxType, Supplier<Integer> numThreads, LocalAwareExecutorService.MaximumPoolSizeListener setNumThreads, ExecutorServiceInitialiser initialiser)
     {
         this.jmxName = jmxName;
-        this.executor = initialiser.init(jmxName, jmxType, numThreads, setNumThreads);
+        this.initialiser = () -> initialiser.init(jmxName, jmxType, numThreads.get(), setNumThreads);
     }
 
     private static String normalizeName(String stageName)
@@ -118,10 +117,24 @@ public enum Stage
         }
     }
 
+    public LocalAwareExecutorService getExecutor()
+    {
+        if (executor == null)
+        {
+            synchronized (this)
+            {
+                if (executor == null)
+                {
+                    executor = initialiser.get();
+                }
+            }
+        }
+        return executor;
+    }
     private static List<ExecutorService> executors()
     {
         return Stream.of(Stage.values())
-                     .map(stage -> stage.executor)
+                     .map(stage -> stage.getExecutor())
                      .collect(Collectors.toList());
     }
 
@@ -189,7 +202,7 @@ public enum Stage
      */
     public int getCorePoolSize()
     {
-        return executor.getCorePoolSize();
+        return getExecutor().getCorePoolSize();
     }
 
     /**
@@ -197,7 +210,7 @@ public enum Stage
      */
     public void setCorePoolSize(int newCorePoolSize)
     {
-        executor.setCorePoolSize(newCorePoolSize);
+        getExecutor().setCorePoolSize(newCorePoolSize);
     }
 
     /**
@@ -205,7 +218,7 @@ public enum Stage
      */
     public int getMaximumPoolSize()
     {
-        return executor.getMaximumPoolSize();
+        return getExecutor().getMaximumPoolSize();
     }
 
     /**
@@ -213,7 +226,7 @@ public enum Stage
      */
     public void setMaximumPoolSize(int newMaxWorkers)
     {
-        executor.setMaximumPoolSize(newMaxWorkers);
+        getExecutor().setMaximumPoolSize(newMaxWorkers);
     }
 
     /**
