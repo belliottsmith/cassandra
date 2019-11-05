@@ -4,6 +4,8 @@ Our rio builds are actually build scripts run inside a docker container; for thi
 
 ## Test
 
+Run Rio tests
+
 ```
 git worktree remove --force rio-build || true
 git worktree add rio-build
@@ -15,8 +17,8 @@ docker run -t -i \
   -v $HOME/.m2:/root/.m2:ro \
   docker.apple.com/pie/cie-cassandra-build-jdk-8:latest \
   bash -c "set -x;
-sed -i 's;${basedir}/build;/tmp/build;g' build.xml
-sed -i 's;${basedir}/build;/tmp/build;g' rio-build.xml
+sed -i 's;\${basedir}/build;/tmp/build;g' build.xml
+sed -i 's;\${basedir}/build;/tmp/build;g' rio-build.xml
 
 cleanup() {
   if [ -d /tmp/build/test/output/ ]; then
@@ -27,5 +29,21 @@ cleanup() {
 trap cleanup 0
 
 rio/test.sh
+"
+```
+
+Run a specific test class
+
+```
+docker run -t -i \
+  --rm \
+  -w $PWD \
+  -v $PWD:$PWD \
+  -v $HOME/.m2:/root/.m2:ro \
+  docker.apple.com/pie/cie-cassandra-build-jdk-8:latest \
+  bash -c "set -x;
+sed -i 's;\${basedir}/build;/tmp/build;g' build.xml
+
+ant testclasslist -Dtest.classlistfile=<(echo org.apache.cassandra.utils.HexTest) -Dtest.classlistprefix=unit
 "
 ```
