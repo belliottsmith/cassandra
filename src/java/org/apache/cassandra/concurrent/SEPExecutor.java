@@ -61,13 +61,6 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
     // TODO: see if other queue implementations might improve throughput
     protected final ConcurrentLinkedQueue<FutureTask<?>> tasks = new ConcurrentLinkedQueue<>();
 
-
-
-    SEPExecutor(SharedExecutorPool pool, int maximumPoolSize, int maxTasksQueued, String jmxPath, String name)
-    {
-        this(pool, maximumPoolSize, i -> {}, maxTasksQueued, jmxPath, name);
-    }
-
     SEPExecutor(SharedExecutorPool pool, int maximumPoolSize, MaximumPoolSizeListener maximumPoolSizeListener, int maxTasksQueued, String jmxPath, String name)
     {
         this.pool = pool;
@@ -204,8 +197,8 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
         }
     }
 
-    // decide if a worker should exit due to resize
-    boolean shrinkingMaxWorkers()
+    // decide if a worker should stop operating on this executor due to pool resize
+    boolean returnPermitEarly()
     {
         // Work permits are negative when the pool is reducing in size.  Atomically
         // adjust the number of work permits so there is no race of multiple SEPWorkers
@@ -318,15 +311,15 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
     @Override
     public synchronized void setMaximumPoolSize(int newMaximumPoolSize)
     {
-        final int oldMaxWorkers = maximumPoolSize.get();
+        final int oldMaximumPoolSize = maximumPoolSize.get();
 
         if (newMaximumPoolSize < 0)
         {
             throw new IllegalArgumentException("Maximum number of workers must not be negative");
         }
 
-        int deltaWorkPermits = newMaximumPoolSize - oldMaxWorkers;
-        if (!maximumPoolSize.compareAndSet(oldMaxWorkers, newMaximumPoolSize))
+        int deltaWorkPermits = newMaximumPoolSize - oldMaximumPoolSize;
+        if (!maximumPoolSize.compareAndSet(oldMaximumPoolSize, newMaximumPoolSize))
         {
             throw new IllegalStateException("Maximum pool size has been changed while resizing");
         }
@@ -335,7 +328,7 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService implements SE
             return;
 
         permits.updateAndGet(cur -> updateWorkPermits(cur, workPermits(cur) + deltaWorkPermits));
-        logger.info("Resized {} maximum pool size from {} to {}", name, oldMaxWorkers, newMaximumPoolSize);
+        logger.info("Resized {} maximum pool size from {} to {}", name, oldMaximumPoolSize, newMaximumPoolSize);
         maximumPoolSizeListener.onUpdateMaximumPoolSize(newMaximumPoolSize);
     }
 

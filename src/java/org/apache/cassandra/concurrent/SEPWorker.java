@@ -118,8 +118,9 @@ final class SEPWorker extends AtomicReference<SEPWorker.Work> implements Runnabl
 
                     // if we're shutting down, shrinking the max workers or we fail to take a permit, we don't
                     // perform any more work
-                    shrinking = assigned.shrinkingMaxWorkers();
-                    if ((shutdown = assigned.shuttingDown) || shrinking || !assigned.takeTaskPermit())
+                    shutdown = assigned.shuttingDown;
+                    shrinking = assigned.returnPermitEarly();
+                    if (shutdown || shrinking || !assigned.takeTaskPermit())
                         break;
 
                     task = assigned.tasks.poll();

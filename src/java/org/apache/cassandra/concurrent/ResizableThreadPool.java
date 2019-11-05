@@ -28,7 +28,7 @@ public interface ResizableThreadPool
     /**
      * Allows user to resize maximum size of the thread pool.
      */
-    public void setCorePoolSize(int number);
+    public void setCorePoolSize(int newCorePoolSize);
 
     /**
      * Returns maximum pool size of thread pool.
@@ -38,5 +38,5 @@ public interface ResizableThreadPool
     /**
      * Allows user to resize maximum size of the thread pool.
      */
-    public void setMaximumPoolSize(int number);
+    public void setMaximumPoolSize(int newMaximumPoolSize);
 }
