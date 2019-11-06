@@ -74,9 +74,6 @@ public class BufferPool
     @VisibleForTesting
     public static long MEMORY_USAGE_THRESHOLD = DatabaseDescriptor.getFileCacheSizeInMB() * 1024L * 1024L;
 
-    @VisibleForTesting
-    public static boolean ALLOCATE_ON_HEAP_WHEN_EXAHUSTED = DatabaseDescriptor.getBufferPoolUseHeapIfExhausted();
-
     private static Debug debug;
 
     @VisibleForTesting
@@ -104,30 +101,22 @@ public class BufferPool
         }
     };
 
-    public static ByteBuffer get(int size)
-    {
-        if (DISABLED)
-            return allocate(size, ALLOCATE_ON_HEAP_WHEN_EXAHUSTED);
-        else
-            return localPool.get().get(size, false, ALLOCATE_ON_HEAP_WHEN_EXAHUSTED);
-    }
-
     public static ByteBuffer get(int size, BufferType bufferType)
     {
         boolean onHeap = bufferType == BufferType.ON_HEAP;
         if (DISABLED || onHeap)
-            return allocate(size, onHeap);
+            return allocate(size, bufferType);
         else
-            return localPool.get().get(size, false, false);
+            return localPool.get().get(size);
     }
 
     public static ByteBuffer getAtLeast(int size, BufferType bufferType)
     {
         boolean onHeap = bufferType == BufferType.ON_HEAP;
         if (DISABLED || onHeap)
-            return allocate(size, onHeap);
+            return allocate(size, bufferType);
         else
-            return localPool.get().get(size, true, false);
+            return localPool.get().getAtLeast(size);
     }
 
     /** Unlike the get methods, this will return null if the pool is exhausted */
@@ -141,9 +130,9 @@ public class BufferPool
         return localPool.get().tryGet(size, true);
     }
 
-    private static ByteBuffer allocate(int size, boolean onHeap)
+    private static ByteBuffer allocate(int size, BufferType bufferType)
     {
-        return onHeap
+        return bufferType == BufferType.ON_HEAP
                ? ByteBuffer.allocate(size)
                : ByteBuffer.allocateDirect(size);
     }
@@ -211,11 +200,10 @@ public class BufferPool
             assert MACRO_CHUNK_SIZE % NORMAL_CHUNK_SIZE == 0; // must be a multiple
 
             if (DISABLED)
-                logger.info("Global buffer pool is disabled, allocating {}", ALLOCATE_ON_HEAP_WHEN_EXAHUSTED ? "on heap" : "off heap");
+                logger.info("Global buffer pool is disabled");
             else
-                logger.info("Global buffer pool is enabled, when pool is exhausted (max is {}) it will allocate {}",
-                            prettyPrintMemory(MEMORY_USAGE_THRESHOLD),
-                            ALLOCATE_ON_HEAP_WHEN_EXAHUSTED ? "on heap" : "off heap");
+                logger.info("Global buffer pool is enabled (limit is {})",
+                            prettyPrintMemory(MEMORY_USAGE_THRESHOLD));
         }
 
         private final Queue<Chunk> macroChunks = new ConcurrentLinkedQueue<>();
@@ -633,25 +621,15 @@ public class BufferPool
 
         public ByteBuffer get(int size)
         {
-            return get(size, ALLOCATE_ON_HEAP_WHEN_EXAHUSTED);
-        }
-
-        public ByteBuffer get(int size, boolean allocateOnHeapWhenExhausted)
-        {
-            return get(size, false, allocateOnHeapWhenExhausted);
+            return get(size, false);
         }
 
         public ByteBuffer getAtLeast(int size)
         {
-            return getAtLeast(size, ALLOCATE_ON_HEAP_WHEN_EXAHUSTED);
+            return get(size, true);
         }
 
-        public ByteBuffer getAtLeast(int size, boolean allocateOnHeapWhenExhausted)
-        {
-            return get(size, true, allocateOnHeapWhenExhausted);
-        }
-
-        private ByteBuffer get(int size, boolean sizeIsLowerBound, boolean allocateOnHeapWhenExhausted)
+        private ByteBuffer get(int size, boolean sizeIsLowerBound)
         {
             ByteBuffer ret = tryGet(size, sizeIsLowerBound);
             if (ret != null)
@@ -671,12 +649,12 @@ public class BufferPool
             }
 
             metrics.misses.mark();
-            return allocate(size, allocateOnHeapWhenExhausted);
+            return allocate(size, BufferType.OFF_HEAP);
         }
 
         public ByteBuffer tryGet(int size)
         {
-            return tryGet(size, ALLOCATE_ON_HEAP_WHEN_EXAHUSTED);
+            return tryGet(size, false);
         }
 
         public ByteBuffer tryGetAtLeast(int size)
