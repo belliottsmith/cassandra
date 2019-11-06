@@ -118,7 +118,7 @@ public class BufferPool
         if (DISABLED || onHeap)
             return allocate(size, onHeap);
         else
-            return localPool.get().get(size, false, onHeap);
+            return localPool.get().get(size, false, false);
     }
 
     public static ByteBuffer getAtLeast(int size, BufferType bufferType)
@@ -127,13 +127,13 @@ public class BufferPool
         if (DISABLED || onHeap)
             return allocate(size, onHeap);
         else
-            return localPool.get().get(size, true, onHeap);
+            return localPool.get().get(size, true, false);
     }
 
     /** Unlike the get methods, this will return null if the pool is exhausted */
     public static ByteBuffer tryGet(int size)
     {
-        return localPool.get().tryGet(size, true);
+        return localPool.get().tryGet(size, false);
     }
 
     public static ByteBuffer tryGetAtLeast(int size)
