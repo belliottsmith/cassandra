@@ -76,9 +76,6 @@ public class BufferPool
 
     private static Debug debug;
 
-    @VisibleForTesting
-    public static boolean DISABLED = Boolean.parseBoolean(System.getProperty("cassandra.test.disable_buffer_pool", "false"));
-
     private static final Logger logger = LoggerFactory.getLogger(BufferPool.class);
     private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 15L, TimeUnit.MINUTES);
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocateDirect(0);
@@ -103,8 +100,7 @@ public class BufferPool
 
     public static ByteBuffer get(int size, BufferType bufferType)
     {
-        boolean onHeap = bufferType == BufferType.ON_HEAP;
-        if (DISABLED || onHeap)
+        if (bufferType == BufferType.ON_HEAP)
             return allocate(size, bufferType);
         else
             return localPool.get().get(size);
@@ -112,8 +108,7 @@ public class BufferPool
 
     public static ByteBuffer getAtLeast(int size, BufferType bufferType)
     {
-        boolean onHeap = bufferType == BufferType.ON_HEAP;
-        if (DISABLED || onHeap)
+        if (bufferType == BufferType.ON_HEAP)
             return allocate(size, bufferType);
         else
             return localPool.get().getAtLeast(size);
@@ -139,13 +134,13 @@ public class BufferPool
 
     public static void put(ByteBuffer buffer)
     {
-        if (!DISABLED && isExactlyDirect(buffer))
+        if (isExactlyDirect(buffer))
             localPool.get().put(buffer);
     }
 
     public static void putUnusedPortion(ByteBuffer buffer)
     {
-        if (!DISABLED && isExactlyDirect(buffer))
+        if (isExactlyDirect(buffer))
         {
             LocalPool pool = localPool.get();
             if (buffer.limit() > 0)
@@ -199,10 +194,7 @@ public class BufferPool
             assert Integer.bitCount(MACRO_CHUNK_SIZE) == 1; // must be a power of 2
             assert MACRO_CHUNK_SIZE % NORMAL_CHUNK_SIZE == 0; // must be a multiple
 
-            if (DISABLED)
-                logger.info("Global buffer pool is disabled");
-            else
-                logger.info("Global buffer pool is enabled (limit is {})",
+            logger.info("Global buffer pool limit is {}",
                             prettyPrintMemory(MEMORY_USAGE_THRESHOLD));
         }
 
@@ -237,9 +229,12 @@ public class BufferPool
                 long cur = memoryUsage.get();
                 if (cur + MACRO_CHUNK_SIZE > MEMORY_USAGE_THRESHOLD)
                 {
-                    noSpamLogger.info("Maximum memory usage reached ({}), cannot allocate chunk of {}",
-                                      prettyPrintMemory(MEMORY_USAGE_THRESHOLD),
-                                      prettyPrintMemory(MACRO_CHUNK_SIZE));
+                    if (MEMORY_USAGE_THRESHOLD > 0)
+                    {
+                        noSpamLogger.info("Maximum memory usage reached ({}), cannot allocate chunk of {}",
+                                          prettyPrintMemory(MEMORY_USAGE_THRESHOLD),
+                                          prettyPrintMemory(MACRO_CHUNK_SIZE));
+                    }
                     return null;
                 }
                 if (memoryUsage.compareAndSet(cur, cur + MACRO_CHUNK_SIZE))

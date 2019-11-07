@@ -47,7 +47,6 @@ public class BufferPoolTest
     public void setUp()
     {
         BufferPool.MEMORY_USAGE_THRESHOLD = 8 * 1024L * 1024L;
-        BufferPool.DISABLED = false;
     }
 
     @After
@@ -571,7 +570,6 @@ public class BufferPoolTest
     @Test
     public void testBufferPoolDisabled()
     {
-        BufferPool.DISABLED = true;
         ByteBuffer buffer = BufferPool.get(1024, BufferType.ON_HEAP);
         assertEquals(0, BufferPool.unsafeNumChunks());
         assertNotNull(buffer);
@@ -588,9 +586,6 @@ public class BufferPoolTest
         assertTrue(buffer.isDirect());
         BufferPool.put(buffer);
         assertEquals(0, BufferPool.unsafeNumChunks());
-
-        // clean-up
-        BufferPool.DISABLED = false;
     }
 
     @Test
