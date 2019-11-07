@@ -32,6 +32,7 @@ import com.google.common.collect.Sets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.netty.util.concurrent.FastThreadLocal;
 import org.apache.cassandra.config.*;
 import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.db.filter.*;
@@ -70,6 +71,10 @@ import org.apache.cassandra.utils.FBUtilities;
 public abstract class ReadCommand implements ReadQuery
 {
     protected static final Logger logger = LoggerFactory.getLogger(ReadCommand.class);
+
+    // Expose the active command running so transitive calls can lookup this command.
+    // This is useful for a few reasons, but mainly because the CQL query is here.
+    private static final FastThreadLocal<ReadCommand> COMMAND = new FastThreadLocal<>();
 
     public static final String TRACK_REPAIRED_DATA = "TrackRepaired";
     public static final String CONCLUSIVE_REPAIRED_DATA_DIGEST = "CRD";
@@ -196,6 +201,11 @@ public abstract class ReadCommand implements ReadQuery
         this.rowFilter = rowFilter;
         this.limits = limits;
         this.index = index;
+    }
+
+    public static ReadCommand getCommand()
+    {
+        return COMMAND.get();
     }
 
     protected abstract void serializeSelection(DataOutputPlus out, int version) throws IOException;
@@ -500,6 +510,12 @@ public abstract class ReadCommand implements ReadQuery
     {
         long startTimeNanos = System.nanoTime();
 
+        // Looks like searcher.search can throw so should wrap this in a try/finally
+        // but choose not to for the following reasons
+        // 1) makes diff larger
+        // 2) worst case we leak when a search fails; assumption is that reads are frequent, so another command will release
+        COMMAND.set(this);
+
         ColumnFamilyStore cfs = Keyspace.openAndGetStore(metadata());
         Index index = getIndex(cfs);
 
@@ -549,6 +565,10 @@ public abstract class ReadCommand implements ReadQuery
         {
             iterator.close();
             throw e;
+        }
+        finally
+        {
+            COMMAND.remove();
         }
     }
 

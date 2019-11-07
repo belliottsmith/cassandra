@@ -123,6 +123,7 @@ public class KeyspaceMetrics
     public final Counter outOfRangeTokenWrites;
     /** Lifetime count of paxos requests for keys outside the node's owned token ranges for this keyspace **/
     public final Counter outOfRangeTokenPaxosRequests;
+    public final Histogram largePartitionIndexBytes;
 
     /*
      * Metrics for inconsistencies detected between repaired data sets across replicas. These
@@ -324,6 +325,8 @@ public class KeyspaceMetrics
 
         confirmedRepairedInconsistencies = Metrics.meter(factory.createMetricName("RepairedDataInconsistenciesConfirmed"));
         unconfirmedRepairedInconsistencies = Metrics.meter(factory.createMetricName("RepairedDataInconsistenciesUnconfirmed"));
+
+        largePartitionIndexBytes = Metrics.histogram(factory.createMetricName("LargePartitionIndexBytesHistogram"), false);
     }
 
     /**

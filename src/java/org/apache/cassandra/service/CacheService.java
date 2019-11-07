@@ -455,7 +455,7 @@ public class CacheService implements CacheServiceMBean
             ByteBufferUtil.writeWithLength(key.key, out);
             out.writeInt(key.desc.generation);
             out.writeBoolean(true);
-            key.desc.getFormat().getIndexSerializer(cfs.metadata, key.desc.version, SerializationHeader.forKeyCache(cfs.metadata)).serialize(entry, out);
+            key.desc.getFormat().getIndexSerializer(cfs.metadata, key.desc, SerializationHeader.forKeyCache(cfs.metadata)).serialize(entry, out);
         }
 
         public Future<Pair<KeyCacheKey, RowIndexEntry>> deserialize(DataInputPlus input, ColumnFamilyStore cfs) throws IOException
@@ -482,9 +482,9 @@ public class CacheService implements CacheServiceMBean
                 return null;
             }
             RowIndexEntry.IndexSerializer<?> indexSerializer = reader.descriptor.getFormat().getIndexSerializer(reader.metadata,
-                                                                                                                reader.descriptor.version,
+                                                                                                                reader.descriptor,
                                                                                                                 SerializationHeader.forKeyCache(cfs.metadata));
-            RowIndexEntry entry = indexSerializer.deserialize(input);
+            RowIndexEntry entry = indexSerializer.deserialize(input, key);
             return Futures.immediateFuture(Pair.create(new KeyCacheKey(cfs.metadata.ksAndCFName, reader.descriptor, key), entry));
         }
 

@@ -451,6 +451,8 @@ public class Config
     public volatile long max_scheduled_compaction_sstable_size_bytes = 10240 * 1024L * 1024L;
     public volatile int max_scheduled_compaction_sstable_count = 40;
 
+    public volatile long large_partition_index_warning_threshold_kb = 4096L;
+
     /**
      * Class names to look for custom functions in.  They must define a static @code{Collection<Function> all()}
      * that returns the custom functions to add.

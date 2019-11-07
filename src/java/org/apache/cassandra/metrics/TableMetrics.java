@@ -224,6 +224,7 @@ public class TableMetrics
     public final Sampler<ByteBuffer> topCasPartitionContention;
     /** When sampler activated, will track the slowest local reads **/
     public final Sampler<String> topLocalReadQueryTime;
+    public final TableHistogram largePartitionIndexBytes;
 
     private static Pair<Long, Long> totalNonSystemTablesSize(Predicate<SSTableReader> predicate)
     {
@@ -930,6 +931,8 @@ public class TableMetrics
 
         confirmedRepairedInconsistencies = createTableMeter("RepairedDataInconsistenciesConfirmed", cfs.keyspace.metric.confirmedRepairedInconsistencies);
         unconfirmedRepairedInconsistencies = createTableMeter("RepairedDataInconsistenciesUnconfirmed", cfs.keyspace.metric.unconfirmedRepairedInconsistencies);
+
+        largePartitionIndexBytes = createTableHistogram("LargePartitionIndexBytesHistogram", cfs.keyspace.metric.largePartitionIndexBytes, false);
     }
 
     public void updateSSTableIterated(int count)

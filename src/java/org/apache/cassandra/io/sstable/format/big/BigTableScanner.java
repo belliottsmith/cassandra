@@ -18,6 +18,7 @@
 package org.apache.cassandra.io.sstable.format.big;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -129,7 +130,7 @@ public class BigTableScanner implements ISSTableScanner
         this.columns = columns;
         this.dataRange = dataRange;
         this.rowIndexEntrySerializer = sstable.descriptor.version.getSSTableFormat().getIndexSerializer(sstable.metadata,
-                                                                                                        sstable.descriptor.version,
+                                                                                                        sstable.descriptor,
                                                                                                         sstable.header);
         this.isForThrift = isForThrift;
         this.rangeIterator = rangeIterator;
@@ -317,8 +318,9 @@ public class BigTableScanner implements ISSTableScanner
                         if (ifile.isEOF())
                             return endOfData();
 
-                        currentKey = sstable.decorateKey(ByteBufferUtil.readWithShortLength(ifile));
-                        currentEntry = rowIndexEntrySerializer.deserialize(ifile);
+                        ByteBuffer key = ByteBufferUtil.readWithShortLength(ifile);
+                        currentKey = sstable.decorateKey(key);
+                        currentEntry = rowIndexEntrySerializer.deserialize(ifile, key);
                     } while (!currentRange.contains(currentKey));
                 }
                 else
@@ -336,8 +338,9 @@ public class BigTableScanner implements ISSTableScanner
                 else
                 {
                     // we need the position of the start of the next key, regardless of whether it falls in the current range
-                    nextKey = sstable.decorateKey(ByteBufferUtil.readWithShortLength(ifile));
-                    nextEntry = rowIndexEntrySerializer.deserialize(ifile);
+                    ByteBuffer key = ByteBufferUtil.readWithShortLength(ifile);
+                    nextKey = sstable.decorateKey(key);
+                    nextEntry = rowIndexEntrySerializer.deserialize(ifile, key);
 
                     if (!currentRange.contains(nextKey))
                     {

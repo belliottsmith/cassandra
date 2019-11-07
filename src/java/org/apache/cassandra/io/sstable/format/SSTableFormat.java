@@ -24,6 +24,7 @@ import org.apache.cassandra.db.LegacyLayout;
 import org.apache.cassandra.db.RowIndexEntry;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.compaction.CompactionController;
+import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.big.BigFormat;
 import org.apache.cassandra.io.util.FileDataInput;
 
@@ -43,7 +44,7 @@ public interface SSTableFormat
     SSTableWriter.Factory getWriterFactory();
     SSTableReader.Factory getReaderFactory();
 
-    RowIndexEntry.IndexSerializer<?> getIndexSerializer(CFMetaData cfm, Version version, SerializationHeader header);
+    RowIndexEntry.IndexSerializer<?> getIndexSerializer(CFMetaData cfm, Descriptor descriptor, SerializationHeader header);
 
     public static enum Type
     {

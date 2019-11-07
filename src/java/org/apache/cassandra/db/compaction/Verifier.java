@@ -91,7 +91,7 @@ public class Verifier implements Closeable
         this.cfs = cfs;
         this.sstable = sstable;
         this.outputHandler = outputHandler;
-        this.rowIndexEntrySerializer = sstable.descriptor.version.getSSTableFormat().getIndexSerializer(sstable.metadata, sstable.descriptor.version, sstable.header);
+        this.rowIndexEntrySerializer = sstable.descriptor.version.getSSTableFormat().getIndexSerializer(sstable.metadata, sstable.descriptor, sstable.header);
 
         this.controller = new VerifyController(cfs);
 
@@ -229,7 +229,7 @@ public class Verifier implements Closeable
         {
             ByteBuffer nextIndexKey = ByteBufferUtil.readWithShortLength(indexFile);
             {
-                long firstRowPositionFromIndex = rowIndexEntrySerializer.deserialize(indexFile).position;
+                long firstRowPositionFromIndex = rowIndexEntrySerializer.deserialize(indexFile, nextIndexKey).position;
                 if (firstRowPositionFromIndex != 0)
                     markAndThrow();
             }
@@ -278,7 +278,7 @@ public class Verifier implements Closeable
                     nextIndexKey = indexFile.isEOF() ? null : ByteBufferUtil.readWithShortLength(indexFile);
                     nextRowPositionFromIndex = indexFile.isEOF()
                                              ? dataFile.length()
-                                             : rowIndexEntrySerializer.deserialize(indexFile).position;
+                                             : rowIndexEntrySerializer.deserialize(indexFile, nextIndexKey).position;
                 }
                 catch (Throwable th)
                 {

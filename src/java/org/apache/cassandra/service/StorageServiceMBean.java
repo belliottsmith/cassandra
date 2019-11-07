@@ -32,6 +32,8 @@ import javax.management.openmbean.CompositeData;
 import javax.management.openmbean.OpenDataException;
 import javax.management.openmbean.TabularData;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+
 public interface StorageServiceMBean extends NotificationEmitter
 {
     /**
@@ -746,4 +748,14 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     public void setForcePagingStateLegacySerialization(boolean enable);
     public boolean getForcePagingStateLegacySerialization();
+
+    default long getLargePartitionIndexWarningThresholdKb()
+    {
+        return DatabaseDescriptor.getLargePartitionIndexWarningThresholdKb();
+    }
+
+    default void setLargePartitionIndexWarningThresholdKb(long value)
+    {
+        DatabaseDescriptor.setLargePartitionIndexWarningThresholdKb(value);
+    }
 }

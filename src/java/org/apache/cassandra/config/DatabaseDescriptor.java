@@ -2861,4 +2861,20 @@ public class DatabaseDescriptor
         logger.info("Setting use_offheap_merkle_trees to {}", value);
         conf.use_offheap_merkle_trees = value;
     }
+
+    public static long getLargePartitionIndexWarningThreshold()
+    {
+        return conf.large_partition_index_warning_threshold_kb * 1024L;
+    }
+
+    public static long getLargePartitionIndexWarningThresholdKb()
+    {
+        return conf.large_partition_index_warning_threshold_kb;
+    }
+
+    public static void setLargePartitionIndexWarningThresholdKb(long value)
+    {
+        logger.info("Setting large_partition_index_warning_threshold_kb to {}", value);
+        conf.large_partition_index_warning_threshold_kb = value;
+    }
 }

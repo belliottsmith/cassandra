@@ -85,7 +85,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
         this.pendingRepair = pendingRepair;
         this.metadataCollector = metadataCollector;
         this.header = header != null ? header : SerializationHeader.makeWithoutStats(metadata); //null header indicates streaming from pre-3.0 sstable
-        this.rowIndexEntrySerializer = descriptor.version.getSSTableFormat().getIndexSerializer(metadata, descriptor.version, header);
+        this.rowIndexEntrySerializer = descriptor.version.getSSTableFormat().getIndexSerializer(metadata, descriptor, header);
     }
 
     public static SSTableWriter create(Descriptor descriptor,

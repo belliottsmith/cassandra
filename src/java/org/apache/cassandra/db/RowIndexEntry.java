@@ -18,24 +18,33 @@
 package org.apache.cassandra.db;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.primitives.Ints;
 
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cache.IMeasurableMemory;
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.IndexHelper;
 import org.apache.cassandra.io.sstable.format.Version;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
-import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.LazyToString;
+import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.ObjectSizes;
 
 public class RowIndexEntry<T> implements IMeasurableMemory
 {
+    private static final NoSpamLogger LARGE_PARTITION_LOGGER = NoSpamLogger.getLogger(LoggerFactory.getLogger(IndexSerializer.class), 1, TimeUnit.SECONDS);
     private static final long EMPTY_SIZE = ObjectSizes.measure(new RowIndexEntry(0));
 
     public final long position;
@@ -110,24 +119,41 @@ public class RowIndexEntry<T> implements IMeasurableMemory
     public interface IndexSerializer<T>
     {
         void serialize(RowIndexEntry<T> rie, DataOutputPlus out) throws IOException;
-        RowIndexEntry<T> deserialize(DataInputPlus in) throws IOException;
+        RowIndexEntry<T> deserialize(DataInputPlus in, ByteBuffer key) throws IOException;
         int serializedSize(RowIndexEntry<T> rie);
+    }
+
+    private static String extractQuery(ReadCommand query)
+    {
+        String queryStr;
+        try {
+            queryStr = query.toCQLString();
+        }
+        catch (Exception e)
+        {
+            // in testing found that internal code can cause toCQLString to throw a validation exception (data doesn't match type)
+            // but its not expected to happen in CQL since it is supposed to validate; this gaurd is a defensive check
+            // to pretect from cases not caught by CQL
+            queryStr = "SELECT <unknown> FROM " + query.metadata().ksName + "." + query.metadata().cfName + " WHERE <unknown>";
+            LARGE_PARTITION_LOGGER.error("ReadCommand(" + queryStr + ") caused .toCQLString() throw a unexpected exception", e);
+        }
+        return queryStr;
     }
 
     public static class Serializer implements IndexSerializer<IndexHelper.IndexInfo>
     {
         private final IndexHelper.IndexInfo.Serializer idxSerializer;
-        private final Version version;
+        private final Descriptor descriptor;
 
-        public Serializer(CFMetaData metadata, Version version, SerializationHeader header)
+        public Serializer(CFMetaData metadata, Descriptor descriptor, SerializationHeader header)
         {
-            this.idxSerializer = new IndexHelper.IndexInfo.Serializer(metadata, version, header);
-            this.version = version;
+            this.idxSerializer = new IndexHelper.IndexInfo.Serializer(metadata, descriptor.version, header);
+            this.descriptor = descriptor;
         }
 
         public void serialize(RowIndexEntry<IndexHelper.IndexInfo> rie, DataOutputPlus out) throws IOException
         {
-            assert version.storeRows() : "We read old index files but we should never write them";
+            assert descriptor.version.storeRows() : "We read old index files but we should never write them";
 
             out.writeUnsignedVInt(rie.position);
             out.writeUnsignedVInt(rie.promotedSize(idxSerializer));
@@ -174,9 +200,9 @@ public class RowIndexEntry<T> implements IMeasurableMemory
             }
         }
 
-        public RowIndexEntry<IndexHelper.IndexInfo> deserialize(DataInputPlus in) throws IOException
+        public RowIndexEntry<IndexHelper.IndexInfo> deserialize(DataInputPlus in, ByteBuffer key) throws IOException
         {
-            if (!version.storeRows())
+            if (!descriptor.version.storeRows())
             {
                 long position = in.readLong();
 
@@ -196,6 +222,8 @@ public class RowIndexEntry<T> implements IMeasurableMemory
                         if (i == 0)
                             headerLength = info.getOffset();
                     }
+
+                    maybeLogLargePartitionIndexWarning(key, columnsIndex);
 
                     return new IndexedEntry(position, deletionTime, headerLength, columnsIndex);
                 }
@@ -219,12 +247,60 @@ public class RowIndexEntry<T> implements IMeasurableMemory
 
                 in.skipBytesFully(entries * TypeSizes.sizeof(0));
 
+                maybeLogLargePartitionIndexWarning(key, columnsIndex);
+
                 return new IndexedEntry(position, deletionTime, headerLength, columnsIndex);
             }
             else
             {
                 return new RowIndexEntry<>(position);
             }
+        }
+
+        private void maybeLogLargePartitionIndexWarning(ByteBuffer key, List<IndexHelper.IndexInfo> columnsIndex)
+        {
+            int entries = columnsIndex.size();
+            if (entries == 0)
+                return;
+            // only check when command is present that way only reads are captured
+            ReadCommand command = ReadCommand.getCommand();
+            if (command == null)
+                return;
+
+            // compute a estimate of heap cost for the IndexInfo list and warn if too large
+            long memoryEstimate = columnsIndex.stream().mapToLong(IndexHelper.IndexInfo::unsharedHeapSize).sum();
+            if (memoryEstimate < DatabaseDescriptor.getLargePartitionIndexWarningThreshold())
+                return;
+
+            Keyspace.open(descriptor.ksname)
+                    .getColumnFamilyStore(descriptor.cfname)
+                    .metric.largePartitionIndexBytes.update(memoryEstimate);
+
+            // Column index offsets are relative to position, so don't care about position.
+            // Find the last column which stores offset and how large the data range is;
+            // the sum of offset and width should represent the size of the partition
+            IndexHelper.IndexInfo lastIdexInfo = columnsIndex.get(columnsIndex.size() - 1);
+            long expectedPartitionSize = lastIdexInfo.getOffset() + lastIdexInfo.getWidth();
+
+            // only dedup on the ks/cf/key triplet
+            String keyStr;
+            try
+            {
+                keyStr = command.metadata().getKeyValidator().getString(key);
+            }
+            catch (Exception e)
+            {
+                // if parsing the key fails, fall back to normal .toString()
+                // This isn't expected to happen, but trying to be defensive so the behavior isn't changed for large
+                // partition queries.
+                LARGE_PARTITION_LOGGER.error("Partition key failed to parse with {}", command.metadata().getKeyValidator(), e);
+                keyStr = ByteBufferUtil.bytesToHex(key);
+            }
+            LARGE_PARTITION_LOGGER.warn("Reading large partition index "
+                                        + descriptor.ksname + "/" + descriptor.cfname + ":" + keyStr
+                                        + " (partition bytes {}, index memory {}) from sstable {} with {} index info entries; query: {}",
+                                        expectedPartitionSize, memoryEstimate, descriptor.generation, entries,
+                                        LazyToString.of(() -> extractQuery(command)));
         }
 
         // Reads only the data 'position' of the index entry and returns it. Note that this left 'in' in the middle
@@ -252,7 +328,7 @@ public class RowIndexEntry<T> implements IMeasurableMemory
 
         public int serializedSize(RowIndexEntry<IndexHelper.IndexInfo> rie)
         {
-            assert version.storeRows() : "We read old index files but we should never write them";
+            assert descriptor.version.storeRows() : "We read old index files but we should never write them";
 
             int indexedSize = 0;
             if (rie.isIndexed())

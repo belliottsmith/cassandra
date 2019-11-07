@@ -1105,3 +1105,6 @@ repaired_data_tracking_for_partition_reads_enabled: false
 # mismatches are less actionable than confirmed ones.
 report_unconfirmed_repaired_data_mismatches: false
 
+# Log a warning when reading a partition's RowIndexEntry from disk larger than this value
+# This is related to the compaction_large_partition_warning_threshold_mb config
+#large_partition_index_warning_threshold_kb: 4096

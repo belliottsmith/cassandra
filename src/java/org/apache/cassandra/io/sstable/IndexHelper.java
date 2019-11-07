@@ -214,7 +214,7 @@ public final class IndexHelper
         public long unsharedHeapSize()
         {
             return EMPTY_SIZE
-                   + (clusteringName != null ? clusteringName.unsharedHeapSize() : firstName.remaining() + lastName.remaining())
+                   + (clusteringName != null ? clusteringName.unsharedHeapSize() : ObjectSizes.sizeOnHeapOf(firstName) + ObjectSizes.sizeOnHeapOf(lastName))
                    + (endOpenMarker == null ? 0 : endOpenMarker.unsharedHeapSize());
         }
 

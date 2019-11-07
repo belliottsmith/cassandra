@@ -31,6 +31,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.partitions.*;
+import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.IndexHelper;
 import org.apache.cassandra.io.sstable.format.big.BigFormat;
 import org.apache.cassandra.io.util.DataInputBuffer;
@@ -49,6 +50,7 @@ public class RowIndexEntryTest extends CQLTester
 {
     private static final List<AbstractType<?>> clusterTypes = Collections.<AbstractType<?>>singletonList(LongType.instance);
     private static final ClusteringComparator comp = new ClusteringComparator(clusterTypes);
+    private static final Descriptor DESCRIPTOR = Descriptor.fromFilename("ks" + File.separator + "cf-d5d71580fab811e9826179c6c2aaf197" + File.separator + "ks-cf-" + BigFormat.latestVersion.getVersion() + "-40-big", true);
     private static ClusteringPrefix cn(long l)
     {
         return Util.clustering(comp, l);
@@ -85,7 +87,7 @@ public class RowIndexEntryTest extends CQLTester
 
         ByteBuffer buf = dobRie.buffer();
 
-        RowIndexEntry<IndexHelper.IndexInfo> rie = new RowIndexEntry.Serializer(cfMeta, BigFormat.latestVersion, header).deserialize(new DataInputBuffer(buf, false));
+        RowIndexEntry<IndexHelper.IndexInfo> rie = new RowIndexEntry.Serializer(cfMeta, DESCRIPTOR, header).deserialize(new DataInputBuffer(buf, false), ByteBuffer.wrap("some key".getBytes()));
 
         Assert.assertEquals(42L, rie.position);
 
@@ -121,7 +123,7 @@ public class RowIndexEntryTest extends CQLTester
 
         DataOutputBuffer buffer = new DataOutputBuffer();
         SerializationHeader header = new SerializationHeader(true, cfs.metadata, cfs.metadata.partitionColumns(), EncodingStats.NO_STATS);
-        RowIndexEntry.Serializer serializer = new RowIndexEntry.Serializer(cfs.metadata, BigFormat.latestVersion, header);
+        RowIndexEntry.Serializer serializer = new RowIndexEntry.Serializer(cfs.metadata, DESCRIPTOR, header);
 
         serializer.serialize(simple, buffer);
 

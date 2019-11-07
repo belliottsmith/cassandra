@@ -108,7 +108,7 @@ public class Scrubber implements Closeable
         this.skipCorrupted = skipCorrupted;
         this.reinsertOverflowedTTLRows = reinsertOverflowedTTLRows;
         this.rowIndexEntrySerializer = sstable.descriptor.version.getSSTableFormat().getIndexSerializer(sstable.metadata,
-                                                                                                        sstable.descriptor.version,
+                                                                                                        sstable.descriptor,
                                                                                                         sstable.header);
         List<SSTableReader> toScrub = Collections.singletonList(sstable);
 
@@ -169,7 +169,7 @@ public class Scrubber implements Closeable
             if (indexAvailable())
             {
                 // throw away variable so we don't have a side effect in the assert
-                long firstRowPositionFromIndex = rowIndexEntrySerializer.deserialize(indexFile).position;
+                long firstRowPositionFromIndex = rowIndexEntrySerializer.deserialize(indexFile, nextIndexKey).position;
                 assert firstRowPositionFromIndex == 0 : firstRowPositionFromIndex;
             }
 
@@ -378,7 +378,7 @@ public class Scrubber implements Closeable
 
             nextRowPositionFromIndex = !indexAvailable()
                     ? dataFile.length()
-                    : rowIndexEntrySerializer.deserialize(indexFile).position;
+                    : rowIndexEntrySerializer.deserialize(indexFile, nextIndexKey).position;
         }
         catch (Throwable th)
         {
