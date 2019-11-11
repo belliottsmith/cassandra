@@ -39,6 +39,7 @@ import net.openhft.chronicle.queue.RollCycles;
 import net.openhft.chronicle.threads.Pauser;
 import net.openhft.chronicle.wire.ReadMarshallable;
 import net.openhft.chronicle.wire.ValueIn;
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.cql3.QueryOptions;
 
 /**
@@ -66,6 +67,7 @@ public class Dump implements Runnable
 
     public static void dump(List<String> arguments, String rollCycle, boolean follow)
     {
+        Config.setClientMode(true);
         StringBuilder sb = new StringBuilder();
         ReadMarshallable reader = wireIn -> {
             sb.setLength(0);
