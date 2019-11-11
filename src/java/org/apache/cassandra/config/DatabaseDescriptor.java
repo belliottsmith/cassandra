@@ -847,7 +847,6 @@ public class DatabaseDescriptor
             logger.warn("native_transport_max_protocol_version set to {}. native_transport_max_protocol_version is deprecated and has no effect", conf.native_transport_max_protocol_version);
 
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
-
     }
 
     /**
@@ -2876,5 +2875,17 @@ public class DatabaseDescriptor
     {
         logger.info("Setting large_partition_index_warning_threshold_kb to {}", value);
         conf.large_partition_index_warning_threshold_kb = value;
+    }
+
+    public static boolean enableSecondaryIndex()
+    {
+        // see rdar://56795580 (Disable creating 2i by default but add a config to allow)
+        return conf.enable_secondary_index;
+    }
+
+    public static void setEnableSecondaryIndex(boolean value)
+    {
+        logger.info("Setting enable_secondary_index to {}", value);
+        conf.enable_secondary_index = value;
     }
 }

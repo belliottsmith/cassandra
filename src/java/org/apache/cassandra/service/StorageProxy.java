@@ -3312,4 +3312,22 @@ public class StorageProxy implements StorageProxyMBean
     {
         return DatabaseDescriptor.reportUnconfirmedRepairedDataMismatches();
     }
+
+    @Override
+    public void enableSecondaryIndex()
+    {
+        DatabaseDescriptor.setEnableSecondaryIndex(true);
+    }
+
+    @Override
+    public void disableSecondaryIndex()
+    {
+        DatabaseDescriptor.setEnableSecondaryIndex(false);
+    }
+
+    @Override
+    public boolean getSecondaryIndexEnabled()
+    {
+        return DatabaseDescriptor.enableSecondaryIndex();
+    }
 }

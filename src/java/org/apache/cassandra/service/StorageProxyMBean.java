@@ -21,8 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.cassandra.db.ConsistencyLevel;
-
 public interface StorageProxyMBean
 {
     public long getTotalHints();
@@ -150,4 +148,8 @@ public interface StorageProxyMBean
     void enableReportingUnconfirmedRepairedDataMismatches();
     void disableReportingUnconfirmedRepairedDataMismatches();
     boolean getReportingUnconfirmedRepairedDataMismatchesEnabled();
+
+    void enableSecondaryIndex();
+    void disableSecondaryIndex();
+    boolean getSecondaryIndexEnabled();
 }

@@ -500,6 +500,8 @@ public class Config
      */
     public volatile boolean report_unconfirmed_repaired_data_mismatches = false;
 
+    public volatile boolean enable_secondary_index = Boolean.getBoolean("cassandra.enable_secondary_index");
+
     public static boolean isClientMode()
     {
         return isClientMode;

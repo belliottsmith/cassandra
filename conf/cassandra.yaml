@@ -1108,3 +1108,7 @@ report_unconfirmed_repaired_data_mismatches: false
 # Log a warning when reading a partition's RowIndexEntry from disk larger than this value
 # This is related to the compaction_large_partition_warning_threshold_mb config
 #large_partition_index_warning_threshold_kb: 4096
+
+# Enable or disable the ability to create secondary indexes.  This configuration will not have any
+# affect on tables which already have secondary indexes, but will reject new ones from being created.
+#enable_secondary_index: false
