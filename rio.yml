@@ -216,3 +216,25 @@ builds:
       tag:
         enabled: true
         expression: 'cie-cassandra-${FULL_VERSION}'
+
+
+  - branchName: cie-cassandra-4.0.0
+    name: publish-dtest-cie-4.0.0
+    build:
+      steps:
+      - ./rio/release-dtest-jar.sh 4.0-beta3
+      template: freestyle:v4:publish
+    timeout: 30
+    finally:
+      radar:
+        annotate: false
+      tag:
+        enabled: false
+    package:
+      freeform:
+      - publish:
+        - repo: cie-release-local
+    reports:
+      junit: false
+    machine:
+      baseImage: docker.apple.com/cpbuild/applejdk-8:latest
