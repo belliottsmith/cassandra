@@ -37,4 +37,14 @@ public class FullQueryLoggerOptions extends BinLogOptions
                ", max_log_size=" + max_log_size +
                '}';
     }
+
+    public FullQueryLoggerOptions()
+    {
+    }
+
+    // For backward compatibilty with CIE Cassandra full_query_log_dir
+    public FullQueryLoggerOptions(String log_dir)
+    {
+        this.log_dir = log_dir;
+    }
 }
