@@ -561,6 +561,8 @@ public class Config
      */
     public ConsistencyLevel denylist_consistency_level = ConsistencyLevel.QUORUM;
 
+    public String full_query_log_dir = null; // CIE Cassandra 3.0 backward compatibility, create default FQL options if non-null.
+
     /**
      * The intial capacity for creating RangeTombstoneList.
      */
