@@ -504,6 +504,8 @@ public class Config
      */
     public volatile int validation_preview_purge_head_start_in_sec = 60 * 60;
 
+    public String full_query_log_dir = null; // CIE Cassandra 3.0 backward compatibility, create default FQL options if non-null.
+
     /**
      * The intial capacity for creating RangeTombstoneList.
      */
