@@ -78,6 +78,7 @@ builds:
       enabled: false
     pipelineChain:
         - pipeline: snapshot-carnival-3.0.19
+        - pipeline: snapshot-docker-image-3.0.19
   trigger:
     gitPush: false
 - name: snapshot-carnival-3.0.19
@@ -104,6 +105,31 @@ builds:
       expression: cie-cassandra-3.0.19-$RIO_BUILD_NUMBER.$CODE_VERSION
     radar:
       annotate: true
+- name: snapshot-docker-image-3.0.19
+  branchName: cie-cassandra-3.0.19
+  timeout: 30
+  machine:
+    baseImage: docker.apple.com/pie/cie-cassandra-build-jdk-8:latest
+    env:
+      RELEASE_VERSION: "3.0.19"
+      CASSANDRA_VERSION: "${RELEASE_VERSION}.next.#{${RELEASE_VERSION}.next}"
+  build:
+    template: freestyle:v4:publish
+    steps:
+      - ./rio/release.sh ${CASSANDRA_VERSION}
+  trigger:
+    gitPush: false
+  package:
+    dockerfile:
+      - dockerfilePath: "Dockerfile"
+        version: "${CASSANDRA_VERSION}"
+        perApplication: false
+        extraTags:
+          - "${RELEASE_VERSION}.next"
+        publish:
+          - repo: docker.apple.com/piedb_ci/cie-cassandra
+    mirror:
+      target: silkroad
 - name: release-3.0.19
   branchName: cie-cassandra-3.0.19
   build:
