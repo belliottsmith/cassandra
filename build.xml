@@ -126,6 +126,7 @@
     <property name="chronicle-bytes.version" value="1.10.1" />
     <property name="chronicle-wire.version" value="1.10.1" />
     <property name="chronicle-threads.version" value="1.9.1" />
+    <property name="accp.version" value="1.1.1" />
 
     <condition property="maven-ant-tasks.jar.exists">
       <available file="${build.dir}/maven-ant-tasks-${maven-ant-tasks.version}.jar" />
@@ -544,6 +545,9 @@
           <dependency groupId="joda-time" artifactId="joda-time" version="2.4" />
           <dependency groupId="org.ow2.asm" artifactId="asm" version="${asm.version}" />
 
+          <!-- The Amazon Corretto Crypto Provider -->
+          <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" />
+
         </dependencyManagement>
         <developer id="adelapena" name="Andres de la Peña"/>
         <developer id="alakshman" name="Avinash Lakshman"/>
@@ -615,6 +619,7 @@
         <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations"/>
         <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.7" />
         <dependency groupId="com.github.ben-manes.caffeine" artifactId="caffeine" version="${caffeine.version}" />
+        <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" />
       </artifact:pom>
       <!-- this build-deps-pom-sources "artifact" is the same as build-deps-pom but only with those
            artifacts that have "-source.jar" files -->
@@ -1157,6 +1162,9 @@
           <include name="${final.name}.jar" />
           <include name="${ant.project.name}-thrift-${version}.jar" />
           <include name="${ant.project.name}-clientutil-${version}.jar" />
+        </fileset>
+        <fileset dir="${build.dir.lib}/jars">
+          <include name="AmazonCorrettoCryptoProvider*jar" />
         </fileset>
       </copy>
       <copy todir="${dist.dir}/javadoc">
