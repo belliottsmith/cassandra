@@ -24,6 +24,8 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.security.Provider;
+import java.security.Security;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -95,6 +97,7 @@ public class StartupChecks
                                                                       checkJMXPorts,
                                                                       checkJMXProperties,
                                                                       inspectJvmOptions,
+                                                                      inspectDefaultSecurityProvider,
                                                                       checkNativeLibraryInitialization,
                                                                       initSigarLibrary,
                                                                       checkMaxMapCount,
@@ -264,6 +267,17 @@ public class StartupChecks
                         return true;
             }
             return false;
+        }
+    };
+
+    public static final StartupCheck inspectDefaultSecurityProvider = new StartupCheck()
+    {
+        public void execute()
+        {
+            Provider[] providers = Security.getProviders();
+            for (Provider p : providers)
+                logger.info("Detected security provider: " + p);
+
         }
     };
 
