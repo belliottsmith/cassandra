@@ -1029,6 +1029,12 @@
         <artifactId>ipaddress</artifactId>
         <version>5.3.3</version>
       </dependency>
+      <dependency>
+        <groupId>software.amazon.cryptools</groupId>
+        <artifactId>AmazonCorrettoCryptoProvider</artifactId>
+        <version>1.6.1</version>
+        <classifier>linux-x86_64</classifier>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 </project>
