@@ -29,6 +29,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.security.Provider;
+import java.security.Security;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -134,6 +136,7 @@ public class StartupChecks
                                                                       checkJMXPorts,
                                                                       checkJMXProperties,
                                                                       inspectJvmOptions,
+                                                                      inspectDefaultSecurityProvider,
                                                                       checkNativeLibraryInitialization,
                                                                       initSigarLibrary,
                                                                       checkMaxMapCount,
@@ -327,6 +330,18 @@ public class StartupChecks
                         return true;
             }
             return false;
+        }
+    };
+
+    public static final StartupCheck inspectDefaultSecurityProvider = new StartupCheck()
+    {
+        @Override
+        public void execute(StartupChecksOptions options)
+        {
+            Provider[] providers = Security.getProviders();
+            for (Provider p : providers)
+                logger.info("Detected security provider: " + p);
+
         }
     };
 
