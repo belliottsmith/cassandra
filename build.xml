@@ -129,6 +129,7 @@
     <property name="chronicle-bytes.version" value="2.20.111" />
     <property name="chronicle-wire.version" value="2.20.117" />
     <property name="chronicle-threads.version" value="2.20.111" />
+    <property name="accp.version" value="1.1.1" />
 
     <condition property="maven-ant-tasks.jar.exists">
       <available file="${build.dir}/maven-ant-tasks-${maven-ant-tasks.version}.jar" />
@@ -654,6 +655,10 @@
             <exclusion groupId="org.hamcrest" artifactId="hamcrest"/>
           </dependency>
           <dependency groupId="org.hamcrest" artifactId="hamcrest" version="2.2" scope="test"/>
+
+          <!-- The Amazon Corretto Crypto Provider -->
+          <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" classifier="linux-x86_64"/>
+
         </dependencyManagement>
         <developer id="adelapena" name="Andres de la Peña"/>
         <developer id="alakshman" name="Avinash Lakshman"/>
@@ -721,6 +726,7 @@
         <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess" scope="test"/>
         <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations" scope="test"/>
         <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.7" scope="test"/>
+        <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" classifier="linux-x86_64"/>
         <!-- adding this dependency is necessary for assertj. When updating assertj, need to also update the version of
              this that the new assertj's `assertj-parent-pom` depends on. -->
         <dependency groupId="org.junit" artifactId="junit-bom" type="pom" scope="test"/>
@@ -1089,6 +1095,9 @@
         <fileset dir="${build.lib}"/>
         <fileset dir="${build.dir}">
           <include name="${final.name}.jar" />
+        </fileset>
+        <fileset dir="${build.dir.lib}/jars">
+          <include name="AmazonCorrettoCryptoProvider*jar" />
         </fileset>
       </copy>
       <copy todir="${dist.dir}/doc" failonerror="false">
