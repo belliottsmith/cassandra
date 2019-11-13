@@ -131,6 +131,7 @@
     <property name="chronicle-bytes.version" value="2.20.111" />
     <property name="chronicle-wire.version" value="2.20.117" />
     <property name="chronicle-threads.version" value="2.20.111" />
+    <property name="accp.version" value="1.1.1" />
 
     <condition property="maven-ant-tasks.jar.exists">
       <available file="${build.dir}/maven-ant-tasks-${maven-ant-tasks.version}.jar" />
@@ -684,6 +685,9 @@
           <dependency groupId="org.assertj" artifactId="assertj-core" version="3.15.0"/>
           <dependency groupId="org.awaitility" artifactId="awaitility" version="4.0.3" />
 
+          <!-- The Amazon Corretto Crypto Provider -->
+          <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" classifier="linux-x86_64"/>
+
         </dependencyManagement>
         <developer id="adelapena" name="Andres de la Peña"/>
         <developer id="alakshman" name="Avinash Lakshman"/>
@@ -759,6 +763,7 @@
         <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess"/>
         <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations"/>
         <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.7" />
+        <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" classifier="linux-x86_64"/>
         <dependency groupId="org.gridkit.jvmtool" artifactId="sjk-cli" />
         <dependency groupId="org.gridkit.jvmtool" artifactId="sjk-core" />
         <dependency groupId="org.gridkit.jvmtool" artifactId="sjk-stacktrace" />
@@ -1224,6 +1229,9 @@
         <fileset dir="${build.lib}"/>
         <fileset dir="${build.dir}">
           <include name="${final.name}.jar" />
+        </fileset>
+        <fileset dir="${build.dir.lib}/jars">
+          <include name="AmazonCorrettoCryptoProvider*jar" />
         </fileset>
       </copy>
       <copy todir="${dist.dir}/javadoc" failonerror="false">
