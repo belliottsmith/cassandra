@@ -86,6 +86,26 @@ calculate_heap_sizes()
     fi
 }
 
+# We've had to move this up here above the WD40 check since setting this via our propety system is problematic
+# stop the jvm on OutOfMemoryError as it can result in some data corruption
+# uncomment the preferred option
+# ExitOnOutOfMemoryError and CrashOnOutOfMemoryError require a JRE greater or equals to 1.7 update 101 or 1.8 update 92
+# For OnOutOfMemoryError we cannot use the JVM_OPTS variables because bash commands split words
+# on white spaces without taking quotes into account
+# JVM_OPTS="$JVM_OPTS -XX:+ExitOnOutOfMemoryError"
+# JVM_OPTS="$JVM_OPTS -XX:+CrashOnOutOfMemoryError"
+if [[ "${DISABLE_OnOutOfMemoryError:-false}" == "false" ]]; then
+  # This flag was added for  rdar://79755961 (Fix largecolumn_test.py::TestLargeColumn::test_cleanup); in OSS we do not do `kill -9` and it seems that largecolumn_test.py::TestLargeColumn::test_cleanup is failing with this feature, so need a way to revert back to OSS logic for testing
+  JVM_ON_OUT_OF_MEMORY_ERROR_OPT="-XX:OnOutOfMemoryError=kill -9 %p"
+fi
+
+
+# If we are running via WD-40 we shouldn't run any of this logic as it's all in cassandracfg now
+# If people are running our cie-cassandra release though (on dev machines etc) we still need to
+# source this file and have the logic to build up the various arguments.
+if [ "x${LAUNCHED_BY_WD40}" != "x" ] ; then
+    return
+fi
 # Sets the path where logback and GC logs are written.
 if [ "x$CASSANDRA_LOG_DIR" = "x" ] ; then
     CASSANDRA_LOG_DIR="$CASSANDRA_HOME/logs"
@@ -187,6 +207,13 @@ if [ "$JVM_ARCH" = "64-Bit" ] && [ $USING_CMS -eq 0 ]; then
     JVM_OPTS="$JVM_OPTS -XX:+UseCondCardMark"
 fi
 
+# CIE - put this back as scared about assertions being required for correct operation
+# enable assertions.  disabling this in production will give a modest
+# performance benefit (around 5%).
+# disable assertions for net.openhft.** because it runs out of memory by design
+# if enabled and run for more than just brief testing
+JVM_OPTS="$JVM_OPTS -ea -da:net.openhft..."
+
 # provides hints to the JIT compiler
 JVM_OPTS="$JVM_OPTS -XX:CompileCommandFile=$CASSANDRA_CONF/hotspot_compiler"
 
@@ -198,17 +225,14 @@ if [ "x$CASSANDRA_HEAPDUMP_DIR" != "x" ]; then
     JVM_OPTS="$JVM_OPTS -XX:HeapDumpPath=$CASSANDRA_HEAPDUMP_DIR/cassandra-`date +%s`-pid$$.hprof"
 fi
 
-# stop the jvm on OutOfMemoryError as it can result in some data corruption
-# uncomment the preferred option
-# ExitOnOutOfMemoryError and CrashOnOutOfMemoryError require a JRE greater or equals to 1.7 update 101 or 1.8 update 92
-# For OnOutOfMemoryError we cannot use the JVM_OPTS variables because bash commands split words
-# on white spaces without taking quotes into account
-# JVM_OPTS="$JVM_OPTS -XX:+ExitOnOutOfMemoryError"
-# JVM_OPTS="$JVM_OPTS -XX:+CrashOnOutOfMemoryError"
-JVM_ON_OUT_OF_MEMORY_ERROR_OPT="-XX:OnOutOfMemoryError=kill -9 %p"
-
 # print an heap histogram on OutOfMemoryError
 # JVM_OPTS="$JVM_OPTS -Dcassandra.printHeapHistogramOnOutOfMemoryError=true"
+
+# CIE - added this back in until IPv6 plan better understood.
+# Prefer binding to IPv4 network intefaces (when net.ipv6.bindv6only=1). See
+# http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6342561 (short version:
+# comment out this entry to enable IPv6 support).
+JVM_OPTS="$JVM_OPTS -Djava.net.preferIPv4Stack=true"
 
 # jmx: metrics and administration interface
 #
@@ -225,7 +249,7 @@ JVM_ON_OUT_OF_MEMORY_ERROR_OPT="-XX:OnOutOfMemoryError=kill -9 %p"
 # with authentication and/or ssl enabled. See https://wiki.apache.org/cassandra/JmxSecurity 
 #
 if [ "x$LOCAL_JMX" = "x" ]; then
-    LOCAL_JMX=yes
+    LOCAL_JMX="${DEFAULT_LOCAL_JMX:-no}"
 fi
 
 # Specifies the default port over which Cassandra will be available for
@@ -304,4 +328,5 @@ if [ "x$MX4J_PORT" != "x" ]; then
 fi
 
 JVM_OPTS="$JVM_OPTS $JVM_EXTRA_OPTS"
-
+# setting this here is safe since we never reach this if we are launched from WD-40 (we return above)
+JVM_OPTS="$JVM_OPTS -Dcassandra.storagedir=$CASSANDRA_HOME/data"

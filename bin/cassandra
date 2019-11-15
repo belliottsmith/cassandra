@@ -115,10 +115,6 @@ if [ -f "$CASSANDRA_CONF/cassandra-env.sh" ]; then
     . "$CASSANDRA_CONF/cassandra-env.sh"
 fi
 
-if [ -z "$CASSANDRA_LOG_DIR" ]; then
-  CASSANDRA_LOG_DIR=$CASSANDRA_HOME/logs
-fi
-
 # Cassandra uses an installed jemalloc via LD_PRELOAD / DYLD_INSERT_LIBRARIES by default to improve off-heap
 # memory allocation performance. The following code searches for an installed libjemalloc.dylib/.so/.1.so using
 # Linux and OS-X specific approaches.
@@ -174,9 +170,6 @@ launch_service()
     foreground="$2"
     props="$3"
     class="$4"
-    cassandra_parms="-Dlogback.configurationFile=logback.xml"
-    cassandra_parms="$cassandra_parms -Dcassandra.logdir=$CASSANDRA_LOG_DIR"
-    cassandra_parms="$cassandra_parms -Dcassandra.storagedir=$cassandra_storagedir"
 
     if [ "x$pidpath" != "x" ]; then
         cassandra_parms="$cassandra_parms -Dcassandra-pidfile=$pidpath"
@@ -208,7 +201,7 @@ launch_service()
 }
 
 # Parse any command line options.
-args=`getopt vRfhp:bD:H:E: "$@"`
+args=`getopt vfhp:bD:H:E: "$@"`
 eval set -- "$args"
 
 classname="org.apache.cassandra.service.CassandraDaemon"
@@ -230,10 +223,6 @@ while true; do
         -v)
             "$JAVA" -cp "$CLASSPATH" "-Dlog4j.configurationFile=log4j2-tools.xml" org.apache.cassandra.tools.GetVersion
             exit 0
-        ;;
-        -R)
-            allow_root="yes"
-            shift
         ;;
         -D)
             properties="$properties -D$2"
@@ -261,14 +250,6 @@ while true; do
         ;;
     esac
 done
-
-if [ "x$allow_root" != "xyes" ] ; then
-    if [ "`id -u`" = "0" ] || [ "`id -g`" = "0" ] ; then
-        echo "Running Cassandra as root user or group is not recommended - please start Cassandra using a different system user."
-        echo "If you really want to force running Cassandra as root, use -R command line option."
-        exit 1
-    fi
-fi
 
 # Start up the service
 launch_service "$pidfile" "$foreground" "$properties" "$classname"
