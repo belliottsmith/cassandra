@@ -41,7 +41,9 @@ if [ "x$MAX_HEAP_SIZE" = "x" ]; then
     MAX_HEAP_SIZE="256M"
 fi
 
-"$JAVA" $JAVA_AGENT -ea -cp "$CLASSPATH" $JVM_OPTS -Xmx$MAX_HEAP_SIZE \
+### CIE - removed MAX_HEAP_SIZE as conflicted with setting Xms java options
+
+"$JAVA" $JAVA_AGENT -ea -cp "$CLASSPATH" $JVM_OPTS \
         -Dcassandra.storagedir="$cassandra_storagedir" \
         -Dlog4j.configurationFile=log4j2-tools.xml \
         org.apache.cassandra.tools.StandaloneUpgrader "$@"
