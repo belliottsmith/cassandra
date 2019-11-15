@@ -31,7 +31,7 @@ CLASSPATH="$CASSANDRA_CONF"
 # it's just used here in constructing the classpath.
 if [ -d $CASSANDRA_HOME/build ] ; then
     #cassandra_bin="$CASSANDRA_HOME/build/classes/main"
-    cassandra_bin=`ls -1 $CASSANDRA_HOME/build/apache-cassandra*.jar`
+    cassandra_bin=`ls -1 $CASSANDRA_HOME/build/{cie,apache}-cassandra*.jar 2>/dev/null | head -1`
 
     CLASSPATH="$CLASSPATH:$cassandra_bin"
 fi
