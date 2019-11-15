@@ -94,11 +94,9 @@ do
   shift
 done
 
-if [ "x$MAX_HEAP_SIZE" = "x" ]; then
-    MAX_HEAP_SIZE="128m"
-fi
+### CIE - removed MAX_HEAP_SIZE as conflicted with setting Xms java options
 
-CMD=$(echo "$JAVA" $JAVA_AGENT -ea -cp "$CLASSPATH" $JVM_OPTS -Xmx$MAX_HEAP_SIZE \
+CMD=$(echo "$JAVA" $JAVA_AGENT -ea -cp "$CLASSPATH" $JVM_OPTS \
             -XX:ParallelGCThreads=1 \
             -Dcassandra.storagedir="$cassandra_storagedir" \
             -Dcassandra.logdir="$CASSANDRA_LOG_DIR" \
