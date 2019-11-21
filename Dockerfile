@@ -1,13 +1,15 @@
-FROM docker.apple.com/piedb/jdk1.8:latest
+# Image defined here: https://github.pie.apple.com/pie/cassandra-automation/blob/develop/dockerimages/jdkbaseimage/Dockerfile-JDKBase
+FROM docker.apple.com/piedb/applejdk-8:alpha
+
+MAINTAINER  ACI-Cassandra <aci-cassandra@group.apple.com>
 
 ARG CASSANDRA_VERSION
 
 COPY .dist/publishable/com/apple/cie/db/cassandra/cie-cassandra/$CASSANDRA_VERSION/cie-cassandra-$CASSANDRA_VERSION-bin.tar.gz /
-RUN tar -xvf cie-cassandra-$CASSANDRA_VERSION-bin.tar.gz
-RUN ln -s cie-cassandra-$CASSANDRA_VERSION cassandrajar
-
-RUN rpm -i http://repo-active.apple.com/mrepo/oel6-x86_64/RPMS.cassandra/jemalloc-3.6.0-1.el6.x86_64.rpm
-RUN rpm -i http://repo-active.apple.com/mrepo/oel6-x86_64/RPMS.cassandra/jemalloc-devel-3.6.0-1.el6.x86_64.rpm
+RUN \
+  tar -xvf cie-cassandra-$CASSANDRA_VERSION-bin.tar.gz && \
+  ln -s cie-cassandra-$CASSANDRA_VERSION cassandrajar && \
+  rm cie-cassandra-$CASSANDRA_VERSION-bin.tar.gz
 
 # remember to update this to /work/cassandrastubfourzero/cassandrastubfourzero.jar when cassandra moves to 4.0
 ENV EXTRA_CLASSPATH /work/cassandrastubthreezero/cassandrastubthreezero.jar
