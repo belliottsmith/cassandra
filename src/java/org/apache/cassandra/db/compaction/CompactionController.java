@@ -24,16 +24,13 @@ import org.apache.cassandra.db.Memtable;
 import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.db.partitions.Partition;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 
-import org.apache.cassandra.config.Schema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.*;
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
@@ -60,7 +57,7 @@ public class CompactionController implements AutoCloseable
     private Refs<SSTableReader> overlappingSSTables;
     private OverlapIterator<PartitionPosition, SSTableReader> overlapIterator;
     private final Iterable<SSTableReader> compacting;
-    private final ColumnFamilyStore.SuccessfulRepairTimeHolder repairTimeSnapshot;
+    private final SuccessfulRepairTimeHolder repairTimeSnapshot;
 
     public final int gcBefore;
 
@@ -82,7 +79,7 @@ public class CompactionController implements AutoCloseable
             logger.warn("You are running with -Dcassandra.never_purge_tombstones=true, this is dangerous!");
     }
 
-    public ColumnFamilyStore.SuccessfulRepairTimeHolder getRepairTimeSnapshot()
+    public SuccessfulRepairTimeHolder getRepairTimeSnapshot()
     {
         return repairTimeSnapshot;
     }
@@ -147,7 +144,7 @@ public class CompactionController implements AutoCloseable
      * @param gcBefore
      * @return
      */
-    public static Set<SSTableReader> getFullyExpiredSSTables(ColumnFamilyStore cfStore, Iterable<SSTableReader> compacting, Iterable<SSTableReader> overlapping, int gcBefore, ColumnFamilyStore.SuccessfulRepairTimeHolder repairTimeHolder)
+    public static Set<SSTableReader> getFullyExpiredSSTables(ColumnFamilyStore cfStore, Iterable<SSTableReader> compacting, Iterable<SSTableReader> overlapping, int gcBefore, SuccessfulRepairTimeHolder repairTimeHolder)
     {
         logger.trace("Checking droppable sstables in {}", cfStore);
 
@@ -181,17 +178,10 @@ public class CompactionController implements AutoCloseable
             }
             else
             {
-                for (Range<Token> range : repairTimeHolder.allRanges())
-                {
-                    if (range.contains(candidate.first.getToken()) && range.contains(candidate.last.getToken()))
-                    {
-                        lastRepairTime = repairTimeHolder.getLastSuccessfulRepairTimeFor(candidate.first.getToken());
-                        break;
-                    }
-                }
+                int repairTime = repairTimeHolder.getLastSuccessfulRepairTimeFor(candidate);
+                if (repairTime > Integer.MIN_VALUE)
+                    lastRepairTime = repairTime;
             }
-
-
 
             if (candidate.getSSTableMetadata().maxLocalDeletionTime < Math.min(lastRepairTime, gcBefore))
                 candidates.add(candidate);
@@ -217,7 +207,7 @@ public class CompactionController implements AutoCloseable
             }
             else
             {
-               logger.trace("Dropping expired SSTable {} (maxLocalDeletionTime={}, gcBefore={})",
+               logger.info("Dropping expired SSTable {} (maxLocalDeletionTime={}, gcBefore={})",
                         candidate, candidate.getSSTableMetadata().maxLocalDeletionTime, gcBefore);
             }
         }

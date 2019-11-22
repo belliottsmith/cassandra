@@ -22,6 +22,7 @@ import java.util.function.Predicate;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.transform.Transformation;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 
 public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator>
 {
@@ -41,7 +42,7 @@ public abstract class PurgeFunction extends Transformation<UnfilteredRowIterator
                          int oldestUnrepairedTombstone,
                          boolean onlyPurgeRepairedTombstones,
                          boolean enforceStrictLiveness,
-                         ColumnFamilyStore.SuccessfulRepairTimeHolder repairTimeHolder)
+                         SuccessfulRepairTimeHolder repairTimeHolder)
     {
         this.isForThrift = isForThrift;
         this.nowInSec = nowInSec;

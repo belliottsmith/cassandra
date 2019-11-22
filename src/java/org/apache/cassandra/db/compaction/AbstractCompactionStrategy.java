@@ -40,6 +40,7 @@ import org.apache.cassandra.db.Memtable;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -382,7 +383,7 @@ public abstract class AbstractCompactionStrategy
         //sstable range overlap check is disabled. See CASSANDRA-6563.
         if (uncheckedTombstoneCompaction)
             return true;
-        ColumnFamilyStore.SuccessfulRepairTimeHolder repairTimeHolder = cfs.getRepairTimeSnapshot();
+        SuccessfulRepairTimeHolder repairTimeHolder = cfs.getRepairTimeSnapshot();
         Collection<SSTableReader> overlaps = cfs.getOverlappingLiveSSTables(Collections.singleton(sstable));
 
         if (overlaps.isEmpty())

@@ -34,6 +34,7 @@ import com.google.common.base.Predicate;
 import com.google.common.collect.*;
 import com.google.common.util.concurrent.*;
 import org.apache.cassandra.config.*;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.dht.AbstractBounds;
 
 import org.slf4j.Logger;
@@ -1826,7 +1827,7 @@ public class CompactionManager implements CompactionManagerMBean
      */
     private static class ValidationCompactionController extends CompactionController
     {
-        private final ColumnFamilyStore.SuccessfulRepairTimeHolder repairTimes;
+        private final SuccessfulRepairTimeHolder repairTimes;
         public ValidationCompactionController(ColumnFamilyStore cfs, int gcBefore, PreviewKind previewKind)
         {
             super(cfs, gcBefore);
@@ -1837,12 +1838,12 @@ public class CompactionManager implements CompactionManagerMBean
              * the adjustments aren't neccesarily consistent between nodes, we ignore them when doing repaired data
              * preview validations, since they would cause false positives for inconsistent data.
              */
-            ColumnFamilyStore.SuccessfulRepairTimeHolder originalTimes = super.getRepairTimeSnapshot();
+            SuccessfulRepairTimeHolder originalTimes = super.getRepairTimeSnapshot();
             repairTimes = previewKind == PreviewKind.REPAIRED ? originalTimes.withoutInvalidationRepairs() : originalTimes;
         }
 
         @Override
-        public ColumnFamilyStore.SuccessfulRepairTimeHolder getRepairTimeSnapshot()
+        public SuccessfulRepairTimeHolder getRepairTimeSnapshot()
         {
             return repairTimes;
         }

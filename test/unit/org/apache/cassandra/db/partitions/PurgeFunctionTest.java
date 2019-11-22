@@ -33,6 +33,7 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.transform.Transformation;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -51,7 +52,7 @@ public final class PurgeFunctionTest
 
     private static UnfilteredPartitionIterator withoutPurgeableTombstones(UnfilteredPartitionIterator iterator, int gcBefore)
     {
-        ColumnFamilyStore.SuccessfulRepairTimeHolder holder = new ColumnFamilyStore.SuccessfulRepairTimeHolder(ImmutableList.of(), ImmutableList.of())
+        SuccessfulRepairTimeHolder holder = new SuccessfulRepairTimeHolder(ImmutableList.of(), ImmutableList.of())
         {
             @Override
             public int gcBeforeForKey(ColumnFamilyStore cfs, DecoratedKey key, int fallbackGCBefore)

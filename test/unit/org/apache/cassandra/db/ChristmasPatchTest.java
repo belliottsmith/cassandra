@@ -33,9 +33,9 @@ import org.junit.Test;
 import org.apache.cassandra.MockSchema;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
-import org.apache.cassandra.db.ColumnFamilyStore.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.db.xmas.BoundsAndOldestTombstone;
 import org.apache.cassandra.db.xmas.InvalidatedRepairedRange;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
@@ -293,6 +293,54 @@ and it will update the (400, 500] one with a new invalidatedAtSeconds
 
         assertEquals(irr2, irr.merge(15, irr2)); // irr is not active - repair has been run after the invalidatedAtSeconds
         assertEquals(irr2, irr2.merge(15, irr));
+    }
+
+    @Test
+    public void testLastRepairForSSTable()
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        Range<Token> oldRepairedRange = range(0, 100);
+        Range<Token> newRepairedRange = range(10, 20);
+        ImmutableList<Pair<Range<Token>, Integer>> l = ImmutableList.<Pair<Range<Token>, Integer>>builder()
+                                                       .add(Pair.create(newRepairedRange, 2000))
+                                                       .add(Pair.create(oldRepairedRange, 1000)).build();
+
+        SuccessfulRepairTimeHolder srt = new SuccessfulRepairTimeHolder(l, ImmutableList.of());
+        assertEquals(1000, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(1, 15, 50, 10, cfs)));
+        assertEquals(Integer.MIN_VALUE, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(2, -10, 50, 10, cfs)));
+        // range is start-exclusive:
+        assertEquals(Integer.MIN_VALUE, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(3, 0, 50, 10, cfs)));
+        assertEquals(1000, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(3, 1, 100, 10, cfs)));
+        assertEquals(2000, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(4, 15, 16, 10, cfs)));
+    }
+
+    @Test
+    public void testLastRepairWithInvalidationsForSSTable()
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        Range<Token> oldRepairedRange = range(0, 100);
+        Range<Token> newRepairedRange = range(10, 20);
+        ImmutableList<Pair<Range<Token>, Integer>> l = ImmutableList.<Pair<Range<Token>, Integer>>builder()
+                                                       .add(Pair.create(newRepairedRange, 2000))
+                                                       .add(Pair.create(oldRepairedRange, 1000)).build();
+        InvalidatedRepairedRange irr = new InvalidatedRepairedRange(2300, 800, range(18, 25));
+
+        SuccessfulRepairTimeHolder srt = new SuccessfulRepairTimeHolder(l, ImmutableList.of(irr));
+
+        // does not intersect the invalidated range, should give the newly repaired time:
+        assertEquals(2000, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(1, 11, 15, 10, cfs)));
+
+        // not fully contained in a repaired range
+        assertEquals(Integer.MIN_VALUE, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(2, -10, 50, 10, cfs)));
+
+        // fully contained in the invalidated range
+        assertEquals(800, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(3, 19, 21, 10, cfs)));
+
+        // the sstable was fully repaired, but the invalidation intersects the sstable
+        assertEquals(800, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(3, 1, 100, 10, cfs)));
+
+        // intersects the invalidation
+        assertEquals(800, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(4, 1, 19, 10, cfs)));
     }
 
 }

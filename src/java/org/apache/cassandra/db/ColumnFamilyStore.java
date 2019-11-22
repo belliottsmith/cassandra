@@ -53,6 +53,7 @@ import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.view.TableViews;
 import org.apache.cassandra.db.xmas.BoundsAndOldestTombstone;
 import org.apache.cassandra.db.xmas.InvalidatedRepairedRange;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -1597,7 +1598,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         this.skipRFCheckForXmasPatch = true;
     }
 
-    private boolean useRepairHistory()
+    public boolean useRepairHistory()
     {
         return skipRFCheckForXmasPatch || keyspace.getReplicationStrategy().getReplicationFactor() > 1;
     }
@@ -1776,86 +1777,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public SuccessfulRepairTimeHolder getRepairTimeSnapshot()
     {
         return lastSuccessfulRepair.get();
-    }
-
-    /**
-     * Holds an immutable list of successfully repaired ranges, sorted by newest repair
-     *
-     * We 'snapshot' the list when we start compaction to make sure we don't drop any tombstones
-     * that were marked repaired after the compaction started (because we might not include the newly streamed-in
-     * sstables in the overlap calculation)
-     */
-    public static class SuccessfulRepairTimeHolder
-    {
-        @VisibleForTesting
-        final ImmutableList<Pair<Range<Token>, Integer>> successfulRepairs;
-        final ImmutableList<InvalidatedRepairedRange> invalidatedRepairs;
-
-        public static final SuccessfulRepairTimeHolder EMPTY = new SuccessfulRepairTimeHolder(ImmutableList.of(), ImmutableList.of());
-
-        public SuccessfulRepairTimeHolder(ImmutableList<Pair<Range<Token>, Integer>> successfulRepairs,
-                                          ImmutableList<InvalidatedRepairedRange> invalidatedRepairs)
-        {
-            // we don't need to copy here - the list is never updated, it is swapped out
-            this.successfulRepairs = successfulRepairs;
-            this.invalidatedRepairs = invalidatedRepairs;
-        }
-
-        // todo: there is a possible compaction performance improvment here - we could sort the successfulRepairs by
-        // range instead and binary search or use the fact that the tokens sent in to this method are increasing - we would
-        // have to make sure the successfulRepairs are non-overlapping for this
-        public int getLastSuccessfulRepairTimeFor(Token t)
-        {
-            assert t != null;
-            int lastRepairTime = Integer.MIN_VALUE;
-            // successfulRepairs are sorted by last repair time - this means that if we find a range that contains the
-            // token, it is guaranteed to be the newest repair for that token
-            for (Pair<Range<Token>, Integer> lastRepairSuccess : successfulRepairs)
-            {
-                if (lastRepairSuccess.left.contains(t))
-                {
-                    lastRepairTime = lastRepairSuccess.right;
-                    break;
-                }
-            }
-            if (lastRepairTime == Integer.MIN_VALUE)
-                return lastRepairTime;
-
-            // now we need to check if a range that contains this token has been invalidated by nodetool import:
-            // invalidatedRepairs is sorted by smallest local deletion time first (ie, we keep the oldest tombstone ldt
-            // first in the list since this is what we are interested in here)
-            for (InvalidatedRepairedRange irr : invalidatedRepairs)
-            {
-                // if the nodetool import was run *after* the last repair time and the range repaired contains
-                // the token, it is invalid and we must use the min ldt as a last repair time.
-                if (irr.invalidatedAtSeconds > lastRepairTime && irr.range.contains(t))
-                {
-                    return irr.minLDTSeconds;
-                }
-            }
-            return lastRepairTime;
-        }
-
-        public int gcBeforeForKey(ColumnFamilyStore cfs, DecoratedKey key, int fallbackGCBefore)
-        {
-            if (!DatabaseDescriptor.enableChristmasPatch() || !cfs.useRepairHistory())
-                return fallbackGCBefore;
-
-            return Math.min(getLastSuccessfulRepairTimeFor(key.getToken()), fallbackGCBefore);
-        }
-
-        public ImmutableList<Range<Token>> allRanges()
-        {
-            ImmutableList.Builder<Range<Token>> builder = ImmutableList.builder();
-            for (Pair<Range<Token>, Integer> p : successfulRepairs)
-                builder.add(p.left);
-            return builder.build();
-        }
-
-        public SuccessfulRepairTimeHolder withoutInvalidationRepairs()
-        {
-            return new SuccessfulRepairTimeHolder(successfulRepairs, ImmutableList.of());
-        }
     }
 
     public Map<Range<Token>, Integer> getRepairHistoryForRanges(Collection<Range<Token>> ranges)
