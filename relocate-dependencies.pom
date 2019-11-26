@@ -1,0 +1,128 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.apple.cie.db</groupId>
+    <artifactId>cie-cassandra-dtest-shaded</artifactId>
+    <version>${env.VERSION}</version>
+    <packaging>jar</packaging>
+
+    <name>Cassandra in-jvm dtests shaded jar</name>
+
+    <properties>
+        <project.type>library</project.type>
+        <test.source.directory>src/test/unit/java</test.source.directory>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <junit.version>4.12</junit.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+    </properties>
+
+    <parent>
+        <groupId>com.apple.cie.rio</groupId>
+        <artifactId>maven-library-pom</artifactId>
+        <version>0.3.7</version>
+    </parent>
+
+    <dependencies>
+
+        <dependency>
+            <groupId>com.apple.cie.db</groupId>
+            <artifactId>${env.ARTIFACT_NAME}-local</artifactId>
+            <version>${env.VERSION}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <testSourceDirectory>${test.source.directory}</testSourceDirectory>
+
+        <plugins>
+            <!-- generate a shaded JAR -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.2.1</version>
+
+                <configuration>
+                    <createSourcesJar>false</createSourcesJar>
+
+                    <artifactSet>
+                        <includes>
+                            <include>com.apple.cie.db:cie-cassandra-dtest-local</include>
+                        </includes>
+                    </artifactSet>
+
+                    <relocations>
+                        <relocation>
+                            <pattern>io.netty</pattern>
+                            <shadedPattern>relocated.shaded.io.netty</shadedPattern>
+                        </relocation>
+
+                        <relocation>
+                            <pattern>com.google</pattern>
+                            <shadedPattern>relocated.shaded.com.google</shadedPattern>
+                        </relocation>
+                    </relocations>
+
+                    <filters>
+                        <filter>
+                            <artifact>io.netty:netty-*</artifact>
+                            <excludes>
+                                <exclude>META-INF/maven/</exclude>
+                                <exclude>META-INF/io.netty.versions.properties</exclude>
+                            </excludes>
+                        </filter>
+
+                        <filter>
+                            <artifact>com.google.guava:guava</artifact>
+                            <excludes>
+                                <exclude>META-INF/maven/</exclude>
+                            </excludes>
+                        </filter>
+
+                        <filter>
+                            <artifact>com.google.guava:failureaccess</artifact>
+                            <excludes>
+                                <exclude>META-INF/maven/</exclude>
+                            </excludes>
+                        </filter>
+                    </filters>
+                </configuration>
+
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+
+                        </configuration>
+                    </execution>
+                </executions>
+
+            </plugin>
+        </plugins>
+    </build>
+    <mailingLists>
+        <!-- Where to get help when you just need to reach someone on the team -->
+        <mailingList>
+            <name>PIE Cassandra Team</name>
+            <post>pie-cassandra@group.apple.com</post>
+        </mailingList>
+    </mailingLists>
+    <issueManagement>
+        <system>Radar</system>
+        <url><![CDATA[rdar://component/838638]]></url>
+    </issueManagement>
+</project>

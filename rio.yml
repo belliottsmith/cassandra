@@ -225,3 +225,25 @@ builds:
       tag:
         enabled: true
         expression: 'cie-cassandra-${FULL_VERSION}'
+
+  # Publish in-jvm dtest jar for CIE Cassandra
+  - name: publish-dtest-cie-3.0.19
+    branchName: cie-cassandra-3.0.19
+    build:
+      steps:
+      - ./rio/release-dtest.sh 3.0.19
+      template: freestyle:v4:publish
+    timeout: 30
+    finally:
+      radar:
+        annotate: false
+      tag:
+        enabled: false
+    package:
+      freeform:
+      - publish:
+        - repo: cie-release-local
+    reports:
+      junit: false
+    machine:
+      baseImage: docker.apple.com/cpbuild/applejdk-8:latest
