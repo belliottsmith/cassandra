@@ -20,7 +20,9 @@ package org.apache.cassandra.db;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 
 import com.google.common.collect.ImmutableList;
@@ -36,6 +38,7 @@ import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.db.xmas.BoundsAndOldestTombstone;
 import org.apache.cassandra.db.xmas.InvalidatedRepairedRange;
 import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
+import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
@@ -47,6 +50,7 @@ import org.apache.cassandra.utils.Pair;
 
 import static junit.framework.Assert.assertEquals;
 import static org.apache.cassandra.db.ColumnFamilyStore.updateLastSuccessfulRepair;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -306,12 +310,12 @@ and it will update the (400, 500] one with a new invalidatedAtSeconds
                                                        .add(Pair.create(oldRepairedRange, 1000)).build();
 
         SuccessfulRepairTimeHolder srt = new SuccessfulRepairTimeHolder(l, ImmutableList.of());
-        assertEquals(1000, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(1, 15, 50, 10, cfs)));
-        assertEquals(Integer.MIN_VALUE, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(2, -10, 50, 10, cfs)));
+        assertEquals(1000, srt.getFullyRepairedTimeFor(MockSchema.sstable(1, 15, 50, 10, cfs)));
+        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(2, -10, 50, 10, cfs)));
         // range is start-exclusive:
-        assertEquals(Integer.MIN_VALUE, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(3, 0, 50, 10, cfs)));
-        assertEquals(1000, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(3, 1, 100, 10, cfs)));
-        assertEquals(2000, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(4, 15, 16, 10, cfs)));
+        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(3, 0, 50, 10, cfs)));
+        assertEquals(1000, srt.getFullyRepairedTimeFor(MockSchema.sstable(3, 1, 100, 10, cfs)));
+        assertEquals(2000, srt.getFullyRepairedTimeFor(MockSchema.sstable(4, 15, 16, 10, cfs)));
     }
 
     @Test
@@ -328,19 +332,168 @@ and it will update the (400, 500] one with a new invalidatedAtSeconds
         SuccessfulRepairTimeHolder srt = new SuccessfulRepairTimeHolder(l, ImmutableList.of(irr));
 
         // does not intersect the invalidated range, should give the newly repaired time:
-        assertEquals(2000, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(1, 11, 15, 10, cfs)));
+        assertEquals(2000, srt.getFullyRepairedTimeFor(MockSchema.sstable(1, 11, 15, 10, cfs)));
 
         // not fully contained in a repaired range
-        assertEquals(Integer.MIN_VALUE, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(2, -10, 50, 10, cfs)));
+        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(2, -10, 50, 10, cfs)));
 
         // fully contained in the invalidated range
-        assertEquals(800, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(3, 19, 21, 10, cfs)));
+        assertEquals(800, srt.getFullyRepairedTimeFor(MockSchema.sstable(3, 19, 21, 10, cfs)));
 
         // the sstable was fully repaired, but the invalidation intersects the sstable
-        assertEquals(800, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(3, 1, 100, 10, cfs)));
+        assertEquals(800, srt.getFullyRepairedTimeFor(MockSchema.sstable(3, 1, 100, 10, cfs)));
 
         // intersects the invalidation
-        assertEquals(800, srt.getLastSuccessfulRepairTimeFor(MockSchema.sstable(4, 1, 19, 10, cfs)));
+        assertEquals(800, srt.getFullyRepairedTimeFor(MockSchema.sstable(4, 1, 19, 10, cfs)));
+    }
+
+    @Test
+    public void testManyRepairsSSTable()
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        List<Pair<Range<Token>, Integer>> repairs = new ArrayList<>();
+        for (int i = 0; i < 100; i+= 10)
+            repairs.add(Pair.create(range(i, i + 10), i + 100));
+        // and add an older repair
+        repairs.add(Pair.create(range(0, 200), 50));
+        // and a non-intersecting one
+        repairs.add(Pair.create(range(200, 300), 50));
+
+        repairs.sort(ColumnFamilyStore.lastRepairTimeComparator);
+        SuccessfulRepairTimeHolder srt = new SuccessfulRepairTimeHolder(ImmutableList.copyOf(repairs), ImmutableList.of());
+        int gen = 0;
+        assertEquals(100, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 5, 95, 10, cfs)));
+        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, -1, 95, 10, cfs)));
+        assertEquals(190, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 93, 95, 10, cfs)));
+        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 93, 400, 10, cfs)));
+
+        InvalidatedRepairedRange irr = new InvalidatedRepairedRange(300, 5, range(0, 40));
+        srt = new SuccessfulRepairTimeHolder(srt.successfulRepairs, ImmutableList.of(irr));
+        assertEquals(5, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 5, 95, 10, cfs)));
+        assertEquals(140, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 45, 95, 10, cfs)));
+    }
+
+    @Test
+    public void testWrapAroundRepairsSSTable()
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        List<Pair<Range<Token>, Integer>> repairs = new ArrayList<>();
+        repairs.add(Pair.create(range(500, 300), 150));
+
+        repairs.sort(ColumnFamilyStore.lastRepairTimeComparator);
+        SuccessfulRepairTimeHolder srt = new SuccessfulRepairTimeHolder(ImmutableList.copyOf(repairs), ImmutableList.of());
+        int gen = 0;
+        assertEquals(150, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 5, 95, 10, cfs)));
+        // we have a gap between 300 and 500, this sstable is not fully repaired:
+        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 200, 700, 10, cfs)));
+    }
+
+
+    @Test
+    public void boundsSubtractTest()
+    {
+        //   [-------]
+        // -   (--]
+        // = [-]  (--]
+        assertEquals(Sets.newHashSet(bounds(10, 15), range(20, 100)),
+                     new HashSet<>(SuccessfulRepairTimeHolder.subtract(bounds(10, 100), range(15, 20))));
+        assertEquals(Collections.emptyList(),
+                     SuccessfulRepairTimeHolder.subtract(range(10, 100), range(10, 100)));
+
+        //     [-----]
+        // - (---]
+        // =     (---]
+       assertEquals(Collections.singletonList(range(20, 100)),
+                    SuccessfulRepairTimeHolder.subtract(bounds(10, 100), range(5, 20)));
+       // first token overlapping - should become start-non-inclusive (a Range)
+       assertEquals(Collections.singletonList(range(10, 100)),
+                    SuccessfulRepairTimeHolder.subtract(bounds(10, 100), range(5, 10)));
+
+        //    [-----]
+        // -     (-----]
+        // =  [--]
+       assertEquals(Collections.singletonList(bounds(10, 30)),
+                    SuccessfulRepairTimeHolder.subtract(bounds(10, 100), range(30, 120)));
+        assertEquals(Collections.singletonList(bounds(10, 99)),
+                     SuccessfulRepairTimeHolder.subtract(bounds(10, 100), range(99, 110)));
+        // non-intersecting:
+        assertEquals(Collections.singletonList(bounds(10, 100)),
+                     SuccessfulRepairTimeHolder.subtract(bounds(10, 100), range(100, 120)));
+    }
+
+    @Test
+    public void rangeSubtractTest()
+    {
+        //   (-------]
+        // -   (--]
+        // = (-]  (--]
+        assertEquals(Sets.newHashSet(range(10, 15), range(20, 100)),
+                     new HashSet<>(SuccessfulRepairTimeHolder.subtract(range(10, 100), range(15, 20))));
+        assertEquals(Collections.emptyList(),
+                     SuccessfulRepairTimeHolder.subtract(range(10, 100), range(10, 100)));
+
+        //     (-----]
+        // - (---]
+        // =     (---]
+        assertEquals(Collections.singletonList(range(20, 100)),
+                     SuccessfulRepairTimeHolder.subtract(range(10, 100), range(5, 20)));
+        // first token overlapping - should become start-non-inclusive (a Range)
+        assertEquals(Collections.singletonList(range(10, 100)),
+                     SuccessfulRepairTimeHolder.subtract(range(10, 100), range(5, 10)));
+
+        //    (-----]
+        // -     (-----]
+        // =  (--]
+        assertEquals(Collections.singletonList(range(10, 30)),
+                     SuccessfulRepairTimeHolder.subtract(range(10, 100), range(30, 120)));
+        assertEquals(Collections.singletonList(range(10, 30)),
+                     SuccessfulRepairTimeHolder.subtract(range(10, 100), range(30, 100)));
+        assertEquals(Collections.singletonList(range(10, 99)),
+                     SuccessfulRepairTimeHolder.subtract(range(10, 100), range(99, 110)));
+
+        // non-intersecting:
+        assertEquals(Collections.singletonList(range(10, 100)),
+                     SuccessfulRepairTimeHolder.subtract(range(10, 100), range(100, 120)));
+    }
+
+    @Test
+    public void randomSubtractTest()
+    {
+        Bounds<Token> sstableBounds = bounds(1, 2000);
+        List<Range<Token>> repairedRanges = new ArrayList<>(500);
+        for (int i = 0; i < 2000; i+=4)
+            repairedRanges.add(range(i, i+4));
+
+        for (int i = 0; i < 1000; i++)
+        {
+            long seed = System.currentTimeMillis();
+            Random r = new Random(seed);
+            List<Range<Token>> shuffledRepairs = new ArrayList<>(repairedRanges);
+            Collections.shuffle(shuffledRepairs, r);
+            List<AbstractBounds<Token>> unrepairedSSTableBounds = new ArrayList<>();
+            unrepairedSSTableBounds.add(sstableBounds);
+            for (Range<Token> repairedRange : shuffledRepairs)
+            {
+                assertFalse("SEED="+seed, unrepairedSSTableBounds.isEmpty());
+                unrepairedSSTableBounds = SuccessfulRepairTimeHolder.subtract(unrepairedSSTableBounds, repairedRange);
+            }
+
+            assertTrue(unrepairedSSTableBounds.toString(), unrepairedSSTableBounds.isEmpty());
+        }
+
+        for (int i = 0; i < 1000; i++)
+        {
+            long seed = System.currentTimeMillis();
+            Random r = new Random(seed);
+            List<Range<Token>> shuffledRepairs = new ArrayList<>(repairedRanges);
+            Collections.shuffle(shuffledRepairs, r);
+            shuffledRepairs.remove(shuffledRepairs.size() - 1);
+            List<AbstractBounds<Token>> unrepairedSSTableBounds = new ArrayList<>();
+            unrepairedSSTableBounds.add(sstableBounds);
+            for (Range<Token> repairedRange : shuffledRepairs)
+                unrepairedSSTableBounds = SuccessfulRepairTimeHolder.subtract(unrepairedSSTableBounds, repairedRange);
+            assertFalse("SEED="+seed, unrepairedSSTableBounds.isEmpty());
+        }
     }
 
 }

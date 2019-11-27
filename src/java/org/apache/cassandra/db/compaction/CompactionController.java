@@ -178,7 +178,7 @@ public class CompactionController implements AutoCloseable
             }
             else
             {
-                int repairTime = repairTimeHolder.getLastSuccessfulRepairTimeFor(candidate);
+                int repairTime = repairTimeHolder.getFullyRepairedTimeFor(candidate);
                 if (repairTime > Integer.MIN_VALUE)
                     lastRepairTime = repairTime;
             }

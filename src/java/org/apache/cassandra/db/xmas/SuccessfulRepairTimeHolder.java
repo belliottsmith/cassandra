@@ -18,12 +18,17 @@
 
 package org.apache.cassandra.db.xmas;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -89,37 +94,143 @@ public class SuccessfulRepairTimeHolder
     }
 
     /**
-     * Get the time of the last successful repair that the sstable was involved in
+     * Get the time of the oldest repair that made this sstable fully repaired
      *
-     * Both first and last token need to have been involved in the same repair
-     *
-     * @return the last successful repair time for the sstable or Integer.MIN_VALUE if no repairs were found
+     * @return the last successful repair time for the sstable or Integer.MIN_VALUE if the sstable has not been completely covered by repair
      */
-    public int getLastSuccessfulRepairTimeFor(SSTableReader sstable)
+    public int getFullyRepairedTimeFor(SSTableReader sstable)
     {
-        for (Pair<Range<Token>, Integer> repair : successfulRepairs)
+        /*
+        Idea is that we subtract the time-sorted repaired ranges from the sstable bound until it is gone
+
+        Result being that the last range we subtract before the sstable bounds are gone is the oldest repair that made the
+        sstable fully repaired.
+         */
+        Bounds<Token> sstableBound = new Bounds<>(sstable.first.getToken(), sstable.last.getToken());
+        List<AbstractBounds<Token>> sstableBounds = new ArrayList<>();
+        sstableBounds.add(sstableBound);
+        for (Pair<Range<Token>, Integer> intersectingRepair : successfulRepairs)
         {
-            Range<Token> range = repair.left;
-            int repairTime = repair.right;
-            if (range.contains(sstable.first.getToken()) && range.contains(sstable.last.getToken()))
+            Range<Token> repairedRange = intersectingRepair.left;
+            int repairTime = intersectingRepair.right;
+
+            for (Range<Token> unwrappedRange : repairedRange.unwrap()) // avoid handling wrapping ranges in subtract below
+                sstableBounds = subtract(sstableBounds, unwrappedRange);
+
+            if (sstableBounds.isEmpty())
             {
-                if (!invalidatedRepairs.isEmpty())
+                for (InvalidatedRepairedRange irr : invalidatedRepairs)
                 {
-                    Bounds<Token> sstableBounds = new Bounds<>(sstable.first.getToken(), sstable.last.getToken());
-                    for (InvalidatedRepairedRange irr : invalidatedRepairs)
+                    if (irr.invalidatedAtSeconds > repairTime && irr.range.intersects(sstableBound))
                     {
-                        if (irr.invalidatedAtSeconds > repairTime && irr.range.intersects(sstableBounds))
-                        {
-                            // The sstable range was (partly) invalidated after the last repair.
-                            // If several invalidations intersect the sstable range, keep the oldest one
-                            repairTime = Math.min(repairTime, irr.minLDTSeconds);
-                        }
+                        // The sstable range was (partly) invalidated after the last repair.
+                        // If several invalidations intersect the sstable range, keep the oldest one
+                        repairTime = Math.min(repairTime, irr.minLDTSeconds);
                     }
                 }
                 return repairTime;
             }
         }
+
         return Integer.MIN_VALUE;
+    }
+
+    @VisibleForTesting
+    public static List<AbstractBounds<Token>> subtract(List<AbstractBounds<Token>> sstableBounds, Range<Token> repairedRange)
+    {
+        List<AbstractBounds<Token>> result = new ArrayList<>();
+        for (AbstractBounds<Token> sstableBound : sstableBounds)
+            result.addAll(subtract(sstableBound, repairedRange));
+        return result;
+    }
+
+    @VisibleForTesting
+    public static List<AbstractBounds<Token>> subtract(AbstractBounds<Token> bounds, Range<Token> range)
+    {
+        assert bounds instanceof Range || bounds instanceof Bounds : "When subtracting a Range from a Bounds we can only ever create a new Range or a new Bounds";
+        /*
+        bounds:  |--------|
+         range:                |----|
+         */
+        if (!range.intersects(bounds))
+            return Collections.singletonList(bounds);
+
+        int leftComparison = range.left.compareTo(bounds.left);
+        int rightComparison = range.right.compareTo(bounds.right);
+
+        if (leftComparison < 0 && rightComparison >= 0)
+        {
+            /*
+            bounds:   |-------|
+             range: |------------|
+             - range is end-inclusive so if bounds.right == range.right it is always removed
+             - if range.left == bounds.left we might need to keep that token: [10, 15] - (10, 17] = [10, 10]
+             -                                                           but: (10, 15] - (10, 17] = empty
+             */
+            return Collections.emptyList();
+        }
+        else if (leftComparison < 0)
+        {
+            /*
+             bounds:    |-------|
+              range: |-----|
+            */
+            AbstractBounds<Token> res = bounds(range.right,
+                                               bounds.right,
+                                               false, // Range.isEndInclusive is always true -> the result should be left-exclusive
+                                               bounds.isEndInclusive());
+            if (res != null)
+                return Collections.singletonList(res);
+            return Collections.emptyList();
+        }
+        else if (rightComparison < 0)
+        {
+            /*
+            bounds:    |------|
+             range:      |--|
+             */
+            List<AbstractBounds<Token>> results = new ArrayList<>(2);
+            AbstractBounds<Token> res = bounds(bounds.left,
+                                               range.left,
+                                               bounds.isStartInclusive(),
+                                               true); // Range.isStartInclusive is always false -> the first result should be right-inclusive
+            if (res != null) results.add(res);
+            res = bounds(range.right,
+                         bounds.right,
+                         false, // Range.isEndInclusive is always true -> the second result should be left-exclusive
+                         bounds.isEndInclusive());
+            if (res != null) results.add(res);
+            return results;
+        }
+        else
+        {
+            /*
+            bounds:    |------|
+             range:       |------|
+             */
+            AbstractBounds<Token> res = bounds(bounds.left,
+                                               range.left,
+                                               bounds.isStartInclusive(),
+                                               true); // Range.isStartInclusive is alwayse false -> result should be right-inclusive
+            if (res != null)
+                return Collections.singletonList(res);
+            return Collections.emptyList();
+        }
+    }
+
+    private static AbstractBounds<Token> bounds(Token left, Token right, boolean leftInclusive, boolean rightInclusive)
+    {
+        if (leftInclusive && rightInclusive)
+            return new Bounds<>(left, right);
+
+        // only case we generate bounds with start == end is for Bounds:
+        if (left.equals(right))
+            return null;
+
+        if (rightInclusive)
+            return new Range<>(left, right);
+
+        throw new UnsupportedOperationException("We currently only support Bounds and Range");
     }
 
     public int gcBeforeForKey(ColumnFamilyStore cfs, DecoratedKey key, int fallbackGCBefore)
