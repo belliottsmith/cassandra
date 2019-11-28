@@ -216,7 +216,7 @@ public class CassandraAuthorizer implements IAuthorizer
     private void addPermissionsForRole(Set<Permission> permissions, IResource resource, RoleResource role)
     throws RequestExecutionException, RequestValidationException
     {
-        QueryOptions options = QueryOptions.forInternalCalls(ConsistencyLevel.LOCAL_ONE,
+        QueryOptions options = QueryOptions.forInternalCalls(consistencyForRoleForRead(),
                                                              Lists.newArrayList(ByteBufferUtil.bytes(role.getRoleName()),
                                                                                 ByteBufferUtil.bytes(resource.getName())));
 
