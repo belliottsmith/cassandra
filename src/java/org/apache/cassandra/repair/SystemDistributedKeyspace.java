@@ -62,9 +62,16 @@ public final class SystemDistributedKeyspace
      * If you make any changes to the tables below, make sure to increment the
      * generation and document your change here.
      *
-     * gen 0: original definition
+     * gen 0: original definition in 2.2
+     * gen 1: (pre-)add options column to parent_repair_history in 3.0, 3.11
+     * gen 2: (pre-)add coordinator_port and participants_v2 columns to repair_history in 3.0, 3.11, 4.0
      */
-    public static final long GENERATION = 0;
+
+    /*
+     * ACI: gen 1 and gen 2 columns were added separately; see rdar://70780990
+     * (Backport CASSANDRA-15385 Ensure that tracing doesn't break connections in 3.x/4.0 mixed mode by default to 3.0.19.0-hotfix)
+     */
+    public static final long GENERATION = 2;
 
     public static final String REPAIR_HISTORY = "repair_history";
 
