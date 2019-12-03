@@ -28,6 +28,7 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.io.util.FileDataInput;
+import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.WrappedException;
 
 /**
@@ -116,40 +117,41 @@ public class UnfilteredSerializer
     @Deprecated
     private final static int HAS_SHADOWABLE_DELETION = 0x02; // Whether the row deletion is shadowable. If there is no extended flag (or no row deletion), the deletion is assumed not shadowable.
 
-    public void serialize(Unfiltered unfiltered, SerializationHeader header, DataOutputPlus out, int version)
+    public void serialize(Unfiltered unfiltered, SerializationHelper helper, DataOutputPlus out, int version)
     throws IOException
     {
-        assert !header.isForSSTable();
-        serialize(unfiltered, header, out, 0, version);
+        assert !helper.header.isForSSTable();
+        serialize(unfiltered, helper, out, 0, version);
     }
 
-    public void serialize(Unfiltered unfiltered, SerializationHeader header, DataOutputPlus out, long previousUnfilteredSize, int version)
+    public void serialize(Unfiltered unfiltered, SerializationHelper helper, DataOutputPlus out, long previousUnfilteredSize, int version)
     throws IOException
     {
         if (unfiltered.kind() == Unfiltered.Kind.RANGE_TOMBSTONE_MARKER)
         {
-            serialize((RangeTombstoneMarker) unfiltered, header, out, previousUnfilteredSize, version);
+            serialize((RangeTombstoneMarker) unfiltered, helper, out, previousUnfilteredSize, version);
         }
         else
         {
-            serialize((Row) unfiltered, header, out, previousUnfilteredSize, version);
+            serialize((Row) unfiltered, helper, out, previousUnfilteredSize, version);
         }
     }
 
-    public void serializeStaticRow(Row row, SerializationHeader header, DataOutputPlus out, int version)
+    public void serializeStaticRow(Row row, SerializationHelper helper, DataOutputPlus out, int version)
     throws IOException
     {
         assert row.isStatic();
-        serialize(row, header, out, 0, version);
+        serialize(row, helper, out, 0, version);
     }
 
-    private void serialize(Row row, SerializationHeader header, DataOutputPlus out, long previousUnfilteredSize, int version)
+    private void serialize(Row row, SerializationHelper helper, DataOutputPlus out, long previousUnfilteredSize, int version)
     throws IOException
     {
         int flags = 0;
         int extendedFlags = 0;
 
         boolean isStatic = row.isStatic();
+        SerializationHeader header = helper.header;
         Columns headerColumns = header.columns(isStatic);
         LivenessInfo pkLiveness = row.primaryKeyLivenessInfo();
         Row.Deletion deletion = row.deletion();
@@ -189,7 +191,7 @@ public class UnfilteredSerializer
         {
             try (DataOutputBuffer dob = DataOutputBuffer.scratchBuffer.get())
             {
-                serializeRowBody(row, flags, header, dob);
+                serializeRowBody(row, flags, helper, dob);
 
                 out.writeUnsignedVInt(dob.position() + TypeSizes.sizeofUnsignedVInt(previousUnfilteredSize));
                 // We write the size of the previous unfiltered to make reverse queries more efficient (and simpler).
@@ -200,17 +202,17 @@ public class UnfilteredSerializer
         }
         else
         {
-            serializeRowBody(row, flags, header, out);
+            serializeRowBody(row, flags, helper, out);
         }
     }
 
     @Inline
-    private void serializeRowBody(Row row, int flags, SerializationHeader header, DataOutputPlus out)
+    private void serializeRowBody(Row row, int flags, SerializationHelper helper, DataOutputPlus out)
     throws IOException
     {
         boolean isStatic = row.isStatic();
 
-        Map<ColumnMetadata, ColumnMetadata> columnsMap = header.columnsMap(isStatic);
+        SerializationHeader header = helper.header;
         Columns headerColumns = header.columns(isStatic);
         LivenessInfo pkLiveness = row.primaryKeyLivenessInfo();
         Row.Deletion deletion = row.deletion();
@@ -228,6 +230,8 @@ public class UnfilteredSerializer
         if ((flags & HAS_ALL_COLUMNS) == 0)
             Columns.serializer.serializeSubset(row.columns(), headerColumns, out);
 
+        SearchIterator<ColumnMetadata, ColumnMetadata> si = helper.iterator(isStatic);
+
         try
         {
             row.apply(cd -> {
@@ -236,7 +240,7 @@ public class UnfilteredSerializer
                 // and if that type have been recently altered, that may not be the type we want to serialize the column
                 // with. So we use the ColumnMetadata from the "header" which is "current". Also see #11810 for what
                 // happens if we don't do that.
-                ColumnMetadata column = columnsMap.get(cd.column());
+                ColumnMetadata column = si.next(cd.column());
                 assert column != null : cd.column.toString();
 
                 try
@@ -272,9 +276,10 @@ public class UnfilteredSerializer
             Cell.serializer.serialize(cell, column, out, rowLiveness, header);
     }
 
-    private void serialize(RangeTombstoneMarker marker, SerializationHeader header, DataOutputPlus out, long previousUnfilteredSize, int version)
+    private void serialize(RangeTombstoneMarker marker, SerializationHelper helper, DataOutputPlus out, long previousUnfilteredSize, int version)
     throws IOException
     {
+        SerializationHeader header = helper.header;
         out.writeByte((byte)IS_MARKER);
         ClusteringBoundOrBoundary.serializer.serialize(marker.clustering(), out, version, header.clusteringTypes());
 
@@ -296,20 +301,20 @@ public class UnfilteredSerializer
         }
     }
 
-    public long serializedSize(Unfiltered unfiltered, SerializationHeader header, int version)
+    public long serializedSize(Unfiltered unfiltered, SerializationHelper helper, int version)
     {
-        assert !header.isForSSTable();
-        return serializedSize(unfiltered, header, 0, version);
+        assert !helper.header.isForSSTable();
+        return serializedSize(unfiltered, helper, 0, version);
     }
 
-    public long serializedSize(Unfiltered unfiltered, SerializationHeader header, long previousUnfilteredSize,int version)
+    public long serializedSize(Unfiltered unfiltered, SerializationHelper helper, long previousUnfilteredSize,int version)
     {
         return unfiltered.kind() == Unfiltered.Kind.RANGE_TOMBSTONE_MARKER
-             ? serializedSize((RangeTombstoneMarker) unfiltered, header, previousUnfilteredSize, version)
-             : serializedSize((Row) unfiltered, header, previousUnfilteredSize, version);
+             ? serializedSize((RangeTombstoneMarker) unfiltered, helper, previousUnfilteredSize, version)
+             : serializedSize((Row) unfiltered, helper, previousUnfilteredSize, version);
     }
 
-    private long serializedSize(Row row, SerializationHeader header, long previousUnfilteredSize, int version)
+    private long serializedSize(Row row, SerializationHelper helper, long previousUnfilteredSize, int version)
     {
         long size = 1; // flags
 
@@ -317,21 +322,21 @@ public class UnfilteredSerializer
             size += 1; // extended flags
 
         if (!row.isStatic())
-            size += Clustering.serializer.serializedSize(row.clustering(), version, header.clusteringTypes());
+            size += Clustering.serializer.serializedSize(row.clustering(), version, helper.header.clusteringTypes());
 
-        return size + serializedRowBodySize(row, header, previousUnfilteredSize, version);
+        return size + serializedRowBodySize(row, helper, previousUnfilteredSize, version);
     }
 
-    private long serializedRowBodySize(Row row, SerializationHeader header, long previousUnfilteredSize, int version)
+    private long serializedRowBodySize(Row row, SerializationHelper helper, long previousUnfilteredSize, int version)
     {
         long size = 0;
 
+        SerializationHeader header = helper.header;
         if (header.isForSSTable())
             size += TypeSizes.sizeofUnsignedVInt(previousUnfilteredSize);
 
         boolean isStatic = row.isStatic();
         Columns headerColumns = header.columns(isStatic);
-        Map<ColumnMetadata, ColumnMetadata> columnsMap = header.columnsMap(isStatic);
         LivenessInfo pkLiveness = row.primaryKeyLivenessInfo();
         Row.Deletion deletion = row.deletion();
         boolean hasComplexDeletion = row.hasComplexDeletion();
@@ -350,8 +355,9 @@ public class UnfilteredSerializer
         if (!hasAllColumns)
             size += Columns.serializer.serializedSubsetSize(row.columns(), header.columns(isStatic));
 
+        SearchIterator<ColumnMetadata, ColumnMetadata> si = helper.iterator(isStatic);
         return row.accumulate((data, v) -> {
-            ColumnMetadata column = columnsMap.get(data.column());
+            ColumnMetadata column = si.next(data.column());
             assert column != null;
 
             if (data.column.isSimple())
@@ -375,12 +381,12 @@ public class UnfilteredSerializer
         return size;
     }
 
-    private long serializedSize(RangeTombstoneMarker marker, SerializationHeader header, long previousUnfilteredSize, int version)
+    private long serializedSize(RangeTombstoneMarker marker, SerializationHelper helper, long previousUnfilteredSize, int version)
     {
-        assert !header.isForSSTable();
+        assert !helper.header.isForSSTable();
         return 1 // flags
-             + ClusteringBoundOrBoundary.serializer.serializedSize(marker.clustering(), version, header.clusteringTypes())
-             + serializedMarkerBodySize(marker, header, previousUnfilteredSize, version);
+             + ClusteringBoundOrBoundary.serializer.serializedSize(marker.clustering(), version, helper.header.clusteringTypes())
+             + serializedMarkerBodySize(marker, helper.header, previousUnfilteredSize, version);
     }
 
     private long serializedMarkerBodySize(RangeTombstoneMarker marker, SerializationHeader header, long previousUnfilteredSize, int version)

@@ -45,8 +45,13 @@ public class LeafBTreeSearchIterator<K, V> implements BTreeSearchIterator<K, V>
         this.comparator = comparator;
         this.lowerBound = lowerBound;
         this.upperBound = upperBound;
-        this.nextPos = forwards ? lowerBound : upperBound;
-        this.hasNext = nextPos >= lowerBound && nextPos <= upperBound;
+        rewind();
+    }
+
+    public void rewind()
+    {
+        nextPos = forwards ? lowerBound : upperBound;
+        hasNext = nextPos >= lowerBound && nextPos <= upperBound;
     }
 
     public V next()

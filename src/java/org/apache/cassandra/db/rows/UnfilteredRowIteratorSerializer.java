@@ -123,18 +123,19 @@ public class UnfilteredRowIteratorSerializer
         out.writeByte((byte)flags);
 
         SerializationHeader.serializer.serializeForMessaging(header, selection, out, hasStatic);
+        SerializationHelper helper = new SerializationHelper(header);
 
         if (!partitionDeletion.isLive())
             header.writeDeletionTime(partitionDeletion, out);
 
         if (hasStatic)
-            UnfilteredSerializer.serializer.serialize(staticRow, header, out, version);
+            UnfilteredSerializer.serializer.serialize(staticRow, helper, out, version);
 
         if (rowEstimate >= 0)
             out.writeUnsignedVInt(rowEstimate);
 
         while (iterator.hasNext())
-            UnfilteredSerializer.serializer.serialize(iterator.next(), header, out, version);
+            UnfilteredSerializer.serializer.serialize(iterator.next(), helper, out, version);
         UnfilteredSerializer.serializer.writeEndOfPartition(out);
     }
 
@@ -146,6 +147,8 @@ public class UnfilteredRowIteratorSerializer
                                                              iterator.metadata(),
                                                              iterator.columns(),
                                                              iterator.stats());
+
+        SerializationHelper helper = new SerializationHelper(header);
 
         assert rowEstimate >= 0;
 
@@ -165,13 +168,13 @@ public class UnfilteredRowIteratorSerializer
             size += header.deletionTimeSerializedSize(partitionDeletion);
 
         if (hasStatic)
-            size += UnfilteredSerializer.serializer.serializedSize(staticRow, header, version);
+            size += UnfilteredSerializer.serializer.serializedSize(staticRow, helper, version);
 
         if (rowEstimate >= 0)
             size += TypeSizes.sizeofUnsignedVInt(rowEstimate);
 
         while (iterator.hasNext())
-            size += UnfilteredSerializer.serializer.serializedSize(iterator.next(), header, version);
+            size += UnfilteredSerializer.serializer.serializedSize(iterator.next(), helper, version);
         size += UnfilteredSerializer.serializer.serializedSizeEndOfPartition();
 
         return size;

@@ -53,6 +53,7 @@ public class ColumnIndex
     public int columnIndexCount;
     private int[] indexOffsets;
 
+    private final SerializationHelper helper;
     private final SerializationHeader header;
     private final int version;
     private final SequentialWriter writer;
@@ -77,6 +78,7 @@ public class ColumnIndex
                         Collection<SSTableFlushObserver> observers,
                         ISerializer<IndexInfo> indexInfoSerializer)
     {
+        this.helper = new SerializationHelper(header);
         this.header = header;
         this.writer = writer;
         this.version = version.correspondingMessagingVersion();
@@ -121,7 +123,7 @@ public class ColumnIndex
         {
             Row staticRow = iterator.staticRow();
 
-            UnfilteredSerializer.serializer.serializeStaticRow(staticRow, header, writer, version);
+            UnfilteredSerializer.serializer.serializeStaticRow(staticRow, helper, writer, version);
             if (!observers.isEmpty())
                 observers.forEach((o) -> o.nextUnfilteredCluster(staticRow));
         }
@@ -243,7 +245,7 @@ public class ColumnIndex
             startPosition = pos;
         }
 
-        UnfilteredSerializer.serializer.serialize(unfiltered, header, writer, pos - previousRowStart, version);
+        UnfilteredSerializer.serializer.serialize(unfiltered, helper, writer, pos - previousRowStart, version);
 
         // notify observers about each new row
         if (!observers.isEmpty())
