@@ -184,7 +184,7 @@ public abstract class ReadResponse
                   command.getRepairedDataDigest(),
                   command.isRepairedDataDigestConclusive(),
                   MessagingService.current_version,
-                  SerializationHelper.Flag.LOCAL);
+                  DeserializationHelper.Flag.LOCAL);
         }
 
         private static ByteBuffer build(UnfilteredPartitionIterator iter, ColumnFilter selection)
@@ -210,7 +210,7 @@ public abstract class ReadResponse
                                      boolean isRepairedDigestConclusive,
                                      int version)
         {
-            super(data, repairedDataDigest, isRepairedDigestConclusive, version, SerializationHelper.Flag.FROM_REMOTE);
+            super(data, repairedDataDigest, isRepairedDigestConclusive, version, DeserializationHelper.Flag.FROM_REMOTE);
         }
     }
 
@@ -222,13 +222,13 @@ public abstract class ReadResponse
         private final ByteBuffer repairedDataDigest;
         private final boolean isRepairedDigestConclusive;
         private final int dataSerializationVersion;
-        private final SerializationHelper.Flag flag;
+        private final DeserializationHelper.Flag flag;
 
         protected DataResponse(ByteBuffer data,
                                ByteBuffer repairedDataDigest,
                                boolean isRepairedDigestConclusive,
                                int dataSerializationVersion,
-                               SerializationHelper.Flag flag)
+                               DeserializationHelper.Flag flag)
         {
             super();
             this.data = data;

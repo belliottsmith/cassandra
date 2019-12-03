@@ -364,7 +364,7 @@ public class BTreeRow extends AbstractRow
                 return 1;
             }
 
-            return -1;
+            return 0;
         }, 0, v -> v != 0, true);
 
         return result == 1;

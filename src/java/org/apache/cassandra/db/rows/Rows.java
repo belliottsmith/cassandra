@@ -75,6 +75,14 @@ public abstract class Rows
         return new SimpleBuilders.RowBuilder(metadata, clusteringValues);
     }
 
+    private static long addColumn(long l)
+    {
+        return l + 0x100000000L;
+    }
+
+    private static final long COLUMN_INCR = 1L << 32;
+    private static final long CELL_INCR = 1L;
+
     /**
      * Collect statistics on a given row.
      *
@@ -90,12 +98,10 @@ public abstract class Rows
         collector.update(row.deletion().time());
 
         long result = row.accumulate((cd, l) -> {
-            int columnCount = Ints.checkedCast(l & 0xFFFFFFFF);
-            int cellCount = Ints.checkedCast(l >> 32);
             if (cd.column().isSimple())
             {
-                columnCount++;
-                cellCount++;
+                l += COLUMN_INCR;
+                l += CELL_INCR;
                 Cells.collectStats((Cell) cd, collector);
             }
             else
@@ -104,19 +110,19 @@ public abstract class Rows
                 collector.update(complexData.complexDeletion());
                 if (complexData.hasCells())
                 {
-                    columnCount++;
+                    l += COLUMN_INCR;
                     for (Cell cell : complexData)
                     {
-                        cellCount++;
+                        l += CELL_INCR;
                         Cells.collectStats(cell, collector);
                     }
                 }
             }
-            return (cellCount << 32) | columnCount;
+            return l;
         }, 0, false);
 
-        int columnCount = Ints.checkedCast(result & 0xFFFFFFFF);
-        int cellCount = Ints.checkedCast(result >> 32);
+        int columnCount = (int) (result & 0xFFFFFFFFL);
+        int cellCount = (int) (result >>> 32);
 
         collector.updateColumnSetPerRow(columnCount);
         return cellCount;

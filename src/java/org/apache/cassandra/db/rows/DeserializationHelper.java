@@ -27,7 +27,7 @@ import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.schema.DroppedColumn;
 
-public class SerializationHelper
+public class DeserializationHelper
 {
     /**
      * Flag affecting deserialization behavior (this only affect counters in practice).
@@ -56,7 +56,7 @@ public class SerializationHelper
     private DroppedColumn currentDroppedComplex;
 
 
-    public SerializationHelper(TableMetadata metadata, int version, Flag flag, ColumnFilter columnsToFetch)
+    public DeserializationHelper(TableMetadata metadata, int version, Flag flag, ColumnFilter columnsToFetch)
     {
         this.flag = flag;
         this.version = version;
@@ -65,7 +65,7 @@ public class SerializationHelper
         this.hasDroppedColumns = droppedColumns.size() > 0;
     }
 
-    public SerializationHelper(TableMetadata metadata, int version, Flag flag)
+    public DeserializationHelper(TableMetadata metadata, int version, Flag flag)
     {
         this(metadata, version, flag, null);
     }

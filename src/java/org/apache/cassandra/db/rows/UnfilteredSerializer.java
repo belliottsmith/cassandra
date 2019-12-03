@@ -422,7 +422,7 @@ public class UnfilteredSerializer
      * @return the deserialized {@link Unfiltered} or {@code null} if we've read the end of a partition. This method is
      * guaranteed to never return empty rows.
      */
-    public Unfiltered deserialize(DataInputPlus in, SerializationHeader header, SerializationHelper helper, Row.Builder builder)
+    public Unfiltered deserialize(DataInputPlus in, SerializationHeader header, DeserializationHelper helper, Row.Builder builder)
     throws IOException
     {
         while (true)
@@ -447,7 +447,7 @@ public class UnfilteredSerializer
      * But as {@link UnfilteredRowIterator} should not return empty
      * rows, this mean consumer of this method should make sure to skip said empty rows.
      */
-    private Unfiltered deserializeOne(DataInputPlus in, SerializationHeader header, SerializationHelper helper, Row.Builder builder)
+    private Unfiltered deserializeOne(DataInputPlus in, SerializationHeader header, DeserializationHelper helper, Row.Builder builder)
     throws IOException
     {
         // It wouldn't be wrong per-se to use an unsorted builder, but it would be inefficient so make sure we don't do it by mistake
@@ -475,7 +475,7 @@ public class UnfilteredSerializer
         }
     }
 
-    public Unfiltered deserializeTombstonesOnly(FileDataInput in, SerializationHeader header, SerializationHelper helper)
+    public Unfiltered deserializeTombstonesOnly(FileDataInput in, SerializationHeader header, DeserializationHelper helper)
     throws IOException
     {
         while (true)
@@ -527,7 +527,7 @@ public class UnfilteredSerializer
         }
     }
 
-    public Row deserializeStaticRow(DataInputPlus in, SerializationHeader header, SerializationHelper helper)
+    public Row deserializeStaticRow(DataInputPlus in, SerializationHeader header, DeserializationHelper helper)
     throws IOException
     {
         int flags = in.readUnsignedByte();
@@ -555,7 +555,7 @@ public class UnfilteredSerializer
 
     public Row deserializeRowBody(DataInputPlus in,
                                   SerializationHeader header,
-                                  SerializationHelper helper,
+                                  DeserializationHelper helper,
                                   int flags,
                                   int extendedFlags,
                                   Row.Builder builder)
@@ -630,7 +630,7 @@ public class UnfilteredSerializer
         }
     }
 
-    private void readSimpleColumn(ColumnMetadata column, DataInputPlus in, SerializationHeader header, SerializationHelper helper, Row.Builder builder, LivenessInfo rowLiveness)
+    private void readSimpleColumn(ColumnMetadata column, DataInputPlus in, SerializationHeader header, DeserializationHelper helper, Row.Builder builder, LivenessInfo rowLiveness)
     throws IOException
     {
         if (helper.includes(column))
@@ -645,7 +645,7 @@ public class UnfilteredSerializer
         }
     }
 
-    private void readComplexColumn(ColumnMetadata column, DataInputPlus in, SerializationHeader header, SerializationHelper helper, boolean hasComplexDeletion, Row.Builder builder, LivenessInfo rowLiveness)
+    private void readComplexColumn(ColumnMetadata column, DataInputPlus in, SerializationHeader header, DeserializationHelper helper, boolean hasComplexDeletion, Row.Builder builder, LivenessInfo rowLiveness)
     throws IOException
     {
         if (helper.includes(column))
@@ -680,7 +680,7 @@ public class UnfilteredSerializer
         in.skipBytesFully(rowSize);
     }
 
-    public void skipStaticRow(DataInputPlus in, SerializationHeader header, SerializationHelper helper) throws IOException
+    public void skipStaticRow(DataInputPlus in, SerializationHeader header, DeserializationHelper helper) throws IOException
     {
         int flags = in.readUnsignedByte();
         assert !isEndOfPartition(flags) && kind(flags) == Unfiltered.Kind.ROW && isExtended(flags) : "Flags is " + flags;
