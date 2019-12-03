@@ -223,7 +223,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
 
         try
         {
-            Futures.successfulAsList(futures).get(10, TimeUnit.MINUTES);
+            Futures.successfulAsList(futures).get(DatabaseDescriptor.getRepairHistorySyncTimeoutSeconds(), TimeUnit.SECONDS);
         }
         catch (InterruptedException | ExecutionException | TimeoutException e)
         {
@@ -348,6 +348,8 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                                                     progress.get(),
                                                     totalProgress,
                                                     ignoreUnreplicatedMessage));
+            ActiveRepairService.instance.recordRepairStatus(cmd, ActiveRepairService.ParentRepairStatus.COMPLETED,
+                                                            ImmutableList.of(ignoreUnreplicatedMessage));
             return;
         }
 
@@ -418,6 +420,11 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         {
             normalRepair(parentSession, startTime, traceState, allReplicaMap, commonRanges, cfnames);
         }
+    }
+
+    protected void unhandledException(Exception e)
+    {
+        fireErrorAndComplete(progress.get(), totalProgress, e.getMessage());
     }
 
     private void normalRepair(UUID parentSession,

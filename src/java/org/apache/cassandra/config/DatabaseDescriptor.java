@@ -150,6 +150,8 @@ public class DatabaseDescriptor
 
     public static volatile boolean allowUnlimitedConcurrentValidations = Boolean.getBoolean("cassandra.allow_unlimited_concurrent_validations");
 
+    private static long repairHistorySyncTimeoutSeconds;
+
     static
     {
         // In client mode, we use a default configuration. Note that the fields of this class will be
@@ -821,6 +823,8 @@ public class DatabaseDescriptor
             throw new ConfigurationException("Encryption must be enabled in client_encryption_options for native_transport_port_ssl", false);
         }
         scheduledCompactionCycleTimeSeconds = parseScheduledCycleTimeSeconds(conf.scheduled_compaction_cycle_time);
+
+        repairHistorySyncTimeoutSeconds = parseScheduledCycleTimeSeconds(conf.repair_history_sync_timeout);
 
         if (conf.max_value_size_in_mb == null || conf.max_value_size_in_mb <= 0)
             throw new ConfigurationException("max_value_size_in_mb must be positive", false);
@@ -2726,6 +2730,9 @@ public class DatabaseDescriptor
             case 's':
                 timeUnit = TimeUnit.SECONDS;
                 break;
+            case 'm':
+                timeUnit = TimeUnit.MINUTES;
+                break;
             case 'h':
                 timeUnit = TimeUnit.HOURS;
                 break;
@@ -2887,5 +2894,10 @@ public class DatabaseDescriptor
     {
         logger.info("Setting enable_secondary_index to {}", value);
         conf.enable_secondary_index = value;
+    }
+
+    public static long getRepairHistorySyncTimeoutSeconds()
+    {
+        return repairHistorySyncTimeoutSeconds;
     }
 }

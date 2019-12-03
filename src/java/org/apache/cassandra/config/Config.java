@@ -502,6 +502,8 @@ public class Config
 
     public volatile boolean enable_secondary_index = Boolean.getBoolean("cassandra.enable_secondary_index");
 
+    public String repair_history_sync_timeout = "10m";
+
     public static boolean isClientMode()
     {
         return isClientMode;
