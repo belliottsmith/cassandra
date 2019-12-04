@@ -112,7 +112,7 @@ builds:
     baseImage: docker.apple.com/pie/cie-cassandra-build-jdk-8:latest
     env:
       RELEASE_VERSION: "3.0.19"
-      CASSANDRA_VERSION: "${RELEASE_VERSION}.next.#{${RELEASE_VERSION}.next}"
+      CASSANDRA_VERSION: "${RELEASE_VERSION}-next.#{${RELEASE_VERSION}-next}"
   build:
     template: freestyle:v4:publish
     steps:
@@ -125,7 +125,7 @@ builds:
         version: "${CASSANDRA_VERSION}"
         perApplication: false
         extraTags:
-          - "${RELEASE_VERSION}.next"
+          - "${RELEASE_VERSION}-next"
         publish:
           - repo: docker.apple.com/piedb_ci/cie-cassandra
     mirror:
