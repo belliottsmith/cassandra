@@ -1248,37 +1248,6 @@ public class BTree
     }
 
     /**
-     * Simple method to walk the btree forwards or reversed and apply a function to each element
-     *
-     * Public method
-     *
-     */
-    public static <V> void apply(Object[] btree, Consumer<V> function, boolean reversed)
-    {
-        if (reversed)
-            applyReverse(btree, function, null);
-        else
-            applyForwards(btree, function, null);
-    }
-
-    /**
-     * Simple method to walk the btree forwards or reversed and apply a function till a stop condition is reached
-     *
-     * Public method
-     *
-     */
-    public static <V> void apply(Object[] btree, Consumer<V> function, Predicate<V> stopCondition, boolean reversed)
-    {
-        if (reversed)
-            applyReverse(btree, function, stopCondition);
-        else
-            applyForwards(btree, function, stopCondition);
-    }
-
-
-
-
-    /**
      * Simple method to walk the btree forwards and apply a function till a stop condition is reached
      *
      * Private method
@@ -1287,7 +1256,7 @@ public class BTree
      * @param function
      * @param stopCondition
      */
-    private static <V> boolean applyForwards(Object[] btree, Consumer<V> function, Predicate<V> stopCondition)
+    public static <V> boolean apply(Object[] btree, Consumer<V> function, Predicate<V> stopCondition)
     {
         boolean isLeaf = isLeaf(btree);
         int childOffset = isLeaf ? Integer.MAX_VALUE : getChildStart(btree);
@@ -1307,7 +1276,7 @@ public class BTree
             }
             else
             {
-                if (applyForwards((Object[]) current, function, stopCondition))
+                if (apply((Object[]) current, function, stopCondition))
                     return true;
             }
         }
@@ -1315,60 +1284,9 @@ public class BTree
         return false;
     }
 
-    /**
-     * Simple method to walk the btree in reverse and apply a function till a stop condition is reached
-     *
-     * Private method
-     *
-     * @param btree
-     * @param function
-     * @param stopCondition
-     */
-    private static <V> boolean applyReverse(Object[] btree, Consumer<V> function, Predicate<V> stopCondition)
+    public static <V> boolean apply(Object[] btree, Consumer<V> function)
     {
-        boolean isLeaf = isLeaf(btree);
-        int childOffset = isLeaf ? 0 : getChildStart(btree);
-        int limit = isLeaf ? getLeafKeyEnd(btree)  : btree.length - 1;
-        for (int i = limit - 1, visited = 0; i >= 0 ; i--, visited++)
-        {
-            int idx = i;
-
-            // we want to visit in reverse iteration order, so we visit our children nodes inbetween our keys
-            if (!isLeaf)
-            {
-                int typeOffset = visited / 2;
-
-                if (i % 2 == 0)
-                {
-                    // This is a child branch. Since children are in the second half of the array, we must
-                    // adjust for the key's we've visited along the way
-                    idx += typeOffset;
-                }
-                else
-                {
-                    // This is a key. Since the keys are in the first half of the array and we are iterating
-                    // in reverse we subtract the childOffset and adjust for children we've walked so far
-                    idx = i - childOffset + typeOffset;
-                }
-            }
-
-            Object current = btree[idx];
-            if (isLeaf || idx < childOffset)
-            {
-                V castedCurrent = (V) current;
-                if (stopCondition != null && stopCondition.apply(castedCurrent))
-                    return true;
-
-                function.accept(castedCurrent);
-            }
-            else
-            {
-                if (applyReverse((Object[]) current, function, stopCondition))
-                    return true;
-            }
-        }
-
-        return false;
+        return apply(btree, function, null);
     }
 
     public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long start, boolean reverse)

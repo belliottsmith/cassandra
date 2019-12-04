@@ -170,14 +170,9 @@ public class BTreeRow extends AbstractRow
         return cd.column().isSimple() ? minDeletionTime((Cell) cd) : minDeletionTime((ComplexColumnData)cd);
     }
 
-    public void apply(Consumer<ColumnData> function, boolean reversed)
+    public void apply(Consumer<ColumnData> function)
     {
-        BTree.apply(btree, function, reversed);
-    }
-
-    public void apply(Consumer<ColumnData> funtion, com.google.common.base.Predicate<ColumnData> stopCondition, boolean reversed)
-    {
-        BTree.apply(btree, funtion, stopCondition, reversed);
+        BTree.apply(btree, function);
     }
 
     public long accumulate(LongAccumulator<ColumnData> accumulator, long start, boolean reversed)
@@ -346,8 +341,12 @@ public class BTreeRow extends AbstractRow
 
     public boolean hasComplex()
     {
-        long result = accumulate((cd, v) -> (cd != null && cd.column.isComplex()) ? 1 : -1 , 0, v -> v != 0, true);
-        return result == 1;
+        if (BTree.isEmpty(btree))
+            return false;
+
+        int size = BTree.size(btree);
+        ColumnData last = BTree.findByIndex(btree, size - 1);
+        return last.column.isComplex();
     }
 
     public boolean hasComplexDeletion()

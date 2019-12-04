@@ -133,27 +133,15 @@ public class BTreeTest
     }
 
     @Test
-    public void testApplyForwards()
+    public void testApply()
     {
         List<Integer> input = seq(71);
         Object[] btree = BTree.build(input, noOp);
 
         final List<Integer> result = new ArrayList<>();
-        BTree.<Integer>apply(btree, i -> result.add(i), false);
+        BTree.<Integer>apply(btree, i -> result.add(i));
 
         org.junit.Assert.assertArrayEquals(input.toArray(),result.toArray());
-    }
-
-    @Test
-    public void testApplyReverse()
-    {
-        List<Integer> input = seq(71);
-        Object[] btree = BTree.build(input, noOp);
-
-        final List<Integer> result = new ArrayList<>();
-        BTree.<Integer>apply(btree, i -> result.add(i), true);
-
-        org.junit.Assert.assertArrayEquals(Lists.reverse(input).toArray(),result.toArray());
     }
 
     /**

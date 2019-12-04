@@ -254,7 +254,7 @@ public class UnfilteredSerializer
                 {
                     throw new WrappedException(e);
                 }
-            }, false);
+            });
         }
         catch (WrappedException e)
         {
@@ -614,7 +614,7 @@ public class UnfilteredSerializer
                     {
                         throw new WrappedException(e);
                     }
-                }, false);
+                });
             }
             catch (WrappedException e)
             {

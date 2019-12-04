@@ -286,12 +286,7 @@ public interface Row extends Unfiltered, Iterable<ColumnData>
     /**
      * Apply a function to every column in a row
      */
-    public void apply(Consumer<ColumnData> function, boolean reverse);
-
-    /**
-     * Apply a funtion to every column in a row until a stop condition is reached
-     */
-    public void apply(Consumer<ColumnData> function, Predicate<ColumnData> stopCondition, boolean reverse);
+    public void apply(Consumer<ColumnData> function);
 
     /**
      * Apply an accumulation funtion to every column in a row

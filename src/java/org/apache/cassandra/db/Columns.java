@@ -384,11 +384,10 @@ public class Columns extends AbstractCollection<ColumnMetadata> implements Colle
     /**
      * Apply a function to each column definition in forwards or reversed order.
      * @param function
-     * @param reversed
      */
-    public void apply(Consumer<ColumnMetadata> function, boolean reversed)
+    public void apply(Consumer<ColumnMetadata> function)
     {
-        BTree.apply(columns, function, reversed);
+        BTree.apply(columns, function);
     }
 
     @Override

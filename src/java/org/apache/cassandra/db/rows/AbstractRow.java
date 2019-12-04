@@ -68,7 +68,7 @@ public abstract class AbstractRow implements Row
         deletion().digest(hasher);
         primaryKeyLivenessInfo().digest(hasher);
 
-        apply(cd -> cd.digest(hasher), false);
+        apply(cd -> cd.digest(hasher));
     }
 
     public void validateData(TableMetadata metadata)
@@ -85,7 +85,7 @@ public abstract class AbstractRow implements Row
         if (deletion().time().localDeletionTime() < 0)
             throw new MarshalException("A local deletion time should not be negative");
 
-        apply(cd -> cd.validate(), false);
+        apply(cd -> cd.validate());
     }
 
     public String toString()
