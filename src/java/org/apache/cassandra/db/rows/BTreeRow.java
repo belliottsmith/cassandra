@@ -177,12 +177,7 @@ public class BTreeRow extends AbstractRow
 
     public long accumulate(LongAccumulator<ColumnData> accumulator, long start, boolean reversed)
     {
-        return BTree.accumulate(btree, accumulator, start, l -> false, reversed);
-    }
-
-    public long accumulate(LongAccumulator<ColumnData> accumulator, long start, LongPredicate stopCondition, boolean reversed)
-    {
-        return BTree.accumulate(btree, accumulator, start, stopCondition, reversed);
+        return BTree.accumulate(btree, accumulator, start, reversed);
     }
 
     private static int minDeletionTime(Object[] btree, LivenessInfo info, DeletionTime rowDeletion)
@@ -355,18 +350,18 @@ public class BTreeRow extends AbstractRow
         long result = accumulate((cd, v) -> {
             if (cd.column.isSimple())
             {
-                return -1;
+                return Long.MIN_VALUE;
             }
 
             if (!((ComplexColumnData) cd).complexDeletion().isLive())
             {
-                return 1;
+                return Long.MAX_VALUE;
             }
 
             return 0;
-        }, 0, v -> v != 0, true);
+        }, 0, true);
 
-        return result == 1;
+        return result == Long.MIN_VALUE;
     }
 
     public Row markCounterLocalToBeCleared()

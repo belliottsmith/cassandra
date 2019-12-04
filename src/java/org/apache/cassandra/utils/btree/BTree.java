@@ -1289,24 +1289,27 @@ public class BTree
         return apply(btree, function, null);
     }
 
-    public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long start, boolean reverse)
-    {
-        return accumulate(btree, accumulator, start, l -> false, reverse);
-    }
-
-    public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long start, LongPredicate stopCondition, boolean reverse)
-    {
-        return reverse ? accumulateReversed(btree, accumulator, start, stopCondition)
-                       : accumulateForwards(btree, accumulator, start, stopCondition);
-    }
-
     /**
-     * Simple method to walk the btree accumulate a long value using the supplied accumulator function
+     * Simple method to walk the btree and accumulate a long value using the supplied accumulator function. Iteration
+     * will stop if the accumulator returns Long.MIN_VALUE or Long.MAX_VALUE
      *
      * Public method
      *
      */
-    public static <V> long accumulateForwards(Object[] btree, LongAccumulator<V> accumulator, long start, LongPredicate stopCondition)
+    public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long start, boolean reverse)
+    {
+        return reverse ? accumulateReversed(btree, accumulator, start)
+                       : accumulateForwards(btree, accumulator, start);
+    }
+
+    /**
+     * Simple method to walk the btree and accumulate a long value using the supplied accumulator function. Iteration
+     * will stop if the accumulator returns Long.MIN_VALUE or Long.MAX_VALUE
+     *
+     * Public method
+     *
+     */
+    public static <V> long accumulateForwards(Object[] btree, LongAccumulator<V> accumulator, long start)
     {
         long value = start;
         boolean isLeaf = isLeaf(btree);
@@ -1324,16 +1327,17 @@ public class BTree
             }
             else
             {
-                value = accumulateForwards((Object[]) current, accumulator, value, stopCondition);
+                value = accumulateForwards((Object[]) current, accumulator, value);
             }
 
-            if (stopCondition.test(value))
+            // stop if we've saturated the output.
+            if (value == Long.MAX_VALUE || value == Long.MIN_VALUE)
                 break;
         }
         return value;
     }
 
-    private static <V> long accumulateReversed(Object[] btree, LongAccumulator<V> accumulator, long start, LongPredicate stopCondition)
+    private static <V> long accumulateReversed(Object[] btree, LongAccumulator<V> accumulator, long start)
     {
         long value = start;
         boolean isLeaf = isLeaf(btree);
@@ -1370,10 +1374,11 @@ public class BTree
             }
             else
             {
-                value = accumulateReversed((Object[]) current, accumulator, value, stopCondition);
+                value = accumulateReversed((Object[]) current, accumulator, value);
             }
 
-            if (stopCondition.test(value))
+            // stop if we've saturated the output.
+            if (value == Long.MAX_VALUE || value == Long.MIN_VALUE)
                 break;
         }
 
