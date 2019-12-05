@@ -55,6 +55,11 @@ public class BTreeRow extends AbstractRow
     // The data for each columns present in this row in column sorted order.
     private final Object[] btree;
 
+    private static final ColumnData FIRST_COMPLEX_STATIC = new ComplexColumnData(Columns.FIRST_COMPLEX_STATIC, new Object[0], new DeletionTime(0, 0));
+    private static final ColumnData FIRST_COMPLEX_REGULAR = new ComplexColumnData(Columns.FIRST_COMPLEX_STATIC, new Object[0], new DeletionTime(0, 0));
+    private static final Comparator<ColumnData> COLUMN_COMPARATOR = (cd1, cd2) -> cd1.column.compareTo(cd2.column);
+
+
     // We need to filter the tombstones of a row on every read (twice in fact: first to remove purgeable tombstone, and then after reconciliation to remove
     // all tombstone since we don't return them to the client) as well as on compaction. But it's likely that many rows won't have any tombstone at all, so
     // we want to speed up that case by not having to iterate/copy the row in this case. We could keep a single boolean telling us if we have tombstones,
@@ -92,7 +97,7 @@ public class BTreeRow extends AbstractRow
         int minDeletionTime = Math.min(minDeletionTime(primaryKeyLivenessInfo), minDeletionTime(deletion.time()));
         if (minDeletionTime != Integer.MIN_VALUE)
         {
-            long result = BTree.<ColumnData>accumulate(btree, (cd, l) -> Math.min(l, minDeletionTime(cd)) , minDeletionTime, false);
+            long result = BTree.<ColumnData>accumulate(btree, (cd, l) -> Math.min(l, minDeletionTime(cd)) , minDeletionTime);
             minDeletionTime = Ints.checkedCast(result);
         }
 
@@ -175,15 +180,20 @@ public class BTreeRow extends AbstractRow
         BTree.apply(btree, function);
     }
 
-    public long accumulate(LongAccumulator<ColumnData> accumulator, long start, boolean reversed)
+    public long accumulate(LongAccumulator<ColumnData> accumulator, long start)
     {
-        return BTree.accumulate(btree, accumulator, start, reversed);
+        return BTree.accumulate(btree, accumulator, start);
+    }
+
+    public long accumulate(LongAccumulator<ColumnData> accumulator, long start, ColumnData from, Comparator<ColumnData> comparator)
+    {
+        return BTree.accumulate(btree, accumulator, start, from, comparator);
     }
 
     private static int minDeletionTime(Object[] btree, LivenessInfo info, DeletionTime rowDeletion)
     {
         long min = Math.min(minDeletionTime(info), minDeletionTime(rowDeletion));
-        min = BTree.<ColumnData>accumulate(btree, (cd, l) -> Math.min(l, minDeletionTime(cd)), min, false);
+        min = BTree.<ColumnData>accumulate(btree, (cd, l) -> Math.min(l, minDeletionTime(cd)), min);
         return Ints.checkedCast(min);
     }
 
@@ -359,7 +369,7 @@ public class BTreeRow extends AbstractRow
             }
 
             return 0;
-        }, 0, true);
+        }, 0, isStatic() ? FIRST_COMPLEX_STATIC : FIRST_COMPLEX_REGULAR, COLUMN_COMPARATOR);
 
         return result == Long.MIN_VALUE;
     }
@@ -392,7 +402,7 @@ public class BTreeRow extends AbstractRow
             return true;
         if (!deletion().time().validate())
             return true;
-        return accumulate(INVALID_DELETION_ACCUMULATOR, 0, false) > 0;
+        return accumulate(INVALID_DELETION_ACCUMULATOR, 0) > 0;
     }
 
     /**
@@ -460,7 +470,7 @@ public class BTreeRow extends AbstractRow
                      + primaryKeyLivenessInfo.dataSize()
                      + deletion.dataSize();
 
-        return Ints.checkedCast(accumulate((cd, v) -> v + cd.dataSize(), dataSize, false));
+        return Ints.checkedCast(accumulate((cd, v) -> v + cd.dataSize(), dataSize));
     }
 
     public long unsharedHeapSizeExcludingData()
@@ -469,7 +479,7 @@ public class BTreeRow extends AbstractRow
                       + clustering.unsharedHeapSizeExcludingData()
                       + BTree.sizeOfStructureOnHeap(btree);
 
-        return accumulate((cd, v) -> v + cd.unsharedHeapSizeExcludingData(), heapSize, false);
+        return accumulate((cd, v) -> v + cd.unsharedHeapSizeExcludingData(), heapSize);
     }
 
     public static Row.Builder sortedBuilder()

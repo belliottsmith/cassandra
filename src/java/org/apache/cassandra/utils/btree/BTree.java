@@ -20,10 +20,10 @@ package org.apache.cassandra.utils.btree;
 
 import java.util.*;
 import java.util.function.Consumer;
-import java.util.function.LongPredicate;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Ordering;
@@ -37,6 +37,7 @@ import static com.google.common.collect.Iterables.transform;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.util.Comparator.naturalOrder;
+import static java.util.Comparator.nullsFirst;
 
 public class BTree
 {
@@ -1290,32 +1291,35 @@ public class BTree
     }
 
     /**
-     * Simple method to walk the btree and accumulate a long value using the supplied accumulator function. Iteration
-     * will stop if the accumulator returns Long.MIN_VALUE or Long.MAX_VALUE
+     * Walk the btree and accumulate a long value using the supplied accumulator function. Iteration will stop if the
+     * accumulator function returns the sentinel values Long.MIN_VALUE or Long.MAX_VALUE
      *
-     * Public method
-     *
+     * If the optional from argument is not null, iteration will start from that value (or the one after it's insertion
+     * point if an exact match isn't found)
      */
-    public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long start, boolean reverse)
-    {
-        return reverse ? accumulateReversed(btree, accumulator, start)
-                       : accumulateForwards(btree, accumulator, start);
-    }
-
-    /**
-     * Simple method to walk the btree and accumulate a long value using the supplied accumulator function. Iteration
-     * will stop if the accumulator returns Long.MIN_VALUE or Long.MAX_VALUE
-     *
-     * Public method
-     *
-     */
-    public static <V> long accumulateForwards(Object[] btree, LongAccumulator<V> accumulator, long start)
+    public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long start, V from, Comparator<V> comparator)
     {
         long value = start;
         boolean isLeaf = isLeaf(btree);
         int childOffset = isLeaf ? Integer.MAX_VALUE : getChildStart(btree);
         int limit = isLeaf ? getLeafKeyEnd(btree) : btree.length - 1;
-        for (int i = 0 ; i < limit ; i++)
+
+        int startIdx = 0;
+        if (from != null)
+        {
+            // find the start index in iteration order
+            Preconditions.checkNotNull(comparator);
+            int keyEnd = getKeyEnd(btree);
+            int i = Arrays.binarySearch((V[]) btree, 0, keyEnd, from, comparator);
+            boolean isExact = i >= 0;
+
+            if (isLeaf)
+                startIdx = isExact ? i : (-1 - i);
+            else
+                startIdx = isExact ? ((i * 2) + 1) : ((-1 - i) * 2);
+        }
+
+        for (int i = startIdx ; i < limit ; i++)
         {
             // we want to visit in iteration order, so we visit our key nodes inbetween our children
             int idx = isLeaf ? i : (i / 2) + (i % 2 == 0 ? childOffset : 0);
@@ -1327,61 +1331,21 @@ public class BTree
             }
             else
             {
-                value = accumulateForwards((Object[]) current, accumulator, value);
+                value = accumulate((Object[]) current, accumulator, value, from, comparator);
             }
 
-            // stop if we've saturated the output.
+            // stop if a sentinel stop value was returned
             if (value == Long.MAX_VALUE || value == Long.MIN_VALUE)
                 break;
+
+            if (from != null)
+                from = null;
         }
         return value;
     }
 
-    private static <V> long accumulateReversed(Object[] btree, LongAccumulator<V> accumulator, long start)
+    public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long start)
     {
-        long value = start;
-        boolean isLeaf = isLeaf(btree);
-        int childOffset = isLeaf ? 0 : getChildStart(btree);
-        int limit = isLeaf ? getLeafKeyEnd(btree)  : btree.length - 1;
-        for (int i = limit - 1, visited = 0; i >= 0 ; i--, visited++)
-        {
-            int idx = i;
-
-            // we want to visit in reverse iteration order, so we visit our children nodes inbetween our keys
-            if (!isLeaf)
-            {
-                int typeOffset = visited / 2;
-
-                if (i % 2 == 0)
-                {
-                    // This is a child branch. Since children are in the second half of the array, we must
-                    // adjust for the key's we've visited along the way
-                    idx += typeOffset;
-                }
-                else
-                {
-                    // This is a key. Since the keys are in the first half of the array and we are iterating
-                    // in reverse we subtract the childOffset and adjust for children we've walked so far
-                    idx = i - childOffset + typeOffset;
-                }
-            }
-
-            Object current = btree[idx];
-            if (isLeaf || idx < childOffset)
-            {
-                V castedCurrent = (V) current;
-                value = accumulator.apply(castedCurrent, value);
-            }
-            else
-            {
-                value = accumulateReversed((Object[]) current, accumulator, value);
-            }
-
-            // stop if we've saturated the output.
-            if (value == Long.MAX_VALUE || value == Long.MIN_VALUE)
-                break;
-        }
-
-        return value;
+        return accumulate(btree, accumulator, start, null, null);
     }
 }

@@ -119,7 +119,7 @@ public abstract class Rows
                 }
             }
             return l;
-        }, 0, false);
+        }, 0);
 
         int columnCount = (int) (result & 0xFFFFFFFFL);
         int cellCount = (int) (result >>> 32);

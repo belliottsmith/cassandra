@@ -364,7 +364,7 @@ public class UnfilteredSerializer
                 return v + Cell.serializer.serializedSize((Cell) data, column, pkLiveness, header);
             else
                 return v + sizeOfComplexColumn((ComplexColumnData) data, column, hasComplexDeletion, pkLiveness, header);
-        }, size, false);
+        }, size);
     }
 
     private long sizeOfComplexColumn(ComplexColumnData data, ColumnMetadata column, boolean hasComplexDeletion, LivenessInfo rowLiveness, SerializationHeader header)
