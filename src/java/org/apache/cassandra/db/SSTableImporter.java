@@ -20,13 +20,13 @@ package org.apache.cassandra.db;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterables;
@@ -36,14 +36,13 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.compaction.Verifier;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.KeyIterator;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableWriter;
-import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.service.ActiveRepairService;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.Refs;
 
@@ -73,8 +72,10 @@ public class SSTableImporter
     @VisibleForTesting
     synchronized List<String> importNewSSTables(Options options)
     {
-        logger.info("Loading new SSTables for {}/{}: {}",
-                    cfs.keyspace.getName(), cfs.getTableName(), options);
+        // TODO: allow users to pass this in via nodetool to get a global import id in the cluster
+        UUID importID = UUID.randomUUID();
+        logger.info("[{}] Loading new SSTables for {}/{}: {}",
+                    importID, cfs.keyspace.getName(), cfs.getTableName(), options);
 
         List<Pair<Directories.SSTableLister, String>> listers = getSSTableListers(options.srcPaths);
 
@@ -103,12 +104,12 @@ public class SSTableImporter
                         {
                             if (dir != null)
                             {
-                                logger.error("Failed verifying sstable {} in directory {}", descriptor, dir, t);
+                                logger.error("[{}] Failed verifying sstable {} in directory {}", importID, descriptor, dir, t);
                                 failedDirectories.add(dir);
                             }
                             else
                             {
-                                logger.error("Failed verifying sstable {}", descriptor, t);
+                                logger.error("[{}] Failed verifying sstable {}", importID, descriptor, t);
                                 throw new RuntimeException("Failed verifying sstable "+descriptor, t);
                             }
                             break;
@@ -148,7 +149,7 @@ public class SSTableImporter
                     newSSTablesPerDirectory.forEach(s -> s.selfRef().release());
                     if (dir != null)
                     {
-                        logger.error("Failed importing sstables in directory {}", dir, t);
+                        logger.error("[{}] Failed importing sstables in directory {}", importID, dir, t);
                         failedDirectories.add(dir);
                         moveSSTablesBack(movedSSTables);
                         movedSSTables.clear();
@@ -157,7 +158,7 @@ public class SSTableImporter
                     }
                     else
                     {
-                        logger.error("Failed importing sstables from data directory - renamed sstables are: {}", movedSSTables);
+                        logger.error("[{}] Failed importing sstables from data directory - renamed sstables are: {}", importID, movedSSTables);
                         throw new RuntimeException("Failed importing sstables", t);
                     }
                 }
@@ -167,12 +168,13 @@ public class SSTableImporter
 
         if (newSSTables.isEmpty())
         {
-            logger.info("No new SSTables were found for {}/{}", cfs.keyspace.getName(), cfs.getTableName());
+            logger.info("[{}] No new SSTables were found for {}/{}", importID, cfs.keyspace.getName(), cfs.getTableName());
             return failedDirectories;
         }
 
-        logger.info("Loading new SSTables and building secondary indexes for {}/{}: {}", cfs.keyspace.getName(), cfs.getTableName(), newSSTables);
-
+        logger.info("[{}] Loading new SSTables and building secondary indexes for {}/{}: {}", importID, cfs.keyspace.getName(), cfs.getTableName(), newSSTables);
+        if (logger.isDebugEnabled())
+            logLeveling(importID, newSSTables);
         try (Refs<SSTableReader> refs = Refs.ref(newSSTables))
         {
             int nowSeconds = (int) (System.currentTimeMillis() / 1000);
@@ -180,7 +182,7 @@ public class SSTableImporter
             int oldestSuggestedDeletion = cfs.gcBefore(nowSeconds);
             if (Iterables.any(newSSTables, sst -> sst.getMinLocalDeletionTime() < oldestSuggestedDeletion))
             {
-                logger.warn("Importing sstables with a minimum deletion time lower than gc grace seconds. This can result in overstreaming on the next repair");
+                logger.warn("[{}] Importing sstables with a minimum deletion time lower than gc grace seconds. This can result in overstreaming on the next repair", importID);
             }
             cfs.clearLastRepairTimesFor(newSSTables, nowSeconds);
             cfs.getTracker().addSSTables(newSSTables);
@@ -192,8 +194,30 @@ public class SSTableImporter
 
         }
 
-        logger.info("Done loading load new SSTables for {}/{}", cfs.keyspace.getName(), cfs.getTableName());
+        logger.info("[{}] Done loading load new SSTables for {}/{}", importID, cfs.keyspace.getName(), cfs.getTableName());
         return failedDirectories;
+    }
+
+    private void logLeveling(UUID importID, Set<SSTableReader> newSSTables)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (SSTableReader sstable : cfs.getSSTables(SSTableSet.CANONICAL))
+            sb.append('{').append(formatMetadata(sstable)).append("};");
+        logger.debug("[{}] Current sstables: {}", importID, sb.toString());
+        sb = new StringBuilder();
+        for (SSTableReader sstable : newSSTables)
+            sb.append('{').append(formatMetadata(sstable)).append("};");
+        logger.debug("[{}] New sstables: {}", importID, sb.toString());
+    }
+
+    private static String formatMetadata(SSTableReader sstable)
+    {
+        int level = sstable.getSSTableLevel();
+        Token first = sstable.first.getToken();
+        Token last = sstable.last.getToken();
+        boolean repaired = sstable.isRepaired();
+        long size = sstable.onDiskLength();
+        return String.format("[%s, %s], %d, %s, %d", first, last, level, repaired, size);
     }
 
     /**
