@@ -37,6 +37,7 @@ import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.utils.AlwaysPresentFilter;
 
 import org.apache.cassandra.utils.OverlapIterator;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.Refs;
 
 import static org.apache.cassandra.db.lifecycle.SSTableIntervalTree.buildIntervals;
