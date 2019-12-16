@@ -824,7 +824,7 @@ public class SinglePartitionReadCommand extends ReadCommand
             Tracing.trace("Merging data from memtables and {} sstables", metricsCollector.getMergedSSTables());
 
             @SuppressWarnings("resource") //  Closed through the closing of the result of that method.
-            UnfilteredRowIterator merged = UnfilteredRowIterators.merge(inputCollector.finalizeIterators(), nowInSec());
+            UnfilteredRowIterator merged = UnfilteredRowIterators.merge(inputCollector.finalizeIterators(cfs, nowInSec(), oldestUnrepairedTombstone), nowInSec());
             if (!merged.isEmpty())
             {
                 DecoratedKey key = merged.partitionKey();

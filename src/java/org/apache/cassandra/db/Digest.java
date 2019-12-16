@@ -60,27 +60,40 @@ public class Digest
         return new Digest(FBUtilities.newMessageDigest("SHA-256"));
     }
 
-    public static Digest forRepairedDataTracking()
+    public static RepairedDataTrackingDigest forRepairedDataTracking()
     {
-        return new Digest(FBUtilities.threadLocalMD5Digest())
-        {
-            @Override
-            public Digest updateWithCounterContext(ByteBuffer context)
-            {
-                // for the purposes of repaired data tracking on the read path, exclude
-                // contexts with legacy shards as these may be irrevocably different on
-                // different replicas
-                if (CounterContext.instance().hasLegacyShards(context))
-                    return this;
+        return new RepairedDataTrackingDigest();
+    }
 
-                return super.updateWithCounterContext(context);
-            }
-        };
+    public static class RepairedDataTrackingDigest extends Digest
+    {
+        RepairedDataTrackingDigest()
+        {
+            super(FBUtilities.newMessageDigest("MD5"));
+        }
+
+        @Override
+        public Digest updateWithCounterContext(ByteBuffer context)
+        {
+            // for the purposes of repaired data tracking on the read path, exclude
+            // contexts with legacy shards as these may be irrevocably different on
+            // different replicas
+            if (CounterContext.instance().hasLegacyShards(context))
+                return this;
+
+            super.updateWithCounterContext(context);
+            return this;
+        }
     }
 
     private Digest(MessageDigest hasher)
     {
         this.hasher = hasher;
+    }
+
+    public void reset()
+    {
+        hasher.reset();
     }
 
     public Digest update(byte[] input, int offset, int len)

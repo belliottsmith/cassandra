@@ -276,7 +276,7 @@ public class PartitionRangeReadCommand extends ReadCommand
             if (inputCollector.isEmpty())
                 return EmptyIterators.unfilteredPartition(metadata(), isForThrift());
 
-            return checkCacheFilter(UnfilteredPartitionIterators.mergeLazily(inputCollector.finalizeIterators(), nowInSec()), cfs);
+            return checkCacheFilter(UnfilteredPartitionIterators.mergeLazily(inputCollector.finalizeIterators(cfs, nowInSec(), oldestUnrepairedTombstone), nowInSec()), cfs);
         }
         catch (RuntimeException | Error e)
         {

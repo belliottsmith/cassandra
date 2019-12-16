@@ -29,6 +29,9 @@ import com.google.common.collect.Sets;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.CFMetaData;
@@ -40,8 +43,12 @@ import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.marshal.CounterColumnType;
+import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.partitions.*;
+import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.SerializationHelper;
+import org.apache.cassandra.db.rows.Unfiltered;
+import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -59,6 +66,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDGen;
 
+import static org.apache.cassandra.utils.ByteBufferUtil.EMPTY_BYTE_BUFFER;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -71,6 +79,7 @@ public class ReadCommandTest
     private static final String CF3 = "Standard3";
     private static final String CF4 = "Standard4";
     private static final String CF5 = "Counter1";
+    private static final String CF6 = "Standard6";
 
     private static final InetAddress REPAIR_COORDINATOR;
     static {
@@ -106,12 +115,6 @@ public class ReadCommandTest
                           .addRegularColumn("b", AsciiType.instance)
                           .build()
                           .caching(CachingParams.CACHE_EVERYTHING);
-        CFMetaData metadata5 =
-        CFMetaData.Builder.create(KEYSPACE, CF5, false, true, false, true)
-                          .addPartitionKey("key", BytesType.instance)
-                          .addClusteringColumn("col", AsciiType.instance)
-                          .addRegularColumn("c", CounterColumnType.instance)
-                          .build();
 
         CFMetaData metadata3 =
         CFMetaData.Builder.create(KEYSPACE, CF3)
@@ -137,6 +140,22 @@ public class ReadCommandTest
                           .addRegularColumn("f", AsciiType.instance)
                           .build();
 
+        CFMetaData metadata5 =
+        CFMetaData.Builder.create(KEYSPACE, CF5, false, true, false, true)
+                          .addPartitionKey("key", BytesType.instance)
+                          .addClusteringColumn("col", AsciiType.instance)
+                          .addRegularColumn("c", CounterColumnType.instance)
+                          .build();
+
+        CFMetaData metadata6 =
+        CFMetaData.Builder.create(KEYSPACE, CF6)
+                          .addPartitionKey("key", BytesType.instance)
+                          .addClusteringColumn("col", AsciiType.instance)
+                          .addRegularColumn("a", AsciiType.instance)
+                          .addRegularColumn("b", AsciiType.instance)
+                          .addRegularColumn("c", SetType.getInstance(AsciiType.instance, true))
+                          .build();
+
         SchemaLoader.prepareServer();
         SchemaLoader.createKeyspace(KEYSPACE,
                                     KeyspaceParams.simple(1),
@@ -144,7 +163,8 @@ public class ReadCommandTest
                                     metadata2,
                                     metadata3,
                                     metadata4,
-                                    metadata5);
+                                    metadata5,
+                                    metadata6);
 
         ActiveRepairService.instance.start();
     }
@@ -247,7 +267,7 @@ public class ReadCommandTest
         // execute a read and capture the digest
         ReadCommand readCommand = Util.cmd(cfs, Util.dk("key")).build();
         ByteBuffer digestWithLegacyCounter0 = performReadAndVerifyRepairedInfo(readCommand, 1, 1, true);
-        assertFalse(ByteBufferUtil.EMPTY_BYTE_BUFFER.equals(digestWithLegacyCounter0));
+        assertFalse(EMPTY_BYTE_BUFFER.equals(digestWithLegacyCounter0));
 
         // truncate, then re-insert the same partition, but this time with a legacy
         // shard having the value 1. The repaired digest should match the previous, as
@@ -277,9 +297,199 @@ public class ReadCommandTest
         cfs.getLiveSSTables().forEach(sstable -> mutateRepaired(cfs, sstable, 111, null));
 
         ByteBuffer digestWithCounterCell = performReadAndVerifyRepairedInfo(readCommand, 1, 1, true);
-        assertFalse(ByteBufferUtil.EMPTY_BYTE_BUFFER.equals(digestWithCounterCell));
+        assertFalse(EMPTY_BYTE_BUFFER.equals(digestWithCounterCell));
         assertFalse(digestWithLegacyCounter0.equals(digestWithCounterCell));
         assertFalse(digestWithLegacyCounter1.equals(digestWithCounterCell));
+    }
+
+    /**
+     * Writes a single partition containing a single row and reads using a partition read. The single
+     * row includes 1 live simple column, 1 simple tombstone and 1 complex column with a complex
+     * deletion and a live cell. The repaired data digests generated by executing the same query
+     * before and after the tombstones become eligible for purging should not match each other.
+     * Also, neither digest should be empty as the partition is not made empty by the purging.
+     */
+    @Test
+    public void purgeGCableTombstonesBeforeCalculatingDigest() throws Exception
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
+        cfs.truncateBlocking();
+        cfs.disableAutoCompaction();
+        cfs.metadata.params(TableParams.builder(cfs.metadata.params)
+                                       .gcGraceSeconds(600)
+                                       .build());
+        DecoratedKey[] keys = new DecoratedKey[] { Util.dk("key0"), Util.dk("key1"), Util.dk("key2"), Util.dk("key3") };
+        int nowInSec = FBUtilities.nowInSeconds();
+
+        // A simple tombstone
+        new RowUpdateBuilder(cfs.metadata, 0, keys[0]).clustering("cc").delete("a").build().apply();
+
+        // Collection with complex deletion
+        new RowUpdateBuilder(cfs.metadata, 0, keys[1]).clustering("cc").resetCollection("c").addSetEntry("c", "cc").build().apply();
+
+        // RangeTombstone and a row (not covered by the RT). The row contains a regular tombstone which will not be
+        // purged. This is to prevent the partition from being fully purged and removed from the final results
+        new RowUpdateBuilder(cfs.metadata, nowInSec, 0L, keys[2]).addRangeTombstone("aa", "bb").build().apply();
+        new RowUpdateBuilder(cfs.metadata, nowInSec+ 1000, 1000L, keys[2]).clustering("cc").delete("a").build().apply();
+
+        // Partition with 2 rows, one fully deleted
+        new RowUpdateBuilder(cfs.metadata, 0, keys[3]).clustering("bb").add("a", ByteBufferUtil.bytes("a")).delete("b").build().apply();
+        RowUpdateBuilder.deleteRow(cfs.metadata, 0, keys[3], "cc").apply();
+
+        cfs.forceBlockingFlush();
+        cfs.getLiveSSTables().forEach(sstable -> mutateRepaired(cfs, sstable, 111, null));
+
+        Map<DecoratedKey, ByteBuffer> digestsWithTombstones = new HashMap<>();
+        //Tombstones are not yet purgable
+        for (DecoratedKey key : keys)
+        {
+            ReadCommand cmd = Util.cmd(cfs, key).withNowInSeconds(nowInSec).build();
+            cmd.trackRepairedStatus();
+            Partition partition = Util.getOnlyPartitionUnfiltered(cmd);
+            assertFalse(partition.isEmpty());
+            partition.unfilteredIterator().forEachRemaining(u -> {
+                // must be either a RT, or a row containing some kind of deletion
+                assertTrue(u.isRangeTombstoneMarker() || ((Row)u).hasDeletion(cmd.nowInSec()));
+            });
+            ByteBuffer digestWithTombstones = cmd.getRepairedDataDigest();
+            // None should generate an empty digest
+            assertDigestsDiffer(EMPTY_BYTE_BUFFER, digestWithTombstones);
+            digestsWithTombstones.put(key, digestWithTombstones);
+        }
+
+        // Make tombstones eligible for purging and re-run cmd with an incremented nowInSec
+        cfs.metadata.params(TableParams.builder(cfs.metadata.params)
+                                       .gcGraceSeconds(0)
+                                       .build());
+
+        //Tombstones are now purgable, so won't be in the read results and produce different digests
+        for (DecoratedKey key : keys)
+        {
+            ReadCommand cmd = Util.cmd(cfs, key).withNowInSeconds(nowInSec + 1).build();
+            cmd.trackRepairedStatus();
+            Partition partition = Util.getOnlyPartitionUnfiltered(cmd);
+            assertFalse(partition.isEmpty());
+            partition.unfilteredIterator().forEachRemaining(u -> {
+                // After purging, only rows without any deletions should remain.
+                // The one exception is "key2:cc" which has a regular column tombstone which is not
+                // eligible for purging. This is to prevent the partition from being fully purged
+                // when its RT is removed.
+                assertTrue(u.isRow());
+                Row r = (Row)u;
+                assertTrue(!r.hasDeletion(cmd.nowInSec())
+                           || (key.equals(keys[2]) && r.clustering().toString(cfs.metadata).equals("col=cc")));
+
+            });
+            ByteBuffer digestWithoutTombstones = cmd.getRepairedDataDigest();
+            // not an empty digest
+            assertDigestsDiffer(EMPTY_BYTE_BUFFER, digestWithoutTombstones);
+            // should not match the pre-purge digest
+            assertDigestsDiffer(digestsWithTombstones.get(key), digestWithoutTombstones);
+        }
+    }
+
+    private void assertDigestsDiffer(ByteBuffer b0, ByteBuffer b1)
+    {
+        assertTrue(ByteBufferUtil.compareUnsigned(b0, b1) != 0);
+    }
+
+    @Test
+    public void partitionReadFullyPurged() throws Exception
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
+        ReadCommand partitionRead = Util.cmd(cfs, Util.dk("key")).build();
+        fullyPurgedPartitionCreatesEmptyDigest(cfs, partitionRead);
+    }
+
+    @Test public void rangeReadFullyPurged() throws Exception
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
+        ReadCommand rangeRead = Util.cmd(cfs).build();
+        fullyPurgedPartitionCreatesEmptyDigest(cfs, rangeRead);
+    }
+
+    /**
+     * Writes a single partition containing only a single row deletion and reads with either a range or
+     * partition query. Before the row deletion is eligible for purging, it should appear in the query
+     * results and cause a non-empty repaired data digest to be generated. Repeating the query after
+     * the row deletion is eligible for purging, both the result set and the repaired data digest should
+     * be empty.
+     */
+    private void fullyPurgedPartitionCreatesEmptyDigest(ColumnFamilyStore cfs, ReadCommand command) throws Exception
+    {
+        cfs.truncateBlocking();
+        cfs.disableAutoCompaction();
+        cfs.metadata.params(TableParams.builder(cfs.metadata.params)
+                                       .gcGraceSeconds(600)
+                                       .build());
+
+        // Partition with a single, fully deleted row
+        RowUpdateBuilder.deleteRow(cfs.metadata, 0, ByteBufferUtil.bytes("key"), "cc").apply();
+        cfs.forceBlockingFlush();
+        cfs.getLiveSSTables().forEach(sstable -> mutateRepaired(cfs, sstable, 111, null));
+
+        command.trackRepairedStatus();
+        List<ImmutableBTreePartition> partitions = Util.getAllUnfiltered(command);
+        assertEquals(1, partitions.size());
+        ByteBuffer digestWithTombstones = command.getRepairedDataDigest();
+        assertTrue(ByteBufferUtil.compareUnsigned(EMPTY_BYTE_BUFFER, digestWithTombstones) != 0);
+
+        // Make tombstones eligible for purging and re-run cmd with an incremented nowInSec
+        cfs.metadata.params(TableParams.builder(cfs.metadata.params)
+                                       .gcGraceSeconds(0)
+                                       .build());
+
+        AbstractReadCommandBuilder builder = command instanceof PartitionRangeReadCommand
+                                             ? Util.cmd(cfs)
+                                             : Util.cmd(cfs, Util.dk("key"));
+        builder.withNowInSeconds(command.nowInSec() + 60);
+        command = builder.build();
+        command.trackRepairedStatus();
+
+        partitions = Util.getAllUnfiltered(command);
+        assertTrue(partitions.isEmpty());
+        ByteBuffer digestWithoutTombstones = command.getRepairedDataDigest();
+        assertEquals(0, ByteBufferUtil.compareUnsigned(EMPTY_BYTE_BUFFER, digestWithoutTombstones));
+    }
+
+    @Test
+    public void purgingConsidersRepairedDataOnly() throws Exception
+    {
+        // 2 sstables, first is repaired and contains data that is all purgeable
+        // the second is unrepaired and contains non-purgable data. Even though
+        // the partition itself is not fully purged, the repaired data digest
+        // should be empty as there was no non-purgeable, repaired data read.
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
+        cfs.truncateBlocking();
+        cfs.disableAutoCompaction();
+        cfs.metadata.params(TableParams.builder(cfs.metadata.params)
+                                       .gcGraceSeconds(0)
+                                       .build());
+
+        // Partition with a single, fully deleted row which will be fully purged
+        DecoratedKey key = Util.dk("key");
+        RowUpdateBuilder.deleteRow(cfs.metadata, 0, key, "cc").apply();
+        cfs.forceBlockingFlush();
+        cfs.getLiveSSTables().forEach(sstable -> mutateRepaired(cfs, sstable, 111, null));
+
+        new RowUpdateBuilder(cfs.metadata, 1, key).clustering("cc").add("a", ByteBufferUtil.bytes("a")).build().apply();
+        cfs.forceBlockingFlush();
+
+        int nowInSec = FBUtilities.nowInSeconds() + 10;
+        ReadCommand cmd = Util.cmd(cfs, key).withNowInSeconds(nowInSec).build();
+        cmd.trackRepairedStatus();
+        Partition partition = Util.getOnlyPartitionUnfiltered(cmd);
+        assertFalse(partition.isEmpty());
+        // check that
+        try (UnfilteredRowIterator rows = partition.unfilteredIterator())
+        {
+            assertFalse(rows.isEmpty());
+            Unfiltered unfiltered = rows.next();
+            assertFalse(rows.hasNext());
+            assertTrue(unfiltered.isRow());
+            assertFalse(((Row) unfiltered).hasDeletion(nowInSec));
+        }
+        assertEquals(EMPTY_BYTE_BUFFER, cmd.getRepairedDataDigest());
     }
 
     private long readCount(SSTableReader sstable)
@@ -495,7 +705,7 @@ public class ReadCommandTest
         Set<ByteBuffer> digests = new HashSet<>();
         // first time round, nothing has been marked repaired so we expect digest to be an empty buffer and to be marked conclusive
         ByteBuffer digest = performReadAndVerifyRepairedInfo(readCommand, numPartitions, rowsPerPartition, true);
-        assertEquals(ByteBufferUtil.EMPTY_BYTE_BUFFER, digest);
+        assertEquals(EMPTY_BYTE_BUFFER, digest);
         digests.add(digest);
 
         // add a pending repair session to table1, digest should remain the same but now we expect it to be marked inconclusive
@@ -535,12 +745,12 @@ public class ReadCommandTest
                                                              FBUtilities.timestampMicros(),
                                                              FBUtilities.nowInSeconds())).apply();
             digest = performReadAndVerifyRepairedInfo(readCommand, 0, rowsPerPartition, false);
-            assertEquals(ByteBufferUtil.EMPTY_BYTE_BUFFER, digest);
+            assertEquals(EMPTY_BYTE_BUFFER, digest);
 
             // now flush so we have an unrepaired table with the deletion and repeat the check
             cfs.forceBlockingFlush();
             digest = performReadAndVerifyRepairedInfo(readCommand, 0, rowsPerPartition, false);
-            assertEquals(ByteBufferUtil.EMPTY_BYTE_BUFFER, digest);
+            assertEquals(EMPTY_BYTE_BUFFER, digest);
         }
     }
 
