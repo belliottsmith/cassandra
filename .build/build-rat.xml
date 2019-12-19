@@ -81,6 +81,13 @@
                  <exclude NAME="**/NOTICE.md"/>
                  <!-- LICENSE files -->
                  <exclude NAME="**/LICENSE.md"/>
+                     <!-- ACI Cassandra files -->
+                     <exclude NAME="LOCAL-RIO.md"/>
+                     <exclude NAME="rio.yml"/>
+                     <exclude NAME="rio-build.xml"/>
+                     <exclude NAME="rio/*"/>
+                     <exclude NAME="src/java/com/**"/>
+                     <exclude NAME="test/*/com/**"/>
             </fileset>
         </rat:report>
         <exec executable="grep" outputproperty="rat.failed.files" failifexecutionfails="false">
