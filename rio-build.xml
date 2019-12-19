@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project name="cie-cassandra" default="jar">
+  <!-- Force remote repositories to go through artifacts.apple.com for Rio / K8S workers -->
+  <property name="artifact.remoteRepository.central" value="https://artifacts.apple.com/libs-release"/>
+  <property name="artifact.remoteRepository.apache" value="https://artifacts.apple.com/libs-release"/>
+  <property name="maven-ant-tasks.url" value="https://artifacts.apple.com/libs-release/org/apache/maven/maven-ant-tasks" />
+
+  <!-- Bump up test timeouts for running on our infra -->
+  <property name="test.timeout" value="540000" />
+  <property name="test.distributed.timeout" value="600000" />
+
+  <!-- property base.version is calculated by Rio from the CIE-VERSION file -->
+  <property name="base.groupid" value="com.apple.cie.db.cassandra" />
+
+  <import file="build.xml" as="oss" />
+
+  <!-- used to extract timeouts in unittests.yml -->
+  <target name="show-properties">
+    <echoproperties/>
+  </target>
+</project>
