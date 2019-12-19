@@ -1,0 +1,8 @@
+build
+data
+.git
+.dist
+logs
+tmp
+.idea
+parallel-output

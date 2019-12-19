@@ -1,0 +1,10 @@
+FROM docker.apple.com/piedb/jdk1.8:latest
+
+ARG ARTIFACTS_VERSION
+ARG STUB_JAR
+
+COPY .dist/publishable/com/apple/cie/db/cassandra/cie-cassandra/$ARTIFACTS_VERSION/cie-cassandra-$ARTIFACTS_VERSION-bin.tar.gz /
+RUN tar -xvf cie-cassandra-$ARTIFACTS_VERSION-bin.tar.gz && ln -s cie-cassandra-$ARTIFACTS_VERSION cassandrajar
+
+ENV EXTRA_CLASSPATH ${STUB_JAR}
+ENV LAUNCHED_BY_WD40=true
