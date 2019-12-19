@@ -1,0 +1,91 @@
+schemaVersion: v1
+
+include:
+  - common.yml
+  - cassandra_common.yml
+
+# parallelci ignores variables it doesn't know, so safe to define these for reuse
+shared:
+  machine: &base-machine
+      numberOfInstances: 1
+      resources:
+        cpu: 8
+        cpuRequest: 2
+        memory: 16Gi
+        priorityClassName: p3
+      copyFromLocal:
+        - src: ~/.m2/settings.xml
+          dst: ~/.m2/settings.xml
+      # don't care about the image, as long as the provided runtime is present
+      runtime:
+        os:
+          - centos7
+        java:
+          - 11
+      environment:
+        - LANG: en_US.UTF-8
+        # some tests can't run properly in circle ci, so they get skipped if this environment variable is set
+        # these tests seem to also fail in k8s, so add this to cause those tests to get skipped
+        # TODO - fix the tests =)
+        - CIRCLECI: true
+        # set the default Xmx if not provided, to make sure the JVM never leaves the container limits.  The JVM offers no promises on argument ordering, so this may break if the test provides Xmx as its undefined behavior (though in practice last one wins)
+        - JAVA_TOOL_OPTIONS: '-Xmx1g -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=$PARALLEL_OUTPUT_DIR/ -XX:ErrorFile=$PARALLEL_OUTPUT_DIR/hs_err_pid_%p.log'
+
+work:
+  unit:
+    machine:
+      <<: *base-machine
+      numberOfInstances: 100
+    split:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Determine Tests to Run'
+        environment:
+          CASSANDRA_TEST_KIND: unit
+    map:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Display Splits'
+      - include_command: 'Run Tests (testclasslist)'
+        environment:
+          CASSANDRA_TEST_KIND: unit
+      - include_command: 'Log Environment Information'
+  jvm-dtest:
+    machine:
+      <<: *base-machine
+      numberOfInstances: 20
+    split:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Determine Tests to Run'
+        environment:
+          CASSANDRA_TEST_KIND: distributed
+          SPLIT_FILTER: "| grep -v upgrade"
+      - include_command: 'Log Environment Information'
+    map:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Display Splits'
+      - include_command: 'Run Tests (testclasslist)'
+        environment:
+          CASSANDRA_TEST_KIND: distributed
+      - include_command: 'Log Environment Information'
+  jvm-dtest-upgrade:
+    machine:
+      <<: *base-machine
+      numberOfInstances: 20
+    split:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Determine Tests to Run'
+        environment:
+          CASSANDRA_TEST_KIND: distributed
+          SPLIT_FILTER: "| grep upgrade"
+    map:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Display Splits'
+      - include_command: 'Build dtest jar'
+      - include_command: 'Run Tests (testclasslist)'
+        environment:
+          CASSANDRA_TEST_KIND: distributed
+          BEFORE_TEST: |
+            if [[ $(ls -1 build/dtest*.jar | wc -l) -lt 2 ]]; then
+            echo 'skipping upgrade tests'
+            exit 0
+            fi
+      - include_command: 'Log Environment Information'
