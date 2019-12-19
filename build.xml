@@ -526,7 +526,7 @@
             <arg value="-q" />
             <arg value="org.apache.maven.plugins:maven-gpg-plugin:1.6:sign-and-deploy-file" />
             <arg value="-Dfile=@{file}" />
-            <arg value="-DgroupId=org.apache.cassandra" />
+            <arg value="-DgroupId=${base.groupid}" />
             <arg value="-DartifactId=cassandra-parent" />
             <arg value="-Dversion=${version}" />
             <!-- intentionally dummy out the deploy step -->
@@ -546,7 +546,7 @@
             description="Define dependencies and dependency versions">
       <!-- The parent pom defines the versions of all dependencies -->
       <artifact:pom id="parent-pom"
-                    groupId="org.apache.cassandra"
+                    groupId="${base.groupid}"
                     artifactId="cassandra-parent"
                     packaging="pom"
                     version="${version}"
@@ -625,7 +625,7 @@
           <dependency groupId="org.openjdk.jmh" artifactId="jmh-core" version="1.21"/>
           <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess" version="1.21"/>
 
-          <dependency groupId="org.apache.cassandra" artifactId="cassandra-all" version="${version}" />
+          <dependency groupId="${base.groupid}" artifactId="cassandra-all" version="${version}" />
           <dependency groupId="io.dropwizard.metrics" artifactId="metrics-core" version="3.1.5" />
           <dependency groupId="io.dropwizard.metrics" artifactId="metrics-jvm" version="3.1.5" />
           <dependency groupId="com.addthis.metrics" artifactId="reporter-config3" version="3.0.3" />
@@ -733,7 +733,7 @@
       <!-- each dependency set then defines the subset of the dependencies for that dependency set -->
       <artifact:pom id="build-deps-pom"
                     artifactId="cassandra-build-deps">
-        <parent groupId="org.apache.cassandra"
+        <parent groupId="${base.groupid}"
                 artifactId="cassandra-parent"
                 version="${version}"/>
         <dependency groupId="junit" artifactId="junit"/>
@@ -773,7 +773,7 @@
            artifacts that have "-source.jar" files -->
       <artifact:pom id="build-deps-pom-sources"
                     artifactId="cassandra-build-deps">
-        <parent groupId="org.apache.cassandra"
+        <parent groupId="${base.groupid}"
                 artifactId="cassandra-parent"
                 version="${version}"/>
         <dependency groupId="junit" artifactId="junit"/>
@@ -794,7 +794,7 @@
 
       <artifact:pom id="coverage-deps-pom"
                     artifactId="cassandra-coverage-deps">
-        <parent groupId="org.apache.cassandra"
+        <parent groupId="${base.groupid}"
                 artifactId="cassandra-parent"
                 version="${version}"/>
         <dependency groupId="org.jacoco" artifactId="org.jacoco.agent"/>
@@ -807,7 +807,7 @@
 
       <artifact:pom id="test-deps-pom"
                     artifactId="cassandra-test-deps">
-        <parent groupId="org.apache.cassandra"
+        <parent groupId="${base.groupid}"
                 artifactId="cassandra-parent"
                 version="${version}"/>
       </artifact:pom>
@@ -818,7 +818,7 @@
                     artifactId="cassandra-all"
                     url="https://cassandra.apache.org"
                     name="Apache Cassandra">
-        <parent groupId="org.apache.cassandra"
+        <parent groupId="${base.groupid}"
                 artifactId="cassandra-parent"
                 version="${version}"/>
         <scm connection="${scm.connection}" developerConnection="${scm.developerConnection}" url="${scm.url}"/>
@@ -1474,6 +1474,7 @@
         <jvmarg value="-ea"/>
         <jvmarg value="-Djava.io.tmpdir=${tmp.dir}"/>
         <jvmarg value="-Dcassandra.debugrefcount=true"/>
+        <jvmarg value="-Xms384M"/> <!-- Temporary workaround for distributed ReadRepairTest SEGV -->
         <jvmarg value="-Xss256k"/>
         <!-- When we do classloader manipulation SoftReferences can cause memory leaks
              that can OOM our test runs. The next two settings informs our GC
