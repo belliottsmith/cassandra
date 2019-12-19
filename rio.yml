@@ -1,0 +1,250 @@
+---
+# yamllint disable rule:line-length
+#
+# Cassandra Rio configuration
+#
+# Creates the following pipelines
+#  * ghprb-<branch>-prb            -- Pull request builder - triggered on creation/update of PR
+#  * snapshot-<branch>-publish     -- Publishes snapshot builds whenever the branch is updated
+#  * release-<branch>-publish      -- MANUALLY TRIGGERED to create and publish release jars,
+#                                     tarballs, docker images and carnival packages.
+#
+# Build/test from ghprb uses parallelci to run the tests, unit results are collected and
+# presented to rio so it could upload to Quality
+#
+# The version of the build is determined from the contents of the CIE-VERSION file (previously
+# it was hardcoded in the build script on each branch, but moving it to a separate file
+# allows the same Rio config to be used across all branches with branchRule whitelisting).
+# It holds the last released version of the branch and optionally a custom suffix for
+# experimental builds, e.g. 3.0.19.0-ndeepq.  The snapshot builds the 'next' suffix is supplied
+# if no custom suffix is provided.
+#
+#### VERSIONING
+#
+# From CIE-VERSION a couple of scripts are used to parse out the versions needed by various
+# different packaging systems.
+#
+# FULL_VERSION includes any custom version suffix.
+#
+# ARTIFACTS_VERSION for releases, is just the base version, for snapshots is the base version
+# with -snapshot appended.  This is the version supplied to base.version in {rio-,}build.xml
+# and controls the version used in the build artifacts step for jars, tarballs and the docker image
+# (i.e. cie-cassandra-<base_version>-bin.tar.gz and lib/cie-cassandra-<base_version>.jar)
+#
+# STUB_VERSION holds the version of cassandrastub, calculated by the rio/stub-version.sh script
+#
+# CARNIVAL_VERSION_NAME holds the carnival-compatible version name converting from numerals
+# to textual versions.
+#
+# DOCKER_IMAGE_VERSION holds the full version number for the docker image.  For releases
+# that is just FULL_VERSION, for snapshots an auto incrementing number is appended on top of
+# the full version (e.g. 4.0.0-next.32). Snapshot containers are also tagged with
+# the full version 4.0.0-next so the most recent build of the branch can be easily found.
+#
+#### TESTS
+#
+# The current tests that are run on builds are controlled from the parallelci config
+# in rio/unittests.yml
+#
+schemaVersion: '2.0'
+
+branchRules:
+  whitelist:
+    - 'cie-cassandra-(?<version>4(\.\d+)*)(-(?<variant>\w+))?'
+
+builds:
+  #
+  # Pull request builder
+  #
+  - group: ghprb
+    jenkins:
+      concurrentBuild: true
+      throttlingEnabled: true
+      maxConcurrentTotal: 2
+    machine:
+      baseImage: docker.apple.com/piedb/parallelci:latest
+    secrets:
+      names:
+        - k8s_auth_token
+        - k8s_auth_token.us-west-1a
+        - mcqueen.yml
+    build:
+      template: freestyle:v4:prb
+      steps:
+        - ./rio/parallel-tests-step.sh snapshot
+    timeout: 180
+    reports:
+      junit:
+        paths:
+          - parallel-output/**/build/test/output/*
+      logs:
+        paths:
+          - unified-output/**/build/test/logs/**/*
+          - parallel-output/**/*
+
+  #
+  # Snapshot build - runs automatically on commit
+  #
+  - group: snapshot
+    jenkins:
+      concurrentBuild: true
+      throttlingEnabled: true
+      maxConcurrentTotal: 2
+    trigger:
+      gitPush: true
+    machine:
+      baseImage: docker.apple.com/piedb/parallelci:latest
+      env:
+        CIE_VERSION: '$(./rio/cie-version.sh)'
+        FULL_VERSION: '$(./rio/version-tool.sh snapshot ${GIT_BRANCH} ${CIE_VERSION})'
+        STUB_VERSION_NAME: '$(./rio/stub-version.sh ${FULL_VERSION})'
+        ARTIFACTS_VERSION: '${FULL_VERSION}'
+        CARNIVAL_APP_NAME: '$(./rio/carnival-compatible-name.sh ${FULL_VERSION})'
+        CARNIVAL_BUILD_VERSION: '1BUILD#{}'
+        STUB_JAR: '/work/cassandrastub${STUB_VERSION_NAME}/cassandrastub${STUB_VERSION_NAME}.jar'
+        DOCKER_IMAGE_VERSION: '${FULL_VERSION}.#{${FULL_VERSION}}'
+        DOCKER_IMAGE_BRANCH_TAG: '$(echo "$GIT_BRANCH" | sed "s;cie-cassandra-;;g")-latest'
+    secrets:
+      names:
+        - k8s_auth_token
+        - k8s_auth_token.us-west-1a
+        - mcqueen.yml
+    build:
+      template: freestyle:v4:publish
+      steps:
+        - ant -f rio-build.xml jar
+        - ./rio/parallel-tests-step.sh
+        - ./rio/release.sh ${ARTIFACTS_VERSION}
+        - ./rio/carnival.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+    # timeout also set for parallelci command in rio/parallel-test-step.sh
+    # and in rio/unittests.yml (although not currently implemented)
+    timeout: 180
+    reports:
+      junit:
+        paths:
+          - parallel-output/**/build/test/output/*
+      logs:
+        paths:
+          - unified-output/**/build/test/logs/**/*
+          - parallel-output/**/*
+    package:
+      release: false
+      carnival:
+        - version: "${CARNIVAL_BUILD_VERSION}"
+          projectName: CIEDb
+      freeform:
+        - version: '${FULL_VERSION}'
+          publish:
+            - repo: m2:cie
+      dockerfile:
+        - dockerfilePath: "Dockerfile"
+          version: "${DOCKER_IMAGE_VERSION}"
+          perApplication: false
+          extraTags:
+            - "${FULL_VERSION}"
+            - "${DOCKER_IMAGE_BRANCH_TAG}"
+          publish:
+            - repo: docker.apple.com/piedb_ci/cie-cassandra
+    finally:
+      tag:
+        enabled: true
+        expression: ${GIT_BRANCH}-snapshot-${RIO_BUILD_NUMBER}
+
+  #
+  # Release Build - must be started manually
+  #
+  - group: release
+    trigger:
+      gitPush: false
+    machine:
+      baseImage: docker.apple.com/piedb/parallelci:latest
+      env:
+        CIE_VERSION: '$(./rio/cie-version.sh)'
+        FULL_VERSION: '$(./rio/version-tool.sh release ${GIT_BRANCH} ${CIE_VERSION})'
+        STUB_VERSION_NAME: '$(./rio/stub-version.sh ${FULL_VERSION})'
+        ARTIFACTS_VERSION: '${FULL_VERSION}'
+        CARNIVAL_APP_NAME: '$(./rio/carnival-compatible-name.sh ${FULL_VERSION})'
+        CARNIVAL_BUILD_VERSION: '1BUILD#{}'
+        STUB_JAR: '/work/cassandrastub${STUB_VERSION_NAME}/cassandrastub${STUB_VERSION_NAME}.jar'
+        DOCKER_IMAGE_VERSION: '${FULL_VERSION}'
+        SSH_AUTH_SOCK: "$( echo $SSH_AUTH_SOCK_DEPLOY_KEY )"
+
+    secrets:
+      names:
+        - k8s_auth_token
+        - k8s_auth_token.us-west-1a
+        - mcqueen.yml
+    build:
+      template: freestyle:v4:publish
+      steps:
+        - ant -f rio-build.xml jar
+        - ./rio/parallel-tests-step.sh
+        - ./rio/release.sh ${ARTIFACTS_VERSION}
+        - ./rio/carnival.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+        - ./rio/bump-release-version.sh
+    # timeout also set for parallelci command in rio/parallel-test-step.sh
+    # and in rio/unittests.yml (although not currently implemented) and
+    # the mapper ant task
+    timeout: 180
+    reports:
+      junit:
+        paths:
+          - parallel-output/**/build/test/output/*
+      logs:
+        paths:
+          - unified-output/**/build/test/logs/**/*
+          - parallel-output/**/*
+    package:
+      release: true
+      carnival:
+        - version: "${CARNIVAL_BUILD_VERSION}"
+          projectName: CIEDb
+      freeform:
+        - version: '${FULL_VERSION}'
+          publish:
+            - repo: m2:cie
+      dockerfile:
+        - dockerfilePath: "Dockerfile"
+          version: "${DOCKER_IMAGE_VERSION}"
+          perApplication: false
+          publish:
+            - repo: docker.apple.com/piedb/cie-cassandra
+      mirror:
+        target: silkroad
+        artifactPackageFilters: []
+    finally:
+      tag:
+        enabled: true
+        expression: 'cie-cassandra-${FULL_VERSION}'
+
+
+  - branchName: cie-cassandra-4.0.0
+    name: publish-dtest-cie-4.0.0
+    build:
+      steps:
+        - ./rio/release-dtest-jar.sh 4.0-beta3
+      template: freestyle:v4:publish
+    timeout: 30
+    package:
+      freeform:
+        - publish:
+            - repo: cie-release-local
+    reports:
+      junit: false
+    machine:
+      baseImage: docker.apple.com/cpbuild/applejdk-8:latest
+    finally:
+      radar:
+        annotate: false
+      tag:
+        enabled: false
+      pipelineChain:
+        - project: pie-harry
+          pipeline: docker-publish
+          buildArguments:
+            - name: CASSANDRA_VERSION
+              value: "$(./rio/cie-version.sh)-${GIT_COMMIT_SHORT}"
+            - name: DTEST_VERSION
+              value: "$(./rio/dtest-version.sh)"
+            - name: CASSANDRA_BRANCH
+              value: "${GIT_BRANCH}"
