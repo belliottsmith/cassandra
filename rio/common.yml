@@ -1,0 +1,29 @@
+commands:
+- name: Log Environment Information
+  command: |
+    echo '*** id ***'
+    id
+    echo '*** cat /proc/cpuinfo ***'
+    cat /proc/cpuinfo
+    echo '*** free -m ***'
+    free -m
+    echo '*** df -m ***'
+    df -m
+    echo '*** ifconfig -a ***'
+    ifconfig -a
+    echo '*** uname -a ***'
+    uname -a
+    echo '*** ulimit -a ***'
+    ulimit -a
+    echo '*** mount ***'
+    mount
+    echo '*** env ***'
+    env
+    echo '*** java ***'
+    which java
+    java -version 2>&1
+
+- name: Display Splits
+  noOutputTimeout: PT15M
+  command: |
+    cat $PARALLEL_INPUT_DIR/input
