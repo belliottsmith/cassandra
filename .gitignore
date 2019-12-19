@@ -80,3 +80,7 @@ doc/source/tools/nodetool
 
 # Python virtual environment
 venv/
+
+# CIE Cassandra
+.dist
+.carnival
