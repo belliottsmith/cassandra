@@ -78,3 +78,7 @@ venv/
 # build-scripts will put cassandra-builds into the directory
 cassandra-builds/
 cassandra-dtest/
+
+# CIE Cassandra
+.dist
+.carnival
