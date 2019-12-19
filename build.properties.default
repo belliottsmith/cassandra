@@ -1,4 +1,11 @@
 # Maven2 Repository Locations (you can override these in "build.properties" to point to a local proxy, e.g. Nexus)
-artifact.remoteRepository.central:     https://repo1.maven.org/maven2
-artifact.remoteRepository.apache:      https://repo.maven.apache.org/maven2
-
+artifact.remoteRepository.apache:    https://artifacts.apple.com/libs-release
+artifact.remoteRepository.central:   https://artifacts.apple.com/libs-release
+artifact.remoteRepository.java.net2: https://artifacts.apple.com/libs-release
+artifact.remoteRepository.jclouds:   https://artifacts.apple.com/libs-release
+artifact.remoteRepository.oauth:     https://artifacts.apple.com/libs-release
+maven-ant-tasks.url:                 https://artifacts.apple.com/libs-release/org/apache/maven/maven-ant-tasks
+resolver-ant-tasks.url:              https://artifacts.apple.com/repo1-cache/org/apache/maven/resolver/maven-resolver-ant-tasks
+artifact.github.release:             https://artifacts.apple.com/github-releases
+artifact.python.pypi:                https://artifacts.apple.com/pypi-python-org-cache/
+lib.download.base.url:               https://github.pie.apple.com/aci/apache-cassandra/blob/1371883db3d8bf7d7c54e0baaca89c6c2d2a5abe

@@ -85,6 +85,10 @@ venv/
 cassandra-builds/
 cassandra-dtest/
 
+# CIE Cassandra
+.dist
+.carnival
+
 # Gradle
 .gradle
 !src/**/build/
