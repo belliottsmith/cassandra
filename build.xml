@@ -25,6 +25,7 @@
 
     <!-- default version and SCM information -->
     <property name="base.version" value="4.1"/>
+    <property name="base.groupid" value="org.apache.cassandra"/>
     <property name="scm.connection" value="scm:https://gitbox.apache.org/repos/asf/cassandra.git"/>
     <property name="scm.developerConnection" value="scm:https://gitbox.apache.org/repos/asf/cassandra.git"/>
     <property name="scm.url" value="https://gitbox.apache.org/repos/asf?p=cassandra.git;a=tree"/>
@@ -472,7 +473,7 @@
             description="Define dependencies and dependency versions">
       <!-- The parent pom defines the versions of all dependencies -->
       <artifact:pom id="parent-pom"
-                    groupId="org.apache.cassandra"
+                    groupId="${base.groupid}"
                     artifactId="cassandra-parent"
                     packaging="pom"
                     version="${version}"
@@ -566,7 +567,7 @@
 
           <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.7" scope="test"/>
 
-          <dependency groupId="org.apache.cassandra" artifactId="cassandra-all" version="${version}" />
+          <dependency groupId="${base.groupid}" artifactId="cassandra-all" version="${version}" />
           <dependency groupId="io.dropwizard.metrics" artifactId="metrics-core" version="3.1.5" />
           <dependency groupId="io.dropwizard.metrics" artifactId="metrics-jvm" version="3.1.5" />
           <dependency groupId="io.dropwizard.metrics" artifactId="metrics-logback" version="3.1.5" />
@@ -711,7 +712,7 @@
       <!-- each dependency set then defines the subset of the dependencies for that dependency set -->
       <artifact:pom id="build-deps-pom"
                     artifactId="cassandra-build-deps">
-        <parent groupId="org.apache.cassandra"
+        <parent groupId="${base.groupid}"
                 artifactId="cassandra-parent"
                 version="${version}"
                 relativePath="${final.name}-parent.pom"/>
@@ -740,7 +741,7 @@
                     artifactId="cassandra-all"
                     url="https://cassandra.apache.org"
                     name="Apache Cassandra">
-        <parent groupId="org.apache.cassandra"
+        <parent groupId="${base.groupid}"
                 artifactId="cassandra-parent"
                 version="${version}"
                 relativePath="${final.name}-parent.pom"/>
@@ -1353,6 +1354,7 @@
         <jvmarg value="-ea"/>
         <jvmarg value="-Djava.io.tmpdir=${tmp.dir}"/>
         <jvmarg value="-Dcassandra.debugrefcount=true"/>
+        <jvmarg value="-Xms384M"/> <!-- Temporary workaround for distributed ReadRepairTest SEGV -->
         <jvmarg value="-Xss256k"/>
         <!-- When we do classloader manipulation SoftReferences can cause memory leaks
              that can OOM our test runs. The next two settings informs our GC
