@@ -1,0 +1,7 @@
+# Maven2 Repository Locations (you can override these in "build.properties" to point to a local proxy, e.g. Nexus)
+artifact.remoteRepository.apache:      https://artifacts.apple.com/libs-release
+artifact.remoteRepository.central:     https://artifacts.apple.com/libs-release
+artifact.remoteRepository.java.net2:   https://artifacts.apple.com/libs-release
+artifact.remoteRepository.jclouds:     https://artifacts.apple.com/libs-release
+artifact.remoteRepository.oauth:       https://artifacts.apple.com/libs-release
+maven-ant-tasks.url:                   https://artifacts.apple.com/libs-release/org/apache/maven/maven-ant-tasks
