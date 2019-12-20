@@ -23,10 +23,12 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import org.apache.cassandra.db.MutableDeletionInfo;
 import org.apache.cassandra.distributed.UpgradeableCluster;
 import org.apache.cassandra.distributed.impl.Instance;
+import org.apache.cassandra.distributed.impl.InstanceConfig;
 import org.apache.cassandra.distributed.impl.Versions;
 import org.apache.cassandra.distributed.impl.Versions.Version;
 import org.apache.cassandra.distributed.test.DistributedTestBase;
@@ -67,6 +69,7 @@ public class UpgradeTestBase extends DistributedTestBase
         private RunOnClusterAndNode runAfterNodeUpgrade;
         private RunOnCluster runAfterClusterUpgrade;
         private final Set<Integer> nodesToUpgrade = new HashSet<>();
+        private Consumer<InstanceConfig> configConsumer;
 
         public TestCase()
         {
@@ -117,6 +120,12 @@ public class UpgradeTestBase extends DistributedTestBase
             return this;
         }
 
+        public TestCase withConfig(Consumer<InstanceConfig> config)
+        {
+            this.configConsumer = config;
+            return this;
+        }
+
         public void run() throws Throwable
         {
             if (setup == null)
@@ -135,7 +144,7 @@ public class UpgradeTestBase extends DistributedTestBase
 
             for (TestVersions upgrade : this.upgrade)
             {
-                try (UpgradeableCluster cluster = init(UpgradeableCluster.create(nodeCount, upgrade.initial)))
+                try (UpgradeableCluster cluster = init(UpgradeableCluster.create(nodeCount, upgrade.initial, configConsumer)))
                 {
                     setup.run(cluster);
 
