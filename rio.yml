@@ -33,28 +33,36 @@ builds:
     concurrentBuild: true
     maxConcurrentTotal: 8
   build:
-    template: freestyle:v2:prb
+    template: freestyle:v4:prb
     steps:
-    - ./rio/test.sh
+    - ./rio/parallel-tests.sh ./rio/unittests.yml parallel-output
+    - mkdir -p .out/test-results
+    - cp build/test/output/*.xml .out/test-results/
   machine:
-    docker:
-      baseImage: docker.apple.com/pie/cie-cassandra-build-jdk-8:latest
-  publish:
-    reports:
-      junit: true
+    baseImage: docker.apple.com/piedb/parallelci:latest
+  secrets:
+    names:
+      - k8s_auth_token
+      - mcqueen.yml
+  reports:
+    junit: true
   timeout: 60
 - name: build-3.0.19
   branchName: cie-cassandra-3.0.19
   build:
-    template: freestyle:v2:build
+    template: freestyle:v4:build
     steps:
-    - ./rio/test.sh
+    - ./rio/parallel-tests.sh ./rio/unittests.yml parallel-output
+    - mkdir -p .out/test-results
+    - cp build/test/output/*.xml .out/test-results/
   machine:
-    docker:
-      baseImage: docker.apple.com/pie/cie-cassandra-build-jdk-8:latest
-  publish:
-    reports:
-      junit: true
+    baseImage: docker.apple.com/piedb/parallelci:latest
+  secrets:
+    names:
+      - k8s_auth_token
+      - mcqueen.yml
+  reports:
+    junit: true
   timeout: 60
   finally:
     pipelineChain:
