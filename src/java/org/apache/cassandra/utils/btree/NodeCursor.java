@@ -52,10 +52,10 @@ class NodeCursor<K>
         this.comparator = comparator;
         // a well formed b-tree (text book, or ours) must be balanced, so by building a stack following the left-most branch
         // we have a stack capable of visiting any path in the tree
-        this.child = BTree.isLeaf(node) ? null : new NodeCursor<>((Object[]) node[getChildStart(node)], this, comparator);
+        this.child = BTree.isLeaf(node) ? null : new NodeCursor<>((Object[]) node[childOffset(node)], this, comparator);
     }
 
-    void resetNode(Object[] node, int nodeOffset)
+    private void resetNode(Object[] node, int nodeOffset)
     {
         this.node = node;
         this.nodeOffset = nodeOffset;
@@ -75,12 +75,12 @@ class NodeCursor<K>
      */
     boolean advanceIntoBranchFromChild(boolean forwards)
     {
-        return forwards ? position < getBranchKeyEnd(node) : --position >= 0;
+        return forwards ? position < shallowSizeOfBranch(node) : --position >= 0;
     }
 
     boolean advanceLeafNode(boolean forwards)
     {
-        return forwards ? ++position < getLeafKeyEnd(node)
+        return forwards ? ++position < sizeOfLeaf(node)
                         : --position >= 0;
     }
 
@@ -95,13 +95,12 @@ class NodeCursor<K>
     /**
      * The parent that covers a range wider than ourselves, either ascending or descending,
      * i.e. that defines the upper or lower bound on the subtree rooted at our node
-     * @param upper
      * @return the NodeCursor parent that can tell us the upper/lower bound of ourselves
      */
     NodeCursor<K> boundIterator(boolean upper)
     {
         NodeCursor<K> bound = this.parent;
-        while (bound != null && (upper ? bound.position >= getChildCount(bound.node) - 1
+        while (bound != null && (upper ? bound.position >= childCount(bound.node) - 1
                                        : bound.position <= 0))
             bound = bound.parent;
         return bound;
@@ -125,7 +124,7 @@ class NodeCursor<K>
         if (forwards)
         {
             lb = position + 1;
-            ub = getKeyEnd(node);
+            ub = shallowSize(node);
         }
         else
         {
@@ -153,18 +152,18 @@ class NodeCursor<K>
     {
         if (isLeaf())
         {
-            position = forwards ? 0 : getLeafKeyEnd(node) - 1;
+            position = forwards ? 0 : sizeOfLeaf(node) - 1;
             return null;
         }
         inChild = true;
-        position = forwards ? 0 : getChildCount(node) - 1;
+        position = forwards ? 0 : childCount(node) - 1;
         return descend();
     }
 
     // descend into the child at "position"
     NodeCursor<K> descend()
     {
-        Object[] childNode = (Object[]) node[position + getChildStart(node)];
+        Object[] childNode = (Object[]) node[position + childOffset(node)];
         int childOffset = nodeOffset + treeIndexOffsetOfChild(node, position);
         child.resetNode(childNode, childOffset);
         inChild = true;

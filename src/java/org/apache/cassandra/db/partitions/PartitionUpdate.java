@@ -343,7 +343,7 @@ public class PartitionUpdate extends AbstractBTreePartition
     {
         Holder holder = holder();
         deletionInfo.updateAllTimestamp(newTimestamp - 1);
-        Object[] tree = BTree.<Row>transformAndFilter(holder.tree, (x) -> x.updateAllTimestamp(newTimestamp));
+        Object[] tree = BTree.<Row, Row>transformAndFilter(holder.tree, (x) -> x.updateAllTimestamp(newTimestamp));
         Row staticRow = holder.staticRow.updateAllTimestamp(newTimestamp);
         EncodingStats newStats = EncodingStats.Collector.collect(staticRow, BTree.<Row>iterator(tree), deletionInfo);
         this.holder = new Holder(holder.columns, tree, deletionInfo, staticRow, newStats);
@@ -600,7 +600,7 @@ public class PartitionUpdate extends AbstractBTreePartition
         Holder holder = this.holder;
         Object[] cur = holder.tree;
         Object[] add = rowBuilder.build();
-        Object[] merged = BTree.<Row>merge(cur, add, metadata.comparator,
+        Object[] merged = BTree.<Row, Row, Row>update(cur, add, metadata.comparator,
                                            UpdateFunction.Simple.of((a, b) -> Rows.merge(a, b, createdAtInSec)));
 
         assert deletionInfo == holder.deletionInfo;

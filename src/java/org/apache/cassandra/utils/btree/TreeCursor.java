@@ -7,14 +7,13 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *    http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package org.apache.cassandra.utils.btree;
 
@@ -54,7 +53,7 @@ class TreeCursor<K> extends NodeCursor<K>
         cur = root();
         root().inChild = false;
         // this is a corrupt position, but we ensure we never use it except to start our search from
-        root().position = start ? -1 : getKeyEnd(root().node);
+        root().position = start ? -1 : shallowSize(root().node);
     }
 
     /**
@@ -159,7 +158,7 @@ class TreeCursor<K> extends NodeCursor<K>
         while (!(match = cur.seekInNode(key, forwards)) && !cur.isLeaf())
         {
             cur = cur.descend();
-            cur.position = forwards ? -1 : getKeyEnd(cur.node);
+            cur.position = forwards ? -1 : shallowSize(cur.node);
         }
 
         if (!match)
@@ -180,7 +179,7 @@ class TreeCursor<K> extends NodeCursor<K>
         assert cur.isLeaf();
         int position = cur.position;
         // if we're out of bounds of the leaf, move once in direction of travel
-        if ((position < 0) | (position >= getLeafKeyEnd(cur.node)))
+        if ((position < 0) | (position >= sizeOfLeaf(cur.node)))
             cur = moveOutOfLeaf(forwards, cur, root());
         return cur;
     }
@@ -219,8 +218,7 @@ class TreeCursor<K> extends NodeCursor<K>
             return;
         }
 
-        NodeCursor<K> cur = this.cur;
-        cur = root();
+        NodeCursor<K> cur = root();
         assert cur.nodeOffset == 0;
         while (true)
         {
@@ -229,13 +227,13 @@ class TreeCursor<K> extends NodeCursor<K>
 
             if (cur.isLeaf())
             {
-                assert relativeIndex < getLeafKeyEnd(node);
+                assert relativeIndex < sizeOfLeaf(node);
                 cur.position = relativeIndex;
                 this.cur = cur;
                 return;
             }
 
-            int[] sizeMap = getSizeMap(node);
+            int[] sizeMap = sizeMap(node);
             int boundary = Arrays.binarySearch(sizeMap, relativeIndex);
             if (boundary >= 0)
             {

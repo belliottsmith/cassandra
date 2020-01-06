@@ -20,62 +20,59 @@ package org.apache.cassandra.utils.btree;
 
 import java.util.*;
 import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.function.LongBinaryOperator;
+import java.util.function.ToLongFunction;
 
-import com.google.common.base.Function;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Ordering;
 
+import org.apache.cassandra.utils.BulkIterator;
 import org.apache.cassandra.utils.ObjectSizes;
+import org.apache.cassandra.utils.caching.TinyThreadLocalPool;
 
-import static com.google.common.collect.Iterables.concat;
-import static com.google.common.collect.Iterables.filter;
-import static com.google.common.collect.Iterables.transform;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
 public class BTree
 {
     /**
-     * Leaf Nodes are a raw array of values: Object[V1, V1, ...,].
+     * The {@code BRANCH_FACTOR} is defined as the maximum number of children of each branch, with between
+     * BRANCH_FACTOR/2-1 and BRANCH_FACTOR-1 keys being stored in every node. This yields a minimum tree size of
+     * {@code (BRANCH_FACTOR/2)^height - 1} and a maximum tree size of {@code BRANCH_FACTOR^height - 1}.
      *
-     * Branch Nodes: Object[V1, V2, ..., child[&lt;V1.key], child[&lt;V2.key], ..., child[&lt; Inf], size], where
-     * each child is another node, i.e., an Object[].  Thus, the value elements in a branch node are the
-     * first half of the array (minus one).  In our implementation, each value must include its own key;
-     * we access these via Comparator, rather than directly. 
+     * Branches differ from leaves only in that they contain a suffix region containing the child nodes that occur
+     * either side of the keys, and a sizeMap in the last position, permitting seeking by index within the tree.
+     * Nodes are disambiguated by the length of the array that represents them: an even number is a branch, odd a leaf.
      *
-     * So we can quickly distinguish between leaves and branches, we require that leaf nodes are always an odd number
-     * of elements (padded with a null, if necessary), and branches are always an even number of elements.
+     * Leaf Nodes are represented by an odd-length array of keys, with the final element possibly null, i.e.
+     * Object[V1, V2, ...,null?]
+     *
+     * Branch nodes: Object[V1, V2, ..., child[&lt;V1.key], child[&lt;V2.key], ..., child[&lt; Inf], sizeMap]
+     * Each child is either a branch of leaf, i.e., always an Object[].
+     * The key elements in a branch node occupy the first half of the array (minus one)
      *
      * BTrees are immutable; updating one returns a new tree that reuses unmodified nodes.
      *
-     * There are no references back to a parent node from its children.  (This would make it impossible to re-use
-     * subtrees when modifying the tree, since the modified tree would need new parent references.)
+     * There are no references back to a parent node from its children (this would make it impossible to re-use
+     * subtrees when modifying the tree, since the modified tree would need new parent references).
      * Instead, we store these references in a Path as needed when navigating the tree.
      */
-
-    // The maximum fan factor used for B-Trees
-    static final int FAN_SHIFT;
-    static
-    {
-        int fanfactor = 32;
-        if (System.getProperty("cassandra.btree.fanfactor") != null)
-            fanfactor = Integer.parseInt(System.getProperty("cassandra.btree.fanfactor"));
-        int shift = 1;
-        while (1 << shift < fanfactor)
-            shift += 1;
-        FAN_SHIFT = shift;
-    }
-    // NB we encode Path indexes as Bytes, so this needs to be less than Byte.MAX_VALUE / 2
-    static final int FAN_FACTOR = 1 << FAN_SHIFT;
+    private static final int BRANCH_SHIFT = 5;
+    private static final int BRANCH_FACTOR = 1 << BRANCH_SHIFT;
+    private static final int MIN_KEYS = BRANCH_FACTOR/2 - 1;
+    private static final int MAX_KEYS = BRANCH_FACTOR - 1;
 
     // An empty BTree Leaf - which is the same as an empty BTree
-    static final Object[] EMPTY_LEAF = new Object[1];
+    private static final Object[] EMPTY_LEAF = new Object[1];
 
-    // An empty BTree branch - used only for internal purposes in Modifier
-    static final Object[] EMPTY_BRANCH = new Object[] { null, new int[0] };
+    private static final int[][] DENSE_SIZE_MAPS = buildBalancedSizeMaps(BRANCH_SHIFT);
+    private static final int[][] SPARSE_SIZE_MAPS = buildBalancedSizeMaps(BRANCH_SHIFT - 1);
+    private static final long[] PERFECT_DENSE_SIZE_ON_HEAP = sizeOnHeapOfPerfectTrees(BRANCH_SHIFT);
+    private static final long[] PERFECT_SPARSE_SIZE_ON_HEAP = sizeOnHeapOfPerfectTrees(BRANCH_SHIFT - 1);
 
     // direction of iteration
-    public static enum Dir
+    public enum Dir
     {
         ASC, DESC;
         public Dir invert() { return this == ASC ? DESC : ASC; }
@@ -93,14 +90,16 @@ public class BTree
         return new Object[] { value };
     }
 
-    public static <C, K extends C, V extends C> Object[] build(Collection<K> source, UpdateFunction<K, V> updateF)
+    @Deprecated
+    public static <C, K extends C, V extends C> Object[] build(Collection<K> source)
     {
-        return buildInternal(source, source.size(), updateF);
+        return build(source, source.size(), UpdateFunction.noOp());
     }
 
-    public static <C, K extends C, V extends C> Object[] build(Iterable<K> source, UpdateFunction<K, V> updateF)
+    @Deprecated
+    public static <C, K extends C, V extends C> Object[] build(Collection<K> source, UpdateFunction<K, V> updateF)
     {
-        return buildInternal(source, -1, updateF);
+        return build(source, source.size(), updateF);
     }
 
     /**
@@ -110,89 +109,832 @@ public class BTree
      * @param size    the size of the source iterable
      * @return        a btree representing the contents of the provided iterable
      */
+    @Deprecated
     public static <C, K extends C, V extends C> Object[] build(Iterable<K> source, int size, UpdateFunction<K, V> updateF)
+    {
+        return build(source.iterator(), size, updateF);
+    }
+
+    @Deprecated
+    public static <C, I extends C, O extends C> Object[] build(Iterator<I> source, int size, UpdateFunction<I, O> updateF)
     {
         if (size < 0)
             throw new IllegalArgumentException(Integer.toString(size));
-        return buildInternal(source, size, updateF);
+
+        return build(BulkIterator.of(source), size, updateF);
+    }
+
+    public static <C, I extends C, O extends C> Object[] build(BulkIterator<I> source, int size, UpdateFunction<I, O> updateF)
+    {
+        assert size >= 0;
+        if (size == 0)
+            return EMPTY_LEAF;
+
+        if (size <= MAX_KEYS)
+            return buildLeaf(source, size, updateF);
+
+        return buildRoot(source, size, updateF);
     }
 
     /**
-     * As build(), except:
-     * @param size    < 0 if size is unknown
+     * Build a leaf with {@code size} elements taken in bulk from {@code insert}, and apply {@code updateF} to these elements
      */
-    private static <C, K extends C, V extends C> Object[] buildInternal(Iterable<K> source, int size, UpdateFunction<K, V> updateF)
+    private static <C, I extends C, O extends C> Object[] buildLeaf(BulkIterator<I> insert, int size, UpdateFunction<I, O> updateF)
     {
-        if ((size >= 0) & (size < FAN_FACTOR))
+        Object[] values = new Object[size | 1];
+        insert.fetch(values, 0, size);
+        if (!isSimple(updateF))
         {
-            if (size == 0)
-                return EMPTY_LEAF;
-            // pad to odd length to match contract that all leaf nodes are odd
-            V[] values = (V[]) new Object[size | 1];
-            {
-                int i = 0;
-                for (K k : source)
-                    values[i++] = updateF.apply(k);
-            }
-            updateF.allocated(ObjectSizes.sizeOfArray(values));
-            return values;
+            updateF.onAllocated(ObjectSizes.sizeOfReferenceArray(size | 1));
+            for (int i = 0; i < size; i++)
+                values[i] = updateF.apply((I) values[i]);
         }
-
-        Queue<TreeBuilder> queue = modifier.get();
-        TreeBuilder builder = queue.poll();
-        if (builder == null)
-            builder = new TreeBuilder();
-        Object[] btree = builder.build(source, updateF, size);
-        queue.add(builder);
-        return btree;
-    }
-
-    public static <C, K extends C, V extends C> Object[] update(Object[] btree,
-                                                                Comparator<C> comparator,
-                                                                Collection<K> updateWith,
-                                                                UpdateFunction<K, V> updateF)
-    {
-        return update(btree, comparator, updateWith, updateWith.size(), updateF);
+        return values;
     }
 
     /**
-     * Returns a new BTree with the provided collection inserting/replacing as necessary any equal items
+     * Build a leaf with {@code size} elements taken in bulk from {@code insert}, and apply {@code updateF} to these elements
+     * Do not invoke {@code updateF.onAllocated}.  Used by {@link #buildMaximallyDense} and {@link #buildPerfect} which
+     * track the size for the entire tree they build in order to save on work.
+     */
+    private static <C, I extends C, O extends C> Object[] buildLeafWithoutSizeTracking(BulkIterator<I> insert, int size, UpdateFunction<I, O> updateF)
+    {
+        Object[] values = new Object[size | 1];
+        insert.fetch(values, 0, size);
+        if (!isSimple(updateF))
+        {
+            for (int i = 0; i < size; i++)
+                values[i] = updateF.apply((I) values[i]);
+        }
+        return values;
+    }
+
+    /**
+     * Build a root node from the first {@code size} elements from {@code source}, applying {@code updateF} to those elements.
+     * A root node is permitted to have as few as two children, if a branch (i.e. if {@code size > MAX_SIZE}.
+     */
+    private static <C, I extends C, O extends C> Object[] buildRoot(BulkIterator<I> source, int size, UpdateFunction<I, O> updateF)
+    {
+        // first calculate the minimum height needed for this size of tree
+        int height = minHeight(size);
+        assert height > 1;
+
+        int denseChildSize = denseSize(height - 1);
+        int childCount = size / (denseChildSize + 1) + 1;
+
+        return buildMaximallyDense(source, childCount, size, height, updateF);
+    }
+
+    /**
+     * Build a tree containing some initial quantity of dense nodes, up to a single node of arbitrary size (between
+     * dense and sparse), and the remainder of nodes all sparse.
      *
-     * @param btree              the tree to update
-     * @param comparator         the comparator that defines the ordering over the items in the tree
-     * @param updateWith         the items to either insert / update. MUST BE IN STRICTLY ASCENDING ORDER.
-     * @param updateWithLength   then number of elements in updateWith
-     * @param updateF            the update function to apply to any pairs we are swapping, and maybe abort early
-     * @param <V>
-     * @return
+     * This permits us to build any size of tree:
+     * 1) A root node can have any number of children, so for a given height we can build our smallest tree with two
+     *    sparse nodes.  For a given childCount we can vary up to a whole dense child's size with this scheme,
+     *    and any more difference would require a change in child count anyway.  We have at most two sparse nodes.
+     * 2) An internal node of size > 1/2 max can be constructed in exactly the same way, the extra constraint only
+     *    imposed because we must have at least BRANCH_FACTOR/2 children.
+     * 3) A smaller internal node simply uses precisely BRANCH_FACTOR/2 children, and applies the same algorithm.
+     *    This permits up to all children to be sparse, if necessary.
+     *
+     * For branches just above the leaf level, we split more evenly, since there's no advantage to imbalance.
      */
-    public static <C, K extends C, V extends C> Object[] update(Object[] btree,
-                                                                Comparator<C> comparator,
-                                                                Iterable<K> updateWith,
-                                                                int updateWithLength,
-                                                                UpdateFunction<K, V> updateF)
+    private static <C, I extends C, O extends C> Object[] buildMaximallyDense(BulkIterator<I> source, int childCount, int size, int height, UpdateFunction<I, O> updateF)
     {
-        if (isEmpty(btree))
-            return build(updateWith, updateWithLength, updateF);
+        assert height * BRANCH_SHIFT < 32;
 
-        Queue<TreeBuilder> queue = modifier.get();
-        TreeBuilder builder = queue.poll();
-        if (builder == null)
-            builder = new TreeBuilder();
-        btree = builder.update(btree, comparator, updateWith, updateF);
-        queue.add(builder);
-        return btree;
+        int keyCount = childCount - 1;
+        int[] sizeMap = new int[childCount];
+        Object[] branch = new Object[childCount * 2];
+
+        if (height == 2)
+        {
+            // we use the _exact same logic_ as below, only we invoke buildLeaf
+            long allocated = 0;
+            int i = 0;
+            int remaining = size;
+            // while we have room to accommodate:
+            //    1) all of our remaining keys {@code keyCount-i}
+            //    2) one more node of precisely denseSize
+            //    3) all of our other remaining children {@code keyCount-i} at sparseSize
+            // we can safely add another child at denseSize
+            while (remaining > MAX_KEYS + (1+MIN_KEYS)*(keyCount-i))
+            {
+                sizeMap[i] = (1 + MAX_KEYS) * i + MAX_KEYS;
+                branch[keyCount + i] = buildLeafWithoutSizeTracking(source, MAX_KEYS, updateF);
+                branch[i++] = isSimple(updateF) ? source.next() : updateF.apply(source.next());
+                remaining -= MAX_KEYS + 1;
+                allocated += PERFECT_DENSE_SIZE_ON_HEAP[0];
+            }
+            {
+                // remainder already has subtracted above children and keys
+                // we need to also subtract the sparseChildSize nodes we will add afterwards
+                int remainderSize = remaining - (childCount - (1 + i)) * (1 + MIN_KEYS);
+                branch[keyCount + i] = buildLeafWithoutSizeTracking(source, remainderSize, updateF);
+                sizeMap[i] = size = (1 + MAX_KEYS) * i + remainderSize;
+                if (!isSimple(updateF))
+                    allocated += ObjectSizes.sizeOfReferenceArray(remainderSize | 1);
+            }
+            // finally build "sparse" children to consume the remaining elements
+            while (i < keyCount)
+            {
+                branch[i++] = isSimple(updateF) ? source.next() : updateF.apply(source.next());
+                branch[keyCount + i] = buildLeafWithoutSizeTracking(source, MIN_KEYS, updateF);
+                sizeMap[i] = size += 1 + MIN_KEYS;
+                allocated += PERFECT_SPARSE_SIZE_ON_HEAP[0];
+            }
+            if (!isSimple(updateF))
+                updateF.onAllocated(allocated);
+        }
+        else
+        {
+            --height;
+
+            long allocated = 0; // tracks only the perfect allocations; recursive calls of buildMaximallyDense will invoke for their own
+            int i = 0;
+            int remaining = size;
+            // while we have room to accommodate:
+            //    1) all of our remaining keys {@code keyCount-i}
+            //    2) one more node of precisely denseSize
+            //    3) all of our other remaining children {@code keyCount-i} at sparseSize
+            // we can safely add another child at denseSize
+            // TODO: turn this into a for-loop with count pre-computed, bumping allocated only once
+            while (remaining > denseSize(height) + (1+sparseSize(height))*(keyCount-i))
+            {
+                sizeMap[i] = (1 + i) * (1 + denseSize(height)) - 1;
+                branch[keyCount + i] = buildPerfectDense(source, height, updateF);
+                branch[i++] = isSimple(updateF) ? source.next() : updateF.apply(source.next());
+                remaining -= denseSize(height) + 1;
+                allocated += PERFECT_DENSE_SIZE_ON_HEAP[height - 1];
+            }
+            {
+                // remainder already has subtracted above children and keys
+                // we need to also subtract the sparseChildSize nodes we will add afterwards
+                int remainderSize = remaining - (childCount - (1 + i)) * (1+sparseSize(height));
+                // need to decide our number of children either based on denseGrandChildSize,
+                // or the least number of children we can use, if we want to be maximally dense
+                int grandChildCount = remainderSize < denseSize(height)/2
+                                      ? MIN_KEYS + 1
+                                      : remainderSize / (denseSize(height-1)+1) + 1;
+
+                branch[keyCount + i] = buildMaximallyDense(source, grandChildCount, remainderSize, height, updateF);
+                sizeMap[i] = size = (1 + denseSize(height)) * i + remainderSize;
+            }
+            // finally build sparse children to consume the remaining elements
+            while (i < keyCount)
+            {
+                branch[i++] = isSimple(updateF) ? source.next() : updateF.apply(source.next());
+                branch[keyCount + i] = buildPerfectSparse(source, height, updateF);
+                sizeMap[i] = size += 1 + sparseSize(height);
+                allocated += PERFECT_SPARSE_SIZE_ON_HEAP[height - 1];
+            }
+            if (!isSimple(updateF))
+                updateF.onAllocated(allocated);
+        }
+
+        branch[2 * keyCount + 1] = sizeMap;
+        return branch;
     }
 
-    public static <K> Object[] merge(Object[] tree1, Object[] tree2, Comparator<? super K> comparator, UpdateFunction<K, K> updateF)
+    private static <C, I extends C, O extends C> Object[] buildPerfectDense(BulkIterator<I> source, int height, UpdateFunction<I, O> updateF)
     {
-        if (size(tree1) < size(tree2))
+        return buildPerfect(source, height, BRANCH_SHIFT, updateF, DENSE_SIZE_MAPS);
+    }
+
+    private static <C, I extends C, O extends C> Object[] buildPerfectSparse(BulkIterator<I> source, int height, UpdateFunction<I, O> updateF)
+    {
+        return buildPerfect(source, height, BRANCH_SHIFT-1, updateF, SPARSE_SIZE_MAPS);
+    }
+
+    /**
+     * Build a tree of size precisely {@code branchFactor^height - 1}
+     */
+    private static <C, I extends C, O extends C> Object[] buildPerfect(BulkIterator<I> source, int height, int branchShift, UpdateFunction<I, O> updateF, int[][] lookupSizeMap)
+    {
+        assert height * branchShift < 32;
+        int keyCount = (1 << branchShift) - 1;
+        Object[] node = new Object[(1 << branchShift) * 2];
+
+        if (height == 2)
         {
-            Object[] tmp = tree1;
-            tree1 = tree2;
-            tree2 = tmp;
+            int childSize = treeSize2n(1, branchShift);
+            for (int i = 0; i < keyCount; i++)
+            {
+                node[keyCount + i] = buildLeafWithoutSizeTracking(source, childSize, updateF);
+                node[i] = isSimple(updateF) ? source.next() : updateF.apply(source.next());
+            }
+            node[2 * keyCount] = buildLeafWithoutSizeTracking(source, childSize, updateF);
         }
-        return update(tree1, comparator, new BTreeSet<K>(tree2, comparator), updateF);
+        else
+        {
+            for (int i = 0; i < keyCount; i++)
+            {
+                Object[] child = buildPerfect(source, height-1, branchShift, updateF, lookupSizeMap);
+                node[keyCount + i] = child;
+                node[i] = isSimple(updateF) ? source.next() : updateF.apply(source.next());
+            }
+            node[2 * keyCount] = buildPerfect(source, height-1, branchShift, updateF, lookupSizeMap);
+        }
+        node[keyCount + (1 << branchShift)] = lookupSizeMap[height - 2];
+
+        return node;
+    }
+
+    public static <Compare> Object[] update(Object[] toUpdate, Object[] insert, Comparator<? super Compare> comparator)
+    {
+        return BTree.<Compare, Compare, Compare>update(toUpdate, insert, comparator, UpdateFunction.noOp());
+    }
+
+    /**
+     * Inserts {@code insert} into {@code update}, applying {@code updateF} to each new item in {@code insert},
+     * as well as any matched items in {@code update}.
+     *
+     * Note that {@code UpdateFunction.noOp} is assumed to indicate a lack of interest in which value survives.
+     */
+    public static <Compare, Existing extends Compare, Insert extends Compare> Object[] update(Object[] update, Object[] insert, Comparator<? super Compare> comparator, UpdateFunction<Insert, Existing> updateF)
+    {
+        // perform some initial obvious optimisations
+        if (isEmpty(insert))
+            return update; // do nothing if update is empty
+
+        if (isEmpty(update))
+        {
+            if (isSimple(updateF))
+                return insert; // if update is empty and updateF is trivial, return our new input
+
+            // if update is empty and updateF is non-trivial, perform a simple fast transformation of the input tree
+            insert = BTree.transform(insert, updateF);
+            updateF.onAllocated(sizeOnHeapOf(insert));
+            return insert;
+        }
+
+        if (isLeaf(update) && isLeaf(insert))
+        {
+            // if both are leaves, perform a tight-loop leaf variant of update
+            // possibly flipping the input order if sizes suggest and updateF permits
+            if (updateF == (UpdateFunction)UpdateFunction.noOp && update.length < insert.length)
+            {
+                Object[] tmp = update;
+                update = insert;
+                insert = tmp;
+            }
+            return updateLeaves(update, insert, comparator, updateF);
+        }
+
+        if (!isLeaf(insert) && isSimple(updateF))
+        {
+            // consider flipping the order of application, if update is much larger than insert and applying unary no-op
+            int updateSize = size(update);
+            int insertSize = size(insert);
+            int scale = Integer.numberOfLeadingZeros(updateSize) - Integer.numberOfLeadingZeros(insertSize);
+            if (scale >= 4)
+            {
+                // i.e. at roughly 16x the size, or one tier deeper - very arbitrary, should pick more carefully
+                // experimentally, at least at 64x the size the difference in performance is ~10x
+                Object[] tmp = insert;
+                insert = update;
+                update = tmp;
+                if (updateF != (UpdateFunction)UpdateFunction.noOp)
+                    updateF = ((UpdateFunction.Simple)updateF).flip();
+            }
+        }
+
+        try (Updater<Compare, Existing, Insert> updater = Updater.get())
+        {
+            return updater.update(update, insert, comparator, updateF);
+        }
+    }
+
+    /**
+     * A fast tight-loop variant of updating one btree with another, when both are leaves.
+     */
+    public static <Compare, Existing extends Compare, Insert extends Compare> Object[] updateLeaves(Object[] unode, Object[] inode, Comparator<? super Compare> comparator, UpdateFunction<Insert, Existing> updateF)
+    {
+        int upos = -1, usz = sizeOfLeaf(unode);
+        Existing uk = (Existing) unode[0];
+        int ipos = 0, isz = sizeOfLeaf(inode);
+        Insert ik = (Insert) inode[0];
+
+        Existing merged = null;
+        int c = -1;
+        while (c <= 0) // optimistic: find the first point in the original leaf that is modified (if any)
+        {
+            if (c < 0)
+            {
+                upos = exponentialSearch(comparator, unode, upos + 1, usz, ik);
+                c = upos < 0 ? 1 : 0; // positive or zero
+                if (upos < 0) upos = -(1 + upos);
+                if (upos == usz)
+                    break;
+                uk = (Existing) unode[upos];
+            }
+            else // c == 0
+            {
+                merged = updateF.apply(uk, ik);
+                if (merged != uk)
+                    break;
+                if (++ipos == isz)
+                    return unode;
+                if (++upos == usz)
+                    break;
+                c = comparator.compare(uk = (Existing) unode[upos], ik = (Insert) inode[ipos]);
+            }
+        }
+
+        // exit conditions: c == 0 && merged != uk
+        //              or: c >  0
+        //              or: upos == usz
+
+        try (FastBuilder<Existing> builder = fastBuilder())
+        {
+            if (upos > 0)
+            {
+                // copy any initial section that is unmodified
+                System.arraycopy(unode, 0, builder.leaf().buffer, 0, upos);
+                builder.leaf().count = upos;
+            }
+
+            // handle prior loop's exit condition
+            // we always have either an ik, or an ik merged with uk, to handle
+            if (upos < usz)
+            {
+                if (c == 0)
+                {
+                    builder.add(merged);
+                    if (++upos < usz)
+                        uk = (Existing) unode[upos];
+                }
+                else // c > 0
+                {
+                    builder.add(updateF.apply(ik));
+                }
+                if (++ipos < isz)
+                    ik = (Insert) inode[ipos];
+
+                if (upos < usz && ipos < isz)
+                {
+                    // note: this code is _identical_ to equivalent section in FastUpdater
+                    c = comparator.compare(uk, ik);
+                    while (true)
+                    {
+                        if (c == 0)
+                        {
+                            builder.leaf().addKey(updateF.apply(uk, ik));
+                            ++upos;
+                            ++ipos;
+                            if (upos == usz || ipos == isz)
+                                break;
+                            c = comparator.compare(uk = (Existing) unode[upos], ik = (Insert) inode[ipos]);
+                        }
+                        else if (c < 0)
+                        {
+                            int until = exponentialSearch(comparator, unode, upos + 1, usz, ik);
+                            c = until < 0 ? 1 : 0; // must find greater or equal; set >= 0 (equal) to 0; set < 0 (greater) to c=+ve
+                            if (until < 0) until = -(1 + until);
+                            builder.leaf().copy(unode, upos, until - upos);
+                            if ((upos = until) == usz)
+                                break;
+                            uk = (Existing) unode[upos];
+                        }
+                        else
+                        {
+                            int until = exponentialSearch(comparator, inode, ipos + 1, isz, uk);
+                            c = until & 0x80000000; // must find less or equal; set >= 0 (equal) to 0, otherwise leave intact
+                            if (until < 0) until = -(1 + until);
+                            builder.leaf().copy(inode, ipos, until - ipos, updateF);
+                            if ((ipos = until) == isz)
+                                break;
+                            ik = (Insert) inode[ipos];
+                        }
+
+                    }
+                }
+                if (upos < usz)
+                {
+                    // ipos == isz
+                    builder.leaf().copy(unode, upos, usz - upos);
+                }
+            }
+            if (ipos < isz)
+            {
+                // upos == usz
+                builder.leaf().copy(inode, ipos, isz - ipos, updateF);
+            }
+            return builder.build();
+        }
+    }
+
+    /**
+     * Modifies the provided btree directly. THIS SHOULD NOT BE USED WITHOUT EXTREME CARE as BTrees are meant to be immutable.
+     * Finds and replaces the provided item in the tree. Both should sort as equal to each other (although this is not enforced)
+     */
+    public static <V> void replaceInSitu(Object[] node, Comparator<? super V> comparator, V find, V replace)
+    {
+        while (true)
+        {
+            int keyEnd = shallowSize(node);
+            int i = Arrays.binarySearch((V[]) node, 0, keyEnd, find, comparator);
+
+            if (i >= 0)
+            {
+                node[i] = replace;
+                return;
+            }
+
+            if (isLeaf(node))
+                throw new NoSuchElementException();
+
+            i = -1 - i;
+            node = (Object[]) node[keyEnd + i];
+        }
+    }
+
+    public static void reverseInSitu(Object[] tree)
+    {
+        reverseInSitu(tree, height(tree), true);
+    }
+
+    /**
+     * The internal implementation of {@link #reverseInSitu(Object[])}.
+     * Takes two arguments that help minimise garbage generation, by testing sizeMaps against
+     * known globallyl shared sizeMap for dense nodes that do not need to be modified, and
+     * for permitting certain users (namely FastBuilder) to declare that non-matching sizeMap
+     * can be mutated directly without allocating {@code new int[]}
+     * @param tree the tree to reverse in situ
+     * @param height the height of the tree
+     * @param copySizeMaps whether or not to copy any non-globally-shared sizeMap before reversing them
+     */
+    private static void reverseInSitu(Object[] tree, int height, boolean copySizeMaps)
+    {
+        if (isLeaf(tree))
+        {
+            reverse(tree, 0, sizeOfLeaf(tree));
+        }
+        else
+        {
+            int keyCount = shallowSizeOfBranch(tree);
+            reverse(tree, 0, keyCount);
+            reverse(tree, keyCount, keyCount * 2 + 1);
+            for (int i = keyCount ; i <= keyCount * 2 ; ++i)
+                reverseInSitu((Object[]) tree[i], height - 1, copySizeMaps);
+
+            int[] sizeMap = (int[]) tree[2 * keyCount + 1];
+            if (sizeMap != DENSE_SIZE_MAPS[height - 2]) // no need to reverse a dense map; same in both directions
+            {
+                if (copySizeMaps)
+                    sizeMap = sizeMap.clone();
+                sizeMapToSizes(sizeMap);
+                reverse(sizeMap, 0, sizeMap.length);
+                sizesToSizeMap(sizeMap);
+            }
+        }
+    }
+
+    /**
+     * Takes a tree and transforms it using the provided function, filtering out any null results.
+     * The result of any transformation must sort identically as their originals, wrt other results.
+     *
+     * If no modifications are made, the original is returned.
+     *
+     * An efficient transformAndFilter implementation suitable for a tree consisting of a single leaf root
+     * NOTE: codewise *identical* to {@link #transformAndFilter(Object[], BiFunction, Object)}
+     */
+    public static <I, O> Object[] transformAndFilter(Object[] tree, Function<? super I, ? extends O> apply)
+    {
+        if (isEmpty(tree))
+            return tree;
+
+        if (isLeaf(tree))
+            return transformAndFilterLeaf(tree, apply);
+
+        try (Transformer<I, O> transformer = Transformer.get(apply))
+        {
+            return transformer.apply(tree);
+        }
+    }
+
+    /**
+     * An efficient transformAndFilter implementation suitable for a tree consisting of a single leaf root
+     * NOTE: codewise *identical* to {@link #transformAndFilterLeaf(Object[], BiFunction, Object)}
+     */
+    private static <I, O> Object[] transformAndFilterLeaf(Object[] leaf, Function<? super I, ? extends O> apply)
+    {
+        int i = 0, sz = sizeOfLeaf(leaf);
+        I in; O out;
+        do // optimistic loop, looking for first point transformation modifies the input (if any)
+        {
+            in = (I) leaf[i];
+            out = apply.apply(in);
+        } while (in == out && ++i < sz);
+
+        // in == out -> i == sz
+        // otherwise   in == leaf[i]
+        int identicalUntil = i;
+
+        if (out == null && ++i < sz)
+        {
+            // optimistic loop, looking for first key {@code apply} modifies without removing it (if any)
+            do
+            {
+                in = (I) leaf[i];
+                out = apply.apply(in);
+            } while (null == out && ++i < sz);
+        }
+        // out == null -> i == sz
+        // otherwise      out == apply.apply(leaf[i])
+
+        if (i == sz)
+        {
+            // if we have reached the end of the input, we're either:
+            //   1) returning input unmodified; or
+            //   2) copying some (possibly empty) prefix of it
+
+            if (identicalUntil == sz)
+                return leaf;
+
+            if (identicalUntil == 0)
+                return empty();
+
+            Object[] copy = new Object[identicalUntil | 1];
+            System.arraycopy(leaf, 0, copy, 0, identicalUntil);
+            return copy;
+        }
+
+        try (FastBuilder<O> builder = fastBuilder())
+        {
+            // otherwise copy the initial part that was unmodified, insert the non-null modified key, and continue
+            if (identicalUntil > 0)
+                builder.leaf().copyNoOverflow(leaf, 0, identicalUntil);
+            builder.leaf().addKeyNoOverflow(out);
+
+            while (++i < sz)
+            {
+                in = (I) leaf[i];
+                out = apply.apply(in);
+                if (out != null)
+                    builder.leaf().addKeyNoOverflow(out);
+            }
+
+            return builder.build();
+        }
+    }
+
+    /**
+     * Takes a tree and transforms it using the provided function, filtering out any null results.
+     * The result of any transformation must sort identically as their originals, wrt other results.
+     *
+     * If no modifications are made, the original is returned.
+     * NOTE: codewise *identical* to {@link #transformAndFilter(Object[], Function)}
+     */
+    public static <I, I2, O> Object[] transformAndFilter(Object[] tree, BiFunction<? super I, ? super I2, ? extends O> apply, I2 param)
+    {
+        if (isEmpty(tree))
+            return tree;
+
+        if (isLeaf(tree))
+            return transformAndFilterLeaf(tree, apply, param);
+
+        try (BiTransformer<I, I2, O> transformer = BiTransformer.get(apply, param))
+        {
+            return transformer.apply(tree);
+        }
+    }
+
+    /**
+     * An efficient transformAndFilter implementation suitable for a tree consisting of a single leaf root
+     * NOTE: codewise *identical* to {@link #transformAndFilterLeaf(Object[], Function)}
+     */
+    private static <I, I2, O> Object[] transformAndFilterLeaf(Object[] leaf, BiFunction<? super I, ? super I2, ? extends O> apply, I2 param)
+    {
+        int i = 0, sz = sizeOfLeaf(leaf);
+        I in; O out;
+        do // optimistic loop, looking for first point transformation modifies the input (if any)
+        {
+            in = (I) leaf[i];
+            out = apply.apply(in, param);
+        } while (in == out && ++i < sz);
+
+        // in == out -> i == sz
+        // otherwise   in == leaf[i]
+        int identicalUntil = i;
+
+        if (out == null && ++i < sz)
+        {
+            // optimistic loop, looking for first key {@code apply} modifies without removing it (if any)
+            do
+            {
+                in = (I) leaf[i];
+                out = apply.apply(in, param);
+            } while (null == out && ++i < sz);
+        }
+        // out == null -> i == sz
+        // otherwise      out == apply.apply(leaf[i])
+
+        if (i == sz)
+        {
+            // if we have reached the end of the input, we're either:
+            //   1) returning input unmodified; or
+            //   2) copying some (possibly empty) prefix of it
+
+            if (identicalUntil == sz)
+                return leaf;
+
+            if (identicalUntil == 0)
+                return empty();
+
+            Object[] copy = new Object[identicalUntil | 1];
+            System.arraycopy(leaf, 0, copy, 0, identicalUntil);
+            return copy;
+        }
+
+        try (FastBuilder<O> builder = fastBuilder())
+        {
+            // otherwise copy the initial part that was unmodified, insert the non-null modified key, and continue
+            if (identicalUntil > 0)
+                builder.leaf().copyNoOverflow(leaf, 0, identicalUntil);
+            builder.leaf().addKeyNoOverflow(out);
+
+            while (++i < sz)
+            {
+                in = (I) leaf[i];
+                out = apply.apply(in, param);
+                if (out != null)
+                    builder.leaf().addKeyNoOverflow(out);
+            }
+
+            return builder.build();
+        }
+    }
+
+    /**
+     * Takes a tree and transforms it using the provided function.
+     * The result of any transformation must sort identically as their originals, wrt other results.
+     *
+     * If no modifications are made, the original is returned.
+     */
+    public static <I, O> Object[] transform(Object[] tree, Function<? super I, ? extends O> function)
+    {
+        if (isEmpty(tree)) // isEmpty determined by identity; must return input
+            return tree;
+
+        if (isLeaf(tree)) // escape hatch for fast leaf transformation
+            return transformLeaf(tree, function);
+
+        Object[] result = tree; // optimistically assume we'll return our input unmodified
+        int keyCount = shallowSizeOfBranch(tree);
+        for (int i = 0 ; i < keyCount ; ++i)
+        {
+            // operate on a pair of (child,key) each loop
+            Object[] curChild = (Object[]) tree[keyCount + i];
+            Object[] updChild = transform(curChild, function);
+            Object curKey = tree[i];
+            Object updKey = function.apply((I) curKey);
+            if (result == tree)
+            {
+                if (curChild == updChild && curKey == updKey)
+                    continue; // if output still same as input, loop
+
+                // otherwise initialise output to a copy of input up to this point
+                result = transformCopyBranchHelper(tree, keyCount, i, i);
+            }
+            result[keyCount + i] = updChild;
+            result[i] = updKey;
+        }
+        // final unrolled copy of loop for last child only (unbalanced with keys)
+        Object[] curChild = (Object[]) tree[2 * keyCount];
+        Object[] updChild = transform(curChild, function);
+        if (result == tree)
+        {
+            if (curChild == updChild)
+                return tree;
+            result = transformCopyBranchHelper(tree, keyCount, keyCount, keyCount);
+        }
+        result[2 * keyCount] = updChild;
+        result[2 * keyCount + 1] = tree[2 * keyCount + 1]; // take the original sizeMap, as we are exactly the same shape
+        return result;
+    }
+
+    // an efficient transformAndFilter implementation suitable for a tree consisting of a single leaf root
+    private static <I, O> Object[] transformLeaf(Object[] leaf, Function<? super I, ? extends O> apply)
+    {
+        Object[] result = leaf; // optimistically assume we'll return our input unmodified
+        int size = sizeOfLeaf(leaf);
+        for (int i = 0 ; i < size ; ++i)
+        {
+            Object current = leaf[i];
+            Object updated = apply.apply((I) current);
+            if (result == leaf)
+            {
+                if (current == updated)
+                    continue; // if output still same as input, loop
+
+                // otherwise initialise output to a copy of input up to this point
+                result = new Object[leaf.length];
+                System.arraycopy(leaf, 0, result, 0, i);
+            }
+            result[i] = updated;
+        }
+        return result;
+    }
+
+    /**
+     * Takes a tree and transforms it using the provided function.
+     * The result of any transformation must sort identically as their originals, wrt other results.
+     *
+     * If no modifications are made, the original is returned.
+     */
+    public static <I, I2, O> Object[] transform(Object[] tree, BiFunction<? super I, ? super I2, ? extends O> apply, I2 param)
+    {
+        if (isEmpty(tree)) // isEmpty determined by identity; must return input
+            return tree;
+
+        if (isLeaf(tree)) // escape hatch for fast leaf transformation
+            return transformLeaf(tree, apply, param);
+
+        Object[] result = tree; // optimistically assume we'll return our input unmodified
+        int keyCount = shallowSizeOfBranch(tree);
+        for (int i = 0 ; i < keyCount ; ++i)
+        {
+            Object[] curChild = (Object[]) tree[keyCount + i];
+            Object[] updChild = transform(curChild, apply, param);
+            Object curKey = tree[i];
+            Object updKey = apply.apply((I) curKey, param);
+            if (result == tree)
+            {
+                if (curChild == updChild && curKey == updKey)
+                    continue; // if output still same as input, loop
+
+                // otherwise initialise output to a copy of input up to this point
+                result = transformCopyBranchHelper(tree, keyCount, i, i);
+            }
+            result[keyCount + i] = updChild;
+            result[i] = updKey;
+        }
+        Object[] curChild = (Object[]) tree[2 * keyCount];
+        Object[] updChild = transform(curChild, apply, param);
+        if (result == tree)
+        {
+            if (curChild == updChild)
+                return tree;
+            result = transformCopyBranchHelper(tree, keyCount, keyCount, keyCount);
+        }
+        result[2 * keyCount] = updChild;
+        result[2 * keyCount + 1] = tree[2 * keyCount + 1];
+        return result;
+    }
+
+    // create a copy of a branch, with the exact same size, copying the specified number of keys and children
+    private static Object[] transformCopyBranchHelper(Object[] branch, int keyCount, int copyKeyCount, int copyChildCount)
+    {
+        Object[] result = new Object[branch.length];
+        System.arraycopy(branch, 0, result, 0, copyKeyCount);
+        System.arraycopy(branch, keyCount, result, keyCount, copyChildCount);
+        return result;
+    }
+
+    // an efficient transformAndFilter implementation suitable for a tree consisting of a single leaf root
+    private static <I, I2, O> Object[] transformLeaf(Object[] leaf, BiFunction<? super I, ? super I2, ? extends O> apply, I2 param)
+    {
+        Object[] result = leaf; // optimistically assume we'll return our input unmodified
+        int size = sizeOfLeaf(leaf);
+        for (int i = 0 ; i < size ; ++i)
+        {
+            Object current = leaf[i];
+            Object updated = apply.apply((I) current, param);
+            if (result == leaf)
+            {
+                if (current == updated)
+                    continue; // if output still same as input, loop
+
+                // otherwise initialise output to a copy of input up to this point
+                result = new Object[leaf.length];
+                System.arraycopy(leaf, 0, result, 0, i);
+            }
+            result[i] = updated;
+        }
+        return result;
+    }
+
+    // temporary placeholder until CASSANDRA-15389
+    public static <V> long accumulate(Object[] btree, ToLongFunction<V> transform, LongBinaryOperator merge, long initialValue)
+    {
+        if (isLeaf(btree))
+        {
+            for (int i = 0, mi = sizeOfLeaf(btree) ; i < mi ; ++i)
+                initialValue = merge.applyAsLong(initialValue, transform.applyAsLong((V) btree[i]));
+        }
+        else
+        {
+            int keyCount = shallowSizeOfBranch(btree);
+            for (int i = 0 ; i < keyCount ; ++i)
+            {
+                initialValue = accumulate((Object[]) btree[keyCount + i], transform, merge, initialValue);
+                initialValue = merge.applyAsLong(initialValue, transform.applyAsLong((V) btree[i]));
+            }
+            initialValue = accumulate((Object[]) btree[2 * keyCount], transform, merge, initialValue);
+        }
+        return initialValue;
     }
 
     public static <V> Iterator<V> iterator(Object[] btree)
@@ -230,8 +972,6 @@ public class BTree
      *
      * @param btree  the tree to iterate over
      * @param dir    direction of iteration
-     * @param <V>
-     * @return
      */
     public static <K, V> BTreeSearchIterator<K, V> slice(Object[] btree, Comparator<? super K> comparator, Dir dir)
     {
@@ -281,7 +1021,7 @@ public class BTree
     {
         while (true)
         {
-            int keyEnd = getKeyEnd(node);
+            int keyEnd = shallowSize(node);
             int i = Arrays.binarySearch((V[]) node, 0, keyEnd, find, comparator);
 
             if (i >= 0)
@@ -289,32 +1029,6 @@ public class BTree
 
             if (isLeaf(node))
                 return null;
-
-            i = -1 - i;
-            node = (Object[]) node[keyEnd + i];
-        }
-    }
-
-    /**
-     * Modifies the provided btree directly. THIS SHOULD NOT BE USED WITHOUT EXTREME CARE as BTrees are meant to be immutable.
-     * Finds and replaces the provided item in the tree. Both should sort as equal to each other (although this is not enforced)
-     */
-    public static <V> void replaceInSitu(Object[] node, Comparator<? super V> comparator, V find, V replace)
-    {
-        while (true)
-        {
-            int keyEnd = getKeyEnd(node);
-            int i = Arrays.binarySearch((V[]) node, 0, keyEnd, find, comparator);
-
-            if (i >= 0)
-            {
-                assert find == node[i];
-                node[i] = replace;
-                return;
-            }
-
-            if (isLeaf(node))
-                throw new NoSuchElementException();
 
             i = -1 - i;
             node = (Object[]) node[keyEnd + i];
@@ -330,7 +1044,7 @@ public class BTree
         int lb = 0;
         while (true)
         {
-            int keyEnd = getKeyEnd(node);
+            int keyEnd = shallowSize(node);
             int i = Arrays.binarySearch((V[]) node, 0, keyEnd, find, comparator);
             boolean exact = i >= 0;
 
@@ -340,7 +1054,7 @@ public class BTree
             if (!exact)
                 i = -1 - i;
 
-            int[] sizeMap = getSizeMap(node);
+            int[] sizeMap = sizeMap(node);
             if (exact)
                 return lb + sizeMap[i];
             else if (i > 0)
@@ -363,28 +1077,19 @@ public class BTree
         while (true)
         {
             if (isLeaf(node))
-            {
-                int keyEnd = getLeafKeyEnd(node);
-                assert index < keyEnd;
                 return (V) node[index];
-            }
 
-            int[] sizeMap = getSizeMap(node);
+            int[] sizeMap = sizeMap(node);
             int boundary = Arrays.binarySearch(sizeMap, index);
-            if (boundary >= 0)
-            {
-                // exact match, in this branch node
-                assert boundary < sizeMap.length - 1;
+            if (boundary >= 0) // exact match, in this branch node
                 return (V) node[boundary];
-            }
 
             boundary = -1 -boundary;
             if (boundary > 0)
             {
-                assert boundary < sizeMap.length;
                 index -= (1 + sizeMap[boundary - 1]);
             }
-            node = (Object[]) node[getChildStart(node) + boundary];
+            node = (Object[]) node[childOffset(node) + boundary];
         }
     }
 
@@ -451,273 +1156,10 @@ public class BTree
         return i < size(btree) ? findByIndex(btree, i) : null;
     }
 
-    // UTILITY METHODS
-
-    // get the upper bound we should search in for keys in the node
-    static int getKeyEnd(Object[] node)
-    {
-        if (isLeaf(node))
-            return getLeafKeyEnd(node);
-        else
-            return getBranchKeyEnd(node);
-    }
-
-    // get the last index that is non-null in the leaf node
-    static int getLeafKeyEnd(Object[] node)
-    {
-        int len = node.length;
-        return node[len - 1] == null ? len - 1 : len;
-    }
-
-    // return the boundary position between keys/children for the branch node
-    // == number of keys, as they are indexed from zero
-    static int getBranchKeyEnd(Object[] branchNode)
-    {
-        return (branchNode.length / 2) - 1;
-    }
-
-    /**
-     * @return first index in a branch node containing child nodes
-     */
-    static int getChildStart(Object[] branchNode)
-    {
-        return getBranchKeyEnd(branchNode);
-    }
-
-    /**
-     * @return last index + 1 in a branch node containing child nodes
-     */
-    static int getChildEnd(Object[] branchNode)
-    {
-        return branchNode.length - 1;
-    }
-
-    /**
-     * @return number of children in a branch node
-     */
-    static int getChildCount(Object[] branchNode)
-    {
-        return branchNode.length / 2;
-    }
-
-    /**
-     * @return the size map for the branch node
-     */
-    static int[] getSizeMap(Object[] branchNode)
-    {
-        return (int[]) branchNode[getChildEnd(branchNode)];
-    }
-
-    /**
-     * @return the size map for the branch node
-     */
-    static int lookupSizeMap(Object[] branchNode, int index)
-    {
-        return getSizeMap(branchNode)[index];
-    }
-
-    // get the size from the btree's index (fails if not present)
-    public static int size(Object[] tree)
-    {
-        if (isLeaf(tree))
-            return getLeafKeyEnd(tree);
-        int length = tree.length;
-        // length - 1 == getChildEnd == getPositionOfSizeMap
-        // (length / 2) - 1 == getChildCount - 1 == position of full tree size
-        // hard code this, as will be used often;
-        return ((int[]) tree[length - 1])[(length / 2) - 1];
-    }
-
-    public static long sizeOfStructureOnHeap(Object[] tree)
-    {
-        long size = ObjectSizes.sizeOfArray(tree);
-        if (isLeaf(tree))
-            return size;
-        for (int i = getChildStart(tree) ; i < getChildEnd(tree) ; i++)
-            size += sizeOfStructureOnHeap((Object[]) tree[i]);
-        return size;
-    }
-
-    // returns true if the provided node is a leaf, false if it is a branch
-    static boolean isLeaf(Object[] node)
-    {
-        return (node.length & 1) == 1;
-    }
-
-    public static boolean isEmpty(Object[] tree)
-    {
-        return tree == EMPTY_LEAF;
-    }
-
-    public static int depth(Object[] tree)
-    {
-        int depth = 1;
-        while (!isLeaf(tree))
-        {
-            depth++;
-            tree = (Object[]) tree[getKeyEnd(tree)];
-        }
-        return depth;
-    }
-
-    /**
-     * Fill the target array with the contents of the provided subtree, in ascending order, starting at targetOffset
-     * @param tree source
-     * @param target array
-     * @param targetOffset offset in target array
-     * @return number of items copied (size of tree)
-     */
-    public static int toArray(Object[] tree, Object[] target, int targetOffset)
-    {
-        return toArray(tree, 0, size(tree), target, targetOffset);
-    }
-    public static int toArray(Object[] tree, int treeStart, int treeEnd, Object[] target, int targetOffset)
-    {
-        if (isLeaf(tree))
-        {
-            int count = treeEnd - treeStart;
-            System.arraycopy(tree, treeStart, target, targetOffset, count);
-            return count;
-        }
-
-        int newTargetOffset = targetOffset;
-        int childCount = getChildCount(tree);
-        int childOffset = getChildStart(tree);
-        for (int i = 0 ; i < childCount ; i++)
-        {
-            int childStart = treeIndexOffsetOfChild(tree, i);
-            int childEnd = treeIndexOfBranchKey(tree, i);
-            if (childStart <= treeEnd && childEnd >= treeStart)
-            {
-                newTargetOffset += toArray((Object[]) tree[childOffset + i], max(0, treeStart - childStart), min(childEnd, treeEnd) - childStart,
-                                           target, newTargetOffset);
-                if (treeStart <= childEnd && treeEnd > childEnd) // this check will always fail for the non-existent key
-                    target[newTargetOffset++] = tree[i];
-            }
-        }
-        return newTargetOffset - targetOffset;
-    }
-
-    // simple class for avoiding duplicate transformation work
-    private static class FiltrationTracker<V> implements Function<V, V>
-    {
-        final Function<? super V, ? extends V> wrapped;
-        int index;
-        boolean failed;
-
-        private FiltrationTracker(Function<? super V, ? extends V> wrapped)
-        {
-            this.wrapped = wrapped;
-        }
-
-        public V apply(V i)
-        {
-            V o = wrapped.apply(i);
-            if (o != null) index++;
-            else failed = true;
-            return o;
-        }
-    }
-
-    // simple class for avoiding duplicate transformation work
-    private static class BiFiltrationTracker<V, V2> implements Function<V, V>
-    {
-        final BiFunction<? super V, ? super V2, ? extends V> wrapped;
-        final V2 param;
-        int index;
-        boolean failed;
-
-        private BiFiltrationTracker(BiFunction<? super V, ? super V2, ? extends V> wrapped, V2 param)
-        {
-            this.wrapped = wrapped;
-            this.param = param;
-        }
-
-        public V apply(V i)
-        {
-            V o = wrapped.apply(i, param);
-            if (o != null) index++;
-            else failed = true;
-            return o;
-        }
-    }
-
-    /**
-     * Takes a btree and transforms it using the provided function, filtering out any null results.
-     * The result of any transformation must sort identically wrt the other results as their originals
-     */
-    public static <V> Object[] transformAndFilter(Object[] btree, Function<? super V, ? extends V> function)
-    {
-        if (isEmpty(btree))
-            return btree;
-
-        // TODO: can be made more efficient
-        FiltrationTracker<V> wrapped = new FiltrationTracker<>(function);
-        Object[] result = transformAndFilter(btree, wrapped);
-        if (!wrapped.failed)
-            return result;
-
-        // take the already transformed bits from the head of the partial result
-        Iterable<V> head = iterable(result, 0, wrapped.index - 1, Dir.ASC);
-        // and concatenate with remainder of original tree, with transformation applied
-        Iterable<V> remainder = iterable(btree, wrapped.index + 1, size(btree) - 1, Dir.ASC);
-        remainder = filter(transform(remainder, function), Objects::nonNull);
-        Iterable<V> build = concat(head, remainder);
-
-        return buildInternal(build, -1, UpdateFunction.<V>noOp());
-    }
-
-    /**
-     * Takes a btree and transforms it using the provided function, filtering out any null results.
-     * The result of any transformation must sort identically wrt the other results as their originals
-     */
-    public static <V, V2> Object[] transformAndFilter(Object[] btree, BiFunction<? super V, ? super V2, ? extends V> function, V2 param)
-    {
-        if (isEmpty(btree))
-            return btree;
-
-        // TODO: can be made more efficient
-        BiFiltrationTracker<V, V2> wrapped = new BiFiltrationTracker<>(function, param);
-        Object[] result = transformAndFilter(btree, wrapped);
-        if (!wrapped.failed)
-            return result;
-
-        // take the already transformed bits from the head of the partial result
-        Iterable<V> head = iterable(result, 0, wrapped.index - 1, Dir.ASC);
-        // and concatenate with remainder of original tree, with transformation applied
-        Iterable<V> remainder = iterable(btree, wrapped.index + 1, size(btree) - 1, Dir.ASC);
-        remainder = filter(transform(remainder, v -> function.apply(v, param)), Objects::nonNull);
-        Iterable<V> build = concat(head, remainder);
-
-        return buildInternal(build, -1, UpdateFunction.<V>noOp());
-    }
-
-    private static <V> Object[] transformAndFilter(Object[] btree, FiltrationTracker<V> function)
-    {
-        Object[] result = btree;
-        boolean isLeaf = isLeaf(btree);
-        int childOffset = isLeaf ? Integer.MAX_VALUE : getChildStart(btree);
-        int limit = isLeaf ? getLeafKeyEnd(btree) : btree.length - 1;
-        for (int i = 0 ; i < limit ; i++)
-        {
-            // we want to visit in iteration order, so we visit our key nodes inbetween our children
-            int idx = isLeaf ? i : (i / 2) + (i % 2 == 0 ? childOffset : 0);
-            Object current = btree[idx];
-            Object updated = idx < childOffset ? function.apply((V) current) : transformAndFilter((Object[]) current, function);
-            if (updated != current)
-            {
-                if (result == btree)
-                    result = btree.clone();
-                result[idx] = updated;
-            }
-            if (function.failed)
-                return result;
-        }
-        return result;
-    }
-
     public static boolean equals(Object[] a, Object[] b)
     {
+        if (isLeaf(a) || isLeaf(b))
+            return Arrays.equals(a, b);
         return size(a) == size(b) && Iterators.elementsEqual(iterator(a), iterator(b));
     }
 
@@ -744,7 +1186,7 @@ public class BTree
     {
         if (isLeaf(root))
             return keyIndex;
-        int[] sizeMap = getSizeMap(root);
+        int[] sizeMap = sizeMap(root);
         if ((keyIndex >= 0) & (keyIndex < sizeMap.length))
             return sizeMap[keyIndex];
         // we support asking for -1 or size, so that we can easily use this for iterator bounds checking
@@ -784,15 +1226,6 @@ public class BTree
         return 1 + lookupSizeMap(root, childIndex - 1);
     }
 
-    private static final ThreadLocal<Queue<TreeBuilder>> modifier = new ThreadLocal<Queue<TreeBuilder>>()
-    {
-        @Override
-        protected Queue<TreeBuilder> initialValue()
-        {
-            return new ArrayDeque<>();
-        }
-    };
-
     public static <V> Builder<V> builder(Comparator<? super V> comparator)
     {
         return new Builder<>(comparator);
@@ -800,12 +1233,2019 @@ public class BTree
 
     public static <V> Builder<V> builder(Comparator<? super V> comparator, int initialCapacity)
     {
-        return new Builder<>(comparator);
+        return new Builder<>(comparator, initialCapacity);
     }
 
+    /**
+     * Build a tree of unknown size, in order.
+     *
+     * Can be used with {@link #reverseInSitu} to build a tree in reverse.
+     */
+    public static <V> FastBuilder<V> fastBuilder()
+    {
+        TinyThreadLocalPool.TinyPool<FastBuilder<?>> pool = FastBuilder.POOL.get();
+        FastBuilder<V> builder = (FastBuilder<V>) pool.poll();
+        if (builder == null)
+            builder = new FastBuilder<>();
+        builder.pool = pool;
+        return builder;
+    }
+
+    /**
+     * Base class for AbstractFastBuilder.BranchBuilder, LeafBuilder and AbstractFastBuilder,
+     * containing shared behaviour and declaring some useful abstract methods.
+     */
+    private static abstract class LeafOrBranchBuilder
+    {
+        final int height;
+        final LeafOrBranchBuilder child;
+        BranchBuilder parent;
+
+        /**
+         * The current buffer contents (if any) of the leaf or branch - always sized to contain a complete
+         * node of the form being constructed.  Always non-null, except briefly during overflow.
+         */
+        Object[] buffer;
+        /**
+         * The number of keys in our buffer, whether or not we are building a leaf or branch; if we are building
+         * a branch, we will ordinarily have the same number of children as well, except temporarily when finishing
+         * the construction of the node.
+         */
+        int count;
+
+        /**
+         * either
+         *  1) an empty leftover buffer from a past usage, which can be used when we exhaust {@code buffer}; or
+         *  2) a full {@code buffer} that has been parked until we next overflow, so we can steal some back
+         *     if we finish before reaching MIN_KEYS in {@code buffer}
+         */
+        Object[] savedBuffer;
+        /**
+         * The key we overflowed on when populating savedBuffer.  If null, {@link #savedBuffer} is logically empty.
+         */
+        Object savedNextKey;
+
+        LeafOrBranchBuilder(LeafOrBranchBuilder child)
+        {
+            this.height = child == null ? 1 : 1 + child.height;
+            this.child = child;
+        }
+
+        /**
+         * Do we have enough keys in the builder to construct at least one balanced node?
+         * We could have enough to build two.
+         */
+        final boolean isSufficient()
+        {
+            return hasOverflow() || count >= MIN_KEYS;
+        }
+
+        /**
+         * Do we have an already constructed node saved, that we can propagate or redistribute?
+         * This implies we are building two nodes, since {@link #savedNextKey} would overflow {@link #savedBuffer}
+         */
+        final boolean hasOverflow()
+        {
+            return savedNextKey != null;
+        }
+
+        /**
+         * Do we have an already constructed node saved AND insufficient keys in our buffer, so
+         * that we need to share the contents of {@link #savedBuffer} with {@link #buffer} to construct
+         * our results?
+         */
+        final boolean mustRedistribute()
+        {
+            return hasOverflow() && count < MIN_KEYS;
+        }
+
+        /**
+         * Are we empty, i.e. we have no contents in either {@link #buffer} or {@link #savedBuffer}
+         */
+        final boolean isEmpty()
+        {
+            return count == 0 && savedNextKey == null;
+        }
+
+        /**
+         * Drain the contents of this builder and build up to two nodes, as necessary.
+         * If {@code unode != null} and we are building a single node that is identical to it, use {@code unode} instead.
+         * If {@code propagateTo != null} propagate any nodes we build to it.
+         * @return the last node we construct
+         */
+        abstract Object[] drainAndPropagate(Object[] unode, int usz, BranchBuilder propagateTo);
+
+        /**
+         * Drain the contents of this builder and build at most one node.
+         * Requires {@code !hasOverflow()}
+         * @return the node we construct
+         */
+        abstract Object[] drain();
+
+        /**
+         * Takes a node that would logically occur directly preceding the current buffer contents,
+         * and the key that would separate them in a parent node, and prepends their contents
+         * to the current buffer's contents.  This can be used to redistribute already-propagated
+         * contents to a parent in cases where this is convenient (i.e. when transforming)
+         *
+         * @param predecessor directly preceding node
+         * @param predecessorNextKey key that would have separated predecessor from buffer contents
+         */
+        abstract void prepend(Object[] predecessor, Object predecessorNextKey);
+
+        /**
+         * Indicates if this builder produces dense nodes, i.e. those that are populated with MAX_KEYS
+         * at every level.  Only the last two children of any branch may be non-dense, and in some cases only
+         * the last two nodes in any tier of the tree.
+         *
+         * This flag switches whether or not we maintain a buffer of sizes, or use the globally shared contents of
+         * DENSE_SIZE_MAPS.
+         */
+        abstract boolean producesOnlyDense();
+
+        /**
+         * Ensure there is a {@code branch.parent}, and return it
+         */
+        final BranchBuilder ensureParent()
+        {
+            if (parent == null)
+                parent = new BranchBuilder(this);
+            parent.touched = true;
+            return parent;
+        }
+
+        /**
+         * Mark a branch builder as utilised, so that we must clear it when resetting any {@link AbstractFastBuilder}
+         * @return {@code branch}
+         */
+        static BranchBuilder touch(BranchBuilder branch)
+        {
+            branch.touched = true;
+            return branch;
+        }
+
+        /**
+         * @return the parent builder iff we will overflow or the parent has already been touched
+         */
+        final BranchBuilder parentIfInUse()
+        {
+            // if we have enough data to propagate, ensure there is a parent and return it
+            if (hasOverflow())
+                return ensureParent();
+
+            // otherwise return it only if it's already in use
+            return parent == null || !parent.touched ? null : parent;
+        }
+
+        /**
+         * A utility method for comparing a range of two arrays
+         */
+        static boolean areIdentical(Object[] a, int aOffset, Object[] b, int bOffset, int count)
+        {
+            for (int i = 0 ; i < count ; ++i)
+            {
+                if (a[i + aOffset] != b[i + bOffset])
+                    return false;
+            }
+            return true;
+        }
+
+        /**
+         * A utility method for comparing a range of two arrays
+         */
+        static boolean areIdentical(int[] a, int aOffset, int[] b, int bOffset, int count)
+        {
+            for (int i = 0 ; i < count ; ++i)
+            {
+                if (a[i + aOffset] != b[i + bOffset])
+                    return false;
+            }
+            return true;
+        }
+    }
+
+    /**
+     * LeafBuilder for methods pertaining specifically to building a leaf in an {@link AbstractFastBuilder}.
+     * Note that {@link AbstractFastBuilder} extends this class directly, however it is convenient to maintain
+     * distinct classes in the hierarchy for clarity of behaviour and intent.
+     */
+    private static abstract class LeafBuilder extends LeafOrBranchBuilder
+    {
+        long allocated;
+
+        LeafBuilder()
+        {
+            super(null);
+            buffer = new Object[MAX_KEYS];
+        }
+
+        /**
+         * Add {@code nextKey} to the buffer, overflowing if necessary
+         */
+        public void addKey(Object nextKey)
+        {
+            if (count == MAX_KEYS)
+                overflow(nextKey);
+            else
+                buffer[count++] = nextKey;
+        }
+
+        /**
+         * Add {@code nextKey} to the buffer; the caller specifying overflow is unnecessary
+         */
+        public void addKeyNoOverflow(Object nextKey)
+        {
+            buffer[count++] = nextKey;
+        }
+
+        /**
+         * Add {@code nextKey} to the buffer; the caller specifying overflow is unnecessary
+         */
+        public void maybeAddKeyNoOverflow(Object nextKey)
+        {
+            buffer[count] = nextKey;
+            count += nextKey != null ? 1 : 0;
+        }
+
+        /**
+         * Add {@code nextKey} to the buffer; the caller specifying overflow is unnecessary
+         */
+        public void maybeAddKey(Object nextKey)
+        {
+            if (count == MAX_KEYS)
+            {
+                if (nextKey != null)
+                    overflow(nextKey);
+            }
+            else
+            {
+                buffer[count] = nextKey;
+                count += nextKey != null ? 1 : 0;
+            }
+        }
+
+        /**
+         * Copy the contents of {@code source[from..to)} to {@code buffer}, overflowing as necessary.
+         */
+        void copy(Object[] source, int offset, int length)
+        {
+            if (count + length > MAX_KEYS)
+            {
+                int copy = MAX_KEYS - count;
+                System.arraycopy(source, offset, buffer, count, copy);
+                offset += copy;
+//              implicitly:  count = MAX_KEYS;
+                overflow(source[offset++]);
+                length -= 1 + copy;
+            }
+            System.arraycopy(source, offset, buffer, count, length);
+            count += length;
+        }
+
+        /**
+         * Copy the contents of {@code source[from..to)} to {@code buffer}; the caller specifying overflow is unnecessary
+         */
+        void copyNoOverflow(Object[] source, int offset, int length)
+        {
+            System.arraycopy(source, offset, buffer, count, length);
+            count += length;
+        }
+
+        /**
+         * Copy the contents of {@code source[from..to)} to {@code buffer}, overflowing as necessary.
+         * Applies {@code updateF} to the contents before insertion.
+         */
+        <Insert, Existing> void copy(Object[] source, int offset, int length, UpdateFunction<Insert, Existing> updateF)
+        {
+            if (isSimple(updateF))
+            {
+                copy(source, offset, length);
+                return;
+            }
+
+            if (count + length > MAX_KEYS)
+            {
+                int copy = MAX_KEYS - count;
+                for (int i = 0 ; i < copy ; ++i)
+                    buffer[count + i] = updateF.apply((Insert) source[offset + i]);
+                offset += copy;
+//              implicitly:  leaf().count = MAX_KEYS;
+                overflow(updateF.apply((Insert) source[offset++]));
+                length -= 1 + copy;
+            }
+            for (int i = 0 ; i < length ; ++i)
+                buffer[count + i] = updateF.apply((Insert) source[offset + i]);
+            count += length;
+        }
+
+        /**
+         * {@link #buffer} is full, and we need to make room either by populating {@link #savedBuffer},
+         * propagating its current contents, if any, to {@link #parent}
+         */
+        void overflow(Object nextKey)
+        {
+            if (hasOverflow())
+                propagateOverflow();
+
+            // precondition: count == MAX_KEYS and savedNextKey == null
+
+            Object[] newBuffer = savedBuffer;
+            if (newBuffer == null)
+                newBuffer = new Object[MAX_KEYS];
+
+            savedBuffer = buffer;
+            savedNextKey = nextKey;
+            buffer = newBuffer;
+            count = 0;
+        }
+
+        /**
+         * Redistribute the contents of {@link #savedBuffer} into {@link #buffer}, finalise {@link #savedBuffer} and flush upwards.
+         * Invoked when we are building from {@link #buffer}, have insufficient values but a complete leaf in {@link #savedBuffer}
+         * @return the size of the leaf we flushed to our parent from {@link #savedBuffer}
+         */
+        Object[] redistributeOverflowAndDrain()
+        {
+            Object[] newLeaf = redistributeAndDrain(savedBuffer, MAX_KEYS, savedNextKey);
+            savedNextKey = null;
+            return newLeaf;
+        }
+
+        /**
+         * Redistribute the contents of {@link #buffer} and an immediate predecessor into a new leaf,
+         * then construct a new predecessor with the remaining contents and propagate up to our parent
+         * Invoked when we are building from {@link #buffer}, have insufficient values but either a complete
+         * leaf in {@link #savedBuffer} or can exfiltrate one from our parent to redistribute.
+         *
+         * @return the second of the two new leaves
+         */
+        Object[] redistributeAndDrain(Object[] pred, int predSize, Object predNextKey)
+        {
+            // precondition: savedLeafCount == MAX_KEYS && leaf().count < MIN_KEYS
+            // ensure we have at least MIN_KEYS in leaf().buffer
+            // first shift leaf().buffer and steal some keys from leaf().savedBuffer and leaf().savedBufferNextKey
+            int steal = MIN_KEYS - count;
+            Object[] newLeaf = new Object[MIN_KEYS];
+            System.arraycopy(pred,  predSize - (steal - 1), newLeaf, 0,     steal - 1);
+                                                            newLeaf [steal - 1] = predNextKey;
+            System.arraycopy(buffer, 0,                     newLeaf, steal, count);
+
+            // then create a leaf out of the remainder of savedBuffer
+            int newPredecessorCount = predSize - steal;
+            Object[] newPredecessor = new Object[newPredecessorCount | 1];
+            System.arraycopy(pred, 0, newPredecessor, 0, newPredecessorCount);
+            if (allocated >= 0)
+                allocated += ObjectSizes.sizeOfReferenceArray(newPredecessorCount | 1);
+            ensureParent().addChildAndNextKey(newPredecessor, newPredecessorCount, pred[newPredecessorCount]);
+            return newLeaf;
+        }
+
+        /**
+         * Invoked to fill our {@link #buffer} to >= MIN_KEYS with data ocurring before {@link #buffer};
+         * possibly instead fills {@link #savedBuffer}
+         *
+         * @param pred directly preceding node
+         * @param predNextKey key that would have separated predecessor from buffer contents
+         */
+        void prepend(Object[] pred, Object predNextKey)
+        {
+            int predSize = sizeOfLeaf(pred);
+            int newKeys = 1 + predSize;
+            if (newKeys + count <= MAX_KEYS)
+            {
+                System.arraycopy(buffer, 0, buffer, newKeys, count);
+                System.arraycopy(pred,   0, buffer, 0,       predSize);
+                                            buffer [predSize] = predNextKey;
+                count += newKeys;
+            }
+            else
+            {
+                if (savedBuffer == null)
+                    savedBuffer = new Object[MAX_KEYS];
+                System.arraycopy(pred, 0, savedBuffer, 0, predSize);
+                if (predSize == MAX_KEYS)
+                {
+                    savedNextKey = predNextKey;
+                }
+                else
+                {
+                    int removeKeys = MAX_KEYS - predSize;
+                    count -= removeKeys;
+                                                         savedBuffer [predSize] = predNextKey;
+                    System.arraycopy(buffer, 0,          savedBuffer, predSize + 1, MAX_KEYS - newKeys);
+                                                         savedNextKey      = buffer[MAX_KEYS - newKeys];
+                    System.arraycopy(buffer, removeKeys, buffer,      0,            count);
+                }
+            }
+        }
+
+        /**
+         * Invoked when we want to add a key to the leaf buffer, but it is full
+         */
+        void propagateOverflow()
+        {
+            // propagate the leaf we have saved in altLeafBuffer
+            // precondition: savedLeafCount == MAX_KEYS
+            if (allocated >= 0)
+                allocated += ObjectSizes.sizeOfReferenceArray(MAX_KEYS);
+            ensureParent().addChildAndNextKey(savedBuffer, MAX_KEYS, savedNextKey);
+            savedBuffer = null;
+            savedNextKey = null;
+        }
+
+        /**
+         * Construct a new leaf from the contents of {@link #buffer}, unless the contents have not changed
+         * from {@code unode}, in which case return {@code unode} to avoid allocating unnecessary objects.
+         */
+        Object[] drainAndPropagate(Object[] unode, int usz, BranchBuilder propagateTo)
+        {
+            Object[] leaf;
+            int sizeOfLeaf;
+            if (mustRedistribute())
+            {
+                // we have too few items, so spread the two buffers across two new nodes
+                leaf = redistributeOverflowAndDrain();
+                sizeOfLeaf = MIN_KEYS;
+            }
+            else if (!hasOverflow() && count == usz && areIdentical(buffer, 0, unode, 0, usz))
+            {
+                // we have exactly the same contents as the original node, so reuse it
+                leaf = unode;
+                sizeOfLeaf = usz;
+            }
+            else
+            {
+                // we have maybe one saved full buffer, and one buffer with sufficient contents to copy
+                if (hasOverflow())
+                    propagateOverflow();
+
+                sizeOfLeaf = count;
+                leaf = drain();
+                if (allocated >= 0 && sizeOfLeaf > 0)
+                    allocated += ObjectSizes.sizeOfReferenceArray(sizeOfLeaf | 1) - (unode == null ? 0 : ObjectSizes.sizeOfArray(unode));
+            }
+
+            count = 0;
+            if (propagateTo != null)
+                propagateTo.addChild(leaf, sizeOfLeaf);
+            return leaf;
+        }
+
+        /**
+         * Construct a new leaf from the contents of {@code leaf().buffer}, unless the contents have not changed
+         * from {@code unode}, in which case return {@code unode} to avoid allocating unnecessary objects.
+         */
+        Object[] drain()
+        {
+            assert !hasOverflow();
+            if (count == 0)
+                return empty();
+
+            Object[] newLeaf = new Object[count | 1];
+            System.arraycopy(buffer, 0, newLeaf, 0, count);
+            count = 0;
+            return newLeaf;
+        }
+    }
+
+    static class BranchBuilder extends LeafOrBranchBuilder
+    {
+        final LeafBuilder leaf;
+
+        /** sizes of the children in {@link #buffer}. If null, we only produce dense nodes. */
+        int[] sizes;
+        /** sizes of the children in {@link #savedBuffer} */
+        int[] savedSizes;
+        /** marker to limit unnecessary work with unused levels, esp. on reset */
+        boolean touched;
+
+        BranchBuilder(LeafOrBranchBuilder child)
+        {
+            super(child);
+            buffer = new Object[2 * (MAX_KEYS + 1)];
+            if (!child.producesOnlyDense())
+                sizes = new int[MAX_KEYS + 1];
+            this.leaf = child instanceof LeafBuilder ? (LeafBuilder) child : ((BranchBuilder) child).leaf;
+        }
+
+        /**
+         * Ensure there is room to add another key to {@code branchBuffers[branchIndex]}, and add it;
+         * invoke {@link #overflow} if necessary
+         */
+        void addKey(Object key)
+        {
+            if (count == MAX_KEYS)
+                overflow(key);
+            else
+                buffer[count++] = key;
+        }
+
+        /**
+         * To be invoked when there's a key already inserted to the buffer that requires a corresponding
+         * right-hand child, for which the buffers are sized to ensure there is always room.
+         */
+        void addChild(Object[] child, int sizeOfChild)
+        {
+            buffer[MAX_KEYS + count] = child;
+            recordSizeOfChild(sizeOfChild);
+        }
+
+        void recordSizeOfChild(int sizeOfChild)
+        {
+            if (sizes != null)
+                sizes[count] = sizeOfChild;
+        }
+
+        /**
+         * See {@link BranchBuilder#addChild(Object[], int)}
+         */
+        void addChild(Object[] child)
+        {
+            addChild(child, sizes == null ? 0 : size(child));
+        }
+
+        /**
+         * Insert a new child into a parent branch, when triggered by {@code overflowLeaf} or {@code overflowBranch}
+         */
+        void addChildAndNextKey(Object[] newChild, int newChildSize, Object nextKey)
+        {
+            // we should always have room for a child to the right of any key we have previously inserted
+            buffer[MAX_KEYS + count] = newChild;
+            recordSizeOfChild(newChildSize);
+            // but there may not be room for another key
+            addKey(nextKey);
+        }
+
+        /**
+         * Invoked when we want to add a key to the leaf buffer, but it is full
+         */
+        void propagateOverflow()
+        {
+            // propagate the leaf we have saved in leaf().savedBuffer
+            if (leaf.allocated >= 0)
+                leaf.allocated += ObjectSizes.sizeOfReferenceArray(2 * (1 + MAX_KEYS));
+            int size = setOverflowSizeMap(savedBuffer, MAX_KEYS);
+            ensureParent().addChildAndNextKey(savedBuffer, size, savedNextKey);
+            savedBuffer = null;
+            savedNextKey = null;
+        }
+
+        /**
+         * Invoked when a branch already contains {@code MAX_KEYS}, and another child is ready to be added.
+         * Creates a new neighbouring node containing MIN_KEYS items, shifting back the remaining MIN_KEYS+1
+         * items to the start of the buffer(s).
+         */
+        void overflow(Object nextKey)
+        {
+            if (hasOverflow())
+                propagateOverflow();
+
+            Object[] restoreBuffer = savedBuffer;
+            int[] restoreSizes = savedSizes;
+
+            savedBuffer = buffer;
+            savedSizes = sizes;
+            savedNextKey = nextKey;
+
+            sizes = restoreSizes == null && savedSizes != null ? new int[MAX_KEYS + 1] : restoreSizes;
+            buffer = restoreBuffer == null ? new Object[2 * (MAX_KEYS + 1)] : restoreBuffer;
+            count = 0;
+        }
+
+        /**
+         * Redistribute the contents of branch.savedBuffer into branch.buffer, finalise savedBuffer and flush upwards.
+         * Invoked when we are building from branch, have insufficient values but a complete branch in savedBuffer.
+         * @return the size of the branch we flushed to our parent from savedBuffer
+         */
+        Object[] redistributeOverflowAndDrain()
+        {
+            // now ensure we have at least MIN_KEYS in buffer
+            // both buffer and savedBuffer should be balanced, so that we have count+1 and MAX_KEYS+1 children respectively
+            // we need to utilise savedNextKey, so  we want to take {@code steal-1} keys from savedBuffer, {@code steal) children
+            // and the dangling key we use in place of savedNextKey for our parent key.
+            int steal = MIN_KEYS - count;
+            Object[] newBranch = new Object[2 * (MIN_KEYS + 1)];
+            System.arraycopy(savedBuffer,     MAX_KEYS - (steal - 1), newBranch, 0,         steal - 1);
+            newBranch[steal - 1] = savedNextKey;
+            System.arraycopy(buffer,          0,                      newBranch, steal,     count);
+            System.arraycopy(savedBuffer, 2 * MAX_KEYS + 1 - steal,   newBranch, MIN_KEYS,  steal);
+            System.arraycopy(buffer,          MAX_KEYS,               newBranch, MIN_KEYS + steal, count + 1);
+            setRedistributedSizeMap(newBranch, steal);
+
+            // then create a branch out of the remainder of savedBuffer
+            int savedBranchCount = MAX_KEYS - steal;
+            Object[] savedBranch = new Object[2 * (savedBranchCount + 1)];
+            System.arraycopy(savedBuffer, 0,        savedBranch, 0,                savedBranchCount);
+            System.arraycopy(savedBuffer, MAX_KEYS, savedBranch, savedBranchCount, savedBranchCount + 1);
+            int savedBranchSize = setOverflowSizeMap(savedBranch, savedBranchCount);
+            if (leaf.allocated >= 0)
+                leaf.allocated += ObjectSizes.sizeOfReferenceArray(2 * (1 + savedBranchCount));
+            ensureParent().addChildAndNextKey(savedBranch, savedBranchSize, savedBuffer[savedBranchCount]);
+            savedNextKey = null;
+
+            return newBranch;
+        }
+
+        /**
+         * See {@link LeafOrBranchBuilder#prepend(Object[], Object)}
+         */
+        void prepend(Object[] pred, Object predNextKey)
+        {
+            // assumes sizes != null, since only makes sense to use this method in that context
+
+            int predKeys = shallowSizeOfBranch(pred);
+            int[] sizeMap = (int[]) pred[2 * predKeys + 1];
+            int newKeys = 1 + predKeys;
+            if (newKeys + count <= MAX_KEYS)
+            {
+                System.arraycopy(buffer,    0,        buffer, newKeys,            count);
+                System.arraycopy(sizes,     0,        sizes,  newKeys,            count + 1);
+                System.arraycopy(buffer,    MAX_KEYS, buffer, MAX_KEYS + newKeys, count + 1);
+
+                System.arraycopy(pred,      0,        buffer, 0,                  predKeys);
+                buffer[predKeys] = predNextKey;
+                System.arraycopy(pred,      predKeys, buffer, MAX_KEYS,           predKeys + 1);
+                copySizeMapToSizes(sizeMap, 0,        sizes,  0,                  predKeys + 1);
+                count += newKeys;
+            }
+            else
+            {
+                if (savedBuffer == null)
+                {
+                    savedBuffer = new Object[2 * (1 + MAX_KEYS)];
+                    savedSizes = new int[1 + MAX_KEYS];
+                }
+
+                System.arraycopy(  pred,    0,        savedBuffer, 0,        predKeys);
+                System.arraycopy(  pred,    predKeys, savedBuffer, MAX_KEYS, predKeys + 1);
+                copySizeMapToSizes(sizeMap, 0,        savedSizes,  0,        predKeys + 1);
+                if (newKeys == MAX_KEYS + 1)
+                {
+                    savedNextKey = predNextKey;
+                }
+                else
+                {
+                    int removeKeys = (1 + MAX_KEYS - newKeys);
+                    int remainingKeys = count - removeKeys;
+
+                    savedBuffer [predKeys] = predNextKey;
+                    System.arraycopy(buffer, 0,                     savedBuffer, newKeys,            MAX_KEYS     - newKeys);
+                    savedNextKey =            buffer[MAX_KEYS     - newKeys];
+                    System.arraycopy(sizes,  0,                     savedSizes,  newKeys,            MAX_KEYS + 1 - newKeys);
+                    System.arraycopy(buffer, MAX_KEYS,              savedBuffer, MAX_KEYS + newKeys, MAX_KEYS + 1 - newKeys);
+                    System.arraycopy(buffer, removeKeys,            buffer,      0,                  remainingKeys);
+                    System.arraycopy(buffer, MAX_KEYS + removeKeys, buffer,      MAX_KEYS,           remainingKeys + 1);
+                    System.arraycopy(sizes,  removeKeys,            sizes,       0,                  remainingKeys + 1);
+                    count = remainingKeys;
+                }
+            }
+        }
+
+        boolean producesOnlyDense()
+        {
+            return sizes == null;
+        }
+
+        /**
+         * Construct a new branch from the contents of {@code branchBuffers[branchIndex]}, unless the contents have
+         * not changed from {@code unode}, in which case return {@code unode} to avoid allocating unnecessary objects.
+         */
+        Object[] drainAndPropagate(Object[] unode, int usz, BranchBuilder propagateTo)
+        {
+            int sizeOfBranch;
+            Object[] branch;
+            if (mustRedistribute())
+            {
+                branch = redistributeOverflowAndDrain();
+                sizeOfBranch = sizeOfBranch(branch);
+            }
+            else if (!hasOverflow() && usz == count
+                     && areIdentical(buffer, 0,        unode, 0,   usz)
+                     && areIdentical(buffer, MAX_KEYS, unode, usz, usz + 1))
+            {
+                branch = unode;
+                sizeOfBranch = sizeOfBranch(branch);
+            }
+            else
+            {
+                if (hasOverflow())
+                    propagateOverflow();
+
+                branch = new Object[2 * (count + 1)];
+                System.arraycopy(buffer, 0,        branch, 0,     count);
+                System.arraycopy(buffer, MAX_KEYS, branch, count, count + 1);
+                sizeOfBranch = setDrainSizeMap(unode, usz, branch, count);
+            }
+
+            count = 0;
+            if (propagateTo != null)
+                propagateTo.addChild(branch, sizeOfBranch);
+
+            return branch;
+        }
+
+        /**
+         * Construct a new branch from the contents of {@code branchBuffers[branchIndex]}, unless the contents have
+         * not changed from {@code unode}, in which case return {@code unode} to avoid allocating unnecessary objects.
+         */
+        Object[] drain()
+        {
+            assert !hasOverflow();
+            int keys = count;
+            count = 0;
+
+            Object[] branch = new Object[2 * (keys + 1)];
+            if (keys == MAX_KEYS)
+            {
+                Object[] tmp = buffer;
+                buffer = branch;
+                branch = tmp;
+            }
+            else
+            {
+                System.arraycopy(buffer, 0,        branch, 0,    keys);
+                System.arraycopy(buffer, MAX_KEYS, branch, keys, keys + 1);
+            }
+            setDrainSizeMap(null, -1, branch, keys);
+            return branch;
+        }
+
+        /**
+         * Compute (or fetch from cache) and set the sizeMap in {@code branch}, knowing that it
+         * was constructed from for the contents of {@code buffer}.
+         *
+         * For {@link FastBuilder} these are mostly the same, so they are fetched from a global cache and
+         * resized accordingly, but for {@link AbstractUpdater} we maintain a buffer of sizes.
+         */
+        int setDrainSizeMap(Object[] original, int keysInOriginal, Object[] branch, int keysInBranch)
+        {
+            if (producesOnlyDense())
+                return setImperfectSizeMap(branch, keysInBranch);
+
+            // first convert our buffer contents of sizes to represent a sizeMap
+            int size = sizesToSizeMap(this.sizes, keysInBranch + 1);
+            // then attempt to reuse the sizeMap from the original node, by comparing the buffer's contents with it
+            int[] sizeMap;
+            if (keysInOriginal != keysInBranch || !areIdentical(sizeMap = sizeMap(original), 0, this.sizes, 0, keysInBranch + 1))
+            {
+                // if we cannot, then we either take the buffer wholesale and replace its buffer, or copy a prefix
+                sizeMap = this.sizes;
+                if (keysInBranch < MAX_KEYS) sizeMap = Arrays.copyOf(sizeMap, keysInBranch + 1);
+                else this.sizes = new int[MAX_KEYS + 1];
+            }
+            branch[2 * keysInBranch + 1] = sizeMap;
+            return size;
+        }
+
+        /**
+         * Compute (or fetch from cache) and set the sizeMap in {@code branch}, knowing that it
+         * was constructed from for the contents of {@code savedBuffer}.
+         *
+         * For {@link FastBuilder} these are always the same size, so they are fetched from a global cache,
+         * but for {@link AbstractUpdater} we maintain a buffer of sizes.
+         *
+         * @return the size of {@code branch}
+         */
+        int setOverflowSizeMap(Object[] branch, int keys)
+        {
+            if (producesOnlyDense())
+            {
+                int[] sizeMap = DENSE_SIZE_MAPS[height - 2];
+                if (keys < MAX_KEYS) sizeMap = Arrays.copyOf(sizeMap, keys + 1);
+                branch[2 * keys + 1] = sizeMap;
+                return keys < MAX_KEYS ? sizeMap[keys] : checkedDenseSize(height + 1);
+            }
+            else
+            {
+                int[] sizes = savedSizes;
+                if (keys < MAX_KEYS) sizes = Arrays.copyOf(sizes, keys + 1);
+                else savedSizes = null;
+                branch[2 * keys + 1] = sizes;
+                return sizesToSizeMap(sizes);
+            }
+        }
+
+        /**
+         * Compute (or fetch from cache) and set the sizeMap in {@code branch}, knowing that it
+         * was constructed from the contents of both {@code savedBuffer} and {@code buffer}
+         *
+         * For {@link FastBuilder} these are mostly the same size, so they are fetched from a global cache
+         * and only the last items updated, but for {@link AbstractUpdater} we maintain a buffer of sizes.
+         */
+        void setRedistributedSizeMap(Object[] branch, int steal)
+        {
+            if (producesOnlyDense())
+            {
+                setImperfectSizeMap(branch, MIN_KEYS);
+            }
+            else
+            {
+                int[] sizeMap = new int[MIN_KEYS + 1];
+                System.arraycopy(sizes, 0, sizeMap, steal, count + 1);
+                System.arraycopy(savedSizes, MAX_KEYS + 1 - steal, sizeMap, 0, steal);
+                branch[2 * MIN_KEYS + 1] = sizeMap;
+                sizesToSizeMap(sizeMap);
+            }
+        }
+
+        /**
+         * Like {@link #setOverflowSizeMap}, but used for building the sizeMap of a node whose
+         * last two children may have had their contents redistributed; uses the perfect size map
+         * for all but the final two children, and queries the size of the last children directly
+         */
+        private int setImperfectSizeMap(Object[] branch, int keys)
+        {
+            int[] sizeMap = Arrays.copyOf(DENSE_SIZE_MAPS[height - 2], keys + 1);
+            int size = keys == 1 ? 0 : 1 + sizeMap[keys - 2];
+            sizeMap[keys - 1] = size +=     size((Object[]) branch[2 * keys - 1]);
+            sizeMap[keys]     = size += 1 + size((Object[]) branch[2 * keys]);
+            branch[2 * keys + 1] = sizeMap;
+            return size;
+        }
+
+
+        /**
+         * Copy the contents of {@code unode} into {@code branchBuffers[branchIndex]},
+         * between keys {@code from} and {@code to}, overflowing as necessary.
+         * {@code from} may be {@code -1}, representing the first child only;
+         * all other indices represent the key/child pairs that follow (i.e. a key and its right-hand child).
+         */
+        void copy(Object[] unode, int usz, int offset, int length)
+        {
+            int[] uszmap = sizeMap(unode);
+            if (offset == -1)
+            {
+                // copy the first child
+                buffer[MAX_KEYS] = unode[usz];
+                sizes[0] = uszmap[0];
+                if (--length == 0)
+                    return;
+                offset = 0;
+            }
+
+            if (count + length > MAX_KEYS)
+            {
+                // we will overflow, so copy to MAX_KEYS and trigger overflow
+                int copy = MAX_KEYS - count;
+                copyNoOverflow(unode, usz, uszmap, offset, copy);
+                offset += copy;
+
+                overflow(unode[offset]);
+
+                // copy first child again to restore invariants
+                buffer[MAX_KEYS] = unode[usz + offset + 1];
+                sizes[0] = uszmap[offset + 1] - (1 + uszmap[offset]);
+
+                length -= 1 + copy;
+                ++offset;
+            }
+
+            copyNoOverflow(unode, usz, uszmap, offset, length);
+        }
+
+        /**
+         * Copy the contents of {@code unode} into {@code branchBuffers[branchIndex]},
+         * between keys {@code from} and {@code to}, with the caller declaring overflow is unnecessary.
+         * {@code from} may be {@code -1}, representing the first child only;
+         * all other indices represent the key/child pairs that follow (i.e. a key and its right-hand child).
+         */
+        private void copyNoOverflow(Object[] unode, int usz, int[] uszmap, int offset, int length)
+        {
+            if (length <= 1)
+            {
+                if (length == 0)
+                    return;
+
+                buffer[count] = unode[offset];
+                buffer[MAX_KEYS + count + 1] = unode[usz + offset + 1];
+                sizes[count + 1] = uszmap[offset + 1] - (1 + uszmap[offset]);
+                ++count;
+            }
+            else
+            {
+                System.arraycopy(unode, offset, buffer, count, length);
+                System.arraycopy(unode, usz + offset + 1, buffer, MAX_KEYS + count + 1, length);
+                copySizeMapToSizes(uszmap, offset + 1, sizes, count + 1, length);
+                count += length;
+            }
+        }
+
+        /**
+         * Copy a region of a cumulative sizeMap into an array of plain sizes
+         */
+        static void copySizeMapToSizes(int[] in, int inOffset, int[] out, int outOffset, int count)
+        {
+            assert count > 0;
+            if (inOffset == 0)
+            {
+                // we don't need to subtract anything from the first node, so just copy it so we can keep the rest of the loop simple
+                out[outOffset++] = in[inOffset++];
+                --count;
+            }
+            for (int i = 0 ; i < count ; ++i)
+                out[outOffset + i] = in[inOffset + i] - (1 + in[inOffset + i - 1]);
+        }
+    }
+
+    /**
+     * Shared parent of {@link FastBuilder} and {@link Updater}, both of which
+     * construct their trees in order without knowing the resultant size upfront.
+     *
+     * Maintains a simple stack of buffers that we provide utilities to navigate and update.
+     */
+    private static abstract class AbstractFastBuilder extends LeafBuilder
+    {
+        final boolean producesOnlyDense()
+        {
+            return getClass() == FastBuilder.class;
+        }
+
+        /**
+         * An aesthetic convenience for declaring when we are interacting with the leaf, instead of invoking {@code this} directly
+         */
+        final LeafBuilder leaf() { return this; }
+
+        /**
+         * Clear any references we might still retain, to avoid holding onto memory.
+         *
+         * While this method is not strictly  necessary, it exists to
+         * ensure the implementing classes are aware they must handle it.
+         */
+        abstract void reset();
+    }
+
+
+    /**
+     * A pooled builder for constructing a tree in-order, and without needing any reconciliation.
+     *
+     * Constructs whole nodes in place, so that a flush of a complete node can take its buffer entirely.
+     * Since we build trees of a predictable shape (i.e. perfectly dense) we do not construct a size map.
+     */
+    public static class FastBuilder<V> extends AbstractFastBuilder implements AutoCloseable
+    {
+        private static final TinyThreadLocalPool<FastBuilder<?>> POOL = new TinyThreadLocalPool<>();
+        private TinyThreadLocalPool.TinyPool<FastBuilder<?>> pool;
+
+        FastBuilder() { allocated = -1; } // disable allocation tracking
+
+        public void add(V value)
+        {
+            leaf().addKey(value);
+        }
+
+        public void add(Object[] from, int offset, int count)
+        {
+            leaf().copy(from, offset, count);
+        }
+
+        public Object[] build()
+        {
+            LeafOrBranchBuilder level = leaf();
+            while (true)
+            {
+                if (!level.hasOverflow())
+                    return level.drain();
+
+                BranchBuilder parent = level.ensureParent();
+                level.drainAndPropagate(null, -1, parent);
+                if (level.savedBuffer != null)
+                    Arrays.fill(level.savedBuffer, null);
+                level = parent;
+            }
+        }
+
+        public Object[] buildReverse()
+        {
+            Object[] result = build();
+            reverseInSitu(result, height(result), false);
+            return result;
+        }
+
+        @Override
+        public void close()
+        {
+            reset();
+            pool.offer(this);
+            pool = null;
+        }
+
+        @Override
+        void reset()
+        {
+            // we clear precisely to leaf().count and branch.count because, in the case of a builder,
+            // if we ever fill the buffer we will consume it entirely for the tree we are building
+            // so the last count should match the number of non-null entries
+            Arrays.fill(leaf().buffer, 0, leaf().count, null);
+            leaf().count = 0;
+            BranchBuilder branch = leaf().parent;
+            while (branch != null && branch.touched)
+            {
+                Arrays.fill(branch.buffer, 0, branch.count, null);
+                Arrays.fill(branch.buffer, MAX_KEYS, MAX_KEYS + 1 + branch.count, null);
+                branch.count = 0;
+                branch.touched = false;
+                branch = branch.parent;
+            }
+        }
+    }
+
+
+    private static abstract class AbstractUpdater extends AbstractFastBuilder implements AutoCloseable
+    {
+        void reset()
+        {
+            assert leaf().count == 0;
+            clearLeafBuffer(leaf().buffer);
+            if (leaf().savedBuffer != null)
+                Arrays.fill(leaf().savedBuffer, null);
+
+            BranchBuilder branch = leaf().parent;
+            while (branch != null && branch.touched)
+            {
+                assert branch.count == 0;
+                clearBranchBuffer(branch.buffer);
+                if (branch.savedBuffer != null && branch.savedBuffer[0] != null)
+                    Arrays.fill(branch.savedBuffer, null); // by definition full, if non-empty
+                branch.touched = false;
+                branch = branch.parent;
+            }
+        }
+
+        /**
+         * Clear the contents of a branch buffer, aborting once we encounter a null entry
+         * to save time on small trees
+         */
+        private void clearLeafBuffer(Object[] array)
+        {
+            if (array[0] == null)
+                return;
+            // find first null entry; loop from beginning, to amortise cost over size of working set
+            int i = 1;
+            while (i < array.length && array[i] != null) ++i;
+            Arrays.fill(array, 0, i, null);
+        }
+
+        /**
+         * Clear the contents of a branch buffer, aborting once we encounter a null entry
+         * to save time on small trees
+         */
+        private void clearBranchBuffer(Object[] array)
+        {
+            if (array[0] == null)
+                return;
+
+            // find first null entry; loop from beginning, to amortise cost over size of working set
+            int i = 1;
+            while (i < MAX_KEYS && array[i] != null) ++i;
+            Arrays.fill(array, 0, i, null);
+            Arrays.fill(array, MAX_KEYS, MAX_KEYS + i + 1, null);
+        }
+    }
+
+    /**
+     * A pooled object for modifying an existing tree with a new (typically smaller) tree.
+     *
+     * Constructs the new tree around the shape of the existing tree, as though we had performed inserts in
+     * order, copying as much of the original tree as possible.  We achieve this by simply merging leaf nodes
+     * up to the immediately following key in an ancestor, maintaining up to two complete nodes in a buffer until
+     * this happens, and flushing any nodes we produce in excess of this immediately into the parent buffer.
+     *
+     * We construct whole nodes in place, except the size map, so that a flush of a complete node can take its buffer
+     * entirely.
+     *
+     * Searches within both trees to accelerate the process of modification, instead of performing a simple
+     * iteration over the new tree.
+     */
+    private static class Updater<Compare, Existing extends Compare, Insert extends Compare> extends AbstractUpdater implements AutoCloseable
+    {
+        static final TinyThreadLocalPool<Updater> POOL = new TinyThreadLocalPool<>();
+        TinyThreadLocalPool.TinyPool<Updater> pool;
+
+        // the old tree we navigate one tier at a time, deciding if we descend or not
+        // we do not always logically point to a key, as we may point to the position
+        // before the start of the node we're on
+        final SimpleTreeNavigator update = new SimpleTreeNavigator();
+        // the new tree we navigate linearly, and are always on a key or at the end
+        final SimpleTreeIterator insert = new SimpleTreeIterator();
+        Object[] result;
+
+
+        static <Compare, Existing extends Compare, Insert extends Compare> Updater<Compare, Existing, Insert> get()
+        {
+            TinyThreadLocalPool.TinyPool<Updater> pool = POOL.get();
+            Updater<Compare, Existing, Insert> updater = pool.poll();
+            if (updater == null)
+                updater = new Updater<>();
+            updater.pool = pool;
+            return updater;
+        }
+
+        /**
+         * Precondition: {@code update} should not be empty.
+         *
+         * Inserts {@code insert} into {@code update}, after applying {@code updateF} to each item, or matched item pairs.
+         */
+        Object[] update(Object[] update, Object[] insert, Comparator<? super Compare> comparator, UpdateFunction<Insert, Existing> updateF)
+        {
+            this.update.init(update);
+            this.insert.init(insert);
+            this.allocated = isSimple(updateF) ? -1 : 0;
+            return update(comparator, updateF);
+        }
+
+        /**
+         * We base our operation on the shape of {@code update}, trying to steal as much of the original tree as
+         * possible for our new tree
+         */
+        private Object[] update(Comparator<? super Compare> comparator, UpdateFunction<Insert, Existing> updateF)
+        {
+            Existing uub = null;
+            Object[] unode = update.node(), inode = insert.node();
+            int upos = update.position(), usz = shallowSize(unode);
+            int ipos = insert.position(), isz = shallowSize(inode);
+
+            LeafOrBranchBuilder level = leaf(); // once level == null, we're done
+            BranchBuilder branch = null; // branch == null if level == leaf(); this is unfortunate, but we need to invoke branch-specific methods
+            for (int i = 0; i < update.leafDepth; ++i)
+                level = branch = level.ensureParent();
+
+            // define:      xnode[xsz] == xub (i.e. the key to our right in our parent can be treated below as a key past the end of the node)
+            // invariants:  iub > unode[upos], uub > inode[ipos]
+            // invariants:  ipos >=  0 && ipos  < isz (imposed by SimpleTreeIterator)
+            // invariants:  upos >= -1 && upos <= usz
+            while (true)
+            {
+                if (level == leaf())
+                {
+                    if (isLeaf(inode))
+                    {
+                        // Both are leaves, so can simply linearly merge them until we reach the update upper bound.
+                        // This is most easily achieved by looping until one of the leaves is consumed, then
+                        // continuing to consume inode until we hit uub
+
+                        // Note that unode can already be exhausted, because we use the original tree to define the
+                        // shape of our updated tree and so we retain the _bounds_ of each sub-tree, only creating
+                        // new bounds during overflow, so once we have copied a leaf we continue inserting elements
+
+                        Insert ik =  (Insert) inode[ipos];
+                        if (upos < usz)
+                        {
+                            Existing uk = (Existing) unode[upos];
+                            int c = comparator.compare(uk, ik);
+                            while (true)
+                            {
+                                if (c == 0)
+                                {
+                                    leaf().addKey(updateF.apply(uk, ik));
+                                    if (++upos < usz)
+                                        uk = (Existing) unode[upos];
+                                    if (++ipos < isz)
+                                        ik = (Insert) inode[ipos];
+                                    if (upos == usz || ipos == isz)
+                                        break;
+                                    c = comparator.compare(uk, ik);
+                                }
+                                else if (c < 0)
+                                {
+                                    int ulim = exponentialSearch(comparator, unode, upos + 1, usz, ik);
+                                    c = ulim < 0 ? 1 : 0; // positive or zero
+                                    if (ulim < 0) ulim = -(1 + ulim);
+                                    leaf().copy(unode, upos, ulim - upos);
+                                    if ((upos = ulim) == usz)
+                                        break;
+                                    uk = (Existing) unode[upos];
+                                }
+                                else
+                                {
+                                    int ilim = exponentialSearch(comparator, inode, ipos + 1, isz, uk);
+                                    c = ilim & 0x80000000; // negative or zero
+                                    if (ilim < 0) ilim = -(1 + ilim);
+                                    leaf().copy(inode, ipos, ilim - ipos, updateF);
+                                    if ((ipos = ilim) == isz)
+                                        break;
+                                    ik = (Insert) inode[ipos];
+                                }
+                            }
+                        }
+
+                        // once here we have either exhausted inode, or inode[ipos] > unode[usz-1]
+                        // if inode is not exhausted, we want to insert its contents up to unode's upper bound (uub)
+                        if (ipos < isz)
+                        {
+                            int ilim = exponentialSearchForMaybeInfinity(comparator, inode, ipos, isz, uub);
+                            if (ilim != -(1 + ipos))
+                            {
+                                if (ilim < 0) ilim = -(1 + ilim);
+                                leaf().copy(inode, ipos, ilim - ipos, updateF);
+                                ipos = ilim;
+                            }
+                        }
+
+                        // if inode is _still_ not exhausted, we've reached uub
+                        // so finish unode, and move to its parent
+                        if (ipos < isz)
+                        {
+                            if (null == (level = branch = finish(level, unode, usz)))
+                                break;
+                            unode = update.node(); upos = update.position(); uub = (Existing) update.upperBound(); usz = shallowSizeOfBranch(unode);
+                        }
+                        else if (insert.ascendToUnfinishedParent())
+                        {
+                            // if inode has been exhausted, move it forwards
+                            inode = insert.node(); ipos = insert.position(); isz = shallowSizeOfBranch(inode);
+                        }
+                        else break;
+                    }
+                    else
+                    {
+                        // {@code insert} is a branch: perform a linear merge between the leaf and this one branch key
+                        Insert ik = (Insert) inode[ipos];
+                        int find = exponentialSearchWithUpperBound(comparator, unode, upos, usz, uub, ik);
+                        boolean isInRange = find != -(2 + usz);
+                        boolean found = find >= 0;
+                        if (find < 0) find = isInRange ? -(1 + find) : usz;
+
+                        if (upos < find)
+                        {
+                            copy(unode, upos, find - upos);
+                            upos = find;
+                        }
+
+                        if (isInRange)
+                        {
+                            leaf().addKey(found ? updateF.apply((Existing) unode[upos++], ik)
+                                                : isSimple(updateF)
+                                                  ? ik
+                                                  : updateF.apply(ik));
+
+                            // We are now immediately after ik; since inode is a branch, the next is in a leaf node
+                            insert.descendIntoNextLeaf(inode, ipos, isz);
+                            inode = insert.node(); ipos = insert.position(); isz = sizeOfLeaf(inode);
+                        }
+                        else
+                        {
+                            if (null == (level = branch = finish(level, unode, usz)))
+                                break;
+                            unode = update.node(); upos = update.position(); uub = (Existing) update.upperBound(); usz = shallowSizeOfBranch(unode);
+                        }
+                    }
+                }
+                else
+                {
+                    // we don't care if the new node is a leaf or branch we just want to decide where we go in the old tree
+                    Insert ik = (Insert) inode[ipos];
+
+                    // invariants:
+                    //      upos >= -1, upos < usz
+                    //      branchBuffers[>bufferIndex] must always end on a key (i.e. have as many children as keys)
+                    //                                  because on ascent they will have a child to add
+                    //      branchBuffers[bufferIndex]  must end _before_ a key, since we enter this loop on a key to handle
+                    //      ukey[0..upos) and uchild[0..upos] have been merged into branchBuffers[branchIndex]
+                    // i.e. we have handled all data in unode prior to unode[upos], the current key
+
+                    int find = exponentialSearchWithUpperBound(comparator, unode, max(0, upos), usz, uub, ik);
+                    boolean found = find >= 0;
+                    if (find < 0) find = -(2 + find);
+                    boolean isInRange = find < usz;
+
+                    // post-conditions:
+                    //           find  >= -1
+                    //      ukey[find] == ik or ukey[find+1] > uk
+                    // ->   ukey[find] <= ik
+                    //    uchild[find]  < ik
+
+                    if (upos < find)
+                    {
+                        branch.copy(unode, usz, upos, find - upos);
+                        upos = find;
+                    }
+
+                    // given: ukey[find] <= ik
+                    // if find is a valid key, we copy it, possibly merging with ik
+                    if (found)
+                    {
+                        // we have an exact match, so merge the key, and we now have as many children as keys
+                        branch.addKey(updateF.apply((Existing) unode[upos], ik));
+                    }
+                    else if (upos >= 0 && upos < usz)
+                    {
+                        // otherwise ik occurs _after_ unode[upos] so we copy it unadulterated
+                        // (but may need to descend into its right child)
+                        branch.addKey(unode[upos]);
+                    }
+                    //      ukey[0..upos+1) and uchild[0..upos+1) have been dealt with
+
+                    boolean noMoreToInsert = false; // exitLoop
+                    boolean descend = isInRange; // assume !found; update in found block otherwise
+                    // now we need to restore our invariants
+                    if (found)
+                    {
+                        // we have consumed ik and uk; first walk inode forwards
+                        if (!isLeaf(inode))
+                        {
+                            insert.descendIntoNextLeaf(inode, ipos, isz);
+                            inode = insert.node(); ipos = insert.position(); isz = sizeOfLeaf(inode);
+                        }
+                        else if (++ipos == isz && !(noMoreToInsert = !insert.ascendToUnfinishedParent()))
+                        {
+                            inode = insert.node(); ipos = insert.position(); isz = shallowSizeOfBranch(inode);
+                        }
+
+                        // now we have to restore our invariant, as we last copied a key,
+                        // so we need to either descend or copy the next child
+
+                        // compare ik to the next key:
+                        //   if doneInsert then we have no ik, so treat it as infinity;
+                        //   if exhausted unode's keys, compare with uub for final child
+                        Existing ub = 1 + upos >= usz ? uub : (Existing) unode[1 + upos];
+                        int c = noMoreToInsert ? 1 : compareWithMaybeInfinity(comparator, (Compare) inode[ipos], ub);
+                        descend = c < 0; // descend if ik occurs in the range owned by the child
+                        if (!descend) // otherwise copy the child and continue the loop
+                            branch.addChild((Object[]) unode[usz + ++upos]);
+                    }
+
+                    if (descend)
+                    {
+                        // ik occurs in the child, so descend
+                        // if we're descending, we _want_ to have a dangling child that we populate on ascent
+                        update.descendIntoNextChild(unode, upos, usz);
+                        unode = update.node(); upos = update.position(); uub = (Existing) update.upperBound(); usz = shallowSize(unode);
+                        level = level.child;
+                        branch = level == leaf() ? null : (BranchBuilder) level;
+                    }
+                    else if (upos >= usz)
+                    {
+                        // -> we're done with unode
+                        if (null == (level = branch = finish(level, unode, usz)))
+                            break;
+                        unode = update.node(); upos = update.position(); uub = (Existing) update.upperBound(); usz = shallowSize(unode);
+                    }
+
+                    if (noMoreToInsert)
+                        break;
+                }
+            }
+
+            if (level != null)
+            {
+                // finish copying each in-progress node upto but excluding root unode
+                // NOTE: we stop maintaining uub at this point, as we no longer need it
+                while (true)
+                {
+                    if (level == leaf()) leaf().copy(unode, upos, usz - upos);
+                    else branch.copy(unode, usz, upos, usz - upos);
+
+                    if (null == (level = branch = finish(level, unode, usz)))
+                        break;
+
+                    unode = update.node(); upos = update.position(); usz = shallowSizeOfBranch(unode);
+                }
+            }
+
+            if (allocated > 0)
+                updateF.onAllocated(allocated);
+
+            return result;
+        }
+
+        /**
+         * Called when we have inserted all keys up to {@code uub}, i.e. all those occurring in the
+         * part of the tree logically owned by {@code unode}.
+         *
+         * Constructs the replacement node, inserts it into its parent buffer, and continues finishing
+         * parents if they are also complete as a result of this action.
+         */
+        BranchBuilder finish(LeafOrBranchBuilder level, Object[] unode, int usz)
+        {
+            // first handle completing nodes we are updating; we do this at the start of the loop
+            // to reduce code duplication, simply ensuring upos == usz on completion of the prior loop
+            int upos;
+            BranchBuilder parent;
+            do
+            {
+                parent = level.parentIfInUse();
+                Object[] result = level.drainAndPropagate(unode, usz, parent);
+                if (parent == null)
+                    this.result = result;
+
+                if (update.ascendToParent()) { unode = update.node(); upos = update.position(); usz = shallowSizeOfBranch(unode); }
+                else { unode = null; upos = -1; usz = -1; }
+
+                level = parent;
+            } while (level != null && upos == usz);
+
+            return parent;
+        }
+
+        public void close()
+        {
+            reset();
+            pool.offer(this);
+            pool = null;
+        }
+
+        void reset()
+        {
+            super.reset();
+            insert.reset();
+            update.reset();
+            result = null;
+        }
+    }
+
+    /**
+     * Attempts to perform a clean transformation of the original tree into a new tree,
+     * by replicating its original shape as far as possible.
+     *
+     * We do this by attempting to flush our buffers whenever we finish a source-branch at the given level;
+     * if there are too few contents, we wait until we finish another node at the same level.
+     *
+     * This way, we are always resetting at the earliest point we might be able to reuse more parts of the original
+     * tree, maximising potential reuse.
+     *
+     * This can permit us to build unbalanced right-most nodes at each level, in which case we simply rebalance
+     * when done.
+     *
+     * The approach taken here hopefully balances simplicity, garbage generation and execution time.
+     */
+    private static abstract class AbstractTransformer<I, O> extends AbstractUpdater implements AutoCloseable
+    {
+        /**
+         * An iterator over the tree we are updating
+         */
+        final SimpleTreeIterator update = new SimpleTreeIterator();
+
+        /**
+         * A queue of nodes from update that we are ready to "finish" if we have buffered enough data from them
+         * The stack pointer is maintained inside of {@link #apply()}
+         */
+        Object[][] queuedToFinish = new Object[1][];
+
+        AbstractTransformer()
+        {
+            allocated = -1;
+            ensureParent();
+            parent.touched = false;
+        }
+
+        abstract O apply(I v);
+
+        Object[] apply(Object[] update)
+        {
+            int height = this.update.init(update);
+            if (queuedToFinish.length < height - 1)
+                queuedToFinish = new Object[height - 1][];
+            return apply();
+        }
+
+        /**
+         * We base our operation on the shape of {@code update}, trying to steal as much of the original tree as
+         * possible for our new tree
+         */
+        private Object[] apply()
+        {
+            Object[] unode = update.node();
+            int upos = update.position(), usz = sizeOfLeaf(unode);
+
+            while (true)
+            {
+                // we always start the loop on a leaf node, for both input and output
+                boolean propagatedOriginalLeaf = false;
+                if (leaf().count == 0)
+                {
+                    if (upos == 0)
+                    {   // fast path - buffer is empty and input unconsumed, so may be able to propagate original
+                        I in;
+                        O out;
+                        do
+                        {   // optimistic loop - find first point the transformation modified our input
+                            in = (I) unode[upos];
+                            out = apply(in);
+                        } while (in == out && ++upos < usz);
+
+                        if ((propagatedOriginalLeaf = (upos == usz)))
+                        {
+                            // if input is unmodified by transformation, propagate the input node
+                            touch(parent).addChild(unode, usz);
+                        }
+                        else
+                        {
+                            // otherwise copy up to the first modified portion,
+                            // and fall-through to our below condition for transforming the remainder
+                            leaf().copyNoOverflow(unode, 0, upos++);
+                            if (out != null)
+                                leaf().addKeyNoOverflow(out);
+                        }
+                    }
+
+                    if (!propagatedOriginalLeaf)
+                        transformLeafNoOverflow(unode, upos, usz);
+                }
+                else
+                {
+                    transformLeaf(unode, upos, usz);
+                }
+
+                // we've finished a leaf, and have to hand it to a parent alongside its right-hand key
+                // so now we try to do two things:
+                //    1) find the next unfiltered key from our unfinished parent
+                //    2) determine how many parents are "finished" and whose buffers we should also attempt to propagate
+                // we do (1) unconditionally, because:
+                //    a) we need to handle the branch keys somewhere, and it may as well happen in one place
+                //    b) we either need more keys for our incomplete leaf; or
+                //    c) we need a key to go after our last propagated node in any unfinished parent
+
+                int finishToHeight = 0;
+                O nextKey;
+                do
+                {
+                    update.ascendToParent(); // always have a node above leaf level, else we'd invoke transformLeaf
+                    BranchBuilder level = parent;
+                    unode = update.node(); upos = update.position(); usz = shallowSizeOfBranch(unode);
+
+                    while (upos == usz)
+                    {
+                        queuedToFinish[level.height - 2] = unode;
+                        finishToHeight = max(finishToHeight, level.height);
+
+                        if (!update.ascendToParent())
+                            return finishAndDrain(propagatedOriginalLeaf);
+
+                        level = level.ensureParent();
+                        unode = update.node(); upos = update.position(); usz = shallowSizeOfBranch(unode);
+                    }
+
+                    nextKey = apply((I)unode[upos]);
+                    if (nextKey == null && leaf().count > MIN_KEYS) // if we don't have a key, try to steal from leaf().buffer
+                        nextKey = (O) leaf().buffer[--leaf().count];
+
+                    update.descendIntoNextLeaf(unode, upos, usz);
+                    unode = update.node(); upos = update.position(); usz = sizeOfLeaf(unode);
+
+                    // nextKey might have been filtered, so we may need to look in this next leaf for it
+                    while (nextKey == null && upos < usz)
+                        nextKey = apply((I)unode[upos++]);
+
+                    // if we still found no key loop and try again on the next parent, leaf, parent... ad infinitum
+                } while (nextKey == null);
+
+                // we always end with unode a leaf, though it may be that upos == usz and that we will do nothing with it
+
+                // we've found a non-null key, now decide what to do with it:
+                //   1) if we have insufficient keys in our leaf, simply append to the leaf and continue;
+                //   2) otherwise, walk our parent branches finishing those *before* {@code finishTo}
+                //   2a) if any cannot be finished, append our new key to it and stop finishing further parents; they
+                //   will be finished the next time we ascend to their level with a complete chain of finishable branches
+                //   2b) otherwise, add our new key to {@code finishTo}
+
+                if (!propagatedOriginalLeaf && !finish(leaf(), null, -1))
+                {
+                    leaf().addKeyNoOverflow(nextKey);
+                    continue;
+                }
+
+                BranchBuilder finish = parent;
+                while (true)
+                {
+                    if (finish.height <= finishToHeight)
+                    {
+                        Object[] originalNode = queuedToFinish[finish.height - 2];
+                        if (finish(finish, originalNode, shallowSizeOfBranch(originalNode)))
+                        {
+                            finish = finish.parent;
+                            continue;
+                        }
+                    }
+
+                    // add our key to the last unpropagated parent branch buffer
+                    finish.addKey(nextKey);
+                    break;
+                }
+            }
+        }
+
+        private void transformLeafNoOverflow(Object[] unode, int upos, int usz)
+        {
+            while (upos < usz)
+            {
+                O v = apply((I) unode[upos++]);
+                leaf().maybeAddKeyNoOverflow(v);
+            }
+        }
+
+        private void transformLeaf(Object[] unode, int upos, int usz)
+        {
+            while (upos < usz)
+            {
+                O v = apply((I) unode[upos++]);
+                leaf().maybeAddKey(v);
+            }
+        }
+
+        /**
+         * Invoked when we are finished transforming a branch.  If the buffer contains insufficient elements,
+         * we refuse to construct a leaf and return null.  Otherwise we propagate the branch to its parent's buffer
+         * and return the branch we have constructed.
+         */
+        private boolean finish(LeafOrBranchBuilder level, Object[] unode, int usz)
+        {
+            if (!level.isSufficient())
+                return false;
+
+            level.drainAndPropagate(unode, usz, level.ensureParent());
+            return true;
+        }
+
+        /**
+         * Invoked once we have consumed all input.
+         * The buffers below {@code start} are expected to be empty, i.e. in the case we exhaust the input
+         * before we finish finding a right-hand key to restore our buffer invariants.
+         *
+         * We drain all buffers and propagate their contents to their pareents.  If any have insufficient keys,
+         * we simply make a note of the fact the tree needs balancing.
+         */
+        private Object[] finishAndDrain(boolean skipLeaf)
+        {
+            LeafOrBranchBuilder level = leaf();
+            if (skipLeaf)
+            {
+                level = parentIfStillInUse(level);
+                // handle an edge case, where we have propagated a single complete leaf but have no other contents in any parent
+                if (level == null)
+                    return (Object[]) leaf().parent.buffer[MAX_KEYS];
+            }
+            while (true)
+            {
+                BranchBuilder parent = parentIfStillInUse(level);
+                if (parent != null && !level.isSufficient())
+                {
+                    Object[] result = stealAndMaybeRepropagate(level, parent);
+                    if (result != null)
+                        return result;
+                }
+                else
+                {
+
+                    Object[] originalNode  = level == leaf() ? null : queuedToFinish[level.height - 2];
+                    int sizeOfOriginalNode = level == leaf() ? -1   : shallowSizeOfBranch(originalNode);
+                    Object[] result = level.drainAndPropagate(originalNode, sizeOfOriginalNode, parent);
+                    if (parent == null)
+                        return result;
+                }
+                level = parent;
+            }
+        }
+
+        BranchBuilder parentIfStillInUse(LeafOrBranchBuilder level)
+        {
+            if (level.hasOverflow())
+                return level.ensureParent();
+            BranchBuilder parent = level.parent;
+            if (parent == null || !parent.touched || (parent.isEmpty() && !tryPrependFromParent(parent)))
+                return null;
+            return parent;
+        }
+
+        /**
+         * precondition: {@code fill.parentInUse()} must return {@code fill.parent}
+         *
+         * Steal some data from our ancestors, if possible.
+         *   1) If no ancestor has any data to steal, simply drain and return the current contents.
+         *   2) If we exhaust all of our ancestors, and are not now ourselves overflowing, drain and return
+         *   3) Otherwise propagate the redistributed contents to our parent and return null, indicating we can continue to parent
+         *
+         * @return {@code null} if {@code parent} is still logicallly in use after we execute;
+         *         otherwise the return value is the final result
+         */
+        private Object[] stealAndMaybeRepropagate(LeafOrBranchBuilder fill, BranchBuilder parent)
+        {
+            if (!prependFromParent(fill, parent))
+                return fill.drain();
+
+            // if we've emptied our parent, attempt to restore it from our grandparent,
+            // this is so that we can determine an accurate exhausted status
+            boolean exhausted = !fill.hasOverflow() && parent.isEmpty() && !tryPrependFromParent(parent);
+            if (exhausted)
+                return fill.drain();
+
+            fill.drainAndPropagate(null, -1, parent);
+            return null;
+        }
+
+        private boolean tryPrependFromParent(BranchBuilder parent)
+        {
+            BranchBuilder grandparent = parentIfStillInUse(parent);
+            return grandparent != null && prependFromParent(parent, grandparent);
+        }
+
+        // should only be invoked with parent = parentIfStillInUse(fill), if non-null result
+        private boolean prependFromParent(LeafOrBranchBuilder fill, BranchBuilder parent)
+        {
+            assert !parent.isEmpty();
+
+            Object[] predecessor;
+            Object   predecessorNextKey;
+            // parent will have same number of children as shallow key count (and may be empty)
+            if (parent.count == 0 && parent.hasOverflow())
+            {
+                // use the saved buffer instead of going to our parent
+                predecessorNextKey  = parent.savedNextKey;
+                predecessor         = (Object[]) parent.savedBuffer[2 * MAX_KEYS];
+                Object[] tmpBuffer  = parent.savedBuffer;
+                int[]    tmpSizes   = parent.savedSizes;
+                parent.savedBuffer  = parent.buffer;
+                parent.savedSizes   = parent.sizes;
+                parent.buffer       = tmpBuffer;
+                parent.sizes        = tmpSizes;
+                parent.savedNextKey = null;
+                parent.count        = MAX_KEYS;
+                // end with MAX_KEYS keys and children in parent, having stolen MAX_KEYS+1 child and savedNextKey
+            }
+            else
+            {
+                --parent.count;
+                predecessor = (Object[]) parent.buffer[MAX_KEYS + parent.count];
+                predecessorNextKey = parent.buffer[parent.count];
+            }
+
+            fill.prepend(predecessor, predecessorNextKey);
+            return true;
+        }
+
+        void reset()
+        {
+            Arrays.fill(queuedToFinish, 0, update.leafDepth, null);
+            update.reset();
+            super.reset();
+        }
+    }
+
+
+    private static class Transformer<I, O> extends AbstractTransformer<I, O>
+    {
+        static final TinyThreadLocalPool<Transformer> POOL = new TinyThreadLocalPool<>();
+        TinyThreadLocalPool.TinyPool<Transformer> pool;
+
+        Function<? super I, ? extends O> apply;
+
+        O apply(I v)
+        {
+            return apply.apply(v);
+        }
+
+        static <I, O> Transformer<I, O> get(Function<? super I, ? extends O> apply)
+        {
+            TinyThreadLocalPool.TinyPool<Transformer> pool = POOL.get();
+            Transformer<I, O> transformer = pool.poll();
+            if (transformer == null)
+                transformer = new Transformer<>();
+            transformer.pool = pool;
+            transformer.apply = apply;
+            return transformer;
+        }
+
+        public void close()
+        {
+            apply = null;
+            reset();
+            pool.offer(this);
+            pool = null;
+        }
+    }
+
+    private static class BiTransformer<I, I2, O> extends AbstractTransformer<I, O>
+    {
+        static final TinyThreadLocalPool<BiTransformer> POOL = new TinyThreadLocalPool<>();
+
+        BiFunction<? super I, ? super I2, ? extends O> apply;
+        I2 i2;
+        TinyThreadLocalPool.TinyPool<BiTransformer> pool;
+
+        O apply(I i1)
+        {
+            return apply.apply(i1, i2);
+        }
+
+        static <I, I2, O> BiTransformer<I, I2, O> get(BiFunction<? super I, ? super I2, ? extends O> apply, I2 i2)
+        {
+            TinyThreadLocalPool.TinyPool<BiTransformer> pool = POOL.get();
+            BiTransformer<I, I2, O> transformer = pool.poll();
+            if (transformer == null)
+                transformer = new BiTransformer<>();
+            transformer.pool = pool;
+            transformer.apply = apply;
+            transformer.i2 = i2;
+            return transformer;
+        }
+
+        public void close()
+        {
+            apply = null;
+            i2 = null;
+            reset();
+            pool.offer(this);
+            pool = null;
+        }
+    }
+
+
+    private static int[] buildSizeMap(Object[] branch)
+    {
+        int keyEnd = shallowSizeOfBranch(branch);
+        int size = 0;
+        int[] sizeMap = new int[1 + keyEnd];
+        if (isLeaf((Object[]) branch[keyEnd]))
+        {
+            for (int i = 0 ; i < keyEnd; ++i)
+            {
+                size += sizeOfLeaf((Object[]) branch[keyEnd + i]);
+                sizeMap[i] = size;
+                size += 1;
+            }
+            size += sizeOfLeaf((Object[]) branch[2 * keyEnd]);
+        }
+        else
+        {
+            for (int i = 0 ; i < keyEnd; ++i)
+            {
+                size += sizeOfBranch((Object[]) branch[keyEnd + i]);
+                sizeMap[i] = size;
+                size += 1;
+            }
+            size += sizeOfBranch((Object[]) branch[2 * keyEnd]);
+        }
+        sizeMap[keyEnd] = size;
+        return sizeMap;
+    }
+
+    /**
+     * A base class for very simple walks of a tree without recursion, supporting reuse
+     */
+    private static abstract class SimpleTreeStack
+    {
+        // stack we have descended, with 0 the root node
+        Object[][] nodes;
+        /**
+         * the child node we are in, if at lower height, or the key we are on otherwise
+         * can be < 0, indicating we have not yet entered the contents of the node, and are deliberating
+         * whether we descend or consume the contents without descending
+         */
+        int[] positions;
+        int depth, leafDepth;
+
+        void reset()
+        {
+            Arrays.fill(nodes, 0, leafDepth + 1, null);
+            // positions gets zero'd during descent
+        }
+
+        // ascend to the first parent that has children or keys left to visit
+        boolean ascendToUnfinishedParent()
+        {
+            if (depth < 0) return false;
+            while (--depth >= 0 && positions[depth] == shallowSizeOfBranch(nodes[depth]));
+            return depth >= 0;
+        }
+
+        Object[] node()
+        {
+            return nodes[depth];
+        }
+
+        int position()
+        {
+            return positions[depth];
+        }
+    }
+
+    // Similar to SimpleTreeNavigator, but visits values eagerly
+    // (the exception being ascendToParent(), which permits iterating through finished parents).
+    // Begins by immediately descending to first leaf; if empty terminates immediately.
+    private static class SimpleTreeIterator extends SimpleTreeStack
+    {
+        int init(Object[] tree)
+        {
+            int maxHeight = maxRootHeight(size(tree));
+            if (positions == null || maxHeight >= positions.length)
+            {
+                positions = new int[maxHeight + 1];
+                nodes = new Object[maxHeight + 1][];
+            }
+            nodes[0] = tree;
+            if (isEmpty(tree))
+            {
+                // already done
+                leafDepth = 0;
+                depth = -1;
+            }
+            else
+            {
+                depth = 0;
+                positions[0] = 0;
+                while (!isLeaf(tree))
+                {
+                    tree = (Object[]) tree[shallowSizeOfBranch(tree)];
+                    nodes[++depth] = tree;
+                    positions[depth] = 0;
+                }
+                leafDepth = depth;
+            }
+            return leafDepth + 1;
+        }
+
+        void advanceLeaf()
+        {
+            if (++positions[depth] == sizeOfLeaf(nodes[depth]))
+                ascendToUnfinishedParent();
+        }
+
+        void descendIntoNextLeaf(Object[] node, int pos, int sz)
+        {
+            positions[depth] = ++pos;
+            ++depth;
+            nodes[depth] = node = (Object[]) node[sz + pos];
+            positions[depth] = 0;
+            while (depth < leafDepth)
+            {
+                ++depth;
+                nodes[depth] = node = (Object[]) node[shallowSizeOfBranch(node)];
+                positions[depth] = 0;
+            }
+        }
+
+        boolean ascendToParent()
+        {
+            if (depth < 0)
+                return false;
+            return --depth >= 0;
+        }
+
+        boolean isRoot()
+        {
+            return depth == 0;
+        }
+    }
+
+    /**
+     * Like {@code SimpleTreeIterator} except we may not visit every node.
+     * When we first enter branch, we begin before its first key to consider if we should descend into the first child.
+     * Should only be used on non-empty trees.
+     */
+    private static final class SimpleTreeNavigator extends SimpleTreeStack
+    {
+        Object[] upperBounds;
+
+        void init(Object[] tree)
+        {
+            int height = height(tree);
+            leafDepth = height - 1;
+            if (positions == null || height >= positions.length)
+            {
+                positions = new int[height];
+                nodes = new Object[height][];
+                upperBounds = new Object[height];
+            }
+            nodes[this.depth = 0] = tree;
+            positions[0] = leafDepth == 0 ? 0 : -1;
+        }
+
+        void descendIntoNextChild(Object[] parent, int pos, int sz)
+        {
+            positions[depth] = ++pos;
+            ++depth;
+            Object[] child = (Object[]) parent[sz + pos];
+            nodes[depth] = child;
+            upperBounds[depth] = pos < sz ? parent[pos] : upperBounds[depth - 1];
+            positions[depth] = depth == leafDepth ? 0 : -1;
+        }
+
+        void reset()
+        {
+            super.reset();
+            Arrays.fill(upperBounds, 0, leafDepth + 1, null);
+        }
+
+        boolean ascendToParent()
+        {
+            if (depth == 0)
+                return false;
+            --depth;
+            return true;
+        }
+
+        Object upperBound()
+        {
+            return upperBounds[depth];
+        }
+    }
+
+    /**
+     * A full-fat builder, able to automatically (or manually) sort and reconcile input.
+     * Unbounded memory utilisation, so not cached.  Quicker to use {@link FastBuilder}
+     * if possible.
+     */
     public static class Builder<V>
     {
-
         // a user-defined bulk resolution, to be applied manually via resolve()
         public static interface Resolver
         {
@@ -853,6 +3293,7 @@ public class BTree
         }
 
         /**
+         * TODO why would we ever want to do this, instead of reconcile and build from the current buffer?
          * Creates a copy of this {@code Builder}.
          * @return a copy of this {@code Builder}.
          */
@@ -891,7 +3332,7 @@ public class BTree
                 values = Arrays.copyOf(values, count * 2);
 
             Object[] values = this.values;
-            int prevCount = this.count++;
+            int prevCount = count++;
             values[prevCount] = v;
 
             if (auto && detected && prevCount > 0)
@@ -1044,13 +3485,7 @@ public class BTree
         public Builder<V> reverse()
         {
             assert !auto;
-            int mid = count / 2;
-            for (int i = 0 ; i < mid ; i++)
-            {
-                Object t = values[i];
-                values[i] = values[count - (1 + i)];
-                values[count - (1 + i)] = t;
-            }
+            BTree.reverse(values, 0, count);
             return this;
         }
 
@@ -1091,11 +3526,11 @@ public class BTree
                 {
                     if (comparator.compare((V) values[i], (V) values[prev]) != 0)
                     {
-                        values[c++] = resolver.resolve((V[]) values, prev, i);
+                        values[c++] = resolver.resolve(values, prev, i);
                         prev = i;
                     }
                 }
-                values[c++] = resolver.resolve((V[]) values, prev, count);
+                values[c++] = resolver.resolve(values, prev, count);
                 count = c;
             }
             return this;
@@ -1105,12 +3540,467 @@ public class BTree
         {
             if (auto)
                 autoEnforce();
-            return BTree.build(Arrays.asList(values).subList(0, count), UpdateFunction.noOp());
+            try (BulkIterator<V> iterator = BulkIterator.of(values, 0))
+            {
+                return BTree.build(iterator, count, UpdateFunction.noOp());
+            }
         }
     }
 
+    /**
+     * Fill the target array with the contents of the provided subtree, in ascending order, starting at targetOffset
+     * @param tree source
+     * @param target array
+     * @param targetOffset offset in target array
+     * @return number of items copied (size of tree)
+     */
+    public static int toArray(Object[] tree, Object[] target, int targetOffset)
+    {
+        return toArray(tree, 0, size(tree), target, targetOffset);
+    }
+    public static int toArray(Object[] tree, int treeStart, int treeEnd, Object[] target, int targetOffset)
+    {
+        if (isLeaf(tree))
+        {
+            int count = treeEnd - treeStart;
+            System.arraycopy(tree, treeStart, target, targetOffset, count);
+            return count;
+        }
+
+        int newTargetOffset = targetOffset;
+        int childCount = childCount(tree);
+        int childOffset = childOffset(tree);
+        for (int i = 0 ; i < childCount ; i++)
+        {
+            int childStart = treeIndexOffsetOfChild(tree, i);
+            int childEnd = treeIndexOfBranchKey(tree, i);
+            if (childStart <= treeEnd && childEnd >= treeStart)
+            {
+                newTargetOffset += toArray((Object[]) tree[childOffset + i], max(0, treeStart - childStart), min(childEnd, treeEnd) - childStart,
+                                           target, newTargetOffset);
+                if (treeStart <= childEnd && treeEnd > childEnd) // this check will always fail for the non-existent key
+                    target[newTargetOffset++] = tree[i];
+            }
+        }
+        return newTargetOffset - targetOffset;
+    }
+
+    // UTILITY METHODS
+
+    /**
+     * @return true iff {@code node} is a leaf, false if a branch
+     */
+    static boolean isLeaf(Object[] node)
+    {
+        return (node.length & 1) == 1;
+    }
+
+    /**
+     * @return true iff the tree is empty
+     *
+     * Requires that the empty tree was correctly constructed (which means returning the {@code EMPTY} instance)
+     */
+    public static boolean isEmpty(Object[] tree)
+    {
+        return tree == EMPTY_LEAF;
+    }
+
+    // get the upper bound we should search in for keys in the node
+    static int shallowSize(Object[] node)
+    {
+        if (isLeaf(node))
+            return sizeOfLeaf(node);
+        else
+            return shallowSizeOfBranch(node);
+    }
+
+    static int sizeOfLeaf(Object[] leaf)
+    {
+        int len = leaf.length;
+        return leaf[len - 1] == null ? len - 1 : len;
+    }
+
+    // return the boundary position between keys/children for the branch node
+    // == number of keys, as they are indexed from zero
+    static int shallowSizeOfBranch(Object[] branch)
+    {
+        return (branch.length / 2) - 1;
+    }
+
+    /**
+     * @return first index in a branch node containing child nodes
+     */
+    static int childOffset(Object[] branch)
+    {
+        return shallowSizeOfBranch(branch);
+    }
+
+    /**
+     * @return last index + 1 in a branch node containing child nodes
+     */
+    static int childEndOffset(Object[] branch)
+    {
+        return branch.length - 1;
+    }
+
+    /**
+     * @return number of children in a branch node
+     */
+    static int childCount(Object[] branch)
+    {
+        return branch.length / 2;
+    }
+
+    // get the size from the btree's index (fails if not present)
+    public static int size(Object[] tree)
+    {
+        if (isLeaf(tree))
+            return sizeOfLeaf(tree);
+        return sizeOfBranch(tree);
+    }
+
+    private static int sizeOfBranch(Object[] branch)
+    {
+        int length = branch.length;
+        // length - 1 == getChildEnd == getPositionOfSizeMap
+        // (length / 2) - 1 == getChildCount - 1 == position of full tree size
+        // hard code this, as will be used often;
+        return ((int[]) branch[length - 1])[(length / 2) - 1];
+    }
+
+    private static boolean isSimple(UpdateFunction<?, ?> updateF)
+    {
+        return updateF.getClass() == UpdateFunction.Simple.class;
+    }
+
+    /**
+     * @return the size map for the branch node
+     */
+    static int[] sizeMap(Object[] branch)
+    {
+        return (int[]) branch[branch.length - 1];
+    }
+
+    /**
+     * @return the size map for the branch node
+     */
+    static int lookupSizeMap(Object[] branch, int keyIndex)
+    {
+        return sizeMap(branch)[keyIndex];
+    }
+
+    public static long sizeOnHeapOf(Object[] tree)
+    {
+        long size = ObjectSizes.sizeOfArray(tree);
+        if (isLeaf(tree))
+            return size;
+        for (int i = childOffset(tree); i < childEndOffset(tree) ; i++)
+            size += sizeOnHeapOf((Object[]) tree[i]);
+        size += ObjectSizes.sizeOfArray(sizeMap(tree)); // may overcount, since we share size maps
+        return size;
+    }
+
+    /**
+     * Compute the size-in-bytes of full trees of cardinality {@code branchFactor^height - 1}
+     */
+    private static long[] sizeOnHeapOfPerfectTrees(int branchShift)
+    {
+        long[] result = new long[heightAtSize2n(Integer.MAX_VALUE, branchShift)];
+        int branchFactor = 1 << branchShift;
+        result[0] = branchFactor - 1;
+        for (int i = 1 ; i < result.length ; ++i)
+            result[i] = sizeOnHeapOfPerfectTree(i + 1, branchFactor);
+        return result;
+    }
+
+    /**
+     * Compute the size-in-bytes of a full tree of cardinality {@code branchFactor^height - 1}
+     * TODO: test
+     */
+    private static long sizeOnHeapOfPerfectTree(int height, int branchShift)
+    {
+        int branchFactor = 1 << branchShift;
+        long branchSize = ObjectSizes.sizeOfReferenceArray(branchFactor * 2);
+        int branchCount = height == 2 ? 1 : 2 + treeSize2n(height - 2, branchShift);
+        long leafSize = ObjectSizes.sizeOfReferenceArray((branchFactor - 1)|1);
+        int leafCount = 1 + treeSize2n(height - 1, branchShift);
+        return (branchSize * branchCount) + (leafSize * leafCount);
+    }
+
+    /**
+     * @return the actual height of {@code tree}
+     */
+    public static int height(Object[] tree)
+    {
+        if (isLeaf(tree))
+            return 1;
+
+        int height = 1;
+        while (!isLeaf(tree))
+        {
+            height++;
+            tree = (Object[]) tree[shallowSizeOfBranch(tree)];
+        }
+        return height;
+    }
+
+    /**
+     * @return the minimum representable size at {@code height}, for an internal (non-root) node.
+     */
+    private static int sparseSize(int height)
+    {
+        return treeSize2n(height, BRANCH_SHIFT - 1);
+    }
+
+    /**
+     * @return the maximum representable size at {@code height}.
+     */
+    private static int denseSize(int height)
+    {
+        return treeSize2n(height, BRANCH_SHIFT);
+    }
+
+    /**
+     * @return the maximum representable size at {@code height}.
+     */
+    private static int checkedDenseSize(int height)
+    {
+        assert height * BRANCH_SHIFT < 32;
+        return denseSize(height);
+    }
+
+    /**
+     * Computes the number of nodes in a full tree of height {@code height}
+     * and with {@code 2^branchShift} branch factor.
+     * i.e. computes {@code (2^branchShift)^height - 1}
+     */
+    private static int treeSize2n(int height, int branchShift)
+    {
+        return (1 << (branchShift * height)) - 1;
+    }
+
+    // TODO: test
+    private static int maxRootHeight(int size)
+    {
+        if (size <= BRANCH_FACTOR)
+            return 1;
+        return 1 + heightAtSize2n((size - 1) / 2, BRANCH_SHIFT - 1);
+    }
+
+    private static int minHeight(int size)
+    {
+        return heightAtSize2n(size, BRANCH_SHIFT);
+    }
+
+    private static int heightAtSize2n(int size, int branchShift)
+    {
+        //    branch factor                 =  1 <<  branchShift
+        // => full size at height            = (1 << (branchShift * height)) - 1
+        // => full size at height + 1        =  1 << (branchShift * height)
+        // => shift(full size at height + 1) = branchShift * height
+        // => shift(full size at height + 1) / branchShift = height
+        int indexOfHighestBit = 63 - Long.numberOfLeadingZeros(size + 1);
+        indexOfHighestBit += (1L << indexOfHighestBit) == (size + 1) ? 0 : 1;
+        return (branchShift - 1 + indexOfHighestBit) / branchShift;
+    }
+
+    private static int[][] buildBalancedSizeMaps(int branchShift)
+    {
+        int count = (32 / branchShift) - 1;
+        int childCount = 1 << branchShift;
+        int[][] sizeMaps = new int[count][childCount];
+        for (int height = 0 ; height < count ; ++height)
+        {
+            int childSize = treeSize2n(height + 1, branchShift);
+            int size = 0;
+            int[] sizeMap = sizeMaps[height];
+            for (int i = 0 ; i < childCount ; ++i)
+            {
+                sizeMap[i] = size += childSize;
+                size += 1;
+            }
+        }
+        return sizeMaps;
+    }
+
+    // simply utility to reverse the contents of array[from..to)
+    private static void reverse(Object[] array, int from, int to)
+    {
+        int mid = (from + to) / 2;
+        for (int i = from ; i < mid ; i++)
+        {
+            int j = to - (1 + i - from);
+            Object tmp = array[i];
+            array[i] = array[j];
+            array[j] = tmp;
+        }
+    }
+
+    // simply utility to reverse the contents of array[from..to)
+    private static void reverse(int[] array, int from, int to)
+    {
+        int mid = (from + to) / 2;
+        for (int i = from ; i < mid ; i++)
+        {
+            int j = to - (1 + i - from);
+            int tmp = array[i];
+            array[i] = array[j];
+            array[j] = tmp;
+        }
+    }
+
+    /**
+     * Mutate an array of child sizes into a cumulative sizeMap, returning the total size
+     */
+    private static int sizesToSizeMap(int[] sizeMap)
+    {
+        int total = sizeMap[0];
+        for (int i = 1 ; i < sizeMap.length ; ++i)
+            sizeMap[i] = total += 1 + sizeMap[i];
+        return total;
+    }
+
+    private static int sizesToSizeMap(int[] sizes, int count)
+    {
+        int total = sizes[0];
+        for (int i = 1 ; i < count ; ++i)
+            sizes[i] = total += 1 + sizes[i];
+        return total;
+    }
+
+    /**
+     * Mutate an array of child sizes into a cumulative sizeMap, returning the total size
+     */
+    private static void sizeMapToSizes(int[] sizeMap)
+    {
+        for (int i = sizeMap.length ; i > 1 ; --i)
+            sizeMap[i] -= 1 + sizeMap[i - 1];
+    }
+
+
+    /**
+     * A simple utility method to handle a null upper bound that we treat as infinity
+     */
+    private static <Compare> int compareWithMaybeInfinity(Comparator<? super Compare> comparator, Compare key, Compare ub)
+    {
+        if (ub == null)
+            return -1;
+        return comparator.compare(key, ub);
+    }
+
+    /**
+     * Perform {@link #exponentialSearch} on {@code in[from..to)}, treating a {@code find} of {@code null} as infinity.
+     */
+    static <Compare> int exponentialSearchForMaybeInfinity(Comparator<? super Compare> comparator, Object[] in, int from, int to, Compare find)
+    {
+        if (find == null)
+            return -(1 + to);
+        return exponentialSearch(comparator, in, from, to, find);
+    }
+
+    /**
+     * Equivalent to {@link Arrays#binarySearch}, only more efficient algorithmically for linear merges.
+     * Binary search has worst case complexity {@code O(n.lg n)} for a linear merge, whereas exponential search
+     * has a worst case of {@code O(n)}. However compared to a simple linear merge, the best case for exponential
+     * search is {@code O(lg(n))} instead of {@code O(n)}.
+     */
+    private static <Compare> int exponentialSearch(Comparator<? super Compare> comparator, Object[] in, int from, int to, Compare find)
+    {
+        int step = 0;
+        while (from + step < to)
+        {
+            int i = from + step;
+            int c = comparator.compare(find, (Compare) in[i]);
+            if (c < 0)
+            {
+                to = i;
+                break;
+            }
+            if (c == 0)
+                return i;
+            from = i + 1;
+            step = step * 2 + 1; // jump in perfect binary search increments
+        }
+        return Arrays.binarySearch((Compare[]) in, from, to, find, comparator);
+    }
+
+    /**
+     * Perform {@link #exponentialSearch} on {@code in[from..to)}; if the value falls outside of the range of these
+     * elements, test against {@code ub} as though it occurred at position {@code to}
+     *
+     * @return same as {@link Arrays#binarySearch} if {@code find} occurs in the range {@code [in[from]..in[to])};
+     * otherwise the insertion position {@code -(1+to)} if {@code find} is less than {@code ub}, and {@code -(2+t)}
+     * if it is greater than or equal to.
+     *
+     * {@code ub} may be {@code null}, representing infinity.
+     */
+    static <Compare> int exponentialSearchWithUpperBound(Comparator<? super Compare> comparator, Object[] in, int from, int to, Compare ub, Compare find)
+    {
+        int step = 0;
+        while (true)
+        {
+            int i = from + step;
+            if (i >= to)
+            {
+                int c = compareWithMaybeInfinity(comparator, find, ub);
+                if (c >= 0)
+                    return -(2 + to);
+                break;
+            }
+            int c = comparator.compare(find, (Compare) in[i]);
+            if (c < 0)
+            {
+                to = i;
+                break;
+            }
+            if (c == 0)
+                return i;
+            from = i + 1;
+            step = step * 2 + 1; // jump in perfect binary search increments
+        }
+        return Arrays.binarySearch((Compare[]) in, from, to, find, comparator);
+    }
+
+    /**
+     * Perform {@link #exponentialSearch} on {@code in[from..to)}, treating a {@code find} of {@code null} as infinite.
+     */
+    static <Compare> int binarySearch(Comparator<? super Compare> comparator, Object[] in, int from, int to, Compare find)
+    {
+        return Arrays.binarySearch((Compare[]) in, from, to, find, comparator);
+    }
+
+    /**
+     * Perform {@link #exponentialSearch} on {@code in[from..to)}, treating a {@code find} of {@code null} as infinite.
+     */
+    static <Compare> int binarySearchForMaybeInfinity(Comparator<? super Compare> comparator, Object[] in, int from, int to, Compare find)
+    {
+        if (find == null)
+            return -(1 + to);
+        return Arrays.binarySearch((Compare[]) in, from, to, find, comparator);
+    }
+
+    /**
+     * Perform {@link #exponentialSearch} on {@code in[from..to)}; if the value falls outside of the range of these
+     * elements, test against {@code ub} as though it occurred at position {@code to}
+     *
+     * @return same as {@link Arrays#binarySearch} if {@code find} occurs in the range {@code [in[from]..in[to])};
+     * otherwise the insertion position {@code -(1+to)} if {@code find} is less than {@code ub}, and {@code -(2+t)}
+     * if it is greater than or equal to.
+     */
+    static <Compare> int binarySearchWithUpperBound(Comparator<? super Compare> comparator, Object[] in, int from, int to, Compare ub, Compare find)
+    {
+        int i = Arrays.binarySearch((Compare[]) in, from, to, find, comparator);
+        if (i == -(1 + to))
+        {
+            int c = compareWithMaybeInfinity(comparator, find, ub);
+            if (c >= 0)
+                return -(2 + to);
+        }
+        return i;
+    }
+
     /** simple static wrapper to calls to cmp.compare() which checks if either a or b are Special (i.e. represent an infinity) */
-    static <V> int compare(Comparator<V> cmp, Object a, Object b)
+    private static <V> int compareWellFormed(Comparator<V> cmp, Object a, Object b)
     {
         if (a == b)
             return 0;
@@ -1121,51 +4011,75 @@ public class BTree
         return cmp.compare((V) a, (V) b);
     }
 
-    static Object POSITIVE_INFINITY = new Object();
-    static Object NEGATIVE_INFINITY = new Object();
+    private static Object POSITIVE_INFINITY = new Object();
+    private static Object NEGATIVE_INFINITY = new Object();
 
-    public static boolean isWellFormed(Object[] btree, Comparator<? extends Object> cmp)
+    public static <V> boolean isWellFormed(Object[] btree, Comparator<V> cmp)
     {
-        return isWellFormed(cmp, btree, true, NEGATIVE_INFINITY, POSITIVE_INFINITY);
+        return isWellFormed((a, b) -> {
+            if (a == b)
+                return 0;
+            if (a == NEGATIVE_INFINITY | b == POSITIVE_INFINITY)
+                return -1;
+            if (b == NEGATIVE_INFINITY | a == POSITIVE_INFINITY)
+                return 1;
+            return cmp.compare((V) a, (V) b);
+        }, btree, true, NEGATIVE_INFINITY, POSITIVE_INFINITY);
     }
 
     private static boolean isWellFormed(Comparator<?> cmp, Object[] node, boolean isRoot, Object min, Object max)
     {
+        if (isEmpty(node))
+            return true;
+
         if (cmp != null && !isNodeWellFormed(cmp, node, min, max))
             return false;
 
-        if (isLeaf(node))
-        {
-            if (isRoot)
-                return node.length <= FAN_FACTOR + 1;
-            return node.length >= FAN_FACTOR / 2 && node.length <= FAN_FACTOR + 1;
-        }
+        int keyCount = shallowSize(node);
+        if (keyCount < 1)
+            return false;
+        if (!isRoot && keyCount < BRANCH_FACTOR/2 - 1)
+            return false;
+        if (keyCount >= BRANCH_FACTOR)
+            return false;
 
+        if (isLeaf(node))
+            return true;
+
+        int[] sizeMap = sizeMap(node);
         int type = 0;
+        int size = 0;
         // compare each child node with the branch element at the head of this node it corresponds with
-        for (int i = getChildStart(node); i < getChildEnd(node) ; i++)
+        for (int i = childOffset(node); i < childEndOffset(node) ; i++)
         {
             Object[] child = (Object[]) node[i];
-            Object localmax = i < node.length - 2 ? node[i - getChildStart(node)] : max;
+            Object localmax = i < node.length - 2 ? node[i - childOffset(node)] : max;
             if (!isWellFormed(cmp, child, false, min, localmax))
                 return false;
             type |= isLeaf(child) ? 1 : 2;
             min = localmax;
+            size += size(child);
+            if (sizeMap[i - childOffset(node)] != size)
+                return false;
+            size += 1;
         }
-        return type < 3; // either all leaves or all branches but not a mix
+
+        if (type >= 3)
+            return false;
+        return true; // either all leaves or all branches but not a mix
     }
 
     private static boolean isNodeWellFormed(Comparator<?> cmp, Object[] node, Object min, Object max)
     {
         Object previous = min;
-        int end = getKeyEnd(node);
+        int end = shallowSize(node);
         for (int i = 0; i < end; i++)
         {
             Object current = node[i];
-            if (compare(cmp, previous, current) >= 0)
+            if (compareWellFormed(cmp, previous, current) >= 0)
                 return false;
             previous = current;
         }
-        return compare(cmp, previous, max) < 0;
+        return compareWellFormed(cmp, previous, max) < 0;
     }
 }

@@ -20,9 +20,9 @@ package org.apache.cassandra.db.rows;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
-import com.google.common.base.Function;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
@@ -402,7 +402,7 @@ public class BTreeRow extends AbstractRow
     {
         long heapSize = EMPTY_SIZE
                       + clustering.unsharedHeapSizeExcludingData()
-                      + BTree.sizeOfStructureOnHeap(btree);
+                      + BTree.sizeOnHeapOf(btree);
 
         for (ColumnData cd : this)
             heapSize += cd.unsharedHeapSizeExcludingData();

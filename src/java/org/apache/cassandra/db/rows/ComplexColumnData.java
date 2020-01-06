@@ -21,9 +21,9 @@ import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.util.*;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;

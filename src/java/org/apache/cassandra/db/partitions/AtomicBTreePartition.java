@@ -197,7 +197,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                 EncodingStats addStats = update.stats();
                 EncodingStats newStats = current.stats.mergeWith(addStats);
 
-                Object[] newTree = BTree.update(current.tree, update.metadata().comparator, update, update.rowCount(), updater);
+                Object[] newTree = BTree.update(current.tree, update.holder().tree, update.metadata().comparator, updater);
 
                 Holder newHolder = new Holder(newColumns, newTree, newDeletionInfo, newStaticRow, newStats);
 
@@ -220,7 +220,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                 DeletionInfo newDeletionInfo = current.deletionInfo.add(copiedDeletionInfo);
                 EncodingStats newStats = current.stats.mergeWith(update.stats());
 
-                Object[] newTree = BTree.update(current.tree, update.metadata().comparator, BTree.iterable(copiedTree), BTree.size(copiedTree), updater);
+                Object[] newTree = BTree.update(current.tree, copiedTree, update.metadata().comparator, updater);
                 Holder newHolder = new Holder(newColumns, newTree, newDeletionInfo, newStaticRow, newStats);
 
                 if (refUpdater.compareAndSet(this, current, newHolder))
@@ -251,7 +251,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                 addDeletionInfo.rangeIterator(false).forEachRemaining(indexer::onRangeTombstone);
         }
 
-        updater.allocated(newHolder.deletionInfo.unsharedHeapSize() - oldHolder.deletionInfo.unsharedHeapSize());
+        updater.onAllocated(newHolder.deletionInfo.unsharedHeapSize() - oldHolder.deletionInfo.unsharedHeapSize());
         updater.finish();
         return new long[] { updater.dataSize, updater.colUpdateTimeDelta };
     }
@@ -310,7 +310,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
             this.heapSize = 0;
         }
 
-        public void allocated(long heapSize)
+        public void onAllocated(long heapSize)
         {
             this.heapSize += heapSize;
         }

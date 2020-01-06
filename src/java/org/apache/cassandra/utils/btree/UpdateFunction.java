@@ -19,8 +19,8 @@
 package org.apache.cassandra.utils.btree;
 
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
-import com.google.common.base.Function;
 /**
  * An interface defining a function to be applied to both the object we are replacing in a BTree and
  * the object that is intended to replace it, returning the object to actually replace it.
@@ -37,7 +37,7 @@ public interface UpdateFunction<K, V> extends Function<K, V>
     /**
      * @param heapSize extra heap space allocated (over previous tree)
      */
-    void allocated(long heapSize);
+    void onAllocated(long heapSize);
 
     public static final class Simple<V> implements UpdateFunction<V, V>
     {
@@ -49,17 +49,28 @@ public interface UpdateFunction<K, V> extends Function<K, V>
 
         public V apply(V v) { return v; }
         public V apply(V replacing, V update) { return wrapped.apply(replacing, update); }
-        public boolean abortEarly() { return false; }
-        public void allocated(long heapSize) { }
+        public void onAllocated(long heapSize) { }
 
         public static <V> Simple<V> of(BiFunction<V, V, V> f)
         {
             return new Simple<>(f);
         }
+
+        Simple<V> flip()
+        {
+            return of((a, b) -> wrapped.apply(b, a));
+        }
     }
 
-    static final Simple<Object> noOp = Simple.of((a, b) -> a);
+    public static final Simple<Object> noOp = Simple.of((a, b) -> a);
 
+    /**
+     * A function that indicates no transformation needs to be applied,
+     * and that *ANY* result from either tree during an update may be used.
+     *
+     * Ordinarily the key from the original tree will be maintained, but if it would be more efficient
+     * to retain the value from the other tree, this may occur.
+     */
     public static <K> UpdateFunction<K, K> noOp()
     {
         return (UpdateFunction<K, K>) noOp;

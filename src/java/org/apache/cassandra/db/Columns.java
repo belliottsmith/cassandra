@@ -261,8 +261,7 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
         if (this == NONE)
             return other;
 
-        Object[] tree = BTree.<ColumnDefinition>merge(this.columns, other.columns, Comparator.naturalOrder(),
-                                                      UpdateFunction.noOp());
+        Object[] tree = BTree.<ColumnDefinition>update(this.columns, other.columns, Comparator.naturalOrder());
         if (tree == this.columns)
             return this;
         if (tree == other.columns)
@@ -355,7 +354,7 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
         if (!contains(column))
             return this;
 
-        Object[] newColumns = BTree.<ColumnDefinition>transformAndFilter(columns, (c) -> c.equals(column) ? null : c);
+        Object[] newColumns = BTree.transformAndFilter(columns, (c) -> c.equals(column) ? null : c);
         return new Columns(newColumns);
     }
 
