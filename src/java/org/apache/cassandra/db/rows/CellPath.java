@@ -60,7 +60,7 @@ public abstract class CellPath
             digest.update(get(i).duplicate());
     }
 
-    public abstract CellPath copy(AbstractAllocator allocator);
+    public abstract CellPath clone(AbstractAllocator allocator);
 
     public abstract long unsharedHeapSizeExcludingData();
 
@@ -120,7 +120,7 @@ public abstract class CellPath
             return value;
         }
 
-        public CellPath copy(AbstractAllocator allocator)
+        public CellPath clone(AbstractAllocator allocator)
         {
             return new CollectionCellPath(allocator.clone(value));
         }
@@ -143,7 +143,7 @@ public abstract class CellPath
             throw new UnsupportedOperationException();
         }
 
-        public CellPath copy(AbstractAllocator allocator)
+        public CellPath clone(AbstractAllocator allocator)
         {
             return this;
         }

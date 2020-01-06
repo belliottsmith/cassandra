@@ -192,7 +192,7 @@ public class EmptyIterators
     {
         PartitionColumns columns = PartitionColumns.NONE;
         if (!staticRow.isEmpty())
-            columns = new PartitionColumns(Columns.from(staticRow.columns()), Columns.NONE);
+            columns = new PartitionColumns(Columns.from(staticRow), Columns.NONE);
         else
             staticRow = Rows.EMPTY_STATIC_ROW;
 

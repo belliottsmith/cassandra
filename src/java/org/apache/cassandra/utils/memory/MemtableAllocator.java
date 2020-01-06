@@ -20,7 +20,6 @@ package org.apache.cassandra.utils.memory;
 
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
-import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.utils.concurrent.OpOrder;
@@ -59,8 +58,25 @@ public abstract class MemtableAllocator
         this.offHeap = offHeap;
     }
 
-    public abstract Row.Builder rowBuilder(OpOrder.Group opGroup);
-    public abstract DecoratedKey clone(DecoratedKey key, OpOrder.Group opGroup);
+    public static abstract class Cloner extends AbstractAllocator
+    {
+        public DecoratedKey clone(DecoratedKey key)
+        {
+            return new BufferDecoratedKey(key.getToken(), clone(key.getKey()));
+        }
+
+        public DeletionInfo clone(DeletionInfo deletionInfo)
+        {
+            return deletionInfo.hasRanges() ? deletionInfo.copy(this) : deletionInfo;
+        }
+
+        public Row clone(Row row)
+        {
+            return row.clone(this);
+        }
+    }
+
+    public abstract Cloner cloner(OpOrder.Group opGroup);
 
     public SubAllocator onHeap()
     {

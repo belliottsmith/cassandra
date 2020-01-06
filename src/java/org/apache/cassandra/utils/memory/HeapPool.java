@@ -55,5 +55,10 @@ public class HeapPool extends MemtablePool
             super.onHeap().allocate(size, opGroup);
             return ByteBuffer.allocate(size);
         }
+
+        public Cloner cloner(OpOrder.Group opGroup)
+        {
+            return allocator(opGroup);
+        }
     }
 }

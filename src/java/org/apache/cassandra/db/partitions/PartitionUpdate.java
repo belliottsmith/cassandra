@@ -168,8 +168,8 @@ public class PartitionUpdate extends AbstractBTreePartition
         MutableDeletionInfo deletionInfo = MutableDeletionInfo.live();
         Holder holder = new Holder(
             new PartitionColumns(
-                staticRow == null ? Columns.NONE : Columns.from(staticRow.columns()),
-                row == null ? Columns.NONE : Columns.from(row.columns())
+                staticRow == null ? Columns.NONE : Columns.from(staticRow),
+                row == null ? Columns.NONE : Columns.from(row)
             ),
             row == null ? BTree.empty() : BTree.singleton(row),
             deletionInfo,
@@ -223,7 +223,7 @@ public class PartitionUpdate extends AbstractBTreePartition
     public static PartitionUpdate fromIterator(RowIterator iterator)
     {
         MutableDeletionInfo deletionInfo = MutableDeletionInfo.live();
-        Holder holder = build(iterator, deletionInfo, true, 16);
+        Holder holder = build(iterator, deletionInfo, true);
         return new PartitionUpdate(iterator.metadata(), iterator.partitionKey(), holder, deletionInfo, false);
     }
 
@@ -600,11 +600,11 @@ public class PartitionUpdate extends AbstractBTreePartition
         Holder holder = this.holder;
         Object[] cur = holder.tree;
         Object[] add = rowBuilder.build();
-        Object[] merged = BTree.<Row, Row, Row>update(cur, add, metadata.comparator,
-                                           UpdateFunction.Simple.of((a, b) -> Rows.merge(a, b, createdAtInSec)));
+        Object[] merged = BTree.update(cur, add, metadata.comparator,
+                                       UpdateFunction.Simple.of((Row a, Row b) -> Rows.merge(a, b, createdAtInSec)));
 
         assert deletionInfo == holder.deletionInfo;
-        EncodingStats newStats = EncodingStats.Collector.collect(holder.staticRow, BTree.<Row>iterator(merged), deletionInfo);
+        EncodingStats newStats = EncodingStats.Collector.collect(holder.staticRow, BTree.iterator(merged), deletionInfo);
 
         this.holder = new Holder(holder.columns, merged, holder.deletionInfo, holder.staticRow, newStats);
         rowBuilder = null;
@@ -692,25 +692,27 @@ public class PartitionUpdate extends AbstractBTreePartition
             assert header.rowEstimate >= 0;
 
             MutableDeletionInfo.Builder deletionBuilder = MutableDeletionInfo.builder(header.partitionDeletion, metadata.comparator, false);
-            BTree.Builder<Row> rows = BTree.builder(metadata.comparator, header.rowEstimate);
-            rows.auto(false);
 
-            try (UnfilteredRowIterator partition = UnfilteredRowIteratorSerializer.serializer.deserialize(in, version, metadata, flag, header))
+            Object[] rows;
+            try (BTree.FastBuilder<Row> builder = BTree.fastBuilder();
+                 UnfilteredRowIterator partition = UnfilteredRowIteratorSerializer.serializer.deserialize(in, version, metadata, flag, header))
             {
                 while (partition.hasNext())
                 {
                     Unfiltered unfiltered = partition.next();
                     if (unfiltered.kind() == Unfiltered.Kind.ROW)
-                        rows.add((Row)unfiltered);
+                        builder.add((Row)unfiltered);
                     else
                         deletionBuilder.add((RangeTombstoneMarker)unfiltered);
                 }
+
+                rows = builder.build();
             }
 
             MutableDeletionInfo deletionInfo = deletionBuilder.build();
             return new PartitionUpdate(metadata,
                                        header.key,
-                                       new Holder(header.sHeader.columns(), rows.build(), deletionInfo, header.staticRow, header.sHeader.stats()),
+                                       new Holder(header.sHeader.columns(), rows, deletionInfo, header.staticRow, header.sHeader.stats()),
                                        deletionInfo,
                                        false);
         }

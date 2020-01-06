@@ -269,17 +269,15 @@ public abstract class UnfilteredRowIterators
     {
         class Cloner extends Transformation
         {
-            private final Row.Builder builder = allocator.cloningBTreeRowBuilder();
-
             public Row applyToStatic(Row row)
             {
-                return Rows.copy(row, builder).build();
+                return row.clone(allocator);
             }
 
             @Override
             public Row applyToRow(Row row)
             {
-                return Rows.copy(row, builder).build();
+                return row.clone(allocator);
             }
 
             @Override

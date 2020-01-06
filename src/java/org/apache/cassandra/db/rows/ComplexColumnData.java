@@ -35,6 +35,7 @@ import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
+import org.apache.cassandra.utils.memory.AbstractAllocator;
 
 /**
  * The data for a complex column, that is it's cells and potential complex
@@ -95,6 +96,11 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
     public DeletionTime complexDeletion()
     {
         return complexDeletion;
+    }
+
+    Object[] tree()
+    {
+        return cells;
     }
 
     public Iterator<Cell> iterator()
@@ -186,9 +192,24 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
         return update(newDeletion, BTree.transformAndFilter(cells, function));
     }
 
+    public ComplexColumnData transformAndFilter(Function<? super Cell, ? extends Cell> function)
+    {
+        return update(complexDeletion, BTree.transformAndFilter(cells, function));
+    }
+
+    public <V> ComplexColumnData transform(BiFunction<? super Cell, ? super V, ? extends Cell> function, V param)
+    {
+        return update(complexDeletion, BTree.transform(cells, function, param));
+    }
+
     public <V> ComplexColumnData transformAndFilter(BiFunction<? super Cell, ? super V, ? extends Cell> function, V param)
     {
         return update(complexDeletion, BTree.transformAndFilter(cells, function, param));
+    }
+
+    public ColumnData clone(AbstractAllocator allocator)
+    {
+        return transform(Cell::clone, allocator);
     }
 
     public ComplexColumnData updateAllTimestamp(long newTimestamp)

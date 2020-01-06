@@ -18,7 +18,13 @@
 package org.apache.cassandra.db.rows;
 
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.AbstractCollection;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -26,19 +32,26 @@ import java.util.function.Predicate;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
+import com.google.common.primitives.Ints;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
-import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.Clustering;
+import org.apache.cassandra.db.Columns;
+import org.apache.cassandra.db.DeletionPurger;
+import org.apache.cassandra.db.DeletionTime;
+import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.utils.AbstractIterator;
+import org.apache.cassandra.utils.BulkIterator;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.BTreeSearchIterator;
 import org.apache.cassandra.utils.btree.UpdateFunction;
+import org.apache.cassandra.utils.memory.AbstractAllocator;
 
 /**
  * Immutable implementation of a Row object.
@@ -152,13 +165,7 @@ public class BTreeRow extends AbstractRow
     private static int minDeletionTime(Object[] btree, LivenessInfo info, DeletionTime rowDeletion)
     {
         int min = Math.min(minDeletionTime(info), minDeletionTime(rowDeletion));
-        for (ColumnData cd : BTree.<ColumnData>iterable(btree))
-        {
-            min = Math.min(min, minDeletionTime(cd));
-            if (min == Integer.MIN_VALUE)
-                break;
-        }
-        return min;
+        return (int) BTree.<ColumnData>accumulate(btree, BTreeRow::minDeletionTime, Math::min, min);
     }
 
     public Clustering clustering()
@@ -387,15 +394,19 @@ public class BTreeRow extends AbstractRow
         return update(clustering, primaryKeyLivenessInfo, deletion, BTree.transformAndFilter(btree, function, param));
     }
 
+    public Row clone(AbstractAllocator allocator)
+    {
+        Object[] tree = BTree.<ColumnData, AbstractAllocator, ColumnData> transform(btree, ColumnData::clone, allocator);
+        return update(clustering.clone(allocator), primaryKeyLivenessInfo, deletion, tree);
+    }
+
     public int dataSize()
     {
         int dataSize = clustering.dataSize()
                      + primaryKeyLivenessInfo.dataSize()
                      + deletion.dataSize();
 
-        for (ColumnData cd : this)
-            dataSize += cd.dataSize();
-        return dataSize;
+        return Ints.saturatedCast(BTree.accumulate(btree, ColumnData::dataSize, Long::sum, dataSize));
     }
 
     public long unsharedHeapSizeExcludingData()
@@ -404,9 +415,7 @@ public class BTreeRow extends AbstractRow
                       + clustering.unsharedHeapSizeExcludingData()
                       + BTree.sizeOnHeapOf(btree);
 
-        for (ColumnData cd : this)
-            heapSize += cd.unsharedHeapSizeExcludingData();
-        return heapSize;
+        return Ints.saturatedCast(BTree.accumulate(btree, ColumnData::unsharedHeapSizeExcludingData, Long::sum, heapSize));
     }
 
     public static Row.Builder sortedBuilder()
@@ -605,7 +614,9 @@ public class BTreeRow extends AbstractRow
                     lb++;
                 }
 
-                List<Object> buildFrom = new ArrayList<>(ub - lb);
+                // TODO: should not copy into another array, can below simply use range from cells; not sure why ever did?
+                Object[] buildFrom = new Object[ub - lb];
+                int buildFromCount = 0;
                 Cell previous = null;
                 for (int i = lb; i < ub; i++)
                 {
@@ -616,18 +627,21 @@ public class BTreeRow extends AbstractRow
                         if (previous != null && column.cellComparator().compare(previous, c) == 0)
                         {
                             c = Cells.reconcile(previous, c, nowInSec);
-                            buildFrom.set(buildFrom.size() - 1, c);
+                            buildFrom[buildFromCount - 1] = c;
                         }
                         else
                         {
-                            buildFrom.add(c);
+                            buildFrom[buildFromCount++] = c;
                         }
                         previous = c;
                     }
                 }
 
-                Object[] btree = BTree.build(buildFrom, UpdateFunction.noOp());
-                return new ComplexColumnData(column, btree, deletion);
+                try (BulkIterator<Cell> iterator = BulkIterator.of(buildFrom))
+                {
+                    Object[] btree = BTree.build(iterator, buildFromCount, UpdateFunction.noOp());
+                    return new ComplexColumnData(column, btree, deletion);
+                }
             }
 
         };
@@ -747,6 +761,34 @@ public class BTreeRow extends AbstractRow
             reset();
             return row;
         }
-
     }
+
+    public static Row merge(BTreeRow existing,
+                            BTreeRow update,
+                            ColumnData.ReconcileUpdateFunction reconcileF,
+                            int nowInSec)
+    {
+        Row.Deletion rowDeletion;
+        LivenessInfo livenessInfo;
+        {
+            LivenessInfo existingInfo = existing.primaryKeyLivenessInfo();
+            LivenessInfo updateInfo = update.primaryKeyLivenessInfo();
+            livenessInfo = existingInfo.supersedes(updateInfo) ? existingInfo : updateInfo;
+
+            rowDeletion = existing.deletion().supersedes(update.deletion()) ? existing.deletion() : update.deletion();
+
+            if (rowDeletion.deletes(livenessInfo))
+                livenessInfo = LivenessInfo.EMPTY;
+            else if (rowDeletion.isShadowedBy(livenessInfo))
+                rowDeletion = Row.Deletion.LIVE;
+        }
+
+        DeletionTime deletion = rowDeletion.time();
+        try (ColumnData.Reconciler reconciler = ColumnData.reconciler(reconcileF, deletion, nowInSec))
+        {
+            Object[] tree = BTree.update(existing.btree, update.btree, ColumnData.comparator, reconciler);
+            return new BTreeRow(existing.clustering, livenessInfo, rowDeletion, tree, minDeletionTime(tree, livenessInfo, deletion));
+        }
+    }
+
 }

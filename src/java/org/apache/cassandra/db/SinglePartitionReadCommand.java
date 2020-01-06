@@ -1064,6 +1064,7 @@ public class SinglePartitionReadCommand extends ReadCommand
 
         if (toRemove != null)
         {
+            // TODO: toRemove should be a List, since is a strict subset of clusterings, and can visit in clustering order both times
             BTreeSet.Builder<Clustering> newClusterings = BTreeSet.builder(result.metadata().comparator);
             newClusterings.addAll(Sets.difference(clusterings, toRemove));
             clusterings = newClusterings.build();

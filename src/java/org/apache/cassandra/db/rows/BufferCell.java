@@ -147,12 +147,12 @@ public class BufferCell extends AbstractCell
         return new BufferCell(column, newTimestamp, ttl, newLocalDeletionTime, value, path);
     }
 
-    public Cell copy(AbstractAllocator allocator)
+    public Cell clone(AbstractAllocator allocator)
     {
         if (!value.hasRemaining())
             return this;
 
-        return new BufferCell(column, timestamp, ttl, localDeletionTime, allocator.clone(value), path == null ? null : path.copy(allocator));
+        return new BufferCell(column, timestamp, ttl, localDeletionTime, allocator.clone(value), path == null ? null : path.clone(allocator));
     }
 
     public Cell markCounterLocalToBeCleared()

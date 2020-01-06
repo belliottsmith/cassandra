@@ -188,6 +188,7 @@ public class RowUpdateBuilder
         assert clusteringValues.length == update.metadata().comparator.size() || (clusteringValues.length == 0 && !update.columns().statics.isEmpty());
 
         boolean isStatic = clusteringValues.length != update.metadata().comparator.size();
+        // TODO: should be using BTreeRow.emptyDeletedRow
         Row.Builder builder = BTreeRow.sortedBuilder();
 
         if (isStatic)

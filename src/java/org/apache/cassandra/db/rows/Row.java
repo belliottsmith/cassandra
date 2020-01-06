@@ -32,6 +32,7 @@ import org.apache.cassandra.utils.MergeIterator;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.UpdateFunction;
+import org.apache.cassandra.utils.memory.AbstractAllocator;
 
 /**
  * Storage engine representation of a row.
@@ -217,7 +218,28 @@ public interface Row extends Unfiltered, Iterable<ColumnData>
      */
     public Row filter(ColumnFilter filter, DeletionTime activeDeletion, boolean setActiveDeletionToRow, CFMetaData metadata);
 
+    /**
+     * Requires that {@code function} returns either {@code null} or {@code ColumnData} for the same column.
+     *
+     * Returns a copy of this row that:
+     *   1) {@code function} has been applied to the members of
+     *   2) doesn't include any {@code null} results of {@code function}
+     *   3) has precisely the provided {@code LivenessInfo} and {@code Deletion}
+     */
+    public Row transformAndFilter(LivenessInfo info, Deletion deletion, Function<ColumnData, ColumnData> function);
+
+    /**
+     * Requires that {@code function} returns either {@code null} or {@code ColumnData} for the same column.
+     *
+     * Returns a copy of this row that:
+     *   1) {@code function} has been applied to the members of
+     *   2) doesn't include any {@code null} results of {@code function}
+     */
+    public Row transformAndFilter(Function<ColumnData, ColumnData> function);
+
     public <V> Row transformAndFilter(BiFunction<ColumnData, V, ColumnData> function, V param);
+
+    public Row clone(AbstractAllocator allocator);
 
     /**
      * Returns a copy of this row without any deletion info that should be purged according to {@code purger}.

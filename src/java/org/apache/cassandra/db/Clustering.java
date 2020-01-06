@@ -96,7 +96,7 @@ public class Clustering extends AbstractClusteringPrefix
         return new Clustering(ByteBufferUtil.minimizeBuffers(values));
     }
 
-    public Clustering copy(AbstractAllocator allocator)
+    public Clustering clone(AbstractAllocator allocator)
     {
         // Important for STATIC_CLUSTERING (but no point in being wasteful in general).
         if (size() == 0)

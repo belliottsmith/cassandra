@@ -142,7 +142,7 @@ public abstract class Cell extends ColumnData
 
     public abstract Cell withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, int newLocalDeletionTime);
 
-    public abstract Cell copy(AbstractAllocator allocator);
+    public abstract Cell clone(AbstractAllocator allocator);
 
     @Override
     // Overrides super type to provide a more precise return type.

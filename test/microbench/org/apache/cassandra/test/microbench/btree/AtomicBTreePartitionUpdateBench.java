@@ -68,9 +68,9 @@ import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.UpdateFunction;
 import org.apache.cassandra.utils.concurrent.OpOrder;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
+import org.apache.cassandra.utils.BulkIterator;
 import org.apache.cassandra.utils.memory.HeapPool;
-import org.apache.cassandra.utils.memory.MemtableBufferAllocator;
+import org.apache.cassandra.utils.memory.MemtableAllocator;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -183,7 +183,7 @@ public class AtomicBTreePartitionUpdateBench
 
         final IntVisitor insertRowCount;
         final Row[] insertBuffer;
-        final ColumnData[] rowBuffer;
+        final ColumnData[] columnBuffer;
         final Cell[] complexBuffer;
         int offset;
 
@@ -203,7 +203,7 @@ public class AtomicBTreePartitionUpdateBench
             this.distribution = bench.distribution;
             this.timestamps = bench.timestamps == Distribution.RANDOM ? i -> random.nextLong() : i -> i;
             this.insertBuffer = new Row[bench.insertRowCount * 2];
-            this.rowBuffer = new ColumnData[columns.length];
+            this.columnBuffer = new ColumnData[columns.length];
             this.complexBuffer = new Cell[complexPaths.length];
         }
 
@@ -228,8 +228,11 @@ public class AtomicBTreePartitionUpdateBench
                 rowCount = 1;
                 insertBuffer[0] = complexRow();
             }
-            Object[] tree = BTree.build(Arrays.asList(insertBuffer).subList(0, rowCount), rowCount, UpdateFunction.noOp());
-            return PartitionUpdate.unsafeConstruct(metadata, decoratedKey, AbstractBTreePartition.unsafeConstructHolder(partitionColumns, tree, DeletionInfo.LIVE, Rows.EMPTY_STATIC_ROW, EncodingStats.NO_STATS), NO_DELETION_INFO, false);
+            try (BulkIterator<Row> iter = BulkIterator.of(insertBuffer))
+            {
+                Object[] tree = BTree.build(iter, rowCount, UpdateFunction.noOp());
+                return PartitionUpdate.unsafeConstruct(metadata, decoratedKey, AbstractBTreePartition.unsafeConstructHolder(partitionColumns, tree, DeletionInfo.LIVE, Rows.EMPTY_STATIC_ROW, EncodingStats.NO_STATS), NO_DELETION_INFO, false);
+            }
         }
 
         private <I, O> int selectSortAndTransform(O[] out, I[] in, Comparator<? super I> comparator, Function<I, O> transform)
@@ -263,20 +266,26 @@ public class AtomicBTreePartitionUpdateBench
         Row simpleRow(Clustering clustering)
         {
             for (int i = 0 ; i < columns.length ; ++i)
-                rowBuffer[i] = cell(columns[i], null);
+                columnBuffer[i] = cell(columns[i], null);
             return bufferToRow(clustering);
         }
 
         Row complexRow()
         {
             int mapCount = selectSortAndTransform(complexBuffer, complexPaths, columns[0].cellPathComparator(), complexCell);
-            rowBuffer[0] = ComplexColumnData.unsafeConstruct(columns[0], BTree.build(Arrays.asList(complexBuffer).subList(0, mapCount), mapCount, UpdateFunction.noOp()), DeletionTime.LIVE);
+            try (BulkIterator<ColumnData> iter = BulkIterator.of(complexBuffer))
+            {
+                columnBuffer[0] = ComplexColumnData.unsafeConstruct(columns[0], BTree.build(iter, mapCount, UpdateFunction.noOp()), DeletionTime.LIVE);
+            }
             return bufferToRow(clusterings[0]);
         }
 
         Row bufferToRow(Clustering clustering)
         {
-            return BTreeRow.create(clustering, LivenessInfo.EMPTY, Row.Deletion.LIVE, BTree.build(Arrays.asList(rowBuffer), columns.length, UpdateFunction.noOp()));
+            try (BulkIterator<ColumnData> iter = BulkIterator.of(columnBuffer))
+            {
+                return BTreeRow.create(clustering, LivenessInfo.EMPTY, Row.Deletion.LIVE, BTree.build(iter, columns.length, UpdateFunction.noOp()));
+            }
         }
 
         Cell simpleCell(ColumnDefinition column)
@@ -304,7 +313,8 @@ public class AtomicBTreePartitionUpdateBench
         // next 24 bits are generation (i.e. number of times we've run this update)
         final AtomicLong state = new AtomicLong();
         final AtomicLong activeThreads = new AtomicLong();
-        final MemtableBufferAllocator allocator;
+        final MemtableAllocator allocator;
+        final MemtableAllocator.Cloner cloner;
         final int waitForActiveThreads;
 
         /** Signals to replace the reference in {@code update} after this many invocations of {@code allocator.allocate} */
@@ -315,9 +325,9 @@ public class AtomicBTreePartitionUpdateBench
             waitForActiveThreads = threads;
             allocator = new HeapPool.Allocator(POOL)
             {
-                protected AbstractAllocator allocator(OpOrder.Group writeOp)
+                public Cloner cloner(OpOrder.Group opGroup)
                 {
-                    return new AbstractAllocator()
+                    return new Cloner()
                     {
                         public ByteBuffer allocate(int size)
                         {
@@ -333,6 +343,7 @@ public class AtomicBTreePartitionUpdateBench
                     };
                 }
             };
+            cloner = allocator.cloner(NO_ORDER.getCurrent());
             update = new AtomicBTreePartition(metadata, decoratedKey, allocator);
 
             generator.reset();
@@ -376,7 +387,7 @@ public class AtomicBTreePartitionUpdateBench
                         ThreadLocalRandom.current().nextLong();
                 }
                 invokeBefore.accept(this);
-                update.addAllWithSizeDelta(insert[index], NO_ORDER.getCurrent(), UpdateTransaction.NO_OP);
+                update.addAllWithSizeDelta(insert[index], cloner, NO_ORDER.getCurrent(), UpdateTransaction.NO_OP);
                 return true;
             }
             finally

@@ -353,28 +353,24 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
 
     // Note that when building with a RowIterator, deletion will generally be LIVE, but we allow to pass it nonetheless because PartitionUpdate
     // passes a MutableDeletionInfo that it mutates later.
-    protected static Holder build(RowIterator rows, DeletionInfo deletion, boolean buildEncodingStats, int initialRowCapacity)
+    protected static Holder build(RowIterator rows, DeletionInfo deletion, boolean buildEncodingStats)
     {
-        CFMetaData metadata = rows.metadata();
         PartitionColumns columns = rows.columns();
         boolean reversed = rows.isReverseOrder();
 
-        BTree.Builder<Row> builder = BTree.builder(metadata.comparator, initialRowCapacity);
-        builder.auto(false);
-        while (rows.hasNext())
+        try (BTree.FastBuilder<Row> builder = BTree.fastBuilder())
         {
-            Row row = rows.next();
-            builder.add(row);
+            while (rows.hasNext())
+                builder.add(rows.next());
+
+            Object[] tree = reversed ? builder.buildReverse()
+                                     : builder.build();
+
+            Row staticRow = rows.staticRow();
+            EncodingStats stats = buildEncodingStats ? EncodingStats.Collector.collect(staticRow, BTree.iterator(tree), deletion)
+                                                     : EncodingStats.NO_STATS;
+            return new Holder(columns, tree, deletion, staticRow, stats);
         }
-
-        if (reversed)
-            builder.reverse();
-
-        Row staticRow = rows.staticRow();
-        Object[] tree = builder.build();
-        EncodingStats stats = buildEncodingStats ? EncodingStats.Collector.collect(staticRow, BTree.iterator(tree), deletion)
-                                                 : EncodingStats.NO_STATS;
-        return new Holder(columns, tree, deletion, staticRow, stats);
     }
 
     @Override

@@ -35,6 +35,7 @@ import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.BTreeSet;
 
 
@@ -403,20 +404,25 @@ public class TableViews extends AbstractCollection<View>
 
         // If we had some slices from the deletions above, we'll continue using that. Otherwise, it's more efficient to build
         // a names query.
-        BTreeSet.Builder<Clustering> namesBuilder = sliceBuilder == null ? BTreeSet.builder(metadata.comparator) : null;
-        for (Row row : updates)
+        NavigableSet<Clustering> names;
+        try (BTree.FastBuilder<Clustering> namesBuilder = sliceBuilder == null ? BTree.fastBuilder() : null)
         {
-            // Don't read the existing state if we can prove the update won't affect any views
-            if (!affectsAnyViews(key, row, views))
-                continue;
 
-            if (namesBuilder == null)
-                sliceBuilder.add(Slice.make(row.clustering()));
-            else
-                namesBuilder.add(row.clustering());
+            for (Row row : updates)
+            {
+                // Don't read the existing state if we can prove the update won't affect any views
+                if (!affectsAnyViews(key, row, views))
+                    continue;
+
+                if (namesBuilder == null)
+                    sliceBuilder.add(Slice.make(row.clustering()));
+                else
+                    namesBuilder.add(row.clustering());
+            }
+
+            names = namesBuilder == null ? null : BTreeSet.wrap(namesBuilder.build(), metadata.comparator);
         }
 
-        NavigableSet<Clustering> names = namesBuilder == null ? null : namesBuilder.build();
         // If we have a slice builder, it means we had some deletions and we have to read. But if we had
         // only row updates, it's possible none of them affected the views, in which case we have nothing
         // to do.
@@ -424,14 +430,14 @@ public class TableViews extends AbstractCollection<View>
             return null;
 
         ClusteringIndexFilter clusteringFilter = names == null
-                                               ? new ClusteringIndexSliceFilter(sliceBuilder.build(), false)
-                                               : new ClusteringIndexNamesFilter(names, false);
+                                                 ? new ClusteringIndexSliceFilter(sliceBuilder.build(), false)
+                                                 : new ClusteringIndexNamesFilter(names, false);
         // since unselected columns also affect view liveness, we need to query all base columns if base and view have same key columns.
         // If we have more than one view, we should merge the queried columns by each views but to keep it simple we just
         // include everything. We could change that in the future.
         ColumnFilter queriedColumns = views.size() == 1 && metadata.enforceStrictLiveness()
-                                   ? Iterables.getOnlyElement(views).getSelectStatement().queriedColumns()
-                                   : ColumnFilter.all(metadata);
+                                      ? Iterables.getOnlyElement(views).getSelectStatement().queriedColumns()
+                                      : ColumnFilter.all(metadata);
         // Note that the views could have restrictions on regular columns, but even if that's the case we shouldn't apply those
         // when we read, because even if an existing row doesn't match the view filter, the update can change that in which
         // case we'll need to know the existing content. There is also no easy way to merge those RowFilter when we have multiple views.

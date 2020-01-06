@@ -26,7 +26,6 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.rows.ColumnData;
@@ -41,7 +40,6 @@ import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.UpdateFunction;
 import org.apache.cassandra.utils.concurrent.OpOrder;
-import org.apache.cassandra.utils.memory.HeapAllocator;
 import org.apache.cassandra.utils.memory.MemtableAllocator;
 
 /**
@@ -172,7 +170,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
      * @return an array containing first the difference in size seen after merging the updates, and second the minimum
      * time detla between updates.
      */
-    public long[] addAllWithSizeDelta(PartitionUpdate update, OpOrder.Group writeOp, UpdateTransaction indexer)
+    public long[] addAllWithSizeDelta(PartitionUpdate update, MemtableAllocator.Cloner cloner, OpOrder.Group writeOp, UpdateTransaction indexer)
     {
         try
         {
@@ -181,7 +179,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
             DeletionInfo copiedDeletionInfo;
             Object[] copiedTree;
             {
-                RowUpdater updater = RowUpdater.cloning(this.allocator, writeOp, indexer);
+                RowUpdater updater = RowUpdater.cloning(allocator, cloner, writeOp, indexer);
                 indexer.start();
 
                 Holder current = ref;
@@ -191,7 +189,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                 Row addStaticRow = update.staticRow();
                 Row newStaticRow = updateStaticRow(updater, current.staticRow, addStaticRow);
 
-                copiedDeletionInfo = update.deletionInfo().copy(HeapAllocator.instance);
+                copiedDeletionInfo = cloner.clone(update.deletionInfo());
                 DeletionInfo newDeletionInfo = current.deletionInfo.add(copiedDeletionInfo);
 
                 EncodingStats addStats = update.stats();
@@ -257,57 +255,73 @@ public class AtomicBTreePartition extends AbstractBTreePartition
     }
 
     // the function we provide to the btree utilities to perform any column replacements
-    private static final class RowUpdater implements UpdateFunction<Row, Row>
+    private static final class RowUpdater implements UpdateFunction<Row, Row>, ColumnData.ReconcileUpdateFunction
     {
         final MemtableAllocator allocator;
-        final Row.Builder builder;
+        final MemtableAllocator.Cloner cloner;
         final OpOrder.Group writeOp;
         final UpdateTransaction indexer;
         final int nowInSec;
-        final boolean clone;
         long dataSize;
         long heapSize;
         long colUpdateTimeDelta = Long.MAX_VALUE;
 
-        private RowUpdater(MemtableAllocator allocator, boolean clone, Row.Builder builder, OpOrder.Group writeOp, UpdateTransaction indexer)
+        private RowUpdater(MemtableAllocator allocator, MemtableAllocator.Cloner cloner, OpOrder.Group writeOp, UpdateTransaction indexer)
         {
             this.allocator = allocator;
-            this.builder = builder;
+            this.cloner = cloner;
             this.writeOp = writeOp;
             this.indexer = indexer;
             this.nowInSec = FBUtilities.nowInSeconds();
-            this.clone = clone;
         }
 
         public Row apply(Row insert)
         {
-            if (clone)
-                insert = Rows.copy(insert, builder).build();
+            if (cloner != null)
+                insert = cloner.clone(insert);
 
             indexer.onInserted(insert);
-
-            this.dataSize += insert.dataSize();
-            this.heapSize += insert.unsharedHeapSizeExcludingData();
+            dataSize += insert.dataSize();
+            heapSize += insert.unsharedHeapSizeExcludingData();
             return insert;
         }
 
         public Row apply(Row existing, Row update)
         {
-            colUpdateTimeDelta = Math.min(colUpdateTimeDelta, Rows.merge(existing, update, builder, nowInSec));
-
-            Row reconciled = builder.build();
+            Row reconciled = Rows.merge(existing, update, this, nowInSec);
             indexer.onUpdated(existing, reconciled);
-
-            dataSize += reconciled.dataSize() - existing.dataSize();
-            heapSize += reconciled.unsharedHeapSizeExcludingData() - existing.unsharedHeapSizeExcludingData();
 
             return reconciled;
         }
 
         protected void reset()
         {
-            this.dataSize = 0;
-            this.heapSize = 0;
+            dataSize = 0;
+            heapSize = 0;
+        }
+
+        public Cell apply(Cell previous, Cell insert)
+        {
+            if (insert != previous)
+            {
+                long timeDelta = Math.abs(insert.timestamp() - previous.timestamp());
+                if (timeDelta < colUpdateTimeDelta)
+                    colUpdateTimeDelta = timeDelta;
+            }
+            if (cloner != null)
+                insert = insert.clone(cloner);
+            dataSize += insert.dataSize() - previous.dataSize();
+            heapSize += insert.unsharedHeapSizeExcludingData() - previous.unsharedHeapSizeExcludingData();
+            return insert;
+        }
+
+        public ColumnData apply(ColumnData insert)
+        {
+            if (cloner != null)
+                insert = insert.clone(cloner);
+            dataSize += insert.dataSize();
+            heapSize += insert.unsharedHeapSizeExcludingData();
+            return insert;
         }
 
         public void onAllocated(long heapSize)
@@ -323,9 +337,9 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         /**
          * Construct a RowUpdater that copies all new contents with the provided allocator
          */
-        public static RowUpdater cloning(MemtableAllocator allocator, OpOrder.Group writeOp, UpdateTransaction indexer)
+        public static RowUpdater cloning(MemtableAllocator allocator, MemtableAllocator.Cloner cloner, OpOrder.Group writeOp, UpdateTransaction indexer)
         {
-            return new RowUpdater(allocator, true, allocator.rowBuilder(writeOp), writeOp, indexer);
+            return new RowUpdater(allocator, cloner, writeOp, indexer);
         }
 
         /**
@@ -333,7 +347,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
          */
         public static RowUpdater counting(MemtableAllocator allocator, OpOrder.Group writeOp, UpdateTransaction indexer)
         {
-            return new RowUpdater(allocator, true, BTreeRow.sortedBuilder(), writeOp, indexer);
+            return new RowUpdater(allocator, null, writeOp, indexer);
         }
     }
 

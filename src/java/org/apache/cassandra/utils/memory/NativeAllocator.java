@@ -24,8 +24,8 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.DeletionInfo;
 import org.apache.cassandra.db.NativeDecoratedKey;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.utils.concurrent.OpOrder;
@@ -63,15 +63,9 @@ public class NativeAllocator extends MemtableAllocator
         super(pool.onHeap.newAllocator(), pool.offHeap.newAllocator());
     }
 
-    public Row.Builder rowBuilder(OpOrder.Group opGroup)
+    public Cloner cloner(OpOrder.Group opGroup)
     {
-        // TODO
         throw new UnsupportedOperationException();
-    }
-
-    public DecoratedKey clone(DecoratedKey key, OpOrder.Group writeOp)
-    {
-        return new NativeDecoratedKey(key.getToken(), this, writeOp, key.getKey());
     }
 
     public long allocate(int size, OpOrder.Group opGroup)

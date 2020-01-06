@@ -22,8 +22,13 @@ import java.util.Comparator;
 
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.DeletionPurger;
+import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.utils.btree.BTree;
+import org.apache.cassandra.utils.btree.UpdateFunction;
+import org.apache.cassandra.utils.caching.TinyThreadLocalPool;
+import org.apache.cassandra.utils.memory.AbstractAllocator;
 
 /**
  * Generic interface for the data of a given column (inside a row).
@@ -34,6 +39,120 @@ import org.apache.cassandra.serializers.MarshalException;
 public abstract class ColumnData
 {
     public static final Comparator<ColumnData> comparator = (cd1, cd2) -> cd1.column().compareTo(cd2.column());
+
+    /**
+     * Construct an UpdateFunction for reconciling normal ColumnData
+     * (i.e. not suitable for ComplexColumnDeletion sentinels, but suitable ComplexColumnData or Cell)
+     *
+     * @param updateF a consumer receiving all pairs of reconciled cells
+     * @param maxDeletion the row or partition deletion time to use for purging
+     */
+    public static Reconciler reconciler(ReconcileUpdateFunction updateF, DeletionTime maxDeletion, int nowInSec)
+    {
+        TinyThreadLocalPool.TinyPool<Reconciler> pool = Reconciler.POOL.get();
+        Reconciler reconciler = pool.poll();
+        if (reconciler == null)
+            reconciler = new Reconciler();
+        reconciler.init(updateF, maxDeletion, nowInSec);
+        reconciler.pool = pool;
+        return reconciler;
+    }
+
+    public static ReconcileUpdateFunction noOp = new ReconcileUpdateFunction()
+    {
+        public Cell apply(Cell previous, Cell insert)
+        {
+            return insert;
+        }
+
+        public ColumnData apply(ColumnData insert)
+        {
+            return insert;
+        }
+
+        public void onAllocated(long delta)
+        {
+        }
+    };
+
+    public interface ReconcileUpdateFunction
+    {
+        Cell apply(Cell previous, Cell insert);
+        ColumnData apply(ColumnData insert);
+        void onAllocated(long delta);
+    }
+
+    public static class Reconciler implements UpdateFunction<ColumnData, ColumnData>, AutoCloseable
+    {
+        private static final TinyThreadLocalPool<Reconciler> POOL = new TinyThreadLocalPool<>();
+        private ReconcileUpdateFunction modifier;
+        private DeletionTime maxDeletion;
+        private int nowInSec;
+        private TinyThreadLocalPool.TinyPool<Reconciler> pool;
+
+        private void init(ReconcileUpdateFunction modifier, DeletionTime maxDeletion, int nowInSec)
+        {
+            this.modifier = modifier;
+            this.maxDeletion = maxDeletion;
+            this.nowInSec = nowInSec;
+        }
+
+        public ColumnData apply(ColumnData existing, ColumnData update)
+        {
+            if (!(existing instanceof ComplexColumnData))
+            {
+                Cell existingCell = (Cell) existing, updateCell = (Cell) update;
+                boolean isExistingShadowed = maxDeletion.deletes(existingCell);
+                boolean isUpdateShadowed = maxDeletion.deletes(updateCell);
+
+                Cell result = isExistingShadowed || isUpdateShadowed
+                              ? isUpdateShadowed ? existingCell : updateCell
+                              : Cells.reconcile(existingCell, updateCell, nowInSec);
+
+                return modifier.apply(existingCell, result);
+            }
+            else
+            {
+                ComplexColumnData existingComplex = (ComplexColumnData) existing;
+                ComplexColumnData updateComplex = (ComplexColumnData) update;
+
+                DeletionTime existingDeletion = existingComplex.complexDeletion();
+                DeletionTime updateDeletion = updateComplex.complexDeletion();
+                DeletionTime maxComplexDeletion = existingDeletion.supersedes(updateDeletion) ? existingDeletion : updateDeletion;
+
+                Reconciler reconciler = Reconciler.this;
+                DeletionTime complexDeletion = DeletionTime.LIVE;
+                if (maxComplexDeletion.supersedes(maxDeletion))
+                {
+                    complexDeletion = maxComplexDeletion;
+                    reconciler = reconciler(modifier, complexDeletion, nowInSec);
+                }
+
+                Object[] cells = BTree.<Cell, Cell, Cell>update(existingComplex.tree(), updateComplex.tree(), existingComplex.column.cellComparator(), (UpdateFunction) reconciler);
+                ComplexColumnData result = new ComplexColumnData(existingComplex.column, cells, complexDeletion);
+                if (reconciler != this)
+                    reconciler.close();
+                return result;
+            }
+        }
+
+        public void onAllocated(long heapSize)
+        {
+            modifier.onAllocated(heapSize);
+        }
+
+        public ColumnData apply(ColumnData insert)
+        {
+            return modifier.apply(insert);
+        }
+
+        public void close()
+        {
+            pool.offer(this);
+            modifier = null;
+            pool = null;
+        }
+    }
 
     protected final ColumnDefinition column;
     protected ColumnData(ColumnDefinition column)
@@ -70,6 +189,8 @@ public abstract class ColumnData
      * @param digest the {@code MessageDigest} to add the data to.
      */
     public abstract void digest(MessageDigest digest);
+
+    public abstract ColumnData clone(AbstractAllocator allocator);
 
     /**
      * Returns a copy of the data where all timestamps for live data have replaced by {@code newTimestamp} and

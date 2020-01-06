@@ -36,28 +36,6 @@ public abstract class Rows
 
     public static final Row EMPTY_STATIC_ROW = BTreeRow.emptyRow(Clustering.STATIC_CLUSTERING);
 
-    public static Row.Builder copy(Row row, Row.Builder builder)
-    {
-        builder.newRow(row.clustering());
-        builder.addPrimaryKeyLivenessInfo(row.primaryKeyLivenessInfo());
-        builder.addRowDeletion(row.deletion());
-        for (ColumnData cd : row)
-        {
-            if (cd.column().isSimple())
-            {
-                builder.addCell((Cell)cd);
-            }
-            else
-            {
-                ComplexColumnData complexData = (ComplexColumnData)cd;
-                builder.addComplexDeletion(complexData.column(), complexData.complexDeletion());
-                for (Cell cell : complexData)
-                    builder.addCell(cell);
-            }
-        }
-        return builder;
-    }
-
     /**
      * Collect statistics on a given row.
      *
@@ -220,11 +198,9 @@ public abstract class Rows
             iter.next();
     }
 
-    public static Row merge(Row row1, Row row2, int nowInSec)
+    public static Row merge(Row existing, Row update, int nowInSec)
     {
-        Row.Builder builder = BTreeRow.sortedBuilder();
-        merge(row1, row2, builder, nowInSec);
-        return builder.build();
+        return merge(existing, update, ColumnData.noOp, nowInSec);
     }
 
     /**
@@ -236,7 +212,6 @@ public abstract class Rows
      *
      * @param existing
      * @param update
-     * @param builder the row build to which the result of the reconciliation is written.
      * @param nowInSec the current time in seconds (which plays a role during reconciliation
      * because deleted cells always have precedence on timestamp equality and deciding if a
      * cell is a live or not depends on the current time due to expiring cells).
@@ -245,70 +220,14 @@ public abstract class Rows
      * timestamp delta being computed as the difference between the cells and DeletionTimes from {@code existing}
      * and those in {@code existing}.
      */
-    public static long merge(Row existing,
-                             Row update,
-                             Row.Builder builder,
-                             int nowInSec)
+    public static Row merge(Row existing,
+                            Row update,
+                            ColumnData.ReconcileUpdateFunction onReconcile,
+                            int nowInSec)
     {
-        Clustering clustering = existing.clustering();
-        builder.newRow(clustering);
-
-        LivenessInfo existingInfo = existing.primaryKeyLivenessInfo();
-        LivenessInfo updateInfo = update.primaryKeyLivenessInfo();
-        LivenessInfo mergedInfo = existingInfo.supersedes(updateInfo) ? existingInfo : updateInfo;
-
-        long timeDelta = Math.abs(existingInfo.timestamp() - mergedInfo.timestamp());
-
-        Row.Deletion rowDeletion = existing.deletion().supersedes(update.deletion()) ? existing.deletion() : update.deletion();
-
-        if (rowDeletion.deletes(mergedInfo))
-            mergedInfo = LivenessInfo.EMPTY;
-        else if (rowDeletion.isShadowedBy(mergedInfo))
-            rowDeletion = Row.Deletion.LIVE;
-
-        builder.addPrimaryKeyLivenessInfo(mergedInfo);
-        builder.addRowDeletion(rowDeletion);
-
-        DeletionTime deletion = rowDeletion.time();
-
-        Iterator<ColumnData> a = existing.iterator();
-        Iterator<ColumnData> b = update.iterator();
-        ColumnData nexta = a.hasNext() ? a.next() : null, nextb = b.hasNext() ? b.next() : null;
-        while (nexta != null | nextb != null)
-        {
-            int comparison = nexta == null ? 1 : nextb == null ? -1 : nexta.column.compareTo(nextb.column);
-            ColumnData cura = comparison <= 0 ? nexta : null;
-            ColumnData curb = comparison >= 0 ? nextb : null;
-            ColumnDefinition column = getColumnDefinition(cura, curb);
-
-            if (column.isSimple())
-            {
-                timeDelta = Math.min(timeDelta, Cells.reconcile((Cell) cura, (Cell) curb, deletion, builder, nowInSec));
-            }
-            else
-            {
-                ComplexColumnData existingData = (ComplexColumnData) cura;
-                ComplexColumnData updateData = (ComplexColumnData) curb;
-
-                DeletionTime existingDt = existingData == null ? DeletionTime.LIVE : existingData.complexDeletion();
-                DeletionTime updateDt = updateData == null ? DeletionTime.LIVE : updateData.complexDeletion();
-                DeletionTime maxDt = existingDt.supersedes(updateDt) ? existingDt : updateDt;
-                if (maxDt.supersedes(deletion))
-                    builder.addComplexDeletion(column, maxDt);
-                else
-                    maxDt = deletion;
-
-                Iterator<Cell> existingCells = existingData == null ? null : existingData.iterator();
-                Iterator<Cell> updateCells = updateData == null ? null : updateData.iterator();
-                timeDelta = Math.min(timeDelta, Cells.reconcileComplex(column, existingCells, updateCells, maxDt, builder, nowInSec));
-            }
-
-            if (cura != null)
-                nexta = a.hasNext() ? a.next() : null;
-            if (curb != null)
-                nextb = b.hasNext() ? b.next() : null;
-        }
-        return timeDelta;
+        assert existing instanceof BTreeRow;
+        assert update instanceof BTreeRow;
+        return BTreeRow.merge((BTreeRow) existing, (BTreeRow) update, onReconcile, nowInSec);
     }
 
     /**
