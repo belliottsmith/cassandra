@@ -45,7 +45,7 @@ public interface DeletionInfo extends IMeasurableMemory
      */
     public boolean isLive();
 
-    public DeletionTime getPartitionDeletion();
+    public DeletionTime partitionDeletion();
 
     // Use sparingly, not the most efficient thing
     public Iterator<RangeTombstone> rangeIterator(boolean reversed);
@@ -69,6 +69,6 @@ public interface DeletionInfo extends IMeasurableMemory
      */
     public boolean mayModify(DeletionInfo delInfo);
 
-    public MutableDeletionInfo mutableCopy();
+    public DeletionInfo add(DeletionInfo newInfo);
     public DeletionInfo copy(AbstractAllocator allocator);
 }

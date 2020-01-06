@@ -367,8 +367,6 @@ public class Memtable implements Comparable<Memtable>
         Collection<SSTableReader> ssTables;
         try (SSTableTxnWriter writer = createFlushWriter(cfs.getSSTablePath(sstableDirectory), columnsCollector.get(), statsCollector.get()))
         {
-            boolean trackContention = logger.isTraceEnabled();
-            int heavilyContendedRowCount = 0;
             // (we can't clear out the map as-we-go to free up memory,
             //  since the memtable is being used for queries in the "pending flush" category)
             for (AtomicBTreePartition partition : partitions.values())
@@ -380,9 +378,6 @@ public class Memtable implements Comparable<Memtable>
                 // just skip the entry (CASSANDRA-4667).
                 if (isBatchLogTable && !partition.partitionLevelDeletion().isLive() && partition.hasRows())
                     continue;
-
-                if (trackContention && partition.usePessimisticLocking())
-                    heavilyContendedRowCount++;
 
                 if (!partition.isEmpty())
                 {
@@ -410,9 +405,6 @@ public class Memtable implements Comparable<Memtable>
                 writer.abort();
                 ssTables = Collections.emptyList();
             }
-
-            if (heavilyContendedRowCount > 0)
-                logger.trace(String.format("High update contention in %d/%d partitions of %s ", heavilyContendedRowCount, partitions.size(), Memtable.this.toString()));
 
             return ssTables;
         }

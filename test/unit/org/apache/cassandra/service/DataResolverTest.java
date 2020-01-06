@@ -676,7 +676,7 @@ public class DataResolverTest
         PartitionUpdate upd1 = new RowUpdateBuilder(cfm, nowInSec, 1L, dk)
                                                  .addRangeTombstone(rt1)
                                                  .buildUpdate();
-        ((MutableDeletionInfo)upd1.deletionInfo()).add(new DeletionTime(10, nowInSec));
+        ((MutableDeletionInfo)upd1.deletionInfo()).mutableAdd(new DeletionTime(10, nowInSec));
         UnfilteredPartitionIterator iter1 = iter(upd1);
 
         // 2nd "stream": a range tombstone that is covered by the other stream rt
@@ -961,7 +961,7 @@ public class DataResolverTest
         PartitionUpdate update = ((Mutation)message.payload).getPartitionUpdates().iterator().next();
         DeletionInfo deletionInfo = update.deletionInfo();
         if (deletionTime != null)
-            assertEquals(deletionTime, deletionInfo.getPartitionDeletion());
+            assertEquals(deletionTime, deletionInfo.partitionDeletion());
 
         assertEquals(rangeTombstones.length, deletionInfo.rangeCount());
         Iterator<RangeTombstone> ranges = deletionInfo.rangeIterator(false);

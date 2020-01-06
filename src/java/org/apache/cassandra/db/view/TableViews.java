@@ -385,7 +385,7 @@ public class TableViews extends AbstractCollection<View>
             // by every views, but as we don't an easy way to compute that right now, we keep it simple and just use the tombstoned
             // range.
             // TODO: we should improve that latter part.
-            if (!deletionInfo.getPartitionDeletion().isLive())
+            if (!deletionInfo.partitionDeletion().isLive())
             {
                 for (View view : views)
                     sliceBuilder.addAll(view.getSelectStatement().clusteringIndexFilterAsSlices());

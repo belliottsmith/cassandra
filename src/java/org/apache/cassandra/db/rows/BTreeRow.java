@@ -19,6 +19,7 @@ package org.apache.cassandra.db.rows;
 
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.function.BiFunction;
 import java.util.function.Predicate;
 
 import com.google.common.base.Function;
@@ -304,9 +305,9 @@ public class BTreeRow extends AbstractRow
 
     public Row markCounterLocalToBeCleared()
     {
-        return transformAndFilter(primaryKeyLivenessInfo, deletion, (cd) -> cd.column().isCounterColumn()
-                                                                            ? cd.markCounterLocalToBeCleared()
-                                                                            : cd);
+        return transformAndFilter((cd) -> cd.column().isCounterColumn()
+                                          ? cd.markCounterLocalToBeCleared()
+                                          : cd);
     }
 
     public boolean hasDeletion(int nowInSec)
@@ -359,18 +360,31 @@ public class BTreeRow extends AbstractRow
         return transformAndFilter(newInfo, newDeletion, (cd) -> cd.purge(purger, nowInSec));
     }
 
-    private Row transformAndFilter(LivenessInfo info, Deletion deletion, Function<ColumnData, ColumnData> function)
+    private Row update(Clustering clustering, LivenessInfo newLivenessInfo, Deletion newDeletion, Object[] newTree)
     {
-        Object[] transformed = BTree.transformAndFilter(btree, function);
-
-        if (btree == transformed && info == this.primaryKeyLivenessInfo && deletion == this.deletion)
+        if (btree == newTree && newLivenessInfo == this.primaryKeyLivenessInfo && newDeletion == this.deletion)
             return this;
 
-        if (info.isEmpty() && deletion.isLive() && BTree.isEmpty(transformed))
+        if (newLivenessInfo.isEmpty() && newDeletion.isLive() && BTree.isEmpty(newTree))
             return null;
 
-        int minDeletionTime = minDeletionTime(transformed, info, deletion.time());
-        return new BTreeRow(clustering, info, deletion, transformed, minDeletionTime);
+        int minDeletionTime = minDeletionTime(newTree, newLivenessInfo, newDeletion.time());
+        return new BTreeRow(clustering, newLivenessInfo, newDeletion, newTree, minDeletionTime);
+    }
+
+    public Row transformAndFilter(LivenessInfo newLivenessInfo, Deletion newDeletion, Function<ColumnData, ColumnData> function)
+    {
+        return update(clustering, newLivenessInfo, newDeletion, BTree.transformAndFilter(btree, function));
+    }
+
+    public Row transformAndFilter(Function<ColumnData, ColumnData> function)
+    {
+        return transformAndFilter(primaryKeyLivenessInfo, deletion, function);
+    }
+
+    public <V> Row transformAndFilter(BiFunction<ColumnData, V, ColumnData> function, V param)
+    {
+        return update(clustering, primaryKeyLivenessInfo, deletion, BTree.transformAndFilter(btree, function, param));
     }
 
     public int dataSize()
@@ -636,7 +650,7 @@ public class BTreeRow extends AbstractRow
         protected Builder(boolean isSorted, int nowInSecs)
         {
             this.cells = BTree.builder(ColumnData.comparator);
-            resolver = new CellResolver(nowInSecs);
+            this.resolver = new CellResolver(nowInSecs);
             this.isSorted = isSorted;
             this.cells.auto(false);
         }

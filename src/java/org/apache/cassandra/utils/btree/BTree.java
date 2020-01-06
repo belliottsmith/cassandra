@@ -19,6 +19,7 @@
 package org.apache.cassandra.utils.btree;
 
 import java.util.*;
+import java.util.function.BiFunction;
 
 import com.google.common.base.Function;
 import com.google.common.collect.Iterators;
@@ -618,6 +619,29 @@ public class BTree
         }
     }
 
+    // simple class for avoiding duplicate transformation work
+    private static class BiFiltrationTracker<V, V2> implements Function<V, V>
+    {
+        final BiFunction<? super V, ? super V2, ? extends V> wrapped;
+        final V2 param;
+        int index;
+        boolean failed;
+
+        private BiFiltrationTracker(BiFunction<? super V, ? super V2, ? extends V> wrapped, V2 param)
+        {
+            this.wrapped = wrapped;
+            this.param = param;
+        }
+
+        public V apply(V i)
+        {
+            V o = wrapped.apply(i, param);
+            if (o != null) index++;
+            else failed = true;
+            return o;
+        }
+    }
+
     /**
      * Takes a btree and transforms it using the provided function, filtering out any null results.
      * The result of any transformation must sort identically wrt the other results as their originals
@@ -637,7 +661,32 @@ public class BTree
         Iterable<V> head = iterable(result, 0, wrapped.index - 1, Dir.ASC);
         // and concatenate with remainder of original tree, with transformation applied
         Iterable<V> remainder = iterable(btree, wrapped.index + 1, size(btree) - 1, Dir.ASC);
-        remainder = filter(transform(remainder, function), (x) -> x != null);
+        remainder = filter(transform(remainder, function), Objects::nonNull);
+        Iterable<V> build = concat(head, remainder);
+
+        return buildInternal(build, -1, UpdateFunction.<V>noOp());
+    }
+
+    /**
+     * Takes a btree and transforms it using the provided function, filtering out any null results.
+     * The result of any transformation must sort identically wrt the other results as their originals
+     */
+    public static <V, V2> Object[] transformAndFilter(Object[] btree, BiFunction<? super V, ? super V2, ? extends V> function, V2 param)
+    {
+        if (isEmpty(btree))
+            return btree;
+
+        // TODO: can be made more efficient
+        BiFiltrationTracker<V, V2> wrapped = new BiFiltrationTracker<>(function, param);
+        Object[] result = transformAndFilter(btree, wrapped);
+        if (!wrapped.failed)
+            return result;
+
+        // take the already transformed bits from the head of the partial result
+        Iterable<V> head = iterable(result, 0, wrapped.index - 1, Dir.ASC);
+        // and concatenate with remainder of original tree, with transformation applied
+        Iterable<V> remainder = iterable(btree, wrapped.index + 1, size(btree) - 1, Dir.ASC);
+        remainder = filter(transform(remainder, v -> function.apply(v, param)), Objects::nonNull);
         Iterable<V> build = concat(head, remainder);
 
         return buildInternal(build, -1, UpdateFunction.<V>noOp());

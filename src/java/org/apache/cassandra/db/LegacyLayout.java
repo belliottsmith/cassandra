@@ -544,7 +544,7 @@ public abstract class LegacyLayout
             }
         }
 
-        return new LegacyUnfilteredPartition(info.getPartitionDeletion(), rtl, cells);
+        return new LegacyUnfilteredPartition(info.partitionDeletion(), rtl, cells);
     }
 
     private static List<LegacyCell> maybeTrimLiveCells(List<LegacyCell> cells, int maxLiveCells, ReadCommand command)
@@ -765,7 +765,7 @@ public abstract class LegacyLayout
         Iterator<RangeTombstone> ranges = delInfo.deletionInfo.rangeIterator(reversed);
         return new RowAndDeletionMergeIterator(metadata,
                                                key,
-                                               delInfo.deletionInfo.getPartitionDeletion(),
+                                               delInfo.deletionInfo.partitionDeletion(),
                                                ColumnFilter.all(metadata),
                                                staticRow,
                                                reversed,
@@ -1980,7 +1980,7 @@ public abstract class LegacyLayout
 
         public void add(DeletionTime topLevel)
         {
-            deletionInfo.add(topLevel);
+            deletionInfo.mutableAdd(topLevel);
         }
 
         private static Slice.Bound staticBound(CFMetaData metadata, boolean isStart)
@@ -2045,7 +2045,7 @@ public abstract class LegacyLayout
 
         public void add(CFMetaData metadata, RangeTombstone tombstone)
         {
-            deletionInfo.add(tombstone, metadata.comparator);
+            deletionInfo.mutableAdd(tombstone, metadata.comparator);
         }
 
         public Iterator<LegacyRangeTombstone> inRowRangeTombstones()

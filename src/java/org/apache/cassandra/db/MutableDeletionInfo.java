@@ -78,7 +78,7 @@ public class MutableDeletionInfo implements DeletionInfo
         return new MutableDeletionInfo(DeletionTime.LIVE);
     }
 
-    public MutableDeletionInfo mutableCopy()
+    private MutableDeletionInfo mutableCopy()
     {
         return new MutableDeletionInfo(partitionDeletion, ranges == null ? null : ranges.copy());
     }
@@ -105,18 +105,29 @@ public class MutableDeletionInfo implements DeletionInfo
      * timestamp.
      * @param newInfo the deletion time to add to this deletion info.
      */
-    public void add(DeletionTime newInfo)
+    public void mutableAdd(DeletionTime newInfo)
     {
         if (newInfo.supersedes(partitionDeletion))
             partitionDeletion = newInfo;
     }
 
-    public void add(RangeTombstone tombstone, ClusteringComparator comparator)
+    public void mutableAdd(RangeTombstone tombstone, ClusteringComparator comparator)
     {
         if (ranges == null)
             ranges = new RangeTombstoneList(comparator, 1);
 
         ranges.add(tombstone);
+    }
+
+    public DeletionInfo add(DeletionInfo newInfo)
+    {
+        if (!newInfo.mayModify(this))
+            return this;
+
+        if (!this.mayModify(newInfo))
+            return newInfo;
+
+        return mutableCopy().mutableAdd(newInfo);
     }
 
     /**
@@ -126,9 +137,9 @@ public class MutableDeletionInfo implements DeletionInfo
      *
      * @return this object.
      */
-    public DeletionInfo add(DeletionInfo newInfo)
+    private DeletionInfo mutableAdd(DeletionInfo newInfo)
     {
-        add(newInfo.getPartitionDeletion());
+        mutableAdd(newInfo.partitionDeletion());
 
         // We know MutableDeletionInfo is the only impelementation and we're not mutating it, it's just to get access to the
         // RangeTombstoneList directly.
@@ -143,7 +154,7 @@ public class MutableDeletionInfo implements DeletionInfo
         return this;
     }
 
-    public DeletionTime getPartitionDeletion()
+    public DeletionTime partitionDeletion()
     {
         return partitionDeletion;
     }
@@ -190,7 +201,7 @@ public class MutableDeletionInfo implements DeletionInfo
      */
     public boolean mayModify(DeletionInfo delInfo)
     {
-        return partitionDeletion.compareTo(delInfo.getPartitionDeletion()) > 0 || hasRanges();
+        return partitionDeletion.compareTo(delInfo.partitionDeletion()) > 0 || hasRanges();
     }
 
     @Override
@@ -294,7 +305,7 @@ public class MutableDeletionInfo implements DeletionInfo
                 Slice.Bound close = marker.closeBound(reversed);
 
                 Slice slice = reversed ? Slice.make(close, open) : Slice.make(open, close);
-                deletion.add(new RangeTombstone(slice, openDeletion), comparator);
+                deletion.mutableAdd(new RangeTombstone(slice, openDeletion), comparator);
             }
 
             if (marker.isOpen(reversed))

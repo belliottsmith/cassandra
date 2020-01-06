@@ -18,8 +18,6 @@ package org.apache.cassandra.db.rows;
 
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
-import java.util.AbstractCollection;
-import java.util.Collection;
 import java.util.Objects;
 
 import com.google.common.collect.Iterables;

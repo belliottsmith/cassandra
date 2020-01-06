@@ -130,6 +130,17 @@
       <available file="${build.src.java}" type="dir" />
     </condition>
 
+    <condition property="isMac">
+        <os family="mac" />
+    </condition>
+
+    <condition property="jmh.asmprofiler" value="dtraceasm">
+        <os family="mac" />
+    </condition>
+    <condition property="jmh.asmprofiler" value="perfasm">
+        <os family="unix" />
+    </condition>
+
     <tstamp>
       <format property="YEAR" pattern="yyyy"/>
     </tstamp>
@@ -396,8 +407,8 @@
           <dependency groupId="org.jboss.byteman" artifactId="byteman-bmunit" version="${byteman.version}"/>
 
 
-          <dependency groupId="org.openjdk.jmh" artifactId="jmh-core" version="1.1.1"/>
-          <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess" version="1.1.1"/>
+          <dependency groupId="org.openjdk.jmh" artifactId="jmh-core" version="1.22"/>
+          <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess" version="1.22"/>
 
           <dependency groupId="org.apache.cassandra" artifactId="cassandra-all" version="${version}" />
           <dependency groupId="org.apache.cassandra" artifactId="cassandra-thrift" version="${version}" />
@@ -525,6 +536,8 @@
                 artifactId="cassandra-parent"
                 version="${version}"/>
         <dependency groupId="joda-time" artifactId="joda-time"/>
+        <dependency groupId="org.openjdk.jmh" artifactId="jmh-core"/>
+        <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess"/>
       </artifact:pom>
 
       <!-- now the pom's for artifacts being deployed to Maven Central -->
@@ -1837,9 +1850,51 @@
                   <include name="**/*.jar" />
               </fileset>
           </classpath>
+          <jvmarg value="-Djmh.executor=CUSTOM"/>
+          <jvmarg value="-Djmh.executor.class=org.apache.cassandra.test.microbench.JMHWorkerThreadFactory"/>
+          <jvmarg value="-Dcassandra.config.loader=org.apache.cassandra.OffsetAwareConfigurationLoader"/>
+          <jvmarg value="-Dcassandra.test.offsetseed=0"/>
+          <arg value="-prof"/>
+          <arg value="gc"/>
           <arg value=".*microbench.*${benchmark.name}"/>
       </java>
   </target>
+
+  <target name="microbench-asm" depends="build-test">
+      <java classname="org.openjdk.jmh.Main"
+            fork="true"
+            failonerror="true">
+          <classpath>
+              <path refid="cassandra.classpath" />
+              <pathelement location="${test.classes}"/>
+              <pathelement location="${test.conf}"/>
+              <fileset dir="${test.lib}">
+                  <include name="**/*.jar" />
+              </fileset>
+          </classpath>
+          <jvmarg value="-Djmh.executor=CUSTOM"/>
+          <jvmarg value="-Djmh.executor.class=org.apache.cassandra.test.microbench.JMHWorkerThreadFactory"/>
+          <arg value="-prof"/>
+          <arg value="gc"/>
+          <arg value="-prof"/>
+          <arg value="${jmh.asmprofiler}:tooBigThreshold=2000;drawInterJumps=true;hotThreshold=0.01"/>
+          <arg value=".*microbench.*${benchmark.name}"/>
+      </java>
+  </target>
+
+  <target name="microbench-jar" depends="build-test, build, maven-ant-tasks-retrieve-test" description="Create microbench-compatible jar, including all dependencies">
+      <jar jarfile="${build.dir}/microbench-${base.version}.jar">
+          <zipgroupfileset dir="${build.lib}" includes="*.jar" excludes="META-INF/*.SF, META-INF/*.DSA, META-INF/*.RSA"/>
+          <zipgroupfileset dir="${test.lib}/jars" includes="*.jar" excludes="META-INF/*.SF, META-INF/*.DSA, META-INF/*.RSA"/>
+          <fileset dir="${build.classes.main}"/>
+          <fileset dir="${test.classes}"/>
+          <fileset dir="${test.conf}" />
+          <manifest>
+              <attribute name="Main-Class" value="org.openjdk.jmh.Main"/>
+          </manifest>
+      </jar>
+  </target>
+
 
   <!-- run arbitrary mains in tests, for example to run the long running memory tests with lots of memory pressure
       ant run-main -Dmainclass=org.apache.cassandra.utils.memory.LongBufferPoolTest -Dvmargs="-Xmx30m -XX:-UseGCOverheadLimit"

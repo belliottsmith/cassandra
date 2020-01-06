@@ -20,6 +20,8 @@ package org.apache.cassandra.utils.memory;
 
 import java.nio.ByteBuffer;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 public class HeapPool extends MemtablePool
@@ -39,9 +41,11 @@ public class HeapPool extends MemtablePool
         return new Allocator(this);
     }
 
-    private static class Allocator extends MemtableBufferAllocator
+    @VisibleForTesting
+    public static class Allocator extends MemtableBufferAllocator
     {
-        Allocator(HeapPool pool)
+        @VisibleForTesting
+        public Allocator(HeapPool pool)
         {
             super(pool.onHeap.newAllocator(), pool.offHeap.newAllocator());
         }

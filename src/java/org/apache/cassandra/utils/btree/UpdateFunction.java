@@ -35,11 +35,6 @@ public interface UpdateFunction<K, V> extends Function<K, V>
     V apply(V replacing, K update);
 
     /**
-     * @return true if we should fail the update
-     */
-    boolean abortEarly();
-
-    /**
      * @param heapSize extra heap space allocated (over previous tree)
      */
     void allocated(long heapSize);

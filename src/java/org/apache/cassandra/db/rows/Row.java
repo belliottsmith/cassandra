@@ -19,6 +19,8 @@ package org.apache.cassandra.db.rows;
 
 import java.util.*;
 import java.security.MessageDigest;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
@@ -214,6 +216,8 @@ public interface Row extends Unfiltered, Iterable<ColumnData>
      *   4) uses {@code activeDeletion} as row deletion iff {@code setActiveDeletionToRow} and {@code activeDeletion} supersedes the row deletion.
      */
     public Row filter(ColumnFilter filter, DeletionTime activeDeletion, boolean setActiveDeletionToRow, CFMetaData metadata);
+
+    public <V> Row transformAndFilter(BiFunction<ColumnData, V, ColumnData> function, V param);
 
     /**
      * Returns a copy of this row without any deletion info that should be purged according to {@code purger}.

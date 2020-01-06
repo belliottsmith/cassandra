@@ -122,7 +122,7 @@ public abstract class Cells
     public static Cell reconcile(Cell c1, Cell c2, int nowInSec)
     {
         if (c1 == null)
-            return c2 == null ? null : c2;
+            return c2;
         if (c2 == null)
             return c1;
 

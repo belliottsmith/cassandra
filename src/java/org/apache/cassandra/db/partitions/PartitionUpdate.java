@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import org.slf4j.Logger;
@@ -88,7 +89,8 @@ public class PartitionUpdate extends AbstractBTreePartition
         rowBuilder = builder(initialRowCapacity);
     }
 
-    private PartitionUpdate(CFMetaData metadata,
+    @VisibleForTesting
+    public PartitionUpdate(CFMetaData metadata,
                             DecoratedKey key,
                             Holder holder,
                             MutableDeletionInfo deletionInfo,
@@ -361,7 +363,7 @@ public class PartitionUpdate extends AbstractBTreePartition
         return rowCount()
              + (staticRow().isEmpty() ? 0 : 1)
              + deletionInfo.rangeCount()
-             + (deletionInfo.getPartitionDeletion().isLive() ? 0 : 1);
+             + (deletionInfo.partitionDeletion().isLive() ? 0 : 1);
     }
 
     /**
@@ -537,13 +539,13 @@ public class PartitionUpdate extends AbstractBTreePartition
     public void addPartitionDeletion(DeletionTime deletionTime)
     {
         assertNotBuilt();
-        deletionInfo.add(deletionTime);
+        deletionInfo.mutableAdd(deletionTime);
     }
 
     public void add(RangeTombstone range)
     {
         assertNotBuilt();
-        deletionInfo.add(range, metadata.comparator);
+        deletionInfo.mutableAdd(range, metadata.comparator);
     }
 
     /**

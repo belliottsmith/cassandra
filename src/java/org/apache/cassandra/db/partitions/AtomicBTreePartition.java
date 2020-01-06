@@ -18,23 +18,28 @@
 package org.apache.cassandra.db.partitions;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.rows.BTreeRow;
+import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellPath;
+import org.apache.cassandra.db.rows.ColumnData;
+import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.ObjectSizes;
+import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.UpdateFunction;
-import org.apache.cassandra.utils.concurrent.Locks;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.HeapAllocator;
 import org.apache.cassandra.utils.memory.MemtableAllocator;
@@ -53,31 +58,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                                                                                        DatabaseDescriptor.getPartitioner().decorateKey(ByteBuffer.allocate(1)),
                                                                                        null));
 
-    // Reserved values for wasteTracker field. These values must not be consecutive (see avoidReservedValues)
-    private static final int TRACKER_NEVER_WASTED = 0;
-    private static final int TRACKER_PESSIMISTIC_LOCKING = Integer.MAX_VALUE;
-
-    // The granularity with which we track wasted allocation/work; we round up
-    private static final int ALLOCATION_GRANULARITY_BYTES = 1024;
-    // The number of bytes we have to waste in excess of our acceptable realtime rate of waste (defined below)
-    private static final long EXCESS_WASTE_BYTES = 10 * 1024 * 1024L;
-    private static final int EXCESS_WASTE_OFFSET = (int) (EXCESS_WASTE_BYTES / ALLOCATION_GRANULARITY_BYTES);
-    // Note this is a shift, because dividing a long time and then picking the low 32 bits doesn't give correct rollover behavior
-    private static final int CLOCK_SHIFT = 17;
-    // CLOCK_GRANULARITY = 1^9ns >> CLOCK_SHIFT == 132us == (1/7.63)ms
-
-    private static final AtomicIntegerFieldUpdater<AtomicBTreePartition> wasteTrackerUpdater = AtomicIntegerFieldUpdater.newUpdater(AtomicBTreePartition.class, "wasteTracker");
     private static final AtomicReferenceFieldUpdater<AtomicBTreePartition, Holder> refUpdater = AtomicReferenceFieldUpdater.newUpdater(AtomicBTreePartition.class, Holder.class, "ref");
-
-    /**
-     * (clock + allocation) granularity are combined to give us an acceptable (waste) allocation rate that is defined by
-     * the passage of real time of ALLOCATION_GRANULARITY_BYTES/CLOCK_GRANULARITY, or in this case 7.63Kb/ms, or 7.45Mb/s
-     *
-     * in wasteTracker we maintain within EXCESS_WASTE_OFFSET before the current time; whenever we waste bytes
-     * we increment the current value if it is within this window, and set it to the min of the window plus our waste
-     * otherwise.
-     */
-    private volatile int wasteTracker = TRACKER_NEVER_WASTED;
 
     private final MemtableAllocator allocator;
     private volatile Holder ref;
@@ -100,200 +81,222 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         return true;
     }
 
+    private static long[] finishAddAllWithSizeDelta(PartitionUpdate update, UpdateTransaction indexer, RowUpdater updater, Holder newHolder, Holder oldHolder)
+    {
+        if (indexer != UpdateTransaction.NO_OP)
+        {
+            DeletionInfo addDeletionInfo = update.deletionInfo();
+
+            if (!addDeletionInfo.partitionDeletion().isLive())
+                indexer.onPartitionDeletion(addDeletionInfo.partitionDeletion());
+
+            if (addDeletionInfo.hasRanges())
+                addDeletionInfo.rangeIterator(false).forEachRemaining(indexer::onRangeTombstone);
+        }
+
+        updater.allocated(newHolder.deletionInfo.unsharedHeapSize() - oldHolder.deletionInfo.unsharedHeapSize());
+        updater.finish();
+        return new long[] { updater.dataSize, updater.colUpdateTimeDelta };
+    }
+
+    private static Row updateStaticRow(RowUpdater updater, Row current, Row add)
+    {
+        return add.isEmpty() ? current : (current.isEmpty() ? updater.apply(add) : updater.apply(current, add));
+    }
+
+    /**
+     * Extracts the updated versions of any datum inserted from {@code addRow} into {@code newRow} that
+     * were resolved to remain in {@code newRow}.
+     *
+     * Implementation note: if we could mutate addRow, this could be done much more efficiently by performing
+     * an in-situ replace/remove, then rebalancing.  However since our typical use case involves rewriting the
+     * whole tree, and since we cannot safely perform it in-situ, there's nothing to be gained by being clever.
+     *
+     * @param addRow the row we were originally inserting
+     * @param newRow the row that emerged from inserting {@code addRow}
+     * @return the remaining parts of {@code addRow}, as taken from {@code newRow}
+     */
+    @VisibleForTesting
+    static Row extractUnshadowed(Row addRow, Row newRow)
+    {
+        return addRow.transformAndFilter((ColumnData addData, SearchIterator<ColumnDefinition, ColumnData> newIter) -> {
+            ColumnData newData = newIter.next(addData.column());
+            if (newData == null)
+                return null;
+
+            ColumnDefinition column = newData.column();
+            if (column.isComplex())
+                return extractUnshadowed((ComplexColumnData) addData, (ComplexColumnData) newData);
+
+            if (column.isCounterColumn())
+                return newData;
+
+            if (newData.equals(addData))
+                return newData;
+
+            return null;
+
+        }, newRow.searchIterator());
+    }
+
+    /**
+     * Extracts the updated versions of any datum inserted from {@code addCd} into {@code newCd} that
+     * were resolved to remain in {@code newCd}.
+     *
+     * @param addCd the complex column data we were originally inserting
+     * @param newCd the complex column data that emerged from inserting {@code addCd}
+     * @return the remaining parts of {@code addRow}, as taken from {@code newCd}
+     */
+    @VisibleForTesting
+    static ComplexColumnData extractUnshadowed(ComplexColumnData addCd, ComplexColumnData newCd)
+    {
+        return addCd.transformAndFilter((Cell addCell, SearchIterator<CellPath, Cell> newIter) -> {
+            Cell newCell = newIter.next(addCell.path());
+            return newCell != null && newCell.equals(addCell) ? newCell : null;
+        }, newCd.searchIterator());
+    }
+
+    /**
+     * Extracts the updated versions of any datum inserted from {@code addTree} into {@code newTree} that
+     * were resolved to remain in {@code newTree}.
+     *
+     * Implementation note: if we could mutate addTree, this could be done much more efficiently by performing
+     * an in-situ replace/remove, then rebalancing.  However since our typical use case involves rewriting the
+     * whole tree, and since we cannot safely perform it in-situ, there's nothing to be gained by being clever.
+     *
+     * @param addTree the tree we were originally inserting
+     * @param newTree the tree that emerged from inserting {@code addTree}
+     * @return the remaining parts of {@code addTree}, as taken from {@code newTree}
+     */
+    @VisibleForTesting
+    static Object[] extractUnshadowed(CFMetaData metadata, Object[] addTree, Object[] newTree)
+    {
+        return BTree.transformAndFilter(addTree, (Row addRow, SearchIterator<Clustering, Row> newIter) -> {
+            Row newRow = newIter.next(addRow.clustering());
+            if (newRow == null)
+                return null;
+
+            Row retainRow = extractUnshadowed(addRow, newRow);
+            if (retainRow == null || retainRow.isEmpty())
+                return null;
+
+            return retainRow;
+        }, BTree.slice(newTree, metadata.comparator, BTree.Dir.ASC));
+    }
+
     /**
      * Adds a given update to this in-memtable partition.
      *
      * @return an array containing first the difference in size seen after merging the updates, and second the minimum
      * time detla between updates.
      */
-    public long[] addAllWithSizeDelta(final PartitionUpdate update, OpOrder.Group writeOp, UpdateTransaction indexer)
+    public long[] addAllWithSizeDelta(PartitionUpdate update, OpOrder.Group writeOp, UpdateTransaction indexer)
     {
-        RowUpdater updater = new RowUpdater(this, allocator, writeOp, indexer);
-        DeletionInfo inputDeletionInfoCopy = null;
-        boolean monitorOwned = false;
         try
         {
-            if (usePessimisticLocking())
+            PartitionColumns newColumns;
+            Row copiedStaticRow;
+            DeletionInfo copiedDeletionInfo;
+            Object[] copiedTree;
             {
-                Locks.monitorEnterUnsafe(this);
-                monitorOwned = true;
+                RowUpdater updater = RowUpdater.cloning(this.allocator, writeOp, indexer);
+                indexer.start();
+
+                Holder current = ref;
+
+                newColumns = update.columns().mergeTo(current.columns);
+
+                Row addStaticRow = update.staticRow();
+                Row newStaticRow = updateStaticRow(updater, current.staticRow, addStaticRow);
+
+                copiedDeletionInfo = update.deletionInfo().copy(HeapAllocator.instance);
+                DeletionInfo newDeletionInfo = current.deletionInfo.add(copiedDeletionInfo);
+
+                EncodingStats addStats = update.stats();
+                EncodingStats newStats = current.stats.mergeWith(addStats);
+
+                Object[] newTree = BTree.update(current.tree, update.metadata().comparator, update, update.rowCount(), updater);
+
+                Holder newHolder = new Holder(newColumns, newTree, newDeletionInfo, newStaticRow, newStats);
+
+                if (refUpdater.compareAndSet(this, current, newHolder))
+                    return finishAddAllWithSizeDelta(update, indexer, updater, newHolder, current);
+
+                copiedStaticRow = current.staticRow.isEmpty() ? newStaticRow : extractUnshadowed(addStaticRow, newStaticRow);
+                copiedTree = BTree.isEmpty(current.tree) ? newTree : extractUnshadowed(metadata, update.holder().tree, newTree);
             }
 
-            indexer.start();
-
+            RowUpdater updater = RowUpdater.counting(allocator, writeOp, indexer);
             while (true)
             {
+                indexer.start();
+
                 Holder current = ref;
-                updater.ref = current;
-                updater.reset();
 
-                if (!update.deletionInfo().getPartitionDeletion().isLive())
-                    indexer.onPartitionDeletion(update.deletionInfo().getPartitionDeletion());
-
-                if (update.deletionInfo().hasRanges())
-                    update.deletionInfo().rangeIterator(false).forEachRemaining(indexer::onRangeTombstone);
-
-                DeletionInfo deletionInfo;
-                if (update.deletionInfo().mayModify(current.deletionInfo))
-                {
-                    if (inputDeletionInfoCopy == null)
-                        inputDeletionInfoCopy = update.deletionInfo().copy(HeapAllocator.instance);
-
-                    deletionInfo = current.deletionInfo.mutableCopy().add(inputDeletionInfoCopy);
-                    updater.allocated(deletionInfo.unsharedHeapSize() - current.deletionInfo.unsharedHeapSize());
-                }
-                else
-                {
-                    deletionInfo = current.deletionInfo;
-                }
-
-                PartitionColumns columns = update.columns().mergeTo(current.columns);
-                Row newStatic = update.staticRow();
-                Row staticRow = newStatic.isEmpty()
-                              ? current.staticRow
-                              : (current.staticRow.isEmpty() ? updater.apply(newStatic) : updater.apply(current.staticRow, newStatic));
-                Object[] tree = BTree.update(current.tree, update.metadata().comparator, update, update.rowCount(), updater);
+                newColumns = newColumns.mergeTo(current.columns);
+                Row newStaticRow = updateStaticRow(updater, current.staticRow, copiedStaticRow);
+                DeletionInfo newDeletionInfo = current.deletionInfo.add(copiedDeletionInfo);
                 EncodingStats newStats = current.stats.mergeWith(update.stats());
 
-                if (tree != null && refUpdater.compareAndSet(this, current, new Holder(columns, tree, deletionInfo, staticRow, newStats)))
-                {
-                    updater.finish();
-                    return new long[]{ updater.dataSize, updater.colUpdateTimeDelta };
-                }
-                else if (!monitorOwned)
-                {
-                    boolean shouldLock = usePessimisticLocking();
-                    if (!shouldLock)
-                    {
-                        shouldLock = updateWastedAllocationTracker(updater.heapSize);
-                    }
-                    if (shouldLock)
-                    {
-                        Locks.monitorEnterUnsafe(this);
-                        monitorOwned = true;
-                    }
-                }
+                Object[] newTree = BTree.update(current.tree, update.metadata().comparator, BTree.iterable(copiedTree), BTree.size(copiedTree), updater);
+                Holder newHolder = new Holder(newColumns, newTree, newDeletionInfo, newStaticRow, newStats);
+
+                if (refUpdater.compareAndSet(this, current, newHolder))
+                    return finishAddAllWithSizeDelta(update, indexer, updater, newHolder, current);
+
+                updater.reset();
             }
         }
         finally
         {
             indexer.commit();
-            if (monitorOwned)
-                Locks.monitorExitUnsafe(this);
         }
-
-    }
-
-    public boolean usePessimisticLocking()
-    {
-        return wasteTracker == TRACKER_PESSIMISTIC_LOCKING;
-    }
-
-    /**
-     * Update the wasted allocation tracker state based on newly wasted allocation information
-     *
-     * @param wastedBytes the number of bytes wasted by this thread
-     * @return true if the caller should now proceed with pessimistic locking because the waste limit has been reached
-     */
-    private boolean updateWastedAllocationTracker(long wastedBytes)
-    {
-        // Early check for huge allocation that exceeds the limit
-        if (wastedBytes < EXCESS_WASTE_BYTES)
-        {
-            // We round up to ensure work < granularity are still accounted for
-            int wastedAllocation = ((int) (wastedBytes + ALLOCATION_GRANULARITY_BYTES - 1)) / ALLOCATION_GRANULARITY_BYTES;
-
-            int oldTrackerValue;
-            while (TRACKER_PESSIMISTIC_LOCKING != (oldTrackerValue = wasteTracker))
-            {
-                // Note this time value has an arbitrary offset, but is a constant rate 32 bit counter (that may wrap)
-                int time = (int) (System.nanoTime() >>> CLOCK_SHIFT);
-                int delta = oldTrackerValue - time;
-                if (oldTrackerValue == TRACKER_NEVER_WASTED || delta >= 0 || delta < -EXCESS_WASTE_OFFSET)
-                    delta = -EXCESS_WASTE_OFFSET;
-                delta += wastedAllocation;
-                if (delta >= 0)
-                    break;
-                if (wasteTrackerUpdater.compareAndSet(this, oldTrackerValue, avoidReservedValues(time + delta)))
-                    return false;
-            }
-        }
-        // We have definitely reached our waste limit so set the state if it isn't already
-        wasteTrackerUpdater.set(this, TRACKER_PESSIMISTIC_LOCKING);
-        // And tell the caller to proceed with pessimistic locking
-        return true;
-    }
-
-    private static int avoidReservedValues(int wasteTracker)
-    {
-        if (wasteTracker == TRACKER_NEVER_WASTED || wasteTracker == TRACKER_PESSIMISTIC_LOCKING)
-            return wasteTracker + 1;
-        return wasteTracker;
     }
 
     // the function we provide to the btree utilities to perform any column replacements
     private static final class RowUpdater implements UpdateFunction<Row, Row>
     {
-        final AtomicBTreePartition updating;
         final MemtableAllocator allocator;
+        final Row.Builder builder;
         final OpOrder.Group writeOp;
         final UpdateTransaction indexer;
         final int nowInSec;
-        Holder ref;
-        Row.Builder regularBuilder;
+        final boolean clone;
         long dataSize;
         long heapSize;
         long colUpdateTimeDelta = Long.MAX_VALUE;
-        List<Row> inserted; // TODO: replace with walk of aborted BTree
 
-        private RowUpdater(AtomicBTreePartition updating, MemtableAllocator allocator, OpOrder.Group writeOp, UpdateTransaction indexer)
+        private RowUpdater(MemtableAllocator allocator, boolean clone, Row.Builder builder, OpOrder.Group writeOp, UpdateTransaction indexer)
         {
-            this.updating = updating;
             this.allocator = allocator;
+            this.builder = builder;
             this.writeOp = writeOp;
             this.indexer = indexer;
             this.nowInSec = FBUtilities.nowInSeconds();
-        }
-
-        private Row.Builder builder(Clustering clustering)
-        {
-            boolean isStatic = clustering == Clustering.STATIC_CLUSTERING;
-            // We know we only insert/update one static per PartitionUpdate, so no point in saving the builder
-            if (isStatic)
-                return allocator.rowBuilder(writeOp);
-
-            if (regularBuilder == null)
-                regularBuilder = allocator.rowBuilder(writeOp);
-            return regularBuilder;
+            this.clone = clone;
         }
 
         public Row apply(Row insert)
         {
-            Row data = Rows.copy(insert, builder(insert.clustering())).build();
+            if (clone)
+                insert = Rows.copy(insert, builder).build();
+
             indexer.onInserted(insert);
 
-            this.dataSize += data.dataSize();
-            this.heapSize += data.unsharedHeapSizeExcludingData();
-            if (inserted == null)
-                inserted = new ArrayList<>();
-            inserted.add(data);
-            return data;
+            this.dataSize += insert.dataSize();
+            this.heapSize += insert.unsharedHeapSizeExcludingData();
+            return insert;
         }
 
         public Row apply(Row existing, Row update)
         {
-            Row.Builder builder = builder(existing.clustering());
             colUpdateTimeDelta = Math.min(colUpdateTimeDelta, Rows.merge(existing, update, builder, nowInSec));
 
             Row reconciled = builder.build();
-
             indexer.onUpdated(existing, reconciled);
 
             dataSize += reconciled.dataSize() - existing.dataSize();
             heapSize += reconciled.unsharedHeapSizeExcludingData() - existing.unsharedHeapSizeExcludingData();
-            if (inserted == null)
-                inserted = new ArrayList<>();
-            inserted.add(reconciled);
 
             return reconciled;
         }
@@ -302,13 +305,6 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         {
             this.dataSize = 0;
             this.heapSize = 0;
-            if (inserted != null)
-                inserted.clear();
-        }
-
-        public boolean abortEarly()
-        {
-            return updating.ref != ref;
         }
 
         public void allocated(long heapSize)
@@ -320,5 +316,27 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         {
             allocator.onHeap().adjust(heapSize, writeOp);
         }
+
+        public static RowUpdater cloning(MemtableAllocator allocator, OpOrder.Group writeOp, UpdateTransaction indexer)
+        {
+            return new RowUpdater(allocator, true, allocator.rowBuilder(writeOp), writeOp, indexer);
+        }
+
+        public static RowUpdater counting(MemtableAllocator allocator, OpOrder.Group writeOp, UpdateTransaction indexer)
+        {
+            return new RowUpdater(allocator, true, BTreeRow.sortedBuilder(), writeOp, indexer);
+        }
+    }
+
+    @VisibleForTesting
+    public void unsafeSetHolder(Holder holder)
+    {
+        ref = holder;
+    }
+
+    @VisibleForTesting
+    public Holder unsafeGetHolder()
+    {
+        return ref;
     }
 }
