@@ -18,19 +18,114 @@
 
 package org.apache.cassandra.metrics;
 
+import java.util.Arrays;
+import java.util.concurrent.atomic.LongAdder;
+
+import org.junit.Ignore;
 import org.junit.Test;
 
 import com.codahale.metrics.Clock;
+import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
+import com.codahale.metrics.UniformReservoir;
+import org.apache.cassandra.utils.EstimatedHistogram;
+import org.apache.cassandra.utils.Pair;
+import org.quicktheories.core.Gen;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-
+import static org.quicktheories.QuickTheory.qt;
+import static org.quicktheories.generators.SourceDSL.*;
 
 public class DecayingEstimatedHistogramReservoirTest
 {
     private static final double DOUBLE_ASSERT_DELTA = 0;
+
+    public static final int numExamples = 1000000;
+    public static final Gen<long[]> offsets = integers().from(DecayingEstimatedHistogramReservoir.DEFAULT_BUCKET_COUNT)
+                                                        .upToAndIncluding(DecayingEstimatedHistogramReservoir.MAX_BUCKET_COUNT - 10)
+                                                        .zip(booleans().all(), EstimatedHistogram::newOffsets);
+
+    @Test
+    public void testFindIndex()
+    {
+        qt().withExamples(numExamples)
+            .forAll(booleans().all()
+                              .flatMap(b -> offsets.flatMap(offs -> this.offsetsAndValue(offs, b, 0))))
+            .check(this::checkFindIndex);
+    }
+
+    private boolean checkFindIndex(Pair<long[], Long> offsetsAndValue)
+    {
+        long[] offsets = offsetsAndValue.left;
+        long value = offsetsAndValue.right;
+
+        int model = findIndexModel(offsets, value);
+        int actual = DecayingEstimatedHistogramReservoir.findIndex(offsets, value);
+
+        return model == actual;
+    }
+
+    private int findIndexModel(long[] offsets, long value)
+    {
+        int modelIndex = Arrays.binarySearch(offsets, value);
+        if (modelIndex < 0)
+            modelIndex = -modelIndex - 1;
+
+        return modelIndex;
+    };
+
+    @Test
+    public void showEstimationWorks()
+    {
+        qt().withExamples(numExamples)
+            .forAll(offsets.flatMap(offs -> this.offsetsAndValue(offs, false, 9)))
+            .check(this::checkEstimation);
+    }
+
+    public boolean checkEstimation(Pair<long[], Long> offsetsAndValue)
+    {
+        long[] offsets = offsetsAndValue.left;
+        long value = offsetsAndValue.right;
+        boolean considerZeros = offsets[0] == 0;
+
+        int modelIndex = Arrays.binarySearch(offsets, value);
+        if (modelIndex < 0)
+            modelIndex = -modelIndex - 1;
+
+        int estimate = (int) DecayingEstimatedHistogramReservoir.fastLog12(value);//  Math.log(value) / Math.log(1.2));
+
+        if (considerZeros)
+            return estimate - 3 == modelIndex || estimate - 2 == modelIndex;
+        else
+            return estimate - 4 == modelIndex || estimate - 3 == modelIndex;
+    }
+
+
+    private Gen<Pair<long[], Long>> offsetsAndValue(long[] offsets, boolean useMaxLong, long minValue)
+    {
+        return longs().between(minValue, useMaxLong ? Long.MAX_VALUE : offsets[offsets.length - 1] + 100)
+                      .mix(longs().between(minValue, minValue + 10),50)
+                      .map(value -> Pair.create(offsets, value));
+    }
+
+    //shows that the max before overflow is 238 buckets regardless of consider zeros
+    @Test
+    @Ignore
+    public void showHistorgramOffsetOverflow()
+    {
+        qt().forAll(integers().from(DecayingEstimatedHistogramReservoir.DEFAULT_BUCKET_COUNT).upToAndIncluding(1000))
+            .check(count -> {
+                long[] offsets = EstimatedHistogram.newOffsets(count, false);
+                for (long offset : offsets)
+                    if (offset < 0)
+                        return false;
+
+                return true;
+            });
+    }
+
 
     @Test
     public void testSimple()

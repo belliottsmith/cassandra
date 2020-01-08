@@ -69,10 +69,12 @@ import org.apache.cassandra.utils.EstimatedHistogram;
  */
 public class DecayingEstimatedHistogramReservoir implements Reservoir
 {
+
     /**
      * The default number of decayingBuckets. Use this bucket count to reduce memory allocation for bucket offsets.
      */
     public static final int DEFAULT_BUCKET_COUNT = 164;
+    public static final int MAX_BUCKET_COUNT = 237;
     public static final boolean DEFAULT_ZERO_CONSIDERATION = false;
 
     // The offsets used with a default sized bucket array without a separate bucket for zero values.
@@ -80,6 +82,45 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
 
     // The offsets used with a default sized bucket array with a separate bucket for zero values.
     public static final long[] DEFAULT_WITH_ZERO_BUCKET_OFFSETS = EstimatedHistogram.newOffsets(DEFAULT_BUCKET_COUNT, true);
+
+    private static final int TABLE_BITS = 4;
+    private static final int TABLE_MASK = -1 >>> (32 - TABLE_BITS);
+    private static final float[] LOG2_TABLE = computeTable(TABLE_BITS);
+    private static final float log2_12_recp = (float) (1d / slowLog2(1.2d));
+
+    private static float[] computeTable(int bits)
+    {
+        float[] table = new float[1 << bits];
+        for (int i = 1 ; i < 1<<bits ; ++i)
+            table[i] = (float) slowLog2(ratio(i, bits));
+        return table;
+    }
+
+    public static float fastLog12(long v)
+    {
+        return fastLog2(v) * log2_12_recp;
+    }
+
+    private static float fastLog2(long v)
+    {
+        if (v == 0) return 0;
+        int highestBitPosition = 63 - Long.numberOfLeadingZeros(v);
+        v = Long.rotateRight(v, highestBitPosition - TABLE_BITS);
+        int index = (int) (v & TABLE_MASK);
+        float result = LOG2_TABLE[index];
+        result += highestBitPosition;
+        return result;
+    }
+
+    private static double slowLog2(double v)
+    {
+        return Math.log(v) / Math.log(2);
+    }
+
+    private static double ratio(int i, int bits)
+    {
+        return Float.intBitsToFloat((127 << 23) | (i << (23 - bits)));
+    }
 
     // Represents the bucket offset as created by {@link EstimatedHistogram#newOffsets()}
     private final long[] bucketOffsets;
@@ -171,16 +212,39 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
         long now = clock.getTime();
         rescaleIfNeeded(now);
 
-        int index = Arrays.binarySearch(bucketOffsets, value);
-        if (index < 0)
-        {
-            // inexact match, take the first bucket higher than n
-            index = -index - 1;
-        }
-        // else exact match; we're good
-
+        int index = findIndex(bucketOffsets, value);
         decayingBuckets[index].add(Math.round(forwardDecayWeight(now)));
         buckets[index].increment();
+    }
+
+    @VisibleForTesting
+    public static int findIndex(long[] bucketOffsets, long value)
+    {
+        if (value == 0) // zero is always in the first bucket regardless of consider zeroes
+            return 0;
+
+        if (value <= 8) // contiguous portion of buckets, no need to search
+        {
+            return (int) value - (bucketOffsets[0] == 0 ? 0 : 1);
+        }
+
+        if (value > bucketOffsets[bucketOffsets.length - 1]) // value is in the "extra" bucket
+            return bucketOffsets.length;
+
+        // for values > 9 the bucket index can be estimated using the equation Math.floor(Math.log(value) / Math.log(1.2))
+        // Since the offsets sequence is integers only this approximation is always 2 or 3 indexes greater than the
+        // actual index (when considerZeros = false the approximation is always 3 or 4 indexes greater).
+        // See DecayingEstimatedHistogramResevoirTest#showEstimationWorks and DecayingEstimatedHistogramResevoirTest#testFindIndex()
+        // for a runnable "proof"
+        //
+        // With this assumption, the estimate is calculated and the furthest offset from the estimation is checked
+        // if this bucket does not contain the value then the next one will
+        int firstCandidate = ((int) fastLog12(value)) - (bucketOffsets[0] == 0 ? 3 : 4);
+
+        if (value <= bucketOffsets[firstCandidate])
+            return firstCandidate;
+
+        return firstCandidate + 1;
     }
 
     private double forwardDecayWeight(long now)
