@@ -147,6 +147,8 @@ public class CompactionAllocationTest
         }
         else
         {
+            MIN_OBJECTS_ALLOCATED = 0;
+            MIN_BYTES_ALLOCATED = 0;
             logger.warn("{} is using the ThreadMXBean to measure memory usage, this is less accurate than the allocation instrumenter agent", CompactionAllocationTest.class.getSimpleName());
         }
     }
@@ -249,7 +251,6 @@ public class CompactionAllocationTest
 
     public static class AgentMeasurement implements Measurement, Sampler
     {
-
         long objectsAllocated = 0;
         long bytesAllocated = 0;
 
