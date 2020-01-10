@@ -19,6 +19,7 @@
 package org.apache.cassandra.utils.btree;
 
 import java.util.*;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -37,7 +38,6 @@ import static com.google.common.collect.Iterables.transform;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.util.Comparator.naturalOrder;
-import static java.util.Comparator.nullsFirst;
 
 public class BTree
 {
@@ -1248,6 +1248,27 @@ public class BTree
         return compare(cmp, previous, max) < 0;
     }
 
+    private interface ConsumerAcceptor<T>
+    {
+        <V, A> void accept(T consumer, V value, A argument);
+    }
+
+    private static final ConsumerAcceptor<Consumer> ACCEPT_ONE = new ConsumerAcceptor<Consumer>()
+    {
+        public <V, A> void accept(Consumer consumer, V value, A argument)
+        {
+            consumer.accept(value);
+        }
+    };
+
+    private static final ConsumerAcceptor<BiConsumer> ACCEPT_TWO = new ConsumerAcceptor<BiConsumer>()
+    {
+        public <V, A> void accept(BiConsumer consumer, V value, A argument)
+        {
+            consumer.accept(value, argument);
+        }
+    };
+
     /**
      * Simple method to walk the btree forwards and apply a function till a stop condition is reached
      *
@@ -1257,7 +1278,7 @@ public class BTree
      * @param function
      * @param stopCondition
      */
-    public static <V> boolean apply(Object[] btree, Consumer<V> function, Predicate<V> stopCondition)
+    private static <T, V, A> boolean applyImpl(Object[] btree, T function, Predicate<V> stopCondition, A argument, ConsumerAcceptor<T> acceptor)
     {
         boolean isLeaf = isLeaf(btree);
         int childOffset = isLeaf ? Integer.MAX_VALUE : getChildStart(btree);
@@ -1273,11 +1294,11 @@ public class BTree
                 if (stopCondition != null && stopCondition.apply(castedCurrent))
                     return true;
 
-                function.accept(castedCurrent);
+                acceptor.accept(function, castedCurrent, argument);
             }
             else
             {
-                if (apply((Object[]) current, function, stopCondition))
+                if (applyImpl((Object[]) current, function, stopCondition, argument, acceptor))
                     return true;
             }
         }
@@ -1285,9 +1306,66 @@ public class BTree
         return false;
     }
 
+    /**
+     * Simple method to walk the btree forwards and apply a function till a stop condition is reached
+     *
+     * Private method
+     *
+     * @param btree
+     * @param function
+     * @param stopCondition
+     */
+    public static <V> boolean apply(Object[] btree, Consumer<V> function, Predicate<V> stopCondition)
+    {
+        return BTree.applyImpl(btree, function, stopCondition, null, ACCEPT_ONE);
+    }
+
     public static <V> boolean apply(Object[] btree, Consumer<V> function)
     {
         return apply(btree, function, null);
+    }
+
+    public static <V, A> boolean apply(Object[] btree, BiConsumer<V, A> function, A argument, Predicate<V> stopCondition)
+    {
+        return BTree.applyImpl(btree, function, stopCondition, argument, ACCEPT_TWO);
+    }
+
+    public static <V, A> boolean apply(Object[] btree, BiConsumer<V, A> function, A argument)
+    {
+        return apply(btree, function, argument, null);
+    }
+
+    private static <V> int find(Object[] btree, V from, Comparator<V> comparator)
+    {
+        // find the start index in iteration order
+        Preconditions.checkNotNull(comparator);
+        int keyEnd = getKeyEnd(btree);
+        return Arrays.binarySearch((V[]) btree, 0, keyEnd, from, comparator);
+    }
+
+    private static <V> long accumulateLeaf(Object[] btree, LongAccumulator<V> accumulator, long start, V from, Comparator<V> comparator)
+    {
+        Preconditions.checkArgument(isLeaf(btree));
+        long value = start;
+        int limit = getLeafKeyEnd(btree);
+
+        int startIdx = 0;
+        if (from != null)
+        {
+            int i = find(btree, from, comparator);
+            boolean isExact = i >= 0;
+            startIdx = isExact ? i : (-1 - i);
+        }
+
+        for (int i = startIdx; i < limit; i++)
+        {
+            value = accumulator.apply((V) btree[i], value);
+
+            // stop if a sentinel stop value was returned
+            if (value == Long.MAX_VALUE || value == Long.MIN_VALUE)
+                break;
+        }
+        return value;
     }
 
     /**
@@ -1299,10 +1377,12 @@ public class BTree
      */
     public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long start, V from, Comparator<V> comparator)
     {
+        if (isLeaf(btree))
+            return accumulateLeaf(btree, accumulator, start, from, comparator);
+
         long value = start;
-        boolean isLeaf = isLeaf(btree);
-        int childOffset = isLeaf ? Integer.MAX_VALUE : getChildStart(btree);
-        int limit = isLeaf ? getLeafKeyEnd(btree) : btree.length - 1;
+        int childOffset = getChildStart(btree);
+        int limit = btree.length - 1;
 
         int startIdx = 0;
         if (from != null)
@@ -1313,16 +1393,13 @@ public class BTree
             int i = Arrays.binarySearch((V[]) btree, 0, keyEnd, from, comparator);
             boolean isExact = i >= 0;
 
-            if (isLeaf)
-                startIdx = isExact ? i : (-1 - i);
-            else
-                startIdx = isExact ? ((i * 2) + 1) : ((-1 - i) * 2);
+            startIdx = isExact ? ((i * 2) + 1) : ((-1 - i) * 2);
         }
 
         for (int i = startIdx ; i < limit ; i++)
         {
             // we want to visit in iteration order, so we visit our key nodes inbetween our children
-            int idx = isLeaf ? i : (i / 2) + (i % 2 == 0 ? childOffset : 0);
+            int idx = (i / 2) + (i % 2 == 0 ? childOffset : 0);
             Object current = btree[idx];
             if (idx < childOffset)
             {

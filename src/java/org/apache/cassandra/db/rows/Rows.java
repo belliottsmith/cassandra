@@ -21,7 +21,6 @@ import java.util.*;
 
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
-import com.google.common.primitives.Ints;
 
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
@@ -75,13 +74,47 @@ public abstract class Rows
         return new SimpleBuilders.RowBuilder(metadata, clusteringValues);
     }
 
-    private static long addColumn(long l)
+    private static class StatsAccumulation
     {
-        return l + 0x100000000L;
-    }
+        private static final long COLUMN_INCR = 1L << 32;
+        private static final long CELL_INCR = 1L;
 
-    private static final long COLUMN_INCR = 1L << 32;
-    private static final long CELL_INCR = 1L;
+        private static long accumulateOnCell(Cell cell, long l, PartitionStatisticsCollector collector)
+        {
+            Cells.collectStats(cell, collector);
+            return l + CELL_INCR;
+        }
+
+        private static long accumulateOnColumnData(ColumnData cd, long l, PartitionStatisticsCollector collector)
+        {
+            if (cd.column().isSimple())
+            {
+                l += COLUMN_INCR;
+                l = accumulateOnCell((Cell) cd, l, collector);
+                Cells.collectStats((Cell) cd, collector);
+            }
+            else
+            {
+                ComplexColumnData complexData = (ComplexColumnData)cd;
+                collector.update(complexData.complexDeletion());
+                int startingCells = unpackCellCount(l);
+                l = complexData.accumulate((c, v) -> accumulateOnCell(c, v, collector), l);
+                if (unpackCellCount(l) > startingCells)
+                    l += COLUMN_INCR;
+            }
+            return l;
+        }
+
+        private static int unpackColumnCount(long v)
+        {
+            return (int) (v & 0xFFFFFFFFL);
+        }
+
+        private static int unpackCellCount(long v)
+        {
+            return (int) (v >>> 32);
+        }
+    }
 
     /**
      * Collect statistics on a given row.
@@ -97,35 +130,10 @@ public abstract class Rows
         collector.update(row.primaryKeyLivenessInfo());
         collector.update(row.deletion().time());
 
-        long result = row.accumulate((cd, l) -> {
-            if (cd.column().isSimple())
-            {
-                l += COLUMN_INCR;
-                l += CELL_INCR;
-                Cells.collectStats((Cell) cd, collector);
-            }
-            else
-            {
-                ComplexColumnData complexData = (ComplexColumnData)cd;
-                collector.update(complexData.complexDeletion());
-                if (complexData.hasCells())
-                {
-                    l += COLUMN_INCR;
-                    for (Cell cell : complexData)
-                    {
-                        l += CELL_INCR;
-                        Cells.collectStats(cell, collector);
-                    }
-                }
-            }
-            return l;
-        }, 0);
+        long result = row.accumulate((cd, l) -> StatsAccumulation.accumulateOnColumnData(cd, l, collector), 0);
 
-        int columnCount = (int) (result & 0xFFFFFFFFL);
-        int cellCount = (int) (result >>> 32);
-
-        collector.updateColumnSetPerRow(columnCount);
-        return cellCount;
+        collector.updateColumnSetPerRow(StatsAccumulation.unpackColumnCount(result));
+        return StatsAccumulation.unpackCellCount(result);
     }
 
     /**

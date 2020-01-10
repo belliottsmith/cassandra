@@ -19,9 +19,7 @@ package org.apache.cassandra.db.rows;
 
 import java.util.*;
 import java.util.function.Consumer;
-import java.util.function.LongPredicate;
 
-import com.google.common.base.Predicate;
 import com.google.common.hash.Hasher;
 
 import org.apache.cassandra.db.*;

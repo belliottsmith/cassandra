@@ -18,7 +18,6 @@
 package org.apache.cassandra.db.rows;
 
 import java.io.IOException;
-import java.util.Map;
 
 import net.nicoulaj.compilecommand.annotations.Inline;
 import org.apache.cassandra.schema.ColumnMetadata;

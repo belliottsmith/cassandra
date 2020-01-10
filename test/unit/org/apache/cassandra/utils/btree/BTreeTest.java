@@ -184,6 +184,18 @@ public class BTreeTest
     }
 
     /**
+     * accumulate function should not be called if we ask it to start past the end of the btree
+     */
+    @Test
+    public void accumulateFromEnd()
+    {
+        List<Integer> input = seq(100);
+        Object[] btree = BTree.build(input, noOp);
+        long result = BTree.accumulate(btree, (o, l) -> 1, 0, 101, Integer::compareTo);
+        Assert.assertEquals(0, result);
+    }
+
+    /**
      * Tests that the apply method of the <code>UpdateFunction</code> is only called once with each key update.
      * (see CASSANDRA-8018).
      */

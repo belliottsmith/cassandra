@@ -20,11 +20,9 @@ package org.apache.cassandra.db.rows;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.function.Consumer;
-import java.util.function.LongPredicate;
 import java.util.function.Predicate;
 
 import com.google.common.base.Function;
-import com.google.common.base.Predicates;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Iterators;
 import com.google.common.primitives.Ints;
@@ -342,8 +340,6 @@ public class BTreeRow extends AbstractRow
         });
     }
 
-    private static final Predicate<ColumnData> ALWAYS_TRUE = cd -> true;
-
     public boolean hasComplex()
     {
         if (BTree.isEmpty(btree))
@@ -356,22 +352,9 @@ public class BTreeRow extends AbstractRow
 
     public boolean hasComplexDeletion()
     {
-        // We start by the end cause we know complex columns sort before simple ones
-        long result = accumulate((cd, v) -> {
-            if (cd.column.isSimple())
-            {
-                return Long.MIN_VALUE;
-            }
-
-            if (!((ComplexColumnData) cd).complexDeletion().isLive())
-            {
-                return Long.MAX_VALUE;
-            }
-
-            return 0;
-        }, 0, isStatic() ? FIRST_COMPLEX_STATIC : FIRST_COMPLEX_REGULAR, COLUMN_COMPARATOR);
-
-        return result == Long.MIN_VALUE;
+        long result = accumulate((cd, v) -> ((ComplexColumnData) cd).complexDeletion().isLive() ? 0 : Long.MAX_VALUE,
+                                 0, isStatic() ? FIRST_COMPLEX_STATIC : FIRST_COMPLEX_REGULAR, COLUMN_COMPARATOR);
+        return result == Long.MAX_VALUE;
     }
 
     public Row markCounterLocalToBeCleared()
@@ -386,23 +369,13 @@ public class BTreeRow extends AbstractRow
         return nowInSec >= minLocalDeletionTime;
     }
 
-    private static final LongAccumulator<ColumnData> INVALID_DELETION_ACCUMULATOR = new LongAccumulator<ColumnData>()
-    {
-        public long apply(ColumnData cd, long v)
-        {
-            if (cd != null && cd.hasInvalidDeletions())
-                v++;
-            return v;
-        }
-    };
-
     public boolean hasInvalidDeletions()
     {
         if (primaryKeyLivenessInfo().isExpiring() && (primaryKeyLivenessInfo().ttl() < 0 || primaryKeyLivenessInfo().localExpirationTime() < 0))
             return true;
         if (!deletion().time().validate())
             return true;
-        return accumulate(INVALID_DELETION_ACCUMULATOR, 0) > 0;
+        return accumulate((cd, v) -> cd.hasInvalidDeletions() ? Long.MAX_VALUE : v, 0) != 0;
     }
 
     /**
