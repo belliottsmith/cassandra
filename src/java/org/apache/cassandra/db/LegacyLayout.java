@@ -183,17 +183,19 @@ public abstract class LegacyLayout
         if (!column.hasRemaining())
             return new LegacyCellName(clustering, null, null);
 
+        boolean isStatic = clustering == Clustering.STATIC_CLUSTERING;
         ColumnDefinition def = metadata.getColumnDefinition(column);
-
         if (metadata.isCompactTable())
         {
             if (def == null || def.isPrimaryKeyColumn())
                 // If it's a compact table, it means the column is in fact a "dynamic" one
                 return new LegacyCellName(new Clustering(column), metadata.compactValueColumn(), null);
         }
-        else if (def == null)
+        else if (def == null || isStatic != def.isStatic())
         {
-            throw new UnknownColumnException(metadata, column);
+            def = metadata.getDroppedColumnDefinition(column, isStatic);
+            if (def == null || (isStatic != def.isStatic()))
+                throw new UnknownColumnException(metadata, column);
         }
 
         ByteBuffer collectionElement = metadata.isCompound() ? CompositeType.extractComponent(cellname, metadata.comparator.size() + 1) : null;
