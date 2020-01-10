@@ -1343,6 +1343,11 @@ public class BTree
         return Arrays.binarySearch((V[]) btree, 0, keyEnd, from, comparator);
     }
 
+    private static boolean isStopSentinel(long v)
+    {
+        return v == Long.MIN_VALUE || v == Long.MAX_VALUE;
+    }
+
     private static <V> long accumulateLeaf(Object[] btree, LongAccumulator<V> accumulator, long start, V from, Comparator<V> comparator)
     {
         Preconditions.checkArgument(isLeaf(btree));
@@ -1361,8 +1366,7 @@ public class BTree
         {
             value = accumulator.apply((V) btree[i], value);
 
-            // stop if a sentinel stop value was returned
-            if (value == Long.MAX_VALUE || value == Long.MIN_VALUE)
+            if (isStopSentinel(value))
                 break;
         }
         return value;
@@ -1382,38 +1386,39 @@ public class BTree
 
         long value = start;
         int childOffset = getChildStart(btree);
-        int limit = btree.length - 1;
 
-        int startIdx = 0;
+        int startChild = 0;
         if (from != null)
         {
-            // find the start index in iteration order
-            Preconditions.checkNotNull(comparator);
-            int keyEnd = getKeyEnd(btree);
-            int i = Arrays.binarySearch((V[]) btree, 0, keyEnd, from, comparator);
+            int i = find(btree, from, comparator);
             boolean isExact = i >= 0;
 
-            startIdx = isExact ? ((i * 2) + 1) : ((-1 - i) * 2);
+            startChild = isExact ? i + 1 : -1 - i;
+
+            if (isExact)
+            {
+                value = accumulator.apply((V) btree[i], value);
+                if (isStopSentinel(value))
+                    return value;
+                from = null;
+            }
         }
 
-        for (int i = startIdx ; i < limit ; i++)
+        int limit = btree.length - 1 - childOffset;
+        for (int i=startChild; i<limit; i++)
         {
-            // we want to visit in iteration order, so we visit our key nodes inbetween our children
-            int idx = (i / 2) + (i % 2 == 0 ? childOffset : 0);
-            Object current = btree[idx];
-            if (idx < childOffset)
-            {
-                V castedCurrent = (V) current;
-                value = accumulator.apply(castedCurrent, value);
-            }
-            else
-            {
-                value = accumulate((Object[]) current, accumulator, value, from, comparator);
-            }
+            value = accumulate((Object[]) btree[childOffset + i], accumulator, value, from, comparator);
 
-            // stop if a sentinel stop value was returned
-            if (value == Long.MAX_VALUE || value == Long.MIN_VALUE)
+            if (isStopSentinel(value))
                 break;
+
+            if (i < childOffset)
+            {
+                value = accumulator.apply((V) btree[i], value);
+                // stop if a sentinel stop value was returned
+                if (isStopSentinel(value))
+                    break;
+            }
 
             if (from != null)
                 from = null;
