@@ -241,16 +241,14 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
     @VisibleForTesting
     public static int findIndex(long[] bucketOffsets, long value)
     {
-        if (value == 0) // zero is always in the first bucket regardless of consider zeroes
-            return 0;
-
         if (value <= 8) // contiguous portion of buckets, no need to search
         {
-            return (int) value - (bucketOffsets[0] == 0 ? 0 : 1);
-        }
+            if (value == 0) // zero is always in the first bucket regardless of consider zeroes
+                return 0;
 
-        if (value > bucketOffsets[bucketOffsets.length - 1]) // value is in the "extra" bucket
-            return bucketOffsets.length;
+
+            return (int) (value - bucketOffsets[0]);
+        }
 
         // for values > 9 the bucket index can be estimated using the equation Math.floor(Math.log(value) / Math.log(1.2))
         // Since the offsets sequence is integers only this approximation is always 2 or 3 indexes greater than the
@@ -260,7 +258,9 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
         //
         // With this assumption, the estimate is calculated and the furthest offset from the estimation is checked
         // if this bucket does not contain the value then the next one will
-        int firstCandidate = ((int) fastLog12(value)) - (bucketOffsets[0] == 0 ? 3 : 4);
+        int firstCandidate = ((int) fastLog12(value)) - (3 + (int) bucketOffsets[0]);
+        if (firstCandidate >= bucketOffsets.length) // value is in the "extra" bucket
+            return bucketOffsets.length;
 
         if (value <= bucketOffsets[firstCandidate])
             return firstCandidate;
