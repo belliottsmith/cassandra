@@ -104,14 +104,14 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
         return BTree.iterator(cells, BTree.Dir.DESC);
     }
 
-    public long accumulate(LongAccumulator<Cell> accumulator, long start)
+    public long accumulate(LongAccumulator<Cell> accumulator, long initialValue)
     {
-        return BTree.accumulate(cells, accumulator, start);
+        return BTree.accumulate(cells, accumulator, initialValue);
     }
 
-    public <A> long accumulate(BiLongAccumulator<Cell, A> accumulator, A arg, long start)
+    public <A> long accumulate(BiLongAccumulator<A, Cell> accumulator, A arg, long initialValue)
     {
-        return BTree.accumulate(cells, accumulator, arg, start);
+        return BTree.accumulate(cells, accumulator, arg, initialValue);
     }
 
     public int dataSize()

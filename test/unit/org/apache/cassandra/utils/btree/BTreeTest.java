@@ -177,7 +177,7 @@ public class BTreeTest
                 long result = BTree.accumulate(btree, (o, l) -> {
                     Assert.assertEquals(errMsg, (long) o, l + thisInterval);
                     return o;
-                }, start - thisInterval, start, Comparator.naturalOrder());
+                }, Comparator.naturalOrder(), start, start - thisInterval);
                 Assert.assertEquals(errMsg, result, (limit-1)/interval*interval);
             }
         }
@@ -191,7 +191,7 @@ public class BTreeTest
     {
         List<Integer> input = seq(100);
         Object[] btree = BTree.build(input, noOp);
-        long result = BTree.accumulate(btree, (o, l) -> 1, 0, 101, Integer::compareTo);
+        long result = BTree.accumulate(btree, (o, l) -> 1, Integer::compareTo, 101, 0L);
         Assert.assertEquals(0, result);
     }
 

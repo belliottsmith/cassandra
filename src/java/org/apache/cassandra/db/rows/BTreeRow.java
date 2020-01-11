@@ -184,24 +184,24 @@ public class BTreeRow extends AbstractRow
         BTree.apply(btree, function, arg);
     }
 
-    public long accumulate(LongAccumulator<ColumnData> accumulator, long start)
+    public long accumulate(LongAccumulator<ColumnData> accumulator, long initialValue)
     {
-        return BTree.accumulate(btree, accumulator, start);
+        return BTree.accumulate(btree, accumulator, initialValue);
     }
 
-    public long accumulate(LongAccumulator<ColumnData> accumulator, long start, ColumnData from, Comparator<ColumnData> comparator)
+    public long accumulate(LongAccumulator<ColumnData> accumulator, Comparator<ColumnData> comparator, ColumnData from, long initialValue)
     {
-        return BTree.accumulate(btree, accumulator, start, from, comparator);
+        return BTree.accumulate(btree, accumulator, comparator, from, initialValue);
     }
 
-    public <A> long accumulate(BiLongAccumulator<ColumnData, A> accumulator, A arg, long start)
+    public <A> long accumulate(BiLongAccumulator<A, ColumnData> accumulator, A arg, long initialValue)
     {
-        return BTree.accumulate(btree, accumulator, arg, start);
+        return BTree.accumulate(btree, accumulator, arg, initialValue);
     }
 
-    public <A> long accumulate(BiLongAccumulator<ColumnData, A> accumulator, A arg, long start, ColumnData from, Comparator<ColumnData> comparator)
+    public <A> long accumulate(BiLongAccumulator<A, ColumnData> accumulator, A arg, Comparator<ColumnData> comparator, ColumnData from, long initialValue)
     {
-        return BTree.accumulate(btree, accumulator, arg, start, from, comparator);
+        return BTree.accumulate(btree, accumulator, arg, comparator, from, initialValue);
     }
 
     private static int minDeletionTime(Object[] btree, LivenessInfo info, DeletionTime rowDeletion)
@@ -369,7 +369,7 @@ public class BTreeRow extends AbstractRow
     public boolean hasComplexDeletion()
     {
         long result = accumulate((cd, v) -> ((ComplexColumnData) cd).complexDeletion().isLive() ? 0 : Long.MAX_VALUE,
-                                 0, isStatic() ? FIRST_COMPLEX_STATIC : FIRST_COMPLEX_REGULAR, COLUMN_COMPARATOR);
+                                 COLUMN_COMPARATOR, isStatic() ? FIRST_COMPLEX_STATIC : FIRST_COMPLEX_REGULAR, 0L);
         return result == Long.MAX_VALUE;
     }
 

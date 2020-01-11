@@ -297,13 +297,13 @@ public interface Row extends Unfiltered, Iterable<ColumnData>
      * Apply an accumulation funtion to every column in a row
      */
 
-    public long accumulate(LongAccumulator<ColumnData> accumulator, long start);
+    public long accumulate(LongAccumulator<ColumnData> accumulator, long initialValue);
 
-    public long accumulate(LongAccumulator<ColumnData> accumulator, long start, ColumnData from, Comparator<ColumnData> comparator);
+    public long accumulate(LongAccumulator<ColumnData> accumulator, Comparator<ColumnData> comparator, ColumnData from, long initialValue);
 
-    public <A> long accumulate(BiLongAccumulator<ColumnData, A> accumulator, A arg, long start);
+    public <A> long accumulate(BiLongAccumulator<A, ColumnData> accumulator, A arg, long initialValue);
 
-    public <A> long accumulate(BiLongAccumulator<ColumnData, A> accumulator, A arg, long start, ColumnData from, Comparator<ColumnData> comparator);
+    public <A> long accumulate(BiLongAccumulator<A, ColumnData> accumulator, A arg, Comparator<ColumnData> comparator, ColumnData from, long initialValue);
 
     /**
      * A row deletion/tombstone.

@@ -79,18 +79,18 @@ public abstract class Rows
         private static final long COLUMN_INCR = 1L << 32;
         private static final long CELL_INCR = 1L;
 
-        private static long accumulateOnCell(Cell cell, PartitionStatisticsCollector collector, long l)
+        private static long accumulateOnCell(PartitionStatisticsCollector collector, Cell cell, long l)
         {
             Cells.collectStats(cell, collector);
             return l + CELL_INCR;
         }
 
-        private static long accumulateOnColumnData(ColumnData cd, PartitionStatisticsCollector collector, long l)
+        private static long accumulateOnColumnData(PartitionStatisticsCollector collector, ColumnData cd, long l)
         {
             if (cd.column().isSimple())
             {
                 l += COLUMN_INCR;
-                l = accumulateOnCell((Cell) cd, collector, l);
+                l = accumulateOnCell(collector, (Cell) cd, l);
                 Cells.collectStats((Cell) cd, collector);
             }
             else
