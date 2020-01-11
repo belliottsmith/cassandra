@@ -218,12 +218,14 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                 DeletionInfo newDeletionInfo = current.deletionInfo.add(copiedDeletionInfo);
                 EncodingStats newStats = current.stats.mergeWith(update.stats());
 
-                Object[] newTree = BTree.update(current.tree, copiedTree, update.metadata().comparator, updater);
-                Holder newHolder = new Holder(newColumns, newTree, newDeletionInfo, newStaticRow, newStats);
+                Object[] newTree = BTree.update(current.tree, copiedTree, update.metadata().comparator, updater, () -> current != ref);
+                if (newTree != null)
+                {
+                    Holder newHolder = new Holder(newColumns, newTree, newDeletionInfo, newStaticRow, newStats);
 
-                if (refUpdater.compareAndSet(this, current, newHolder))
-                    return finishAddAllWithSizeDelta(update, indexer, updater, newHolder, current);
-
+                    if (refUpdater.compareAndSet(this, current, newHolder))
+                        return finishAddAllWithSizeDelta(update, indexer, updater, newHolder, current);
+                }
                 updater.reset();
             }
         }

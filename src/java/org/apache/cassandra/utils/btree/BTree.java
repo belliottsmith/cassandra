@@ -20,6 +20,7 @@ package org.apache.cassandra.utils.btree;
 
 import java.util.*;
 import java.util.function.BiFunction;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.LongBinaryOperator;
 import java.util.function.ToLongFunction;
@@ -354,6 +355,18 @@ public class BTree
      */
     public static <Compare, Existing extends Compare, Insert extends Compare> Object[] update(Object[] update, Object[] insert, Comparator<? super Compare> comparator, UpdateFunction<Insert, Existing> updateF)
     {
+        return update(update, insert, comparator, updateF, null);
+    }
+    /**
+     * Inserts {@code insert} into {@code update}, applying {@code updateF} to each new item in {@code insert},
+     * as well as any matched items in {@code update}.
+     *
+     * Note that {@code UpdateFunction.noOp} is assumed to indicate a lack of interest in which value survives.
+     *
+     * @param abortEarly may be null, otherwise if returns true the update may terminate early and return null
+     */
+    public static <Compare, Existing extends Compare, Insert extends Compare> Object[] update(Object[] update, Object[] insert, Comparator<? super Compare> comparator, UpdateFunction<Insert, Existing> updateF, BooleanSupplier abortEarly)
+    {
         // perform some initial obvious optimisations
         if (isEmpty(insert))
             return update; // do nothing if update is empty
@@ -402,7 +415,7 @@ public class BTree
 
         try (Updater<Compare, Existing, Insert> updater = Updater.get())
         {
-            return updater.update(update, insert, comparator, updateF);
+            return updater.update(update, insert, comparator, updateF, abortEarly);
         }
     }
 
@@ -2345,19 +2358,19 @@ public class BTree
          *
          * Inserts {@code insert} into {@code update}, after applying {@code updateF} to each item, or matched item pairs.
          */
-        Object[] update(Object[] update, Object[] insert, Comparator<? super Compare> comparator, UpdateFunction<Insert, Existing> updateF)
+        Object[] update(Object[] update, Object[] insert, Comparator<? super Compare> comparator, UpdateFunction<Insert, Existing> updateF, BooleanSupplier abortEarly)
         {
             this.update.init(update);
             this.insert.init(insert);
             this.allocated = isSimple(updateF) ? -1 : 0;
-            return update(comparator, updateF);
+            return update(comparator, updateF, abortEarly);
         }
 
         /**
          * We base our operation on the shape of {@code update}, trying to steal as much of the original tree as
          * possible for our new tree
          */
-        private Object[] update(Comparator<? super Compare> comparator, UpdateFunction<Insert, Existing> updateF)
+        private Object[] update(Comparator<? super Compare> comparator, UpdateFunction<Insert, Existing> updateF, BooleanSupplier abortEarly)
         {
             Existing uub = null;
             Object[] unode = update.node(), inode = insert.node();
@@ -2377,6 +2390,9 @@ public class BTree
             {
                 if (level == leaf())
                 {
+                    if (abortEarly != null && abortEarly.getAsBoolean())
+                        return abortEarly(updateF);
+
                     if (isLeaf(inode))
                     {
                         // Both are leaves, so can simply linearly merge them until we reach the update upper bound.
@@ -2606,6 +2622,21 @@ public class BTree
                 updateF.onAllocated(allocated);
 
             return result;
+        }
+
+        private Object[] abortEarly(UpdateFunction<?, ?> updateF)
+        {
+            if (allocated > 0)
+                updateF.onAllocated(allocated);
+
+            leaf().count = 0;
+            leaf().savedNextKey = null;
+            for (BranchBuilder branch = leaf().parent ; branch != null && branch.touched ; branch = branch.parent)
+            {
+                branch.count = 0;
+                branch.savedNextKey = null;
+            }
+            return null;
         }
 
         /**
