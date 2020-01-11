@@ -79,18 +79,18 @@ public abstract class Rows
         private static final long COLUMN_INCR = 1L << 32;
         private static final long CELL_INCR = 1L;
 
-        private static long accumulateOnCell(Cell cell, long l, PartitionStatisticsCollector collector)
+        private static long accumulateOnCell(Cell cell, PartitionStatisticsCollector collector, long l)
         {
             Cells.collectStats(cell, collector);
             return l + CELL_INCR;
         }
 
-        private static long accumulateOnColumnData(ColumnData cd, long l, PartitionStatisticsCollector collector)
+        private static long accumulateOnColumnData(ColumnData cd, PartitionStatisticsCollector collector, long l)
         {
             if (cd.column().isSimple())
             {
                 l += COLUMN_INCR;
-                l = accumulateOnCell((Cell) cd, l, collector);
+                l = accumulateOnCell((Cell) cd, collector, l);
                 Cells.collectStats((Cell) cd, collector);
             }
             else
@@ -98,7 +98,7 @@ public abstract class Rows
                 ComplexColumnData complexData = (ComplexColumnData)cd;
                 collector.update(complexData.complexDeletion());
                 int startingCells = unpackCellCount(l);
-                l = complexData.accumulate((c, v) -> accumulateOnCell(c, v, collector), l);
+                l = complexData.accumulate(StatsAccumulation::accumulateOnCell, collector, l);
                 if (unpackCellCount(l) > startingCells)
                     l += COLUMN_INCR;
             }
@@ -130,7 +130,7 @@ public abstract class Rows
         collector.update(row.primaryKeyLivenessInfo());
         collector.update(row.deletion().time());
 
-        long result = row.accumulate((cd, l) -> StatsAccumulation.accumulateOnColumnData(cd, l, collector), 0);
+        long result = row.accumulate(StatsAccumulation::accumulateOnColumnData, collector, 0);
 
         collector.updateColumnSetPerRow(StatsAccumulation.unpackColumnCount(result));
         return StatsAccumulation.unpackCellCount(result);

@@ -19,6 +19,7 @@ package org.apache.cassandra.db.rows;
 
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -178,6 +179,11 @@ public class BTreeRow extends AbstractRow
         BTree.apply(btree, function);
     }
 
+    public <A> void apply(BiConsumer<ColumnData, A> function, A arg)
+    {
+        BTree.apply(btree, function, arg);
+    }
+
     public long accumulate(LongAccumulator<ColumnData> accumulator, long start)
     {
         return BTree.accumulate(btree, accumulator, start);
@@ -186,6 +192,16 @@ public class BTreeRow extends AbstractRow
     public long accumulate(LongAccumulator<ColumnData> accumulator, long start, ColumnData from, Comparator<ColumnData> comparator)
     {
         return BTree.accumulate(btree, accumulator, start, from, comparator);
+    }
+
+    public <A> long accumulate(BiLongAccumulator<ColumnData, A> accumulator, A arg, long start)
+    {
+        return BTree.accumulate(btree, accumulator, arg, start);
+    }
+
+    public <A> long accumulate(BiLongAccumulator<ColumnData, A> accumulator, A arg, long start, ColumnData from, Comparator<ColumnData> comparator)
+    {
+        return BTree.accumulate(btree, accumulator, arg, start, from, comparator);
     }
 
     private static int minDeletionTime(Object[] btree, LivenessInfo info, DeletionTime rowDeletion)

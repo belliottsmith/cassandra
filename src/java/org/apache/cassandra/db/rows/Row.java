@@ -18,6 +18,7 @@
 package org.apache.cassandra.db.rows;
 
 import java.util.*;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import com.google.common.hash.Hasher;
@@ -27,6 +28,7 @@ import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.paxos.Commit;
+import org.apache.cassandra.utils.BiLongAccumulator;
 import org.apache.cassandra.utils.HashingUtils;
 import org.apache.cassandra.utils.LongAccumulator;
 import org.apache.cassandra.utils.MergeIterator;
@@ -287,12 +289,21 @@ public interface Row extends Unfiltered, Iterable<ColumnData>
     public void apply(Consumer<ColumnData> function);
 
     /**
+     * Apply a function to every column in a row
+     */
+    public <A> void apply(BiConsumer<ColumnData, A> function, A arg);
+
+    /**
      * Apply an accumulation funtion to every column in a row
      */
 
     public long accumulate(LongAccumulator<ColumnData> accumulator, long start);
 
     public long accumulate(LongAccumulator<ColumnData> accumulator, long start, ColumnData from, Comparator<ColumnData> comparator);
+
+    public <A> long accumulate(BiLongAccumulator<ColumnData, A> accumulator, A arg, long start);
+
+    public <A> long accumulate(BiLongAccumulator<ColumnData, A> accumulator, A arg, long start, ColumnData from, Comparator<ColumnData> comparator);
 
     /**
      * A row deletion/tombstone.

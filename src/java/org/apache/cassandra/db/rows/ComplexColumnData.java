@@ -33,6 +33,7 @@ import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.DroppedColumn;
+import org.apache.cassandra.utils.BiLongAccumulator;
 import org.apache.cassandra.utils.LongAccumulator;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.btree.BTree;
@@ -106,6 +107,11 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
     public long accumulate(LongAccumulator<Cell> accumulator, long start)
     {
         return BTree.accumulate(cells, accumulator, start);
+    }
+
+    public <A> long accumulate(BiLongAccumulator<Cell, A> accumulator, A arg, long start)
+    {
+        return BTree.accumulate(cells, accumulator, arg, start);
     }
 
     public int dataSize()

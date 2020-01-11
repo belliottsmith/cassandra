@@ -29,6 +29,7 @@ import com.google.common.base.Predicate;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Ordering;
 
+import org.apache.cassandra.utils.BiLongAccumulator;
 import org.apache.cassandra.utils.LongAccumulator;
 import org.apache.cassandra.utils.ObjectSizes;
 
@@ -38,6 +39,7 @@ import static com.google.common.collect.Iterables.transform;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.util.Comparator.naturalOrder;
+import static java.util.Comparator.nullsFirst;
 
 public class BTree
 {
@@ -1348,7 +1350,28 @@ public class BTree
         return v == Long.MIN_VALUE || v == Long.MAX_VALUE;
     }
 
-    private static <V> long accumulateLeaf(Object[] btree, LongAccumulator<V> accumulator, long start, V from, Comparator<V> comparator)
+    private interface AccumulatorAcceptor<T>
+    {
+        <V, A> long accept(T accumulator, V value, A argument, long accumulate);
+    }
+
+    private static final AccumulatorAcceptor<LongAccumulator> ACCUMULATE_ONE = new AccumulatorAcceptor<LongAccumulator>()
+    {
+        public <V, A> long accept(LongAccumulator accumulator, V value, A argument, long accumulate)
+        {
+            return accumulator.apply(value, accumulate);
+        }
+    };
+
+    private static final AccumulatorAcceptor<BiLongAccumulator> ACCUMULATE_TWO = new AccumulatorAcceptor<BiLongAccumulator>()
+    {
+        public <V, A> long accept(BiLongAccumulator accumulator, V value, A argument, long accumulate)
+        {
+            return accumulator.apply(value, argument, accumulate);
+        }
+    };
+
+    private static <T, V, A> long accumulateLeaf(Object[] btree, T function, long start, V from, Comparator<V> comparator, A argument, AccumulatorAcceptor<T> acceptor)
     {
         Preconditions.checkArgument(isLeaf(btree));
         long value = start;
@@ -1364,7 +1387,7 @@ public class BTree
 
         for (int i = startIdx; i < limit; i++)
         {
-            value = accumulator.apply((V) btree[i], value);
+            value = acceptor.accept(function, (V) btree[i], argument, value);
 
             if (isStopSentinel(value))
                 break;
@@ -1379,10 +1402,10 @@ public class BTree
      * If the optional from argument is not null, iteration will start from that value (or the one after it's insertion
      * point if an exact match isn't found)
      */
-    public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long start, V from, Comparator<V> comparator)
+    private static <T, V, A> long accumulate(Object[] btree, T accumulator, long start, V from, Comparator<V> comparator, A argument, AccumulatorAcceptor<T> acceptor)
     {
         if (isLeaf(btree))
-            return accumulateLeaf(btree, accumulator, start, from, comparator);
+            return accumulateLeaf(btree, accumulator, start, from, comparator, argument, acceptor);
 
         long value = start;
         int childOffset = getChildStart(btree);
@@ -1397,7 +1420,7 @@ public class BTree
 
             if (isExact)
             {
-                value = accumulator.apply((V) btree[i], value);
+                value = acceptor.accept(accumulator, (V) btree[i], argument, value);
                 if (isStopSentinel(value))
                     return value;
                 from = null;
@@ -1407,14 +1430,14 @@ public class BTree
         int limit = btree.length - 1 - childOffset;
         for (int i=startChild; i<limit; i++)
         {
-            value = accumulate((Object[]) btree[childOffset + i], accumulator, value, from, comparator);
+            value = accumulate((Object[]) btree[childOffset + i], accumulator, value, from, comparator, argument, acceptor);
 
             if (isStopSentinel(value))
                 break;
 
             if (i < childOffset)
             {
-                value = accumulator.apply((V) btree[i], value);
+                value = acceptor.accept(accumulator, (V) btree[i], argument, value);
                 // stop if a sentinel stop value was returned
                 if (isStopSentinel(value))
                     break;
@@ -1426,8 +1449,23 @@ public class BTree
         return value;
     }
 
+    public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long start, V from, Comparator<V> comparator)
+    {
+        return accumulate(btree, accumulator, start, from, comparator, null, ACCUMULATE_ONE);
+    }
+
     public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long start)
     {
         return accumulate(btree, accumulator, start, null, null);
+    }
+
+    public static <V, A> long accumulate(Object[] btree, BiLongAccumulator<V, A> accumulator, A arg, long start, V from, Comparator<V> comparator)
+    {
+        return accumulate(btree, accumulator, start, from, comparator, null, ACCUMULATE_TWO);
+    }
+
+    public static <V, A> long accumulate(Object[] btree, BiLongAccumulator<V, A> accumulator, A arg, long start)
+    {
+        return accumulate(btree, accumulator, arg, start, null, null);
     }
 }
