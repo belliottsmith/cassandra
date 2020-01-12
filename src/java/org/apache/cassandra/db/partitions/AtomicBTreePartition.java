@@ -18,6 +18,7 @@
 package org.apache.cassandra.db.partitions;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -40,6 +41,7 @@ import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.UpdateFunction;
+import org.apache.cassandra.utils.concurrent.Locks;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.HeapAllocator;
 import org.apache.cassandra.utils.memory.MemtableAllocator;
@@ -58,7 +60,31 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                                                                                        DatabaseDescriptor.getPartitioner().decorateKey(ByteBuffer.allocate(1)),
                                                                                        null));
 
+    // Reserved values for wasteTracker field. These values must not be consecutive (see avoidReservedValues)
+    private static final int TRACKER_NEVER_WASTED = 0;
+    private static final int TRACKER_PESSIMISTIC_LOCKING = Integer.MAX_VALUE;
+
+    // The granularity with which we track wasted allocation/work; we round up
+    private static final int ALLOCATION_GRANULARITY_BYTES = 1024;
+    // The number of bytes we have to waste in excess of our acceptable realtime rate of waste (defined below)
+    private static final long EXCESS_WASTE_BYTES = 10 * 1024 * 1024L;
+    private static final int EXCESS_WASTE_OFFSET = (int) (EXCESS_WASTE_BYTES / ALLOCATION_GRANULARITY_BYTES);
+    // Note this is a shift, because dividing a long time and then picking the low 32 bits doesn't give correct rollover behavior
+    private static final int CLOCK_SHIFT = 17;
+    // CLOCK_GRANULARITY = 1^9ns >> CLOCK_SHIFT == 132us == (1/7.63)ms
+
+    private static final AtomicIntegerFieldUpdater<AtomicBTreePartition> wasteTrackerUpdater = AtomicIntegerFieldUpdater.newUpdater(AtomicBTreePartition.class, "wasteTracker");
     private static final AtomicReferenceFieldUpdater<AtomicBTreePartition, Holder> refUpdater = AtomicReferenceFieldUpdater.newUpdater(AtomicBTreePartition.class, Holder.class, "ref");
+
+    /**
+     * (clock + allocation) granularity are combined to give us an acceptable (waste) allocation rate that is defined by
+     * the passage of real time of ALLOCATION_GRANULARITY_BYTES/CLOCK_GRANULARITY, or in this case 7.63Kb/ms, or 7.45Mb/s
+     *
+     * in wasteTracker we maintain within EXCESS_WASTE_OFFSET before the current time; whenever we waste bytes
+     * we increment the current value if it is within this window, and set it to the min of the window plus our waste
+     * otherwise.
+     */
+    private volatile int wasteTracker = TRACKER_NEVER_WASTED;
 
     private final MemtableAllocator allocator;
     private volatile Holder ref;
@@ -174,16 +200,33 @@ public class AtomicBTreePartition extends AbstractBTreePartition
      */
     public long[] addAllWithSizeDelta(PartitionUpdate update, OpOrder.Group writeOp, UpdateTransaction indexer)
     {
+        boolean monitorOwned = false;
         try
         {
             PartitionColumns newColumns;
             Row copiedStaticRow;
             DeletionInfo copiedDeletionInfo;
             Object[] copiedTree;
+            if (usePessimisticLocking())
             {
-                RowUpdater updater = RowUpdater.cloning(this.allocator, writeOp, indexer);
+                // copy everything upfront - this might mean we waste memtable space on shadowed data,
+                // but we have to pick either that or permitting the first CAS for each modification to
+                // compete with a lock owner
+                Row.Builder builder = allocator.rowBuilder(writeOp);
+
+                newColumns = update.columns();
+                copiedStaticRow = Rows.copy(update.staticRow(), builder).build();
+                copiedDeletionInfo = update.deletionInfo().copy(HeapAllocator.instance);
+                copiedTree = BTree.transformAndFilter(update.holder().tree, (Row row) -> Rows.copy(row, builder).build());
+
+                Locks.monitorEnterUnsafe(this);
+                monitorOwned = true;
+            }
+            else
+            {
                 indexer.start();
 
+                RowUpdater updater = RowUpdater.cloning(allocator, writeOp, indexer);
                 Holder current = ref;
 
                 newColumns = update.columns().mergeTo(current.columns);
@@ -206,14 +249,17 @@ public class AtomicBTreePartition extends AbstractBTreePartition
 
                 copiedStaticRow = current.staticRow.isEmpty() ? newStaticRow : extractUnshadowed(addStaticRow, newStaticRow);
                 copiedTree = BTree.isEmpty(current.tree) ? newTree : extractUnshadowed(metadata, update.holder().tree, newTree);
+
+                monitorOwned = maybeUsePessimisticLocking(updater.heapSize);
             }
 
-            RowUpdater updater = RowUpdater.counting(allocator, writeOp, indexer);
+            RowUpdater updater = RowUpdater.counting(this, allocator, writeOp, indexer);
             while (true)
             {
                 indexer.start();
 
                 Holder current = ref;
+                updater.ref = current;
 
                 newColumns = newColumns.mergeTo(current.columns);
                 Row newStaticRow = updateStaticRow(updater, current.staticRow, copiedStaticRow);
@@ -227,12 +273,77 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                     return finishAddAllWithSizeDelta(update, indexer, updater, newHolder, current);
 
                 updater.reset();
+                if (!monitorOwned)
+                    monitorOwned = maybeUsePessimisticLocking(updater.heapSize);
             }
         }
         finally
         {
             indexer.commit();
+            if (monitorOwned)
+                Locks.monitorExitUnsafe(this);
         }
+    }
+
+    private boolean maybeUsePessimisticLocking(long allocatedHeapSize)
+    {
+        boolean shouldLock = usePessimisticLocking();
+        if (!shouldLock)
+        {
+            shouldLock = updateWastedAllocationTracker(allocatedHeapSize);
+        }
+        if (!shouldLock)
+            return false;
+
+        Locks.monitorEnterUnsafe(this);
+        return true;
+    }
+
+    public boolean usePessimisticLocking()
+    {
+        return wasteTracker == TRACKER_PESSIMISTIC_LOCKING;
+    }
+
+    /**
+     * Update the wasted allocation tracker state based on newly wasted allocation information
+     *
+     * @param wastedBytes the number of bytes wasted by this thread
+     * @return true if the caller should now proceed with pessimistic locking because the waste limit has been reached
+     */
+    private boolean updateWastedAllocationTracker(long wastedBytes)
+    {
+        // Early check for huge allocation that exceeds the limit
+        if (wastedBytes < EXCESS_WASTE_BYTES)
+        {
+            // We round up to ensure work < granularity are still accounted for
+            int wastedAllocation = ((int) (wastedBytes + ALLOCATION_GRANULARITY_BYTES - 1)) / ALLOCATION_GRANULARITY_BYTES;
+
+            int oldTrackerValue;
+            while (TRACKER_PESSIMISTIC_LOCKING != (oldTrackerValue = wasteTracker))
+            {
+                // Note this time value has an arbitrary offset, but is a constant rate 32 bit counter (that may wrap)
+                int time = (int) (System.nanoTime() >>> CLOCK_SHIFT);
+                int delta = oldTrackerValue - time;
+                if (oldTrackerValue == TRACKER_NEVER_WASTED || delta >= 0 || delta < -EXCESS_WASTE_OFFSET)
+                    delta = -EXCESS_WASTE_OFFSET;
+                delta += wastedAllocation;
+                if (delta >= 0)
+                    break;
+                if (wasteTrackerUpdater.compareAndSet(this, oldTrackerValue, avoidReservedValues(time + delta)))
+                    return false;
+            }
+        }
+        // We have definitely reached our waste limit so set the state if it isn't already
+        wasteTrackerUpdater.set(this, TRACKER_PESSIMISTIC_LOCKING);
+        // And tell the caller to proceed with pessimistic locking
+        return true;
+    }
+
+    private static int avoidReservedValues(int wasteTracker)
+    {
+        if (wasteTracker == TRACKER_NEVER_WASTED || wasteTracker == TRACKER_PESSIMISTIC_LOCKING)
+            return wasteTracker + 1;
+        return wasteTracker;
     }
 
     /**
@@ -259,6 +370,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
     // the function we provide to the btree utilities to perform any column replacements
     private static final class RowUpdater implements UpdateFunction<Row, Row>
     {
+        final AtomicBTreePartition partition;
         final MemtableAllocator allocator;
         final Row.Builder builder;
         final OpOrder.Group writeOp;
@@ -268,9 +380,11 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         long dataSize;
         long heapSize;
         long colUpdateTimeDelta = Long.MAX_VALUE;
+        Holder ref;
 
-        private RowUpdater(MemtableAllocator allocator, boolean clone, Row.Builder builder, OpOrder.Group writeOp, UpdateTransaction indexer)
+        private RowUpdater(AtomicBTreePartition partition, MemtableAllocator allocator, boolean clone, Row.Builder builder, OpOrder.Group writeOp, UpdateTransaction indexer)
         {
+            this.partition = partition;
             this.allocator = allocator;
             this.builder = builder;
             this.writeOp = writeOp;
@@ -304,6 +418,11 @@ public class AtomicBTreePartition extends AbstractBTreePartition
             return reconciled;
         }
 
+        public boolean abortEarly()
+        {
+            return ref != null && ref != partition.ref;
+        }
+
         protected void reset()
         {
             this.dataSize = 0;
@@ -325,15 +444,15 @@ public class AtomicBTreePartition extends AbstractBTreePartition
          */
         public static RowUpdater cloning(MemtableAllocator allocator, OpOrder.Group writeOp, UpdateTransaction indexer)
         {
-            return new RowUpdater(allocator, true, allocator.rowBuilder(writeOp), writeOp, indexer);
+            return new RowUpdater(null, allocator, true, allocator.rowBuilder(writeOp), writeOp, indexer);
         }
 
         /**
          * Construct a RowUpdater that does not copy anything, only performs necessary book keeping
          */
-        public static RowUpdater counting(MemtableAllocator allocator, OpOrder.Group writeOp, UpdateTransaction indexer)
+        public static RowUpdater counting(AtomicBTreePartition partition, MemtableAllocator allocator, OpOrder.Group writeOp, UpdateTransaction indexer)
         {
-            return new RowUpdater(allocator, true, BTreeRow.sortedBuilder(), writeOp, indexer);
+            return new RowUpdater(partition, allocator, true, BTreeRow.sortedBuilder(), writeOp, indexer);
         }
     }
 

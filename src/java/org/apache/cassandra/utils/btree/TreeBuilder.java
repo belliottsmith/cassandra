@@ -65,6 +65,11 @@ final class TreeBuilder
         {
             while (true)
             {
+                if (updateF.abortEarly())
+                {
+                    rootBuilder.clear();
+                    return null;
+                }
                 NodeBuilder next = current.update(key);
                 if (next == null)
                     break;
