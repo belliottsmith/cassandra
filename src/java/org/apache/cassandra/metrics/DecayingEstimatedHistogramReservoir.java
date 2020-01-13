@@ -224,13 +224,8 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
 
     public void updateBucket(AtomicLongArray buckets, int index, long value)
     {
-        long cur;
-        int stripe, nextStripe = 0;
-        do {
-            stripe = nextStripe;
-            cur = buckets.get(stripedIndex(index, stripe));
-            nextStripe = (stripe + 1) % nStripes;
-        } while (!buckets.compareAndSet(stripedIndex(index, stripe), cur, cur + value));
+        int stripe = (int) (Thread.currentThread().getId() & (nStripes - 1));
+        buckets.addAndGet(stripedIndex(index, stripe), value);
     }
 
     public int stripedIndex(int offsetIndex, int stripe)
