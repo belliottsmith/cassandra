@@ -21,26 +21,26 @@ package org.apache.cassandra.db;
 import java.util.function.LongPredicate;
 
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.index.SecondaryIndexManager;
 import org.apache.cassandra.schema.CompactionParams;
+import org.apache.cassandra.schema.TableMetadata;
 
 /**
  * AbstractCompactionController allows custom implementations of the CompactionController for use in tooling, without being tied to the SSTableReader and local filesystem
  */
-public abstract class AbstractCompactionController implements AutoCloseable
+public abstract class AbstractCompactionController implements ICompactionController
 {
-    public final ColumnFamilyStore cfs;
-    public final int gcBefore;
-    public final CompactionParams.TombstoneOption tombstoneOption;
+    protected final ColumnFamilyStore cfs;
+    protected final int gcBefore;
+    protected final CompactionParams.TombstoneOption tombstoneOption;
 
-    public AbstractCompactionController(final ColumnFamilyStore cfs, final int gcBefore, CompactionParams.TombstoneOption tombstoneOption)
+    public AbstractCompactionController(ColumnFamilyStore cfs, int gcBefore, CompactionParams.TombstoneOption tombstoneOption)
     {
         assert cfs != null;
         this.cfs = cfs;
         this.gcBefore = gcBefore;
         this.tombstoneOption = tombstoneOption;
     }
-
-    public abstract boolean compactingRepaired();
 
     public String getKeyspace()
     {
@@ -52,10 +52,48 @@ public abstract class AbstractCompactionController implements AutoCloseable
         return cfs.name;
     }
 
+    public TableMetadata metadata()
+    {
+        return cfs.metadata();
+    }
+
     public Iterable<UnfilteredRowIterator> shadowSources(DecoratedKey key, boolean tombstoneOnly)
     {
         return null;
     }
 
-    public abstract LongPredicate getPurgeEvaluator(DecoratedKey key);
+    public int gcBefore()
+    {
+        return gcBefore;
+    }
+
+    public CompactionParams.TombstoneOption tombstoneOption()
+    {
+        return tombstoneOption;
+    }
+
+    public boolean isActive()
+    {
+        return cfs.getCompactionStrategyManager().isActive();
+    }
+
+    public void invalidateCachedPartition(DecoratedKey key)
+    {
+        cfs.invalidateCachedPartition(key);
+    }
+
+    public boolean onlyPurgeRepairedTombstones()
+    {
+        return cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones();
+    }
+
+    public boolean hasIndexes()
+    {
+        return cfs.indexManager.hasIndexes();
+    }
+
+    public SecondaryIndexManager indexManager()
+    {
+        return cfs.indexManager;
+    }
 }

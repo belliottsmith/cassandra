@@ -74,6 +74,7 @@ public class CompactionController extends AbstractCompactionController
     public CompactionController(ColumnFamilyStore cfs, Set<SSTableReader> compacting, int gcBefore, RateLimiter limiter, TombstoneOption tombstoneOption)
     {
         super(cfs, gcBefore, tombstoneOption);
+        assert cfs != null;
         this.compacting = compacting;
         this.limiter = limiter;
         compactingRepaired = compacting != null && compacting.stream().allMatch(SSTableReader::isRepaired);

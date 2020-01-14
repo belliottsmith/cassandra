@@ -23,6 +23,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 import io.netty.util.concurrent.DefaultThreadFactory;
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 
 /**
  * Created to test perf of FastThreadLocal
@@ -32,8 +33,8 @@ import io.netty.util.concurrent.DefaultThreadFactory;
  */
 public class FastThreadExecutor extends ThreadPoolExecutor
 {
-    public FastThreadExecutor(int size, String name)
+    public FastThreadExecutor(int workers, String prefix)
     {
-        super(size, size, 10, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), new DefaultThreadFactory(name, true));
+        super(workers, workers, 0L, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), new NamedThreadFactory(prefix + "-jmh-worker-"));
     }
 }

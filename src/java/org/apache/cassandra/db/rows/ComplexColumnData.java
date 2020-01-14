@@ -21,6 +21,7 @@ import java.nio.ByteBuffer;
 import java.util.Iterator;
 import java.util.Objects;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.hash.Hasher;
 
@@ -51,7 +52,8 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
     private final DeletionTime complexDeletion;
 
     // Only ArrayBackedRow should call this.
-    ComplexColumnData(ColumnMetadata column, Object[] cells, DeletionTime complexDeletion)
+    @VisibleForTesting
+    public ComplexColumnData(ColumnMetadata column, Object[] cells, DeletionTime complexDeletion)
     {
         super(column);
         assert column.isComplex();

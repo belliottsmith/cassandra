@@ -184,7 +184,7 @@ public class CompactionTask extends AbstractCompactionTask
 
                 long lastBytesScanned = 0;
 
-                if (!controller.cfs.getCompactionStrategyManager().isActive())
+                if (!controller.isActive())
                     throw new CompactionInterruptedException(ci.getCompactionInfo());
 
                 activeCompactions.beginCompaction(ci);

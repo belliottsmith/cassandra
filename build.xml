@@ -138,6 +138,17 @@
       <available file="${build.src.java}" type="dir" />
     </condition>
 
+    <condition property="isMac">
+        <os family="mac" />
+    </condition>
+
+    <condition property="jmh.asmprofiler" value="dtraceasm">
+        <os family="mac" />
+    </condition>
+    <condition property="jmh.asmprofiler" value="perfasm">
+        <os family="unix" />
+    </condition>
+
     <!-- Check if all tests are being run or just one. If it's all tests don't spam the console with test output.
          If it's an individual test print the output from the test under the assumption someone is debugging the test
          and wants to know what is going on without having to context switch to the log file that is generated.
@@ -543,8 +554,8 @@
           <dependency groupId="org.jboss.byteman" artifactId="byteman-submit" version="${byteman.version}"/>
           <dependency groupId="org.jboss.byteman" artifactId="byteman-bmunit" version="${byteman.version}"/>
 
-          <dependency groupId="org.openjdk.jmh" artifactId="jmh-core" version="1.21"/>
-          <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess" version="1.21"/>
+          <dependency groupId="org.openjdk.jmh" artifactId="jmh-core" version="1.22"/>
+          <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess" version="1.22"/>
 
           <dependency groupId="org.apache.cassandra" artifactId="cassandra-all" version="${version}" />
           <dependency groupId="io.dropwizard.metrics" artifactId="metrics-core" version="3.1.5" />
@@ -696,6 +707,8 @@
                 artifactId="cassandra-parent"
                 version="${version}"/>
         <dependency groupId="joda-time" artifactId="joda-time"/>
+        <dependency groupId="org.openjdk.jmh" artifactId="jmh-core"/>
+        <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess"/>
       </artifact:pom>
 
       <!-- now the pom's for artifacts being deployed to Maven Central -->
@@ -2000,18 +2013,46 @@
   </target>
 
   <!-- run microbenchmarks suite -->
-  <target name="microbench" depends="build-jmh">
+  <target name="microbench" depends="build-test">
       <java classname="org.openjdk.jmh.Main"
             fork="true"
             failonerror="true">
           <classpath>
-              <path refid="cassandra.classpath.test" />
+              <path refid="cassandra.classpath" />
               <pathelement location="${test.classes}"/>
               <pathelement location="${test.conf}"/>
               <fileset dir="${test.lib}">
                   <include name="**/*.jar" />
               </fileset>
           </classpath>
+          <jvmarg value="-Djmh.executor=CUSTOM"/>
+          <jvmarg value="-Djmh.executor.class=org.apache.cassandra.test.microbench.FastThreadExecutor"/>
+          <jvmarg value="-Dcassandra.config.loader=org.apache.cassandra.OffsetAwareConfigurationLoader"/>
+          <jvmarg value="-Dcassandra.test.offsetseed=0"/>
+          <arg value="-prof"/>
+          <arg value="gc"/>
+          <arg value=".*microbench.*${benchmark.name}"/>
+      </java>
+  </target>
+
+  <target name="microbench-asm" depends="build-test">
+      <java classname="org.openjdk.jmh.Main"
+            fork="true"
+            failonerror="true">
+          <classpath>
+              <path refid="cassandra.classpath" />
+              <pathelement location="${test.classes}"/>
+              <pathelement location="${test.conf}"/>
+              <fileset dir="${test.lib}">
+                  <include name="**/*.jar" />
+              </fileset>
+          </classpath>
+          <jvmarg value="-Djmh.executor=CUSTOM"/>
+          <jvmarg value="-Djmh.executor.class=org.apache.cassandra.test.microbench.FastThreadExecutor"/>
+          <jvmarg value="-Dcassandra.config.loader=org.apache.cassandra.OffsetAwareConfigurationLoader"/>
+          <jvmarg value="-Dcassandra.test.offsetseed=0"/>
+          <arg value="-prof"/>
+          <arg value="gc"/>
           <arg value=".*microbench.*${benchmark.name}"/>
       </java>
   </target>

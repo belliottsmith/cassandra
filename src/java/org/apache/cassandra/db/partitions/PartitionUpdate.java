@@ -902,4 +902,14 @@ public class PartitionUpdate extends AbstractBTreePartition
                    '}';
         }
     }
+
+    public static PartitionUpdate unsafeConstruct(TableMetadata metadata,
+                                                  DecoratedKey key,
+                                                  Holder holder,
+                                                  MutableDeletionInfo deletionInfo,
+                                                  boolean canHaveShadowedData)
+    {
+        return new PartitionUpdate(metadata, key, holder, deletionInfo, canHaveShadowedData);
+    }
+
 }

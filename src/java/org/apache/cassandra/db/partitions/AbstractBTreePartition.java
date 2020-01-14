@@ -20,6 +20,8 @@ package org.apache.cassandra.db.partitions;
 
 import java.util.Iterator;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -43,7 +45,8 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
         this.partitionKey = partitionKey;
     }
 
-    protected static final class Holder
+    @VisibleForTesting
+    public static final class Holder
     {
         final RegularAndStaticColumns columns;
         final DeletionInfo deletionInfo;
@@ -52,7 +55,7 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
         final Row staticRow;
         final EncodingStats stats;
 
-        Holder(RegularAndStaticColumns columns, Object[] tree, DeletionInfo deletionInfo, Row staticRow, EncodingStats stats)
+        protected Holder(RegularAndStaticColumns columns, Object[] tree, DeletionInfo deletionInfo, Row staticRow, EncodingStats stats)
         {
             this.columns = columns;
             this.tree = tree;
@@ -351,5 +354,10 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
             return null;
 
         return BTree.findByIndex(tree, BTree.size(tree) - 1);
+    }
+
+    public static Holder unsafeConstructHolder(RegularAndStaticColumns columns, Object[] tree, DeletionInfo deletionInfo, Row staticRow, EncodingStats stats)
+    {
+        return new Holder(columns, tree, deletionInfo, staticRow, stats);
     }
 }
