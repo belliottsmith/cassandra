@@ -89,8 +89,7 @@ public class PartitionUpdate extends AbstractBTreePartition
         rowBuilder = builder(initialRowCapacity);
     }
 
-    @VisibleForTesting
-    public PartitionUpdate(CFMetaData metadata,
+    private PartitionUpdate(CFMetaData metadata,
                             DecoratedKey key,
                             Holder holder,
                             MutableDeletionInfo deletionInfo,
@@ -785,5 +784,15 @@ public class PartitionUpdate extends AbstractBTreePartition
             assert row instanceof BTreeRow;
             ((BTreeRow)row).setValue(column, path, value);
         }
+    }
+
+    @VisibleForTesting
+    public static PartitionUpdate unsafeConstruct(CFMetaData metadata,
+                                                  DecoratedKey key,
+                                                  Holder holder,
+                                                  MutableDeletionInfo deletionInfo,
+                                                  boolean canHaveShadowedData)
+    {
+        return new PartitionUpdate(metadata, key, holder, deletionInfo, canHaveShadowedData);
     }
 }

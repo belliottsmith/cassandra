@@ -34,8 +34,7 @@ import static org.apache.cassandra.utils.btree.BTree.Dir.desc;
 
 public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
 {
-    @VisibleForTesting
-    public static final Holder EMPTY = new Holder(PartitionColumns.NONE, BTree.empty(), DeletionInfo.LIVE, Rows.EMPTY_STATIC_ROW, EncodingStats.NO_STATS);
+    protected static final Holder EMPTY = new Holder(PartitionColumns.NONE, BTree.empty(), DeletionInfo.LIVE, Rows.EMPTY_STATIC_ROW, EncodingStats.NO_STATS);
 
     protected final CFMetaData metadata;
     protected final DecoratedKey partitionKey;
@@ -59,8 +58,7 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
         public final Row staticRow;
         public final EncodingStats stats;
 
-        @VisibleForTesting
-        public Holder(PartitionColumns columns, Object[] tree, DeletionInfo deletionInfo, Row staticRow, EncodingStats stats)
+        Holder(PartitionColumns columns, Object[] tree, DeletionInfo deletionInfo, Row staticRow, EncodingStats stats)
         {
             this.columns = columns;
             this.tree = tree;
@@ -420,5 +418,17 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
             return null;
 
         return BTree.findByIndex(tree, BTree.size(tree) - 1);
+    }
+
+    @VisibleForTesting
+    public static Holder unsafeGetEmptyHolder()
+    {
+        return EMPTY;
+    }
+
+    @VisibleForTesting
+    public static Holder unsafeConstructHolder(PartitionColumns columns, Object[] tree, DeletionInfo deletionInfo, Row staticRow, EncodingStats stats)
+    {
+        return new Holder(columns, tree, deletionInfo, staticRow, stats);
     }
 }

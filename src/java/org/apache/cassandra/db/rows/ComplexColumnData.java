@@ -35,7 +35,6 @@ import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
-import org.apache.cassandra.utils.memory.AbstractAllocator;
 
 /**
  * The data for a complex column, that is it's cells and potential complex
@@ -53,8 +52,7 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
     private final DeletionTime complexDeletion;
 
     // Only ArrayBackedRow should call this.
-    @VisibleForTesting
-    public ComplexColumnData(ColumnDefinition column, Object[] cells, DeletionTime complexDeletion)
+    ComplexColumnData(ColumnDefinition column, Object[] cells, DeletionTime complexDeletion)
     {
         super(column);
         assert column.isComplex();
@@ -276,5 +274,11 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
 
             return new ComplexColumnData(column, builder.build(), complexDeletion);
         }
+    }
+
+    @VisibleForTesting
+    public static ComplexColumnData unsafeConstruct(ColumnDefinition column, Object[] cells, DeletionTime complexDeletion)
+    {
+        return new ComplexColumnData(column, cells, complexDeletion);
     }
 }

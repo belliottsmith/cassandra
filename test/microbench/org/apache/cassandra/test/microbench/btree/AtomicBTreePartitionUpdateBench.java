@@ -229,7 +229,7 @@ public class AtomicBTreePartitionUpdateBench
                 insertBuffer[0] = complexRow();
             }
             Object[] tree = BTree.build(Arrays.asList(insertBuffer).subList(0, rowCount), rowCount, UpdateFunction.noOp());
-            return new PartitionUpdate(metadata, decoratedKey, new AbstractBTreePartition.Holder(partitionColumns, tree, DeletionInfo.LIVE, Rows.EMPTY_STATIC_ROW, EncodingStats.NO_STATS), NO_DELETION_INFO, false);
+            return PartitionUpdate.unsafeConstruct(metadata, decoratedKey, AbstractBTreePartition.unsafeConstructHolder(partitionColumns, tree, DeletionInfo.LIVE, Rows.EMPTY_STATIC_ROW, EncodingStats.NO_STATS), NO_DELETION_INFO, false);
         }
 
         private <I, O> int selectSortAndTransform(O[] out, I[] in, Comparator<? super I> comparator, Function<I, O> transform)
@@ -270,7 +270,7 @@ public class AtomicBTreePartitionUpdateBench
         Row complexRow()
         {
             int mapCount = selectSortAndTransform(complexBuffer, complexPaths, columns[0].cellPathComparator(), complexCell);
-            rowBuffer[0] = new ComplexColumnData(columns[0], BTree.build(Arrays.asList(complexBuffer).subList(0, mapCount), mapCount, UpdateFunction.noOp()), DeletionTime.LIVE);
+            rowBuffer[0] = ComplexColumnData.unsafeConstruct(columns[0], BTree.build(Arrays.asList(complexBuffer).subList(0, mapCount), mapCount, UpdateFunction.noOp()), DeletionTime.LIVE);
             return bufferToRow(clusterings[0]);
         }
 
@@ -325,8 +325,8 @@ public class AtomicBTreePartitionUpdateBench
                             {
                                 AbstractBTreePartition.Holder holder = update.unsafeGetHolder();
                                 if (!BTree.isEmpty(holder.tree))
-                                    update.unsafeSetHolder(new AbstractBTreePartition.Holder(
-                                    holder.columns, Arrays.copyOf(holder.tree, holder.tree.length), holder.deletionInfo, holder.staticRow, holder.stats));
+                                    update.unsafeSetHolder(AbstractBTreePartition.unsafeConstructHolder(
+                                        holder.columns, Arrays.copyOf(holder.tree, holder.tree.length), holder.deletionInfo, holder.staticRow, holder.stats));
                             }
                             return ByteBuffer.allocate(size);
                         }
@@ -384,7 +384,7 @@ public class AtomicBTreePartitionUpdateBench
                 if (state.addAndGet(0x100000L) == ((((long)ifGeneration) << 40) | (((long)insert.length) << 20) | insert.length))
                 {
                     activeThreads.set(0);
-                    update.unsafeSetHolder(AbstractBTreePartition.EMPTY);
+                    update.unsafeSetHolder(AbstractBTreePartition.unsafeGetEmptyHolder());
                     // reset the state and rollover the generation
                     state.set((ifGeneration + 1L) << 40);
                 }

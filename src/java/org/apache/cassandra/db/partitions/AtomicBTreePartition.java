@@ -81,27 +81,32 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         return true;
     }
 
-    private static long[] finishAddAllWithSizeDelta(PartitionUpdate update, UpdateTransaction indexer, RowUpdater updater, Holder newHolder, Holder oldHolder)
+    /**
+     * Extracts the updated versions of any datum inserted from {@code addTree} into {@code newTree} that
+     * were resolved to remain in {@code newTree}.
+     *
+     * Implementation note: if we could mutate addTree, this could be done much more efficiently by performing
+     * an in-situ replace/remove, then rebalancing.  However since our typical use case involves rewriting the
+     * whole tree, and since we cannot safely perform it in-situ, there's nothing to be gained by being clever.
+     *
+     * @param addTree the tree we were originally inserting
+     * @param newTree the tree that emerged from inserting {@code addTree}
+     * @return the remaining parts of {@code addTree}, as taken from {@code newTree}
+     */
+    @VisibleForTesting
+    static Object[] extractUnshadowed(CFMetaData metadata, Object[] addTree, Object[] newTree)
     {
-        if (indexer != UpdateTransaction.NO_OP)
-        {
-            DeletionInfo addDeletionInfo = update.deletionInfo();
+        return BTree.transformAndFilter(addTree, (Row addRow, SearchIterator<Clustering, Row> newIter) -> {
+            Row newRow = newIter.next(addRow.clustering());
+            if (newRow == null)
+                return null;
 
-            if (!addDeletionInfo.partitionDeletion().isLive())
-                indexer.onPartitionDeletion(addDeletionInfo.partitionDeletion());
+            Row retainRow = extractUnshadowed(addRow, newRow);
+            if (retainRow == null || retainRow.isEmpty())
+                return null;
 
-            if (addDeletionInfo.hasRanges())
-                addDeletionInfo.rangeIterator(false).forEachRemaining(indexer::onRangeTombstone);
-        }
-
-        updater.allocated(newHolder.deletionInfo.unsharedHeapSize() - oldHolder.deletionInfo.unsharedHeapSize());
-        updater.finish();
-        return new long[] { updater.dataSize, updater.colUpdateTimeDelta };
-    }
-
-    private static Row updateStaticRow(RowUpdater updater, Row current, Row add)
-    {
-        return add.isEmpty() ? current : (current.isEmpty() ? updater.apply(add) : updater.apply(current, add));
+            return retainRow;
+        }, BTree.slice(newTree, metadata.comparator, BTree.Dir.ASC));
     }
 
     /**
@@ -156,32 +161,9 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         }, newCd.searchIterator());
     }
 
-    /**
-     * Extracts the updated versions of any datum inserted from {@code addTree} into {@code newTree} that
-     * were resolved to remain in {@code newTree}.
-     *
-     * Implementation note: if we could mutate addTree, this could be done much more efficiently by performing
-     * an in-situ replace/remove, then rebalancing.  However since our typical use case involves rewriting the
-     * whole tree, and since we cannot safely perform it in-situ, there's nothing to be gained by being clever.
-     *
-     * @param addTree the tree we were originally inserting
-     * @param newTree the tree that emerged from inserting {@code addTree}
-     * @return the remaining parts of {@code addTree}, as taken from {@code newTree}
-     */
-    @VisibleForTesting
-    static Object[] extractUnshadowed(CFMetaData metadata, Object[] addTree, Object[] newTree)
+    private static Row updateStaticRow(RowUpdater updater, Row current, Row add)
     {
-        return BTree.transformAndFilter(addTree, (Row addRow, SearchIterator<Clustering, Row> newIter) -> {
-            Row newRow = newIter.next(addRow.clustering());
-            if (newRow == null)
-                return null;
-
-            Row retainRow = extractUnshadowed(addRow, newRow);
-            if (retainRow == null || retainRow.isEmpty())
-                return null;
-
-            return retainRow;
-        }, BTree.slice(newTree, metadata.comparator, BTree.Dir.ASC));
+        return add.isEmpty() ? current : (current.isEmpty() ? updater.apply(add) : updater.apply(current, add));
     }
 
     /**
@@ -253,6 +235,27 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         }
     }
 
+    /**
+     * Subroutine of addAllWithSizeDelta to complete any book-keeping after successfully updating {@link #holder}
+     */
+    private static long[] finishAddAllWithSizeDelta(PartitionUpdate update, UpdateTransaction indexer, RowUpdater updater, Holder newHolder, Holder oldHolder)
+    {
+        if (indexer != UpdateTransaction.NO_OP)
+        {
+            DeletionInfo addDeletionInfo = update.deletionInfo();
+
+            if (!addDeletionInfo.partitionDeletion().isLive())
+                indexer.onPartitionDeletion(addDeletionInfo.partitionDeletion());
+
+            if (addDeletionInfo.hasRanges())
+                addDeletionInfo.rangeIterator(false).forEachRemaining(indexer::onRangeTombstone);
+        }
+
+        updater.allocated(newHolder.deletionInfo.unsharedHeapSize() - oldHolder.deletionInfo.unsharedHeapSize());
+        updater.finish();
+        return new long[] { updater.dataSize, updater.colUpdateTimeDelta };
+    }
+
     // the function we provide to the btree utilities to perform any column replacements
     private static final class RowUpdater implements UpdateFunction<Row, Row>
     {
@@ -317,11 +320,17 @@ public class AtomicBTreePartition extends AbstractBTreePartition
             allocator.onHeap().adjust(heapSize, writeOp);
         }
 
+        /**
+         * Construct a RowUpdater that copies all new contents with the provided allocator
+         */
         public static RowUpdater cloning(MemtableAllocator allocator, OpOrder.Group writeOp, UpdateTransaction indexer)
         {
             return new RowUpdater(allocator, true, allocator.rowBuilder(writeOp), writeOp, indexer);
         }
 
+        /**
+         * Construct a RowUpdater that does not copy anything, only performs necessary book keeping
+         */
         public static RowUpdater counting(MemtableAllocator allocator, OpOrder.Group writeOp, UpdateTransaction indexer)
         {
             return new RowUpdater(allocator, true, BTreeRow.sortedBuilder(), writeOp, indexer);
