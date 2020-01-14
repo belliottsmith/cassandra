@@ -67,7 +67,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
     // The granularity with which we track wasted allocation/work; we round up
     private static final int ALLOCATION_GRANULARITY_BYTES = 1024;
     // The number of bytes we have to waste in excess of our acceptable realtime rate of waste (defined below)
-    private static final long EXCESS_WASTE_BYTES = 10 * 1024 * 1024L;
+    private static final long EXCESS_WASTE_BYTES = Long.getLong("cassandra.atomicbtree.excesswastebytes", 10 * 1024 * 1024L);
     private static final int EXCESS_WASTE_OFFSET = (int) (EXCESS_WASTE_BYTES / ALLOCATION_GRANULARITY_BYTES);
     // Note this is a shift, because dividing a long time and then picking the low 32 bits doesn't give correct rollover behavior
     private static final int CLOCK_SHIFT = 17;
