@@ -54,7 +54,7 @@ public class IRHistorySyncTimeoutTest extends DistributedTestBase implements Ser
             cluster.schemaChange("ALTER KEYSPACE system_auth WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 2}");
 
             // drop to make sure that the request times out
-            cluster.filters().verbs(MessagingService.Verb.APPLE_QUERY_REPAIR_HISTORY).drop();
+            cluster.filters().verbs(MessagingService.Verb.APPLE_QUERY_REPAIR_HISTORY.ordinal()).drop();
 
             // run a repair
             // for some reason the schema change is flakey on instance 1, but is stable on instance 2

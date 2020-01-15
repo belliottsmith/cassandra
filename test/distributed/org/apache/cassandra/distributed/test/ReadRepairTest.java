@@ -120,8 +120,8 @@ public class ReadRepairTest extends DistributedTestBase
 
             // prevent #4 from reading or writing to #3, so our QUORUM must contain #2 and #4
             // since #1 is taking over the range, this means any read-repair must make it to #1 as well
-            cluster.filters().verbs(READ).from(4).to(3).drop();
-            cluster.filters().verbs(READ_REPAIR).from(4).to(3).drop();
+            cluster.filters().verbs(READ.ordinal()).from(4).to(3).drop();
+            cluster.filters().verbs(READ_REPAIR.ordinal()).from(4).to(3).drop();
             assertRows(cluster.coordinator(4).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = ?",
                                                       ConsistencyLevel.QUORUM, i),
                        row(i, 2, 2),

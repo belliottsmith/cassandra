@@ -18,9 +18,12 @@
 
 package org.apache.cassandra.distributed.impl;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -83,11 +86,15 @@ import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.StreamCoordinator;
+import org.apache.cassandra.tracing.TraceState;
+import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NanoTimeToCurrentTimeMillis;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.Throwables;
+import org.apache.cassandra.utils.UUIDGen;
 import org.apache.cassandra.utils.concurrent.Ref;
 import org.apache.cassandra.utils.memory.BufferPool;
 
@@ -191,7 +198,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     {
         BiConsumer<InetAddressAndPort, IMessage> deliverToInstance = (to, message) -> cluster.get(to).receiveMessage(message);
         BiConsumer<InetAddressAndPort, IMessage> deliverToInstanceIfNotFiltered = (to, message) -> {
-            if (cluster.filters().permit(this, cluster.get(to), message.verb()))
+            int fromNum = config().num();
+            int toNum = cluster.get(to).config().num();
+            if (cluster.filters().permit(fromNum, toNum, message))
                 deliverToInstance.accept(to, message);
         };
 
@@ -219,7 +228,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             {
                 // Port is not passed in, so take a best guess at the destination port from this instance
                 IInstance to = cluster.get(InetAddressAndPort.getByAddressOverrideDefaults(toAddress, instance.config().broadcastAddressAndPort().port));
-                return cluster.filters().permit(instance, to, message.verb.ordinal());
+                int fromNum = config().num();
+                int toNum = to.config().num();
+                return cluster.filters().permit(fromNum, toNum, serializeMessage(message, id, broadcastAddressAndPort(), to.broadcastAddressAndPort()));
             }
 
             public boolean allowIncomingMessage(MessageIn message, int id)
@@ -227,6 +238,25 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 return true;
             }
         });
+    }
+
+    public static IMessage serializeMessage(MessageOut messageOut, int id, InetAddressAndPort from, InetAddressAndPort to)
+    {
+        try (DataOutputBuffer out = new DataOutputBuffer(1024))
+        {
+            int version = MessagingService.instance().getVersion(to.address);
+
+            out.writeInt(MessagingService.PROTOCOL_MAGIC);
+            out.writeInt(id);
+            long timestamp = System.currentTimeMillis();
+            out.writeInt((int) timestamp);
+            messageOut.serialize(out, version);
+            return new Message(messageOut.verb.ordinal(), out.toByteArray(), id, version, from);
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
+        }
     }
 
     private class MessageDeliverySink implements IMessageSink
@@ -241,24 +271,35 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
         public boolean allowOutgoingMessage(MessageOut messageOut, int id, InetAddress to)
         {
-            try (DataOutputBuffer out = new DataOutputBuffer(1024))
-            {
-                InetAddressAndPort from = broadcastAddressAndPort();
-                assert from.equals(lookupAddressAndPort.apply(messageOut.from));
-                InetAddressAndPort toFull = lookupAddressAndPort.apply(to);
-                int version = MessagingService.instance().getVersion(to);
+            InetAddressAndPort from = broadcastAddressAndPort();
+            InetAddressAndPort toFull = lookupAddressAndPort.apply(to);
+            assert from.equals(lookupAddressAndPort.apply(messageOut.from));
 
-                out.writeInt(MessagingService.PROTOCOL_MAGIC);
-                out.writeInt(id);
-                long timestamp = System.currentTimeMillis();
-                out.writeInt((int) timestamp);
-                messageOut.serialize(out, version);
-                deliver.accept(toFull, new Message(messageOut.verb.ordinal(), out.toByteArray(), id, version, from));
-            }
-            catch (IOException e)
+            IMessage serialized = serializeMessage(messageOut, id, broadcastAddressAndPort(), lookupAddressAndPort.apply(messageOut.from));
+
+            // Tracing logic - similar to org.apache.cassandra.net.OutboundTcpConnection.writeConnected
+            byte[] sessionBytes = (byte[]) messageOut.parameters.get(Tracing.TRACE_HEADER);
+            if (sessionBytes != null)
             {
-                throw new RuntimeException(e);
+                UUID sessionId = UUIDGen.getUUID(ByteBuffer.wrap(sessionBytes));
+                TraceState state = Tracing.instance.get(sessionId);
+                String message = String.format("Sending %s message to %s", messageOut.verb, to);
+                // session may have already finished; see CASSANDRA-5668
+                if (state == null)
+                {
+                    byte[] traceTypeBytes = (byte[]) messageOut.parameters.get(Tracing.TRACE_TYPE);
+                    Tracing.TraceType traceType = traceTypeBytes == null ? Tracing.TraceType.QUERY : Tracing.TraceType.deserialize(traceTypeBytes[0]);
+                    Tracing.instance.trace(ByteBuffer.wrap(sessionBytes), message, traceType.getTTL());
+                }
+                else
+                {
+                    state.trace(message);
+                    if (messageOut.verb == MessagingService.Verb.REQUEST_RESPONSE)
+                        Tracing.instance.doneWithNonLocalSession(state);
+                }
             }
+
+            deliver.accept(toFull, serialized);
             return false;
         }
 
@@ -269,47 +310,73 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         }
     }
 
+    public static Pair<MessageIn<Object>, Integer> deserializeMessage(IMessage msg)
+    {
+        // Based on org.apache.cassandra.net.IncomingTcpConnection.receiveMessage
+        try (DataInputBuffer input = new DataInputBuffer(msg.bytes()))
+        {
+            int version = msg.version();
+            if (version > MessagingService.current_version)
+            {
+                throw new IllegalStateException(String.format("Received message version %d but current version is %d",
+                                                              version,
+                                                              MessagingService.current_version));
+            }
+
+            MessagingService.validateMagic(input.readInt());
+            int id;
+            if (version < MessagingService.VERSION_20)
+                id = Integer.parseInt(input.readUTF());
+            else
+                id = input.readInt();
+            if (msg.id() != id)
+                throw new IllegalStateException(String.format("Message id mismatch: %d != %d", msg.id(), id));
+
+            // make sure to readInt, even if cross_node_to is not enabled
+            int partial = input.readInt();
+
+            return Pair.create(MessageIn.read(input, version, id), partial);
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException();
+        }
+    }
+
     public void receiveMessage(IMessage imessage)
     {
         sync(() -> {
-            // Based on org.apache.cassandra.net.IncomingTcpConnection.receiveMessage
-            try (DataInputBuffer input = new DataInputBuffer(imessage.bytes()))
+            Pair<MessageIn<Object>, Integer> deserialized = null;
+            try
             {
-                int version = imessage.version();
-
-                MessagingService.validateMagic(input.readInt());
-                int id;
-                if (version < MessagingService.VERSION_20)
-                    id = Integer.parseInt(input.readUTF());
-                else
-                    id = input.readInt();
-
-                long timestamp = System.currentTimeMillis();
-                boolean isCrossNodeTimestamp = false;
-                // make sure to readInt, even if cross_node_to is not enabled
-                int partial = input.readInt();
-                if (DatabaseDescriptor.hasCrossNodeTimeout())
-                {
-                    long crossNodeTimestamp = (timestamp & 0xFFFFFFFF00000000L) | (((partial & 0xFFFFFFFFL) << 2) >> 2);
-                    isCrossNodeTimestamp = (timestamp != crossNodeTimestamp);
-                    timestamp = crossNodeTimestamp;
-                }
-
-                MessageIn message = MessageIn.read(input, version, id);
-                if (message == null)
-                {
-                    // callback expired; nothing to do
-                    return;
-                }
-                if (version <= MessagingService.current_version)
-                {
-                    MessagingService.instance().receive(message, id, timestamp, isCrossNodeTimestamp);
-                }
-                // else ignore message
+                deserialized = deserializeMessage(imessage);
             }
             catch (Throwable t)
             {
                 throw new RuntimeException("Exception occurred on node " + broadcastAddressAndPort(), t);
+            }
+
+            MessageIn<Object> message = deserialized.left;
+            int partial = deserialized.right;
+
+            long timestamp = System.currentTimeMillis();
+            boolean isCrossNodeTimestamp = false;
+
+            if (DatabaseDescriptor.hasCrossNodeTimeout())
+            {
+                long crossNodeTimestamp = (timestamp & 0xFFFFFFFF00000000L) | (((partial & 0xFFFFFFFFL) << 2) >> 2);
+                isCrossNodeTimestamp = (timestamp != crossNodeTimestamp);
+                timestamp = crossNodeTimestamp;
+            }
+
+            if (message == null)
+            {
+                // callback expired; nothing to do
+                return;
+            }
+            if (message.version <= MessagingService.current_version)
+            {
+                MessagingService.instance().receive(message, imessage.id(), timestamp, isCrossNodeTimestamp);
             }
         }).run();
     }
