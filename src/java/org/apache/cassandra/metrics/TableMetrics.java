@@ -178,6 +178,7 @@ public class TableMetrics
 
     public final Timer coordinatorReadLatency;
     public final Timer coordinatorScanLatency;
+    public final Timer coordinatorWriteLatency;
 
     public final LatencyMetrics coordinatorScanLatencyNanos;
 
@@ -886,6 +887,7 @@ public class TableMetrics
         coordinatorReadLatency = Metrics.timer(factory.createMetricName("CoordinatorReadLatency"));
         coordinatorScanLatency = Metrics.timer(factory.createMetricName("CoordinatorScanLatency"));
         coordinatorScanLatencyNanos = new LatencyMetrics(factory, "CoordinatorScanLatencyNanos");
+        coordinatorWriteLatency = Metrics.timer(factory.createMetricName("CoordinatorWriteLatency"));
         waitingOnFreeMemtableSpace = Metrics.histogram(factory.createMetricName("WaitingOnFreeMemtableSpace"), false);
 
         // We do not want to capture view mutation specific metrics for a view
@@ -981,6 +983,7 @@ public class TableMetrics
         Metrics.remove(factory.createMetricName("KeyCacheHitRate"), aliasFactory.createMetricName("KeyCacheHitRate"));
         Metrics.remove(factory.createMetricName("CoordinatorReadLatency"), aliasFactory.createMetricName("CoordinatorReadLatency"));
         Metrics.remove(factory.createMetricName("CoordinatorScanLatency"), aliasFactory.createMetricName("CoordinatorScanLatency"));
+        Metrics.remove(factory.createMetricName("CoordinatorWriteLatency"), aliasFactory.createMetricName("CoordinatorWriteLatency"));
         Metrics.remove(factory.createMetricName("WaitingOnFreeMemtableSpace"), aliasFactory.createMetricName("WaitingOnFreeMemtableSpace"));
     }
 
