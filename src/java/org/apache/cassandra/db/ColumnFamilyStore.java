@@ -239,6 +239,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public final TableMetrics metric;
     public volatile long sampleLatencyNanos;
+    public volatile long additionalWriteLatencyNanos;
 
     private final SSTableImporter sstableImporter;
 
@@ -427,6 +428,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         metric = new TableMetrics(this);
         fileIndexGenerator.set(generation);
         sampleLatencyNanos = TimeUnit.MILLISECONDS.toNanos(DatabaseDescriptor.getReadRpcTimeout() / 2);
+        additionalWriteLatencyNanos = TimeUnit.MILLISECONDS.toNanos(DatabaseDescriptor.getWriteRpcTimeout() / 2);
 
         logger.info("Initializing {}.{}", keyspace.getName(), name);
 
@@ -493,6 +495,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         try
         {
             sampleLatencyNanos = metadata.params.speculativeRetry.calculateThreshold(metric.coordinatorReadLatency);
+            // in 4.0 a new table property additional_write_policy was added
+            // to simplify the backport and to avoid changing CQL, using the read policy to calculate the threshold
+            additionalWriteLatencyNanos = metadata.params.speculativeRetry.calculateThreshold(metric.coordinatorWriteLatency);
         }
         catch (Throwable e)
         {

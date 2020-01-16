@@ -101,7 +101,7 @@ public class DataResolver extends ResponseResolver
         for (ReadRepairHandler repairHandler: repairResults)
         {
             ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(command.metadata().cfId);
-            repairHandler.maybeSendAdditionalRepairs(cfs.sampleLatencyNanos, TimeUnit.NANOSECONDS);
+            repairHandler.maybeSendAdditionalRepairs(cfs.additionalWriteLatencyNanos, TimeUnit.NANOSECONDS);
         }
     }
 
