@@ -211,30 +211,21 @@ public class BTree
         if (height == 2)
         {
             // we use the _exact same logic_ as below, only we invoke buildLeaf
-            long allocated = 0;
+            // denseCount: subtract the minimal (sparse) size of the tree and
+            // divide the remainder by the amount extra needed extra per dense
+            int denseCount = (size - (childCount * MIN_KEYS + keyCount + 1)) / (1+MIN_KEYS);
             int i = 0;
-            int remaining = size;
-            // while we have room to accommodate:
-            //    1) all of our remaining keys {@code keyCount-i}
-            //    2) one more node of precisely denseSize
-            //    3) all of our other remaining children {@code keyCount-i} at sparseSize
-            // we can safely add another child at denseSize
-            while (remaining > MAX_KEYS + (1+MIN_KEYS)*(keyCount-i))
+            while (i < denseCount)
             {
-                sizeMap[i] = (1 + MAX_KEYS) * i + MAX_KEYS;
+                sizeMap[i] = i * (1+MAX_KEYS) + MAX_KEYS;
                 branch[keyCount + i] = buildLeafWithoutSizeTracking(source, MAX_KEYS, updateF);
                 branch[i++] = isSimple(updateF) ? source.next() : updateF.apply(source.next());
-                remaining -= MAX_KEYS + 1;
-                allocated += PERFECT_DENSE_SIZE_ON_HEAP[0];
             }
+            int sparseCount = childCount - (1 + denseCount);
+            int remainderSize = size - (denseCount * (1+MAX_KEYS) + sparseCount * (1+MIN_KEYS));
             {
-                // remainder already has subtracted above children and keys
-                // we need to also subtract the sparseChildSize nodes we will add afterwards
-                int remainderSize = remaining - (childCount - (1 + i)) * (1 + MIN_KEYS);
                 branch[keyCount + i] = buildLeafWithoutSizeTracking(source, remainderSize, updateF);
-                sizeMap[i] = size = (1 + MAX_KEYS) * i + remainderSize;
-                if (!isSimple(updateF))
-                    allocated += ObjectSizes.sizeOfReferenceArray(remainderSize | 1);
+                sizeMap[i] = size = i * (1+MAX_KEYS) + remainderSize;
             }
             // finally build "sparse" children to consume the remaining elements
             while (i < keyCount)
@@ -242,36 +233,31 @@ public class BTree
                 branch[i++] = isSimple(updateF) ? source.next() : updateF.apply(source.next());
                 branch[keyCount + i] = buildLeafWithoutSizeTracking(source, MIN_KEYS, updateF);
                 sizeMap[i] = size += 1 + MIN_KEYS;
-                allocated += PERFECT_SPARSE_SIZE_ON_HEAP[0];
             }
             if (!isSimple(updateF))
-                updateF.onAllocated(allocated);
+            {
+                updateF.onAllocated(denseCount * PERFECT_DENSE_SIZE_ON_HEAP[0]
+                                    + sparseCount * PERFECT_SPARSE_SIZE_ON_HEAP[0]
+                                    + ObjectSizes.sizeOfReferenceArray(remainderSize | 1));
+            }
         }
         else
         {
             --height;
 
-            long allocated = 0; // tracks only the perfect allocations; recursive calls of buildMaximallyDense will invoke for their own
+            // denseCount: subtract the minimal (sparse) size of the tree and
+            // divide the remainder by the amount extra needed extra per dense
+            int denseCount = (size - (childCount * sparseSize(height) + keyCount + 1)) / (denseSize(height) - sparseSize(height));
             int i = 0;
-            int remaining = size;
-            // while we have room to accommodate:
-            //    1) all of our remaining keys {@code keyCount-i}
-            //    2) one more node of precisely denseSize
-            //    3) all of our other remaining children {@code keyCount-i} at sparseSize
-            // we can safely add another child at denseSize
-            // TODO: turn this into a for-loop with count pre-computed, bumping allocated only once
-            while (remaining > denseSize(height) + (1+sparseSize(height))*(keyCount-i))
+            while (i < denseCount)
             {
                 sizeMap[i] = (1 + i) * (1 + denseSize(height)) - 1;
                 branch[keyCount + i] = buildPerfectDense(source, height, updateF);
                 branch[i++] = isSimple(updateF) ? source.next() : updateF.apply(source.next());
-                remaining -= denseSize(height) + 1;
-                allocated += PERFECT_DENSE_SIZE_ON_HEAP[height - 1];
             }
+            int sparseCount = childCount - (1 + denseCount);
+            int remainderSize = size - (denseCount * (1+denseSize(height)) + sparseCount * (1+sparseSize(height)));
             {
-                // remainder already has subtracted above children and keys
-                // we need to also subtract the sparseChildSize nodes we will add afterwards
-                int remainderSize = remaining - (childCount - (1 + i)) * (1+sparseSize(height));
                 // need to decide our number of children either based on denseGrandChildSize,
                 // or the least number of children we can use, if we want to be maximally dense
                 int grandChildCount = remainderSize < denseSize(height)/2
@@ -287,10 +273,13 @@ public class BTree
                 branch[i++] = isSimple(updateF) ? source.next() : updateF.apply(source.next());
                 branch[keyCount + i] = buildPerfectSparse(source, height, updateF);
                 sizeMap[i] = size += 1 + sparseSize(height);
-                allocated += PERFECT_SPARSE_SIZE_ON_HEAP[height - 1];
             }
             if (!isSimple(updateF))
-                updateF.onAllocated(allocated);
+            {
+                // accounts only for the perfect allocations; recursive calls of buildMaximallyDense will account for the remainder
+                updateF.onAllocated(denseCount * PERFECT_DENSE_SIZE_ON_HEAP[height - 1]
+                                    + sparseCount * PERFECT_SPARSE_SIZE_ON_HEAP[height - 1]);
+            }
         }
 
         branch[2 * keyCount + 1] = sizeMap;
