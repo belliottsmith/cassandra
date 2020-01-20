@@ -312,9 +312,9 @@ public class BTreeRow extends AbstractRow
 
     public Row markCounterLocalToBeCleared()
     {
-        return transformAndFilter((cd) -> cd.column().isCounterColumn()
-                                          ? cd.markCounterLocalToBeCleared()
-                                          : cd);
+        return transform((cd) -> cd.column().isCounterColumn()
+                                 ? cd.markCounterLocalToBeCleared()
+                                 : cd);
     }
 
     public boolean hasDeletion(int nowInSec)
@@ -392,6 +392,11 @@ public class BTreeRow extends AbstractRow
     public <V> Row transformAndFilter(BiFunction<ColumnData, V, ColumnData> function, V param)
     {
         return update(clustering, primaryKeyLivenessInfo, deletion, BTree.transformAndFilter(btree, function, param));
+    }
+
+    public Row transform(Function<ColumnData, ColumnData> function)
+    {
+        return update(clustering, primaryKeyLivenessInfo, deletion, BTree.transform(btree, function));
     }
 
     public Row clone(AbstractAllocator allocator)
