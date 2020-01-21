@@ -19,12 +19,14 @@
 package org.apache.cassandra.metrics;
 
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 
+import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -48,6 +50,50 @@ public class DecayingEstimatedHistogramReservoirTest
     public static final Gen<long[]> offsets = integers().from(DecayingEstimatedHistogramReservoir.DEFAULT_BUCKET_COUNT)
                                                         .upToAndIncluding(DecayingEstimatedHistogramReservoir.MAX_BUCKET_COUNT - 10)
                                                         .zip(booleans().all(), EstimatedHistogram::newOffsets);
+
+
+    @Test
+    public void printIndexes()
+    {
+        DecayingEstimatedHistogramReservoir res = new DecayingEstimatedHistogramReservoir();
+        for (int i = 0; i <= 165; i++)
+        {
+            for (int s = 0; s < 4; s++)
+            {
+                System.out.println("(" + i + "," + s + "): " + res.stripedIndex(i, s));
+            }
+        }
+    }
+
+    @Test
+    public void testDistributionPrime()
+    {
+        int[] primes = new int[] { 17, 19 };
+        BitSet sizeWithoutConflict = new BitSet();
+        for (int prime : primes)
+        {
+            sizeWithoutConflict.clear();
+            for (int size = 1 ; size < 238 ; ++size)
+            {
+                BitSet conflict = new BitSet();
+                boolean hasConflict = false;
+                for (int i = 0 ; i < size ; ++i)
+                {
+                    if (conflict.get((i * prime) % size))
+                        hasConflict = true;
+                    conflict.set((i * prime) % size);
+                }
+                if (!hasConflict)
+                    sizeWithoutConflict.set(size);
+            }
+            for (int size = 1 ; size < 238 ; ++size)
+            {
+                if (!sizeWithoutConflict.get(size))
+                    System.out.println(size);
+            }
+
+        }
+    }
 
     @Test
     public void testFindIndex()

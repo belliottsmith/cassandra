@@ -77,6 +77,8 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
     public static final int MAX_BUCKET_COUNT = 237;
     public static final boolean DEFAULT_ZERO_CONSIDERATION = false;
 
+    public static final int DISTRIBUTION_PRIME = 29;
+
     // The offsets used with a default sized bucket array without a separate bucket for zero values.
     public static final long[] DEFAULT_WITHOUT_ZERO_BUCKET_OFFSETS = EstimatedHistogram.newOffsets(DEFAULT_BUCKET_COUNT, false);
 
@@ -230,7 +232,8 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
 
     public int stripedIndex(int offsetIndex, int stripe)
     {
-        return offsetIndex + ((bucketOffsets.length + 1) * stripe);
+        return (((offsetIndex * nStripes + stripe) * DISTRIBUTION_PRIME) % buckets.length());
+        //offsetIndex + ((bucketOffsets.length + 1) * stripe);
     }
 
     @VisibleForTesting
