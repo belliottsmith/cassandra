@@ -77,7 +77,7 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
     public static final int MAX_BUCKET_COUNT = 237;
     public static final boolean DEFAULT_ZERO_CONSIDERATION = false;
 
-    public static final int DISTRIBUTION_PRIME = 29;
+    private static final int[] DISTRIBUTION_PRIMES = new int[] { 17, 19, 23, 29 };
 
     // The offsets used with a default sized bucket array without a separate bucket for zero values.
     public static final long[] DEFAULT_WITHOUT_ZERO_BUCKET_OFFSETS = EstimatedHistogram.newOffsets(DEFAULT_BUCKET_COUNT, false);
@@ -127,6 +127,7 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
     // Represents the bucket offset as created by {@link EstimatedHistogram#newOffsets()}
     private final int nStripes;
     private final long[] bucketOffsets;
+    private final int distributionPrime;
 
     // decayingBuckets and buckets are one element longer than bucketOffsets -- the last element is values greater than the last offset
     private final AtomicLongArray decayingBuckets;
@@ -206,6 +207,16 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
         buckets = new AtomicLongArray((bucketOffsets.length + 1) * nStripes);
         this.clock = clock;
         decayLandmark = clock.getTime();
+        int distributionPrime = 1;
+        for (int prime : DISTRIBUTION_PRIMES)
+        {
+            if (buckets.length() % prime != 0)
+            {
+                distributionPrime = prime;
+                break;
+            }
+        }
+        this.distributionPrime = distributionPrime;
     }
 
     /**
@@ -232,7 +243,7 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
 
     public int stripedIndex(int offsetIndex, int stripe)
     {
-        return (((offsetIndex * nStripes + stripe) * DISTRIBUTION_PRIME) % buckets.length());
+        return (((offsetIndex * nStripes + stripe) * distributionPrime) % buckets.length());
         //offsetIndex + ((bucketOffsets.length + 1) * stripe);
     }
 
