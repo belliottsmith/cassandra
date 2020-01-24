@@ -115,7 +115,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         {
             if (usePessimisticLocking())
             {
-                Locks.monitorEnterUnsafe(this);
+                lock(writeOp);
                 monitorOwned = true;
             }
 
@@ -169,7 +169,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                     }
                     if (shouldLock)
                     {
-                        Locks.monitorEnterUnsafe(this);
+                        lock(writeOp);
                         monitorOwned = true;
                     }
                 }
@@ -182,6 +182,17 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                 Locks.monitorExitUnsafe(this);
         }
 
+    }
+
+    @SuppressWarnings("resource")
+    private void lock(OpOrder.Group writeOp)
+    {
+        // make sure earlier ops are actually done before we consider taking any monitor, else we could in theory
+        // havee operations deferred across multiple barriers, and still get priority inversion, though it would be very hard
+        OpOrder.Group prev = writeOp.prev();
+        if (prev != null)
+            prev.await();
+        Locks.monitorEnterUnsafe(this);
     }
 
     public boolean usePessimisticLocking()

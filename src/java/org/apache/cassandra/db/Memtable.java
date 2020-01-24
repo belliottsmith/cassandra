@@ -70,7 +70,7 @@ public class Memtable implements Comparable<Memtable>
     private final AtomicLong liveDataSize = new AtomicLong(0);
     private final AtomicLong currentOperations = new AtomicLong(0);
 
-    // the write barrier for directing writes to this memtable during a switch
+    // the write barrier for directing writes to this memtable or the next during a switch
     private volatile OpOrder.Barrier writeBarrier;
     // the precise upper bound of ReplayPosition owned by this memtable
     private volatile AtomicReference<ReplayPosition> commitLogUpperBound;
