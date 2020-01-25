@@ -195,8 +195,7 @@ public abstract class LegacyLayout
         }
         else if (def == null || isStatic != def.isStatic())
         {
-            def = metadata.getDroppedColumnDefinition(column, isStatic);
-            if (def == null || (isStatic != def.isStatic()))
+            if (metadata.getDroppedColumnDefinition(column, isStatic) == null || (isStatic != def.isStatic()))
                 throw new UnknownColumnException(metadata, column);
         }
 
