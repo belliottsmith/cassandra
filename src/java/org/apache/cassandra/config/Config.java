@@ -341,7 +341,7 @@ public class Config
     public int gc_log_threshold_in_ms = 200;
     public int gc_warn_threshold_in_ms = 0;
 
-    public Boolean disable_incremental_repair = true;
+    public Boolean disable_incremental_repair = Boolean.parseBoolean(System.getProperty("cassandra.disable_incremental_repair", "true"));
 
     /**
      * number of seconds to set nowInSec into the future when performing validation previews against repaired data
