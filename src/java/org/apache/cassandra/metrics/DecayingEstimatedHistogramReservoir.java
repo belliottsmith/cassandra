@@ -62,6 +62,10 @@ import org.apache.cassandra.utils.EstimatedHistogram;
  *
  * Each bucket represents values from (previous bucket offset, current offset].
  *
+ * To reduce contention each logical bucket is striped accross a configurable number of stripes (default: 4). Threads are
+ * assigned to specific stripes. In addition, logical buckets are distributed across the physical storage to reduce conention
+ * when logically adjacent buckets are updated. See CASSANDRA-15213.
+ *
  * [1]: http://dimacs.rutgers.edu/~graham/pubs/papers/fwddecay.pdf
  * [2]: https://en.wikipedia.org/wiki/Half-life
  * [3]: https://github.com/dropwizard/metrics/blob/v3.1.2/metrics-core/src/main/java/com/codahale/metrics/ExponentiallyDecayingReservoir.java
@@ -244,7 +248,6 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
     public int stripedIndex(int offsetIndex, int stripe)
     {
         return (((offsetIndex * nStripes + stripe) * distributionPrime) % buckets.length());
-        //offsetIndex + ((bucketOffsets.length + 1) * stripe);
     }
 
     @VisibleForTesting
