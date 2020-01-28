@@ -53,49 +53,6 @@ public class DecayingEstimatedHistogramReservoirTest
 
 
     @Test
-    public void printIndexes()
-    {
-        DecayingEstimatedHistogramReservoir res = new DecayingEstimatedHistogramReservoir();
-        for (int i = 0; i <= 165; i++)
-        {
-            for (int s = 0; s < 4; s++)
-            {
-                System.out.println("(" + i + "," + s + "): " + res.stripedIndex(i, s));
-            }
-        }
-    }
-
-    @Test
-    public void testDistributionPrime()
-    {
-        int[] primes = new int[] { 17, 19 };
-        BitSet sizeWithoutConflict = new BitSet();
-        for (int prime : primes)
-        {
-            sizeWithoutConflict.clear();
-            for (int size = 1 ; size < 238 ; ++size)
-            {
-                BitSet conflict = new BitSet();
-                boolean hasConflict = false;
-                for (int i = 0 ; i < size ; ++i)
-                {
-                    if (conflict.get((i * prime) % size))
-                        hasConflict = true;
-                    conflict.set((i * prime) % size);
-                }
-                if (!hasConflict)
-                    sizeWithoutConflict.set(size);
-            }
-            for (int size = 1 ; size < 238 ; ++size)
-            {
-                if (!sizeWithoutConflict.get(size))
-                    System.out.println(size);
-            }
-
-        }
-    }
-
-    @Test
     public void testFindIndex()
     {
         qt().withExamples(numExamples)
@@ -183,11 +140,13 @@ public class DecayingEstimatedHistogramReservoirTest
                                                                                            DecayingEstimatedHistogramReservoir.DEFAULT_BUCKET_COUNT,
                                                                                            nStripes);
 
-        Random valGen = new Random();
+        long seed = System.nanoTime();
+        System.out.println("DecayingEstimatedHistogramReservoirTest#testStriping.seed = " + seed);
+        Random valGen = new Random(seed);
         ExecutorService executors = Executors.newFixedThreadPool(nStripes * 2);
         for (int i = 0; i < 1_000_000; i++)
         {
-            long value = valGen.nextInt();
+            long value = Math.abs(valGen.nextInt());
             executors.submit(() -> {
                 model.update(value);
                 LockSupport.parkNanos(2);
