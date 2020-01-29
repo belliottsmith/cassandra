@@ -46,9 +46,10 @@ public final class AuthKeyspace
      * generation and document your change here.
      *
      * gen 0: original definition in 3.0
-     * gen 1: compression chunk length reduced to 16KiB, memtable_flush_period_in_ms now unset on all tables in 4.0
+     * CIE gen 1: unset read_repair_chance = 1.0 in 3.0.19
+     * CIE gen 2 / OSS gen 1: compression chunk length reduced to 16KiB, memtable_flush_period_in_ms now unset on all tables in 4.0
      */
-    public static final long GENERATION = 1;
+    public static final long GENERATION = 2;
 
     public static final String ROLES = "roles";
     public static final String ROLE_MEMBERS = "role_members";
