@@ -113,9 +113,9 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         boolean monitorOwned = false;
         try
         {
-            if (usePessimisticLocking())
+            if (usePessimisticLocking(writeOp))
             {
-                lock(writeOp);
+                Locks.monitorEnterUnsafe(this);
                 monitorOwned = true;
             }
 
@@ -162,14 +162,14 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                 }
                 else if (!monitorOwned)
                 {
-                    boolean shouldLock = usePessimisticLocking();
+                    boolean shouldLock = usePessimisticLocking(writeOp);
                     if (!shouldLock)
                     {
-                        shouldLock = updateWastedAllocationTracker(updater.heapSize);
+                        shouldLock = updateWastedAllocationTracker(updater.heapSize, writeOp);
                     }
                     if (shouldLock)
                     {
-                        lock(writeOp);
+                        Locks.monitorEnterUnsafe(this);
                         monitorOwned = true;
                     }
                 }
@@ -184,20 +184,9 @@ public class AtomicBTreePartition extends AbstractBTreePartition
 
     }
 
-    @SuppressWarnings("resource")
-    private void lock(OpOrder.Group writeOp)
+    public boolean usePessimisticLocking(OpOrder.Group writeOp)
     {
-        // make sure earlier ops are actually done before we consider taking any monitor, else we could in theory
-        // havee operations deferred across multiple barriers, and still get priority inversion, though it would be very hard
-        OpOrder.Group prev = writeOp.prev();
-        if (prev != null)
-            prev.await();
-        Locks.monitorEnterUnsafe(this);
-    }
-
-    public boolean usePessimisticLocking()
-    {
-        return wasteTracker == TRACKER_PESSIMISTIC_LOCKING;
+        return wasteTracker == TRACKER_PESSIMISTIC_LOCKING && !writeOp.isBehindBarrier();
     }
 
     /**
@@ -206,7 +195,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
      * @param wastedBytes the number of bytes wasted by this thread
      * @return true if the caller should now proceed with pessimistic locking because the waste limit has been reached
      */
-    private boolean updateWastedAllocationTracker(long wastedBytes)
+    private boolean updateWastedAllocationTracker(long wastedBytes, OpOrder.Group writeOp)
     {
         // Early check for huge allocation that exceeds the limit
         if (wastedBytes < EXCESS_WASTE_BYTES)
@@ -232,7 +221,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         // We have definitely reached our waste limit so set the state if it isn't already
         wasteTrackerUpdater.set(this, TRACKER_PESSIMISTIC_LOCKING);
         // And tell the caller to proceed with pessimistic locking
-        return true;
+        return !writeOp.isBehindBarrier();
     }
 
     private static int avoidReservedValues(int wasteTracker)
