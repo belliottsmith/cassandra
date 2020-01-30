@@ -415,18 +415,18 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
         }
 
         this.decayLandmark = snapshot.snapshotLandmark;
-        for (int i = 0; i < decayingBuckets.length(); i++)
+        for (int i = 0; i < size(); i++)
         {
-            if (i < size())
+            // set rebased values in the first stripe and clear out all other data
+            decayingBuckets.set(stripedIndex(i, 0), snapshot.decayingBuckets[i]);
+            buckets.set(stripedIndex(i, 0), snapshot.values[i]);
+            for (int stripe = 1; stripe < nStripes; stripe++)
             {
-                decayingBuckets.set(i, snapshot.decayingBuckets[i]);
-                buckets.set(i, snapshot.values[i]);
-            } else
-            {
-                decayingBuckets.set(i, 0);
-                buckets.set(i, 0);
+                decayingBuckets.set(stripedIndex(i, stripe), 0);
+                buckets.set(stripedIndex(i, stripe), 0);
             }
         }
+
     }
 
     /**
