@@ -33,6 +33,9 @@ import com.codahale.metrics.Reservoir;
 import com.codahale.metrics.Snapshot;
 import org.apache.cassandra.utils.EstimatedHistogram;
 
+import static java.lang.Math.max;
+import static java.lang.Math.min;
+
 /**
  * A decaying histogram reservoir where values collected during each minute will be twice as significant as the values
  * collected in the previous minute. Measured values are collected in variable sized buckets, using small buckets in the
@@ -107,9 +110,10 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
         return fastLog2(v) * log2_12_recp;
     }
 
+    // returns 0 for all inputs <= 1
     private static float fastLog2(long v)
     {
-        if (v == 0) return 0;
+        v = max(v, 1);
         int highestBitPosition = 63 - Long.numberOfLeadingZeros(v);
         v = Long.rotateRight(v, highestBitPosition - TABLE_BITS);
         int index = (int) (v & TABLE_MASK);
@@ -253,31 +257,24 @@ public class DecayingEstimatedHistogramReservoir implements Reservoir
     @VisibleForTesting
     public static int findIndex(long[] bucketOffsets, long value)
     {
-        if (value <= 8) // contiguous portion of buckets, no need to search
-        {
-            if (value == 0) // zero is always in the first bucket regardless of consider zeroes
-                return 0;
+        // values below zero are nonsense, but we have never failed when presented them
+        value = max(value, 0);
 
+        // The bucket index can be estimated using the equation Math.floor(Math.log(value) / Math.log(1.2))
 
-            return (int) (value - bucketOffsets[0]);
-        }
+        // By using an integer domain we effectively squeeze multiple exponents of 1.2 into the same bucket,
+        // so for values > 2, we must "subtract" these exponents from the logarithm to determine which two buckets
+        // to consult (as our approximation otherwise produces a value that is within 1 of the true value)
+        int offset = (value > 2 ? 3 : 1) + (int)bucketOffsets[0];
 
-        // for values > 9 the bucket index can be estimated using the equation Math.floor(Math.log(value) / Math.log(1.2))
-        // Since the offsets sequence is integers only this approximation is always 2 or 3 indexes greater than the
-        // actual index (when considerZeros = false the approximation is always 3 or 4 indexes greater).
         // See DecayingEstimatedHistogramResevoirTest#showEstimationWorks and DecayingEstimatedHistogramResevoirTest#testFindIndex()
         // for a runnable "proof"
         //
         // With this assumption, the estimate is calculated and the furthest offset from the estimation is checked
         // if this bucket does not contain the value then the next one will
-        int firstCandidate = ((int) fastLog12(value)) - (3 + (int) bucketOffsets[0]);
-        if (firstCandidate >= bucketOffsets.length) // value is in the "extra" bucket
-            return bucketOffsets.length;
 
-        if (value <= bucketOffsets[firstCandidate])
-            return firstCandidate;
-
-        return firstCandidate + 1;
+        int firstCandidate = max(0, min(bucketOffsets.length - 1, ((int) fastLog12(value)) - offset));
+        return value <= bucketOffsets[firstCandidate] ? firstCandidate : firstCandidate + 1;
     }
 
     private double forwardDecayWeight(long now)
