@@ -134,11 +134,13 @@ public class DecayingEstimatedHistogramReservoirTest
     @Test
     public void testStriping() throws InterruptedException
     {
+        TestClock clock = new TestClock();
         int nStripes = 4;
-        DecayingEstimatedHistogramReservoir model = new DecayingEstimatedHistogramReservoir();
+        DecayingEstimatedHistogramReservoir model = new DecayingEstimatedHistogramReservoir(clock);
         DecayingEstimatedHistogramReservoir test = new DecayingEstimatedHistogramReservoir(DecayingEstimatedHistogramReservoir.DEFAULT_ZERO_CONSIDERATION,
                                                                                            DecayingEstimatedHistogramReservoir.DEFAULT_BUCKET_COUNT,
-                                                                                           nStripes);
+                                                                                           nStripes,
+                                                                                           clock);
 
         long seed = System.nanoTime();
         System.out.println("DecayingEstimatedHistogramReservoirTest#testStriping.seed = " + seed);
