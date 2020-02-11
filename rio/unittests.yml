@@ -77,7 +77,7 @@ work:
             export CASSANDRA_USE_JDK11=true
           fi
 
-          ant testclasslist -Dmaven-ant-tasks.url=https://artifacts.apple.com/repo1-cache/org/apache/maven/maven-ant-tasks -Dtest.classlistfile=$PARALLEL_INPUT_DIR/input  -Dtest.classlistprefix=unit
+          ant testclasslist -Dmaven-ant-tasks.url=https://artifacts.apple.com/libs-release/org/apache/maven/maven-ant-tasks -Dtest.classlistfile=$PARALLEL_INPUT_DIR/input  -Dtest.classlistprefix=unit
 
           if [ -e build/test/output ]; then
             mkdir -p $PARALLEL_OUTPUT_DIR/build/test/output
