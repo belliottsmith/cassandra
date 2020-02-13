@@ -113,12 +113,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         boolean monitorOwned = false;
         try
         {
-            if (usePessimisticLocking(writeOp))
-            {
-                Locks.monitorEnterUnsafe(this);
-                monitorOwned = true;
-            }
-
+            monitorOwned = maybeLock(writeOp);
             indexer.start();
 
             while (true)
@@ -162,16 +157,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
                 }
                 else if (!monitorOwned)
                 {
-                    boolean shouldLock = usePessimisticLocking(writeOp);
-                    if (!shouldLock)
-                    {
-                        shouldLock = updateWastedAllocationTracker(updater.heapSize, writeOp);
-                    }
-                    if (shouldLock)
-                    {
-                        Locks.monitorEnterUnsafe(this);
-                        monitorOwned = true;
-                    }
+                    monitorOwned = maybeLock(updater.heapSize, writeOp);
                 }
             }
         }
@@ -181,12 +167,40 @@ public class AtomicBTreePartition extends AbstractBTreePartition
             if (monitorOwned)
                 Locks.monitorExitUnsafe(this);
         }
-
     }
 
-    public boolean usePessimisticLocking(OpOrder.Group writeOp)
+    private boolean maybeLock(OpOrder.Group writeOp)
     {
-        return wasteTracker == TRACKER_PESSIMISTIC_LOCKING && (writeOp == null || writeOp.isOldestLiveGroup());
+        if (!useLock())
+            return false;
+
+        return lockIfOldest(writeOp);
+    }
+
+    private boolean maybeLock(long addWaste, OpOrder.Group writeOp)
+    {
+        if (!updateWastedAllocationTracker(addWaste))
+            return false;
+
+        return lockIfOldest(writeOp);
+    }
+
+    private boolean lockIfOldest(OpOrder.Group writeOp)
+    {
+        if (!writeOp.isOldestLiveGroup())
+        {
+            Thread.yield();
+            if (!writeOp.isOldestLiveGroup())
+                return false;
+        }
+
+        Locks.monitorEnterUnsafe(this);
+        return true;
+    }
+
+    public boolean useLock()
+    {
+        return wasteTracker == TRACKER_PESSIMISTIC_LOCKING;
     }
 
     /**
@@ -195,7 +209,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
      * @param wastedBytes the number of bytes wasted by this thread
      * @return true if the caller should now proceed with pessimistic locking because the waste limit has been reached
      */
-    private boolean updateWastedAllocationTracker(long wastedBytes, OpOrder.Group writeOp)
+    private boolean updateWastedAllocationTracker(long wastedBytes)
     {
         // Early check for huge allocation that exceeds the limit
         if (wastedBytes < EXCESS_WASTE_BYTES)
@@ -221,7 +235,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         // We have definitely reached our waste limit so set the state if it isn't already
         wasteTrackerUpdater.set(this, TRACKER_PESSIMISTIC_LOCKING);
         // And tell the caller to proceed with pessimistic locking
-        return writeOp.isOldestLiveGroup();
+        return true;
     }
 
     private static int avoidReservedValues(int wasteTracker)

@@ -49,7 +49,6 @@ import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableTxnWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
-import org.apache.cassandra.io.util.DiskAwareRunnable;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
@@ -381,7 +380,7 @@ public class Memtable implements Comparable<Memtable>
                 if (isBatchLogTable && !partition.partitionLevelDeletion().isLive() && partition.hasRows())
                     continue;
 
-                if (trackContention && partition.usePessimisticLocking(null))
+                if (trackContention && partition.useLock())
                     heavilyContendedRowCount++;
 
                 if (!partition.isEmpty())
