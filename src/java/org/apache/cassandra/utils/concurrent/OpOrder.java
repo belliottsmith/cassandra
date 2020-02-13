@@ -245,6 +245,11 @@ public class OpOrder
             return next.prev == null;
         }
 
+        public boolean isOldestLiveGroup()
+        {
+            return prev == null;
+        }
+
         public void await()
         {
             while (!isFinished())
@@ -302,14 +307,6 @@ public class OpOrder
                 start.waiting.signalAll();
                 start = next;
             }
-        }
-
-        /**
-         * @return true if we are behind a Barrier; this indicates we may in future block system progress
-         */
-        public boolean isBehindBarrier()
-        {
-            return next != null;
         }
 
         /**
@@ -395,15 +392,8 @@ public class OpOrder
             synchronized (OpOrder.this)
             {
                 current = OpOrder.this.current;
-                // {@code next} is used (amongst other things) to indicate we are behind a barrier
-                // since we reroute operations based on the presence/absence of a barrier, and we
-                // may behave differently based on whether or not this rerouting may have occurred
-                // (most notably for Memtable blocking operations), we mark ourselves as behind a
-                // barrier before we issue the barrier, to ensure operations that are rerouted see
-                // this status
-                current.next = new Group(current);
                 orderOnOrBefore = current;
-                OpOrder.this.current = current;
+                OpOrder.this.current = current.next = new Group(current);
             }
             current.expire();
         }

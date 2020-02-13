@@ -186,7 +186,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
 
     public boolean usePessimisticLocking(OpOrder.Group writeOp)
     {
-        return wasteTracker == TRACKER_PESSIMISTIC_LOCKING && !writeOp.isBehindBarrier();
+        return wasteTracker == TRACKER_PESSIMISTIC_LOCKING && (writeOp == null || writeOp.isOldestLiveGroup());
     }
 
     /**
@@ -221,7 +221,7 @@ public class AtomicBTreePartition extends AbstractBTreePartition
         // We have definitely reached our waste limit so set the state if it isn't already
         wasteTrackerUpdater.set(this, TRACKER_PESSIMISTIC_LOCKING);
         // And tell the caller to proceed with pessimistic locking
-        return !writeOp.isBehindBarrier();
+        return writeOp.isOldestLiveGroup();
     }
 
     private static int avoidReservedValues(int wasteTracker)

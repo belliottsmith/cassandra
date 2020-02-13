@@ -381,7 +381,7 @@ public class Memtable implements Comparable<Memtable>
                 if (isBatchLogTable && !partition.partitionLevelDeletion().isLive() && partition.hasRows())
                     continue;
 
-                if (trackContention && partition.usePessimisticLocking())
+                if (trackContention && partition.usePessimisticLocking(null))
                     heavilyContendedRowCount++;
 
                 if (!partition.isEmpty())
