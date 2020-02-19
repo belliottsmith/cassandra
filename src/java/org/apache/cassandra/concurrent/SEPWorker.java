@@ -19,7 +19,6 @@ package org.apache.cassandra.concurrent;
 
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
@@ -45,6 +44,10 @@ final class SEPWorker extends AtomicReference<SEPWorker.Work> implements Runnabl
     long prevStopCheck = 0;
     long soleSpinnerSpinTime = 0;
 
+    // strictly speaking this should be volatile to ensure visibility by JMM,
+    // but since we invoke its opaque virtual method for program correctness
+    // this field must be set, and we only grab the contents of a final property
+    // which must be initialised if we see the object at all
     AbstractLocalAwareExecutorService.FutureTask currentTask = null;
 
     SEPWorker(Long workerId, Work initialState, SharedExecutorPool pool)

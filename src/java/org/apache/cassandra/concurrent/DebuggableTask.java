@@ -23,6 +23,9 @@ package org.apache.cassandra.concurrent;
  */
 public interface DebuggableTask
 {
+    /**
+     * The approximate start time of a query in the {@code MonotonicClock} domain (ordinarily by {@code approxTime})
+     */
     public long approxStartNanos();
 
     /**

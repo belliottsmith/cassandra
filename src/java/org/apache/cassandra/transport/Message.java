@@ -722,7 +722,7 @@ public abstract class Message
             private final ChannelHandlerContext ctx;
             private final Request request;
             private final Dispatcher dispatcher;
-            long queryStartNanoTime = System.nanoTime();
+            private final long queryStartNanoTime = System.nanoTime();
 
             public RequestProcessor(ChannelHandlerContext ctx, Request request, Dispatcher dispatcher)
             {

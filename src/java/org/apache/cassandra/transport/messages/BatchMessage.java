@@ -270,7 +270,9 @@ public class BatchMessage extends Message.Request
 
             Object query = queryOrIdList.get(q);
             if (query instanceof String)
+            {
                 sb.append(query);
+            }
             else
             {
                 QueryHandler.Prepared prepared = handler.getPrepared((MD5Digest) query);
