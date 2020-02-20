@@ -30,6 +30,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -65,6 +66,7 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.utils.FBUtilities;
 
+import static java.lang.Integer.max;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.net.MessagingService.VERSION_30;
@@ -788,30 +790,72 @@ public class ConnectionTest
                 for (int j = 0; j < attempts; j++)
                     outbound.unsafeReleaseCapacity(acquireStep);
             };
+
+            // Start N acquirer and releaser to contend for capcaity
+            List<Runnable> invokeOrder = new ArrayList<>();
+            for (int i = 0 ; i < concurrency ; ++i)
+                invokeOrder.add(acquirer);
+            for (int i = 0 ; i < concurrency ; ++i)
+                invokeOrder.add(releaser);
+            // randomise their start order
+            shuffle(invokeOrder);
+
             try
             {
-                ExecutorService executor = Executors.newFixedThreadPool(concurrency);
                 int maxCount = concurrency * attempts;
+                int maxFailures = max(0, (int) ((2L * maxCount * acquireStep)
+                        - (outbound.settings().applicationSendQueueCapacityInBytes
+                                + outbound.settings().applicationSendQueueReserveEndpointCapacityInBytes)
+                        + acquireStep - 1)
+                        / acquireStep);
                 // Reserve enough capacity upfront to ensure the releaser threads cannot release all reserved capacity.
                 // i.e. the pendingBytes is always positive during the test.
                 Assert.assertTrue(outbound.unsafeAcquireCapacity(maxCount, maxCount * acquireStep));
-                // Start N acquirer and releaser to contend for capcaity
-                for (int i = 0; i < concurrency; i++)
-                    executor.submit(acquirer);
-                for (int i = 0; i < concurrency; i++)
-                    executor.submit(releaser);
+                ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+
+                invokeOrder.forEach(executor::submit);
 
                 executor.shutdown();
                 executor.awaitTermination(10, TimeUnit.SECONDS);
 
                 Assert.assertEquals(maxCount * acquireStep - (acquisitionFailures.get() * acquireStep), outbound.pendingBytes());
                 Assert.assertEquals(maxCount - acquisitionFailures.get(), outbound.pendingCount());
+                Assert.assertTrue(acquisitionFailures.get() <= maxFailures);
             }
             finally
             {   // release the acquired capacity from this round
                 outbound.unsafeReleaseCapacity(outbound.pendingCount(), outbound.pendingBytes());
             }
         });
+    }
+
+    private static <V> void shuffle(List<V> list)
+    {
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        switch (random.nextInt(3))
+        {
+            case 0:
+                // randomise
+                for (int i = 0 ; i < list.size() - 1 ; i++)
+                {
+                    int j = random.nextInt(i, list.size());
+                    V v = list.get(i);
+                    list.set(i, list.get(j));
+                    list.set(j, v);
+                }
+                break;
+            case 1:
+                // reverse
+                for (int i = 0 ; i < list.size() / 2 ; ++i)
+                {
+                    V v = list.get(i);
+                    list.set(i, list.get(list.size() - (1 + i)));
+                    list.set(list.size() - (1 + i), v);
+                }
+                break;
+            case 2:
+                // leave as is
+        }
     }
 
     private void connect(OutboundConnection outbound) throws Throwable

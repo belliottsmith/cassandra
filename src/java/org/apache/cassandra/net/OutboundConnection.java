@@ -1708,7 +1708,11 @@ public class OutboundConnection
     @VisibleForTesting
     boolean unsafeAcquireCapacity(long amount)
     {
-        return SUCCESS == acquireCapacity(amount);
+        Outcome outcome = acquireCapacity(amount);
+        if (outcome != SUCCESS)
+            return false;
+        return true;
+//        return SUCCESS == outcome;
     }
 
     @VisibleForTesting
