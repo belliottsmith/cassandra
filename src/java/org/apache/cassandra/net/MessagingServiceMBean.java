@@ -117,7 +117,6 @@ public interface MessagingServiceMBean
      */
     @Deprecated
     public Map<String, Double> getBackPressurePerHost();
-    public Map<String, Double> getBackPressurePerHostWithPort();
 
     /**
      * Enable/Disable back-pressure
