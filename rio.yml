@@ -46,7 +46,7 @@ builds:
       - mcqueen.yml
   reports:
     junit: true
-  timeout: 60
+  timeout: 180
 - name: build-3.0.19
   branchName: cie-cassandra-3.0.19
   build:
@@ -63,7 +63,7 @@ builds:
       - mcqueen.yml
   reports:
     junit: true
-  timeout: 60
+  timeout: 180
   finally:
     pipelineChain:
         - pipeline: snapshot-3.0.19
