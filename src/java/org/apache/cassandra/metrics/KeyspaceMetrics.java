@@ -338,6 +338,9 @@ public class KeyspaceMetrics
         repairedDataTrackingOverreadTime = Metrics.timer(factory.createMetricName("RepairedOverreadTime"));
 
         largePartitionIndexBytes = Metrics.histogram(factory.createMetricName("LargePartitionIndexBytesHistogram"), false);
+
+        repairedDataTrackingOverreadRows = Metrics.histogram(factory.createMetricName("RepairedOverreadRows"), false);
+        repairedDataTrackingOverreadTime = Metrics.timer(factory.createMetricName("RepairedOverreadTime"));
     }
 
     /**
