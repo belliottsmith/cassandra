@@ -822,7 +822,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         return !unsafeStatuses.contains(status);
     }
 
-    private void doStatusCheck()
+    @VisibleForTesting
+    void doStatusCheck()
     {
         if (logger.isTraceEnabled())
             logger.trace("Performing status check ...");
@@ -876,7 +877,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
                     {
                         logger.debug("time is expiring for endpoint : {} ({})", endpoint, expireTime);
                     }
-                    evictFromMembership(endpoint);
+                    runInGossipStageBlocking(() -> evictFromMembership(endpoint));
                 }
             }
         }
