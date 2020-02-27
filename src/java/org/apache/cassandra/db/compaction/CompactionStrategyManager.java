@@ -956,6 +956,7 @@ public class CompactionStrategyManager implements INotificationConsumer
             {
                 sstable.descriptor.getMetadataSerializer().mutateRepaired(sstable.descriptor, repairedAt, pendingRepair);
                 sstable.reloadSSTableMetadata();
+                verifyMetadata(sstable, repairedAt, pendingRepair);
                 changed.add(sstable);
             }
         }
@@ -972,5 +973,13 @@ public class CompactionStrategyManager implements INotificationConsumer
                 writeLock.unlock();
             }
         }
+    }
+
+    private static void verifyMetadata(SSTableReader sstable, long repairedAt, UUID pendingRepair)
+    {
+        if (!Objects.equals(pendingRepair, sstable.getPendingRepair()))
+            throw new IllegalStateException(String.format("Failed setting pending repair to %s on %s (pending repair is %s)", pendingRepair, sstable, sstable.getPendingRepair()));
+        if (repairedAt != sstable.getRepairedAt())
+            throw new IllegalStateException(String.format("Failed setting repairedAt to %d on %s (repairedAt is %d)", repairedAt, sstable, sstable.getRepairedAt()));
     }
 }
