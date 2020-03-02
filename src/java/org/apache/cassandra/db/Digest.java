@@ -94,6 +94,7 @@ public class Digest
     public void reset()
     {
         hasher.reset();
+        inputBytes = 0;
     }
 
     public Digest update(byte[] input, int offset, int len)

@@ -29,6 +29,7 @@ import com.google.common.collect.Maps;
 
 import com.codahale.metrics.*;
 import com.codahale.metrics.Timer;
+
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
@@ -198,17 +199,24 @@ public class TableMetrics
 
 
     /**
-     * Metrics for inconsistencies detected between repaired data sets across replicas. These
-     * are tracked on the coordinator.
+     * Metrics for inconsistencies detected between repaired data sets across replicas.
      */
     // Incremented where an inconsistency is detected and there are no pending repair sessions affecting
-    // the data being read, indicating a genuine mismatch between replicas' repaired data sets.
+    // the data being read, indicating a genuine mismatch between replicas' repaired data sets. Recorded
+    // on the coordinator.
     public final TableMeter confirmedRepairedInconsistencies;
     // Incremented where an inconsistency is detected, but there are pending & uncommitted repair sessions
     // in play on at least one replica. This may indicate a false positive as the inconsistency could be due to
     // replicas marking the repair session as committed at slightly different times and so some consider it to
-    // be part of the repaired set whilst others do not.
+    // be part of the repaired set whilst others do not. Recorded on the coordinator.
     public final TableMeter unconfirmedRepairedInconsistencies;
+
+    // Tracks the amount overreading of repaired data replicas perform in order to produce digests
+    // at query time. For each query, on a full data read following an initial digest mismatch, the replicas
+    // may read extra repaired data, up to the DataLimit of the command, so that the coordinator can compare
+    // the repaired data on each replica. These are tracked on each replica.
+    public final TableHistogram repairedDataTrackingOverreadRows;
+    public final TableTimer repairedDataTrackingOverreadTime;
 
     public final static LatencyMetrics globalReadLatency = new LatencyMetrics(globalFactory, globalAliasFactory, "Read");
     public final static LatencyMetrics globalWriteLatency = new LatencyMetrics(globalFactory, globalAliasFactory, "Write");
@@ -931,6 +939,8 @@ public class TableMetrics
 
         confirmedRepairedInconsistencies = createTableMeter("RepairedDataInconsistenciesConfirmed", cfs.keyspace.metric.confirmedRepairedInconsistencies);
         unconfirmedRepairedInconsistencies = createTableMeter("RepairedDataInconsistenciesUnconfirmed", cfs.keyspace.metric.unconfirmedRepairedInconsistencies);
+        repairedDataTrackingOverreadRows = createTableHistogram("RepairedDataTrackingOverreadRows", cfs.keyspace.metric.repairedDataTrackingOverreadRows, false);
+        repairedDataTrackingOverreadTime = createTableTimer("RepairedDataTrackingOverreadTime", cfs.keyspace.metric.repairedDataTrackingOverreadTime);
 
         largePartitionIndexBytes = createTableHistogram("LargePartitionIndexBytesHistogram", cfs.keyspace.metric.largePartitionIndexBytes, false);
     }

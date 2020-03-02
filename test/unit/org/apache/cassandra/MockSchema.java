@@ -180,7 +180,6 @@ public class MockSchema
         CFMetaData metadata = newCFMetaData(ksname, cfname);
         updateMetadata.accept(metadata);
         return newCFS(ksname, cfname, metadata);
-
     }
 
     private static ColumnFamilyStore newCFS(String ksname, String cfname, CFMetaData metadata)
