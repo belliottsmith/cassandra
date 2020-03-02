@@ -328,7 +328,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         if (terminated)
             return;
 
-        logger.info("{} new session: will sync {} on range {} for {}.{}", previewKind.logPrefix(getId()), repairedNodes(), ranges, keyspace, Arrays.toString(cfnames));
+        logger.info("{} parentSessionId = {}: new session: will sync {} on range {} for {}.{}", previewKind.logPrefix(getId()), parentRepairSession, repairedNodes(), ranges, keyspace, Arrays.toString(cfnames));
         Tracing.traceRepair("Syncing range {}", ranges);
         if (!previewKind.isPreview())
         {

@@ -156,7 +156,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             {
                 if (!previewKind.isPreview())
                 {
-                    logger.info("{} {} is fully synced", previewKind.logPrefix(session.getId()), desc.columnFamily);
+                    logger.info("{} {}.{} is fully synced", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
                     SystemDistributedKeyspace.successfulRepairJob(session.getId(), desc.keyspace, desc.columnFamily);
                 }
                 sendRepairSuccess(allEndpoints);
@@ -170,7 +170,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             {
                 if (!previewKind.isPreview())
                 {
-                    logger.warn("{} {} sync failed", previewKind.logPrefix(session.getId()), desc.columnFamily);
+                    logger.warn("{} {}.{} sync failed", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
                     SystemDistributedKeyspace.failedRepairJob(session.getId(), desc.keyspace, desc.columnFamily, t);
                 }
                 setException(t);
@@ -211,7 +211,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             trees.get(i).trees.release();
         }
         trees.get(trees.size() - 1).trees.release();
-        logger.info("Created {} sync tasks based on {} merkle tree responses (took: {}ms)", syncTasks.size(), trees.size(), System.currentTimeMillis() - startedAt);
+        logger.info("Created {} sync tasks based on {} merkle tree responses for {} (took: {}ms)", syncTasks.size(), trees.size(), session.getId(), System.currentTimeMillis() - startedAt);
         return syncTasks;
     }
 
@@ -252,7 +252,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         Queue<InetAddress> requests = new LinkedList<>(endpoints);
         InetAddress address = requests.poll();
         ValidationTask firstTask = new ValidationTask(desc, address, nowInSec, previewKind);
-        logger.info("Validating {}", address);
+        logger.info("{} Validating {}", previewKind.logPrefix(desc.sessionId), address);
         session.waitForValidation(Pair.create(desc, address), firstTask);
         tasks.add(firstTask);
         ValidationTask currentTask = firstTask;
@@ -265,7 +265,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             {
                 public void onSuccess(TreeResponse result)
                 {
-                    logger.info("Validating {}", nextAddress);
+                    logger.info("{} Validating {}", previewKind.logPrefix(desc.sessionId), nextAddress);
                     session.waitForValidation(Pair.create(desc, nextAddress), nextTask);
                     taskExecutor.execute(nextTask);
                 }
@@ -309,7 +309,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             Queue<InetAddress> requests = entry.getValue();
             InetAddress address = requests.poll();
             ValidationTask firstTask = new ValidationTask(desc, address, nowInSec, previewKind);
-            logger.info("Validating {}", address);
+            logger.info("{} Validating {}", previewKind.logPrefix(session.getId()), address);
             session.waitForValidation(Pair.create(desc, address), firstTask);
             tasks.add(firstTask);
             ValidationTask currentTask = firstTask;
@@ -322,7 +322,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
                 {
                     public void onSuccess(TreeResponse result)
                     {
-                        logger.info("Validating {}", nextAddress);
+                        logger.info("{} Validating {}", previewKind.logPrefix(session.getId()), nextAddress);
                         session.waitForValidation(Pair.create(desc, nextAddress), nextTask);
                         taskExecutor.execute(nextTask);
                     }
@@ -347,19 +347,19 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
 
         if (!session.allReplicas)
         {
-            logger.info("Not sending repair success since all replicas were not repaired");
+            logger.info("{} Not sending repair success since all replicas were not repaired", session.getId());
             return true;
         }
 
         if (session.isIncremental)
         {
-            logger.info("Not sending repair success since we are running an incremental repair");
+            logger.info("{} Not sending repair success since we are running an incremental repair", session.getId());
             return true;
         }
 
         if (session.previewKind != PreviewKind.NONE)
         {
-            logger.info("Not sending repair success since we are running preview repair");
+            logger.info("{} Not sending repair success since we are running preview repair", previewKind.logPrefix(session.getId()));
             return true;
         }
 
@@ -377,7 +377,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
 
                 public void response(MessageIn msg)
                 {
-                    logger.info("Response received for RepairSuccess from {}.", msg.from);
+                    logger.info("Response received for RepairSuccess from {} for {}.", msg.from, session.getId());
                     RepairJob.this.successResponses.countDown();
                 }
             };
@@ -390,7 +390,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
 
             if (!successResponses.await(1, TimeUnit.HOURS))
             {
-                logger.error("{} endpoints have not responded to RepairSuccess.", successResponses.getCount());
+                logger.error("{} {} endpoints have not responded to RepairSuccess.", session.getId(), successResponses.getCount());
                 return false;
             }
             successResponses = null;
@@ -398,7 +398,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         }
         catch (Exception e)
         {
-            logger.error("Error while sending RepairSuccess", e);
+            logger.error("{} Error while sending RepairSuccess", session.getId(), e);
             return false;
         }
     }

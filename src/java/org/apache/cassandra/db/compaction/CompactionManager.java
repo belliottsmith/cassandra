@@ -1340,7 +1340,12 @@ public class CompactionManager implements CompactionManagerMBean
                     return; // this means the parent repair session was removed - the repair session failed on another node and we removed i
             }
 
-            logger.info("Performing validation compaction on {} sstables", sstables.size());
+            logger.info("{}, parentSessionId={}: Performing validation compaction on {} sstables in {}.{}",
+                        validator.getPreviewKind().logPrefix(validator.desc.sessionId),
+                        validator.desc.parentSessionId,
+                        sstables.size(),
+                        validator.desc.keyspace,
+                        validator.desc.columnFamily);
             if (logger.isDebugEnabled())
             {
                 logger.debug("Performing validation compaction on {}", sstables);
@@ -1494,7 +1499,7 @@ public class CompactionManager implements CompactionManagerMBean
             sstables = Refs.tryRef(sstablesToValidate);
             if (sstables == null)
             {
-                logger.error("Could not reference sstables");
+                logger.error("Could not reference sstables for {}", validator.desc.parentSessionId);
                 throw new RuntimeException("Could not reference sstables");
             }
         }
@@ -1544,7 +1549,7 @@ public class CompactionManager implements CompactionManagerMBean
     private void doAntiCompaction(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, LifecycleTransaction repaired, long repairedAt, UUID pendingRepair, BooleanSupplier isCancelled)
     {
         int originalCount = repaired.originals().size();
-        logger.info("Performing anticompaction on {} sstables", originalCount);
+        logger.info("Performing anticompaction on {} sstables for {}", originalCount, pendingRepair);
 
         //Group SSTables
         Set<SSTableReader> sstables = repaired.originals();
@@ -1568,8 +1573,8 @@ public class CompactionManager implements CompactionManagerMBean
             }
         }
 
-        String format = "Anticompaction completed successfully, anticompacted from {} to {} sstable(s).";
-        logger.info(format, originalCount, antiCompactedSSTableCount);
+        String format = "Anticompaction completed successfully, anticompacted from {} to {} sstable(s) for {}.";
+        logger.info(format, originalCount, antiCompactedSSTableCount, pendingRepair);
     }
 
     @VisibleForTesting
@@ -1595,7 +1600,7 @@ public class CompactionManager implements CompactionManagerMBean
             return 0;
         }
 
-        logger.info("Anticompacting {}", anticompactionGroup);
+        logger.info("Anticompacting {} in {}.{} for {}", anticompactionGroup, cfs.keyspace.getName(), cfs.getTableName(), pendingRepair);
         Set<SSTableReader> sstableAsSet = anticompactionGroup.originals();
 
         File destination = cfs.getDirectories().getWriteableLocationAsFile(cfs.getExpectedCompactedFileSize(sstableAsSet, OperationType.ANTICOMPACTION));
@@ -1669,25 +1674,23 @@ public class CompactionManager implements CompactionManagerMBean
                 }
             }
 
-            List<SSTableReader> anticompactedSSTables = new ArrayList<>();
-
             repairedSSTableWriter.setRepairedAt(repairedAt).prepareToCommit();
             unRepairedSSTableWriter.prepareToCommit();
             anticompactionGroup.checkpoint();
             anticompactionGroup.obsoleteOriginals();
             anticompactionGroup.prepareToCommit();
-            anticompactedSSTables.addAll(repairedSSTableWriter.finished());
-            anticompactedSSTables.addAll(unRepairedSSTableWriter.finished());
+            List<SSTableReader> pendingSSTables = new ArrayList<>(repairedSSTableWriter.finished());
+            List<SSTableReader> unrepairedSSTables = new ArrayList<>(unRepairedSSTableWriter.finished());
             repairedSSTableWriter.commit();
             unRepairedSSTableWriter.commit();
             Throwables.maybeFail(anticompactionGroup.commit(null));
-
+            logger.info("Anticompacted {} in {}.{} to pending = {}, unrepaired = {} for {}", sstableAsSet, cfs.keyspace.getName(), cfs.getTableName(), pendingSSTables, unrepairedSSTables, pendingRepair);
             logger.trace("Repaired {} keys out of {} for {}/{} in {}", repairedKeyCount,
                                                                        repairedKeyCount + unrepairedKeyCount,
                                                                        cfs.keyspace.getName(),
                                                                        cfs.getColumnFamilyName(),
                                                                        anticompactionGroup);
-            return anticompactedSSTables.size();
+            return pendingSSTables.size() + unrepairedSSTables.size();
         }
         catch (Throwable e)
         {

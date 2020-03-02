@@ -137,7 +137,7 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                     ColumnFamilyStore store = ColumnFamilyStore.getIfExists(desc.keyspace, desc.columnFamily);
                     if (store == null)
                     {
-                        logger.error("Table {}.{} was dropped during snapshot phase of repair", desc.keyspace, desc.columnFamily);
+                        logger.error("Table {}.{} was dropped during snapshot phase of repair {}", desc.keyspace, desc.columnFamily, previewKind(desc.parentSessionId));
                         MessagingService.instance().sendOneWay(new ValidationComplete(desc).createMessage(), message.from);
                         return;
                     }

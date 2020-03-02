@@ -453,7 +453,7 @@ class PendingRepairManager
             boolean completed = false;
             try
             {
-                logger.debug("Setting repairedAt to {} on {} for {}", repairedAt, transaction.originals(), sessionID);
+                logger.info("Setting repairedAt to {} on {} for {}", repairedAt, transaction.originals(), sessionID);
                 cfs.getCompactionStrategyManager().mutateRepaired(transaction.originals(), repairedAt, ActiveRepairService.NO_PENDING_REPAIR);
                 completed = true;
             }
