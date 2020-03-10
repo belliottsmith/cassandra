@@ -546,7 +546,7 @@
           <dependency groupId="org.ow2.asm" artifactId="asm" version="${asm.version}" />
 
           <!-- The Amazon Corretto Crypto Provider -->
-          <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" />
+          <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" classifier="linux-x86_64"/>
 
         </dependencyManagement>
         <developer id="adelapena" name="Andres de la Peña"/>
@@ -619,7 +619,7 @@
         <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations"/>
         <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.7" />
         <dependency groupId="com.github.ben-manes.caffeine" artifactId="caffeine" version="${caffeine.version}" />
-        <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" />
+        <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" classifier="linux-x86_64"/>
       </artifact:pom>
       <!-- this build-deps-pom-sources "artifact" is the same as build-deps-pom but only with those
            artifacts that have "-source.jar" files -->
