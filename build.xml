@@ -641,7 +641,7 @@
           <dependency groupId="org.awaitility" artifactId="awaitility" version="4.0.3" />
 
           <!-- The Amazon Corretto Crypto Provider -->
-          <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" />
+          <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" classifier="linux-x86_64"/>
 
         </dependencyManagement>
         <developer id="adelapena" name="Andres de la Peña"/>
@@ -716,7 +716,7 @@
         <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess"/>
         <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations"/>
         <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.7" />
-        <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" />
+        <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" version="${accp.version}" classifier="linux-x86_64"/>
         <dependency groupId="org.gridkit.jvmtool" artifactId="sjk-cli" />
         <dependency groupId="org.gridkit.jvmtool" artifactId="sjk-core" />
         <dependency groupId="org.gridkit.jvmtool" artifactId="sjk-stacktrace" />
