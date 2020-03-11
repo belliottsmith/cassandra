@@ -82,6 +82,60 @@ public class BTree
         public static Dir desc(boolean desc) { return desc ? DESC : ASC; }
     }
 
+    /**
+     * Enables methods to consume the contents of iterators, collections, or arrays without duplicating code or
+     * allocating intermediate objects. Instead of taking an argument that implements an interface, a method takes
+     * an opaque object as the input, and a singleton helper object it uses as an intermediary to access it's contents.
+     * The purpose of doing things this way is to avoid memory allocations on hot paths.
+     */
+    interface IteratingFunction<T>
+    {
+        boolean hasNextAt(T source, int idx, int limit);
+        /**
+         * Returns the next object at the given index. This method  must be called with sequentially increasing index
+         * values, starting at 0, and must only be called once per index value. The results of calling this method
+         * without following these rules are undefined.
+         */
+        <K> K getNext(T input, int idx);
+        <C, K extends C, V extends C> Object[] buildTree(T source, TreeBuilder builder, UpdateFunction<K, V> updateF, int size);
+    }
+
+    static final IteratingFunction<Iterator> ITERATOR_FUNCTION = new IteratingFunction<Iterator>()
+    {
+        public boolean hasNextAt(Iterator source, int idx, int limit)
+        {
+            return source.hasNext();
+        }
+
+        public <K> K getNext(Iterator input, int idx)
+        {
+            return (K) input.next();
+        }
+
+        public <C, K extends C, V extends C> Object[] buildTree(Iterator source, TreeBuilder builder, UpdateFunction<K, V> updateF, int size)
+        {
+            return builder.build(source, updateF, size);
+        }
+    };
+
+    static final IteratingFunction<Object[]> ARRAY_FUNCTION = new IteratingFunction<Object[]>()
+    {
+        public boolean hasNextAt(Object[] source, int idx, int limit)
+        {
+            return idx < limit;
+        }
+
+        public <K> K getNext(Object[] source, int idx)
+        {
+            return (K) source[idx];
+        }
+
+        public <C, K extends C, V extends C> Object[] buildTree(Object[] source, TreeBuilder builder, UpdateFunction<K, V> updateF, int size)
+        {
+            return builder.build(source, updateF, size);
+        }
+    };
+
     public static Object[] empty()
     {
         return EMPTY_LEAF;
@@ -120,7 +174,7 @@ public class BTree
      * As build(), except:
      * @param size    < 0 if size is unknown
      */
-    private static <C, K extends C, V extends C> Object[] buildInternal(Iterable<K> source, int size, UpdateFunction<K, V> updateF)
+    private static <C, K extends C, V extends C, S> Object[] buildInternal(S source, IteratingFunction<S> iterFunc, int size, UpdateFunction<K, V> updateF)
     {
         if ((size >= 0) & (size < FAN_FACTOR))
         {
@@ -129,9 +183,10 @@ public class BTree
             // pad to odd length to match contract that all leaf nodes are odd
             V[] values = (V[]) new Object[size | 1];
             {
-                int i = 0;
-                for (K k : source)
-                    values[i++] = updateF.apply(k);
+                for (int i=0; iterFunc.hasNextAt(source, i, size); i++)
+                {
+                    values[i] = updateF.apply(iterFunc.getNext(source, i));
+                }
             }
             updateF.allocated(ObjectSizes.sizeOfArray(values));
             return values;
@@ -141,9 +196,23 @@ public class BTree
         TreeBuilder builder = queue.poll();
         if (builder == null)
             builder = new TreeBuilder();
-        Object[] btree = builder.build(source, updateF, size);
+        Object[] btree =  iterFunc.buildTree(source, builder, updateF, size);
         queue.add(builder);
         return btree;
+    }
+
+    /**
+     * As build(), except:
+     * @param size    < 0 if size is unknown
+     */
+    private static <C, K extends C, V extends C> Object[] buildInternal(Iterable<K> source, int size, UpdateFunction<K, V> updateF)
+    {
+        return buildInternal(source.iterator(), ITERATOR_FUNCTION, size, updateF);
+    }
+
+    private static <C, K extends C, V extends C> Object[] buildInternal(Object[] source, int size, UpdateFunction<K, V> updateF)
+    {
+        return buildInternal(source, ARRAY_FUNCTION, size, updateF);
     }
 
     public static <C, K extends C, V extends C> Object[] update(Object[] btree,
@@ -1056,7 +1125,7 @@ public class BTree
         {
             if (auto)
                 autoEnforce();
-            return BTree.build(Arrays.asList(values).subList(0, count), UpdateFunction.noOp());
+            return BTree.buildInternal(values, count, UpdateFunction.noOp());
         }
     }
 

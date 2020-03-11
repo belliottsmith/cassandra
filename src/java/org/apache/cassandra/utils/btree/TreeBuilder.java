@@ -19,6 +19,7 @@
 package org.apache.cassandra.utils.btree;
 
 import java.util.Comparator;
+import java.util.Iterator;
 
 import static org.apache.cassandra.utils.btree.BTree.EMPTY_LEAF;
 import static org.apache.cassandra.utils.btree.BTree.FAN_SHIFT;
@@ -96,24 +97,35 @@ final class TreeBuilder
         return r;
     }
 
-    public <C, K extends C, V extends C> Object[] build(Iterable<K> source, UpdateFunction<K, V> updateF, int size)
+    private  <C, K extends C, V extends C, S> Object[] build(S source, BTree.IteratingFunction<S> iterFunc, UpdateFunction<K, V> updateF, int size)
     {
         assert updateF != null;
 
         NodeBuilder current = rootBuilder;
         // we descend only to avoid wasting memory; in update() we will often descend into existing trees
         // so here we want to descend also, so we don't have lg max(N) depth in both directions
-        while ((size >>= FAN_SHIFT) > 0)
+        int shiftedSize = size;
+        while ((shiftedSize >>= FAN_SHIFT) > 0)
             current = current.ensureChild();
 
         current.reset(EMPTY_LEAF, POSITIVE_INFINITY, updateF, null);
-        for (K key : source)
-            current.addNewKey(key);
+        for (int i=0; iterFunc.hasNextAt(source, i, size); i++)
+            current.addNewKey(iterFunc.getNext(source, i));
 
         current = current.ascendToRoot();
 
         Object[] r = current.toNode();
         current.clear();
         return r;
+    }
+
+    <C, K extends C, V extends C> Object[] build(Iterator<K> source, UpdateFunction<K, V> updateF, int size)
+    {
+        return build(source, BTree.ITERATOR_FUNCTION, updateF, size);
+    }
+
+    <C, K extends C, V extends C> Object[] build(Object[] source, UpdateFunction<K, V> updateF, int size)
+    {
+        return build(source, BTree.ARRAY_FUNCTION, updateF, size);
     }
 }
