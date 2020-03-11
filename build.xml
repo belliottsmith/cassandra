@@ -63,6 +63,7 @@
     <property name="test.unit.src" value="${test.dir}/unit"/>
     <property name="test.long.src" value="${test.dir}/long"/>
     <property name="test.burn.src" value="${test.dir}/burn"/>
+    <property name="test.memory.src" value="${test.dir}/memory"/>
     <property name="test.microbench.src" value="${test.dir}/microbench"/>
     <property name="test.distributed.src" value="${test.dir}/distributed"/>
     <property name="test.distributed.listfile" value="ant-jvm-dtest-list"/>
@@ -96,6 +97,7 @@
     <property name="maven-repository-id" value="apache.snapshots.https"/>
 
     <property name="test.timeout" value="480000" />
+    <property name="test.memory.timeout" value="480000" />
     <property name="test.long.timeout" value="600000" />
     <property name="test.burn.timeout" value="60000000" />
     <property name="test.distributed.timeout" value="360000" />
@@ -119,6 +121,7 @@
     <property name="ohc.version" value="0.5.1"/>
     <property name="asm.version" value="7.1"/>
     <property name="caffeine.version" value="2.3.5" />
+    <property name="allocation-instrumenter.version" value="3.1.0"/>
 
     <!-- https://mvnrepository.com/artifact/net.openhft/chronicle-bom/1.15.6 -->
     <property name="chronicle-queue.version" value="4.6.55" />
@@ -491,6 +494,7 @@
           </dependency>
           <dependency groupId="junit" artifactId="junit" version="4.6" />
           <dependency groupId="com.apple.pie.cassandra.quicktheories" artifactId="quicktheories" version="0.26-SNAPSHOT" />
+          <dependency groupId="com.google.code.java-allocation-instrumenter" artifactId="java-allocation-instrumenter" version="${allocation-instrumenter.version}" />
           <dependency groupId="org.apache.rat" artifactId="apache-rat" version="0.10">
              <exclusion groupId="commons-lang" artifactId="commons-lang"/>
           </dependency>
@@ -604,6 +608,7 @@
                 version="${version}"/>
         <dependency groupId="junit" artifactId="junit"/>
         <dependency groupId="com.apple.pie.cassandra.quicktheories" artifactId="quicktheories" />
+        <dependency groupId="com.google.code.java-allocation-instrumenter" artifactId="java-allocation-instrumenter" version="${allocation-instrumenter.version}" />
         <dependency groupId="org.psjava" artifactId="psjava" version="0.1.19" />
         <dependency groupId="org.apache.rat" artifactId="apache-rat"/>
         <dependency groupId="org.apache.hadoop" artifactId="hadoop-core"/>
@@ -1321,6 +1326,7 @@
      <src path="${test.unit.src}"/>
      <src path="${test.long.src}"/>
      <src path="${test.burn.src}"/>
+     <src path="${test.memory.src}"/>
      <src path="${test.microbench.src}"/>
      <src path="${test.distributed.src}"/>
     </javac>
@@ -1600,6 +1606,13 @@
       <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
       <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
     </testmacro>
+  </target>
+
+  <target name="test-memory" depends="build-test" description="Execute functional tests">
+      <testmacro inputdir="${test.memory.src}"
+                 timeout="${test.memory.timeout}">
+          <jvmarg value="-javaagent:${build.dir}/lib/jars/java-allocation-instrumenter-${allocation-instrumenter.version}.jar"/>
+      </testmacro>
   </target>
 
   <target name="cql-test" depends="build-test" description="Execute CQL tests">
