@@ -18,18 +18,12 @@
 package org.apache.cassandra.service;
 
 import java.net.InetAddress;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,12 +32,9 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.epoll.Epoll;
 import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.util.concurrent.EventExecutor;
-import io.netty.util.concurrent.Future;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.metrics.AuthMetrics;
 import org.apache.cassandra.metrics.ClientMetrics;
-import org.apache.cassandra.transport.RequestThreadPoolExecutor;
+import org.apache.cassandra.transport.Message;
 import org.apache.cassandra.transport.Server;
 
 /**
@@ -58,7 +49,6 @@ public class NativeTransportService
 
     private boolean initialized = false;
     private EventLoopGroup workerGroup;
-    private EventExecutor eventExecutorGroup;
 
     /**
      * Creates netty thread pools and event loops.
@@ -68,9 +58,6 @@ public class NativeTransportService
     {
         if (initialized)
             return;
-
-        // prepare netty resources
-        eventExecutorGroup = new RequestThreadPoolExecutor();
 
         if (useEpoll())
         {
@@ -88,7 +75,6 @@ public class NativeTransportService
         InetAddress nativeAddr = DatabaseDescriptor.getRpcAddress();
 
         org.apache.cassandra.transport.Server.Builder builder = new org.apache.cassandra.transport.Server.Builder()
-                                                                .withEventExecutor(eventExecutorGroup)
                                                                 .withEventLoopGroup(workerGroup)
                                                                 .withHost(nativeAddr);
 
@@ -116,52 +102,7 @@ public class NativeTransportService
         }
 
         // register metrics
-        ClientMetrics.instance.addGauge("connectedNativeClients", () ->
-        {
-            int ret = 0;
-            for (Server server : servers)
-                ret += server.getConnectedClients();
-            return ret;
-        });
-        ClientMetrics.instance.addGauge("connectedNativeClientsByUser", () ->
-        {
-            Map<String, Integer> result = new HashMap<>();
-            for (Server server : servers)
-            {
-                for (Entry<String, Integer> e : server.getConnectedClientsByUser().entrySet())
-                {
-                    String user = e.getKey();
-                    result.put(user, result.getOrDefault(user, 0) + e.getValue());
-                }
-            }
-            return result;
-        });
-
-        ClientMetrics.instance.addGauge("connections", () ->
-        {
-            List<Map<String, String>> result = new ArrayList<>();
-            for (Server server : servers)
-            {
-                for (Map<String, String> e : server.getConnectionStates())
-                {
-                    result.add(e);
-                }
-            }
-            return result;
-        });
-
-        ClientMetrics.instance.addGauge("clientsByProtocolVersion", () ->
-        {
-            List<Map<String, String>> result = new ArrayList<>();
-            for (Server server : servers)
-            {
-                result.addAll(server.getClientsByProtocolVersion());
-            }
-            return result;
-        });
-
-        AuthMetrics.init();
-
+        ClientMetrics.instance.init(servers);
         initialized = true;
     }
 
@@ -193,8 +134,7 @@ public class NativeTransportService
         // shutdown executors used by netty for native transport server
         workerGroup.shutdownGracefully(3, 5, TimeUnit.SECONDS).awaitUninterruptibly();
 
-        // shutdownGracefully not implemented yet in RequestThreadPoolExecutor
-        eventExecutorGroup.shutdown();
+        Message.Dispatcher.shutdown();
     }
 
     /**
@@ -220,12 +160,6 @@ public class NativeTransportService
     EventLoopGroup getWorkerGroup()
     {
         return workerGroup;
-    }
-
-    @VisibleForTesting
-    EventExecutor getEventExecutor()
-    {
-        return eventExecutorGroup;
     }
 
     @VisibleForTesting

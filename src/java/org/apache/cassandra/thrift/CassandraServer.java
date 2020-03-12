@@ -2498,14 +2498,7 @@ public class CassandraServer implements Cassandra.Iface
 
     private void registerMetrics()
     {
-        ClientMetrics.instance.addGauge("connectedThriftClients", new Callable<Integer>()
-        {
-            @Override
-            public Integer call() throws Exception
-            {
-                return ThriftSessionManager.instance.getConnectedClients();
-            }
-        });
+        ClientMetrics.instance.registerGauge("connectedThriftClients", ThriftSessionManager.instance::getConnectedClients);
     }
 
     private static class ThriftCASRequest implements CASRequest

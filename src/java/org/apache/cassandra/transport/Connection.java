@@ -30,6 +30,7 @@ public class Connection
 
     private volatile FrameCompressor frameCompressor;
     private volatile boolean supportsChecksums;
+    private boolean throwOnOverload;
 
     public Connection(Channel channel, int version, Tracker tracker)
     {
@@ -58,6 +59,16 @@ public class Connection
     public boolean supportsChecksums()
     {
         return supportsChecksums;
+    }
+
+    public void setThrowOnOverload(boolean throwOnOverload)
+    {
+        this.throwOnOverload = throwOnOverload;
+    }
+
+    public boolean isThrowOnOverload()
+    {
+        return throwOnOverload;
     }
 
     public Tracker getTracker()

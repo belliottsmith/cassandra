@@ -37,8 +37,8 @@ public class MemtableMetrics
     private MemtableMetrics()
     {
 
-        lockedWrites = ClientMetrics.instance.addMeter("LockedWrites");
-        contendedWrites = ClientMetrics.instance.addMeter("ContendedWrites");
+        lockedWrites = ClientMetrics.instance.registerMeter("LockedWrites");
+        contendedWrites = ClientMetrics.instance.registerMeter("ContendedWrites");
     }
 
     public void lockedWrite()

@@ -18,39 +18,146 @@
  */
 package org.apache.cassandra.metrics;
 
-import java.util.concurrent.Callable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Meter;
+import com.codahale.metrics.Timer;
+import org.apache.cassandra.transport.Server;
 
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 
-
-public class ClientMetrics
+public final class ClientMetrics
 {
-    private static final MetricNameFactory factory = new DefaultNameFactory("Client");
-    
     public static final ClientMetrics instance = new ClientMetrics();
-    
+
+    private static final MetricNameFactory factory = new DefaultNameFactory("Client");
+
+    private volatile boolean initialized = false;
+    private Collection<Server> servers = Collections.emptyList();
+
+    private Meter authSuccess;
+    private Meter authFailure;
+
+    private AtomicInteger pausedConnections;
+    private Gauge<Integer> pausedConnectionsGauge;
+    private Meter requestDiscarded;
+
+    private Timer messageQueueLatency;
+
     private ClientMetrics()
     {
     }
 
-    public <T> void addGauge(String name, final Callable<T> provider)
+    public void markAuthSuccess()
     {
-        Metrics.register(factory.createMetricName(name), (Gauge<T>) () -> {
-            try
-            {
-                return provider.call();
-            } catch (Exception e)
-            {
-                throw new RuntimeException(e);
-            }
-        });
+        authSuccess.mark();
     }
 
-    public Meter addMeter(String name)
+    public void markAuthFailure()
+    {
+        authFailure.mark();
+    }
+
+    public void pauseConnection() { pausedConnections.incrementAndGet(); }
+    public void unpauseConnection() { pausedConnections.decrementAndGet(); }
+
+    public void markRequestDiscarded() { requestDiscarded.mark(); }
+
+    public void recordMessageQueueLatency(long latency, TimeUnit timeUnit)
+    {
+        messageQueueLatency.update(latency, timeUnit);
+    }
+
+    public synchronized void init(Collection<Server> servers)
+    {
+        if (initialized)
+            return;
+
+        this.servers = servers;
+
+        registerGauge("connectedNativeClients",       this::countConnectedClients);
+        registerGauge("connectedNativeClientsByUser", this::countConnectedClientsByUser);
+        registerGauge("connections",                  this::connectedClients);
+        registerGauge("clientsByProtocolVersion",     this::connectedClientsByProtocolVersion);
+
+        authSuccess = registerMeter("AuthSuccess");
+        authFailure = registerMeter("AuthFailure");
+
+        pausedConnections = new AtomicInteger();
+        pausedConnectionsGauge = registerGauge("PausedConnections", pausedConnections::get);
+        requestDiscarded = registerMeter("RequestDiscarded");
+
+        messageQueueLatency = registerTimer("MessageQueueLatency");
+
+        initialized = true;
+    }
+
+    private int countConnectedClients()
+    {
+        int count = 0;
+
+        for (Server server : servers)
+            count += server.getConnectedClients();
+
+        return count;
+    }
+
+    private Map<String, Integer> countConnectedClientsByUser()
+    {
+        Map<String, Integer> counts = new HashMap<>();
+
+        for (Server server : servers)
+        {
+            server.getConnectedClientsByUser()
+                  .forEach((username, count) -> counts.put(username, counts.getOrDefault(username, 0) + count));
+        }
+
+        return counts;
+    }
+
+    private List<Map<String, String>> connectedClients()
+    {
+        List<Map<String, String>> clients = new ArrayList<>();
+
+        for (Server server : servers)
+            for (Map<String, String> client : server.getConnectionStates())
+                clients.add(client);
+
+        return clients;
+    }
+
+    private List<Map<String, String>> connectedClientsByProtocolVersion()
+    {
+
+        List<Map<String, String>> result = new ArrayList<>();
+        for (Server server : servers)
+        {
+            result.addAll(server.getClientsByProtocolVersion());
+        }
+        return result;
+    }
+
+    public <T> Gauge<T> registerGauge(String name, Gauge<T> gauge)
+    {
+
+        return Metrics.register(factory.createMetricName(name), gauge);
+    }
+
+    public Meter registerMeter(String name)
     {
         return Metrics.meter(factory.createMetricName(name));
+    }
+
+    public Timer registerTimer(String name)
+    {
+        return Metrics.timer(factory.createMetricName(name));
     }
 }
