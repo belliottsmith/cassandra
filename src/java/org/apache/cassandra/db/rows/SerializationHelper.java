@@ -15,122 +15,43 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.db.rows;
 
-import java.nio.ByteBuffer;
-import java.util.*;
-
-import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
-import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.context.CounterContext;
-import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.SerializationHeader;
+import org.apache.cassandra.utils.SearchIterator;
+import org.apache.cassandra.utils.btree.BTreeSearchIterator;
 
 public class SerializationHelper
 {
-    /**
-     * Flag affecting deserialization behavior (this only affect counters in practice).
-     *  - LOCAL: for deserialization of local data (Expired columns are
-     *      converted to tombstones (to gain disk space)).
-     *  - FROM_REMOTE: for deserialization of data received from remote hosts
-     *      (Expired columns are converted to tombstone and counters have
-     *      their delta cleared)
-     *  - PRESERVE_SIZE: used when no transformation must be performed, i.e,
-     *      when we must ensure that deserializing and reserializing the
-     *      result yield the exact same bytes. Streaming uses this.
-     */
-    public enum Flag
+    public final SerializationHeader header;
+    private BTreeSearchIterator<ColumnDefinition, ColumnDefinition> statics = null;
+    private BTreeSearchIterator<ColumnDefinition, ColumnDefinition> regulars = null;
+
+    public SerializationHelper(SerializationHeader header)
     {
-        LOCAL, FROM_REMOTE, PRESERVE_SIZE
+        this.header = header;
     }
 
-    private final Flag flag;
-    public final int version;
-
-    private final ColumnFilter columnsToFetch;
-    private ColumnFilter.Tester tester;
-
-    private final Map<ByteBuffer, CFMetaData.DroppedColumn> droppedColumns;
-    private CFMetaData.DroppedColumn currentDroppedComplex;
-
-
-    public SerializationHelper(CFMetaData metadata, int version, Flag flag, ColumnFilter columnsToFetch)
+    private BTreeSearchIterator<ColumnDefinition, ColumnDefinition> statics()
     {
-        this.flag = flag;
-        this.version = version;
-        this.columnsToFetch = columnsToFetch;
-        this.droppedColumns = metadata.getDroppedColumns();
+        if (statics == null)
+            statics = header.columns().statics.iterator();
+        return statics;
     }
 
-    public SerializationHelper(CFMetaData metadata, int version, Flag flag)
+    private BTreeSearchIterator<ColumnDefinition, ColumnDefinition> regulars()
     {
-        this(metadata, version, flag, null);
+        if (regulars == null)
+            regulars = header.columns().regulars.iterator();
+        return regulars;
     }
 
-    public Columns fetchedStaticColumns(SerializationHeader header)
+    public SearchIterator<ColumnDefinition, ColumnDefinition> iterator(boolean isStatic)
     {
-        return columnsToFetch == null ? header.columns().statics : columnsToFetch.fetchedColumns().statics;
+        BTreeSearchIterator<ColumnDefinition, ColumnDefinition> iterator = isStatic ? statics() : regulars();
+        iterator.rewind();
+        return iterator;
     }
-
-    public Columns fetchedRegularColumns(SerializationHeader header)
-    {
-        return columnsToFetch == null ? header.columns().regulars : columnsToFetch.fetchedColumns().regulars;
-    }
-
-    public boolean includes(ColumnDefinition column)
-    {
-        return columnsToFetch == null || columnsToFetch.includes(column);
-    }
-
-    public boolean includes(CellPath path)
-    {
-        return path == null || tester == null || tester.includes(path);
-    }
-
-    public boolean canSkipValue(ColumnDefinition column)
-    {
-        return columnsToFetch != null && columnsToFetch.canSkipValue(column);
-    }
-
-    public boolean canSkipValue(CellPath path)
-    {
-        return path != null && tester != null && tester.canSkipValue(path);
-    }
-
-    public void startOfComplexColumn(ColumnDefinition column)
-    {
-        this.tester = columnsToFetch == null ? null : columnsToFetch.newTester(column);
-        this.currentDroppedComplex = droppedColumns.get(column.name.bytes);
-    }
-
-    public void endOfComplexColumn()
-    {
-        this.tester = null;
-    }
-
-    public boolean isDropped(Cell cell, boolean isComplex)
-    {
-        CFMetaData.DroppedColumn dropped = isComplex ? currentDroppedComplex : droppedColumns.get(cell.column().name.bytes);
-        return dropped != null && cell.timestamp() <= dropped.droppedTime;
-    }
-
-    public boolean isDroppedComplexDeletion(DeletionTime complexDeletion)
-    {
-        return currentDroppedComplex != null && complexDeletion.markedForDeleteAt() <= currentDroppedComplex.droppedTime;
-    }
-
-    public ByteBuffer maybeClearCounterValue(ByteBuffer value)
-    {
-        return flag == Flag.FROM_REMOTE || (flag == Flag.LOCAL && CounterContext.instance().shouldClearLocal(value))
-             ? CounterContext.instance().clearAllLocal(value)
-             : value;
-    }
-
-    @Override
-    public String toString()
-    {
-        return String.format("SerializationHelper[flag=%s, version=%s, columnsToFetch=%s, tester=%s, droppedColumns=%s, currentDroppedComplex=%s]",
-                flag, version, columnsToFetch, tester, droppedColumns, currentDroppedComplex);
-    }
-
 }

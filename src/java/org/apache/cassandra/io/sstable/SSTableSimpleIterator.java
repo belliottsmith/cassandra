@@ -43,16 +43,16 @@ public abstract class SSTableSimpleIterator extends AbstractIterator<Unfiltered>
 {
     protected final CFMetaData metadata;
     protected final DataInputPlus in;
-    protected final SerializationHelper helper;
+    protected final DeserializationHelper helper;
 
-    private SSTableSimpleIterator(CFMetaData metadata, DataInputPlus in, SerializationHelper helper)
+    private SSTableSimpleIterator(CFMetaData metadata, DataInputPlus in, DeserializationHelper helper)
     {
         this.metadata = metadata;
         this.in = in;
         this.helper = helper;
     }
 
-    public static SSTableSimpleIterator create(CFMetaData metadata, DataInputPlus in, SerializationHeader header, SerializationHelper helper, DeletionTime partitionDeletion)
+    public static SSTableSimpleIterator create(CFMetaData metadata, DataInputPlus in, SerializationHeader header, DeserializationHelper helper, DeletionTime partitionDeletion)
     {
         if (helper.version < MessagingService.VERSION_30)
             return new OldFormatIterator(metadata, in, helper, partitionDeletion);
@@ -68,7 +68,7 @@ public abstract class SSTableSimpleIterator extends AbstractIterator<Unfiltered>
 
         private final Row.Builder builder;
 
-        private CurrentFormatIterator(CFMetaData metadata, DataInputPlus in, SerializationHeader header, SerializationHelper helper)
+        private CurrentFormatIterator(CFMetaData metadata, DataInputPlus in, SerializationHeader header, DeserializationHelper helper)
         {
             super(metadata, in, helper);
             this.header = header;
@@ -98,7 +98,7 @@ public abstract class SSTableSimpleIterator extends AbstractIterator<Unfiltered>
     {
         private final UnfilteredDeserializer deserializer;
 
-        private OldFormatIterator(CFMetaData metadata, DataInputPlus in, SerializationHelper helper, DeletionTime partitionDeletion)
+        private OldFormatIterator(CFMetaData metadata, DataInputPlus in, DeserializationHelper helper, DeletionTime partitionDeletion)
         {
             super(metadata, in, helper);
             // We use an UnfilteredDeserializer because even though we don't need all it's fanciness, it happens to handle all

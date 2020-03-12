@@ -215,7 +215,7 @@ public class StreamReader
         private final CFMetaData metadata;
         private final DataInputPlus in;
         private final SerializationHeader header;
-        private final SerializationHelper helper;
+        private final DeserializationHelper helper;
 
         private final List<Range<Token>> ownedRanges;
         private final boolean outOfRangeTokenLogging;
@@ -244,7 +244,7 @@ public class StreamReader
                 this.in = new RewindableDataInputStreamPlus(in, INITIAL_MEM_BUFFER_SIZE, MAX_MEM_BUFFER_SIZE, bufferFile, MAX_SPILL_FILE_SIZE);
             } else
                 this.in = new DataInputPlus.DataInputStreamPlus(in);
-            this.helper = new SerializationHelper(metadata, version.correspondingMessagingVersion(), SerializationHelper.Flag.PRESERVE_SIZE);
+            this.helper = new DeserializationHelper(metadata, version.correspondingMessagingVersion(), DeserializationHelper.Flag.PRESERVE_SIZE);
             this.header = header;
             this.session = session;
             this.desc = desc;

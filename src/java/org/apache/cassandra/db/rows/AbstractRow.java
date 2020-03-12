@@ -24,6 +24,7 @@ import com.google.common.collect.Iterables;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.CollectionType;
+import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.serializers.MarshalException;
 
 /**
@@ -62,8 +63,7 @@ public abstract class AbstractRow implements Row
         deletion().digest(digest);
         primaryKeyLivenessInfo().digest(digest);
 
-        for (ColumnData cd : this)
-            cd.digest(digest);
+        apply(ColumnData::digest, digest);
     }
 
     public void validateData(CFMetaData metadata)
@@ -80,20 +80,7 @@ public abstract class AbstractRow implements Row
         if (deletion().time().localDeletionTime() < 0)
             throw new MarshalException("A local deletion time should not be negative");
 
-        for (ColumnData cd : this)
-            cd.validate();
-    }
-
-    public boolean hasInvalidDeletions()
-    {
-        if (primaryKeyLivenessInfo().isExpiring() && (primaryKeyLivenessInfo().ttl() < 0 || primaryKeyLivenessInfo().localExpirationTime() < 0))
-            return true;
-        if (!deletion().time().validate())
-            return true;
-        for (ColumnData cd : this)
-            if (cd.hasInvalidDeletions())
-                return true;
-        return false;
+        apply(cd -> cd.validate());
     }
 
     public String toString()

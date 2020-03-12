@@ -22,7 +22,6 @@ import java.nio.ByteBuffer;
 import java.util.*;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
@@ -139,15 +138,10 @@ public class SerializationHeader
     {
         this(isForSSTable,
              metadata.getKeyValidator(),
-             typesOf(metadata.clusteringColumns()),
+             metadata.comparator.subtypes(),
              columns,
              stats,
              null);
-    }
-
-    private static List<AbstractType<?>> typesOf(List<ColumnDefinition> columns)
-    {
-        return ImmutableList.copyOf(Lists.transform(columns, column -> column.type));
     }
 
     public PartitionColumns columns()
@@ -437,7 +431,7 @@ public class SerializationHeader
             EncodingStats stats = EncodingStats.serializer.deserialize(in);
 
             AbstractType<?> keyType = metadata.getKeyValidator();
-            List<AbstractType<?>> clusteringTypes = typesOf(metadata.clusteringColumns());
+            List<AbstractType<?>> clusteringTypes = metadata.comparator.subtypes();
 
             Columns statics, regulars;
             if (selection == null)

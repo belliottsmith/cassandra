@@ -25,6 +25,7 @@ import org.junit.Test;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.UnfilteredDeserializer.OldFormatDeserializer.UnfilteredIterator;
 import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.db.rows.Unfiltered;
@@ -51,7 +52,7 @@ public class OldFormatDeserializerTest
 
         UnfilteredIterator iterator = new UnfilteredIterator(metadata,
                                                              DeletionTime.LIVE,
-                                                             new SerializationHelper(metadata, MessagingService.current_version, SerializationHelper.Flag.LOCAL),
+                                                             new DeserializationHelper(metadata, MessagingService.current_version, DeserializationHelper.Flag.LOCAL),
                                                              atomSupplier);
 
         // As the deletion time are the same, we want this to produce a single range tombstone covering from 0 to 15.
@@ -93,7 +94,7 @@ public class OldFormatDeserializerTest
 
         UnfilteredIterator iterator = new UnfilteredIterator(metadata,
                                                              DeletionTime.LIVE,
-                                                             new SerializationHelper(metadata, MessagingService.current_version, SerializationHelper.Flag.LOCAL),
+                                                             new DeserializationHelper(metadata, MessagingService.current_version, DeserializationHelper.Flag.LOCAL),
                                                              atomSupplier);
 
         // We should be entirely ignoring the first tombston (shadowed by 2nd one) so we should generate

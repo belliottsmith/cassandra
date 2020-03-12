@@ -32,6 +32,7 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.RowIndexEntry;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.lifecycle.LifecycleNewTracker;
+import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -59,6 +60,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
     protected final MetadataCollector metadataCollector;
     protected final RowIndexEntry.IndexSerializer rowIndexEntrySerializer;
     protected final SerializationHeader header;
+    protected final SerializationHelper helper;
     protected final TransactionalProxy txnProxy = txnProxy();
 
     protected abstract TransactionalProxy txnProxy();
@@ -85,6 +87,7 @@ public abstract class SSTableWriter extends SSTable implements Transactional
         this.pendingRepair = pendingRepair;
         this.metadataCollector = metadataCollector;
         this.header = header != null ? header : SerializationHeader.makeWithoutStats(metadata); //null header indicates streaming from pre-3.0 sstable
+        this.helper = new SerializationHelper(this.header);
         this.rowIndexEntrySerializer = descriptor.version.getSSTableFormat().getIndexSerializer(metadata, descriptor, header);
     }
 

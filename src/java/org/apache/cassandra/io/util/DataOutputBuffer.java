@@ -26,6 +26,8 @@ import org.apache.cassandra.config.Config;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 
+import io.netty.util.concurrent.FastThreadLocal;
+
 /**
  * An implementation of the DataOutputStream interface using a FastByteArrayOutputStream and exposing
  * its buffer so copies can be avoided.
@@ -39,6 +41,38 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
      */
     static final long DOUBLING_THRESHOLD = Long.getLong(Config.PROPERTY_PREFIX + "DOB_DOUBLING_THRESHOLD_MB", 64);
 
+    /*
+     * Only recycle OutputBuffers up to 1Mb. Larger buffers will be trimmed back to this size.
+     */
+    private static final int MAX_RECYCLE_BUFFER_SIZE = Integer.getInteger(Config.PROPERTY_PREFIX + "dob_max_recycle_bytes", 1024 * 1024);
+
+    private static final int DEFAULT_INITIAL_BUFFER_SIZE = 128;
+
+    /**
+     * Scratch buffers used mostly for serializing in memory. It's important to call #recycle() when finished
+     * to keep the memory overhead from being too large in the system.
+     */
+    public static final FastThreadLocal<DataOutputBuffer> scratchBuffer = new FastThreadLocal<DataOutputBuffer>()
+    {
+        protected DataOutputBuffer initialValue() throws Exception
+        {
+            return new DataOutputBuffer()
+            {
+                public void close()
+                {
+                    if (buffer.capacity() <= MAX_RECYCLE_BUFFER_SIZE)
+                    {
+                        buffer.clear();
+                    }
+                    else
+                    {
+                        buffer = ByteBuffer.allocate(DEFAULT_INITIAL_BUFFER_SIZE);
+                    }
+                }
+            };
+        }
+    };
+
     public DataOutputBuffer()
     {
         this(128);
@@ -49,9 +83,21 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
         super(ByteBuffer.allocate(size));
     }
 
-    protected DataOutputBuffer(ByteBuffer buffer)
+    public DataOutputBuffer(ByteBuffer buffer)
     {
         super(buffer);
+    }
+
+    public void recycle()
+    {
+        if (buffer.capacity() <= MAX_RECYCLE_BUFFER_SIZE)
+        {
+            buffer.clear();
+        }
+        else
+        {
+            buffer = ByteBuffer.allocate(DEFAULT_INITIAL_BUFFER_SIZE);
+        }
     }
 
     @Override

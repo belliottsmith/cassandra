@@ -26,6 +26,7 @@ import com.google.common.base.Predicate;
 import org.junit.Assert;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Mutation;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.NIODataInputStream;
@@ -66,8 +67,8 @@ public class CommitLogTestReplayer extends CommitLogReplayer
         try
         {
             mutation = Mutation.serializer.deserialize(bufIn,
-                                                           desc.getMessagingVersion(),
-                                                           SerializationHelper.Flag.LOCAL);
+                                                       desc.getMessagingVersion(),
+                                                       DeserializationHelper.Flag.LOCAL);
             Assert.assertTrue(processor.apply(mutation));
         }
         catch (IOException e)

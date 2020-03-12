@@ -31,6 +31,9 @@ import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Test;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.Util;
 import org.apache.cassandra.UpdateBuilder;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -66,6 +69,8 @@ import static org.junit.Assert.*;
 
 public class SSTableRewriterTest extends SSTableWriterTestBase
 {
+    private static final Logger logger = LoggerFactory.getLogger(SSTableRewriterTest.class);
+
     @Test
     public void basicTest() throws InterruptedException
     {
@@ -124,9 +129,11 @@ public class SSTableRewriterTest extends SSTableWriterTestBase
              CompactionController controller = new CompactionController(cfs, sstables, cfs.gcBefore(nowInSec));
              CompactionIterator ci = new CompactionIterator(OperationType.COMPACTION, scanners.scanners, controller, nowInSec, UUIDGen.getTimeUUID()))
         {
+            int p = 0;
             writer.switchWriter(getWriter(cfs, sstables.iterator().next().descriptor.directory, txn));
             while (ci.hasNext())
             {
+                logger.info("appending {}", p++);
                 writer.append(ci.next());
             }
             writer.finish();

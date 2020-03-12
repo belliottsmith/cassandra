@@ -148,7 +148,7 @@ public class BigTableWriter extends SSTableWriter
 
         try (UnfilteredRowIterator collecting = Transformation.apply(iterator, new StatsCollector(metadataCollector)))
         {
-            ColumnIndex index = ColumnIndex.writeAndBuildIndex(collecting, dataFile, header, descriptor.version, metadata.comparator);
+            ColumnIndex index = ColumnIndex.writeAndBuildIndex(collecting, dataFile, helper, descriptor.version, metadata.comparator);
 
             RowIndexEntry entry = RowIndexEntry.create(startPosition, collecting.partitionLevelDeletion(), index);
 

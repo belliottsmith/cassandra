@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.utils;
+package org.apache.cassandra.utils.btree;
 
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
@@ -24,11 +24,14 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import org.junit.Test;
 
-import junit.framework.Assert;
-import org.apache.cassandra.utils.btree.BTree;
-import org.apache.cassandra.utils.btree.UpdateFunction;
+import org.junit.Assert;
 
+import static org.apache.cassandra.utils.btree.BTree.EMPTY_LEAF;
+import static org.apache.cassandra.utils.btree.BTree.FAN_FACTOR;
+import static org.apache.cassandra.utils.btree.BTree.FAN_SHIFT;
+import static org.apache.cassandra.utils.btree.BTree.POSITIVE_INFINITY;
 import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
 
 public class BTreeTest
 {
@@ -85,12 +88,18 @@ public class BTreeTest
         }
     };
 
-    private static List<Integer> seq(int count)
+    private static List<Integer> seq(int count, int interval)
     {
         List<Integer> r = new ArrayList<>();
         for (int i = 0 ; i < count ; i++)
-            r.add(i);
+            if (i % interval == 0)
+                r.add(i);
         return r;
+    }
+
+    private static List<Integer> seq(int count)
+    {
+        return seq(count, 1);
     }
 
     private static List<Integer> rand(int count)
@@ -130,7 +139,7 @@ public class BTreeTest
     }
 
     @Test
-    public void testApplyForwards()
+    public void testApply()
     {
         List<Integer> input = seq(71);
         Object[] btree = BTree.build(input, noOp);
@@ -139,6 +148,51 @@ public class BTreeTest
         BTree.<Integer>apply(btree, i -> result.add(i));
 
         org.junit.Assert.assertArrayEquals(input.toArray(),result.toArray());
+    }
+
+    @Test
+    public void inOrderAccumulation()
+    {
+        List<Integer> input = seq(71);
+        Object[] btree = BTree.build(input, noOp);
+        long result = BTree.<Integer>accumulate(btree, (o, l) -> {
+            Assert.assertEquals((long) o, l + 1);
+            return o;
+        }, -1);
+        Assert.assertEquals(result, 70);
+    }
+
+    @Test
+    public void accumulateFrom()
+    {
+        int limit = 100;
+        for (int interval=1; interval<=5; interval++)
+        {
+            List<Integer> input = seq(limit, interval);
+            Object[] btree = BTree.build(input, noOp);
+            for (int start=0; start<=limit; start+=interval)
+            {
+                int thisInterval = interval;
+                String errMsg = String.format("interval=%s, start=%s", interval, start);
+                long result = BTree.accumulate(btree, (o, l) -> {
+                    Assert.assertEquals(errMsg, (long) o, l + thisInterval);
+                    return o;
+                }, Comparator.naturalOrder(), start, start - thisInterval);
+                Assert.assertEquals(errMsg, result, (limit-1)/interval*interval);
+            }
+        }
+    }
+
+    /**
+     * accumulate function should not be called if we ask it to start past the end of the btree
+     */
+    @Test
+    public void accumulateFromEnd()
+    {
+        List<Integer> input = seq(100);
+        Object[] btree = BTree.build(input, noOp);
+        long result = BTree.accumulate(btree, (o, l) -> 1, Integer::compareTo, 101, 0L);
+        Assert.assertEquals(0, result);
     }
 
     /**
@@ -227,14 +281,16 @@ public class BTreeTest
                 builder.add(i);
             // for sorted input, check non-resolve path works before checking resolution path
             checkResolverOutput(count, builder.build(), BTree.Dir.ASC);
-            builder.reuse();
+            builder = BTree.builder(Comparator.naturalOrder());
+            builder.setQuickResolver(resolver);
             for (int i = 0 ; i < 10 ; i++)
             {
                 // now do a few runs of randomized inputs
                 for (Accumulator j : resolverInput(count, true))
                     builder.add(j);
                 checkResolverOutput(count, builder.build(), BTree.Dir.ASC);
-                builder.reuse();
+                builder = BTree.builder(Comparator.naturalOrder());
+                builder.setQuickResolver(resolver);
             }
             for (List<Accumulator> add : splitResolverInput(count))
             {
@@ -244,8 +300,33 @@ public class BTreeTest
                     builder.addAll(new TreeSet<>(add));
             }
             checkResolverOutput(count, builder.build(), BTree.Dir.ASC);
-            builder.reuse();
         }
+    }
+
+    @Test
+    public void testBuilderReuse()
+    {
+        List<Integer> sorted = seq(20);
+        BTree.Builder<Integer> builder = BTree.builder(Comparator.naturalOrder());
+        builder.auto(false);
+        for (int i : sorted)
+            builder.add(i);
+        checkResult(20, builder.build());
+
+        builder.reuse();
+        assertTrue(builder.build() == BTree.empty());
+        for (int i = 0; i < 12; i++)
+            builder.add(sorted.get(i));
+        checkResult(12, builder.build());
+
+        builder.auto(true);
+        builder.reuse(Comparator.reverseOrder());
+        for (int i = 0; i < 12; i++)
+            builder.add(sorted.get(i));
+        checkResult(12, builder.build(), BTree.Dir.DESC);
+
+        builder.reuse();
+        assertTrue(builder.build() == BTree.empty());
     }
 
     private static class Accumulator extends Number implements Comparable<Accumulator>
@@ -291,7 +372,14 @@ public class BTreeTest
                 builder.add(i);
             // for sorted input, check non-resolve path works before checking resolution path
             Assert.assertTrue(Iterables.elementsEqual(sorted, BTree.iterable(builder.build())));
+
+            builder = BTree.builder(Comparator.naturalOrder());
+            builder.auto(false);
+            for (Accumulator i : sorted)
+                builder.add(i);
+            // check resolution path
             checkResolverOutput(count, builder.resolve(resolver).build(), BTree.Dir.ASC);
+
             builder = BTree.builder(Comparator.naturalOrder());
             builder.auto(false);
             for (int i = 0 ; i < 10 ; i++)
@@ -300,11 +388,13 @@ public class BTreeTest
                 for (Accumulator j : resolverInput(count, true))
                     builder.add(j);
                 checkResolverOutput(count, builder.sort().resolve(resolver).build(), BTree.Dir.ASC);
-                builder.reuse();
+                builder = BTree.builder(Comparator.naturalOrder());
+                builder.auto(false);
                 for (Accumulator j : resolverInput(count, true))
                     builder.add(j);
                 checkResolverOutput(count, builder.sort().reverse().resolve(resolver).build(), BTree.Dir.DESC);
-                builder.reuse();
+                builder = BTree.builder(Comparator.naturalOrder());
+                builder.auto(false);
             }
         }
     }
@@ -363,7 +453,12 @@ public class BTreeTest
 
     private static void checkResult(int count, Object[] btree)
     {
-        Iterator<Integer> iter = BTree.slice(btree, CMP, BTree.Dir.ASC);
+        checkResult(count, btree, BTree.Dir.ASC);
+    }
+
+    private static void checkResult(int count, Object[] btree, BTree.Dir dir)
+    {
+        Iterator<Integer> iter = BTree.slice(btree, CMP, dir);
         int i = 0;
         while (iter.hasNext())
             assertEquals(iter.next(), ints[i++]);
@@ -446,5 +541,107 @@ public class BTreeTest
         {
             Arrays.fill(numberOfCalls, 0);
         }
-    };
+    }
+
+    @Test
+    public void testTransformAndFilter()
+    {
+        List<Integer> r = seq(100);
+
+        Object[] b1 = BTree.build(r, UpdateFunction.noOp());
+
+        // replace all values
+        Object[] b2 = BTree.transformAndFilter(b1, (x) -> (Integer) x * 2);
+        assertEquals(BTree.size(b1), BTree.size(b2));
+
+        // remove odd numbers
+        Object[] b3 = BTree.transformAndFilter(b1, (x) -> (Integer) x % 2 == 1 ? x : null);
+        assertEquals(BTree.size(b1) / 2, BTree.size(b3));
+
+        // remove all values
+        Object[] b4 = BTree.transformAndFilter(b1, (x) -> null);
+        assertEquals(0, BTree.size(b4));
+    }
+
+    private <C, K extends C, V extends C> Object[] buildBTreeLegacy(Iterable<K> source, UpdateFunction<K, V> updateF, int size)
+    {
+        assert updateF != null;
+        NodeBuilder current = new NodeBuilder();
+
+        while ((size >>= FAN_SHIFT) > 0)
+            current = current.ensureChild();
+
+        current.reset(EMPTY_LEAF, POSITIVE_INFINITY, updateF, null);
+        for (K key : source)
+            current.addNewKey(key);
+
+        current = current.ascendToRoot();
+
+        Object[] r = current.toNode();
+        current.clear();
+        return r;
+    }
+
+    // Basic BTree validation to check the values and sizeOffsets. Return tree size.
+    private int validateBTree(Object[] tree, int[] startingPos, boolean isRoot)
+    {
+        if (BTree.isLeaf(tree))
+        {
+            int size = BTree.size(tree);
+            if (!isRoot)
+            {
+                assertTrue(size >= FAN_FACTOR / 2);
+                assertTrue(size <= FAN_FACTOR);
+            }
+            for (int i = 0; i < size; i++)
+            {
+                assertEquals((int)tree[i], startingPos[0]);
+                startingPos[0]++;
+            }
+            return size;
+        }
+
+        int childNum = BTree.getChildCount(tree);
+        assertTrue(childNum >= FAN_FACTOR / 2);
+        assertTrue(childNum <= FAN_FACTOR + 1);
+
+        int childStart = BTree.getChildStart(tree);
+        int[] sizeOffsets = BTree.getSizeMap(tree);
+        int pos = 0;
+        for (int i = 0; i < childNum; i++)
+        {
+            int childSize = validateBTree((Object[])tree[i + childStart], startingPos, false);
+
+            pos += childSize;
+            assertEquals(sizeOffsets[i], pos);
+            if (i != childNum - 1)
+            {
+                assertEquals((int)tree[i], startingPos[0]);
+                pos++;
+                startingPos[0]++;
+            }
+
+        }
+        return BTree.size(tree);
+    }
+
+    @Test
+    public void testBuildTree()
+    {
+        int maxCount = 1000;
+
+        for (int count = 0; count < maxCount; count++)
+        {
+            List<Integer> r = seq(count);
+            Object[] b1 = BTree.build(r, UpdateFunction.noOp());
+            Object[] b2 = buildBTreeLegacy(r, UpdateFunction.noOp(), count);
+            assertTrue(BTree.equals(b1, b2));
+
+            int[] startingPos = new int[1];
+            startingPos[0] = 0;
+            assertEquals(count, validateBTree(b1, startingPos, true));
+            startingPos[0] = 0;
+            assertEquals(count, validateBTree(b2, startingPos, true));
+        }
+    }
 }

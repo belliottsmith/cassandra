@@ -75,7 +75,8 @@ class HintsWriter implements AutoCloseable
 
         CRC32 crc = new CRC32();
 
-        try (DataOutputBuffer dob = new DataOutputBuffer())
+        DataOutputBuffer dob = null;
+        try (DataOutputBuffer ignored = dob = DataOutputBuffer.scratchBuffer.get())
         {
             // write the descriptor
             descriptor.serialize(dob);

@@ -19,11 +19,17 @@
 package org.apache.cassandra.utils.btree;
 
 import java.util.*;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import com.google.common.base.Function;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Ordering;
 
+import org.apache.cassandra.utils.BiLongAccumulator;
+import org.apache.cassandra.utils.LongAccumulator;
 import org.apache.cassandra.utils.ObjectSizes;
 
 import static com.google.common.collect.Iterables.concat;
@@ -188,7 +194,8 @@ public class BTree
                     values[i] = updateF.apply(iterFunc.getNext(source, i));
                 }
             }
-            updateF.allocated(ObjectSizes.sizeOfArray(values));
+            if (updateF != UpdateFunction.<K>noOp())
+                updateF.allocated(ObjectSizes.sizeOfArray(values));
             return values;
         }
 
@@ -260,7 +267,7 @@ public class BTree
             tree1 = tree2;
             tree2 = tmp;
         }
-        return update(tree1, comparator, new BTreeSet<K>(tree2, comparator), updateF);
+        return update(tree1, comparator, new BTreeSet<>(tree2, comparator), updateF);
     }
 
     public static <V> Iterator<V> iterator(Object[] btree)
@@ -270,12 +277,14 @@ public class BTree
 
     public static <V> Iterator<V> iterator(Object[] btree, Dir dir)
     {
-        return new BTreeSearchIterator<V, V>(btree, null, dir);
+        return isLeaf(btree) ? new LeafBTreeSearchIterator<>(btree, null, dir)
+                             : new FullBTreeSearchIterator<>(btree, null, dir);
     }
 
     public static <V> Iterator<V> iterator(Object[] btree, int lb, int ub, Dir dir)
     {
-        return new BTreeSearchIterator<V, V>(btree, null, dir, lb, ub);
+        return isLeaf(btree) ? new LeafBTreeSearchIterator<>(btree, null, dir, lb, ub)
+                             : new FullBTreeSearchIterator<>(btree, null, dir, lb, ub);
     }
 
     public static <V> Iterable<V> iterable(Object[] btree)
@@ -303,7 +312,8 @@ public class BTree
      */
     public static <K, V> BTreeSearchIterator<K, V> slice(Object[] btree, Comparator<? super K> comparator, Dir dir)
     {
-        return new BTreeSearchIterator<>(btree, comparator, dir);
+        return isLeaf(btree) ? new LeafBTreeSearchIterator<>(btree, comparator, dir)
+                             : new FullBTreeSearchIterator<>(btree, comparator, dir);
     }
 
     /**
@@ -317,6 +327,20 @@ public class BTree
     public static <K, V extends K> BTreeSearchIterator<K, V> slice(Object[] btree, Comparator<? super K> comparator, K start, K end, Dir dir)
     {
         return slice(btree, comparator, start, true, end, false, dir);
+    }
+
+    /**
+     * @param btree      the tree to iterate over
+     * @param comparator the comparator that defines the ordering over the items in the tree
+     * @param startIndex      the start index of the range to return, inclusive
+     * @param endIndex        the end index of the range to return, inclusive
+     * @param dir   if false, the iterator will start at the last item and move backwards
+     * @return           an Iterator over the defined sub-range of the tree
+     */
+    public static <K, V extends K> BTreeSearchIterator<K, V> slice(Object[] btree, Comparator<? super K> comparator, int startIndex, int endIndex, Dir dir)
+    {
+        return isLeaf(btree) ? new LeafBTreeSearchIterator<>(btree, comparator, dir, startIndex, endIndex)
+                             : new FullBTreeSearchIterator<>(btree, comparator, dir, startIndex, endIndex);
     }
 
     /**
@@ -339,7 +363,8 @@ public class BTree
                                       end == null ? Integer.MAX_VALUE
                                                   : endInclusive ? floorIndex(btree, comparator, end)
                                                                  : lowerIndex(btree, comparator, end));
-        return new BTreeSearchIterator<>(btree, comparator, dir, inclusiveLowerBound, inclusiveUpperBound);
+        return isLeaf(btree) ? new LeafBTreeSearchIterator<>(btree, comparator, dir, inclusiveLowerBound, inclusiveUpperBound)
+                             : new FullBTreeSearchIterator<>(btree, comparator, dir, inclusiveLowerBound, inclusiveUpperBound);
     }
 
     /**
@@ -607,7 +632,7 @@ public class BTree
     }
 
     // returns true if the provided node is a leaf, false if it is a branch
-    static boolean isLeaf(Object[] node)
+    public static boolean isLeaf(Object[] node)
     {
         return (node.length & 1) == 1;
     }
@@ -1187,5 +1212,159 @@ public class BTree
             previous = current;
         }
         return compare(cmp, previous, max) < 0;
+    }
+
+    public static <V, A> void applyLeaf(Object[] btree, BiConsumer<A, V> function, A argument)
+    {
+        Preconditions.checkArgument(isLeaf(btree));
+        int limit = getLeafKeyEnd(btree);
+        for (int i=0; i<limit; i++)
+            function.accept(argument, (V) btree[i]);
+    }
+
+    /**
+     * Simple method to walk the btree forwards and apply a function till a stop condition is reached
+     *
+     * Private method
+     *
+     * @param btree
+     * @param function
+     */
+    public static <V, A> void apply(Object[] btree, BiConsumer<A, V> function, A argument)
+    {
+        if (isLeaf(btree))
+        {
+            applyLeaf(btree, function, argument);
+            return;
+        }
+
+        int childOffset = getChildStart(btree);
+        int limit = btree.length - 1 - childOffset;
+        for (int i = 0 ; i < limit ; i++)
+        {
+            apply((Object[]) btree[childOffset + i], function, argument);
+
+            if (i < childOffset)
+                function.accept(argument, (V) btree[i]);
+        }
+    }
+
+    /**
+     * Simple method to walk the btree forwards and apply a function till a stop condition is reached
+     *
+     * Private method
+     *
+     * @param btree
+     * @param function
+     */
+    public static <V> void apply(Object[] btree, Consumer<V> function)
+    {
+        BTree.<V, Consumer<V>>apply(btree, Consumer::accept, function);
+    }
+
+    private static <V> int find(Object[] btree, V from, Comparator<V> comparator)
+    {
+        // find the start index in iteration order
+        Preconditions.checkNotNull(comparator);
+        int keyEnd = getKeyEnd(btree);
+        return Arrays.binarySearch((V[]) btree, 0, keyEnd, from, comparator);
+    }
+
+    private static boolean isStopSentinel(long v)
+    {
+        return v == Long.MAX_VALUE;
+    }
+
+    private static <V, A> long accumulateLeaf(Object[] btree, BiLongAccumulator<A, V> accumulator, A arg, Comparator<V> comparator, V from, long initialValue)
+    {
+        Preconditions.checkArgument(isLeaf(btree));
+        long value = initialValue;
+        int limit = getLeafKeyEnd(btree);
+
+        int startIdx = 0;
+        if (from != null)
+        {
+            int i = find(btree, from, comparator);
+            boolean isExact = i >= 0;
+            startIdx = isExact ? i : (-1 - i);
+        }
+
+        for (int i = startIdx; i < limit; i++)
+        {
+            value = accumulator.apply(arg, (V) btree[i], value);
+
+            if (isStopSentinel(value))
+                break;
+        }
+        return value;
+    }
+
+    /**
+     * Walk the btree and accumulate a long value using the supplied accumulator function. Iteration will stop if the
+     * accumulator function returns the sentinel values Long.MIN_VALUE or Long.MAX_VALUE
+     *
+     * If the optional from argument is not null, iteration will start from that value (or the one after it's insertion
+     * point if an exact match isn't found)
+     */
+    public static <V, A> long accumulate(Object[] btree, BiLongAccumulator<A, V> accumulator, A arg, Comparator<V> comparator, V from, long initialValue)
+    {
+        if (isLeaf(btree))
+            return accumulateLeaf(btree, accumulator, arg, comparator, from, initialValue);
+
+        long value = initialValue;
+        int childOffset = getChildStart(btree);
+
+        int startChild = 0;
+        if (from != null)
+        {
+            int i = find(btree, from, comparator);
+            boolean isExact = i >= 0;
+
+            startChild = isExact ? i + 1 : -1 - i;
+
+            if (isExact)
+            {
+                value = accumulator.apply(arg, (V) btree[i], value);
+                if (isStopSentinel(value))
+                    return value;
+                from = null;
+            }
+        }
+
+        int limit = btree.length - 1 - childOffset;
+        for (int i=startChild; i<limit; i++)
+        {
+            value = accumulate((Object[]) btree[childOffset + i], accumulator, arg, comparator, from, value);
+
+            if (isStopSentinel(value))
+                break;
+
+            if (i < childOffset)
+            {
+                value = accumulator.apply(arg, (V) btree[i], value);
+                // stop if a sentinel stop value was returned
+                if (isStopSentinel(value))
+                    break;
+            }
+
+            if (from != null)
+                from = null;
+        }
+        return value;
+    }
+
+    public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, Comparator<V> comparator, V from, long initialValue)
+    {
+        return accumulate(btree, LongAccumulator::apply, accumulator, comparator, from, initialValue);
+    }
+
+    public static <V> long accumulate(Object[] btree, LongAccumulator<V> accumulator, long initialValue)
+    {
+        return accumulate(btree, accumulator, null, null, initialValue);
+    }
+
+    public static <V, A> long accumulate(Object[] btree, BiLongAccumulator<A, V> accumulator, A arg, long initialValue)
+    {
+        return accumulate(btree, accumulator, arg, null, null, initialValue);
     }
 }

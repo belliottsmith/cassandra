@@ -46,6 +46,7 @@ import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.ReversedType;
 import org.apache.cassandra.db.marshal.SetType;
 import org.apache.cassandra.db.partitions.*;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.db.rows.Unfiltered;
@@ -822,7 +823,7 @@ public class ReadCommandTest
                                                                                                 MessagingService.current_version,
                                                                                                 cfs.metadata,
                                                                                                 columnFilter,
-                                                                                                SerializationHelper.Flag.LOCAL));
+                                                                                                DeserializationHelper.Flag.LOCAL));
             }
         }
 

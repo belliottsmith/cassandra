@@ -53,11 +53,11 @@ public class ColumnIndex
     }
 
     public static ColumnIndex writeAndBuildIndex(UnfilteredRowIterator iterator, SequentialWriter output,
-                                                 SerializationHeader header, Version version,
+                                                 SerializationHelper helper, Version version,
                                                  ClusteringComparator comparator) throws IOException
     {
         assert !iterator.isEmpty() && version.storeRows();
-        Builder builder = new Builder(iterator, output, header, version.correspondingMessagingVersion(), comparator);
+        Builder builder = new Builder(iterator, output, helper, version.correspondingMessagingVersion(), comparator);
         return builder.build();
     }
 
@@ -75,7 +75,7 @@ public class ColumnIndex
     {
         private final UnfilteredRowIterator iterator;
         private final SequentialWriter writer;
-        private final SerializationHeader header;
+        private final SerializationHelper helper;
         private final int version;
         private final ClusteringComparator comparator;
 
@@ -96,13 +96,13 @@ public class ColumnIndex
 
         public Builder(UnfilteredRowIterator iterator,
                        SequentialWriter writer,
-                       SerializationHeader header,
+                       SerializationHelper helper,
                        int version,
                        ClusteringComparator comparator)
         {
             this.iterator = iterator;
             this.writer = writer;
-            this.header = header;
+            this.helper = helper;
             this.version = version;
             this.comparator = comparator;
             this.initialPosition = writer.position();
@@ -112,8 +112,8 @@ public class ColumnIndex
         {
             ByteBufferUtil.writeWithShortLength(iterator.partitionKey().getKey(), writer);
             DeletionTime.serializer.serialize(iterator.partitionLevelDeletion(), writer);
-            if (header.hasStatic())
-                UnfilteredSerializer.serializer.serializeStaticRow(iterator.staticRow(), header, writer, version);
+            if (helper.header.hasStatic())
+                UnfilteredSerializer.serializer.serializeStaticRow(iterator.staticRow(), helper, writer, version);
         }
 
         public ColumnIndex build() throws IOException
@@ -156,7 +156,7 @@ public class ColumnIndex
                 startPosition = pos;
             }
 
-            UnfilteredSerializer.serializer.serialize(unfiltered, header, writer, pos - previousRowStart, version);
+            UnfilteredSerializer.serializer.serialize(unfiltered, helper, writer, pos - previousRowStart, version);
             lastClustering = unfiltered.clustering();
             previousRowStart = pos;
             ++written;

@@ -26,7 +26,6 @@ import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
-import org.apache.cassandra.utils.btree.BTreeSearchIterator;
 
 import static org.apache.cassandra.utils.btree.BTree.Dir.desc;
 
@@ -136,7 +135,7 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
         final Holder current = holder();
         return new SearchIterator<Clustering, Row>()
         {
-            private final SearchIterator<Clustering, Row> rawIter = new BTreeSearchIterator<>(current.tree, metadata.comparator, desc(reversed));
+            private final SearchIterator<Clustering, Row> rawIter = BTree.slice(current.tree, metadata.comparator, desc(reversed));
             private final DeletionTime partitionDeletion = current.deletionInfo.getPartitionDeletion();
 
             public Row next(Clustering clustering)
@@ -171,7 +170,7 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
 
     public UnfilteredRowIterator unfilteredIterator()
     {
-        return unfilteredIterator(ColumnFilter.all(metadata()), Slices.ALL, false);
+        return unfilteredIterator(metadata().getAllColumnFilter(), Slices.ALL, false);
     }
 
     public UnfilteredRowIterator unfilteredIterator(ColumnFilter selection, Slices slices, boolean reversed)
@@ -199,7 +198,6 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
         Slice.Bound end = slice.end() == Slice.Bound.TOP ? null : slice.end();
         Iterator<Row> rowIter = BTree.slice(current.tree, metadata.comparator, start, true, end, true, desc(reversed));
         Iterator<RangeTombstone> deleteIter = current.deletionInfo.rangeIterator(slice, reversed);
-
         return merge(rowIter, deleteIter, selection, reversed, current, staticRow);
     }
 

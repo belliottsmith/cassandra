@@ -128,7 +128,7 @@ public class Commit
                 key = ByteBufferUtil.readWithShortLength(in);
 
             UUID ballot = UUIDSerializer.serializer.deserialize(in, version);
-            PartitionUpdate update = PartitionUpdate.serializer.deserialize(in, version, SerializationHelper.Flag.LOCAL, key);
+            PartitionUpdate update = PartitionUpdate.serializer.deserialize(in, version, DeserializationHelper.Flag.LOCAL, key);
             return new Commit(ballot, update);
         }
 

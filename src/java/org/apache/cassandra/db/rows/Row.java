@@ -18,12 +18,16 @@
 package org.apache.cassandra.db.rows;
 
 import java.util.*;
+import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.service.paxos.Commit;
+import org.apache.cassandra.utils.BiLongAccumulator;
+import org.apache.cassandra.utils.LongAccumulator;
 import org.apache.cassandra.utils.MergeIterator;
 import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTree;
@@ -267,6 +271,28 @@ public interface Row extends Unfiltered, Iterable<ColumnData>
     public long unsharedHeapSizeExcludingData();
 
     public String toString(CFMetaData metadata, boolean fullDetails);
+
+    /**
+     * Apply a function to every column in a row
+     */
+    public void apply(Consumer<ColumnData> function);
+
+    /**
+     * Apply a function to every column in a row
+     */
+    public <A> void apply(BiConsumer<A, ColumnData> function, A arg);
+
+    /**
+     * Apply an accumulation funtion to every column in a row
+     */
+
+    public long accumulate(LongAccumulator<ColumnData> accumulator, long initialValue);
+
+    public long accumulate(LongAccumulator<ColumnData> accumulator, Comparator<ColumnData> comparator, ColumnData from, long initialValue);
+
+    public <A> long accumulate(BiLongAccumulator<A, ColumnData> accumulator, A arg, long initialValue);
+
+    public <A> long accumulate(BiLongAccumulator<A, ColumnData> accumulator, A arg, Comparator<ColumnData> comparator, ColumnData from, long initialValue);
 
     /**
      * A row deletion/tombstone.

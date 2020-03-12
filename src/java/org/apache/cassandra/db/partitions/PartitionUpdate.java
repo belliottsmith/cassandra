@@ -253,7 +253,7 @@ public class PartitionUpdate extends AbstractBTreePartition
         {
             return serializer.deserialize(new DataInputBuffer(bytes, true),
                                           version,
-                                          SerializationHelper.Flag.LOCAL,
+                                          DeserializationHelper.Flag.LOCAL,
                                           version < MessagingService.VERSION_30 ? key : null);
         }
         catch (IOException e)
@@ -655,7 +655,7 @@ public class PartitionUpdate extends AbstractBTreePartition
             }
         }
 
-        public PartitionUpdate deserialize(DataInputPlus in, int version, SerializationHelper.Flag flag, ByteBuffer key) throws IOException
+        public PartitionUpdate deserialize(DataInputPlus in, int version, DeserializationHelper.Flag flag, ByteBuffer key) throws IOException
         {
             if (version >= MessagingService.VERSION_30)
             {
@@ -670,7 +670,7 @@ public class PartitionUpdate extends AbstractBTreePartition
         }
 
         // Used to share same decorated key between updates.
-        public PartitionUpdate deserialize(DataInputPlus in, int version, SerializationHelper.Flag flag, DecoratedKey key) throws IOException
+        public PartitionUpdate deserialize(DataInputPlus in, int version, DeserializationHelper.Flag flag, DecoratedKey key) throws IOException
         {
             if (version >= MessagingService.VERSION_30)
             {
@@ -683,7 +683,7 @@ public class PartitionUpdate extends AbstractBTreePartition
             }
         }
 
-        private static PartitionUpdate deserialize30(DataInputPlus in, int version, SerializationHelper.Flag flag) throws IOException
+        private static PartitionUpdate deserialize30(DataInputPlus in, int version, DeserializationHelper.Flag flag) throws IOException
         {
             CFMetaData metadata = CFMetaData.serializer.deserialize(in, version);
             UnfilteredRowIteratorSerializer.Header header = UnfilteredRowIteratorSerializer.serializer.deserializeHeader(metadata, null, in, version, flag);
@@ -717,7 +717,7 @@ public class PartitionUpdate extends AbstractBTreePartition
                                        false);
         }
 
-        private static PartitionUpdate deserializePre30(DataInputPlus in, int version, SerializationHelper.Flag flag, ByteBuffer key) throws IOException
+        private static PartitionUpdate deserializePre30(DataInputPlus in, int version, DeserializationHelper.Flag flag, ByteBuffer key) throws IOException
         {
             try (UnfilteredRowIterator iterator = LegacyLayout.deserializeLegacyPartition(in, version, flag, key))
             {

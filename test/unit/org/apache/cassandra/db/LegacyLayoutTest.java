@@ -28,6 +28,7 @@ import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.partitions.ImmutableBTreePartition;
 import org.apache.cassandra.db.rows.BufferCell;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.rows.Rows;
 import org.apache.cassandra.db.rows.SerializationHelper;
@@ -188,7 +189,7 @@ public class LegacyLayoutTest
             LegacyLayout.serializeAsLegacyPartition(null, partition, out, VERSION_21);
             try (DataInputBuffer in = new DataInputBuffer(out.buffer(), false))
             {
-                return LegacyLayout.deserializeLegacyPartition(in, VERSION_21, SerializationHelper.Flag.LOCAL, partition.partitionKey().getKey());
+                return LegacyLayout.deserializeLegacyPartition(in, VERSION_21, DeserializationHelper.Flag.LOCAL, partition.partitionKey().getKey());
             }
         }
     }
@@ -250,7 +251,7 @@ public class LegacyLayoutTest
             // we only encounter a corruption/serialization error after writing this to a 3.0 format and reading it back
             UnfilteredRowIteratorSerializer.serializer.serialize(afterRoundTripVia32, ColumnFilter.all(table), out, MessagingService.current_version);
             try (DataInputBuffer in = new DataInputBuffer(out.buffer(), false);
-                 UnfilteredRowIterator afterSerialization = UnfilteredRowIteratorSerializer.serializer.deserialize(in, MessagingService.current_version, table, ColumnFilter.all(table), SerializationHelper.Flag.LOCAL))
+                 UnfilteredRowIterator afterSerialization = UnfilteredRowIteratorSerializer.serializer.deserialize(in, MessagingService.current_version, table, ColumnFilter.all(table), DeserializationHelper.Flag.LOCAL))
             {
                 while (afterSerialization.hasNext())
                     afterSerialization.next();
@@ -286,7 +287,7 @@ public class LegacyLayoutTest
             QueryProcessor.executeInternal(String.format("ALTER TABLE \"%s\".legacy_rt_rt_dc DROP s", KEYSPACE));
             try (DataInputBuffer in = new DataInputBuffer(serialized21.buffer(), false))
             {
-                try (UnfilteredRowIterator deser21 = LegacyLayout.deserializeLegacyPartition(in, VERSION_21, SerializationHelper.Flag.LOCAL, upd.partitionKey().getKey());
+                try (UnfilteredRowIterator deser21 = LegacyLayout.deserializeLegacyPartition(in, VERSION_21, DeserializationHelper.Flag.LOCAL, upd.partitionKey().getKey());
                     RowIterator after = FilteredRows.filter(deser21, FBUtilities.nowInSeconds());)
                 {
                     while (before.hasNext() || after.hasNext())

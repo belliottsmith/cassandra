@@ -40,7 +40,7 @@ abstract class AbstractSSTableIterator implements SliceableUnfilteredRowIterator
     protected final DecoratedKey key;
     protected final DeletionTime partitionLevelDeletion;
     protected final ColumnFilter columns;
-    protected final SerializationHelper helper;
+    protected final DeserializationHelper helper;
 
     protected final Row staticRow;
     protected final Reader reader;
@@ -61,7 +61,7 @@ abstract class AbstractSSTableIterator implements SliceableUnfilteredRowIterator
         this.sstable = sstable;
         this.key = key;
         this.columns = columnFilter;
-        this.helper = new SerializationHelper(sstable.metadata, sstable.descriptor.version.correspondingMessagingVersion(), SerializationHelper.Flag.LOCAL, columnFilter);
+        this.helper = new DeserializationHelper(sstable.metadata, sstable.descriptor.version.correspondingMessagingVersion(), DeserializationHelper.Flag.LOCAL, columnFilter);
         this.isForThrift = isForThrift;
 
         if (indexEntry == null)
@@ -137,7 +137,7 @@ abstract class AbstractSSTableIterator implements SliceableUnfilteredRowIterator
 
     private static Row readStaticRow(SSTableReader sstable,
                                      FileDataInput file,
-                                     SerializationHelper helper,
+                                     DeserializationHelper helper,
                                      Columns statics,
                                      boolean isForThrift,
                                      UnfilteredDeserializer deserializer) throws IOException

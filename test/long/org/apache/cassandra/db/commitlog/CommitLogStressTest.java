@@ -53,8 +53,8 @@ import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.Row;
-import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.io.util.DataInputBuffer;
@@ -469,7 +469,7 @@ public class CommitLogStressTest
             {
                 mutation = Mutation.serializer.deserialize(bufIn,
                                                            desc.getMessagingVersion(),
-                                                           SerializationHelper.Flag.LOCAL);
+                                                           DeserializationHelper.Flag.LOCAL);
             }
             catch (IOException e)
             {

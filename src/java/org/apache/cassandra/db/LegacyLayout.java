@@ -604,7 +604,7 @@ public abstract class LegacyLayout
 
     // For the old wire format
     // Note: this can return null if an empty partition is serialized!
-    public static UnfilteredRowIterator deserializeLegacyPartition(DataInputPlus in, int version, SerializationHelper.Flag flag, ByteBuffer key) throws IOException
+    public static UnfilteredRowIterator deserializeLegacyPartition(DataInputPlus in, int version, DeserializationHelper.Flag flag, ByteBuffer key) throws IOException
     {
         assert version < MessagingService.VERSION_30;
 
@@ -617,7 +617,7 @@ public abstract class LegacyLayout
         LegacyDeletionInfo info = LegacyDeletionInfo.deserialize(metadata, in);
         int size = in.readInt();
         Iterator<LegacyCell> cells = deserializeCells(metadata, in, flag, size);
-        SerializationHelper helper = new SerializationHelper(metadata, version, flag);
+        DeserializationHelper helper = new DeserializationHelper(metadata, version, flag);
         return onWireCellstoUnfilteredRowIterator(metadata, metadata.partitioner.decorateKey(key), info, cells, false, helper);
     }
 
@@ -681,7 +681,7 @@ public abstract class LegacyLayout
                                                                 LegacyDeletionInfo delInfo,
                                                                 Iterator<LegacyCell> cells)
     {
-        SerializationHelper helper = new SerializationHelper(metadata, 0, SerializationHelper.Flag.LOCAL);
+        DeserializationHelper helper = new DeserializationHelper(metadata, 0, DeserializationHelper.Flag.LOCAL);
         return toUnfilteredRowIterator(metadata, key, delInfo, cells, false, helper);
     }
 
@@ -691,7 +691,7 @@ public abstract class LegacyLayout
                                                                            LegacyDeletionInfo delInfo,
                                                                            Iterator<LegacyCell> cells,
                                                                            boolean reversed,
-                                                                           SerializationHelper helper)
+                                                                           DeserializationHelper helper)
     {
 
         // If the table is a static compact, the "column_metadata" are now internally encoded as
@@ -716,7 +716,7 @@ public abstract class LegacyLayout
                                                                  LegacyDeletionInfo delInfo,
                                                                  Iterator<LegacyCell> cells,
                                                                  boolean reversed,
-                                                                 SerializationHelper helper)
+                                                                 DeserializationHelper helper)
     {
         // A reducer that basically does nothing, we know the 2 merged iterators can't have conflicting atoms (since we merge cells with range tombstones).
         MergeIterator.Reducer<LegacyAtom, LegacyAtom> reducer = new MergeIterator.Reducer<LegacyAtom, LegacyAtom>()
@@ -999,7 +999,7 @@ public abstract class LegacyLayout
                                             final Iterator<LegacyCell> cells,
                                             final int nowInSec)
     {
-        SerializationHelper helper = new SerializationHelper(metadata, 0, SerializationHelper.Flag.LOCAL);
+        DeserializationHelper helper = new DeserializationHelper(metadata, 0, DeserializationHelper.Flag.LOCAL);
         return UnfilteredRowIterators.filter(toUnfilteredRowIterator(metadata, key, LegacyDeletionInfo.live(), cells, false, helper), nowInSec);
     }
 
@@ -1190,7 +1190,7 @@ public abstract class LegacyLayout
             int b = in.readUnsignedByte();
             return (b & RANGE_TOMBSTONE_MASK) != 0
                    ? readLegacyRangeTombstoneBody(metadata, in, cellname)
-                   : readLegacyCellBody(metadata, in, cellname, b, SerializationHelper.Flag.LOCAL, readAllAsDynamic);
+                   : readLegacyCellBody(metadata, in, cellname, b, DeserializationHelper.Flag.LOCAL, readAllAsDynamic);
         }
         catch (UnknownColumnException e)
         {
@@ -1211,14 +1211,14 @@ public abstract class LegacyLayout
         }
     }
 
-    public static LegacyCell readLegacyCell(CFMetaData metadata, DataInput in, SerializationHelper.Flag flag) throws IOException, UnknownColumnException
+    public static LegacyCell readLegacyCell(CFMetaData metadata, DataInput in, DeserializationHelper.Flag flag) throws IOException, UnknownColumnException
     {
         ByteBuffer cellname = ByteBufferUtil.readWithShortLength(in);
         int b = in.readUnsignedByte();
         return readLegacyCellBody(metadata, in, cellname, b, flag, false);
     }
 
-    public static LegacyCell readLegacyCellBody(CFMetaData metadata, DataInput in, ByteBuffer cellname, int mask, SerializationHelper.Flag flag, boolean readAllAsDynamic)
+    public static LegacyCell readLegacyCellBody(CFMetaData metadata, DataInput in, ByteBuffer cellname, int mask, DeserializationHelper.Flag flag, boolean readAllAsDynamic)
     throws IOException, UnknownColumnException
     {
         // Note that we want to call decodeCellName only after we've deserialized other parts, since it can throw
@@ -1228,7 +1228,7 @@ public abstract class LegacyLayout
             in.readLong(); // timestampOfLastDelete: this has been unused for a long time so we ignore it
             long ts = in.readLong();
             ByteBuffer value = ByteBufferUtil.readWithLength(in);
-            if (flag == SerializationHelper.Flag.FROM_REMOTE || (flag == SerializationHelper.Flag.LOCAL && CounterContext.instance().shouldClearLocal(value)))
+            if (flag == DeserializationHelper.Flag.FROM_REMOTE || (flag == DeserializationHelper.Flag.LOCAL && CounterContext.instance().shouldClearLocal(value)))
                 value = CounterContext.instance().clearAllLocal(value);
             return new LegacyCell(LegacyCell.Kind.COUNTER, decodeCellName(metadata, cellname, readAllAsDynamic), value, ts, Cell.NO_DELETION_TIME, Cell.NO_TTL);
         }
@@ -1263,7 +1263,7 @@ public abstract class LegacyLayout
 
     public static Iterator<LegacyCell> deserializeCells(final CFMetaData metadata,
                                                         final DataInput in,
-                                                        final SerializationHelper.Flag flag,
+                                                        final DeserializationHelper.Flag flag,
                                                         final int size)
     {
         return new AbstractIterator<LegacyCell>()
@@ -1308,7 +1308,7 @@ public abstract class LegacyLayout
 
         public final CFMetaData metadata;
         private final boolean isStatic;
-        private final SerializationHelper helper;
+        private final DeserializationHelper helper;
         private final Row.Builder builder;
         private Clustering clustering;
 
@@ -1331,12 +1331,12 @@ public abstract class LegacyLayout
         private boolean hasValidCells = false;
         private LivenessInfo invalidLivenessInfo = null;
 
-        public CellGrouper(CFMetaData metadata, SerializationHelper helper)
+        public CellGrouper(CFMetaData metadata, DeserializationHelper helper)
         {
             this(metadata, helper, false);
         }
 
-        private CellGrouper(CFMetaData metadata, SerializationHelper helper, boolean isStatic)
+        private CellGrouper(CFMetaData metadata, DeserializationHelper helper, boolean isStatic)
         {
             this.metadata = metadata;
             this.isStatic = isStatic;
@@ -1347,7 +1347,7 @@ public abstract class LegacyLayout
             this.builder = BTreeRow.unsortedBuilder(FBUtilities.nowInSeconds());
         }
 
-        public static CellGrouper staticGrouper(CFMetaData metadata, SerializationHelper helper)
+        public static CellGrouper staticGrouper(CFMetaData metadata, DeserializationHelper helper)
         {
             return new CellGrouper(metadata, helper, true);
         }

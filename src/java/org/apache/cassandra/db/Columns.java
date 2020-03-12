@@ -19,6 +19,7 @@ package org.apache.cassandra.db;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.nio.ByteBuffer;
 
@@ -50,7 +51,7 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
     public static final Serializer serializer = new Serializer();
     public static final Columns NONE = new Columns(BTree.empty(), 0);
 
-    private static final ColumnDefinition FIRST_COMPLEX_STATIC =
+    public static final ColumnDefinition FIRST_COMPLEX_STATIC =
         new ColumnDefinition("",
                              "",
                              ColumnIdentifier.getInterned(ByteBufferUtil.EMPTY_BYTE_BUFFER, UTF8Type.instance),
@@ -58,7 +59,7 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
                              ColumnDefinition.NO_POSITION,
                              ColumnDefinition.Kind.STATIC);
 
-    private static final ColumnDefinition FIRST_COMPLEX_REGULAR =
+    public static final ColumnDefinition FIRST_COMPLEX_REGULAR =
         new ColumnDefinition("",
                              "",
                              ColumnIdentifier.getInterned(ByteBufferUtil.EMPTY_BYTE_BUFFER, UTF8Type.instance),
@@ -374,6 +375,15 @@ public class Columns extends AbstractCollection<ColumnDefinition> implements Col
     {
         for (ColumnDefinition c : this)
             digest.update(c.name.bytes);
+    }
+
+    /**
+     * Apply a function to each column definition in forwards or reversed order.
+     * @param function
+     */
+    public void apply(Consumer<ColumnDefinition> function)
+    {
+        BTree.apply(columns, function);
     }
 
     @Override

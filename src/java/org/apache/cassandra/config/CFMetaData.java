@@ -50,6 +50,7 @@ import org.apache.cassandra.cql3.statements.CFStatement;
 import org.apache.cassandra.cql3.statements.CreateTableStatement;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.compaction.AbstractCompactionStrategy;
+import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -153,6 +154,9 @@ public final class CFMetaData
     }
 
     public ColumnDefinition superColumnKeyColumn() { return superCfKeyColumn; }
+
+    //For hot path serialization it's often easier to store this info here
+    private volatile ColumnFilter allColumnFilter;
 
     /*
      * All of these methods will go away once CFMetaData becomes completely immutable.
@@ -387,11 +391,18 @@ public final class CFMetaData
             this.comparator = new ClusteringComparator(clusteringColumns.get(0).type);
         else
             this.comparator = new ClusteringComparator(extractTypes(clusteringColumns));
+
+        this.allColumnFilter = ColumnFilter.all(this);
     }
 
     public Indexes getIndexes()
     {
         return indexes;
+    }
+
+    public ColumnFilter getAllColumnFilter()
+    {
+        return allColumnFilter;
     }
 
     public static CFMetaData create(String ksName,

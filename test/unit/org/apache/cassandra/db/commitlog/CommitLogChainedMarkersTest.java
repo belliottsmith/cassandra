@@ -38,6 +38,7 @@ import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.BytesType;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.RebufferingInputStream;
@@ -111,8 +112,8 @@ public class CommitLogChainedMarkersTest
             try
             {
                 Mutation mutation = Mutation.serializer.deserialize(bufIn,
-                                                           desc.getMessagingVersion(),
-                                                           SerializationHelper.Flag.LOCAL);
+                                                                    desc.getMessagingVersion(),
+                                                                    DeserializationHelper.Flag.LOCAL);
 
                 if (cfm == null || mutation.get(cfm) != null)
                     count++;

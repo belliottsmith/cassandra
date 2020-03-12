@@ -30,6 +30,7 @@ import static org.apache.cassandra.utils.btree.BTree.findIndex;
 import static org.apache.cassandra.utils.btree.BTree.lower;
 import static org.apache.cassandra.utils.btree.BTree.toArray;
 
+
 public class BTreeSet<V> implements NavigableSet<V>, List<V>
 {
     protected final Comparator<? super V> comparator;
@@ -364,7 +365,7 @@ public class BTreeSet<V> implements NavigableSet<V>, List<V>
         @Override
         protected BTreeSearchIterator<V, V> slice(Dir dir)
         {
-            return new BTreeSearchIterator<>(tree, comparator, dir, lowerBound, upperBound);
+            return BTree.slice(tree, comparator, lowerBound, upperBound, dir);
         }
 
         @Override

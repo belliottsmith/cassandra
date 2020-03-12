@@ -176,7 +176,7 @@ public abstract class ReadResponse
     {
         private LocalDataResponse(UnfilteredPartitionIterator iter, ReadCommand command)
         {
-            super(command, build(iter, command.columnFilter()), SerializationHelper.Flag.LOCAL);
+            super(command, build(iter, command.columnFilter()), DeserializationHelper.Flag.LOCAL);
         }
 
         private static ByteBuffer build(UnfilteredPartitionIterator iter, ColumnFilter selection)
@@ -199,7 +199,7 @@ public abstract class ReadResponse
     {
         protected RemoteDataResponse(ByteBuffer data)
         {
-            super(null, data, SerializationHelper.Flag.FROM_REMOTE);
+            super(null, data, DeserializationHelper.Flag.FROM_REMOTE);
         }
     }
 
@@ -208,9 +208,9 @@ public abstract class ReadResponse
         // TODO: can the digest be calculated over the raw bytes now?
         // The response, serialized in the current messaging version
         private final ByteBuffer data;
-        private final SerializationHelper.Flag flag;
+        private final DeserializationHelper.Flag flag;
 
-        protected DataResponse(ReadCommand command, ByteBuffer data, SerializationHelper.Flag flag)
+        protected DataResponse(ReadCommand command, ByteBuffer data, DeserializationHelper.Flag flag)
         {
             super(command);
             this.data = data;
@@ -406,7 +406,7 @@ public abstract class ReadResponse
 
                 // ReadResponses from older versions are always single-partition (ranges are handled by RangeSliceReply)
                 ByteBuffer key = ByteBufferUtil.readWithShortLength(in);
-                try (UnfilteredRowIterator rowIterator = LegacyLayout.deserializeLegacyPartition(in, version, SerializationHelper.Flag.FROM_REMOTE, key))
+                try (UnfilteredRowIterator rowIterator = LegacyLayout.deserializeLegacyPartition(in, version, DeserializationHelper.Flag.FROM_REMOTE, key))
                 {
                     if (rowIterator == null)
                         return new LegacyRemoteDataResponse(Collections.emptyList());
@@ -513,7 +513,7 @@ public abstract class ReadResponse
             for (int i = 0; i < partitionCount; i++)
             {
                 ByteBuffer key = ByteBufferUtil.readWithShortLength(in);
-                try (UnfilteredRowIterator partition = LegacyLayout.deserializeLegacyPartition(in, version, SerializationHelper.Flag.FROM_REMOTE, key))
+                try (UnfilteredRowIterator partition = LegacyLayout.deserializeLegacyPartition(in, version, DeserializationHelper.Flag.FROM_REMOTE, key))
                 {
                     partitions.add(ImmutableBTreePartition.create(partition));
                 }

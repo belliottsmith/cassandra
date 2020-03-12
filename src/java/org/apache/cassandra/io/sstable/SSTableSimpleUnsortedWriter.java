@@ -27,10 +27,12 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Throwables;
 
+import com.datastax.shaded.netty.util.concurrent.FastThreadLocalThread;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.EncodingStats;
+import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.db.rows.UnfilteredSerializer;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.utils.JVMStabilityInspector;
@@ -55,6 +57,7 @@ class SSTableSimpleUnsortedWriter extends AbstractSSTableSimpleWriter
 
     // Used to compute the row serialized size
     private final SerializationHeader header;
+    private final SerializationHelper helper;
 
     private final BlockingQueue<Buffer> writeQueue = new SynchronousQueue<Buffer>();
     private final DiskWriter diskWriter = new DiskWriter();
@@ -64,6 +67,7 @@ class SSTableSimpleUnsortedWriter extends AbstractSSTableSimpleWriter
         super(directory, metadata, columns);
         this.bufferSize = bufferSizeInMB * 1024L * 1024L;
         this.header = new SerializationHeader(true, metadata, columns, EncodingStats.NO_STATS);
+        this.helper = new SerializationHelper(this.header);
         diskWriter.start();
     }
 
@@ -89,7 +93,7 @@ class SSTableSimpleUnsortedWriter extends AbstractSSTableSimpleWriter
         // improve that. In particular, what we count is closer to the serialized value, but it's debatable that it's the right thing
         // to count since it will take a lot more space in memory and the bufferSize if first and foremost used to avoid OOM when
         // using this writer.
-        currentSize += UnfilteredSerializer.serializer.serializedSize(row, header, 0, formatType.info.getLatestVersion().correspondingMessagingVersion());
+        currentSize += UnfilteredSerializer.serializer.serializedSize(row, helper, 0, formatType.info.getLatestVersion().correspondingMessagingVersion());
     }
 
     private void maybeSync() throws SyncException
@@ -189,7 +193,7 @@ class SSTableSimpleUnsortedWriter extends AbstractSSTableSimpleWriter
     //// typedef
     static class Buffer extends TreeMap<DecoratedKey, PartitionUpdate> {}
 
-    private class DiskWriter extends Thread
+    private class DiskWriter extends FastThreadLocalThread
     {
         volatile Throwable exception = null;
 

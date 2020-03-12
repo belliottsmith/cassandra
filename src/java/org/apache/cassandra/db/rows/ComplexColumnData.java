@@ -31,6 +31,8 @@ import org.apache.cassandra.db.Digest;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.ByteType;
 import org.apache.cassandra.db.marshal.SetType;
+import org.apache.cassandra.utils.BiLongAccumulator;
+import org.apache.cassandra.utils.LongAccumulator;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.btree.BTree;
 
@@ -57,11 +59,6 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
         assert cells.length > 0 || !complexDeletion.isLive();
         this.cells = cells;
         this.complexDeletion = complexDeletion;
-    }
-
-    public boolean hasCells()
-    {
-        return !BTree.isEmpty(cells);
     }
 
     public int cellsCount()
@@ -103,6 +100,16 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
     public Iterator<Cell> reverseIterator()
     {
         return BTree.iterator(cells, BTree.Dir.DESC);
+    }
+
+    public long accumulate(LongAccumulator<Cell> accumulator, long initialValue)
+    {
+        return BTree.accumulate(cells, accumulator, initialValue);
+    }
+
+    public <A> long accumulate(BiLongAccumulator<A, Cell> accumulator, A arg, long initialValue)
+    {
+        return BTree.accumulate(cells, accumulator, arg, initialValue);
     }
 
     public int dataSize()

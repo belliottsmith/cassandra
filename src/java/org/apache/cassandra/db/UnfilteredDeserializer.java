@@ -43,11 +43,11 @@ public abstract class UnfilteredDeserializer
 {
     protected final CFMetaData metadata;
     protected final DataInputPlus in;
-    protected final SerializationHelper helper;
+    protected final DeserializationHelper helper;
 
     protected UnfilteredDeserializer(CFMetaData metadata,
                                      DataInputPlus in,
-                                     SerializationHelper helper)
+                                     DeserializationHelper helper)
     {
         this.metadata = metadata;
         this.in = in;
@@ -57,7 +57,7 @@ public abstract class UnfilteredDeserializer
     public static UnfilteredDeserializer create(CFMetaData metadata,
                                                 DataInputPlus in,
                                                 SerializationHeader header,
-                                                SerializationHelper helper,
+                                                DeserializationHelper helper,
                                                 DeletionTime partitionDeletion,
                                                 boolean readAllAsDynamic)
     {
@@ -135,7 +135,7 @@ public abstract class UnfilteredDeserializer
         private CurrentDeserializer(CFMetaData metadata,
                                     DataInputPlus in,
                                     SerializationHeader header,
-                                    SerializationHelper helper)
+                                    DeserializationHelper helper)
         {
             super(metadata, in, helper);
             this.header = header;
@@ -274,7 +274,7 @@ public abstract class UnfilteredDeserializer
 
         private OldFormatDeserializer(CFMetaData metadata,
                                       DataInputPlus in,
-                                      SerializationHelper helper,
+                                      DeserializationHelper helper,
                                       DeletionTime partitionDeletion,
                                       boolean readAllAsDynamic)
         {
@@ -471,13 +471,13 @@ public abstract class UnfilteredDeserializer
             private final LegacyLayout.CellGrouper grouper;
             private final TombstoneTracker tombstoneTracker;
             private final CFMetaData metadata;
-            private final SerializationHelper helper;
+            private final DeserializationHelper helper;
 
             private Unfiltered next;
 
             UnfilteredIterator(CFMetaData metadata,
                                DeletionTime partitionDeletion,
-                               SerializationHelper helper,
+                               DeserializationHelper helper,
                                Supplier<LegacyLayout.LegacyAtom> atomReader)
             {
                 this.metadata = metadata;

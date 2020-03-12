@@ -43,6 +43,7 @@ import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.SerializationHelper;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -623,7 +624,7 @@ public class CommitLogReplayer
         {
             mutation = Mutation.serializer.deserialize(bufIn,
                                                        desc.getMessagingVersion(),
-                                                       SerializationHelper.Flag.LOCAL);
+                                                       DeserializationHelper.Flag.LOCAL);
             // doublecheck that what we read is [still] valid for the current schema
             for (PartitionUpdate upd : mutation.getPartitionUpdates())
                 upd.validate();
