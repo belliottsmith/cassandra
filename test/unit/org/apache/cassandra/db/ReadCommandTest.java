@@ -98,6 +98,8 @@ public class ReadCommandTest
         }
     }
 
+    private static final int lastRepairTime = FBUtilities.nowInSeconds();
+
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
@@ -509,6 +511,7 @@ public class ReadCommandTest
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
         ReadCommand partitionRead = Util.cmd(cfs, Util.dk("key")).build();
         fullyPurgedPartitionCreatesEmptyDigest(cfs, partitionRead);
+        runWithXmasPatchEnabled(cfs, () -> fullyPurgedPartitionCreatesEmptyDigest(cfs, partitionRead));
     }
 
     @Test
@@ -517,6 +520,7 @@ public class ReadCommandTest
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
         ReadCommand rangeRead = Util.cmd(cfs).build();
         fullyPurgedPartitionCreatesEmptyDigest(cfs, rangeRead);
+        runWithXmasPatchEnabled(cfs, () -> fullyPurgedPartitionCreatesEmptyDigest(cfs, rangeRead));
     }
 
     /**
@@ -526,7 +530,7 @@ public class ReadCommandTest
      * the row deletion is eligible for purging, both the result set and the repaired data digest should
      * be empty.
      */
-    private void fullyPurgedPartitionCreatesEmptyDigest(ColumnFamilyStore cfs, ReadCommand command) throws Exception
+    private void fullyPurgedPartitionCreatesEmptyDigest(ColumnFamilyStore cfs, ReadCommand command)
     {
         cfs.truncateBlocking();
         cfs.disableAutoCompaction();
@@ -535,7 +539,7 @@ public class ReadCommandTest
                                        .build());
 
         // Partition with a single, fully deleted row
-        RowUpdateBuilder.deleteRow(cfs.metadata, 0, ByteBufferUtil.bytes("key"), "cc").apply();
+        RowUpdateBuilder.deleteRowAt(cfs.metadata, 0, lastRepairTime - 1, ByteBufferUtil.bytes("key"), "cc").apply();
         cfs.forceBlockingFlush();
         cfs.getLiveSSTables().forEach(sstable -> mutateRepaired(cfs, sstable, 111, null));
 
@@ -576,6 +580,12 @@ public class ReadCommandTest
     public void mixedPurgedAndNonPurgedPartitions()
     {
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
+        testPurgedAndNonPurgedPartitions(cfs);
+        runWithXmasPatchEnabled(cfs, () -> testPurgedAndNonPurgedPartitions(cfs));
+    }
+
+    private void testPurgedAndNonPurgedPartitions(ColumnFamilyStore cfs)
+    {
         cfs.truncateBlocking();
         cfs.disableAutoCompaction();
         cfs.metadata.params(TableParams.builder(cfs.metadata.params)
@@ -589,7 +599,7 @@ public class ReadCommandTest
         cfs.forceBlockingFlush();
         cfs.getLiveSSTables().forEach(sstable -> mutateRepaired(cfs, sstable, 111, null));
         // Fully deleted partition in an unrepaired sstable, so not included in the intial digest
-        RowUpdateBuilder.deleteRow(cfs.metadata, 0, ByteBufferUtil.bytes("key-1"), "cc").apply();
+        RowUpdateBuilder.deleteRowAt(cfs.metadata, 0, lastRepairTime - 1, ByteBufferUtil.bytes("key-1"), "cc").apply();
         cfs.forceBlockingFlush();
 
         command.trackRepairedStatus();
@@ -614,11 +624,17 @@ public class ReadCommandTest
     @Test
     public void purgingConsidersRepairedDataOnly() throws Exception
     {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
+        purgingConsidersRepairedDataOnly(cfs);
+        runWithXmasPatchEnabled(cfs, () -> purgingConsidersRepairedDataOnly(cfs));
+    }
+
+    private void purgingConsidersRepairedDataOnly(ColumnFamilyStore cfs)
+    {
         // 2 sstables, first is repaired and contains data that is all purgeable
         // the second is unrepaired and contains non-purgable data. Even though
         // the partition itself is not fully purged, the repaired data digest
         // should be empty as there was no non-purgeable, repaired data read.
-        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
         cfs.truncateBlocking();
         cfs.disableAutoCompaction();
         cfs.metadata.params(TableParams.builder(cfs.metadata.params)
@@ -627,7 +643,7 @@ public class ReadCommandTest
 
         // Partition with a single, fully deleted row which will be fully purged
         DecoratedKey key = Util.dk("key");
-        RowUpdateBuilder.deleteRow(cfs.metadata, 0, key, "cc").apply();
+        RowUpdateBuilder.deleteRowAt(cfs.metadata, 0, lastRepairTime - 1, key, "cc").apply();
         cfs.forceBlockingFlush();
         cfs.getLiveSSTables().forEach(sstable -> mutateRepaired(cfs, sstable, 111, null));
 
@@ -689,6 +705,46 @@ public class ReadCommandTest
         withRepairedInfo.trackRepairedStatus();
         Util.getAll(withRepairedInfo);
         assertEquals(cacheHits, cfs.metric.rowCacheHit.getCount());
+    }
+
+    @Test
+    public void testRepairedDataTrackingWithPartitionDeletions()
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF2);
+        testRepairedDataTrackingWithPartitionDeletions(cfs);
+        runWithXmasPatchEnabled(cfs, () -> testRepairedDataTrackingWithPartitionDeletions(cfs));
+    }
+
+    private void testRepairedDataTrackingWithPartitionDeletions(ColumnFamilyStore cfs)
+    {
+        cfs.truncateBlocking();
+        cfs.disableAutoCompaction();
+        cfs.metadata.params(TableParams.builder(cfs.metadata.params)
+                                       .caching(CachingParams.CACHE_EVERYTHING)
+                                       .build());
+
+        int nowInSec = FBUtilities.nowInSeconds();
+        new Mutation(PartitionUpdate.fullPartitionDelete(cfs.metadata,
+                                            ByteBufferUtil.bytes("key"),
+                                            FBUtilities.timestampMicros(),
+                                            nowInSec)).apply();
+        cfs.forceBlockingFlush();
+        cfs.getLiveSSTables().forEach(sstable -> mutateRepaired(cfs, sstable, 111, null));
+
+        // Single partition read
+        ReadCommand cmd = Util.cmd(cfs, Util.dk("key")).build();
+        cmd.trackRepairedStatus();
+        Partition partition = Util.getOnlyPartitionUnfiltered(cmd);
+        try (UnfilteredRowIterator rows = partition.unfilteredIterator())
+        {
+            Util.consume(rows);
+        }
+
+        // Range read
+        cmd = Util.cmd(cfs).build();
+        cmd.trackRepairedStatus();
+        List<FilteredPartition> partitions = Util.getAll(cmd);
+        partitions.forEach(p -> p.forEach(u -> {}));
     }
 
     /**
@@ -970,4 +1026,17 @@ public class ReadCommandTest
         return digests.iterator().next();
     }
 
+    private void runWithXmasPatchEnabled(ColumnFamilyStore cfs, Runnable test)
+    {
+        boolean enabled = DatabaseDescriptor.enableChristmasPatch();
+        DatabaseDescriptor.setChristmasPatchEnabled();
+        cfs.clearLastSucessfulRepairUnsafe();
+        cfs.skipRFCheckForXmasPatch();
+        Map<Range<Token>, Integer> repairs = new HashMap<>();
+        repairs.put(new Range<Token>(cfs.getPartitioner().getMinimumToken(), cfs.getPartitioner().getMinimumToken()),
+                    lastRepairTime);
+        cfs.setLastSuccessfulRepairs(repairs, new ArrayList<>());
+        test.run();
+        DatabaseDescriptor.setChristmasPatchEnabled(enabled);
+    }
 }
