@@ -71,12 +71,38 @@ public class SizeEstimatesRecorder extends MigrationListener implements Runnable
 
         for (Keyspace keyspace : Keyspace.nonLocalStrategy())
         {
-            Collection<Range<Token>> localRanges = StorageService.instance.getPrimaryRangesForEndpoint(keyspace.getName(),
-                    FBUtilities.getBroadcastAddress());
+            // In tools the call to describe_splits_ex() used to be coupled with the call to describe_local_ring() so
+            // most access was for the local primary range; after creating the size_estimates table this was changed
+            // to be the primary range.
+            // In a multi-dc setup its not uncommon for the local ring to be offset by 1 for the next DC; example:
+            // DC1: [0, 10, 20, 30]
+            // DC2: [1, 11, 21, 31]
+            // DC3: [2, 12, 22, 32]
+            // When working with the primary ring we have:
+            // [0, 1, 2, 10, 11, 12, 20, 21, 22, 30, 31, 32]
+            // this then leads to primrary ranges with one token in it, which cause the estimates to be less useful.
+            // Since the primary range was already released it would be a breaking change to switch back to local
+            // prirmary range, so in stead this logic chooses to publish both the primary and local primary ranges
+            // but to different tables.
+            Collection<Range<Token>> primaryRanges = StorageService.instance.getPrimaryRanges(keyspace.getName());
+            Collection<Range<Token>> localPrimaryRanges = StorageService.instance.getLocalPrimaryRange();
+            boolean rangesAreEqual = primaryRanges.equals(localPrimaryRanges);
             for (ColumnFamilyStore table : keyspace.getColumnFamilyStores())
             {
                 long start = System.nanoTime();
-                recordSizeEstimates(table, localRanges);
+
+                // compute estimates for primary ranges for backwards compatability
+                Map<Range<Token>, Pair<Long, Long>> estimates = computeSizeEstimates(table, primaryRanges);
+                SystemKeyspace.updateSizeEstimates(table.metadata.ksName, table.metadata.cfName, estimates);
+                SystemKeyspace.updateTableEstimates(table.metadata.ksName, table.metadata.cfName, "primary", estimates);
+
+                if (!rangesAreEqual)
+                {
+                    // compute estimate for local primary range
+                    estimates = computeSizeEstimates(table, localPrimaryRanges);
+                }
+                SystemKeyspace.updateTableEstimates(table.metadata.ksName, table.metadata.cfName, "local_primary", estimates);
+
                 long passed = System.nanoTime() - start;
                 logger.trace("Spent {} milliseconds on estimating {}.{} size",
                              TimeUnit.NANOSECONDS.toMillis(passed),
@@ -86,14 +112,13 @@ public class SizeEstimatesRecorder extends MigrationListener implements Runnable
         }
     }
 
-    @SuppressWarnings("resource")
-    private void recordSizeEstimates(ColumnFamilyStore table, Collection<Range<Token>> localRanges)
+    private static Map<Range<Token>, Pair<Long, Long>> computeSizeEstimates(ColumnFamilyStore table, Collection<Range<Token>> ranges)
     {
         // for each local primary range, estimate (crudely) mean partition size and partitions count.
-        Map<Range<Token>, Pair<Long, Long>> estimates = new HashMap<>(localRanges.size());
-        for (Range<Token> localRange : localRanges)
+        Map<Range<Token>, Pair<Long, Long>> estimates = new HashMap<>(ranges.size());
+        for (Range<Token> range : ranges)
         {
-            for (Range<Token> unwrappedRange : localRange.unwrap())
+            for (Range<Token> unwrappedRange : range.unwrap())
             {
                 // filter sstables that have partitions in this range.
                 Refs<SSTableReader> refs = null;
@@ -123,12 +148,10 @@ public class SizeEstimatesRecorder extends MigrationListener implements Runnable
                 estimates.put(unwrappedRange, Pair.create(partitionsCount, meanPartitionSize));
             }
         }
-
-        // atomically update the estimates.
-        SystemKeyspace.updateSizeEstimates(table.metadata.ksName, table.metadata.cfName, estimates);
+        return estimates;
     }
 
-    private long estimatePartitionsCount(Collection<SSTableReader> sstables, Range<Token> range)
+    private static long estimatePartitionsCount(Collection<SSTableReader> sstables, Range<Token> range)
     {
         long count = 0;
         for (SSTableReader sstable : sstables)
@@ -136,7 +159,7 @@ public class SizeEstimatesRecorder extends MigrationListener implements Runnable
         return count;
     }
 
-    private long estimateMeanPartitionSize(Collection<SSTableReader> sstables)
+    private static long estimateMeanPartitionSize(Collection<SSTableReader> sstables)
     {
         long sum = 0, count = 0;
         for (SSTableReader sstable : sstables)
@@ -151,6 +174,6 @@ public class SizeEstimatesRecorder extends MigrationListener implements Runnable
     @Override
     public void onDropColumnFamily(String keyspace, String table)
     {
-        SystemKeyspace.clearSizeEstimates(keyspace, table);
+        SystemKeyspace.clearEstimates(keyspace, table);
     }
 }

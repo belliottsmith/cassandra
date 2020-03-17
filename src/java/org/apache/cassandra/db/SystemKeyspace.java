@@ -103,7 +103,7 @@ public final class SystemKeyspace
     public static final String RANGE_XFERS = "range_xfers";
     public static final String COMPACTION_HISTORY = "compaction_history";
     public static final String SSTABLE_ACTIVITY = "sstable_activity";
-    public static final String SIZE_ESTIMATES = "size_estimates";
+    public static final String TABLE_ESTIMATES = "table_estimates";
     public static final String AVAILABLE_RANGES = "available_ranges";
     public static final String VIEWS_BUILDS_IN_PROGRESS = "views_builds_in_progress";
     public static final String BUILT_VIEWS = "built_views";
@@ -121,10 +121,11 @@ public final class SystemKeyspace
     @Deprecated public static final String LEGACY_FUNCTIONS = "schema_functions";
     @Deprecated public static final String LEGACY_AGGREGATES = "schema_aggregates";
     @Deprecated public static final String LEGACY_COMPACTION_LOG = "compactions_in_progress";
+    @Deprecated public static final String LEGACY_SIZE_ESTIMATES = "size_estimates";
 
     public static final List<String> ALL = ImmutableList.of(AVAILABLE_RANGES, BATCHES, BUILT_INDEXES, BUILT_VIEWS, COMPACTION_HISTORY, LOCAL,
-            PAXOS, PEERS, PEER_EVENTS, RANGE_XFERS, SIZE_ESTIMATES, REPAIRS, REPAIR_HISTORY_CF, REPAIR_HISTORY_INVALIDATION_CF, SSTABLE_ACTIVITY, VIEWS_BUILDS_IN_PROGRESS, SCHEDULED_COMPACTIONS_CF,
-            LEGACY_AGGREGATES, LEGACY_BATCHLOG, LEGACY_COLUMNFAMILIES, LEGACY_COLUMNS, LEGACY_FUNCTIONS, LEGACY_HINTS, LEGACY_KEYSPACES, LEGACY_TRIGGERS, LEGACY_USERTYPES, LEGACY_COMPACTION_LOG);
+            PAXOS, PEERS, PEER_EVENTS, RANGE_XFERS, TABLE_ESTIMATES, REPAIRS, REPAIR_HISTORY_CF, REPAIR_HISTORY_INVALIDATION_CF, SSTABLE_ACTIVITY, VIEWS_BUILDS_IN_PROGRESS, SCHEDULED_COMPACTIONS_CF,
+            LEGACY_AGGREGATES, LEGACY_BATCHLOG, LEGACY_COLUMNFAMILIES, LEGACY_COLUMNS, LEGACY_FUNCTIONS, LEGACY_HINTS, LEGACY_KEYSPACES, LEGACY_TRIGGERS, LEGACY_USERTYPES, LEGACY_COMPACTION_LOG, LEGACY_SIZE_ESTIMATES);
 
     public static final CFMetaData Batches =
         compile(BATCHES,
@@ -244,8 +245,8 @@ public final class SystemKeyspace
                 + "PRIMARY KEY ((keyspace_name, columnfamily_name, generation)))");
 
     private static final CFMetaData SizeEstimates =
-        compile(SIZE_ESTIMATES,
-                "per-table primary range size estimates",
+        compile(LEGACY_SIZE_ESTIMATES,
+                "per-table primary range size estimates, table is deprecated in favor of " + TABLE_ESTIMATES,
                 "CREATE TABLE %s ("
                 + "keyspace_name text,"
                 + "table_name text,"
@@ -255,6 +256,20 @@ public final class SystemKeyspace
                 + "partitions_count bigint,"
                 + "PRIMARY KEY ((keyspace_name), table_name, range_start, range_end))")
                 .gcGraceSeconds(0);
+
+    private static final CFMetaData TableEstimates =
+        compile(TABLE_ESTIMATES,
+                "per-table range size estimates",
+                "CREATE TABLE %s ("
+                + "keyspace_name text,"
+                + "table_name text,"
+                + "range_type text,"
+                + "range_start text,"
+                + "range_end text,"
+                + "mean_partition_size bigint,"
+                + "partitions_count bigint,"
+                + "PRIMARY KEY ((keyspace_name), table_name, range_type, range_start, range_end))")
+        .gcGraceSeconds(0);
 
     private static final CFMetaData AvailableRanges =
         compile(AVAILABLE_RANGES,
@@ -505,6 +520,7 @@ public final class SystemKeyspace
                          CompactionHistory,
                          SSTableActivity,
                          SizeEstimates,
+                         TableEstimates,
                          AvailableRanges,
                          ViewsBuildsInProgress,
                          BuiltViews,
@@ -1413,20 +1429,54 @@ public final class SystemKeyspace
     }
 
     /**
+     * Writes the current partition count and size estimates into table_estimates
+     */
+    public static void updateTableEstimates(String keyspace, String table, String type, Map<Range<Token>, Pair<Long, Long>> estimates)
+    {
+        long timestamp = FBUtilities.timestampMicros();
+        int nowInSec = FBUtilities.nowInSeconds();
+        PartitionUpdate update = new PartitionUpdate(TableEstimates, UTF8Type.instance.decompose(keyspace), TableEstimates.partitionColumns(), estimates.size());
+
+        // delete all previous values with a single range tombstone.
+        update.add(new RangeTombstone(Slice.make(TableEstimates.comparator, table, type), new DeletionTime(timestamp - 1, nowInSec)));
+
+        // add a CQL row for each primary token range.
+        Mutation mutation = new Mutation(update);
+        for (Map.Entry<Range<Token>, Pair<Long, Long>> entry : estimates.entrySet())
+        {
+            Range<Token> range = entry.getKey();
+            Pair<Long, Long> values = entry.getValue();
+            new RowUpdateBuilder(TableEstimates, timestamp, mutation)
+                .clustering(table, type, range.left.toString(), range.right.toString())
+                .add("partitions_count", values.left)
+                .add("mean_partition_size", values.right)
+                .build();
+        }
+
+        mutation.apply();
+    }
+
+    /**
      * Clears size estimates for a table (on table drop)
      */
-    public static void clearSizeEstimates(String keyspace, String table)
+    public static void clearEstimates(String keyspace, String table)
     {
-        String cql = String.format("DELETE FROM %s.%s WHERE keyspace_name = ? AND table_name = ?", NAME, SIZE_ESTIMATES);
+        String cqlFormat = "DELETE FROM %s.%s WHERE keyspace_name = ? AND table_name = ?";
+        String cql = String.format(cqlFormat, NAME, LEGACY_SIZE_ESTIMATES);
+        executeInternal(cql, keyspace, table);
+        cql = String.format(cqlFormat, NAME, TABLE_ESTIMATES);
         executeInternal(cql, keyspace, table);
     }
 
     /**
      * Clears size estimates for a keyspace (used to manually clean when we miss a keyspace drop)
      */
-    public static void clearSizeEstimates(String keyspace)
+    public static void clearEstimates(String keyspace)
     {
-        String cql = String.format("DELETE FROM %s.%s WHERE keyspace_name = ?", NAME, SIZE_ESTIMATES);
+        String cqlFormat = "DELETE FROM %s.%s WHERE keyspace_name = ?";
+        String cql = String.format(cqlFormat, NAME, LEGACY_SIZE_ESTIMATES);
+        executeInternal(cql, keyspace);
+        cql = String.format(cqlFormat, NAME, TABLE_ESTIMATES);
         executeInternal(cql, keyspace);
     }
 
@@ -1437,7 +1487,7 @@ public final class SystemKeyspace
     public static synchronized SetMultimap<String, String> getTablesWithSizeEstimates()
     {
         SetMultimap<String, String> keyspaceTableMap = HashMultimap.create();
-        String cql = String.format("SELECT keyspace_name, table_name FROM %s.%s", NAME, SIZE_ESTIMATES);
+        String cql = String.format("SELECT keyspace_name, table_name FROM %s.%s", NAME, TABLE_ESTIMATES);
         UntypedResultSet rs = executeInternal(cql);
         for (UntypedResultSet.Row row : rs)
         {

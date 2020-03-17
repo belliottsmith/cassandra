@@ -3348,14 +3348,14 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             String keyspace = tablesByKeyspace.getKey();
             if (!Schema.instance.getKeyspaces().contains(keyspace))
             {
-                SystemKeyspace.clearSizeEstimates(keyspace);
+                SystemKeyspace.clearEstimates(keyspace);
             }
             else
             {
                 for (String table : tablesByKeyspace.getValue())
                 {
                     if (!Schema.instance.hasCF(Pair.create(keyspace, table)))
-                        SystemKeyspace.clearSizeEstimates(keyspace, table);
+                        SystemKeyspace.clearEstimates(keyspace, table);
                 }
             }
         }
@@ -3726,6 +3726,31 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 primaryRanges.add(new Range<>(metadata.getPredecessor(token), token));
         }
         return primaryRanges;
+    }
+
+    public Collection<Range<Token>> getLocalPrimaryRange()
+    {
+        return getLocalPrimaryRangeForEndpoint(FBUtilities.getBroadcastAddress());
+    }
+
+    public Collection<Range<Token>> getLocalPrimaryRangeForEndpoint(InetAddress referenceEndpoint)
+    {
+        IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
+        TokenMetadata tokenMetadata = this.tokenMetadata.cloneOnlyTokenMap();
+        String dc = snitch.getDatacenter(referenceEndpoint);
+        Set<Token> tokens = new HashSet<>(tokenMetadata.getTokens(referenceEndpoint));
+
+        // filter tokens to the single DC
+        List<Token> filteredTokens = Lists.newArrayList();
+        for (Token token : tokenMetadata.sortedTokens())
+        {
+            InetAddress endpoint = tokenMetadata.getEndpoint(token);
+            if (dc.equals(snitch.getDatacenter(endpoint)))
+                filteredTokens.add(token);
+        }
+        return getAllRanges(filteredTokens).stream()
+                                    .filter(t -> tokens.contains(t.right))
+                                    .collect(Collectors.toSet());
     }
 
     /**

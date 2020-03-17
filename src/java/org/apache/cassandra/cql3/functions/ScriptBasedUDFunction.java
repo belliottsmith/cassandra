@@ -87,7 +87,9 @@ final class ScriptBasedUDFunction extends UDFunction
     "org.slf4j.ext",
     // following required by UDF
     "com.datastax.driver.core",
-    "com.datastax.driver.core.utils"
+    "com.datastax.driver.core.utils",
+    // CIE NOTE - trunk (4.0) was upgraded to driver 3.6 but is different so doesn't hit the driver code which touches IntObjectHashMap. This line below is not needed in 4.0
+    "com.datastax.shaded.netty.util.collection"
     };
 
     // use a JVM standard ExecutorService as DebuggableThreadPoolExecutor references internal

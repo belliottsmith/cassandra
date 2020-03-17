@@ -228,6 +228,37 @@ public class StorageServiceServerTest
     }
 
     @Test
+    public void testLocalPrimaryRangeForEndpointWithNetworkTopologyStrategy() throws Exception
+    {
+        setupDefaultTokenMetadata();
+
+        Map<String, String> configOptions = new HashMap<>();
+        configOptions.put("DC1", "2");
+        configOptions.put("DC2", "2");
+        configOptions.put(ReplicationParams.CLASS, "NetworkTopologyStrategy");
+
+        Keyspace.clear("Keyspace1");
+        KeyspaceMetadata meta = KeyspaceMetadata.create("Keyspace1", KeyspaceParams.create(false, configOptions));
+        Schema.instance.setKeyspaceMetadata(meta);
+
+        Collection<Range<Token>> primaryRanges = StorageService.instance.getLocalPrimaryRangeForEndpoint(InetAddress.getByName("127.0.0.1"));
+        assertEquals(1, primaryRanges.size());
+        assertTrue(primaryRanges.contains(new Range<Token>(new StringToken("C"), new StringToken("A"))));
+
+        primaryRanges = StorageService.instance.getLocalPrimaryRangeForEndpoint(InetAddress.getByName("127.0.0.2"));
+        assertEquals(1, primaryRanges.size());
+        assertTrue(primaryRanges.contains(new Range<Token>(new StringToken("A"), new StringToken("C"))));
+
+        primaryRanges = StorageService.instance.getLocalPrimaryRangeForEndpoint(InetAddress.getByName("127.0.0.4"));
+        assertEquals(1, primaryRanges.size());
+        assertTrue(primaryRanges.contains(new Range<Token>(new StringToken("D"), new StringToken("B"))));
+
+        primaryRanges = StorageService.instance.getLocalPrimaryRangeForEndpoint(InetAddress.getByName("127.0.0.5"));
+        assertEquals(1, primaryRanges.size());
+        assertTrue(primaryRanges.contains(new Range<Token>(new StringToken("B"), new StringToken("D"))));
+    }
+
+    @Test
     public void testPrimaryRangeForEndpointWithinDCWithNetworkTopologyStrategy() throws Exception
     {
         setupDefaultTokenMetadata();
