@@ -48,6 +48,7 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.consistent.ConsistentSession;
 import org.apache.cassandra.repair.consistent.LocalSession;
 import org.apache.cassandra.repair.consistent.LocalSessions;
+import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.streaming.SessionSummary;
 import org.apache.cassandra.tracing.Tracing;
@@ -93,7 +94,8 @@ import org.apache.cassandra.utils.Pair;
  */
 public class RepairSession extends AbstractFuture<RepairSessionResult> implements IEndpointStateChangeSubscriber,
                                                                                   IFailureDetectionEventListener,
-                                                                                  LocalSessions.Listener
+                                                                                  LocalSessions.Listener,
+                                                                                  ActiveRepairService.RepairSuccessListener
 {
     private static Logger logger = LoggerFactory.getLogger(RepairSession.class);
 
@@ -460,17 +462,33 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
 
     public void onIRStateChange(LocalSession session)
     {
+        if (session.getState() == ConsistentSession.State.FINALIZED)
+            abortPreviewRepairs(session.ranges, session.cfIds, String.format("an intersecting incremental repair (%s) finished during this (%s) preview repair", session.sessionID, getId()));
+    }
+
+    public void onRepairSuccess(ActiveRepairService.RepairSuccess message)
+    {
+        Keyspace ks = Keyspace.open(message.keyspace);
+        if (ks != null)
+        {
+            ColumnFamilyStore cfs = ks.getColumnFamilyStore(message.columnFamily);
+            if (cfs != null)
+                abortPreviewRepairs(message.ranges, Collections.singleton(cfs.metadata.cfId), String.format("got repair success during this (%s) preview repair, aborting", getId()));
+        }
+    }
+
+    private void abortPreviewRepairs(Collection<Range<Token>> ranges, Set<UUID> cfids, String message)
+    {
         // we should only be registered as listeners for PreviewKind.REPAIRED, but double check here
         if (previewKind == PreviewKind.REPAIRED &&
-            session.getState() == ConsistentSession.State.FINALIZED &&
-            includesTables(session.cfIds))
+            includesTables(cfids))
         {
-            for (Range<Token> range : session.ranges)
+            for (Range<Token> range : ranges)
             {
-                if (range.intersects(ranges))
+                if (range.intersects(getRanges()))
                 {
-                    logger.error("{} An intersecting incremental repair with session id = {} finished, preview repair might not be accurate", previewKind.logPrefix(getId()), session.sessionID);
-                    forceShutdown(new Exception("An incremental repair with session id "+session.sessionID+" finished during this preview repair runtime"));
+                    logger.error(message);
+                    forceShutdown(new Exception(message));
                     return;
                 }
             }
@@ -479,10 +497,10 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
 
     private boolean includesTables(Set<UUID> cfids)
     {
-        for (String table : cfnames)
+        Keyspace ks = Keyspace.open(keyspace);
+        if (ks != null)
         {
-            Keyspace ks = Keyspace.open(keyspace);
-            if (ks != null)
+            for (String table : cfnames)
             {
                 ColumnFamilyStore cfs = ks.getColumnFamilyStore(table);
                 if (cfids.contains(cfs.metadata.cfId))

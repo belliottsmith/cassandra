@@ -147,6 +147,8 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
     private final ConcurrentMap<UUID, ParentRepairSession> parentRepairSessions = new ConcurrentHashMap<>();
 
+    private static final Set<RepairSuccessListener> repairSuccessListeners = new CopyOnWriteArraySet<>();
+
     private static class RepairCommandExecutorHandle
     {
         private final static ThreadPoolExecutor repairCommandExecutor;
@@ -265,7 +267,10 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         registerOnFdAndGossip(session);
 
         if (session.previewKind == PreviewKind.REPAIRED)
+        {
             LocalSessions.registerListener(session);
+            repairSuccessListeners.add(session);
+        }
 
         // remove session at completion
         session.addListener(new Runnable()
@@ -277,6 +282,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             {
                 sessions.remove(session.getId());
                 LocalSessions.unregisterListener(session);
+                repairSuccessListeners.remove(session);
             }
         }, MoreExecutors.sameThreadExecutor());
         session.start(executor);
@@ -825,20 +831,30 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         }
     }
 
-        public static class RepairSuccessVerbHandler implements IVerbHandler<RepairSuccess>
+    public static class RepairSuccessVerbHandler implements IVerbHandler<RepairSuccess>
+    {
+        public void doVerb(MessageIn<RepairSuccess> message, int id)
         {
-            public void doVerb(MessageIn<RepairSuccess> message, int id)
-            {
-                RepairSuccess success = message.payload;
-                logger.info("Received repair success for {}/{}, {} at {}", new Object[]{success.keyspace, success.columnFamily, success.ranges, success.succeedAt});
+            RepairSuccess success = message.payload;
+            logger.info("Received repair success for {}/{}, {} at {}", new Object[]{success.keyspace, success.columnFamily, success.ranges, success.succeedAt});
 
-                ColumnFamilyStore cfs = Keyspace.open(success.keyspace).getColumnFamilyStore(success.columnFamily);
+            ColumnFamilyStore cfs = Keyspace.open(success.keyspace).getColumnFamilyStore(success.columnFamily);
 
-                CompactionManager.instance.stopConflictingPreviewValidations(cfs.metadata, success.ranges, "RepairSuccess received");
+            // we need to stop preview repair sessions when we receive a repair success since that could make us use
+            // different xmas-patch-repair times when validating on different replicas
+            for (RepairSuccessListener listener : repairSuccessListeners)
+                listener.onRepairSuccess(success);
 
-                for (Range<Token> range : success.ranges)
-                    cfs.updateLastSuccessfulRepair(range, success.succeedAt);
-                MessagingService.instance().sendReply(new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE), id, message.from);
-            }
+            CompactionManager.instance.stopConflictingPreviewValidations(cfs.metadata, success.ranges, "RepairSuccess received");
+
+            for (Range<Token> range : success.ranges)
+                cfs.updateLastSuccessfulRepair(range, success.succeedAt);
+            MessagingService.instance().sendReply(new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE), id, message.from);
         }
+    }
+
+    public interface RepairSuccessListener
+    {
+        void onRepairSuccess(RepairSuccess message);
+    }
 }

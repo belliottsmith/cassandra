@@ -33,7 +33,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import com.google.common.collect.ImmutableList;
 import org.junit.Test;
 
+import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
@@ -41,6 +43,7 @@ import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
+import org.apache.cassandra.distributed.impl.IInvokableInstance;
 import org.apache.cassandra.distributed.impl.Instance;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessagingService;
@@ -55,32 +58,32 @@ import org.apache.cassandra.utils.progress.ProgressEventType;
 
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
+import static org.apache.cassandra.distributed.test.PreviewRepairTest.insert;
+import static org.apache.cassandra.distributed.test.PreviewRepairTest.options;
+import static org.apache.cassandra.distributed.test.PreviewRepairTest.repair;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-public class PreviewRepairTest extends DistributedTestBase
+public class XmasPatchRepairSuccessTest extends DistributedTestBase
 {
     /**
-     * another case where the repaired datasets could mismatch is if an incremental repair finishes just as the preview
-     * repair is starting up.
+     * This tests when we receive a repair success (a finished full repair) during a preview repair
      *
-     * This tests this case:
      * 1. we start a preview repair
      * 2. pause the validation requests from node1 -> node2
      * 3. node1 starts its validation
-     * 4. run an incremental repair which completes fine
-     * 5. node2 resumes its validation
+     * 4. run a full repair which completes fine & sends repair success
+     * 5. preview repair should have failed
      *
-     * Now we will include sstables from the second incremental repair on node2 but not on node1
-     * This should fail since we fail any preview repair which is ongoing when an incremental repair finishes (step 4 above)
      */
     @Test
-    public void testFinishingIncRepairDuringPreview() throws IOException, InterruptedException, ExecutionException
+    public void testFinishFullRepairDuringPreviewRepair() throws IOException, InterruptedException, ExecutionException
     {
         ExecutorService es = Executors.newSingleThreadExecutor();
         try(Cluster cluster = init(Cluster.build(2).withConfig(config ->
                                                                config.set("disable_incremental_repair", false)
+                                                                     .set("enable_christmas_patch", true)
                                                                      .with(GOSSIP)
                                                                      .with(NETWORK))
                                           .start()))
@@ -96,18 +99,19 @@ public class PreviewRepairTest extends DistributedTestBase
 
             SimpleCondition previewRepairStarted = new SimpleCondition();
             SimpleCondition continuePreviewRepair = new SimpleCondition();
-            DelayMessageFilter filter = new DelayMessageFilter(previewRepairStarted, continuePreviewRepair);
-            // this pauses the validation request sent from node1 to node2 until the inc repair below has completed
+            PreviewRepairTest.DelayMessageFilter filter = new PreviewRepairTest.DelayMessageFilter(previewRepairStarted, continuePreviewRepair);
+            // this pauses the validation request sent from node1 to node2 until we have completed the inc repair below
             cluster.filters().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
 
             Future<Pair<Boolean, Boolean>> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false))));
             previewRepairStarted.await();
             // this needs to finish before the preview repair is unpaused on node2
-            cluster.get(1).callOnInstance(repair(options(false, false)));
+            cluster.get(1).callOnInstance(repair(options(false, true)));
             continuePreviewRepair.signalAll();
             Pair<Boolean, Boolean> rs = rsFuture.get();
             assertFalse(rs.left); // preview repair should have failed
             assertFalse(rs.right); // and no mismatches should have been reported
+            assertTrue(getRepairTimeFor(cluster.get(1), "0:0") > 0);
         }
         finally
         {
@@ -116,12 +120,10 @@ public class PreviewRepairTest extends DistributedTestBase
     }
 
     /**
-     * Same as testFinishingIncRepairDuringPreview but the previewed range does not intersect the incremental repair
-     * so both preview and incremental repair should finish fine (without any mismatches)
+     * same as testFinishFullRepairDuringPreviewRepair but here we repair non-intersecting ranges so everything should succeed
      */
-
     @Test
-    public void testFinishingNonIntersectingIncRepairDuringPreview() throws IOException, InterruptedException, ExecutionException
+    public void testFinishNonIntersectingFullRepairDuringPreviewRepair() throws IOException, InterruptedException, ExecutionException
     {
         ExecutorService es = Executors.newSingleThreadExecutor();
         try(Cluster cluster = init(Cluster.build(2).withConfig(config ->
@@ -143,7 +145,7 @@ public class PreviewRepairTest extends DistributedTestBase
             // pause preview repair validation messages on node2 until node1 has finished
             SimpleCondition previewRepairStarted = new SimpleCondition();
             SimpleCondition continuePreviewRepair = new SimpleCondition();
-            DelayMessageFilter filter = new DelayMessageFilter(previewRepairStarted, continuePreviewRepair);
+            PreviewRepairTest.DelayMessageFilter filter = new PreviewRepairTest.DelayMessageFilter(previewRepairStarted, continuePreviewRepair);
             cluster.filters().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
 
             // get local ranges to repair two separate ranges:
@@ -158,14 +160,19 @@ public class PreviewRepairTest extends DistributedTestBase
             String previewedRange = localRanges.get(0);
             String repairedRange = localRanges.get(1);
             Future<Pair<Boolean, Boolean>> repairStatusFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false, previewedRange))));
-            previewRepairStarted.await(); // wait for node1 to start validation compaction
+            Thread.sleep(1000); // wait for node1 to start validation compaction
             // this needs to finish before the preview repair is unpaused on node2
-            assertTrue(cluster.get(1).callOnInstance(repair(options(false, false, repairedRange))).left);
+            assertTrue(cluster.get(1).callOnInstance(repair(options(false, true, repairedRange))).left);
 
             continuePreviewRepair.signalAll();
             Pair<Boolean, Boolean> rs = repairStatusFuture.get();
             assertTrue(rs.left); // repair should succeed
             assertFalse(rs.right); // and no mismatches
+            int repairedRepairTime = getRepairTimeFor(cluster.get(1), repairedRange);
+            int unrepairedRepairTime = getRepairTimeFor(cluster.get(1), previewedRange);
+
+            assertTrue(repairedRepairTime > 0);
+            assertEquals(Integer.MIN_VALUE, unrepairedRepairTime);
         }
         finally
         {
@@ -173,94 +180,14 @@ public class PreviewRepairTest extends DistributedTestBase
         }
     }
 
-    static class DelayMessageFilter implements IMessageFilters.Matcher
+    int getRepairTimeFor(IInvokableInstance instance, String tokens)
     {
-        private final SimpleCondition pause;
-        private final SimpleCondition resume;
-        private final AtomicBoolean waitForRepair = new AtomicBoolean(true);
-
-        public DelayMessageFilter(SimpleCondition pause, SimpleCondition resume)
-        {
-            this.pause = pause;
-            this.resume = resume;
-        }
-        public boolean matches(int from, int to, IMessage message)
-        {
-            try
-            {
-                Pair<MessageIn<Object>, Integer> msg = Instance.deserializeMessage(message);
-                RepairMessage repairMessage = (RepairMessage) msg.left.payload;
-                // only the first validation req should be delayed:
-                if (repairMessage.messageType == RepairMessage.Type.VALIDATION_REQUEST && waitForRepair.compareAndSet(true, false))
-                {
-                    pause.signalAll();
-                    resume.await();
-                }
-            }
-            catch (Exception e)
-            {
-                throw new RuntimeException(e);
-            }
-            return false; // don't drop the message
-        }
+        return instance.callOnInstance(() -> {
+            ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl");
+            String [] startEnd = tokens.split(":");
+            Token t = cfs.getPartitioner().getTokenFactory().fromString(startEnd[1]);
+            return cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(t);
+        });
     }
 
-    static void insert(ICoordinator coordinator, int start, int count)
-    {
-        for (int i = start; i < start + count; i++)
-            coordinator.execute("insert into " + KEYSPACE + ".tbl (id, t) values (?, ?)", ConsistencyLevel.ALL, i, i);
-    }
-
-    /**
-     * returns a pair with [repair success, was inconsistent]
-     */
-    static IIsolatedExecutor.SerializableCallable<Pair<Boolean, Boolean>> repair(Map<String, String> options)
-    {
-        return () -> {
-            SimpleCondition await = new SimpleCondition();
-            AtomicBoolean success = new AtomicBoolean(true);
-            AtomicBoolean wasInconsistent = new AtomicBoolean(false);
-            StorageService.instance.repairAsync(KEYSPACE, options, ImmutableList.of((tag, event) -> {
-                if (event.getType() == ProgressEventType.ERROR)
-                {
-                    success.set(false);
-                    await.signalAll();
-                }
-                else if (event.getType() == ProgressEventType.NOTIFICATION && event.getMessage().contains("Repaired data is inconsistent"))
-                {
-                    wasInconsistent.set(true);
-                }
-                else if (event.getType() == ProgressEventType.COMPLETE)
-                    await.signalAll();
-            }));
-            try
-            {
-                await.await(1, TimeUnit.MINUTES);
-            }
-            catch (InterruptedException e)
-            {
-                throw new RuntimeException(e);
-            }
-            return Pair.create(success.get(), wasInconsistent.get());
-        };
-    }
-
-    static Map<String, String> options(boolean preview, boolean full)
-    {
-        Map<String, String> config = new HashMap<>();
-        config.put(RepairOption.INCREMENTAL_KEY, "true");
-        config.put(RepairOption.PARALLELISM_KEY, RepairParallelism.PARALLEL.toString());
-        if (preview)
-            config.put(RepairOption.PREVIEW, PreviewKind.REPAIRED.toString());
-        if (full)
-            config.put(RepairOption.INCREMENTAL_KEY, "false");
-        return config;
-    }
-
-    static Map<String, String> options(boolean preview, boolean full, String range)
-    {
-        Map<String, String> options = options(preview, full);
-        options.put(RepairOption.RANGES_KEY, range);
-        return options;
-    }
 }
