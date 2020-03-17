@@ -58,6 +58,7 @@ import org.apache.cassandra.db.ReadCommandVerbHandler;
 import org.apache.cassandra.db.partitions.AtomicBTreePartition;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.net.PingVerbHandler;
+import org.apache.cassandra.utils.progress.ProgressListener;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.Appender;
@@ -3390,6 +3391,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public int repairAsync(String keyspace, Map<String, String> repairSpec)
     {
+        return repairAsync(keyspace, repairSpec, Collections.emptyList());
+    }
+
+    public int repairAsync(String keyspace, Map<String, String> repairSpec, List<ProgressListener> listeners)
+    {
         RepairOption option = RepairOption.parse(repairSpec, tokenMetadata.partitioner);
         // if ranges are not specified
         if (option.getRanges().isEmpty())
@@ -3410,7 +3416,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 option.getRanges().addAll(getLocalRanges(keyspace));
             }
         }
-        return forceRepairAsync(keyspace, option, false);
+        return forceRepairAsync(keyspace, option, false, listeners);
     }
 
     @Deprecated
@@ -3621,15 +3627,20 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public int forceRepairAsync(String keyspace, RepairOption options, boolean legacy)
     {
+        return forceRepairAsync(keyspace, options, legacy, Collections.emptyList());
+    }
+
+    public int forceRepairAsync(String keyspace, RepairOption options, boolean legacy, List<ProgressListener> listeners)
+    {
         if (options.getRanges().isEmpty() || Keyspace.open(keyspace).getReplicationStrategy().getReplicationFactor() < 2)
             return 0;
 
         int cmd = nextRepairCommand.incrementAndGet();
-        ActiveRepairService.repairCommandExecutor().execute(createRepairTask(cmd, keyspace, options, legacy));
+        ActiveRepairService.repairCommandExecutor().execute(createRepairTask(cmd, keyspace, options, legacy, listeners));
         return cmd;
     }
 
-    private FutureTask<Object> createRepairTask(final int cmd, final String keyspace, final RepairOption options, boolean legacy)
+    private FutureTask<Object> createRepairTask(final int cmd, final String keyspace, final RepairOption options, boolean legacy, List<ProgressListener> listeners)
     {
         //Disabling incremental repair in Apple 3.0 version
         if(DatabaseDescriptor.disableIncrementalRepair() && options.isIncremental())
@@ -3647,6 +3658,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         if (legacy)
             task.addProgressListener(legacyProgressSupport);
+
+        for (ProgressListener listener : listeners)
+            task.addProgressListener(listener);
 
         if (options.isTraced())
         {

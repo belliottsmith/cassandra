@@ -476,6 +476,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     throw new IllegalStateException();
                 if (DatabaseDescriptor.getStoragePort() != broadcastAddressAndPort().port)
                     throw new IllegalStateException();
+
+                ActiveRepairService.instance.start();
             }
             catch (Throwable t)
             {

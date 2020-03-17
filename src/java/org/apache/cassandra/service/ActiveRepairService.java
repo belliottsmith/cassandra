@@ -264,6 +264,9 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         // register listeners
         registerOnFdAndGossip(session);
 
+        if (session.previewKind == PreviewKind.REPAIRED)
+            LocalSessions.registerListener(session);
+
         // remove session at completion
         session.addListener(new Runnable()
         {
@@ -273,6 +276,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             public void run()
             {
                 sessions.remove(session.getId());
+                LocalSessions.unregisterListener(session);
             }
         }, MoreExecutors.sameThreadExecutor());
         session.start(executor);
