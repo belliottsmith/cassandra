@@ -75,15 +75,19 @@ _extract() {
 }
 
 _main() {
-  local readonly yaml="$1"
+  local -r yaml="$1"
   local output="$2"
   output="$( _abspath "$output" )"
 
   _setup_k8s
   _setup_parallelci
 
-  parallelci $home "$yaml" "$output"
-
+  labels=(
+    "rio"
+    "rio-build=$PIPELINE_SPEC_ID"
+    "rio-build-number=$RIO_BUILD_NUMBER"
+  )
+  parallelci "$home" "$yaml" "$output" "${labels[@]}"
   _extract "$output"
 }
 
