@@ -400,9 +400,6 @@ public class CqlInputFormat extends org.apache.hadoop.mapreduce.InputFormat<Long
         catch (InvalidQueryException e)
         {
             // if the table doesn't exist, fall back to old table
-            if (!e.getMessage().contains("does not exist"))
-                throw e;
-
             // unlikely to find data in a multi-dc setup but should work in a non-mutli dc setup
             query = String.format("SELECT mean_partition_size, partitions_count " +
                                   "FROM %s.%s " +
