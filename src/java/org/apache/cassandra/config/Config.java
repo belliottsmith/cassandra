@@ -533,6 +533,13 @@ public class Config
 
     public String repair_history_sync_timeout = "10m";
 
+    /**
+     * If true, when a repaired data mismatch is detected at read time, a snapshot request will be
+     * issued to each replica participating in the query. These are limited at the replica level
+     * so that only a single snapshot per-day can be taken via this method.
+     */
+    public volatile boolean snapshot_on_repaired_data_mismatch = false;
+
     public static boolean isClientMode()
     {
         return isClientMode;
