@@ -114,9 +114,17 @@ builds:
         - ./rio/parallel-tests-step.sh
         - ./rio/release.sh ${ARTIFACTS_VERSION}
         - ./rio/carnival.sh ${BASE_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+    # timeout also set for parallelci command in rio/parallel-test-step.sh
+    # and in rio/unittests.yml (although not currently implemented)
     timeout: 180
     reports:
-      junit: true
+      junit:
+        paths:
+          - parallel-output/**/build/test/output/*
+      logs:
+        paths:
+          - unified-output/**/build/test/logs/*.log
+          - parallel-output/**/.command/*/*
     package:
       release: false
       carnival:
@@ -170,9 +178,17 @@ builds:
         - ./rio/parallel-tests-step.sh
         - ./rio/release.sh ${ARTIFACTS_VERSION}
         - ./rio/carnival.sh ${BASE_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+    # timeout also set for parallelci command in rio/parallel-test-step.sh
+    # and in rio/unittests.yml (although not currently implemented)
     timeout: 180
     reports:
-      junit: true
+      junit:
+        paths:
+          - parallel-output/**/build/test/output/*
+      logs:
+        paths:
+          - unified-output/**/build/test/logs/*.log
+          - parallel-output/**/.command/*/*
     package:
       release: true
       carnival:
@@ -182,7 +198,6 @@ builds:
         - version: '${FULL_VERSION}'
           publish:
             - repo: m2:cie
-
       dockerfile:
         - dockerfilePath: "Dockerfile"
           version: "${DOCKER_IMAGE_VERSION}"

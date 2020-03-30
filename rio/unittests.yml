@@ -64,6 +64,7 @@ shared:
     # Run the tests
     - &run-tests
       name: Run Tests (testclasslist)
+      timeout: PT150M
       noOutputTimeout: PT15M
       command: |
         set -x
