@@ -71,6 +71,22 @@ public abstract class AbstractPaxosCallback<T> implements IAsyncCallbackWithFail
         }
     }
 
+    // TODO: temporary new method
+    public boolean awaitUntil(long deadline)
+    {
+        try
+        {
+            long wait = deadline - System.nanoTime();
+            if (wait <= 0)
+                return false;
+            return latch.await(wait, TimeUnit.NANOSECONDS);
+        }
+        catch (InterruptedException ex)
+        {
+            throw new AssertionError("This latch shouldn't have been interrupted.");
+        }
+    }
+
     public void onFailure(InetAddress from)
     {
         logger.debug("Received paxos propose/prepare failure response from {}", from);

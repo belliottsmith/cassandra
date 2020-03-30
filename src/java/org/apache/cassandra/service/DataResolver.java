@@ -63,7 +63,7 @@ public class DataResolver extends ResponseResolver
 
     private final boolean enforceStrictLiveness;
 
-    DataResolver(Keyspace keyspace, ReadCommand command, ConsistencyLevel consistency, int maxResponseCount)
+    public DataResolver(Keyspace keyspace, ReadCommand command, ConsistencyLevel consistency, int maxResponseCount)
     {
         super(keyspace, command, consistency, maxResponseCount);
         this.enforceStrictLiveness = command.metadata().enforceStrictLiveness();

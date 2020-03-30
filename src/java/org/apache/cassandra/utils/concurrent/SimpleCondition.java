@@ -51,7 +51,14 @@ public class SimpleCondition implements Condition
         if (isSignaled())
             return true;
         long start = System.nanoTime();
-        long until = start + unit.toNanos(time);
+        return awaitUntil(start + unit.toNanos(time));
+    }
+
+    // until System.nanoTime
+    public boolean awaitUntil(long until) throws InterruptedException
+    {
+        if (isSignaled())
+            return true;
         if (waiting == null)
             waitingUpdater.compareAndSet(this, null, new WaitQueue());
         WaitQueue.Signal s = waiting.register();
