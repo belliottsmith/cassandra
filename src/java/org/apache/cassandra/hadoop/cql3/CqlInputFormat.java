@@ -232,24 +232,21 @@ public class CqlInputFormat extends org.apache.hadoop.mapreduce.InputFormat<Long
             if (!failedTasks.isEmpty())
             {
                 if (maxSplits == 0)
+                    throwAllSplitsFailed(failedTasks);
+                for (SplitFuture task : failedTasks)
                 {
-                    IllegalStateException exception = new IllegalStateException("No successful tasks found");
-                    for (SplitFuture task : failedTasks)
+                    try
                     {
-                        try
-                        {
-                            // the task failed, so this should throw
-                            task.get();
-                        }
-                        catch (Exception cause)
-                        {
-                            exception.addSuppressed(cause);
-                        }
+                        // the task failed, so this should throw
+                        task.get();
                     }
-                    throw exception;
+                    catch (Exception cause)
+                    {
+                        logger.warn("Unable to get estimate for {}, the host {} had a exception; falling back to default estimate", task.splitCallable.tokenRange, task.splitCallable.hosts.get(0), cause);
+                    }
                 }
                 for (SplitFuture task : failedTasks)
-                    toSplit(task.splitCallable.hosts, splitTokenRange(task.splitCallable.tokenRange, maxSplits, expectedPartionsForFailedRanges));
+                    splits.addAll(toSplit(task.splitCallable.hosts, splitTokenRange(task.splitCallable.tokenRange, maxSplits, expectedPartionsForFailedRanges)));
             }
         }
         finally
@@ -260,6 +257,24 @@ public class CqlInputFormat extends org.apache.hadoop.mapreduce.InputFormat<Long
         assert splits.size() > 0;
         Collections.shuffle(splits, new Random(System.nanoTime()));
         return splits;
+    }
+
+    private static IllegalStateException throwAllSplitsFailed(List<SplitFuture> failedTasks)
+    {
+        IllegalStateException exception = new IllegalStateException("No successful tasks found");
+        for (SplitFuture task : failedTasks)
+        {
+            try
+            {
+                // the task failed, so this should throw
+                task.get();
+            }
+            catch (Exception cause)
+            {
+                exception.addSuppressed(cause);
+            }
+        }
+        throw exception;
     }
 
     private static String getTargetDC(Metadata metadata, String[] inputInitialAddress)
@@ -329,14 +344,7 @@ public class CqlInputFormat extends org.apache.hadoop.mapreduce.InputFormat<Long
     {
         int splitSize = ConfigHelper.getInputSplitSize(conf);
         int splitSizeMb = ConfigHelper.getInputSplitSizeInMb(conf);
-        try
-        {
-            return describeSplits(keyspace, cfName, range, host, splitSize, splitSizeMb, session);
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException(e);
-        }
+        return describeSplits(keyspace, cfName, range, host, splitSize, splitSizeMb, session);
     }
 
     private Map<TokenRange, List<Host>> getRangeMap(String keyspace, Metadata metadata, String targetDC)
