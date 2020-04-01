@@ -149,6 +149,10 @@ public interface StorageProxyMBean
     void disableReportingUnconfirmedRepairedDataMismatches();
     boolean getReportingUnconfirmedRepairedDataMismatchesEnabled();
 
+    void enableSnapshotOnRepairedDataMismatch();
+    void disableSnapshotOnRepairedDataMismatch();
+    boolean getSnapshotOnRepairedDataMismatchEnabled();
+
     void enableSecondaryIndex();
     void disableSecondaryIndex();
     boolean getSecondaryIndexEnabled();

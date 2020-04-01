@@ -195,7 +195,7 @@ public class DataResolver extends ResponseResolver
 
     protected RepairedDataVerifier getRepairedDataVerifier(ReadCommand command)
     {
-        return RepairedDataVerifier.simple(command);
+        return RepairedDataVerifier.verifier(command);
     }
 
     private UnfilteredPartitionIterator mergeWithShortReadProtection(List<UnfilteredPartitionIterator> results,

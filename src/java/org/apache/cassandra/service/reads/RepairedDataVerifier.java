@@ -18,7 +18,13 @@
 
 package org.apache.cassandra.service.reads;
 
+import java.net.InetAddress;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +34,11 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
+import org.apache.cassandra.db.SnapshotCommand;
 import org.apache.cassandra.metrics.TableMetrics;
+import org.apache.cassandra.net.MessageOut;
+import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.SnapshotVerbHandler;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.NoSpamLogger;
 
@@ -36,15 +46,25 @@ public interface RepairedDataVerifier
 {
     public void verify(RepairedDataTracker tracker);
 
+    static RepairedDataVerifier verifier(ReadCommand command)
+    {
+        return DatabaseDescriptor.snapshotOnRepairedDataMismatch() ? snapshotting(command) : simple(command);
+    }
+
     static RepairedDataVerifier simple(ReadCommand command)
     {
         return new SimpleVerifier(command);
     }
 
+    static RepairedDataVerifier snapshotting(ReadCommand command)
+    {
+        return new SnapshottingVerifier(command);
+    }
+
     static class SimpleVerifier implements RepairedDataVerifier
     {
         private static final Logger logger = LoggerFactory.getLogger(SimpleVerifier.class);
-        private final ReadCommand command;
+        protected final ReadCommand command;
 
         private static final String INCONSISTENCY_WARNING = "Detected mismatch between repaired datasets for table {}.{} during read of {}. {}";
 
@@ -84,12 +104,57 @@ public interface RepairedDataVerifier
             }
         }
 
-        private String getCommandString()
+        protected String getCommandString()
         {
             return command instanceof SinglePartitionReadCommand
                    ? ((SinglePartitionReadCommand)command).partitionKey().toString()
                    : ((PartitionRangeReadCommand)command).dataRange().keyRange().getString(command.metadata().getKeyValidator());
+        }
+    }
 
+    static class SnapshottingVerifier extends SimpleVerifier
+    {
+        private static final Logger logger = LoggerFactory.getLogger(SnapshottingVerifier.class);
+        private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.BASIC_ISO_DATE;
+        private static final String SNAPSHOTTING_WARNING = "Issuing snapshot command for mismatch between repaired datasets for table {}.{} during read of {}. {}";
+
+        // Issue at most 1 snapshot request per minute for any given table.
+        // Replicas will only create one snapshot per day, but this stops us
+        // from swamping the network if we start seeing mismatches.
+        private static final long SNAPSHOT_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1);
+        private static final ConcurrentHashMap<UUID, AtomicLong> LAST_SNAPSHOT_TIMES = new ConcurrentHashMap<>();
+
+        SnapshottingVerifier(ReadCommand command)
+        {
+            super(command);
+        }
+
+        public void verify(RepairedDataTracker tracker)
+        {
+            super.verify(tracker);
+            if (tracker.digests.keySet().size() > 1)
+            {
+                long now = System.nanoTime();
+                AtomicLong cached = LAST_SNAPSHOT_TIMES.computeIfAbsent(command.metadata().cfId, u -> new AtomicLong(0));
+                long last = cached.get();
+                if (now - last > SNAPSHOT_INTERVAL_NANOS && cached.compareAndSet(last, now))
+                {
+                    logger.warn(SNAPSHOTTING_WARNING, command.metadata().ksName, command.metadata().cfName, getCommandString(), tracker);
+                    MessageOut<?> msg = new SnapshotCommand(this.command.metadata().ksName,
+                                                            this.command.metadata().cfName,
+                                                            getSnapshotName(),
+                                                            false).createMessage();
+                    for (InetAddress replica : tracker.digests.values())
+                        MessagingService.instance().sendOneWay(msg, replica);
+                }
+            }
+        }
+
+        public static String getSnapshotName()
+        {
+            return String.format("%s%s",
+                                 SnapshotVerbHandler.REPAIRED_DATA_MISMATCH_SNAPSHOT_PREFIX,
+                                 DATE_FORMAT.format(LocalDate.now()));
         }
     }
 }

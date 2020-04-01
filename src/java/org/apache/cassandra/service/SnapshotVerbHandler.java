@@ -17,11 +17,18 @@
  */
 package org.apache.cassandra.service;
 
+import java.net.InetAddress;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import jnr.ffi.annotations.In;
+import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.SnapshotCommand;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
@@ -31,6 +38,9 @@ public class SnapshotVerbHandler implements IVerbHandler<SnapshotCommand>
 {
     private static final Logger logger = LoggerFactory.getLogger(SnapshotVerbHandler.class);
 
+    public static final String REPAIRED_DATA_MISMATCH_SNAPSHOT_PREFIX = "RepairedDataMismatch-";
+    private static final Executor REPAIRED_DATA_MISMATCH_SNAPSHOT_EXECUTOR = Executors.newSingleThreadExecutor();
+
     public void doVerb(MessageIn<SnapshotCommand> message, int id)
     {
         SnapshotCommand command = message.payload;
@@ -38,9 +48,80 @@ public class SnapshotVerbHandler implements IVerbHandler<SnapshotCommand>
         {
             Keyspace.clearSnapshot(command.snapshot_name, command.keyspace);
         }
+        else if (command.snapshot_name.startsWith(REPAIRED_DATA_MISMATCH_SNAPSHOT_PREFIX))
+        {
+            REPAIRED_DATA_MISMATCH_SNAPSHOT_EXECUTOR.execute(new RepairedDataSnapshotTask(command, message.from));
+        }
         else
+        {
             Keyspace.open(command.keyspace).getColumnFamilyStore(command.column_family).snapshot(command.snapshot_name);
+        }
         logger.debug("Enqueuing response to snapshot request {} to {}", command.snapshot_name, message.from);
         MessagingService.instance().sendReply(new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE), id, message.from);
+    }
+
+    private static class RepairedDataSnapshotTask implements Runnable
+    {
+        final SnapshotCommand command;
+        final InetAddress from;
+
+        RepairedDataSnapshotTask(SnapshotCommand command, InetAddress from)
+        {
+            this.command = command;
+            this.from = from;
+        }
+
+        public void run()
+        {
+            try
+            {
+                Keyspace ks = Keyspace.open(command.keyspace);
+                if (ks == null)
+                {
+                    logger.info("Snapshot request received from {} for {}.{} but keyspace not found",
+                                from,
+                                command.keyspace,
+                                command.column_family);
+                    return;
+                }
+
+                ColumnFamilyStore cfs = ks.getColumnFamilyStore(command.column_family);
+                if (cfs.snapshotExists(command.snapshot_name))
+                {
+                    logger.info("Received snapshot request from {} for {}.{} following repaired data mismatch, " +
+                                "but snapshot with tag {} already exists",
+                                from,
+                                command.keyspace,
+                                command.column_family,
+                                command.snapshot_name);
+                    return;
+                }
+                logger.info("Creating snapshot requested by {} of {}.{} following repaired data mismatch",
+                            from,
+                            command.keyspace,
+                            command.column_family);
+                cfs.snapshot(command.snapshot_name);
+
+                // Also snapshot system.repair_history & system.repair_history_invalidations
+                // We need a set of the historical data for every user keyspace snapshot we take
+                String systemSnapshotName = String.format("%s_%s-%s",
+                                                          command.snapshot_name,
+                                                          command.keyspace,
+                                                          command.column_family);
+                Keyspace.open(SystemKeyspace.NAME)
+                        .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_CF)
+                        .snapshot(systemSnapshotName);
+                Keyspace.open(SystemKeyspace.NAME)
+                        .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_INVALIDATION_CF)
+                        .snapshot(systemSnapshotName);
+            }
+            catch (IllegalArgumentException e)
+            {
+                logger.warn("Snapshot request received from {} for {}.{} but CFS not found",
+                            from,
+                            command.keyspace,
+                            command.column_family);
+            }
+        }
     }
 }

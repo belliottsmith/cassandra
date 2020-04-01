@@ -3336,6 +3336,23 @@ public class StorageProxy implements StorageProxyMBean
         return DatabaseDescriptor.reportUnconfirmedRepairedDataMismatches();
     }
 
+    public boolean getSnapshotOnRepairedDataMismatchEnabled()
+    {
+        return DatabaseDescriptor.snapshotOnRepairedDataMismatch();
+    }
+
+    @Override
+    public void enableSnapshotOnRepairedDataMismatch()
+    {
+        DatabaseDescriptor.setSnapshotOnRepairedDataMismatch(true);
+    }
+
+    @Override
+    public void disableSnapshotOnRepairedDataMismatch()
+    {
+        DatabaseDescriptor.setSnapshotOnRepairedDataMismatch(false);
+    }
+
     @Override
     public void enableSecondaryIndex()
     {

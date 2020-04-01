@@ -20,6 +20,8 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -29,6 +31,7 @@ import java.util.stream.Stream;
 import org.junit.Assert;
 import org.junit.Test;
 
+import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.distributed.Cluster;
@@ -39,6 +42,7 @@ import org.apache.cassandra.io.sstable.metadata.MetadataComponent;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.service.ActiveRepairService;
+import org.apache.cassandra.service.SnapshotVerbHandler;
 import org.apache.cassandra.service.StorageProxy;
 
 import static junit.framework.TestCase.fail;
@@ -288,6 +292,64 @@ public class RepairDigestTrackingTest extends DistributedTestBase implements Ser
         }
     }
 
+    @Test
+    public void testSnapshottingOnInconsistency() throws Throwable
+    {
+        try (Cluster cluster = init(Cluster.create(2)))
+        {
+            cluster.get(1).runOnInstance(() -> {
+                StorageProxy.instance.enableRepairedDataTrackingForPartitionReads();
+            });
+
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (k INT, c INT, v INT, PRIMARY KEY (k,c))");
+            for (int i = 0; i < 10; i++)
+            {
+                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (0, ?, ?)",
+                                               ConsistencyLevel.ALL, i, i);
+            }
+            cluster.forEach(c -> c.flush(KEYSPACE));
+
+            for (int i = 10; i < 20; i++)
+            {
+                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (0, ?, ?)",
+                                               ConsistencyLevel.ALL, i, i);
+            }
+            cluster.forEach(c -> c.flush(KEYSPACE));
+            cluster.forEach(i -> i.runOnInstance(() -> assertNotRepaired("tbl")));
+            // Mark everything repaired on node2
+            cluster.get(2).runOnInstance(() -> markAllRepaired("tbl"));
+            cluster.get(2).runOnInstance(() -> assertRepaired("tbl"));
+
+            // now overwrite on node1 only to generate digest mismatches
+            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (0, ?, ?)", 5, 55);
+            cluster.get(1).runOnInstance(() -> assertNotRepaired("tbl"));
+
+            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (0, ?, ?)", 5, 55);
+            // Execute a partition read and assert inconsistency is detected (as nothing is repaired on node1)
+            long ccBefore = getConfirmedInconsistencies(cluster.get(1), "tbl");
+            cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE k=0", ConsistencyLevel.ALL);
+            long ccAfter = getConfirmedInconsistencies(cluster.get(1), "tbl");
+            Assert.assertEquals("confirmed count should increment by 1 after each partition read", ccBefore + 1, ccAfter);
+
+            String snapshotName = SnapshotVerbHandler.REPAIRED_DATA_MISMATCH_SNAPSHOT_PREFIX
+                                  + DateTimeFormatter.BASIC_ISO_DATE.format(LocalDate.now());
+
+            cluster.get(1).runOnInstance(() -> assertSnapshotNotPresent("tbl", snapshotName));
+            cluster.get(2).runOnInstance(() -> assertSnapshotNotPresent("tbl", snapshotName));
+
+            // re-introduce a mismatch, enable snapshotting and try again
+            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (0, ?, ?)", 5, 555);
+            cluster.get(1).runOnInstance(() -> StorageProxy.instance.enableSnapshotOnRepairedDataMismatch());
+
+            cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE k=0", ConsistencyLevel.ALL);
+            ccAfter = getConfirmedInconsistencies(cluster.get(1), "tbl");
+            Assert.assertEquals("confirmed count should increment by 1 after each partition read", ccBefore + 2, ccAfter);
+
+            cluster.get(1).runOnInstance(() -> assertSnapshotPresent("tbl", snapshotName));
+            cluster.get(2).runOnInstance(() -> assertSnapshotPresent("tbl", snapshotName));
+        }
+    }
+
     private Object[][] rows(Object[][] head, Object[][]...tail)
     {
         return Stream.concat(Stream.of(head),
@@ -331,6 +393,31 @@ public class RepairDigestTrackingTest extends DistributedTestBase implements Ser
                 .getColumnFamilyStore(table)
                 .getLiveSSTables()
                 .forEach(this::markRepaired);
+    }
+
+    private void assertSnapshotPresent(String table, String snapshotName)
+    {
+        // snapshots are taken asynchronously, this is crude but it gives it a chance to happen
+        int attempts = 10;
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(table);
+        while (attempts-- > 0 && !cfs.snapshotExists(snapshotName))
+        {
+            try
+            {
+                TimeUnit.SECONDS.sleep(1);
+            }
+            catch (InterruptedException e)
+            {
+            }
+        }
+        if (!cfs.snapshotExists(snapshotName))
+            throw new AssertionError(String.format("Snapshot %s not found for for %s.%s", snapshotName, KEYSPACE, table));
+    }
+
+    private void assertSnapshotNotPresent(String table, String snapshotName)
+    {
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(table);
+        Assert.assertFalse(cfs.snapshotExists(snapshotName));
     }
 
     private long getRepairedAt(SSTableReader reader)
