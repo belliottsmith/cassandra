@@ -34,7 +34,6 @@ import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.statements.schema.CreateTableStatement;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.compaction.CompactionInfo;
-import org.apache.cassandra.db.compaction.CompactionInterruptedException;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.repair.CassandraValidationIterator;
 import org.apache.cassandra.dht.Range;
@@ -111,7 +110,7 @@ public class PreviewFalsePositiveTest extends AbstractRepairTest
         Assert.assertFalse(sessionData.isStopRequested());
 
         RepairSuccess repairSuccess = new RepairSuccess(KEYSPACE, TABLE, Collections.singleton(RANGE1), 1);
-        Message<RepairSuccess> msgIn = Message.builder(Verb.APPLE_REPAIR_SUCCESS, repairSuccess).from(COORDINATOR).build();
+        Message<RepairSuccess> msgIn = Message.builder(Verb.APPLE_REPAIR_SUCCESS_REQ, repairSuccess).from(COORDINATOR).build();
         RepairSuccessVerbHandler verbHandler = new RepairSuccessVerbHandler();
         verbHandler.doVerb(msgIn);
 
@@ -132,7 +131,7 @@ public class PreviewFalsePositiveTest extends AbstractRepairTest
         Assert.assertFalse(sessionData.isStopRequested());
 
         RepairSuccess repairSuccess = new RepairSuccess(KEYSPACE, TABLE, Collections.singleton(RANGE1), 1);
-        Message<RepairSuccess> msgIn = Message.builder(Verb.APPLE_REPAIR_SUCCESS, repairSuccess).from(COORDINATOR).build();
+        Message<RepairSuccess> msgIn = Message.builder(Verb.APPLE_REPAIR_SUCCESS_REQ, repairSuccess).from(COORDINATOR).build();
         RepairSuccessVerbHandler verbHandler = new RepairSuccessVerbHandler();
         verbHandler.doVerb(msgIn);
 

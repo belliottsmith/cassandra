@@ -198,20 +198,30 @@ public enum Verb
     @Deprecated
     INTERNAL_RSP           (23,  P1, rpcTimeout,      INTERNAL_RESPONSE, () -> null,                                 () -> ResponseVerbHandler.instance                             ),
 
-    // CIE Xmas patch
-    APPLE_UPDATE_REPAIRED_RANGES      (-1001, P1, rpcTimeout,                        MISC, () -> UpdateRepairedRanges.serializer,         () -> UpdateRepairedRangesVerbHandler.instance,              REPAIR_RSP                     ),
-    APPLE_REPAIRED_RANGES_RSP         (-1004, P1, appleRepairedRangesRequestTimeout, MISC, () -> UpdateRepairedRanges.serializer,         () -> ResponseVerbHandler.instance                                                          ),
-    APPLE_REPAIRED_RANGES_REQ         (-1000, P1, appleRepairedRangesRequestTimeout, MISC, () -> RepairedRangesRequest.serializer,        () -> RepairedRangesVerbHandler.instance,                    APPLE_REPAIRED_RANGES_RSP      ),
-    APPLE_REPAIR_SUCCESS              (-1002, P1, appleRepairSuccessTimeout,         MISC, () -> RepairSuccess.serializer,                () -> ActiveRepairService.RepairSuccessVerbHandler.instance, REPAIR_RSP                     ),
-    // Mark as P0 so the pre-4.0 message will be converted to INTERNAL_RSP in org.apache.cassandra.net.Verb.toPre40Verb
-    APPLE_QUERY_REPAIR_HISTORY_RSP    (-1063, P0, rpcTimeout,                        MISC, () -> RepairHistorySyncTask.responseSerializer,() -> ResponseVerbHandler.instance                                                          ),
-    APPLE_QUERY_REPAIR_HISTORY_REQ    (-1003, P1, rpcTimeout,                        MISC, () -> RepairHistorySyncTask.requestSerializer, () -> RepairHistorySyncTask.verbHandler,                     APPLE_QUERY_REPAIR_HISTORY_RSP),
-
     // largest used ID: 116
 
     // CUSTOM VERBS
     UNUSED_CUSTOM_VERB     (CUSTOM,
                             0,   P1, rpcTimeout,      INTERNAL_RESPONSE, () -> null,                                 () -> null                                                     ),
+
+
+    // CIE Xmas patch
+    APPLE_UPDATE_REPAIRED_RANGES_RSP   (CUSTOM,
+                                       1, P1, rpcTimeout,                        MISC, () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                           ),
+    APPLE_UPDATE_REPAIRED_RANGES_REQ  (CUSTOM,
+                                       2, P1, rpcTimeout,                        MISC, () -> UpdateRepairedRanges.serializer,         () -> UpdateRepairedRangesVerbHandler.instance,              APPLE_UPDATE_REPAIRED_RANGES_RSP),
+    APPLE_REPAIRED_RANGES_RSP         (CUSTOM,
+                                       3, P1, appleRepairedRangesRequestTimeout, MISC, () -> UpdateRepairedRanges.serializer,         () -> ResponseVerbHandler.instance                                                           ),
+    APPLE_REPAIRED_RANGES_REQ         (CUSTOM,
+                                       4, P1, appleRepairedRangesRequestTimeout, MISC, () -> RepairedRangesRequest.serializer,        () -> RepairedRangesVerbHandler.instance,                    APPLE_REPAIRED_RANGES_RSP       ),
+    APPLE_REPAIR_SUCCESS_RSP          (CUSTOM,
+                                       5, P1, appleRepairSuccessTimeout,         MISC, () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                           ),
+    APPLE_REPAIR_SUCCESS_REQ          (CUSTOM,
+                                       6, P1, appleRepairSuccessTimeout,         MISC, () -> RepairSuccess.serializer,                () -> ActiveRepairService.RepairSuccessVerbHandler.instance, APPLE_REPAIR_SUCCESS_RSP        ),
+    APPLE_QUERY_REPAIR_HISTORY_RSP    (CUSTOM,
+                                       7, P1, rpcTimeout,                        MISC, () -> RepairHistorySyncTask.responseSerializer,() -> ResponseVerbHandler.instance                                                           ),
+    APPLE_QUERY_REPAIR_HISTORY_REQ    (CUSTOM,
+                                       8, P1, rpcTimeout,                        MISC, () -> RepairHistorySyncTask.requestSerializer, () -> RepairHistorySyncTask.verbHandler,                     APPLE_QUERY_REPAIR_HISTORY_RSP  ),
 
     ;
 

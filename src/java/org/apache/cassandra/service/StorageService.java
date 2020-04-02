@@ -4584,7 +4584,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         for (int i = 0; i < 4; i++)
         {
             CompletableFuture<Boolean> result = new CompletableFuture<>();
-            MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_UPDATE_REPAIRED_RANGES, request), address, new RequestCallback<NoPayload>()
+            MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_UPDATE_REPAIRED_RANGES_REQ, request), address, new RequestCallback<NoPayload>()
             {
                 public void onResponse(Message<NoPayload> msg)
                 {
