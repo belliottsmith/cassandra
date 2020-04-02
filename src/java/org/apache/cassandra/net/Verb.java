@@ -101,6 +101,7 @@ import static org.apache.cassandra.concurrent.Stage.*;
 import static org.apache.cassandra.concurrent.Stage.INTERNAL_RESPONSE;
 import static org.apache.cassandra.concurrent.Stage.MISC;
 import static org.apache.cassandra.net.VerbTimeouts.*;
+import static org.apache.cassandra.net.Verb.Kind.*;
 import static org.apache.cassandra.net.Verb.Priority.*;
 import static org.apache.cassandra.schema.MigrationManager.MigrationsSerializer;
 
@@ -197,16 +198,30 @@ public enum Verb
     @Deprecated
     INTERNAL_RSP           (23,  P1, rpcTimeout,      INTERNAL_RESPONSE, () -> null,                                 () -> ResponseVerbHandler.instance                             ),
 
-    // CIE Xmas patch
-    APPLE_UPDATE_REPAIRED_RANGES      (-1001, P1, rpcTimeout,                        MISC, () -> UpdateRepairedRanges.serializer,         () -> UpdateRepairedRangesVerbHandler.instance,              REPAIR_RSP                     ),
-    APPLE_REPAIRED_RANGES_RSP         (-1004, P1, appleRepairedRangesRequestTimeout, MISC, () -> UpdateRepairedRanges.serializer,         () -> ResponseVerbHandler.instance                                                          ),
-    APPLE_REPAIRED_RANGES_REQ         (-1000, P1, appleRepairedRangesRequestTimeout, MISC, () -> RepairedRangesRequest.serializer,        () -> RepairedRangesVerbHandler.instance,                    APPLE_REPAIRED_RANGES_RSP      ),
-    APPLE_REPAIR_SUCCESS              (-1002, P1, appleRepairSuccessTimeout,         MISC, () -> RepairSuccess.serializer,                () -> ActiveRepairService.RepairSuccessVerbHandler.instance, REPAIR_RSP                     ),
-    // Mark as P0 so the pre-4.0 message will be converted to INTERNAL_RSP in org.apache.cassandra.net.Verb.toPre40Verb
-    APPLE_QUERY_REPAIR_HISTORY_RSP    (-1063, P0, rpcTimeout,                        MISC, () -> RepairHistorySyncTask.responseSerializer,() -> ResponseVerbHandler.instance                                                          ),
-    APPLE_QUERY_REPAIR_HISTORY_REQ    (-1003, P1, rpcTimeout,                        MISC, () -> RepairHistorySyncTask.requestSerializer, () -> RepairHistorySyncTask.verbHandler,                     APPLE_QUERY_REPAIR_HISTORY_RSP),
-
     // largest used ID: 116
+
+    // CUSTOM VERBS
+    UNUSED_CUSTOM_VERB     (CUSTOM,
+                            0,   P1, rpcTimeout,      INTERNAL_RESPONSE, () -> null,                                 () -> null                                                     ),
+
+    // CIE Xmas patch
+    APPLE_UPDATE_REPAIRED_RANGES_RSP   (CUSTOM,
+                                       1, P1, rpcTimeout,                        MISC, () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                           ),
+    APPLE_UPDATE_REPAIRED_RANGES_REQ  (CUSTOM,
+                                       2, P1, rpcTimeout,                        MISC, () -> UpdateRepairedRanges.serializer,         () -> UpdateRepairedRangesVerbHandler.instance,              APPLE_UPDATE_REPAIRED_RANGES_RSP),
+    APPLE_REPAIRED_RANGES_RSP         (CUSTOM,
+                                       3, P1, appleRepairedRangesRequestTimeout, MISC, () -> UpdateRepairedRanges.serializer,         () -> ResponseVerbHandler.instance                                                           ),
+    APPLE_REPAIRED_RANGES_REQ         (CUSTOM,
+                                       4, P1, appleRepairedRangesRequestTimeout, MISC, () -> RepairedRangesRequest.serializer,        () -> RepairedRangesVerbHandler.instance,                    APPLE_REPAIRED_RANGES_RSP       ),
+    APPLE_REPAIR_SUCCESS_RSP          (CUSTOM,
+                                       5, P1, appleRepairSuccessTimeout,         MISC, () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                           ),
+    APPLE_REPAIR_SUCCESS_REQ          (CUSTOM,
+                                       6, P1, appleRepairSuccessTimeout,         MISC, () -> RepairSuccess.serializer,                () -> ActiveRepairService.RepairSuccessVerbHandler.instance, APPLE_REPAIR_SUCCESS_RSP        ),
+    APPLE_QUERY_REPAIR_HISTORY_RSP    (CUSTOM,
+                                       7, P1, rpcTimeout,                        MISC, () -> RepairHistorySyncTask.responseSerializer,() -> ResponseVerbHandler.instance                                                           ),
+    APPLE_QUERY_REPAIR_HISTORY_REQ    (CUSTOM,
+                                       8, P1, rpcTimeout,                        MISC, () -> RepairHistorySyncTask.requestSerializer, () -> RepairHistorySyncTask.verbHandler,                     APPLE_QUERY_REPAIR_HISTORY_RSP  ),
+
     ;
 
     public static final List<Verb> VERBS = ImmutableList.copyOf(Verb.values());
@@ -220,9 +235,16 @@ public enum Verb
         P4
     }
 
+    public enum Kind
+    {
+        NORMAL,
+        CUSTOM
+    }
+
     public final int id;
     public final Priority priority;
     public final Stage stage;
+    public final Kind kind;
 
     /**
      * Messages we receive from peers have a Verb that tells us what kind of message it is.
@@ -255,15 +277,37 @@ public enum Verb
 
     Verb(int id, Priority priority, ToLongFunction<TimeUnit> expiration, Stage stage, Supplier<? extends IVersionedAsymmetricSerializer<?, ?>> serializer, Supplier<? extends IVerbHandler<?>> handler, Verb responseVerb)
     {
+        this(NORMAL, id, priority, expiration, stage, serializer, handler, responseVerb);
+    }
+
+    Verb(Kind kind, int id, Priority priority, ToLongFunction<TimeUnit> expiration, Stage stage, Supplier<? extends IVersionedAsymmetricSerializer<?, ?>> serializer, Supplier<? extends IVerbHandler<?>> handler)
+    {
+        this(kind, id, priority, expiration, stage, serializer, handler, null);
+    }
+
+    Verb(Kind kind, int id, Priority priority, ToLongFunction<TimeUnit> expiration, Stage stage, Supplier<? extends IVersionedAsymmetricSerializer<?, ?>> serializer, Supplier<? extends IVerbHandler<?>> handler, Verb responseVerb)
+    {
         this.stage = stage;
         /* CIE relaxed restriction on negative ids to support Xmas patch */
 
-        this.id = id;
+        if (kind == CUSTOM)
+        {
+            if (id > MAX_CUSTOM_VERB_ID)
+                throw new AssertionError("Invalid custom verb id " + id + " - we only allow custom ids between 0 and " + MAX_CUSTOM_VERB_ID);
+            this.id = idForCustomVerb(id);
+        }
+        else
+        {
+            if (id > CUSTOM_VERB_START - MAX_CUSTOM_VERB_ID)
+                throw new AssertionError("Invalid verb id " + id + " - we only allow ids between 0 and " + (CUSTOM_VERB_START - MAX_CUSTOM_VERB_ID));
+            this.id = id;
+        }
         this.priority = priority;
         this.serializer = serializer;
         this.handler = handler;
         this.responseVerb = responseVerb;
         this.expiration = expiration;
+        this.kind = kind;
     }
 
     public <In, Out> IVersionedAsymmetricSerializer<In, Out> serializer()
@@ -340,41 +384,89 @@ public enum Verb
         return original;
     }
 
-    private static final int idToVerbBias;
+    // This is the largest number we can store in 2 bytes using VIntCoding (1 bit per byte is used to indicate if there is more data coming).
+    // When generating ids we count *down* from this number
+    private static final int CUSTOM_VERB_START = (1 << (7 * 2)) - 1;
+
+    // Sanity check for the custom verb ids - avoids someone mistakenly adding a custom verb id close to the normal verbs which
+    // could cause a conflict later when new normal verbs are added.
+    private static final int MAX_CUSTOM_VERB_ID = 1000;
+
     private static final Verb[] idToVerbMap;
+    private static final Verb[] idToCustomVerbMap;
+    private static final int minCustomId;
 
     static
     {
         Verb[] verbs = values();
-        int max = Integer.MIN_VALUE;
-        int min = Integer.MAX_VALUE;
+        int max = -1;
+        int minCustom = Integer.MAX_VALUE;
         for (Verb v : verbs)
         {
-            min = Math.min(v.id, min);
-            max = Math.max(v.id, max);
+            switch (v.kind)
+            {
+                case NORMAL:
+                    max = Math.max(v.id, max);
+                    break;
+                case CUSTOM:
+                    minCustom = Math.min(v.id, minCustom);
+                    break;
+                default:
+                    throw new AssertionError("Unsupported Verb Kind: " + v.kind + " for verb " + v);
+            }
         }
-        int range = max - min + 1;
-        idToVerbBias = -min;
+        minCustomId = minCustom;
 
-        Verb[] idMap = new Verb[range];
+        if (minCustom <= max)
+            throw new IllegalStateException("Overlapping verb ids are not allowed");
+
+        Verb[] idMap = new Verb[max + 1];
+        int customCount = minCustom < Integer.MAX_VALUE ? CUSTOM_VERB_START - minCustom : 0;
+        Verb[] customIdMap = new Verb[customCount + 1];
         for (Verb v : verbs)
         {
-            int biasedId = v.id + idToVerbBias;
-            if (idMap[biasedId] != null)
-                throw new IllegalArgumentException("cannot have two verbs that map to the same id: " + v + " and " + idMap[v.id]);
-            idMap[biasedId] = v;
+            switch (v.kind)
+            {
+                case NORMAL:
+                    if (idMap[v.id] != null)
+                        throw new IllegalArgumentException("cannot have two verbs that map to the same id: " + v + " and " + idMap[v.id]);
+                    idMap[v.id] = v;
+                    break;
+                case CUSTOM:
+                    int relativeId = idForCustomVerb(v.id);
+                    if (customIdMap[relativeId] != null)
+                        throw new IllegalArgumentException("cannot have two custom verbs that map to the same id: " + v + " and " + customIdMap[relativeId]);
+                    customIdMap[relativeId] = v;
+                    break;
+                default:
+                    throw new AssertionError("Unsupported Verb Kind: " + v.kind + " for verb " + v);
+            }
         }
 
         idToVerbMap = idMap;
+        idToCustomVerbMap = customIdMap;
     }
 
-    static Verb fromId(int originalId)
+    public static Verb fromId(int id)
     {
-        int id = originalId + idToVerbBias;
-        Verb verb = id >= 0 && id < idToVerbMap.length ? idToVerbMap[id] : null;
+        Verb[] verbs = idToVerbMap;
+        if (id >= minCustomId)
+        {
+            id = idForCustomVerb(id);
+            verbs = idToCustomVerbMap;
+        }
+        Verb verb = id >= 0 && id < verbs.length ? verbs[id] : null;
         if (verb == null)
             throw new IllegalArgumentException("Unknown verb id " + id);
         return verb;
+    }
+
+    /**
+     * calculate an id for a custom verb
+     */
+    private static int idForCustomVerb(int id)
+    {
+        return CUSTOM_VERB_START - id;
     }
 }
 

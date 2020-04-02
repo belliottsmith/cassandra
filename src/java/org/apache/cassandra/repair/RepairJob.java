@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.repair;
 
-import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Predicate;
@@ -528,7 +527,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             for (Range<Token> range : success.ranges)
                 cfs.updateLastSuccessfulRepair(range, success.succeedAt);
             for (InetAddressAndPort endpoint : allEndpoints)
-                MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_REPAIR_SUCCESS, success), endpoint, callback);
+                MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_REPAIR_SUCCESS_REQ, success), endpoint, callback);
 
             if (!successResponses.await(1, TimeUnit.HOURS))
             {
