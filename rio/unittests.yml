@@ -76,7 +76,8 @@ shared:
           export CASSANDRA_USE_JDK11=true
         fi
 
-        ant -f rio-build.xml testclasslist -Dtest.classlistfile=$PARALLEL_INPUT_DIR/input  -Dtest.classlistprefix=$CASSANDRA_TEST_KIND
+        timeout 140m ant -f rio-build.xml testclasslist -Dtest.classlistfile=$PARALLEL_INPUT_DIR/input  -Dtest.classlistprefix=$CASSANDRA_TEST_KIND
+        rc=$?
 
         if [ -e build/test/output ]; then
           mkdir -p $PARALLEL_OUTPUT_DIR/build/test/output
@@ -86,6 +87,14 @@ shared:
           mkdir -p $PARALLEL_OUTPUT_DIR/build/test/logs
           cp -r build/test/logs/* $PARALLEL_OUTPUT_DIR/build/test/logs/
         fi
+        if [ "$rc" -eq 124 ] # exit code if timeout killed ant
+        then
+          echo Faking skipped tests entry to guarantee failure after timeout
+          mkdir -p $PARALLEL_OUTPUT_DIR/build/test/output
+          # Make sure to match the pattern expected in the parallel-tests-step.sh for checking junit xml files
+          echo "<testsuite hostname=\"${K8S_PHYSICAL_NODE_NAME}\" name=\"timedout.${HOSTNAME}.timedout\" errors=\"1\" failures=\"0\" tests=\"1\"><testcase name=\"mappertimedout\" classname=\"so.sad.timed.out\" time=\"0.001\"><error type=\"timeout\"/></testcase></testsuite>" > "$PARALLEL_OUTPUT_DIR/build/test/output/TEST-${HOSTNAME}-timedout.xml"
+        fi
+        exit "$rc"
 
 work:
   unit:
