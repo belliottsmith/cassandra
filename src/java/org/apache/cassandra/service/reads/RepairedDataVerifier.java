@@ -91,7 +91,7 @@ public interface RepairedDataVerifier
                     metrics.confirmedRepairedInconsistencies.mark();
                     NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES,
                                      INCONSISTENCY_WARNING, command.metadata().ksName,
-                                     command.metadata().cfName, getCommandString(), tracker);
+                                     command.metadata().cfName, command.toString(), tracker);
                 }
                 else if (DatabaseDescriptor.reportUnconfirmedRepairedDataMismatches())
                 {
@@ -99,16 +99,9 @@ public interface RepairedDataVerifier
                     metrics.unconfirmedRepairedInconsistencies.mark();
                     NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES,
                                      INCONSISTENCY_WARNING, command.metadata().ksName,
-                                     command.metadata().cfName, getCommandString(), tracker);
+                                     command.metadata().cfName, command.toString(), tracker);
                 }
             }
-        }
-
-        protected String getCommandString()
-        {
-            return command instanceof SinglePartitionReadCommand
-                   ? ((SinglePartitionReadCommand)command).partitionKey().toString()
-                   : ((PartitionRangeReadCommand)command).dataRange().keyRange().getString(command.metadata().getKeyValidator());
         }
     }
 
@@ -134,18 +127,21 @@ public interface RepairedDataVerifier
             super.verify(tracker);
             if (tracker.digests.keySet().size() > 1)
             {
-                long now = System.nanoTime();
-                AtomicLong cached = LAST_SNAPSHOT_TIMES.computeIfAbsent(command.metadata().cfId, u -> new AtomicLong(0));
-                long last = cached.get();
-                if (now - last > SNAPSHOT_INTERVAL_NANOS && cached.compareAndSet(last, now))
+                if (tracker.inconclusiveDigests.isEmpty() ||  DatabaseDescriptor.reportUnconfirmedRepairedDataMismatches())
                 {
-                    logger.warn(SNAPSHOTTING_WARNING, command.metadata().ksName, command.metadata().cfName, getCommandString(), tracker);
-                    MessageOut<?> msg = new SnapshotCommand(this.command.metadata().ksName,
-                                                            this.command.metadata().cfName,
-                                                            getSnapshotName(),
-                                                            false).createMessage();
-                    for (InetAddress replica : tracker.digests.values())
-                        MessagingService.instance().sendOneWay(msg, replica);
+                    long now = System.nanoTime();
+                    AtomicLong cached = LAST_SNAPSHOT_TIMES.computeIfAbsent(command.metadata().cfId, u -> new AtomicLong(0));
+                    long last = cached.get();
+                    if (now - last > SNAPSHOT_INTERVAL_NANOS && cached.compareAndSet(last, now))
+                    {
+                        logger.warn(SNAPSHOTTING_WARNING, command.metadata().ksName, command.metadata().cfName, command.toString(), tracker);
+                        MessageOut<?> msg = new SnapshotCommand(this.command.metadata().ksName,
+                                                                this.command.metadata().cfName,
+                                                                getSnapshotName(),
+                                                                false).createMessage();
+                        for (InetAddress replica : tracker.digests.values())
+                            MessagingService.instance().sendOneWay(msg, replica);
+                    }
                 }
             }
         }
