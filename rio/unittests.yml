@@ -3,10 +3,10 @@ schemaVersion: v1
 work:
   unit:
     machine:
-      numberOfInstances: 80
+      numberOfInstances: 100
       resources:
-        cpu: 4
-        memory: 4Gi
+        cpu: 8
+        memory: 16Gi
       copyFromLocal:
         - src: ~/.m2/settings.xml
           dst: ~/.m2/settings.xml
@@ -14,7 +14,8 @@ work:
       runtime:
         java:
           - 8
-          - 11
+            # disable java 11 for now to make things more stable
+            #- 11
       environment:
         - LANG: en_US.UTF-8
         # some tests can't run properly in circle ci, so they get skipped if this environment variable is set

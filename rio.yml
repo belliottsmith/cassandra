@@ -46,6 +46,10 @@ builds:
       - mcqueen.yml
   reports:
     junit: true
+    logs:
+      paths:
+        - parallel-output/**/test/logs/*.log
+        - parallel-output/**/.command/*/*
   timeout: 180
 - name: build-3.0.19
   branchName: cie-cassandra-3.0.19
@@ -63,6 +67,10 @@ builds:
       - mcqueen.yml
   reports:
     junit: true
+    logs:
+      paths:
+        - parallel-output/**/test/logs/*.log
+        - parallel-output/**/.command/*/*
   timeout: 180
   finally:
     pipelineChain:
