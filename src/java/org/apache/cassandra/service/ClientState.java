@@ -168,7 +168,7 @@ public class ClientState
      * This clock guarantees that updates for the same ClientState will be ordered
      * in the sequence seen, even if multiple updates happen in the same millisecond.
      */
-    public long getTimestamp()
+    public static long getTimestamp()
     {
         while (true)
         {
@@ -222,7 +222,7 @@ public class ClientState
      * it may be returned multiple times). Note that we still ensure Paxos "ballot" are unique (for different
      * proposal) by (securely) randomizing the non-timestamp part of the UUID.
      */
-    public long getTimestampForPaxos(long minTimestampToUse)
+    public static long getTimestampForPaxos(long minTimestampToUse)
     {
         while (true)
         {

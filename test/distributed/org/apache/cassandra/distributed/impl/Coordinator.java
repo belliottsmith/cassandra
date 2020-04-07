@@ -28,6 +28,7 @@ import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
+import org.apache.cassandra.cql3.statements.ModificationStatement;
 import org.apache.cassandra.cql3.statements.SelectStatement;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICoordinator;
@@ -66,7 +67,7 @@ public class Coordinator implements ICoordinator
                                                                      false,
                                                                      Integer.MAX_VALUE,
                                                                      null,
-                                                                     null,
+                                                                     ConsistencyLevel.SERIAL,
                                                                      Server.CURRENT_VERSION));
 
             if (res != null && res.kind == ResultMessage.Kind.ROWS)

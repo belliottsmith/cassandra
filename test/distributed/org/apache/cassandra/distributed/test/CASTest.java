@@ -15,19 +15,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.net;
 
-import java.net.InetAddress;
+package org.apache.cassandra.distributed.test;
 
-public interface IAsyncCallbackWithFailure<T> extends IAsyncCallback<T>
+import org.junit.BeforeClass;
+
+public class CASTest extends CASTestBase
 {
-    /**
-     * Called when there is an exception on the remote node or timeout happens
-     */
-    public void onFailure(InetAddress from);
-
-    /**
-     * Called on timeout
-     */
-    public default void onExpired(InetAddress from) { onFailure(from); }
+    @BeforeClass
+    public static void beforeAll()
+    {
+        System.setProperty("cassandra.paxos.use_apple_paxos", "true");
+    }
 }
