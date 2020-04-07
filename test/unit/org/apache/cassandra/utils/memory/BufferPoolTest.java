@@ -568,27 +568,6 @@ public class BufferPoolTest
     }
 
     @Test
-    public void testBufferPoolDisabled()
-    {
-        ByteBuffer buffer = BufferPool.get(1024, BufferType.ON_HEAP);
-        assertEquals(0, BufferPool.unsafeNumChunks());
-        assertNotNull(buffer);
-        assertEquals(1024, buffer.capacity());
-        assertFalse(buffer.isDirect());
-        assertNotNull(buffer.array());
-        BufferPool.put(buffer);
-        assertEquals(0, BufferPool.unsafeNumChunks());
-
-        buffer = BufferPool.get(1024, BufferType.OFF_HEAP);
-        assertEquals(0, BufferPool.unsafeNumChunks());
-        assertNotNull(buffer);
-        assertEquals(1024, buffer.capacity());
-        assertTrue(buffer.isDirect());
-        BufferPool.put(buffer);
-        assertEquals(0, BufferPool.unsafeNumChunks());
-    }
-
-    @Test
     public void testMT_SameSizeImmediateReturn() throws InterruptedException
     {
         checkMultipleThreads(40, 1, true, RandomAccessReader.DEFAULT_BUFFER_SIZE);
