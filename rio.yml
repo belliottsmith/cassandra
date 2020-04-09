@@ -78,7 +78,13 @@ builds:
         - ./rio/parallel-tests-step.sh snapshot
     timeout: 180
     reports:
-      junit: true
+      junit:
+        paths:
+          - parallel-output/**/build/test/output/*
+      logs:
+        paths:
+          - unified-output/**/build/test/logs/*.log
+          - parallel-output/**/.command/*/*
 
   #
   # Snapshot build - runs automatically on commit
