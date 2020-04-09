@@ -70,6 +70,7 @@ public class RepairMessageVerbHandlerTest
         SchemaLoader.schemaDefinition(TEST_NAME);
         StorageService.instance.initServer(0);
         cfIds = Collections.singletonList(Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE).metadata.cfId);
+        ActiveRepairService.instance.consistent.local.start();
     }
 
     @Before

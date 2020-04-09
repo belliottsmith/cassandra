@@ -438,6 +438,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
                 Keyspace.setInitialized();
 
+                // Start repair service before replaying commit logs as they could initialize CFSs
+                // and start autocompaction
+                ActiveRepairService.instance.start();
+
                 // Replay any CommitLogSegments found on disk
                 try
                 {
@@ -476,8 +480,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     throw new IllegalStateException();
                 if (DatabaseDescriptor.getStoragePort() != broadcastAddressAndPort().port)
                     throw new IllegalStateException();
-
-                ActiveRepairService.instance.start();
             }
             catch (Throwable t)
             {

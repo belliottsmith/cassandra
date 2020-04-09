@@ -345,6 +345,9 @@ public class CassandraDaemon
         // migrate any legacy (pre-3.0) batch entries from system.batchlog to system.batches (new table format)
         LegacyBatchlogMigrator.migrate();
 
+        // Load local repair session state before enabling compaction so pending sstables have repairedAt set correctly
+        ActiveRepairService.instance.start();
+
         // enable auto compaction
         for (Keyspace keyspace : Keyspace.all())
         {
@@ -376,7 +379,6 @@ public class CassandraDaemon
         ScheduledExecutors.optionalTasks.schedule(viewRebuild, StorageService.RING_DELAY, TimeUnit.MILLISECONDS);
 
         SystemKeyspace.finishStartup();
-        ActiveRepairService.instance.start();
 
         // Clean up system.size_estimates entries left lying around from missed keyspace drops (CASSANDRA-14905)
         StorageService.instance.cleanupSizeEstimates();

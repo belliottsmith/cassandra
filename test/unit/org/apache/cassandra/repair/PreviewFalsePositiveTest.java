@@ -42,6 +42,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.repair.consistent.LocalSessions;
 import org.apache.cassandra.repair.consistent.SyncStatSummary;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -160,6 +161,7 @@ public class PreviewFalsePositiveTest extends AbstractRepairTest
                                                                  true,
                                                                  PreviewKind.REPAIRED);
 
+        ActiveRepairService.instance.consistent.local.start();
         QueryProcessor.executeInternal(String.format("INSERT INTO %s.%s (k, v) VALUES (?, ?)", KEYSPACE, TABLE), 1, 1);
         cfs.forceBlockingFlush();
 
