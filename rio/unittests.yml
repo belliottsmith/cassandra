@@ -13,7 +13,6 @@ shared:
       # don't care about the image, as long as the provided runtime is present
       runtime:
         java:
-          - 8
           - 11
       environment:
         - LANG: en_US.UTF-8
