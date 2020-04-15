@@ -62,6 +62,8 @@ public interface StorageProxyMBean
     public long getReadRepairRepairTimedOut();
 
     public void loadPartitionBlacklist();
+    public int getPartitionBlacklistLoadAttempts();
+    public int getPartitionBlacklistLoadSuccesses();
     public void setEnablePartitionBlacklist(boolean enabled);
     public void setEnableBlacklistWrites(boolean enabled);
     public void setEnableBlacklistReads(boolean enabled);

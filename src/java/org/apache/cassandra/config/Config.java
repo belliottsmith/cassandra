@@ -102,6 +102,8 @@ public class Config
 
     public int blacklist_refresh_period_seconds = 86400;
 
+    public int blacklist_initial_load_retry_seconds = 5;
+
     public int max_blacklist_keys_per_cf = 1000;
 
     public int max_blacklist_keys_total = 10000;

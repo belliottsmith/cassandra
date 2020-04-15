@@ -2001,6 +2001,16 @@ public class DatabaseDescriptor
         conf.blacklist_refresh_period_seconds = period;
     }
 
+    public static int getBlacklistInitialLoadRetrySeconds()
+    {
+        return conf.blacklist_initial_load_retry_seconds;
+    }
+
+    public static void setBlacklistInitialLoadRetrySeconds(int seconds)
+    {
+        conf.blacklist_initial_load_retry_seconds = seconds;
+    }
+
     public static int maxBlacklistKeysPerCf()
     {
         return conf.max_blacklist_keys_per_cf;

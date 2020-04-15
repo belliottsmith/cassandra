@@ -8,6 +8,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
 import org.apache.cassandra.auth.AuthKeyspace;
+import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.cql3.UntypedResultSet;
@@ -111,14 +112,74 @@ public class PartitionBlacklist
         public final ImmutableSortedSet<Token> tokens;
     }
 
-    public void load()
+    // synchronized on this
+    private int loadAttempts = 0;
+    private int loadSuccesses = 0;
+
+    public synchronized int getLoadAttempts()
+    {
+        return loadAttempts;
+    }
+    public synchronized int getLoadSuccesses()
+    {
+        return loadSuccesses;
+    }
+
+    /* Perform initial load of the partition blacklist.  Should
+     * be called at startup and only loads if the operation
+     * is expected to succeed.  If it is not possible to load
+     * at call time, a timer is set to retry.
+     */
+    public void initialLoad()
     {
         if (!DatabaseDescriptor.enablePartitionBlacklist())
             return;
+
+        synchronized (this)
+        {
+            loadAttempts++;
+        }
+
+        // Check if there are sufficient nodes to attempt reading
+        // all the blacklist partitions before issuing the query.
+        // The pre-check prevents definite range-slice unavailables
+        // being marked and triggering an alert.  Nodes may still change
+        // state between the check and the query, but it should significantly
+        // reduce the alert volume.
+        String retryReason = "Insufficient nodes";
+        try
+        {
+            if (readAllHasSufficientNodes() && load())
+            {
+                return;
+            }
+        }
+        catch (Throwable tr)
+        {
+            logger.error("Failed to load partition blacklist", tr);
+            retryReason = "Exception";
+        }
+
+        // This path will also be taken on other failures other than UnavailableException,
+        // but seems like a good idea to retry anyway.
+        int retryInSeconds = DatabaseDescriptor.getBlacklistInitialLoadRetrySeconds();
+        logger.info(retryReason + " while loading partition blacklist cache.  Scheduled retry in {} seconds.",
+                    retryInSeconds);
+        ScheduledExecutors.optionalTasks.schedule(this::initialLoad, retryInSeconds, TimeUnit.SECONDS);
+    }
+
+    private boolean readAllHasSufficientNodes()
+    {
+        return StorageProxy.sufficientLiveNodesForSelectStar(CIEInternalKeyspace.PartitionBlacklistCf,
+                                                             DatabaseDescriptor.blacklistConsistencyLevel());
+    }
+
+    public boolean load()
+    {
         final long start = System.currentTimeMillis();
         final Map<UUID, BlacklistEntry> allBlacklists = readAll();
         if (allBlacklists == null)
-            return;
+            return false;
 
         // cache iterators are weakly-consistent
         for (final Iterator<UUID> it = blacklist.asMap().keySet().iterator(); it.hasNext(); )
@@ -129,6 +190,12 @@ public class PartitionBlacklist
         }
         blacklist.putAll(allBlacklists);
         logger.info("Loaded partition blacklist cache in {}ms", System.currentTimeMillis() - start);
+
+        synchronized (this)
+        {
+            loadSuccesses++;
+        }
+        return true;
     }
 
     public boolean blacklist(final String keyspace, final String cf, final ByteBuffer key)

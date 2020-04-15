@@ -26,6 +26,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.cache.CacheLoader;
@@ -100,7 +101,8 @@ public class StorageProxy implements StorageProxyMBean
         }
     };
     public static final ClientRequestMetrics readMetrics = new ClientRequestMetrics("Read");
-    private static final ClientRequestMetrics rangeMetrics = new ClientRequestMetrics("RangeSlice");
+    @VisibleForTesting
+    public static final ClientRequestMetrics rangeMetrics = new ClientRequestMetrics("RangeSlice");
     private static final ClientRequestMetrics partitionSizeMetrics = new ClientRequestMetrics("PartitionSize");
     public static final ClientRequestMetrics writeMetrics = new ClientRequestMetrics("Write");
     public static final CASClientRequestMetrics casWriteMetrics = new CASClientRequestMetrics("CASWrite");
@@ -117,10 +119,27 @@ public class StorageProxy implements StorageProxyMBean
 
     private volatile long logBlockingReadRepairAttemptsUntil = Long.MIN_VALUE;
 
+    public void initialLoadPartitionBlacklist()
+    {
+        partitionBlacklist.initialLoad();
+    }
+
     @Override
     public void loadPartitionBlacklist()
     {
         partitionBlacklist.load();
+    }
+
+    @Override
+    public int getPartitionBlacklistLoadAttempts()
+    {
+        return partitionBlacklist.getLoadAttempts();
+    }
+
+    @Override
+    public int getPartitionBlacklistLoadSuccesses()
+    {
+        return partitionBlacklist.getLoadSuccesses();
     }
 
     @Override
@@ -2199,6 +2218,23 @@ public class StorageProxy implements StorageProxyMBean
 
         // adjust maxExpectedResults by the number of tokens this node has and the replication factor for this ks
         return (maxExpectedResults / DatabaseDescriptor.getNumTokens()) / keyspace.getReplicationStrategy().getReplicationFactor();
+    }
+
+    public static boolean sufficientLiveNodesForSelectStar(CFMetaData metadata, ConsistencyLevel consistency)
+    {
+        try
+        {
+            Keyspace keyspace = Keyspace.open(metadata.ksName);
+            PartitionRangeReadCommand rangeCommand = PartitionRangeReadCommand.allDataRead(metadata,
+                                                                                           FBUtilities.nowInSeconds());
+            RangeIterator rangeIterator = new RangeIterator(rangeCommand, keyspace, consistency);
+            rangeIterator.forEachRemaining(r -> consistency.assureSufficientLiveNodes(keyspace, r.filteredEndpoints));
+            return true;
+        }
+        catch(UnavailableException e)
+        {
+            return false;
+        }
     }
 
     private static class RangeForQuery
