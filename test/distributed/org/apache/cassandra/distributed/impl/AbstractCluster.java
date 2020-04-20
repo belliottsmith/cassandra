@@ -802,7 +802,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
                 Files.copy(new File(testConfPath).toPath(),
                            logConfPath);
             }
-            System.setProperty("log4j2.configurationFile", "file://" + logConfPath);
+            System.setProperty("log4j.configurationFile", "file://" + logConfPath);
         }
         catch (IOException e)
         {
