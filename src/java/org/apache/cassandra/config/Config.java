@@ -507,6 +507,15 @@ public class Config
      */
     public volatile boolean snapshot_on_repaired_data_mismatch = false;
 
+    /**
+     * If true, when rows with duplicate clustering keys are detected during a read or compaction
+     * a snapshot will be taken. In the read case, a snapshot request will be issued to each
+     * replica involved in the query, for compaction the snapshot will be created locally.
+     * These are limited at the replica level so that only a single snapshot per-day can be taken
+     * via this method.
+     */
+    public volatile boolean snapshot_on_duplicate_row_detection = false;
+
     public volatile boolean enable_secondary_index = Boolean.getBoolean("cassandra.enable_secondary_index");
 
     public String repair_history_sync_timeout = "10m";

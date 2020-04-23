@@ -3365,6 +3365,7 @@ public class StorageProxy implements StorageProxyMBean
         return DatabaseDescriptor.reportUnconfirmedRepairedDataMismatches();
     }
 
+    @Override
     public boolean getSnapshotOnRepairedDataMismatchEnabled()
     {
         return DatabaseDescriptor.snapshotOnRepairedDataMismatch();
@@ -3380,6 +3381,24 @@ public class StorageProxy implements StorageProxyMBean
     public void disableSnapshotOnRepairedDataMismatch()
     {
         DatabaseDescriptor.setSnapshotOnRepairedDataMismatch(false);
+    }
+
+    @Override
+    public boolean getSnapshotOnDuplicateRowDetectionEnabled()
+    {
+        return DatabaseDescriptor.snapshotOnDuplicateRowDetection();
+    }
+
+    @Override
+    public void enableSnapshotOnDuplicateRowDetection()
+    {
+        DatabaseDescriptor.setSnapshotOnDuplicateRowDetection(true);
+    }
+
+    @Override
+    public void disableSnapshotOnDuplicateRowDetection()
+    {
+        DatabaseDescriptor.setSnapshotOnDuplicateRowDetection(false);
     }
 
     @Override

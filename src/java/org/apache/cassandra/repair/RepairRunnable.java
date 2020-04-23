@@ -73,10 +73,7 @@ import org.apache.cassandra.tracing.TraceKeyspace;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.messages.ResultMessage;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.UUIDGen;
-import org.apache.cassandra.utils.WrappedRunnable;
+import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.progress.ProgressEvent;
 import org.apache.cassandra.utils.progress.ProgressEventNotifier;
 import org.apache.cassandra.utils.progress.ProgressEventType;
@@ -638,22 +635,16 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                 }
             }
 
-            String snapshotName = RepairedDataVerifier.SnapshottingVerifier.getSnapshotName();
+            String snapshotName = DiagnosticSnapshotService.getSnapshotName(DiagnosticSnapshotService.REPAIRED_DATA_MISMATCH_SNAPSHOT_PREFIX);
             for (String table : mismatchingTables)
             {
-                // we can just check snapshot existence locally since the repair coordinator is always a replica (unlike in the read case)
+                // we can shortcut the snapshot existence locally since the repair coordinator is always a replica (unlike in the read case)
                 if (!Keyspace.open(keyspace).getColumnFamilyStore(table).snapshotExists(snapshotName))
                 {
                     logger.info("{} Snapshotting {}.{} for preview repair mismatch with tag {} on instances {}",
                                 options.getPreviewKind().logPrefix(parentSession),
                                 keyspace, table, snapshotName, nodes);
-                    SnapshotCommand snapshotCommand = new SnapshotCommand(keyspace,
-                                                                          table,
-                                                                          snapshotName,
-                                                                          false);
-                    MessageOut<?> message = snapshotCommand.createMessage();
-                    for (InetAddress target : nodes)
-                        MessagingService.instance().sendOneWay(message, target);
+                    DiagnosticSnapshotService.repairedDataMismatch(Keyspace.open(keyspace).getColumnFamilyStore(table).metadata, nodes);
                 }
                 else
                 {
