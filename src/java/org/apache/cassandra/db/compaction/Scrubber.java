@@ -362,7 +362,7 @@ public class Scrubber implements Closeable
     @SuppressWarnings("resource")
     private UnfilteredRowIterator getIterator(DecoratedKey key)
     {
-        RowMergingSSTableIterator rowMergingIterator = new RowMergingSSTableIterator(sstable, dataFile, key);
+        RowMergingSSTableIterator rowMergingIterator = new RowMergingSSTableIterator(sstable, dataFile, key, outputHandler);
         return reinsertOverflowedTTLRows ? new FixNegativeLocalDeletionTimeIterator(rowMergingIterator,
                                                                                     outputHandler,
                                                                                     negativeLocalDeletionInfoMetrics) : rowMergingIterator;
@@ -528,9 +528,12 @@ public class Scrubber implements Closeable
      */
     private static class RowMergingSSTableIterator extends SSTableIdentityIterator
     {
-        RowMergingSSTableIterator(SSTableReader sstable, RandomAccessReader file, DecoratedKey key)
+        private final OutputHandler output;
+
+        RowMergingSSTableIterator(SSTableReader sstable, RandomAccessReader file, DecoratedKey key, OutputHandler output)
         {
             super(sstable, file, key);
+            this.output = output;
         }
 
         @Override
@@ -543,6 +546,7 @@ public class Scrubber implements Closeable
             if (!next.isRow())
                 return next;
 
+            boolean logged = false;
             while (iterator.hasNext())
             {
                 Unfiltered peek = iterator.peek();
@@ -551,6 +555,13 @@ public class Scrubber implements Closeable
                 {
                     iterator.next(); // Make sure that the peeked item was consumed.
                     next = Rows.merge((Row) next, (Row) peek, FBUtilities.nowInSeconds());
+
+                    if (!logged)
+                    {
+                        String partitionKey = metadata().getKeyValidator().getString(partitionKey().getKey());
+                        output.warn("Duplicate row detected in " + metadata().ksName + '.' + metadata().cfName + ": " + partitionKey + " " + next.clustering().toString(metadata()));
+                        logged = true;
+                    }
                 }
                 else
                 {
