@@ -401,12 +401,10 @@ public class PreviewRepairTest extends DistributedTestBase
     static Map<String, String> options(boolean preview, boolean full)
     {
         Map<String, String> config = new HashMap<>();
-        config.put(RepairOption.INCREMENTAL_KEY, "true");
         config.put(RepairOption.PARALLELISM_KEY, RepairParallelism.PARALLEL.toString());
         if (preview)
             config.put(RepairOption.PREVIEW, PreviewKind.REPAIRED.toString());
-        if (full)
-            config.put(RepairOption.INCREMENTAL_KEY, "false");
+        config.put(RepairOption.INCREMENTAL_KEY, Boolean.toString(!full));
         return config;
     }
 

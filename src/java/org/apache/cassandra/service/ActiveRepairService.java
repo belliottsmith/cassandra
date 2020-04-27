@@ -568,12 +568,16 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
      */
     public synchronized ParentRepairSession removeParentRepairSession(UUID parentSessionId)
     {
-        for (ColumnFamilyStore cfs : getParentRepairSession(parentSessionId).columnFamilyStores.values())
+        String snapshotName = parentSessionId.toString();
+        ParentRepairSession session = parentRepairSessions.remove(parentSessionId);
+        if (session == null)
+            return null;
+        for (ColumnFamilyStore cfs : session.columnFamilyStores.values())
         {
-            if (cfs.snapshotExists(parentSessionId.toString()))
-                cfs.clearSnapshot(parentSessionId.toString());
+            if (cfs.snapshotExists(snapshotName))
+                cfs.clearSnapshot(snapshotName);
         }
-        return parentRepairSessions.remove(parentSessionId);
+        return session;
     }
 
     public void handleMessage(InetAddress endpoint, RepairMessage message)
@@ -841,5 +845,19 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
     public interface RepairSuccessListener
     {
         void onRepairSuccess(RepairSuccess message);
+    }
+
+    public void abortRepairsInvolvingTable(UUID tableId)
+    {
+        Set<UUID> parentSessionsToRemove = new HashSet<>();
+        for (Map.Entry<UUID, ParentRepairSession> repairSessionEntry : parentRepairSessions.entrySet())
+        {
+            if (repairSessionEntry.getValue().columnFamilyStores.containsKey(tableId))
+            {
+                parentSessionsToRemove.add(repairSessionEntry.getKey());
+            }
+        }
+        logger.info("Stopping parent sessions {} due to truncation of tableId={}", parentSessionsToRemove, tableId);
+        parentSessionsToRemove.forEach(this::removeParentRepairSession);
     }
 }

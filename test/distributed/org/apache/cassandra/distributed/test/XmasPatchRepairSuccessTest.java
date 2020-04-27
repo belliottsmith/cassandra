@@ -180,7 +180,7 @@ public class XmasPatchRepairSuccessTest extends DistributedTestBase
         }
     }
 
-    int getRepairTimeFor(IInvokableInstance instance, String tokens)
+    static int getRepairTimeFor(IInvokableInstance instance, String tokens)
     {
         return instance.callOnInstance(() -> {
             ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl");

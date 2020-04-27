@@ -21,6 +21,7 @@ package org.apache.cassandra.distributed;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import org.apache.cassandra.distributed.api.ICluster;
@@ -38,9 +39,9 @@ import org.apache.cassandra.distributed.impl.Versions;
  */
 public class UpgradeableCluster extends AbstractCluster<IUpgradeableInstance> implements ICluster, AutoCloseable
 {
-    private UpgradeableCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
+    private UpgradeableCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader, BiConsumer<ClassLoader, Integer> instanceInit)
     {
-        super(root, version, configs, sharedClassLoader);
+        super(root, version, configs, sharedClassLoader, instanceInit);
     }
 
     protected IUpgradeableInstance newInstanceWrapper(int generation, Versions.Version version, InstanceConfig config)

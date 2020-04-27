@@ -533,7 +533,6 @@ public class ReadCommandTest
      */
     private void fullyPurgedPartitionCreatesEmptyDigest(ColumnFamilyStore cfs, ReadCommand command)
     {
-        cfs.truncateBlocking();
         cfs.disableAutoCompaction();
         cfs.metadata.params(TableParams.builder(cfs.metadata.params)
                                        .gcGraceSeconds(600)
@@ -588,7 +587,6 @@ public class ReadCommandTest
 
     private void testPurgedAndNonPurgedPartitions(ColumnFamilyStore cfs)
     {
-        cfs.truncateBlocking();
         cfs.disableAutoCompaction();
         cfs.metadata.params(TableParams.builder(cfs.metadata.params)
                                        .gcGraceSeconds(0)
@@ -638,7 +636,6 @@ public class ReadCommandTest
         // the second is unrepaired and contains non-purgable data. Even though
         // the partition itself is not fully purged, the repaired data digest
         // should be empty as there was no non-purgeable, repaired data read.
-        cfs.truncateBlocking();
         cfs.disableAutoCompaction();
         cfs.metadata.params(TableParams.builder(cfs.metadata.params)
                                        .gcGraceSeconds(0)
@@ -1036,6 +1033,7 @@ public class ReadCommandTest
         DatabaseDescriptor.setChristmasPatchEnabled();
         cfs.clearLastSucessfulRepairUnsafe();
         cfs.skipRFCheckForXmasPatch();
+        cfs.truncateBlocking();
         Map<Range<Token>, Integer> repairs = new HashMap<>();
         repairs.put(new Range<Token>(cfs.getPartitioner().getMinimumToken(), cfs.getPartitioner().getMinimumToken()),
                     lastRepairTime);

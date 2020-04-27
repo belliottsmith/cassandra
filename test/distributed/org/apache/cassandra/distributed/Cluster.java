@@ -24,6 +24,7 @@ import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import org.apache.cassandra.distributed.api.ICluster;
@@ -41,9 +42,9 @@ import org.apache.cassandra.gms.Gossiper;
  */
 public class Cluster extends AbstractCluster<IInvokableInstance> implements ICluster, AutoCloseable
 {
-    private Cluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
+    private Cluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader, BiConsumer<ClassLoader, Integer> instanceInit)
     {
-        super(root, version, configs, sharedClassLoader);
+        super(root, version, configs, sharedClassLoader, instanceInit);
     }
 
     protected IInvokableInstance newInstanceWrapper(int generation, Versions.Version version, InstanceConfig config)

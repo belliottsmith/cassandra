@@ -33,6 +33,7 @@ import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -103,6 +104,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
 
     // mutated by user-facing API
     private final MessageFilters filters;
+    private final BiConsumer<ClassLoader, Integer> instanceInitializer;
 
     protected class Wrapper extends DelegatingInvokableInstance implements IUpgradeableInstance
     {
@@ -131,6 +133,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         private IInvokableInstance newInstance(int generation)
         {
             ClassLoader classLoader = new InstanceClassLoader(generation, version.classpath, sharedClassLoader);
+            instanceInitializer.accept(classLoader, config.num);
             return Instance.transferAdhoc((SerializableBiFunction<IInstanceConfig, ClassLoader, Instance>)Instance::new, classLoader)
                            .apply(config, classLoader);
         }
@@ -196,12 +199,13 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         }
     }
 
-    protected AbstractCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader)
+    protected AbstractCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader, BiConsumer<ClassLoader, Integer> instanceInitializer)
     {
         this.root = root;
         this.sharedClassLoader = sharedClassLoader;
         this.instances = new ArrayList<>();
         this.instanceMap = new HashMap<>();
+        this.instanceInitializer = instanceInitializer;
         int generation = AbstractCluster.generation.incrementAndGet();
         for (InstanceConfig config : configs)
         {
@@ -411,7 +415,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
 
     protected interface Factory<I extends IInstance, C extends AbstractCluster<I>>
     {
-        C newCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader);
+        C newCluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader, BiConsumer<ClassLoader, Integer> instanceInit);
     }
 
     public static class Builder<I extends IInstance, C extends AbstractCluster<I>>
@@ -422,6 +426,8 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         private File root;
         private Versions.Version version;
         private Consumer<IInstanceConfig> configUpdater;
+        private BiConsumer<ClassLoader, Integer> instanceInitializer = (cl, id) -> {};
+
         public Builder(int nodeCount, Factory<I, C> factory)
         {
             this.nodeCount = nodeCount;
@@ -452,6 +458,12 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
             return this;
         }
 
+        public Builder<I, C> withInstanceInitializer(BiConsumer<ClassLoader, Integer> instanceInitializer)
+        {
+            this.instanceInitializer = instanceInitializer;
+            return this;
+        }
+
         public C createWithoutStarting() throws IOException
         {
             File root = this.root;
@@ -477,8 +489,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
                 configs.add(config);
                 token += increment;
             }
-
-            C cluster = factory.newCluster(root, version, configs, sharedClassLoader);
+            C cluster = factory.newCluster(root, version, configs, sharedClassLoader, instanceInitializer);
             return cluster;
         }
 
