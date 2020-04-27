@@ -381,7 +381,7 @@ public class Verifier implements Closeable
             firstMaxTs = Math.max(firstMaxTs, cell.timestamp());
             firstMinTs = Math.min(firstMinTs, cell.timestamp());
         }
-        outputHandler.output(String.format("%d duplicate rows found for %s in %s.%s (%s %s), timestamps: [first row (%s, %s)], [duplicates (%s, %s, eq:%b)]",
+        outputHandler.output(String.format("%d duplicate rows found for [%s %s] in %s.%s (%s), timestamps: [first row (%s, %s)], [duplicates (%s, %s, eq:%b)]",
                                            duplicateRows,
                                            keyString, first.clustering().toString(sstable.metadata),
                                            sstable.metadata.ksName,
