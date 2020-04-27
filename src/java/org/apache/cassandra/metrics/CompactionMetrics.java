@@ -24,6 +24,7 @@ import com.codahale.metrics.Counter;
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Meter;
 
+import com.codahale.metrics.Timer;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -50,6 +51,8 @@ public class CompactionMetrics
     public final Meter totalCompactionsCompleted;
     /** Total number of bytes compacted since server [re]start */
     public final Counter bytesCompacted;
+    /** Time spent redistributing index summaries */
+    public final Timer indexSummaryRedistributionTime;
 
     public CompactionMetrics(final ThreadPoolExecutor... collectors)
     {
@@ -130,5 +133,6 @@ public class CompactionMetrics
         });
         totalCompactionsCompleted = Metrics.meter(factory.createMetricName("TotalCompactionsCompleted"));
         bytesCompacted = Metrics.counter(factory.createMetricName("BytesCompacted"));
+        indexSummaryRedistributionTime = Metrics.timer(factory.createMetricName("IndexSummaryRedistributionTime"));
     }
 }
