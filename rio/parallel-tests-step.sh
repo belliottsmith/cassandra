@@ -22,7 +22,7 @@ timeout 160m "$RIO_DIR/parallel-tests.sh" ./rio/unittests.yml "$PARALLELOUTPUT"
 ERRFAILS="$(( $(find "${PARALLELOUTPUT}" -name '*TEST-*.xml' -print0 | \
                 xargs -0 grep '^<testsuite' | \
                 sed -e 's/^.*errors="\([0-9]*\)" failures="\([0-9]*\)".*$/+\1+\2/g') ))"
-if [ $((ERRFAILS > 0)) ]
+if [ "$ERRFAILS" -gt 0 ]
 then
     echo "### " >&2
     echo "### FAILED - $ERRFAILS failures found in junittest reports" >&2
