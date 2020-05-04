@@ -6,7 +6,6 @@ set -o pipefail
 set -o xtrace
 
 readonly RIO_DIR="$(dirname "$0")"
-readonly BASE_DIR="${RIO_DIR}/.."
 readonly PARALLELOUTPUT="${PWD}/parallel-output"
 
 # Wrap call to parallel-tests with timeout as per-command
