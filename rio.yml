@@ -144,8 +144,6 @@ builds:
         - dockerfilePath: "Dockerfile"
           version: "${DOCKER_IMAGE_VERSION}"
           perApplication: false
-          extraTags:
-            - "${FULL_VERSION}"
           publish:
             - repo: docker.apple.com/piedb_ci/cie-cassandra
     finally:
