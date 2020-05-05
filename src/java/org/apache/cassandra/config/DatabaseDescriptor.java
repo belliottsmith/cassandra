@@ -2880,7 +2880,7 @@ public class DatabaseDescriptor
 
     public static FullQueryLoggerOptions getFullQueryLogOptions()
     {
-        if (conf.full_query_logging_options.log_dir.isEmpty() && !conf.full_query_log_dir.isEmpty())
+        if (conf.full_query_logging_options.log_dir.isEmpty() && conf.full_query_log_dir != null && !conf.full_query_log_dir.isEmpty())
             return new FullQueryLoggerOptions(conf.full_query_log_dir);
         else
             return conf.full_query_logging_options;
