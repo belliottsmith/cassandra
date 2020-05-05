@@ -6,6 +6,7 @@ work:
       numberOfInstances: 100
       resources:
         cpu: 8
+        requestCpu: 1
         memory: 16Gi
       copyFromLocal:
         - src: ~/.m2/settings.xml
