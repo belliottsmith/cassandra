@@ -9,7 +9,7 @@ shared:
     numberOfInstances: 1
     resources:
       cpu: 8
-      requestCpu: 1
+      cpuRequest: 1
       memory: 16Gi
     copyFromLocal:
       - src: ~/.m2/settings.xml
