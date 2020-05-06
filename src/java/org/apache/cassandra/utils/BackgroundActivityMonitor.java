@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.apache.cassandra.concurrent.DebuggableScheduledThreadPoolExecutor;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
@@ -114,9 +115,14 @@ public class BackgroundActivityMonitor
         compaction_severity.addAndGet(sev);
     }
 
-    public void incrManualSeverity(double sev)
+    public void setManualSeverity(double sev)
     {
-        manual_severity.addAndGet(sev);
+        manual_severity.getAndSet(sev);
+    }
+
+    public double getManualSeverity()
+    {
+        return manual_severity.get();
     }
 
     public double getIOWait() throws IOException
@@ -156,19 +162,24 @@ public class BackgroundActivityMonitor
             double report = -1;
             try
             {
+                // always run getIOWait even if gossiper is disabled, or if its ignored, so that the last reading is tracked
                 report = getIOWait();
             }
             catch (IOException e)
             {
                 // ignore;
                 if (FBUtilities.hasProcFS())
-                    logger.warn("Couldn't read /proc/stats");
+                    NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES,"Couldn't read /proc/stats");
             }
-            if (report == -1d)
-                report = compaction_severity.get();
 
             if (!Gossiper.instance.isEnabled())
                 return;
+
+            if (DatabaseDescriptor.getDynamicManualSeverityOnly())
+                report = 0;
+            else if (report == -1d)
+                report = compaction_severity.get();
+
             report += manual_severity.get(); // add manual severity setting.
             VersionedValue updated = StorageService.instance.valueFactory.severity(report);
             Gossiper.instance.addLocalApplicationState(ApplicationState.SEVERITY, updated);

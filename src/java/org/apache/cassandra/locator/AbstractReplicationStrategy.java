@@ -66,7 +66,7 @@ public abstract class AbstractReplicationStrategy
     // track when the token range changes, signaling we need to invalidate our endpoint cache
     private volatile long lastInvalidatedVersion = 0;
 
-    public IEndpointSnitch snitch;
+    public volatile IEndpointSnitch snitch;
 
     protected AbstractReplicationStrategy(String keyspaceName, TokenMetadata tokenMetadata, IEndpointSnitch snitch, Map<String, String> configOptions)
     {

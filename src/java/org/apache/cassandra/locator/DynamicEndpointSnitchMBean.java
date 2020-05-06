@@ -34,6 +34,7 @@ public interface DynamicEndpointSnitchMBean {
      * Example: Page cache is cold and you want data to be sent 
      *          though it is not preferred one.
      */
-    public void setSeverity(double severity);
+    public void setManualSeverity(double severity);
     public double getSeverity();
+    public double getManualSeverity();
 }

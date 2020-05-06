@@ -1670,14 +1670,19 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         bgMonitor.incrCompactionSeverity(incr);
     }
 
-    public void reportManualSeverity(double incr)
+    public void setManualSeverity(double incr)
     {
-        bgMonitor.incrManualSeverity(incr);
+        bgMonitor.setManualSeverity(incr);
     }
 
     public double getSeverity(InetAddress endpoint)
     {
         return bgMonitor.getSeverity(endpoint);
+    }
+
+    public double getManualSeverity()
+    {
+        return bgMonitor.getManualSeverity();
     }
 
     public void shutdownBGMonitorAndWait(long timeout, TimeUnit unit) throws TimeoutException, InterruptedException
@@ -5063,37 +5068,120 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return Collections.unmodifiableList(Schema.instance.getNonLocalStrategyKeyspaces());
     }
 
+    public void setDynamicManualSeverityOnly(boolean dynamicManualSeverityOnly)
+    {
+        // will get picked up next time the BackgroundActivityReporter runs
+        DatabaseDescriptor.setDynamicManualSeverityOnly(dynamicManualSeverityOnly);
+    }
+
+    public boolean getDynamicManualSeverityOnly()
+    {
+        return DatabaseDescriptor.getDynamicManualSeverityOnly();
+    }
+
+    public void setDynamicUpdateInterval(int dynamicUpdateInterval)
+    {
+        if (DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitch)
+        {
+
+            try
+            {
+                updateSnitch(null, true, dynamicUpdateInterval, null, null);
+            }
+            catch (ClassNotFoundException e)
+            {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    public int getDynamicUpdateInterval()
+    {
+        return DatabaseDescriptor.getDynamicUpdateInterval();
+    }
+
+    public void setDynamicBadnessThreshold(double dynamicBadnessThreshold)
+    {
+        if (DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitch)
+        {
+
+            try
+            {
+                updateSnitch(null, true, null, null, dynamicBadnessThreshold);
+            }
+            catch (ClassNotFoundException e)
+            {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    public double getDynamicBadnessThreshold()
+    {
+        return DatabaseDescriptor.getDynamicBadnessThreshold();
+    }
+
     public void updateSnitch(String epSnitchClassName, Boolean dynamic, Integer dynamicUpdateInterval, Integer dynamicResetInterval, Double dynamicBadnessThreshold) throws ClassNotFoundException
     {
+        // apply dynamic snitch configuration
+        if (dynamicUpdateInterval != null)
+            DatabaseDescriptor.setDynamicUpdateInterval(dynamicUpdateInterval);
+        if (dynamicResetInterval != null)
+            DatabaseDescriptor.setDynamicResetInterval(dynamicResetInterval);
+        if (dynamicBadnessThreshold != null)
+            DatabaseDescriptor.setDynamicBadnessThreshold(dynamicBadnessThreshold);
+
         IEndpointSnitch oldSnitch = DatabaseDescriptor.getEndpointSnitch();
 
         // new snitch registers mbean during construction
-        IEndpointSnitch newSnitch;
-        try
+        if(epSnitchClassName != null)
         {
-            newSnitch = FBUtilities.construct(epSnitchClassName, "snitch");
-        }
-        catch (ConfigurationException e)
-        {
-            throw new ClassNotFoundException(e.getMessage());
-        }
-        if (dynamic)
-        {
-            DatabaseDescriptor.setDynamicUpdateInterval(dynamicUpdateInterval);
-            DatabaseDescriptor.setDynamicResetInterval(dynamicResetInterval);
-            DatabaseDescriptor.setDynamicBadnessThreshold(dynamicBadnessThreshold);
-            newSnitch = new DynamicEndpointSnitch(newSnitch);
-        }
 
-        // point snitch references to the new instance
-        DatabaseDescriptor.setEndpointSnitch(newSnitch);
-        for (String ks : Schema.instance.getKeyspaces())
-        {
-            Keyspace.open(ks).getReplicationStrategy().snitch = newSnitch;
-        }
+            // need to unregister the mbean _before_ the new dynamic snitch is instantiated (and implicitly initialized
+            // and its mbean registered)
+            if (oldSnitch instanceof DynamicEndpointSnitch)
+                ((DynamicEndpointSnitch)oldSnitch).close();
 
-        if (oldSnitch instanceof DynamicEndpointSnitch)
-            ((DynamicEndpointSnitch)oldSnitch).unregisterMBean();
+            IEndpointSnitch newSnitch;
+            try
+            {
+                newSnitch = DatabaseDescriptor.createEndpointSnitch(dynamic != null && dynamic, epSnitchClassName);
+            }
+            catch (ConfigurationException e)
+            {
+                throw new ClassNotFoundException(e.getMessage());
+            }
+
+            if (newSnitch instanceof DynamicEndpointSnitch)
+            {
+                logger.info("Created new dynamic snitch {} with update-interval={}, reset-interval={}, badness-threshold={}",
+                            ((DynamicEndpointSnitch)newSnitch).subsnitch.getClass().getName(), DatabaseDescriptor.getDynamicUpdateInterval(),
+                            DatabaseDescriptor.getDynamicResetInterval(), DatabaseDescriptor.getDynamicBadnessThreshold());
+            }
+            else
+            {
+                logger.info("Created new non-dynamic snitch {}", newSnitch.getClass().getName());
+            }
+
+            // point snitch references to the new instance
+            DatabaseDescriptor.setEndpointSnitch(newSnitch);
+            for (String ks : Schema.instance.getKeyspaces())
+            {
+                Keyspace.open(ks).getReplicationStrategy().snitch = newSnitch;
+            }
+        }
+        else
+        {
+            if (oldSnitch instanceof DynamicEndpointSnitch)
+            {
+                logger.info("Applying config change to dynamic snitch {} with update-interval={}, reset-interval={}, badness-threshold={}",
+                            ((DynamicEndpointSnitch)oldSnitch).subsnitch.getClass().getName(), DatabaseDescriptor.getDynamicUpdateInterval(),
+                            DatabaseDescriptor.getDynamicResetInterval(), DatabaseDescriptor.getDynamicBadnessThreshold());
+
+                DynamicEndpointSnitch snitch = (DynamicEndpointSnitch)oldSnitch;
+                snitch.applyConfigChanges();
+            }
+        }
 
         updateTopology();
     }

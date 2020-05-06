@@ -534,7 +534,7 @@ public class DatabaseDescriptor
             conf.native_transport_max_concurrent_requests_in_bytes_per_ip = Runtime.getRuntime().maxMemory() / 40;
         }
 
-        snitch = createEndpointSnitch(conf.endpoint_snitch);
+        snitch = createEndpointSnitch(conf.dynamic_snitch, conf.endpoint_snitch);
         EndpointSnitchInfo.create();
 
         localDC = snitch.getDatacenter(FBUtilities.getBroadcastAddress());
@@ -864,6 +864,14 @@ public class DatabaseDescriptor
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
     }
 
+    public static IEndpointSnitch createEndpointSnitch(boolean dynamic, String snitchClassName) throws ConfigurationException
+    {
+        if (!snitchClassName.contains("."))
+            snitchClassName = "org.apache.cassandra.locator." + snitchClassName;
+        IEndpointSnitch snitch = FBUtilities.construct(snitchClassName, "snitch");
+        return dynamic ? new DynamicEndpointSnitch(snitch) : snitch;
+    }
+
     /**
      * Computes the sum of the 2 specified positive values returning {@code Long.MAX_VALUE} if the sum overflow.
      *
@@ -895,14 +903,6 @@ public class DatabaseDescriptor
                     throw e;
             }
         }
-    }
-
-    private static IEndpointSnitch createEndpointSnitch(String snitchClassName) throws ConfigurationException
-    {
-        if (!snitchClassName.contains("."))
-            snitchClassName = "org.apache.cassandra.locator." + snitchClassName;
-        IEndpointSnitch snitch = FBUtilities.construct(snitchClassName, "snitch");
-        return conf.dynamic_snitch ? new DynamicEndpointSnitch(snitch) : snitch;
     }
 
     public static void setAuthenticator(IAuthenticator authenticator)
@@ -2100,6 +2100,16 @@ public class DatabaseDescriptor
     public static void setDynamicBadnessThreshold(Double dynamicBadnessThreshold)
     {
         conf.dynamic_snitch_badness_threshold = dynamicBadnessThreshold;
+    }
+
+    public static boolean getDynamicManualSeverityOnly()
+    {
+        return conf.dynamic_snitch_manual_severity_only;
+    }
+
+    public static void setDynamicManualSeverityOnly(boolean dynamicManualSeverityOnly)
+    {
+        conf.dynamic_snitch_manual_severity_only = dynamicManualSeverityOnly;
     }
 
     public static ServerEncryptionOptions getServerEncryptionOptions()

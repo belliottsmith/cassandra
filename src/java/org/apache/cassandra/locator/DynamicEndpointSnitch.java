@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -22,6 +22,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import com.codahale.metrics.ExponentiallyDecayingReservoir;
@@ -45,13 +46,13 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
     private static final double ALPHA = 0.75; // set to 0.75 to make EDS more biased to towards the newer values
     private static final int WINDOW_SIZE = 100;
 
-    private final int UPDATE_INTERVAL_IN_MS = DatabaseDescriptor.getDynamicUpdateInterval();
-    private final int RESET_INTERVAL_IN_MS = DatabaseDescriptor.getDynamicResetInterval();
-    private final double BADNESS_THRESHOLD = DatabaseDescriptor.getDynamicBadnessThreshold();
+    private volatile int dynamicUpdateInterval = DatabaseDescriptor.getDynamicUpdateInterval();
+    private volatile int dynamicResetInterval = DatabaseDescriptor.getDynamicResetInterval();
+    private volatile double dynamicBadnessThreshold = DatabaseDescriptor.getDynamicBadnessThreshold();
 
     // the score for a merged set of endpoints must be this much worse than the score for separate endpoints to
     // warrant not merging two ranges into a single range
-    private double RANGE_MERGING_PREFERENCE = 1.5;
+    private static final double RANGE_MERGING_PREFERENCE = 1.5;
 
     private String mbeanName;
     private boolean registered = false;
@@ -61,24 +62,31 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
 
     public final IEndpointSnitch subsnitch;
 
+    private volatile ScheduledFuture<?> updateSchedular;
+    private volatile ScheduledFuture<?> resetSchedular;
+
+    private final Runnable update;
+    private final Runnable reset;
+
     public DynamicEndpointSnitch(IEndpointSnitch snitch)
     {
         this(snitch, null);
     }
+
     public DynamicEndpointSnitch(IEndpointSnitch snitch, String instance)
     {
         mbeanName = "org.apache.cassandra.db:type=DynamicEndpointSnitch";
         if (instance != null)
             mbeanName += ",instance=" + instance;
         subsnitch = snitch;
-        Runnable update = new Runnable()
+        update = new Runnable()
         {
             public void run()
             {
                 updateScores();
             }
         };
-        Runnable reset = new Runnable()
+        reset = new Runnable()
         {
             public void run()
             {
@@ -87,20 +95,46 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
                 reset();
             }
         };
-        ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(update, UPDATE_INTERVAL_IN_MS, UPDATE_INTERVAL_IN_MS, TimeUnit.MILLISECONDS);
-        ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(reset, RESET_INTERVAL_IN_MS, RESET_INTERVAL_IN_MS, TimeUnit.MILLISECONDS);
+        updateSchedular = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(update, dynamicUpdateInterval, dynamicUpdateInterval, TimeUnit.MILLISECONDS);
+        resetSchedular = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(reset, dynamicResetInterval, dynamicResetInterval, TimeUnit.MILLISECONDS);
         registerMBean();
-   }
+    }
+
+    /**
+     * Update configuration from {@link DatabaseDescriptor} and estart the update-scheduler and reset-scheduler tasks
+     * if the configured rates for these tasks have changed.
+     */
+    public void applyConfigChanges()
+    {
+        if (dynamicUpdateInterval != DatabaseDescriptor.getDynamicUpdateInterval())
+        {
+            dynamicUpdateInterval = DatabaseDescriptor.getDynamicUpdateInterval();
+            updateSchedular.cancel(false);
+            updateSchedular = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(update, dynamicUpdateInterval, dynamicUpdateInterval, TimeUnit.MILLISECONDS);
+        }
+
+        if (dynamicResetInterval != DatabaseDescriptor.getDynamicResetInterval())
+        {
+            dynamicResetInterval = DatabaseDescriptor.getDynamicResetInterval();
+            resetSchedular.cancel(false);
+            resetSchedular = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(reset, dynamicResetInterval, dynamicResetInterval, TimeUnit.MILLISECONDS);
+        }
+
+        dynamicBadnessThreshold = DatabaseDescriptor.getDynamicBadnessThreshold();
+    }
 
     private void registerMBean()
     {
         MBeanWrapper.instance.registerMBean(this, mbeanName);
     }
 
-    public void unregisterMBean()
+    public void close()
     {
+        updateSchedular.cancel(false);
+        resetSchedular.cancel(false);
         MBeanWrapper.instance.unregisterMBean(mbeanName);
     }
+
 
     @Override
     public void gossiperStarting()
@@ -129,7 +163,7 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
     public void sortByProximity(final InetAddress address, List<InetAddress> addresses)
     {
         assert address.equals(FBUtilities.getBroadcastAddress()); // we only know about ourself
-        if (BADNESS_THRESHOLD == 0)
+        if (dynamicBadnessThreshold == 0)
         {
             sortByProximityWithScore(address, addresses);
         }
@@ -173,15 +207,17 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         }
 
         // Sort the scores and then compare them (positionally) to the scores in the subsnitch order.
-        // If any of the subsnitch-ordered scores exceed the optimal/sorted score by BADNESS_THRESHOLD, use
+        // If any of the subsnitch-ordered scores exceed the optimal/sorted score by dynamicBadnessThreshold, use
         // the score-sorted ordering instead of the subsnitch ordering.
         ArrayList<Double> sortedScores = new ArrayList<>(subsnitchOrderedScores);
         Collections.sort(sortedScores);
 
+        // only calculate this once b/c its volatile and shouldn't be modified during the loop either
+        double badnessThreshold = 1.0 + dynamicBadnessThreshold;
         Iterator<Double> sortedScoreIterator = sortedScores.iterator();
         for (Double subsnitchScore : subsnitchOrderedScores)
         {
-            if (subsnitchScore > (sortedScoreIterator.next() * (1.0 + BADNESS_THRESHOLD)))
+            if (subsnitchScore > (sortedScoreIterator.next() * badnessThreshold))
             {
                 sortByProximityWithScore(address, addresses);
                 return;
@@ -290,15 +326,15 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
 
     public int getUpdateInterval()
     {
-        return UPDATE_INTERVAL_IN_MS;
+        return dynamicUpdateInterval;
     }
     public int getResetInterval()
     {
-        return RESET_INTERVAL_IN_MS;
+        return dynamicResetInterval;
     }
     public double getBadnessThreshold()
     {
-        return BADNESS_THRESHOLD;
+        return dynamicBadnessThreshold;
     }
 
     public String getSubsnitchClassName()
@@ -319,14 +355,19 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         return timings;
     }
 
-    public void setSeverity(double severity)
+    public void setManualSeverity(double severity)
     {
-        StorageService.instance.reportManualSeverity(severity);
+        StorageService.instance.setManualSeverity(severity);
     }
 
     public double getSeverity()
     {
         return StorageService.instance.getSeverity(FBUtilities.getBroadcastAddress());
+    }
+
+    public double getManualSeverity()
+    {
+        return StorageService.instance.getManualSeverity();
     }
 
     public boolean isWorthMergingForRangeQuery(List<InetAddress> merged, List<InetAddress> l1, List<InetAddress> l2)
