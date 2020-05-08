@@ -31,6 +31,7 @@ import io.airlift.command.ParseCommandUnrecognizedException;
 import io.airlift.command.ParseOptionConversionException;
 import io.airlift.command.ParseOptionMissingException;
 import io.airlift.command.ParseOptionMissingValueException;
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.tools.fqltool.Dump;
 
 import static com.google.common.base.Throwables.getStackTraceAsString;
@@ -40,6 +41,8 @@ public class FullQueryLogTool
 {
     public static void main(String... args)
     {
+        Config.setClientMode(true);
+
         List<Class<? extends Runnable>> commands = newArrayList(
                 Help.class,
                 Dump.class
