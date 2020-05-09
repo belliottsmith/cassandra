@@ -43,6 +43,7 @@ builds:
   secrets:
     names:
       - k8s_auth_token
+      - k8s_auth_token.us-west-1a
       - mcqueen.yml
   reports:
     junit: true
@@ -64,6 +65,7 @@ builds:
   secrets:
     names:
       - k8s_auth_token
+      - k8s_auth_token.us-west-1a
       - mcqueen.yml
   reports:
     junit: true
