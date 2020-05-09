@@ -12,7 +12,7 @@ set -o nounset
 bin="$(cd "$(dirname "$0")" > /dev/null; pwd)"
 home="$(cd "$(dirname "$bin")" > /dev/null; pwd)"
 
-KUBE_CLUSTER="${KUBE_CLUSTER:-usprz1}"
+KUBE_CLUSTER="${KUBE_CLUSTER:-us-west-1a}"
 if [[ -e "$BUILD_SECRETS_PATH/k8s_auth_token.$KUBE_CLUSTER" ]]; then
   token_file="$BUILD_SECRETS_PATH/k8s_auth_token.$KUBE_CLUSTER"
 else
