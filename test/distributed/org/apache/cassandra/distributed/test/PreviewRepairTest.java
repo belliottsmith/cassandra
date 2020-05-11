@@ -148,7 +148,7 @@ public class PreviewRepairTest extends DistributedTestBase
 
             SimpleCondition previewRepairStarted = new SimpleCondition();
             SimpleCondition continuePreviewRepair = new SimpleCondition();
-            DelayMessageFilter filter = new DelayMessageFilter(previewRepairStarted, continuePreviewRepair);
+            DelayFirstRepairTypeMessageFilter filter = DelayFirstRepairTypeMessageFilter.validationRequest(previewRepairStarted, continuePreviewRepair);
             // this pauses the validation request sent from node1 to node2 until the inc repair below has completed
             cluster.filters().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
 
@@ -168,6 +168,66 @@ public class PreviewRepairTest extends DistributedTestBase
     }
 
     /**
+     * Tests that a IR is running, but not completed before validation compaction starts
+     */
+    @Test
+    public void testConcurrentIncRepairDuringPreview() throws IOException, InterruptedException, ExecutionException
+    {
+        try(Cluster cluster = init(Cluster.build(2).withConfig(config ->
+                                                               config.set("disable_incremental_repair", false)
+                                                                     .with(GOSSIP)
+                                                                     .with(NETWORK))
+                                          .start()))
+        {
+            cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
+            Thread.sleep(2000);
+            insert(cluster.coordinator(1), 0, 100);
+            cluster.forEach((node) -> node.flush(KEYSPACE));
+            cluster.get(1).callOnInstance(repair(options(false, false)));
+
+            insert(cluster.coordinator(1), 100, 100);
+            cluster.forEach((node) -> node.flush(KEYSPACE));
+
+            SimpleCondition previewRepairStarted = new SimpleCondition();
+            SimpleCondition continuePreviewRepair = new SimpleCondition();
+            // this pauses the validation request sent from node1 to node2 until the inc repair below has run
+            cluster.filters()
+                   .verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal())
+                   .from(1).to(2)
+                   .messagesMatching(DelayFirstRepairTypeMessageFilter.validationRequest(previewRepairStarted, continuePreviewRepair))
+                   .drop();
+
+            SimpleCondition irRepairStarted = new SimpleCondition();
+            SimpleCondition continueIrRepair = new SimpleCondition();
+            // this blocks the IR from committing, so we can reenale the preview
+            cluster.filters()
+                   .verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal())
+                   .from(1).to(2)
+                   .messagesMatching(DelayFirstRepairTypeMessageFilter.finalizePropose(irRepairStarted, continueIrRepair))
+                   .drop();
+
+            Future<Pair<Boolean, Boolean>> previewResult = cluster.get(1).asyncCallsOnInstance(repair(options(true, false))).call();
+            previewRepairStarted.await();
+
+            // trigger IR and wait till its ready to commit
+            Future<Pair<Boolean, Boolean>> irResult = cluster.get(1).asyncCallsOnInstance(repair(options(false, false))).call();
+            irRepairStarted.await();
+
+            // unblock preview repair and wait for it to complete
+            continuePreviewRepair.signalAll();
+
+            Pair<Boolean, Boolean> rs = previewResult.get();
+            assertFalse(rs.left); // preview repair should have failed
+            assertFalse(rs.right); // and no mismatches should have been reported
+
+            continueIrRepair.signalAll();
+            Pair<Boolean, Boolean> ir = irResult.get();
+            assertTrue(ir.left); // success
+            assertFalse(ir.right); // not preview, so we don't care about preview notification
+        }
+    }
+
+    /**
      * Same as testFinishingIncRepairDuringPreview but the previewed range does not intersect the incremental repair
      * so both preview and incremental repair should finish fine (without any mismatches)
      */
@@ -175,7 +235,6 @@ public class PreviewRepairTest extends DistributedTestBase
     @Test
     public void testFinishingNonIntersectingIncRepairDuringPreview() throws IOException, InterruptedException, ExecutionException
     {
-        ExecutorService es = Executors.newSingleThreadExecutor();
         try(Cluster cluster = init(Cluster.build(2).withConfig(config ->
                                                                config.set("disable_incremental_repair", false)
                                                                      .set("enable_christmas_patch", true)
@@ -195,7 +254,7 @@ public class PreviewRepairTest extends DistributedTestBase
             // pause preview repair validation messages on node2 until node1 has finished
             SimpleCondition previewRepairStarted = new SimpleCondition();
             SimpleCondition continuePreviewRepair = new SimpleCondition();
-            DelayMessageFilter filter = new DelayMessageFilter(previewRepairStarted, continuePreviewRepair);
+            DelayFirstRepairTypeMessageFilter filter = DelayFirstRepairTypeMessageFilter.validationRequest(previewRepairStarted, continuePreviewRepair);
             cluster.filters().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
 
             // get local ranges to repair two separate ranges:
@@ -209,7 +268,7 @@ public class PreviewRepairTest extends DistributedTestBase
             assertEquals(2, localRanges.size());
             String previewedRange = localRanges.get(0);
             String repairedRange = localRanges.get(1);
-            Future<Pair<Boolean, Boolean>> repairStatusFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false, previewedRange))));
+            Future<Pair<Boolean, Boolean>> repairStatusFuture = cluster.get(1).asyncCallsOnInstance(repair(options(true, false, previewedRange))).call();
             previewRepairStarted.await(); // wait for node1 to start validation compaction
             // this needs to finish before the preview repair is unpaused on node2
             assertTrue(cluster.get(1).callOnInstance(repair(options(false, false, repairedRange))).left);
@@ -218,10 +277,6 @@ public class PreviewRepairTest extends DistributedTestBase
             Pair<Boolean, Boolean> rs = repairStatusFuture.get();
             assertTrue(rs.left); // repair should succeed
             assertFalse(rs.right); // and no mismatches
-        }
-        finally
-        {
-            es.shutdown();
         }
     }
 
@@ -321,25 +376,28 @@ public class PreviewRepairTest extends DistributedTestBase
         }));
     }
 
-    static class DelayMessageFilter implements IMessageFilters.Matcher
+    static abstract class DelayFirstRepairMessageFilter implements IMessageFilters.Matcher
     {
         private final SimpleCondition pause;
         private final SimpleCondition resume;
         private final AtomicBoolean waitForRepair = new AtomicBoolean(true);
 
-        public DelayMessageFilter(SimpleCondition pause, SimpleCondition resume)
+        protected DelayFirstRepairMessageFilter(SimpleCondition pause, SimpleCondition resume)
         {
             this.pause = pause;
             this.resume = resume;
         }
-        public boolean matches(int from, int to, IMessage message)
+
+        protected abstract boolean matchesMessage(RepairMessage message);
+
+        public final boolean matches(int from, int to, IMessage message)
         {
             try
             {
                 Pair<MessageIn<Object>, Integer> msg = Instance.deserializeMessage(message);
                 RepairMessage repairMessage = (RepairMessage) msg.left.payload;
-                // only the first validation req should be delayed:
-                if (repairMessage.messageType == RepairMessage.Type.VALIDATION_REQUEST && waitForRepair.compareAndSet(true, false))
+                // only the first message should be delayed:
+                if (matchesMessage(repairMessage) && waitForRepair.compareAndSet(true, false))
                 {
                     pause.signalAll();
                     resume.await();
@@ -350,6 +408,32 @@ public class PreviewRepairTest extends DistributedTestBase
                 throw new RuntimeException(e);
             }
             return false; // don't drop the message
+        }
+    }
+
+    static class DelayFirstRepairTypeMessageFilter extends DelayFirstRepairMessageFilter
+    {
+        private final RepairMessage.Type type;
+
+        public DelayFirstRepairTypeMessageFilter(SimpleCondition pause, SimpleCondition resume, RepairMessage.Type type)
+        {
+            super(pause, resume);
+            this.type = type;
+        }
+
+        public static DelayFirstRepairTypeMessageFilter validationRequest(SimpleCondition pause, SimpleCondition resume)
+        {
+            return new DelayFirstRepairTypeMessageFilter(pause, resume, RepairMessage.Type.VALIDATION_REQUEST);
+        }
+
+        public static DelayFirstRepairTypeMessageFilter finalizePropose(SimpleCondition pause, SimpleCondition resume)
+        {
+            return new DelayFirstRepairTypeMessageFilter(pause, resume, RepairMessage.Type.FINALIZE_PROPOSE);
+        }
+
+        protected boolean matchesMessage(RepairMessage repairMessage)
+        {
+            return repairMessage.messageType == type;
         }
     }
 

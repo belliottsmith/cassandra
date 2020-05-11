@@ -71,6 +71,7 @@ import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.metrics.CompactionMetrics;
 import org.apache.cassandra.metrics.TableMetrics;
+import org.apache.cassandra.repair.PreviewRepairConflictWithIncrementalRepairException;
 import org.apache.cassandra.repair.Validator;
 import org.apache.cassandra.repair.consistent.ConsistentSession;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -1413,6 +1414,11 @@ public class CompactionManager implements CompactionManagerMBean
                              duration,
                              validator.desc);
             }
+        }
+        catch (PreviewRepairConflictWithIncrementalRepairException e)
+        {
+            validator.fail();
+            logger.warn(e.getMessage());
         }
         finally
         {
