@@ -12,10 +12,36 @@ set -o nounset
 bin="$(cd "$(dirname "$0")" > /dev/null; pwd)"
 home="$(cd "$(dirname "$bin")" > /dev/null; pwd)"
 
-namespace=cassandra-storage-test
+KUBE_CLUSTER="${KUBE_CLUSTER:-usprz1}"
+if [[ -e "$BUILD_SECRETS_PATH/k8s_auth_token.$KUBE_CLUSTER" ]]; then
+  token_file="$BUILD_SECRETS_PATH/k8s_auth_token.$KUBE_CLUSTER"
+else
+  token_file="$BUILD_SECRETS_PATH/k8s_auth_token"
+fi
+
 user=parallelci
-cluster=usprz1
-server=https://api.usprz1.applecloud.io:443
+case "$KUBE_CLUSTER" in
+   us-west-1a)
+     namespace=aci-cassandra
+     server=https://kube-api.us-west-1a.aci.apple.com:443
+   ;;
+   usprz1)
+     namespace=cassandra-storage-test
+     server=https://api.usprz1.applecloud.io:443
+   ;;
+esac
+
+_is_apc() {
+  local -r cluster="$1"
+  case "$cluster" in
+    usprz1)
+      return 0
+    ;;
+    *)
+      return 1
+    ;;
+  esac
+}
 
 _abspath() {
   echo "$(cd "$(dirname "$1")"; pwd)/$(basename "$1")"
@@ -24,17 +50,18 @@ _abspath() {
 _setup_k8s() {
   # update k8s config to include the user with the service account token
   local token
-  token=$(cat "$BUILD_SECRETS_PATH/k8s_auth_token")
+  echo "Using token file $token_file"
+  token=$(cat "$token_file")
   kubectl config set-credentials "$user" --token="$token"
 
   # define the cluster to use
-  kubectl config set-cluster "$cluster" --server="$server" --insecure-skip-tls-verify=true
+  kubectl config set-cluster "$KUBE_CLUSTER" --server="$server" --insecure-skip-tls-verify=true
 
   # create a new context which links the user with the cluster
-  kubectl config set-context "$cluster-with-sa" --cluster="$cluster" --user="$user" --namespace="$namespace"
+  kubectl config set-context "${KUBE_CLUSTER}-with-sa" --cluster="$KUBE_CLUSTER" --user="$user" --namespace="$namespace"
 
   # switch to the new context
-  kubectl config use-context "$cluster-with-sa"
+  kubectl config use-context "${KUBE_CLUSTER}-with-sa"
 }
 
 _setup_parallelci() {
@@ -89,9 +116,17 @@ _trim_label() {
 }
 
 _main() {
-  local -r yaml="$1"
+  local yaml="$1"
   local output="$2"
   output="$( _abspath "$output" )"
+
+  if _is_apc "$KUBE_CLUSTER" ; then
+    # the resources should target kube, so need to downgrade to apc resources
+    cat "$yaml" | awk -f "$bin/apc_downgrade.awk" > "$yaml.$KUBE_CLUSTER"
+    echo "Downgrading resources to match APC; this assumes resources were tuned for Kube"
+    diff "$yaml" "$yaml.$KUBE_CLUSTER" || true
+    yaml="$yaml.$KUBE_CLUSTER"
+  fi
 
   _setup_k8s
   _setup_parallelci
