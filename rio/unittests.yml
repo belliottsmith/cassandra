@@ -135,7 +135,7 @@ work:
     machine:
       <<: *base-machine
       # right now we don't have a lot of tests, so its fine to be a low number
-      numberOfInstances: 2
+      numberOfInstances: 15
     split:
       - <<: *run-test-split
         environment:
