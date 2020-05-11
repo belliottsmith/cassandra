@@ -8,9 +8,10 @@ shared:
   machine: &base-machine
     numberOfInstances: 1
     resources:
-      cpu: 8
-      cpuRequest: 4
+      cpu: 4
+      cpuRequest: 2
       memory: 16Gi
+      priorityClassName: p3
     copyFromLocal:
       - src: ~/.m2/settings.xml
         dst: ~/.m2/settings.xml
