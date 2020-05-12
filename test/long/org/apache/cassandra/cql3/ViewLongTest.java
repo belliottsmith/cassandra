@@ -28,6 +28,7 @@ import java.util.concurrent.CyclicBarrier;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import com.datastax.driver.core.Row;
@@ -42,6 +43,7 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.WrappedRunnable;
 
+@Ignore("CIE does not support materialized views and the view tests are very flaky.  This ignore should be removed for 4.0 as OSS is working to improve the tests")
 public class ViewLongTest extends CQLTester
 {
     ProtocolVersion protocolVersion = ProtocolVersion.V4;
