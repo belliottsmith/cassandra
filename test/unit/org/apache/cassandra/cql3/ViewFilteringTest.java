@@ -37,6 +37,7 @@ import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.FBUtilities;
 
+@Ignore("CIE does not support materialized views and the view tests are very flaky.  This ignore should be removed for 4.0 as OSS is working to improve the tests")
 public class ViewFilteringTest extends CQLTester
 {
     ProtocolVersion protocolVersion = ProtocolVersion.V4;

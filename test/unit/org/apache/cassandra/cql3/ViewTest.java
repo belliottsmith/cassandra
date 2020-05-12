@@ -31,6 +31,7 @@ import org.junit.Assert;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import com.datastax.driver.core.ResultSet;
@@ -51,6 +52,7 @@ import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.FBUtilities;
 
 
+@Ignore("CIE does not support materialized views and the view tests are very flaky.  This ignore should be removed for 4.0 as OSS is working to improve the tests")
 public class ViewTest extends CQLTester
 {
     ProtocolVersion protocolVersion = ProtocolVersion.V4;
