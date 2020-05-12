@@ -48,6 +48,7 @@ import org.junit.Test;
 
 import com.google.common.base.Objects;
 
+@Ignore("CIE does not support materialized views and the view tests are very flaky.  This ignore should be removed for 4.0 as OSS is working to improve the tests")
 public class ViewComplexTest extends CQLTester
 {
     ProtocolVersion protocolVersion = ProtocolVersion.V4;
