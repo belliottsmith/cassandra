@@ -38,11 +38,13 @@ public class CIEInternalLocalKeyspace
      */
     public static final long GENERATION = 1577836800000000L;
 
-    private static TableMetadata parse(String name, String description, String schema)
+    private static TableMetadata.Builder parse(String tableName, String description, String schema)
     {
-        return CreateTableStatement.parse(String.format(schema, name), NAME)
-                                   .comment(description)
-                                   .build();
+        // Table parameters matched with SystemKeyspace
+        return CreateTableStatement.parse(String.format(schema, tableName), NAME)
+                                   .id(TableId.forSystemTable(NAME, tableName))
+                                   .gcGraceSeconds(0)
+                                   .comment(description);
     }
 
     public static KeyspaceMetadata metadata()
