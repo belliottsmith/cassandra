@@ -42,26 +42,30 @@ public class CIEInternalKeyspace
      *                       partition_blacklist table - which used to be created manually in 2.1 initially, and
      *                       as such, doesn't have a deterministic id. See rdar://56101440. Until we find a good way
      *                       to resolve that issue permanently, the tables in this keyspace can only be evolved manually.
+     * gen                2: compression chunk length reduced to 16KiB, memtable_flush_period_in_ms now unset on all tables in 4.0
      */
-    public static final long GENERATION = 1;
+    public static final long GENERATION = 2;
 
     public static final String SCHEMA_DROP_LOG = "schema_drop_log";
 
     private static final TableMetadata SchemaDropLog =
-    parse(SCHEMA_DROP_LOG,
+        parse(SCHEMA_DROP_LOG,
           "Store all dropped tables for apple internal patch",
             "CREATE TABLE %s ("
             + "ks_name text,"
             + "cf_name text,"
             + "time timestamp,"
-            + "PRIMARY KEY((ks_name), cf_name))");
+            + "PRIMARY KEY((ks_name), cf_name))")
+        .build();
 
-    private static TableMetadata parse(String name, String description, String schema)
+    private static TableMetadata.Builder parse(String tableName, String description, String schema)
     {
-        return CreateTableStatement.parse(String.format(schema, name), NAME)
+        return CreateTableStatement.parse(String.format(schema, tableName), NAME)
+                                   .id(TableId.forSystemTable(NAME, tableName))
                                    .comment(description)
-                                   .gcGraceSeconds((int) TimeUnit.DAYS.toSeconds(10))
-                                   .build();
+                                   .compaction(CompactionParams.DEFAULT_SYSTEM)
+                                   .gcGraceSeconds((int) TimeUnit.DAYS.toSeconds(10));
+
     }
 
     public static KeyspaceMetadata metadata()
