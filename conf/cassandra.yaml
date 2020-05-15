@@ -1468,3 +1468,7 @@ enable_drop_compact_storage: false
 # has exceeded this threshold, returning a read error to the user.
 #client_large_read_warn_threshold_kb: 0
 #client_large_read_abort_threshold_kb: 0
+
+# Enable or disable the ability to create secondary indexes.  This configuration will not have any
+# affect on tables which already have secondary indexes, but will reject new ones from being created.
+#enable_secondary_index: false
