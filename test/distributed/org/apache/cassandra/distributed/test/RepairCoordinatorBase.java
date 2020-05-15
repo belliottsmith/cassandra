@@ -75,6 +75,9 @@ public class RepairCoordinatorBase extends TestBaseImpl
         // CIE Cassandra disables incremental repair by default, enable to match open source tests
         System.setProperty("cassandra.disable_incremental_repair", "false");
 
+        // CIE Cassandra disables secondary indexes by default, enable to match open source tests
+        System.setProperty("cassandra.enable_secondary_index", "true");
+
         // streaming requires networking ATM
         // streaming also requires gossip or isn't setup properly
         CLUSTER = init(Cluster.build(2)
