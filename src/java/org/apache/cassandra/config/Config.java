@@ -43,6 +43,7 @@ import org.apache.cassandra.fql.FullQueryLoggerOptions;
 import org.apache.cassandra.service.StartupChecks.StartupCheckType;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.ENABLE_SECONDARY_INDEX;
 
 /**
  * A class that contains configuration properties for the cassandra node it runs within.
@@ -839,7 +840,9 @@ public class Config
     public volatile boolean user_timestamps_enabled = true;
     public volatile boolean group_by_enabled = true;
     public volatile boolean drop_truncate_table_enabled = true;
-    public volatile boolean secondary_indexes_enabled = true;
+
+    @Replaces(oldName = "enable_secondary_index", converter = Converters.IDENTITY, deprecated = true)
+    public volatile boolean secondary_indexes_enabled = false;
     public volatile boolean uncompressed_tables_enabled = true;
     public volatile boolean compact_tables_enabled = true;
     public volatile boolean read_before_write_list_operations_enabled = true;

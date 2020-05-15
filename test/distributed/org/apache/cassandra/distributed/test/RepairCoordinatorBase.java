@@ -33,6 +33,8 @@ import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.test.DistributedRepairUtils.RepairParallelism;
 import org.apache.cassandra.distributed.test.DistributedRepairUtils.RepairType;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.ENABLE_SECONDARY_INDEX;
+
 public class RepairCoordinatorBase extends TestBaseImpl
 {
     protected static Cluster CLUSTER;
@@ -74,6 +76,9 @@ public class RepairCoordinatorBase extends TestBaseImpl
     {
         // CIE Cassandra disables incremental repair by default, enable to match open source tests
         System.setProperty("cassandra.disable_incremental_repair", "false");
+
+        // CIE Cassandra disables secondary indexes by default, enable to match open source tests
+        ENABLE_SECONDARY_INDEX.setBoolean(true);
 
         // streaming requires networking ATM
         // streaming also requires gossip or isn't setup properly
