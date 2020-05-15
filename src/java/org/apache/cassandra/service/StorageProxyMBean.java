@@ -141,6 +141,10 @@ public interface StorageProxyMBean
     public long[] getRecentClientRequestWriteConsistencyLevelLocalSerialMicrosV3();
     public long[] getRecentClientRequestWriteConsistencyLevelAnyMicrosV3();
 
+    void enableSecondaryIndex();
+    void disableSecondaryIndex();
+    boolean getSecondaryIndexEnabled();
+
     void enableSnapshotOnDuplicateRowDetection();
     void disableSnapshotOnDuplicateRowDetection();
     boolean getSnapshotOnDuplicateRowDetectionEnabled();

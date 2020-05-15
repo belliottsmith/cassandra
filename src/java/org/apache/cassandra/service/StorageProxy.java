@@ -3032,6 +3032,24 @@ public class StorageProxy implements StorageProxyMBean
     }
 
     @Override
+    public void enableSecondaryIndex()
+    {
+        DatabaseDescriptor.setSecondaryIndexEnabled(true);
+    }
+
+    @Override
+    public void disableSecondaryIndex()
+    {
+        DatabaseDescriptor.setSecondaryIndexEnabled(false);
+    }
+
+    @Override
+    public boolean getSecondaryIndexEnabled()
+    {
+        return DatabaseDescriptor.secondaryIndexEnabled();
+    }
+
+    @Override
     public boolean getSnapshotOnDuplicateRowDetectionEnabled()
     {
         return DatabaseDescriptor.snapshotOnDuplicateRowDetection();

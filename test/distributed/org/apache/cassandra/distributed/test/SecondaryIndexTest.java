@@ -56,7 +56,9 @@ public class SecondaryIndexTest extends TestBaseImpl
     @BeforeClass
     public static void setupCluster() throws IOException
     {
-        cluster = init(Cluster.build(NUM_NODES).start(), REPLICATION_FACTOR);
+        cluster = init(Cluster.build(NUM_NODES)
+                              .withConfig(config -> config.set("secondary_index_enabled", "true"))
+                              .start(), REPLICATION_FACTOR);
     }
 
     @AfterClass

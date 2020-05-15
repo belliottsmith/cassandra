@@ -82,6 +82,9 @@ public final class CreateIndexStatement extends AlterSchemaStatement
 
     public Keyspaces apply(Keyspaces schema)
     {
+        if (!DatabaseDescriptor.secondaryIndexEnabled())
+            throw ire("Could not create index for '%s'.'%s' as indexes are disabled. Please contact aci-cassandra@group.apple.com to discuss.", keyspaceName, tableName);
+
         attrs.validate();
 
         if (attrs.isCustom && attrs.customClass.equals(SASIIndex.class.getName()) && !DatabaseDescriptor.getSASIIndexesEnabled())

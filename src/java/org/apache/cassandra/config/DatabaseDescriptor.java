@@ -4134,6 +4134,18 @@ public class DatabaseDescriptor
         return conf.disable_incremental_repair;
     }
 
+    public static boolean secondaryIndexEnabled()
+    {
+        // see rdar://56795580 (Disable creating 2i by default but add a config to allow)
+        return conf.secondary_index_enabled;
+    }
+
+    public static void setSecondaryIndexEnabled(boolean value)
+    {
+        logger.info("Setting secondary_index_enabled to {}", value);
+        conf.secondary_index_enabled = value;
+    }
+
     public static boolean isSchemaDropCheckDisabled()
     {
         return conf.disable_schema_drop_check;
