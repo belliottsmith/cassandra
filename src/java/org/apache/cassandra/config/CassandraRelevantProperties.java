@@ -294,7 +294,8 @@ public enum CassandraRelevantProperties
     ORG_APACHE_CASSANDRA_DB_VIRTUAL_SYSTEM_PROPERTIES_TABLE_TEST("org.apache.cassandra.db.virtual.SystemPropertiesTableTest"),
 
     // CIE-specific property to enable config.enable_materialzed_views
-    ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews", "false");
+    ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews", "false"),
+    ENABLE_SECONDARY_INDEX(Config.PROPERTY_PREFIX + "enable_secondary_index", "false"),
     ;
 
 

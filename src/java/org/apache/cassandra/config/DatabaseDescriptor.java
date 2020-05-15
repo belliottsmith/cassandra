@@ -90,6 +90,7 @@ import org.apache.cassandra.service.CacheService.CacheType;
 import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.utils.FBUtilities;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.ENABLE_SECONDARY_INDEX;
 import static org.apache.cassandra.config.CassandraRelevantProperties.OS_ARCH;
 import static org.apache.cassandra.config.CassandraRelevantProperties.SUN_ARCH_DATA_MODEL;
 import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_JVM_DTEST_DISABLE_SSL;
@@ -898,6 +899,14 @@ public class DatabaseDescriptor
         }
 
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
+
+        // ACI Cassandra - check for secondary index override property, cannot set
+        // the default in Config as the converter from the old enable_secondary_index
+        // overwrites if present, and the system property should overide.
+        if (ENABLE_SECONDARY_INDEX.isPresent())
+        {
+            conf.secondary_indexes_enabled = ENABLE_SECONDARY_INDEX.getBoolean();
+        }
 
         if (conf.default_keyspace_rf < conf.minimum_replication_factor_fail_threshold)
         {
@@ -4265,6 +4274,18 @@ public class DatabaseDescriptor
     public static boolean disableIncrementalRepair()
     {
         return conf.disable_incremental_repair;
+    }
+
+    public static boolean secondaryIndexEnabled()
+    {
+        // see rdar://56795580 (Disable creating 2i by default but add a config to allow)
+        return conf.secondary_indexes_enabled;
+    }
+
+    public static void setSecondaryIndexEnabled(boolean value)
+    {
+        logger.info("Setting secondary_indexes_enabled to {}", value);
+        conf.secondary_indexes_enabled = value;
     }
 
     public static boolean isSchemaDropCheckDisabled()
