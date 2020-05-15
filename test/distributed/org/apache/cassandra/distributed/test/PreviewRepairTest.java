@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Uninterruptibles;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -68,6 +69,15 @@ import static org.junit.Assert.assertTrue;
 
 public class PreviewRepairTest extends TestBaseImpl
 {
+    @BeforeClass
+    public static void beforeClass() throws Throwable
+    {
+        // CIE Cassandra disables incremental repair by default, enable to match open source tests
+        System.setProperty("cassandra.disable_incremental_repair", "false");
+
+        TestBaseImpl.beforeClass();
+    }
+
     /**
      * makes sure that the repaired sstables are not matching on the two
      * nodes by disabling autocompaction on node2 and then running an
