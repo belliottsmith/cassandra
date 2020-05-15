@@ -72,6 +72,9 @@ public class RepairCoordinatorBase extends TestBaseImpl
     @BeforeClass
     public static void setupCluster() throws IOException
     {
+        // CIE Cassandra disables incremental repair by default, enable to match open source tests
+        System.setProperty("cassandra.disable_incremental_repair", "false");
+
         // streaming requires networking ATM
         // streaming also requires gossip or isn't setup properly
         CLUSTER = init(Cluster.build(2)
