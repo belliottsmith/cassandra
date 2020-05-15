@@ -51,3 +51,4 @@ stream_throughput_outbound_megabits_per_sec: 200000000
 enable_sasi_indexes: true
 enable_materialized_views: true
 disable_schema_drop_check: true
+enable_secondary_index: true
