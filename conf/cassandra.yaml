@@ -1626,3 +1626,7 @@ enable_drop_compact_storage: false
 # Guardrail to allow/disallow list operations that require read before write, i.e. setting list element by index and
 # removing list elements by either index or value. Defaults to true.
 #     read_before_write_list_operations_enabled: true
+
+# Enable or disable the ability to create secondary indexes.  This configuration will not have any
+# affect on tables which already have secondary indexes, but will reject new ones from being created.
+#enable_secondary_index: false
