@@ -3032,7 +3032,7 @@ public class DatabaseDescriptor
         if (value > getConcurrentCompactors())
             logger.warn("max_concurrent_automatic_sstable_upgrades ({}) is larger than concurrent_compactors ({})", value, getConcurrentCompactors());
     }
-    
+
     public static AuditLogOptions getAuditLoggingOptions()
     {
         return conf.audit_logging_options;
@@ -3273,6 +3273,18 @@ public class DatabaseDescriptor
     public static boolean disableIncrementalRepair()
     {
         return conf.disable_incremental_repair;
+    }
+
+    public static boolean enableSecondaryIndex()
+    {
+        // see rdar://56795580 (Disable creating 2i by default but add a config to allow)
+        return conf.enable_secondary_index;
+    }
+
+    public static void setEnableSecondaryIndex(boolean value)
+    {
+        logger.info("Setting enable_secondary_index to {}", value);
+        conf.enable_secondary_index = value;
     }
 
     public static boolean isSchemaDropCheckDisabled()
