@@ -314,7 +314,8 @@ public enum CassandraRelevantProperties
     FLUSH_LOCAL_SCHEMA_CHANGES("cassandra.test.flush_local_schema_changes", "true"),
 
     // CIE-specific property to enable config.enable_materialzed_views
-    ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews", "false")
+    ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews", "false"),
+    ENABLE_SECONDARY_INDEX(Config.PROPERTY_PREFIX + "enable_secondary_index", "false"),
     ;
 
     CassandraRelevantProperties(String key, String defaultVal)
