@@ -1429,3 +1429,7 @@ enable_sasi_indexes: false
 # Enables creation of transiently replicated keyspaces on this node.
 # Transient replication is experimental and is not recommended for production use.
 enable_transient_replication: false
+
+# Enable or disable the ability to create secondary indexes.  This configuration will not have any
+# affect on tables which already have secondary indexes, but will reject new ones from being created.
+#enable_secondary_index: false
