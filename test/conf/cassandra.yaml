@@ -64,3 +64,5 @@ track_warnings:
     row_index_size:
         warn_threshold_kb: 4096
         abort_threshold_kb: 8192
+disable_schema_drop_check: true
+secondary_index_enabled: true
