@@ -490,9 +490,6 @@ public class AlterTest extends CQLTester
             public boolean isWorthMergingForRangeQuery(ReplicaCollection<?> merged, ReplicaCollection<?> l1, ReplicaCollection<?> l2) { return false; }
         });
 
-        // Create a keyspace with expected DC name.
-        execute("CREATE KEYSPACE " + SchemaConstants.AUTH_KEYSPACE_NAME + " WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2 , '" + DATA_CENTER_REMOTE + "' : 2 }");
-
         // try modifying the system_auth keyspace without second DC which has active node.
         assertInvalidThrow(ConfigurationException.class, "ALTER KEYSPACE system_auth WITH replication = { 'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 2 }");
         execute("ALTER KEYSPACE " + SchemaConstants.AUTH_KEYSPACE_NAME  + " WITH replication = {'class' : 'NetworkTopologyStrategy', '" + DATA_CENTER + "' : 1 , '" + DATA_CENTER_REMOTE + "' : 1 }");
