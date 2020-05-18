@@ -1472,7 +1472,7 @@ public class CompactionManager implements CompactionManagerMBean
         com.google.common.base.Predicate<SSTableReader> predicate;
         if (prs.isPreview())
         {
-            predicate = prs.getPreviewPredicate();
+            predicate = prs.previewKind.predicate();
 
         }
         else if (validator.isIncremental)
@@ -1501,36 +1501,6 @@ public class CompactionManager implements CompactionManagerMBean
             {
                 logger.error("Could not reference sstables for {}", validator.desc.parentSessionId);
                 throw new RuntimeException("Could not reference sstables");
-            }
-        }
-
-        /**
-         * If we're running a validation repair, and there are sstables pending repair that
-         * belong to the range we're validating, we should throw an exception so the preview
-         * doesn't result in a false positive
-         */
-        if (prs.previewKind == PreviewKind.REPAIRED)
-        {
-            boolean isSuspect = false;
-            StringBuilder sb = new StringBuilder();
-            try (ColumnFamilyStore.RefViewFragment sstableCandidates = cfs.selectAndReference(View.select(SSTableSet.CANONICAL, s -> s.isPendingRepair())))
-            {
-                for (SSTableReader sstable : sstableCandidates.sstables)
-                {
-
-                    if (new Bounds<>(sstable.first.getToken(), sstable.last.getToken()).intersects(validator.desc.ranges))
-                    {
-                        ConsistentSession.State state = ActiveRepairService.instance.consistent.local.getSessionState(sstable.getPendingRepair());
-                        sb.append(String.format("%s is marked pending repair for session %s, with state %s\n",
-                                                sstable, sstable.getPendingRepair(), state));
-                        isSuspect = true;
-                    }
-                }
-            }
-            if (isSuspect)
-            {
-                sstables.release();
-                throw new CompactionInterruptedException(sb.toString());
             }
         }
 

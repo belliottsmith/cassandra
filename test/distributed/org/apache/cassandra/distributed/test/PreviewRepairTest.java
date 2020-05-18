@@ -39,6 +39,7 @@ import org.junit.Test;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
@@ -57,6 +58,7 @@ import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.PreviewKind;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 import org.apache.cassandra.utils.progress.ProgressEventType;
@@ -69,6 +71,48 @@ import static org.junit.Assert.assertTrue;
 
 public class PreviewRepairTest extends DistributedTestBase
 {
+    /**
+     * makes sure that the repaired sstables are not matching on the two
+     * nodes by disabling autocompaction on node2 and then running an
+     * incremental repair
+     */
+    @Test
+    public void testWithMismatchingPending() throws Throwable
+    {
+        try(Cluster cluster = init(Cluster.build(2).withConfig(config ->
+                                                               config.set("disable_incremental_repair", false)
+                                                                     .with(GOSSIP)
+                                                                     .with(NETWORK))
+                                          .start()))
+        {
+            cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
+            Thread.sleep(1000);
+            insert(cluster.coordinator(1), 0, 100);
+            cluster.forEach((node) -> node.flush(KEYSPACE));
+            cluster.get(1).callOnInstance(repair(options(false, false)));
+            insert(cluster.coordinator(1), 100, 100);
+            cluster.forEach((node) -> node.flush(KEYSPACE));
+
+            // make sure that all sstables have moved to repaired by triggering a compaction
+            // also disables autocompaction on the nodes
+            cluster.forEach((node) -> node.runOnInstance(() -> {
+                ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl");
+                FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(cfs));
+                cfs.disableAutoCompaction();
+            }));
+            cluster.get(1).callOnInstance(repair(options(false, false)));
+            // now re-enable autocompaction on node1, this moves the sstables for the new repair to repaired
+            cluster.get(1).runOnInstance(() -> {
+                ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl");
+                cfs.enableAutoCompaction();
+                FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(cfs));
+            });
+            Pair<Boolean, Boolean> rs = cluster.get(1).callOnInstance(repair(options(true, false)));
+            assertTrue(rs.left); // preview repair should succeed
+            assertFalse(rs.right); // and we should see no mismatches
+        }
+    }
+
     /**
      * another case where the repaired datasets could mismatch is if an incremental repair finishes just as the preview
      * repair is starting up.

@@ -402,7 +402,7 @@ public class LocalSessions
         return new LocalSession(builder);
     }
 
-    protected LocalSession getSession(UUID sessionID)
+    public LocalSession getSession(UUID sessionID)
     {
         checkStarted();
         return sessions.get(sessionID);

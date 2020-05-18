@@ -142,47 +142,6 @@ public class PreviewFalsePositiveTest extends AbstractRepairTest
     }
 
     /**
-     * an exception should be thrown if we try to validate a range that have pending sstables
-     */
-    @Test
-    public void pendingRepairForPreview() throws Exception
-    {
-        UUID sessionID = UUIDGen.getTimeUUID();
-        Range<Token> fullRange = new Range<>(DatabaseDescriptor.getPartitioner().getMinimumToken(),
-                                             DatabaseDescriptor.getPartitioner().getMinimumToken());
-
-        long repairedAt = System.currentTimeMillis();
-        ActiveRepairService.instance.registerParentRepairSession(sessionID,
-                                                                 COORDINATOR,
-                                                                 Lists.newArrayList(cfs),
-                                                                 Sets.newHashSet(fullRange),
-                                                                 true,
-                                                                 repairedAt,
-                                                                 true,
-                                                                 PreviewKind.REPAIRED);
-
-        ActiveRepairService.instance.consistent.local.start();
-        QueryProcessor.executeInternal(String.format("INSERT INTO %s.%s (k, v) VALUES (?, ?)", KEYSPACE, TABLE), 1, 1);
-        cfs.forceBlockingFlush();
-
-        Assert.assertEquals(1, cfs.getLiveSSTables().size());
-        SSTableReader sstable = cfs.getLiveSSTables().iterator().next();
-        sstable.descriptor.getMetadataSerializer().mutateRepaired(sstable.descriptor, ActiveRepairService.UNREPAIRED_SSTABLE, UUID.randomUUID());
-        sstable.reloadSSTableMetadata();
-
-        RepairJobDesc desc = new RepairJobDesc(sessionID, UUID.randomUUID(), KEYSPACE, TABLE, Collections.singleton(fullRange));
-        Validator validator = new Validator(desc, COORDINATOR, FBUtilities.nowInSeconds(), PreviewKind.REPAIRED);
-        try (Refs<SSTableReader> sstables = CompactionManager.instance.getSSTablesToValidate(cfs, validator))
-        {
-            Assert.fail("Expected CompactionInterruptedException");
-        }
-        catch (CompactionInterruptedException e)
-        {
-            // expected
-        }
-    }
-
-    /**
      * no exception should be thrown for normal repairs
      */
     @Test
