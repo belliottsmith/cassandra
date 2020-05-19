@@ -549,8 +549,18 @@ public class Config
      * replica involved in the query, for compaction the snapshot will be created locally.
      * These are limited at the replica level so that only a single snapshot per-day can be taken
      * via this method.
+     *
+     * This requires check_for_duplicate_rows_during_reads and/or check_for_duplicate_rows_during_compaction
+     * below to be enabled
      */
     public volatile boolean snapshot_on_duplicate_row_detection = false;
+
+    /**
+     * If these are enabled duplicate keys will get logged, and if snapshot_on_duplicate_row_detection
+     * is enabled, the table will get snapshotted for offline investigation
+     */
+    public volatile boolean check_for_duplicate_rows_during_reads = true;
+    public volatile boolean check_for_duplicate_rows_during_compaction = true;
 
     public static boolean isClientMode()
     {
