@@ -158,7 +158,8 @@ public class Config
     // Limit the maximum depth of repair session merkle trees
     public volatile Integer repair_session_max_tree_depth = 18;
 
-    public volatile boolean use_offheap_merkle_trees = false;
+    // default changed in request rdar://63403100 (Enable use_offheap_merkle_trees by default)
+    public volatile boolean use_offheap_merkle_trees = true;
 
     public Integer storage_port = 7000;
     public Integer ssl_storage_port = 7001;
