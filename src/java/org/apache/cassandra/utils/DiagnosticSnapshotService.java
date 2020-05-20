@@ -25,6 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,26 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 
+/**
+ * Provides a means to take snapshots when triggered by anomalous events or when the breaking of invariants is
+ * detected. When debugging certain classes of problems, having access to the relevant set of sstables when the problem
+ * is detected (or as close to then as possible) can be invaluable.
+ *
+ * This class performs two functions; on a replica where an anomaly is detected, it provides methods to issue snapshot
+ * requests to a provided set of replicas. For instance, if rows with duplicate clusterings are detected
+ * (CASSANDRA-15789) during a read, a snapshot request will be issued to all participating replicas. If detected during
+ * compaction, only the replica itself will receive the request. Requests are issued at a maximum rate of 1 per minute
+ * for any given table. Any additional triggers for the same table during the 60 second window are dropped, regardless
+ * of the replica set. This window is configurable via a system property (cassandra.diagnostic_snapshot_interval_nanos),
+ * but this is intended for use in testing only and operators are not expected to override the default.
+ *
+ * The second function performed is to handle snapshot requests on replicas. Snapshot names are prefixed with strings
+ * specific to the reason which triggered them. To manage consumption of disk space, replicas are restricted to taking
+ * a single snapshot for each prefix in a single calendar day. So if duplicate rows are detected by multiple
+ * coordinators during reads with the same replica set (or overlapping sets) on the same table, the coordinators may
+ * each issue snapshot  requests, but the replicas will only accept the first one they receive. Further requests will
+ * be dropped on the replica side.
+ */
 public class DiagnosticSnapshotService
 {
     private static final Logger logger = LoggerFactory.getLogger(DiagnosticSnapshotService.class);
@@ -85,6 +106,12 @@ public class DiagnosticSnapshotService
     public static String getSnapshotName(String prefix)
     {
         return String.format("%s%s", prefix, DATE_FORMAT.format(LocalDate.now()));
+    }
+
+    @VisibleForTesting
+    public void shutdownAndWait(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException
+    {
+        ExecutorUtils.shutdownNowAndWait(timeout, unit, executor);
     }
 
     private void maybeTriggerSnapshot(CFMetaData metadata, String prefix, Iterable<InetAddress> endpoints)

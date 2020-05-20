@@ -89,6 +89,7 @@ import org.apache.cassandra.streaming.StreamCoordinator;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.messages.ResultMessage;
+import org.apache.cassandra.utils.DiagnosticSnapshotService;
 import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NanoTimeToCurrentTimeMillis;
@@ -595,7 +596,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                 () -> Ref.shutdownReferenceReaper(1L, MINUTES),
                                 () -> Memtable.MEMORY_POOL.shutdownAndWait(1L, MINUTES),
                                 () -> SSTableReader.shutdownBlocking(1L, MINUTES),
-                                () -> shutdownAndWait(1L, MINUTES, ActiveRepairService.repairCommandExecutor())
+                                () -> shutdownAndWait(1L, MINUTES, ActiveRepairService.repairCommandExecutor()),
+                                () -> DiagnosticSnapshotService.instance.shutdownAndWait(1L, MINUTES)
             );
             error = parallelRun(error, executor,
                                 () -> ScheduledExecutors.shutdownAndWait(1L, MINUTES),

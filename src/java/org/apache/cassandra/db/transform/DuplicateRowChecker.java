@@ -90,6 +90,8 @@ public class DuplicateRowChecker extends Transformation<BaseRowIterator<?>>
     public static UnfilteredPartitionIterator duringCompaction(final UnfilteredPartitionIterator iterator,
                                                                final OperationType type)
     {
+        if (!DatabaseDescriptor.checkForDuplicateRowsDuringCompaction())
+            return iterator;
         final List<InetAddress> address = Collections.singletonList(FBUtilities.getBroadcastAddress());
         final boolean snapshot = DatabaseDescriptor.snapshotOnDuplicateRowDetection();
         return Transformation.apply(iterator, new Transformation<UnfilteredRowIterator>()
@@ -107,6 +109,8 @@ public class DuplicateRowChecker extends Transformation<BaseRowIterator<?>>
 
     public static PartitionIterator duringRead(final PartitionIterator iterator, final List<InetAddress> replicas)
     {
+        if (!DatabaseDescriptor.checkForDuplicateRowsDuringReads())
+            return iterator;
         final boolean snapshot = DatabaseDescriptor.snapshotOnDuplicateRowDetection();
         return Transformation.apply(iterator, new Transformation<RowIterator>()
         {

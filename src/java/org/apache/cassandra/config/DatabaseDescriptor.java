@@ -2920,4 +2920,24 @@ public class DatabaseDescriptor
     {
         return repairHistorySyncTimeoutSeconds;
     }
+
+    public static boolean checkForDuplicateRowsDuringReads()
+    {
+        return conf.check_for_duplicate_rows_during_reads;
+    }
+
+    public static void setCheckForDuplicateRowsDuringReads(boolean enabled)
+    {
+        conf.check_for_duplicate_rows_during_reads = enabled;
+    }
+
+    public static boolean checkForDuplicateRowsDuringCompaction()
+    {
+        return conf.check_for_duplicate_rows_during_compaction;
+    }
+
+    public static void setCheckForDuplicateRowsDuringCompaction(boolean enabled)
+    {
+        conf.check_for_duplicate_rows_during_compaction = enabled;
+    }
 }

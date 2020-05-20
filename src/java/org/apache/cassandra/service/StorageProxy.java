@@ -3401,6 +3401,42 @@ public class StorageProxy implements StorageProxyMBean
         DatabaseDescriptor.setSnapshotOnDuplicateRowDetection(false);
     }
 
+    public boolean getCheckForDuplicateRowsDuringReads()
+    {
+        return DatabaseDescriptor.checkForDuplicateRowsDuringReads();
+    }
+
+    @Override
+    public void enableCheckForDuplicateRowsDuringReads()
+    {
+        DatabaseDescriptor.setCheckForDuplicateRowsDuringReads(true);
+    }
+
+    @Override
+    public void disableCheckForDuplicateRowsDuringReads()
+    {
+        DatabaseDescriptor.setCheckForDuplicateRowsDuringReads(false);
+    }
+
+    @Override
+    public boolean getCheckForDuplicateRowsDuringCompaction()
+    {
+        return DatabaseDescriptor.checkForDuplicateRowsDuringCompaction();
+    }
+
+    @Override
+    public void enableCheckForDuplicateRowsDuringCompaction()
+    {
+        DatabaseDescriptor.setCheckForDuplicateRowsDuringCompaction(true);
+    }
+
+    @Override
+    public void disableCheckForDuplicateRowsDuringCompaction()
+    {
+        DatabaseDescriptor.setCheckForDuplicateRowsDuringCompaction(false);
+    }
+
+
     @Override
     public void enableSecondaryIndex()
     {
