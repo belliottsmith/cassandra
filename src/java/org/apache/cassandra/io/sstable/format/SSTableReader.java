@@ -1156,7 +1156,6 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
             double effectiveInterval = indexSummary.getEffectiveIndexInterval();
 
             IndexSummary newSummary;
-            long oldSize = bytesOnDisk();
 
             // We have to rebuild the summary from the on-disk primary index in three cases:
             // 1. The sampling level went up, so we need to read more entries off disk
@@ -1184,11 +1183,6 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
             {
                 saveSummary(ibuilder, dbuilder, newSummary);
             }
-
-            // The new size will be added in Transactional.commit() as an updated SSTable, more details: CASSANDRA-13738
-            StorageMetrics.load.dec(oldSize);
-            parent.metric.liveDiskSpaceUsed.dec(oldSize);
-            parent.metric.totalDiskSpaceUsed.dec(oldSize);
 
             return cloneAndReplace(first, OpenReason.METADATA_CHANGE, newSummary);
         }

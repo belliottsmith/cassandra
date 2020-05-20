@@ -34,17 +34,13 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.*;
 
 import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.Directories;
-import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.SSTableIntervalTree;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
-import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.dht.OwnedRanges;
-import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.repair.StreamingRepairTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -386,7 +382,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                     Predicate<SSTableReader> predicate;
                     if (previewKind.isPreview())
                     {
-                        predicate = previewKind.getStreamingPredicate();
+                        predicate = previewKind.predicate();
                     }
                     else if (pendingRepair == ActiveRepairService.NO_PENDING_REPAIR)
                     {

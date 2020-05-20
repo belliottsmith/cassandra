@@ -122,12 +122,13 @@ public class LocalSessions
 
     private final String keyspace = SystemKeyspace.NAME;
     private final String table = SystemKeyspace.REPAIRS;
-    private boolean started = false;
+    private volatile boolean started = false;
     private volatile ImmutableMap<UUID, LocalSession> sessions = ImmutableMap.of();
 
     @VisibleForTesting
     int getNumSessions()
     {
+        checkStarted();
         return sessions.size();
     }
 
@@ -151,6 +152,7 @@ public class LocalSessions
 
     public List<Map<String, String>> sessionInfo(boolean all)
     {
+        checkStarted();
         Iterable<LocalSession> currentSessions = sessions.values();
         if (!all)
         {
@@ -237,6 +239,8 @@ public class LocalSessions
             logger.trace("node not initialized, aborting local session cleanup");
             return;
         }
+
+        checkStarted();
         Set<LocalSession> currentSessions = new HashSet<>(sessions.values());
         for (LocalSession session : currentSessions)
         {
@@ -398,8 +402,9 @@ public class LocalSessions
         return new LocalSession(builder);
     }
 
-    protected LocalSession getSession(UUID sessionID)
+    public LocalSession getSession(UUID sessionID)
     {
+        checkStarted();
         return sessions.get(sessionID);
     }
 
@@ -423,6 +428,7 @@ public class LocalSessions
 
     private synchronized void removeSession(UUID sessionID)
     {
+        checkStarted();
         Preconditions.checkArgument(sessionID != null);
         Map<UUID, LocalSession> temp = new HashMap<>(sessions);
         temp.remove(sessionID);
@@ -803,6 +809,11 @@ public class LocalSessions
     {
         LocalSession session = getSession(sessionID);
         return session != null ? session.getState() : null;
+    }
+
+    private void checkStarted()
+    {
+        Preconditions.checkState(started, "Invalid access of local session state before LocalSessions is started");
     }
 
     public static void registerListener(Listener listener)

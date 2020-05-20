@@ -2867,6 +2867,16 @@ public class DatabaseDescriptor
         conf.report_unconfirmed_repaired_data_mismatches = enabled;
     }
 
+    public static boolean snapshotOnDuplicateRowDetection()
+    {
+        return conf.snapshot_on_duplicate_row_detection;
+    }
+
+    public static void setSnapshotOnDuplicateRowDetection(boolean enabled)
+    {
+        conf.snapshot_on_duplicate_row_detection = enabled;
+    }
+
     public static boolean useOffheapMerkleTrees()
     {
         return conf.use_offheap_merkle_trees;
@@ -2909,5 +2919,25 @@ public class DatabaseDescriptor
     public static long getRepairHistorySyncTimeoutSeconds()
     {
         return repairHistorySyncTimeoutSeconds;
+    }
+
+    public static boolean checkForDuplicateRowsDuringReads()
+    {
+        return conf.check_for_duplicate_rows_during_reads;
+    }
+
+    public static void setCheckForDuplicateRowsDuringReads(boolean enabled)
+    {
+        conf.check_for_duplicate_rows_during_reads = enabled;
+    }
+
+    public static boolean checkForDuplicateRowsDuringCompaction()
+    {
+        return conf.check_for_duplicate_rows_during_compaction;
+    }
+
+    public static void setCheckForDuplicateRowsDuringCompaction(boolean enabled)
+    {
+        conf.check_for_duplicate_rows_during_compaction = enabled;
     }
 }

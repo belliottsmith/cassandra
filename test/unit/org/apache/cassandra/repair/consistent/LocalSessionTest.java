@@ -321,6 +321,7 @@ public class LocalSessionTest extends AbstractRepairTest
     {
         UUID sessionID = UUIDGen.getTimeUUID();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
+        sessions.start();
         sessions.handlePrepareMessage(PARTICIPANT1, new PrepareConsistentRequest(sessionID, COORDINATOR, PARTICIPANTS));
         Assert.assertNull(sessions.getSession(sessionID));
         assertMessagesSent(sessions, COORDINATOR, new PrepareConsistentResponse(sessionID, PARTICIPANT1, false));
@@ -418,6 +419,7 @@ public class LocalSessionTest extends AbstractRepairTest
     public void maybeSetRepairingNonExistantSession()
     {
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
+        sessions.start();
         UUID fakeID = UUIDGen.getTimeUUID();
         sessions.maybeSetRepairing(fakeID);
         Assert.assertTrue(sessions.sentMessages.isEmpty());
@@ -475,6 +477,7 @@ public class LocalSessionTest extends AbstractRepairTest
     public void finalizeProposeNonExistantSessionFailure()
     {
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
+        sessions.start();
         UUID fakeID = UUIDGen.getTimeUUID();
         sessions.handleFinalizeProposeMessage(COORDINATOR, new FinalizePropose(fakeID));
         Assert.assertNull(sessions.getSession(fakeID));
@@ -809,7 +812,16 @@ public class LocalSessionTest extends AbstractRepairTest
 
         // subsequent startups should load persisted sessions
         InstrumentedLocalSessions nextSessions = new InstrumentedLocalSessions();
-        Assert.assertEquals(0, nextSessions.getNumSessions());
+        try
+        {
+            nextSessions.getNumSessions();
+            Assert.fail("Expected an IllegalStateException");
+        }
+        catch (IllegalStateException e)
+        {
+            Assert.assertEquals("Invalid access of local session state before LocalSessions is started", e.getMessage());
+        }
+
         nextSessions.start();
         Assert.assertEquals(2, nextSessions.getNumSessions());
 
