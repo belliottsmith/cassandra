@@ -18,11 +18,17 @@
 
 package org.apache.cassandra.distributed.impl;
 
+import java.net.InetAddress;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 import org.apache.cassandra.distributed.api.IListen;
+import org.apache.cassandra.gms.ApplicationState;
+import org.apache.cassandra.gms.EndpointState;
+import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.gms.IEndpointStateChangeSubscriber;
+import org.apache.cassandra.gms.VersionedValue;
 
 public class Listen implements IListen
 {
@@ -51,5 +57,28 @@ public class Listen implements IListen
             }
         });
         return () -> cancel.set(true);
+    }
+
+    static class GossipChangeSubscriber implements IEndpointStateChangeSubscriber
+    {
+        final Runnable onChange;
+        GossipChangeSubscriber(Runnable onChange) 
+        { 
+            this.onChange = onChange;
+            Gossiper.instance.register(this);
+        }
+        public void onJoin(InetAddress endpoint, EndpointState epState) { onChange.run(); }
+        public void beforeChange(InetAddress endpoint, EndpointState currentState, ApplicationState newStateKey, VersionedValue newValue) { onChange.run(); }
+        public void onChange(InetAddress endpoint, ApplicationState state, VersionedValue value) { onChange.run(); }
+        public void onAlive(InetAddress endpoint, EndpointState state) { onChange.run(); }
+        public void onDead(InetAddress endpoint, EndpointState state) { onChange.run(); }
+        public void onRemove(InetAddress endpoint) { onChange.run(); }
+        public void onRestart(InetAddress endpoint, EndpointState state) { onChange.run(); }
+    }
+
+    public Cancel gossip(Runnable onChange)
+    {
+        Object unsubscribe = instance.appliesOnInstance(GossipChangeSubscriber::new).apply(onChange);
+        return () -> instance.acceptsOnInstance((Object o) -> Gossiper.instance.unregister((IEndpointStateChangeSubscriber) o)).accept(unsubscribe);
     }
 }

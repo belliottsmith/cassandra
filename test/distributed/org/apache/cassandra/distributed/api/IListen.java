@@ -23,4 +23,5 @@ public interface IListen
     public interface Cancel { void cancel(); }
 
     Cancel schema(Runnable onChange);
+    Cancel gossip(Runnable onChange);
 }

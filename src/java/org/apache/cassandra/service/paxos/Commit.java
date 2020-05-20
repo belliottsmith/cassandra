@@ -44,6 +44,7 @@ import org.apache.cassandra.utils.UUIDSerializer;
 public class Commit
 {
     public static final CommitSerializer serializer = new CommitSerializer();
+    private static final UUID emptyBallot = UUIDGen.getTimeUUID(0);
 
     public final UUID ballot;
     public final PartitionUpdate update;
@@ -57,9 +58,9 @@ public class Commit
         this.update = update;
     }
 
-    public static Commit newPrepare(DecoratedKey key, CFMetaData metadata, UUID ballot)
+    public static Commit newPrepare(DecoratedKey partitionKey, CFMetaData metadata, UUID ballot)
     {
-        return new Commit(ballot, PartitionUpdate.emptyUpdate(metadata, key));
+        return new Commit(ballot, PartitionUpdate.emptyUpdate(metadata, partitionKey));
     }
 
     public static Commit newProposal(UUID ballot, PartitionUpdate update)
@@ -68,14 +69,24 @@ public class Commit
         return new Commit(ballot, update);
     }
 
-    public static Commit emptyCommit(DecoratedKey key, CFMetaData metadata)
+    public static Commit emptyCommit(DecoratedKey partitionKey, CFMetaData metadata)
     {
-        return new Commit(UUIDGen.minTimeUUID(0), PartitionUpdate.emptyUpdate(metadata, key));
+        return new Commit(emptyBallot(), PartitionUpdate.emptyUpdate(metadata, partitionKey));
+    }
+
+    public static UUID emptyBallot()
+    {
+        return emptyBallot;
     }
 
     public boolean isAfter(Commit other)
     {
-        return ballot.timestamp() > other.ballot.timestamp();
+        return other == null || ballot.timestamp() > other.ballot.timestamp();
+    }
+
+    public boolean isAfter(@Nullable UUID otherBallot)
+    {
+        return otherBallot == null || ballot.timestamp() > otherBallot.timestamp();
     }
 
     public boolean hasBallot(UUID ballot)
@@ -169,12 +180,12 @@ public class Commit
 
         public Commit deserialize(DataInputPlus in, int version) throws IOException
         {
-            ByteBuffer key = null;
+            ByteBuffer partitionKey = null;
             if (version < MessagingService.VERSION_30)
-                key = ByteBufferUtil.readWithShortLength(in);
+                partitionKey = ByteBufferUtil.readWithShortLength(in);
 
             UUID ballot = UUIDSerializer.serializer.deserialize(in, version);
-            PartitionUpdate update = PartitionUpdate.serializer.deserialize(in, version, DeserializationHelper.Flag.LOCAL, key);
+            PartitionUpdate update = PartitionUpdate.serializer.deserialize(in, version, DeserializationHelper.Flag.LOCAL, partitionKey);
             return new Commit(ballot, update);
         }
 

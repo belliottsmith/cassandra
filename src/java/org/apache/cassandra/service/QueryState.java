@@ -58,7 +58,7 @@ public class QueryState
      */
     public long getTimestamp()
     {
-        return clientState.getTimestamp();
+        return ClientState.getTimestamp();
     }
 
     public boolean traceNextQuery()

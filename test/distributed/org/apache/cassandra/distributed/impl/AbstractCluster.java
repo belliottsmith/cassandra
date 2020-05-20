@@ -56,6 +56,7 @@ import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
+import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.utils.FBUtilities;
@@ -267,12 +268,44 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
 
     public void schemaChange(String query)
     {
+        schemaChange(query, false);
+    }
+
+    public void schemaChange(String query, boolean ignoreDownNodes)
+    {
         get(1).sync(() -> {
-            try (SchemaChangeMonitor monitor = new SchemaChangeMonitor())
+            try (SchemaChangeAgreementMonitor monitor = new SchemaChangeAgreementMonitor(ignoreDownNodes))
             {
                 // execute the schema change
                 coordinator(1).execute(query, ConsistencyLevel.ALL);
-                monitor.waitForAgreement();
+                monitor.await();
+            }
+        }).run();
+    }
+
+    public void schemaChange(int coordinator, String query, boolean ignoreDownNodes)
+    {
+        get(coordinator).sync(() -> {
+            try (SchemaChangeAgreementMonitor monitor = new SchemaChangeAgreementMonitor(ignoreDownNodes))
+            {
+                // execute the schema change
+                coordinator(coordinator).execute(query, ConsistencyLevel.ALL);
+                monitor.await();
+            }
+        }).run();
+    }
+
+    public void waitForSchemaAgreement()
+    {
+        waitForSchemaAgreement(false);
+    }
+
+    public void waitForSchemaAgreement(boolean ignoreDownNodes)
+    {
+        get(1).sync(() -> {
+            try (SchemaChangeAgreementMonitor monitor = new SchemaChangeAgreementMonitor(ignoreDownNodes))
+            {
+                monitor.await();
             }
         }).run();
     }
@@ -295,45 +328,28 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         }
     }
 
-    /**
-     * Will wait for a schema change AND agreement that occurs after it is created
-     * (and precedes the invocation to waitForAgreement)
-     *
-     * Works by simply checking if all UUIDs agree after any schema version change event,
-     * so long as the waitForAgreement method has been entered (indicating the change has
-     * taken place on the coordinator)
-     *
-     * This could perhaps be made a little more robust, but this should more than suffice.
-     */
-    public class SchemaChangeMonitor implements AutoCloseable
+    protected static abstract class ChangeAgreementMonitor implements AutoCloseable
     {
-        final List<IListen.Cancel> cleanup;
-        volatile boolean schemaHasChanged;
+        protected final List<IListen.Cancel> cleanup;
+        volatile boolean hasChanged; // so that we ignore signals that occur prior to our change
         final SimpleCondition agreement = new SimpleCondition();
 
-        public SchemaChangeMonitor()
+        public ChangeAgreementMonitor(List<IListen.Cancel> cleanup)
         {
-            this.cleanup = new ArrayList<>(instances.size());
-            for (IInstance instance : instances)
-                cleanup.add(instance.listen().schema(this::signal));
+            this.cleanup = cleanup;
         }
 
-        private void signal()
+        protected abstract boolean hasReachedAgreement();
+
+        protected void signal()
         {
-            if (schemaHasChanged && 1 == instances.stream().map(IInstance::schemaVersion).distinct().count())
+            if (hasChanged && hasReachedAgreement())
                 agreement.signalAll();
         }
 
-        @Override
-        public void close()
+        public void await()
         {
-            for (IListen.Cancel cancel : cleanup)
-                cancel.cancel();
-        }
-
-        public void waitForAgreement()
-        {
-            schemaHasChanged = true;
+            hasChanged = true;
             signal();
             try
             {
@@ -344,6 +360,42 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
             {
                 throw new IllegalStateException("Schema agreement not reached");
             }
+        }
+
+        @Override
+        public void close()
+        {
+            for (IListen.Cancel cancel : cleanup)
+                cancel.cancel();
+        }
+    }
+
+    /**
+     * Will wait for a schema change AND agreement that occurs after it is created
+     * (and precedes the invocation to waitForAgreement)
+     *
+     * Works by simply checking if all UUIDs agree after any schema version change event,
+     * so long as the waitForAgreement method has been entered (indicating the change has
+     * taken place on the coordinator)
+     *
+     * This could perhaps be made a little more robust, but this should more than suffice.
+     */
+    public class SchemaChangeAgreementMonitor extends ChangeAgreementMonitor
+    {
+        final boolean ignoreDownNodes;
+        public SchemaChangeAgreementMonitor(boolean ignoreDownNodes)
+        {
+            super(new ArrayList<>(instances.size()));
+            this.ignoreDownNodes = ignoreDownNodes;
+            for (IInstance instance : instances)
+                cleanup.add(instance.listen().schema(this::signal));
+        }
+
+        protected boolean hasReachedAgreement()
+        {
+            return 1 == instances.stream()
+                    .filter(i -> ignoreDownNodes || !i.isShutdown())
+                    .map(IInstance::schemaVersion).distinct().count();
         }
     }
 

@@ -2874,10 +2874,8 @@ public class StorageProxy implements StorageProxyMBean
     /**
      * Like DroppableRunnable, but if it aborts, it will rerun (on the mutation stage) after
      * marking itself as a hint in progress so that the hint backpressure mechanism can function.
-     *
-     * TODO temporarily public
      */
-    public static abstract class LocalMutationRunnable implements Runnable
+    private static abstract class LocalMutationRunnable implements Runnable
     {
         private final long constructionTime = System.currentTimeMillis();
 

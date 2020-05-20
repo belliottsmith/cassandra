@@ -20,14 +20,19 @@ package org.apache.cassandra.distributed;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
 
 import org.apache.cassandra.distributed.api.ICluster;
+import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.impl.AbstractCluster;
 import org.apache.cassandra.distributed.impl.IInvokableInstance;
 import org.apache.cassandra.distributed.impl.InstanceConfig;
 import org.apache.cassandra.distributed.impl.Versions;
+import org.apache.cassandra.gms.Gossiper;
 
 /**
  * A simple cluster supporting only the 'current' Cassandra version, offering easy access to the convenience methods
@@ -59,5 +64,57 @@ public class Cluster extends AbstractCluster<IInvokableInstance> implements IClu
     {
         return build(nodeCount).start();
     }
+
+    /**
+     * Will wait for a schema change AND agreement that occurs after it is created
+     * (and precedes the invocation to waitForAgreement)
+     *
+     * Works by simply checking if all UUIDs agree after any schema version change event,
+     * so long as the waitForAgreement method has been entered (indicating the change has
+     * taken place on the coordinator)
+     *
+     * This could perhaps be made a little more robust, but this should more than suffice.
+     */
+    public class GossipAgreementMonitor extends ChangeAgreementMonitor
+    {
+        final int[] betweenNodes;
+        public GossipAgreementMonitor(int[] betweenNodes)
+        {
+            super(new ArrayList<>(betweenNodes.length));
+            this.betweenNodes = betweenNodes;
+            for (int node : betweenNodes)
+                cleanup.add(get(node).listen().gossip(this::signal));
+        }
+
+        protected boolean hasReachedAgreement()
+        {
+            // verify endpoint state for each node in the cluster, but only on those nominated nodes we want agreement for
+            for (int i = 1 ; i <= size() ; ++i)
+            {
+                List<String> states = new ArrayList<>(betweenNodes.length);
+                for (int j = 0 ; j < betweenNodes.length ; j++)
+                {
+                    states.add(get(betweenNodes[j])
+                            .appliesOnInstance((InetAddress inet) -> Objects.toString(Gossiper.instance.getEndpointStateForEndpoint(inet)))
+                            .apply(get(betweenNodes[j]).broadcastAddressAndPort().address));
+                }
+                if (1 != states.stream().distinct().count())
+                    return false;
+            }
+            return true;
+        }
+    }
+
+    // TODO: this should be a cross-version feature, but for now this will do
+    public void waitForGossipAgreement(int ... betweenNodes)
+    {
+        get(1).sync(() -> {
+            try (GossipAgreementMonitor monitor = new GossipAgreementMonitor(betweenNodes))
+            {
+                monitor.await();
+            }
+        }).run();
+    }
+
 }
 

@@ -90,14 +90,19 @@ public class DistributedTestBase
 
     public static void assertRows(Object[][] actual, Object[]... expected)
     {
-        Assert.assertEquals(rowsNotEqualErrorMessage(actual, expected),
+        assertRows("", actual, expected);
+    }
+
+    public static void assertRows(String messagePrefix, Object[][] actual, Object[]... expected)
+    {
+        Assert.assertEquals(rowsNotEqualErrorMessage(messagePrefix, actual, expected),
                             expected.length, actual.length);
 
         for (int i = 0; i < expected.length; i++)
         {
             Object[] expectedRow = expected[i];
             Object[] actualRow = actual[i];
-            Assert.assertTrue(rowsNotEqualErrorMessage(actual, expected),
+            Assert.assertTrue(rowsNotEqualErrorMessage(messagePrefix, actual, expected),
                               Arrays.equals(expectedRow, actualRow));
         }
     }
@@ -128,11 +133,12 @@ public class DistributedTestBase
                              Arrays.toString(actual));
     }
 
-    public static String rowsNotEqualErrorMessage(Object[][] actual, Object[][] expected)
+    public static String rowsNotEqualErrorMessage(String messagePrefix, Object[][] actual, Object[][] expected)
     {
-        return String.format("Expected: %s\nActual: %s\n",
-                             rowsToString(expected),
-                             rowsToString(actual));
+        return String.format("%sExpected: %s\nActual: %s\n",
+                            (messagePrefix.isEmpty() ? messagePrefix : messagePrefix + ' '),
+                            rowsToString(expected),
+                            rowsToString(actual));
     }
 
     public static String rowsToString(Object[][] rows)

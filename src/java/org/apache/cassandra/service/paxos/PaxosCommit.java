@@ -20,12 +20,12 @@ package org.apache.cassandra.service.paxos;
 
 import java.net.InetAddress;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.LocalAwareExecutorService;
-import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.WriteResponse;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
@@ -80,7 +80,7 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
 
     private final int participants;
     private final int required;
-    private final Runnable onDone;
+    private final Consumer<Status> onDone;
 
     /**
      * packs two 32-bit integers;
@@ -92,25 +92,16 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
      */
     private volatile long responses;
 
-    public PaxosCommit(Commit proposal, boolean allowHints, ConsistencyLevel consistency, Paxos.Participants participants, Runnable onDone)
+    public PaxosCommit(Commit proposal, boolean allowHints, ConsistencyLevel consistency, Paxos.Participants participants, Consumer<Status> onDone)
     {
         this.proposal = proposal;
         this.allowHints = allowHints;
         this.consistency = consistency;
         this.participants = participants.allNatural.size() + participants.allPending.size();
-        this.required = participants.required;
         this.onDone = onDone;
-    }
-
-    /**
-     * Unlike commit, this does not wait for replies
-     */
-    @Deprecated
-    static void async(Commit commit, Iterable<InetAddress> replicas)
-    {
-        MessageOut<Commit> message = new MessageOut<Commit>(PAXOS_COMMIT, commit, Commit.serializer);
-        for (InetAddress target : replicas)
-            MessagingService.instance().sendOneWay(message, target);
+        this.required = participants.requiredFor(consistency, proposal.update.metadata());
+        if (required == 0)
+            onDone.accept(status());
     }
 
     /**
@@ -119,13 +110,13 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
     static Status sync(long deadline, Commit proposal, Paxos.Participants participants, ConsistencyLevel consistency, @Deprecated boolean allowHints)
     {
         SimpleCondition done = new SimpleCondition();
-        PaxosCommit commit = new PaxosCommit(proposal, allowHints, consistency, participants, done::signalAll);
+        PaxosCommit commit = new PaxosCommit(proposal, allowHints, consistency, participants, ignore -> done.signalAll());
         commit.start(participants, false);
 
         // We do not need to wait if a proposal is empty: so long as we have reached a QUORUM of acceptors, we have serialized
         // the operation with respect to others.  There is no other visible effect on the storage nodes, so there is no user
         // visible impact to failing to persist.  The incomplete round can be completed anytime.
-        if (proposal.update.isEmpty() || consistency == ConsistencyLevel.ANY)
+        if (proposal.update.isEmpty())
             return success;
 
         try
@@ -137,6 +128,16 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
             return new Status(new Paxos.MaybeFailure(true, commit.participants, commit.required, 0, 0));
         }
         return commit.status();
+    }
+
+    /**
+     * Submit the proposal for commit with all replicas, and wait synchronously until at most {@code deadline} for the result
+     */
+    static <T extends Consumer<Status>> T async(Commit proposal, Paxos.Participants participants, ConsistencyLevel consistency, @Deprecated boolean allowHints, T onDone)
+    {
+        PaxosCommit commit = new PaxosCommit(proposal, allowHints, consistency, participants, onDone);
+        commit.start(participants, true);
+        return onDone;
     }
 
     /**
@@ -233,9 +234,9 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
         long responses = responsesUpdater.addAndGet(this, success ? 0x1L : 0x100000000L);
         // next two clauses mutually exclusive to ensure we only invoke onDone once, when either failed or succeeded
         if (accepts(responses) == required) // if we have received _precisely_ the required accepts, we have succeeded
-            onDone.run();
+            onDone.accept(status());
         else if (participants - failures(responses) == required - 1) // if we are _unable_ to receive the required accepts, we have failed
-            onDone.run();
+            onDone.accept(status());
     }
 
     /**
