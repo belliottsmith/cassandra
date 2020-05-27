@@ -826,7 +826,7 @@ public class BTreeRow extends AbstractRow
         @Override
         public String toString()
         {
-            return String.format("Builder[clustering=%s, primaryKeyLivenessInfo=%s, deletion=%s, cells=%s, isSorted=%s, resolver=%s, hasComplex=%s]",
+            return String.format("Builder[clustering=%s, primaryKeyLivenessInfo=%s, deletion=%s, cells=%s, isSorted=%s, hasComplex=%s]",
                                  clustering, primaryKeyLivenessInfo, deletion, cells_, isSorted, hasComplex);
         }
 
