@@ -55,6 +55,6 @@ public class UpdateRepairedRangesVerbHandler implements IVerbHandler<UpdateRepai
 
         UpdateRepairedRangesResponse response = new UpdateRepairedRangesResponse(true);
 
-        MessagingService.instance().send(Message.out(Verb.INTERNAL_RSP, response), message.header.from);
+        MessagingService.instance().send(Message.internalResponse(Verb.INTERNAL_RSP, response), message.header.from);
     }
 }
