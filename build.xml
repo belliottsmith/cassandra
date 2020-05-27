@@ -1490,6 +1490,7 @@
         <jvmarg value="-ea"/>
         <jvmarg value="-Djava.io.tmpdir=${tmp.dir}"/>
         <jvmarg value="-Dcassandra.debugrefcount=true"/>
+        <jvmarg value="-Xms384M"/> <!-- Temporary workaround for distributed ReadRepairTest SEGV -->
         <jvmarg value="-Xss256k"/>
         <!-- When we do classloader manipulation SoftReferences can cause memory leaks
              that can OOM our test runs. The next two settings informs our GC
