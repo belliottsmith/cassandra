@@ -75,15 +75,7 @@ public class AccumulatorTest
         assertEquals("2", accu.get(1));
         assertEquals("4", accu.get(2));
 
-        try
-        {
-            assertEquals(null, accu.get(3));
-            fail();
-        }
-        catch (IndexOutOfBoundsException e)
-        {
-            // Expected
-        }
+        assertOutOfBonds(accu, 3);
 
         accu.addIfNotFull("0");
 
@@ -96,5 +88,49 @@ public class AccumulatorTest
         assertEquals("4", iter.next());
         assertEquals("0", iter.next());
         assertFalse(iter.hasNext());
+    }
+
+    @Test
+    public void testClearUnsafe()
+    {
+        Accumulator<String> accu = new Accumulator<>(3);
+
+        accu.addIfNotFull("1");
+        accu.addIfNotFull("2");
+        accu.addIfNotFull("3");
+
+        accu.clearUnsafe();
+
+        assertEquals(0, accu.size());
+        assertFalse(accu.iterator().hasNext());
+        assertOutOfBonds(accu, 0);
+
+        accu.addIfNotFull("4");
+        accu.addIfNotFull("5");
+
+        assertEquals(2, accu.size());
+
+        assertEquals("4", accu.get(0));
+        assertEquals("5", accu.get(1));
+        assertOutOfBonds(accu, 2);
+
+        Iterator<String> iter = accu.iterator();
+        assertTrue(iter.hasNext());
+        assertEquals("4", iter.next());
+        assertEquals("5", iter.next());
+        assertFalse(iter.hasNext());
+    }
+
+    private static void assertOutOfBonds(Accumulator<String> accumulator, int index)
+    {
+        try
+        {
+            assertNull(accumulator.get(index));
+            fail();
+        }
+        catch (IndexOutOfBoundsException e)
+        {
+            // Expected
+        }
     }
 }
