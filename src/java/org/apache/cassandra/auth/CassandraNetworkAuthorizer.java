@@ -18,10 +18,16 @@
 
 package org.apache.cassandra.auth;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
@@ -37,6 +43,7 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class CassandraNetworkAuthorizer implements INetworkAuthorizer
 {
+    private static final Logger logger = LoggerFactory.getLogger(CassandraNetworkAuthorizer.class);
     private SelectStatement authorizeUserStatement = null;
 
     public void setup()
@@ -151,5 +158,30 @@ public class CassandraNetworkAuthorizer implements INetworkAuthorizer
     public void validateConfiguration() throws ConfigurationException
     {
         // noop
+    }
+
+    @Override
+    public Supplier<Map<RoleResource, DCPermissions>> bulkLoader()
+    {
+        return () -> {
+            logger.info("Pre-warming datacenter permissions cache from network_permissions table");
+            Map<RoleResource, DCPermissions> entries = new HashMap<>();
+            UntypedResultSet rows = QueryProcessor.process(String.format("SELECT role, dcs FROM %s.%s",
+                                                                         SchemaConstants.AUTH_KEYSPACE_NAME,
+                                                                         AuthKeyspace.NETWORK_PERMISSIONS),
+                                                           AuthProperties.instance.getReadConsistencyLevel());
+
+            for (UntypedResultSet.Row row : rows)
+            {
+                RoleResource role = RoleResource.role(row.getString("role"));
+                DCPermissions.Builder builder = new DCPermissions.Builder();
+                Set<String> dcs = row.getFrozenSet("dcs", UTF8Type.instance);
+                for (String dc : dcs)
+                    builder.add(dc);
+                entries.put(role, builder.build());
+            }
+
+            return entries;
+        };
     }
 }

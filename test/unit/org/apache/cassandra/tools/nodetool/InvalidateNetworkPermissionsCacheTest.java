@@ -26,6 +26,7 @@ import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.auth.AuthTestUtils;
 import org.apache.cassandra.auth.AuthenticatedUser;
+import org.apache.cassandra.auth.Roles;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.tools.ToolRunner;
 
@@ -46,6 +47,7 @@ public class InvalidateNetworkPermissionsCacheTest extends CQLTester
                 new AuthTestUtils.LocalPasswordAuthenticator(),
                 new AuthTestUtils.LocalCassandraAuthorizer(),
                 new AuthTestUtils.LocalCassandraNetworkAuthorizer());
+        Roles.initRolesCache(roleManager, () -> true);
 
         roleManager.createRole(AuthenticatedUser.SYSTEM_USER, ROLE_A, AuthTestUtils.getLoginRoleOprions());
         roleManager.createRole(AuthenticatedUser.SYSTEM_USER, ROLE_B, AuthTestUtils.getLoginRoleOprions());

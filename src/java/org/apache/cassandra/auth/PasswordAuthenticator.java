@@ -20,12 +20,15 @@ package org.apache.cassandra.auth;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,7 +56,7 @@ import org.mindrot.jbcrypt.BCrypt;
  * PasswordAuthenticator requires the use of CassandraRoleManager
  * for storage and retrieval of encrypted passwords.
  */
-public class PasswordAuthenticator implements IAuthenticator
+public class PasswordAuthenticator implements IAuthenticator, AuthCache.BulkLoader<String, String>
 {
     private static final Logger logger = LoggerFactory.getLogger(PasswordAuthenticator.class);
 
@@ -75,6 +78,26 @@ public class PasswordAuthenticator implements IAuthenticator
     public boolean requireAuthentication()
     {
         return true;
+    }
+
+    @Override
+    public Supplier<Map<String, String>> bulkLoader()
+    {
+        return () ->
+        {
+            Map<String, String> entries = new HashMap<>();
+
+            logger.info("Pre-warming credentials cache from roles table");
+            UntypedResultSet results = QueryProcessor.process("SELECT role, salted_hash FROM system_auth.roles",
+                                                              AuthProperties.instance.getReadConsistencyLevel());
+            results.forEach(row -> {
+                if (row.has("salted_hash"))
+                {
+                    entries.put(row.getString("role"), row.getString("salted_hash"));
+                }
+            });
+            return entries;
+        };
     }
 
     protected static boolean checkpw(String password, String hash)
@@ -174,6 +197,7 @@ public class PasswordAuthenticator implements IAuthenticator
         authenticateStatement = prepare(query);
 
         cache = new CredentialsCache(this);
+        AuthCacheService.instance.register(cache);
     }
 
     public AuthenticatedUser legacyAuthenticate(Map<String, String> credentials) throws AuthenticationException
@@ -281,6 +305,7 @@ public class PasswordAuthenticator implements IAuthenticator
                   DatabaseDescriptor::setCredentialsCacheActiveUpdate,
                   DatabaseDescriptor::getCredentialsCacheActiveUpdate,
                   authenticator::queryHashedPassword,
+                  authenticator.bulkLoader(),
                   () -> true,
                   (k,v) -> NO_SUCH_CREDENTIAL == v); // use a known object as a sentinel value. CacheRefresher will
                                                      // invalidate the key if the sentinel is loaded during a refresh
