@@ -3218,6 +3218,11 @@ public class DatabaseDescriptor
         conf.alter_table_enabled = alterTableEnabled;
     }
 
+    public static boolean getAuthCacheWarmingEnabled()
+    {
+        return conf.auth_cache_warming_enabled;
+    }
+
     public static ConsistencyLevel getAuthReadConsistencyLevel()
     {
         return conf.auth_read_consistency_level;

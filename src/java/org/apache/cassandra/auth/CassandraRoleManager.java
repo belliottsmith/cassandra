@@ -22,6 +22,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -123,6 +124,10 @@ public class CassandraRoleManager implements IRoleManager
 
     // Will be set to true when all nodes in the cluster are on a version which supports roles (i.e. 2.2+)
     private volatile boolean isClusterReady = false;
+    boolean isClusterReady()
+    {
+        return isClusterReady;
+    }
 
     public CassandraRoleManager()
     {
@@ -136,6 +141,7 @@ public class CassandraRoleManager implements IRoleManager
 
     public void setup()
     {
+        isClusterReady = true;
         loadRoleStatement = (SelectStatement) prepare("SELECT * from %s.%s WHERE role = ?",
                                                       SchemaConstants.AUTH_KEYSPACE_NAME,
                                                       AuthKeyspace.ROLES);
@@ -244,7 +250,8 @@ public class CassandraRoleManager implements IRoleManager
     {
         return collectRoles(getRole(grantee.getRoleName()),
                             includeInherited,
-                            filter())
+                            filter(),
+                            this::getRole)
                .map(r -> r.resource)
                .collect(Collectors.toSet());
     }
@@ -253,7 +260,8 @@ public class CassandraRoleManager implements IRoleManager
     {
         return collectRoles(getRole(grantee.getRoleName()),
                             true,
-                            filter())
+                            filter(),
+                            this::getRole)
                .collect(Collectors.toSet());
     }
 
@@ -345,7 +353,8 @@ public class CassandraRoleManager implements IRoleManager
         }
     }
 
-    private static boolean hasExistingRoles() throws RequestExecutionException
+    @VisibleForTesting
+    static boolean hasExistingRoles() throws RequestExecutionException
     {
         // Try looking up the 'cassandra' default role first, to avoid the range query if possible.
         String defaultSUQuery = String.format("SELECT * FROM %s.%s WHERE role = '%s'", SchemaConstants.AUTH_KEYSPACE_NAME, AuthKeyspace.ROLES, DEFAULT_SUPERUSER_NAME);
@@ -384,19 +393,22 @@ public class CassandraRoleManager implements IRoleManager
         }
     }
 
-    private Stream<Role> collectRoles(Role role, boolean includeInherited, Predicate<String> distinctFilter)
+    // Providing a function to fetch the details of granted roles allows us to read from the underlying tables during
+    // normal usage and fetch from a prepopulated in memory structure when building an initial set of roles to warm
+    // the RolesCache at startup
+    private Stream<Role> collectRoles(Role role, boolean includeInherited, Predicate<String> distinctFilter, Function<String, Role> loaderFunction)
     {
         if (Roles.isNullRole(role))
             return Stream.empty();
 
         if (!includeInherited)
-            return Stream.concat(Stream.of(role), role.memberOf.stream().map(this::getRole));
+              return Stream.concat(Stream.of(role), role.memberOf.stream().map(loaderFunction));
 
 
         return Stream.concat(Stream.of(role),
                              role.memberOf.stream()
                                           .filter(distinctFilter)
-                                          .flatMap(r -> collectRoles(getRole(r), true, distinctFilter)));
+                                          .flatMap(r -> collectRoles(loaderFunction.apply(r), true, distinctFilter, loaderFunction)));
     }
 
     // Used as a stateful filtering function when recursively collecting granted roles
@@ -523,4 +535,27 @@ public class CassandraRoleManager implements IRoleManager
         return statement.execute(QueryState.forInternalCalls(), options, System.nanoTime());
     }
 
+    @Override
+    public Supplier<Map<RoleResource, Set<Role>>> bulkLoader()
+    {
+        return () ->
+        {
+            Map<RoleResource, Set<Role>> entries = new HashMap<>();
+
+            logger.info("Warming roles cache from roles table");
+            UntypedResultSet results = QueryProcessor.process("SELECT * FROM system_auth.roles",
+                                                              AuthProperties.instance.getReadConsistencyLevel());
+
+            // Create flat temporary lookup of name -> role mappings
+            Map<String, Role> roles = new HashMap<>();
+            results.forEach(row -> roles.put(row.getString("role"), ROW_TO_ROLE.apply(row)));
+
+            // Iterate the flat structure and populate the fully hierarchical one
+            roles.forEach((key, value) ->
+                          entries.put(RoleResource.role(key),
+                                      collectRoles(value, true, filter(), roles::get).collect(Collectors.toSet()))
+            );
+            return entries;
+        };
+    }
 }
