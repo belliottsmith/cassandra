@@ -3358,6 +3358,26 @@ public class DatabaseDescriptor
         return conf.memtable_excess_waste_bytes;
     }
 
+    public static boolean getLogOutOfTokenRangeRequests()
+    {
+        return conf.log_out_of_token_range_requests;
+    }
+
+    public static void setLogOutOfTokenRangeRequests(boolean enabled)
+    {
+        conf.log_out_of_token_range_requests = enabled;
+    }
+
+    public static boolean getRejectOutOfTokenRangeRequests()
+    {
+        return conf.reject_out_of_token_range_requests;
+    }
+
+    public static void setRejectOutOfTokenRangeRequests(boolean enabled)
+    {
+        conf.reject_out_of_token_range_requests = enabled;
+    }
+
     public static boolean enablePartitionBlacklist()
     {
         return conf.enable_partition_blacklist;
