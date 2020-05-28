@@ -18,10 +18,15 @@
 package org.apache.cassandra.auth;
 
 import java.util.*;
+import java.util.function.BiConsumer;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
+import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Table;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +44,7 @@ import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.Pair;
 
 /**
  * CassandraAuthorizer is an IAuthorizer implementation that keeps
@@ -367,5 +373,86 @@ public class CassandraAuthorizer implements IAuthorizer
                                              QueryState.forInternalCalls(),
                                              BatchQueryOptions.withoutPerStatementVariables(options),
                                              System.nanoTime());
+    }
+
+    /**
+     * Get an initial set of permissions to load into the PermissionsCache at startup
+     * @return map of User/Resource -> Permissions for cache initialisation
+     */
+    public Supplier<Map<Pair<AuthenticatedUser, IResource>, Set<Permission>>> bulkLoader()
+    {
+        return () ->
+        {
+            Map<Pair<AuthenticatedUser, IResource>, Set<Permission>> entries = new HashMap<>();
+            String cqlTemplate = "SELECT %s, %s, %s FROM %s.%s";
+
+            logger.info("Warming permissions cache from role_permissions table");
+            UntypedResultSet results =
+            QueryProcessor.process(String.format(cqlTemplate,
+                                                 ROLE, RESOURCE, PERMISSIONS,
+                                                 SchemaConstants.AUTH_KEYSPACE_NAME, AuthKeyspace.ROLE_PERMISSIONS),
+                                   AuthProperties.instance.getReadConsistencyLevel());
+
+            // role_name -> (resource, permissions)
+            Table<String, IResource, Set<Permission>> individualRolePermissions = HashBasedTable.create();
+            results.forEach(row -> {
+                if (row.has(PERMISSIONS))
+                {
+                    individualRolePermissions.put(row.getString(ROLE),
+                                                  Resources.fromName(row.getString(RESOURCE)),
+                                                  permissions(row.getSet(PERMISSIONS, UTF8Type.instance)));
+                }
+            });
+
+            // iterate all user level roles in the system and accumlate the permissions of their granted roles
+            Roles.getAllRoles().forEach(roleResource -> {
+                // if the role has login priv, accumulate the permissions of all its granted roles
+                if (Roles.canLogin(roleResource))
+                {
+                    // structure to accumulate the resource -> permission mappings for the closure of granted roles
+                    Map<IResource, ImmutableSet.Builder<Permission>> userPermissions = new HashMap<>();
+                    BiConsumer<IResource, Set<Permission>> accumulator = accumulator(userPermissions);
+
+                    // for each role granted to this primary, lookup the specific resource/permissions grants
+                    // we read in the first step. We'll accumlate those in the userPermissions map, which we'll turn
+                    // into cache entries when we're done
+                    // note: we need to provide a default empty set of permissions for roles without any explicitly
+                    // granted to them (e.g. superusers or roles with no direct perms)
+                    Roles.getRoleDetails(roleResource).forEach(grantedRole ->
+                                                               individualRolePermissions.rowMap()
+                                                                                        .getOrDefault(grantedRole.resource.getRoleName(), Collections.emptyMap())
+                                                                                        .forEach(accumulator));
+
+                    // having iterated all the roles granted to this user, finalize the transitive permissions
+                    // (i.e. turn them into entries for the PermissionsCache)
+                    userPermissions.forEach((resource, builder) -> entries.put(cacheKey(roleResource, resource),
+                                                                               builder.build()));
+                }
+            });
+
+            return entries;
+        };
+    }
+
+    // Helper function to group the transitive set of permissions granted
+    // to user by the specific resources to which they apply
+    private static BiConsumer<IResource, Set<Permission>> accumulator(Map<IResource, ImmutableSet.Builder<Permission>> accumulator)
+    {
+        return (resource, permissions) -> accumulator.computeIfAbsent(resource, k -> new ImmutableSet.Builder<>()).addAll(permissions);
+    }
+
+    private static Set<Permission> permissions(Set<String> permissionNames)
+    {
+        return permissionNames.stream().map(Permission::valueOf).collect(Collectors.toSet());
+    }
+
+    private static Pair<AuthenticatedUser, IResource> cacheKey(RoleResource role, IResource resource)
+    {
+        return cacheKey(role.getRoleName(), resource);
+    }
+
+    private static Pair<AuthenticatedUser, IResource> cacheKey(String roleName, IResource resource)
+    {
+        return Pair.create(new AuthenticatedUser(roleName), resource);
     }
 }

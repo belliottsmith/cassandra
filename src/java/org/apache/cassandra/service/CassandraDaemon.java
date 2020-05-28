@@ -52,6 +52,7 @@ import com.codahale.metrics.jvm.GarbageCollectorMetricSet;
 import com.codahale.metrics.jvm.MemoryUsageGaugeSet;
 
 import org.apache.cassandra.audit.AuditLogManager;
+import org.apache.cassandra.auth.AuthCacheService;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.QueryProcessor;
@@ -465,6 +466,11 @@ public class CassandraDaemon
                                                                 NANOSECONDS);
 
         initializeClientTransports();
+
+        if (DatabaseDescriptor.getAuthCacheWarmingEnabled())
+            AuthCacheService.instance.warmCaches();
+        else
+            logger.info("Prewarming of auth caches is disabled");
 
         completeSetup();
     }

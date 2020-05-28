@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.auth;
 
+import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiPredicate;
@@ -26,7 +28,9 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
+import java.util.function.Supplier;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +48,9 @@ public class AuthCache<K, V> implements AuthCacheMBean
     private static final Logger logger = LoggerFactory.getLogger(AuthCache.class);
 
     private static final String MBEAN_NAME_BASE = "org.apache.cassandra.auth:type=";
+
+    static final String CACHE_LOAD_RETRIES_PROPERTY = "cassandra.auth_cache.warming.max_retries";
+    static final String CACHE_LOAD_RETRY_INTERVAL_PROPERTY = "cassandra.auth_cache.warming.retry_interval_ms";
 
     private volatile ScheduledFuture cacheRefresher = null;
 
@@ -63,6 +70,7 @@ public class AuthCache<K, V> implements AuthCacheMBean
     private final Consumer<Boolean> setActiveUpdate;
     private final BooleanSupplier getActiveUpdate;
     private final Function<K, V> loadFunction;
+    private final Supplier<Map<K, V>> bulkLoadFunction;
     private final BooleanSupplier enableCache;
 
     // Determines whether the presence of a specific value should trigger the invalidation of
@@ -94,6 +102,7 @@ public class AuthCache<K, V> implements AuthCacheMBean
                         Consumer<Boolean> setActiveUpdate,
                         BooleanSupplier getActiveUpdate,
                         Function<K, V> loadFunction,
+                        Supplier<Map<K, V>> bulkLoadFunction,
                         BooleanSupplier cacheEnabledDelegate)
     {
         this(name,
@@ -106,6 +115,7 @@ public class AuthCache<K, V> implements AuthCacheMBean
              setActiveUpdate,
              getActiveUpdate,
              loadFunction,
+             bulkLoadFunction,
              cacheEnabledDelegate,
              (k, v) -> false);
     }
@@ -135,6 +145,7 @@ public class AuthCache<K, V> implements AuthCacheMBean
                         Consumer<Boolean> setActiveUpdate,
                         BooleanSupplier getActiveUpdate,
                         Function<K, V> loadFunction,
+                        Supplier<Map<K, V>> bulkLoadFunction,
                         BooleanSupplier cacheEnabledDelegate,
                         BiPredicate<K, V> invalidationCondition)
     {
@@ -148,6 +159,7 @@ public class AuthCache<K, V> implements AuthCacheMBean
         this.setActiveUpdate = checkNotNull(setActiveUpdate);
         this.getActiveUpdate = checkNotNull(getActiveUpdate);
         this.loadFunction = checkNotNull(loadFunction);
+        this.bulkLoadFunction = checkNotNull(bulkLoadFunction);
         this.enableCache = checkNotNull(cacheEnabledDelegate);
         this.invalidateCondition = checkNotNull(invalidationCondition);
         init();
@@ -275,6 +287,11 @@ public class AuthCache<K, V> implements AuthCacheMBean
         cache = initCache(cache);
     }
 
+    public long getEstimatedSize()
+    {
+        return cache == null ? 0L : cache.estimatedSize();
+    }
+
     /**
      * (Re-)initialise the underlying cache. Will update validity, max entries, and update interval if
      * any have changed. The underlying {@link LoadingCache} will be initiated based on the provided {@code loadFunction}.
@@ -331,5 +348,50 @@ public class AuthCache<K, V> implements AuthCacheMBean
                                                                                   TimeUnit.MILLISECONDS);
         }
         return updatedCache;
+    }
+
+    public void warm()
+    {
+        if (cache == null)
+        {
+            logger.info("{} cache not enabled, skipping pre-warming", name);
+            return;
+        }
+
+        int retries = Integer.getInteger(CACHE_LOAD_RETRIES_PROPERTY, 10);
+        long retryInterval = Long.getLong(CACHE_LOAD_RETRY_INTERVAL_PROPERTY, 1000);
+
+        while (retries-- > 0)
+        {
+            try
+            {
+                Map<K, V> entries = bulkLoadFunction.get();
+                logger.info("Populating {} cache with {} pre-computed entries", name, entries.size());
+                cache.putAll(entries);
+                break;
+            }
+            catch (Exception e)
+            {
+                logger.warn("Failed to pre-warm {} cache, retrying {} more times", name, retries, e);
+                Uninterruptibles.sleepUninterruptibly(retryInterval, TimeUnit.MILLISECONDS);
+            }
+        }
+    }
+
+    /*
+     * Implemented when we can provide an efficient way to bulk load all entries
+     * for a cache. This isn't a @FunctionalInterface due to the default impl,
+     * which is for IRoleManager, IAuthorizer, and INetworkAuthorizer. They all
+     * extend this interface so that implementations only need to provide an
+     * override if it's useful. IAuthenticator doesn't implement this interface
+     * because CredentialsCache is more tightly coupled to PasswordAuthenticator,
+     * which does expose a bulk loader.
+     */
+    public interface BulkLoader<K, V>
+    {
+        default Supplier<Map<K, V>> bulkLoader()
+        {
+            return Collections::emptyMap;
+        }
     }
 }
