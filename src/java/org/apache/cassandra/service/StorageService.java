@@ -48,6 +48,8 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.*;
 import com.google.common.util.concurrent.*;
 
+import org.apache.cassandra.auth.AuthenticatedUser;
+import org.apache.cassandra.auth.Roles;
 import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.dht.RangeStreamer.FetchReplica;
 import org.apache.cassandra.fql.FullQueryLogger;
@@ -1104,6 +1106,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             DatabaseDescriptor.getAuthenticator().setup();
             DatabaseDescriptor.getAuthorizer().setup();
             DatabaseDescriptor.getNetworkAuthorizer().setup();
+            AuthenticatedUser.init();
+            Roles.init();
             Schema.instance.registerListener(new AuthSchemaChangeListener());
             authSetupComplete = true;
         }
