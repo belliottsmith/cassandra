@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Multimap;
 
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Before;
 import org.junit.Test;
@@ -56,8 +57,7 @@ public class TokenMetadataTest
     static TokenMetadata tmd;
 
     @BeforeClass
-    public static void beforeClass() throws Throwable
-    {
+    public static void beforeClass() throws Throwable {
         DatabaseDescriptor.daemonInitialization();
     }
 
@@ -357,7 +357,6 @@ public class TokenMetadataTest
         assertEquals(0, tokenMetadata.getSizeOfLeavingEndpoints());
         assertEquals(0, tokenMetadata.getSizeOfMovingEndpoints());
     }
-
 
     @Test
     public void testRemoveEndpointTokenChange() throws Exception
