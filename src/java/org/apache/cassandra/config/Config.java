@@ -503,6 +503,8 @@ public class Config
 
     public volatile boolean alter_table_enabled = true;
 
+    public boolean auth_cache_warming_enabled = true;
+
     public ConsistencyLevel auth_read_consistency_level = ConsistencyLevel.LOCAL_QUORUM;
     public ConsistencyLevel auth_write_consistency_level = ConsistencyLevel.EACH_QUORUM;
 
