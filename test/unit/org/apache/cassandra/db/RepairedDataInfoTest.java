@@ -166,6 +166,20 @@ public class RepairedDataInfoTest
         assertArrayEquals(manualDigest.digest(), fromRepairedInfo);
     }
 
+    @Test
+    public void digestOfFullyPurgedPartition()
+    {
+        int deletionTime = nowInSec - cfs.metadata.params.gcGraceSeconds - 1;
+        DeletionTime deletion = new DeletionTime(((long)deletionTime * 1000), deletionTime);
+        Row staticRow = staticRow(nowInSec, deletion);
+        Row row = row(1, nowInSec, deletion);
+        UnfilteredRowIterator partition = partitionWithStaticRow(bytes(0), staticRow, row);
+
+        // The partition is fully purged, so nothing should be added to the digest
+        byte[] fromRepairedInfo = consume(partition);
+        assertEquals(0, fromRepairedInfo.length);
+    }
+
     private RepairedDataInfo info()
     {
         return new RepairedDataInfo(DataLimits.NONE.newCounter(nowInSec, false, false, false));
@@ -178,8 +192,7 @@ public class RepairedDataInfoTest
                                Unfiltered...unfiltereds)
     {
         Digest perPartitionDigest = Digest.forRepairedDataTracking();
-        if (!staticRow.isEmpty())
-            staticRow.digest(perPartitionDigest);
+        staticRow.digest(perPartitionDigest);
         deletion.digest(perPartitionDigest);
         perPartitionDigest.update(partitionKey);
         for (Unfiltered unfiltered : unfiltereds)
@@ -228,11 +241,27 @@ public class RepairedDataInfoTest
         return builder.build();
     }
 
+    private Row staticRow(int nowInSec, DeletionTime deletion)
+    {
+        Row.Builder builder = BTreeRow.unsortedBuilder(nowInSec);
+        builder.newRow(Clustering.STATIC_CLUSTERING);
+        builder.addRowDeletion(new Row.Deletion(deletion, false));
+        return builder.build();
+    }
+
     private Row row(int clustering, int value, int nowInSec)
     {
         Row.Builder builder = BTreeRow.unsortedBuilder(nowInSec);
         builder.newRow(clustering(metadata.comparator, Integer.toString(clustering)));
         builder.addCell(cell(valueMetadata, Integer.toString(value)));
+        return builder.build();
+    }
+
+    private Row row(int clustering, int nowInSec, DeletionTime deletion)
+    {
+        Row.Builder builder = BTreeRow.unsortedBuilder(nowInSec);
+        builder.newRow(clustering(metadata.comparator, Integer.toString(clustering)));
+        builder.addRowDeletion(new Row.Deletion(deletion, false));
         return builder.build();
     }
 

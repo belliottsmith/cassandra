@@ -170,17 +170,7 @@ class RepairedDataInfo
 
             protected Row applyToStatic(Row row)
             {
-                if (repairedCounter.isDone())
-                    return row;
-
-                assert purger != null;
-                Row purged = purger.applyToRow(row);
-                if (!purged.isEmpty())
-                {
-                    isFullyPurged = false;
-                    purged.digest(getPerPartitionDigest());
-                }
-                return row;
+                return applyToRow(row);
             }
 
             protected Row applyToRow(Row row)
