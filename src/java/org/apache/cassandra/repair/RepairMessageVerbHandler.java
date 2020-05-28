@@ -18,19 +18,25 @@
 package org.apache.cassandra.repair;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.RequestFailureReason;
+import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.*;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.PreviewKind;
+import org.apache.cassandra.service.StorageService;
 
 import static org.apache.cassandra.net.Verb.VALIDATION_RSP;
 
@@ -82,7 +88,7 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                         if (columnFamilyStore == null)
                         {
                             logErrorAndSendFailureResponse(String.format("Table with id %s was dropped during prepare phase of repair",
-                                                                         tableId), message);
+                                                                         tableId.toString()), message);
                             return;
                         }
                         columnFamilyStores.add(columnFamilyStore);
@@ -148,10 +154,17 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                         MessagingService.instance().send(Message.out(VALIDATION_RSP, new ValidationResponse(desc)), message.from());
                         return;
                     }
-                    
+
                     Validator validator = new Validator(desc, message.from(), validationRequest.nowInSec,
-                                                        isIncremental(desc.parentSessionId), previewKind);
-                    ValidationManager.instance.submitValidation(store, validator);
+                                                        isIncremental(desc.parentSessionId), previewKind(desc.parentSessionId));
+                    if (acceptMessage(validationRequest, message.from()))
+                    {
+                        ValidationManager.instance.submitValidation(store, validator);
+                    }
+                    else
+                    {
+                        validator.fail();
+                    }
                     break;
 
                 case SYNC_REQ:
@@ -234,5 +247,21 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
     {
         Message<?> reply = respondTo.failureResponse(RequestFailureReason.UNKNOWN);
         MessagingService.instance().send(reply, respondTo.from());
+    }
+
+    private static boolean acceptMessage(final ValidationRequest validationRequest, final InetAddressAndPort from)
+    {
+        boolean outOfRangeTokenLogging = StorageService.instance.isOutOfTokenRangeRequestLoggingEnabled();
+        boolean outOfRangeTokenRejection = StorageService.instance.isOutOfTokenRangeRequestRejectionEnabled();
+
+        if (!outOfRangeTokenLogging && !outOfRangeTokenRejection)
+            return true;
+
+        return StorageService.instance
+               .getNormalizedLocalRanges(validationRequest.desc.keyspace)
+               .validateRangeRequest(validationRequest.desc.ranges,
+                                     "RepairSession #" + validationRequest.desc.parentSessionId,
+                                     "validation request",
+                                     from);
     }
 }
