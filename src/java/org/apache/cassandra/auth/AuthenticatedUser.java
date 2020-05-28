@@ -42,6 +42,12 @@ public class AuthenticatedUser
     private static final PermissionsCache permissionsCache = new PermissionsCache(DatabaseDescriptor.getAuthorizer());
     private static final NetworkAuthCache networkAuthCache = new NetworkAuthCache(DatabaseDescriptor.getNetworkAuthorizer());
 
+    public static void init()
+    {
+        AuthCacheService.instance.register(permissionsCache);
+        AuthCacheService.instance.register(networkAuthCache);
+    }
+
     private final String name;
     // primary Role of the logged in user
     private final RoleResource role;
