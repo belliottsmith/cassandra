@@ -31,9 +31,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.repair.messages.UpdateRepairedRanges;
-import org.apache.cassandra.repair.messages.UpdateRepairedRangesResponse;
 
 public class UpdateRepairedRangesVerbHandler implements IVerbHandler<UpdateRepairedRanges>
 {
@@ -53,8 +51,6 @@ public class UpdateRepairedRangesVerbHandler implements IVerbHandler<UpdateRepai
                 columnFamilyStore.updateLastSuccessfulRepair(repairRange.getKey(), 1000L * repairRange.getValue());
         }
 
-        UpdateRepairedRangesResponse response = new UpdateRepairedRangesResponse(true);
-
-        MessagingService.instance().send(Message.internalResponse(Verb.INTERNAL_RSP, response), message.header.from);
+        MessagingService.instance().send(message.emptyResponse(), message.from());
     }
 }

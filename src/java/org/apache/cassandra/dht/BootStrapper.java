@@ -254,7 +254,7 @@ public class BootStrapper extends ProgressEventNotifierSupport
         int timeoutInMin = 1;
         logger.info("Fetching repaired ranges ({}) from {} for keyspace {}", tokens, endPointToFetch, table);
 
-        MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_REPAIRED_RANGES, new RepairedRangesRequest(table, Collections.singleton(tokens))), endPointToFetch, new RequestCallback<UpdateRepairedRanges>()
+        MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_REPAIRED_RANGES_REQ, new RepairedRangesRequest(table, Collections.singleton(tokens))), endPointToFetch, new RequestCallback<UpdateRepairedRanges>()
         {
             public void onResponse(Message<UpdateRepairedRanges> msg)
             {
