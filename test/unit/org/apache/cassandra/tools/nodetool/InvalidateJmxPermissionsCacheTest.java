@@ -32,6 +32,7 @@ import org.apache.cassandra.auth.AuthenticatedUser;
 import org.apache.cassandra.auth.CassandraPrincipal;
 import org.apache.cassandra.auth.JMXResource;
 import org.apache.cassandra.auth.Permission;
+import org.apache.cassandra.auth.Roles;
 import org.apache.cassandra.auth.jmx.AuthorizationProxy;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.tools.ToolRunner;
@@ -56,6 +57,7 @@ public class InvalidateJmxPermissionsCacheTest extends CQLTester
                 new AuthTestUtils.LocalPasswordAuthenticator(),
                 authorizer,
                 new AuthTestUtils.LocalCassandraNetworkAuthorizer());
+        Roles.initRolesCache(roleManager, () -> true);
 
         JMXResource rootJmxResource = JMXResource.root();
         Set<Permission> jmxPermissions = rootJmxResource.applicablePermissions();
