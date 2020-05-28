@@ -33,6 +33,9 @@ import io.netty.channel.Channel;
 import io.netty.util.concurrent.Future; //checkstyle: permit this import
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.dht.OwnedRanges;
+import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.locator.RangesAtEndpoint;
 
 import org.apache.cassandra.utils.concurrent.FutureCombiner;
@@ -46,9 +49,13 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.*;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
+import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.metrics.StreamingMetrics;
+import org.apache.cassandra.net.OutboundConnectionSettings;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.streaming.async.StreamingMultiplexedChannel;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.messages.*;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JVMStabilityInspector;
@@ -364,7 +371,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                                                               getPendingRepair(),
                                                               getPreviewKind());
 
-            channel.sendControlMessage(message);
+            sendControlMessage(message);
             onInitializationComplete();
         }
         catch (Exception e)
@@ -626,7 +633,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             prepare.summaries.add(task.getSummary());
         }
 
-        channel.sendControlMessage(prepare);
+        sendControlMessage(prepare);
     }
 
     /**
@@ -659,7 +666,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         logError(e);
         // send session failure message
         if (channel.connected())
-            channel.sendControlMessage(new SessionFailedMessage());
+            sendControlMessage(new SessionFailedMessage());
         // fail session
         return closeSession(State.FAILED);
     }
@@ -707,10 +714,10 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      * Finish preparing the session. This method is blocking (memtables are flushed in {@link #addTransferRanges}),
      * so the logic should not execute on the main IO thread (read: netty event loop).
      */
-    private void prepareAsync(Collection<StreamRequest> requests, Collection<StreamSummary> summaries)
+    @VisibleForTesting
+    public void prepareAsync(Collection<StreamRequest> requests, Collection<StreamSummary> summaries)
     {
-        for (StreamRequest request : requests)
-            addTransferRanges(request.keyspace, RangesAtEndpoint.concat(request.full, request.transientReplicas), request.columnFamilies, true); // always flush on stream request
+        processStreamRequests(requests);
         for (StreamSummary summary : summaries)
             prepareReceiving(summary);
 
@@ -718,7 +725,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         if (!peer.equals(FBUtilities.getBroadcastAddressAndPort()))
             for (StreamTransferTask task : transfers.values())
                 prepareSynAck.summaries.add(task.getSummary());
-        channel.sendControlMessage(prepareSynAck);
+        sendControlMessage(prepareSynAck);
 
         streamResult.handleSessionPrepared(this);
 
@@ -737,7 +744,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
             // only send the (final) ACK if we are expecting the peer to send this node (the initiator) some files
             if (!isPreview())
-                channel.sendControlMessage(new PrepareAckMessage());
+                sendControlMessage(new PrepareAckMessage());
         }
 
         if (isPreview())
@@ -751,6 +758,46 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         if (isPreview())
             throw new RuntimeException(String.format("[Stream #%s] Cannot receive PrepareAckMessage for preview session", planId()));
         startStreamingFiles(true);
+    }
+
+    private void processStreamRequests(Collection<StreamRequest> requests)
+    {
+        boolean outOfRangeTokenLogging = StorageService.instance.isOutOfTokenRangeRequestLoggingEnabled();
+        boolean outOfRangeTokenRejection = StorageService.instance.isOutOfTokenRangeRequestRejectionEnabled();
+
+        if (!outOfRangeTokenLogging && !outOfRangeTokenRejection)
+        {
+            requests.forEach(request ->
+            {
+                // always flush on stream request
+                addTransferRanges(request.keyspace, RangesAtEndpoint.concat(request.full, request.transientReplicas), request.columnFamilies, true);
+            });
+
+            return;
+        }
+
+        List<StreamRequest> rejectedRequests = new ArrayList<>();
+
+        // group requests by keyspace
+        Multimap<String, StreamRequest> requestsByKeyspace = ArrayListMultimap.create();
+        requests.forEach(r -> requestsByKeyspace.put(r.keyspace, r));
+
+        requestsByKeyspace.asMap().forEach((ks, reqs) ->
+        {
+            OwnedRanges ownedRanges = StorageService.instance.getNormalizedLocalRanges(ks);
+
+            reqs.forEach(req ->
+            {
+                RangesAtEndpoint allRangesAtEndpoint = RangesAtEndpoint.concat(req.full, req.transientReplicas);
+                if (ownedRanges.validateRangeRequest(allRangesAtEndpoint.ranges(), "Stream #" + planId(), "stream request", peer))
+                    addTransferRanges(req.keyspace, allRangesAtEndpoint, req.columnFamilies, true); // always flush on stream request
+                else
+                    rejectedRequests.add(req);
+            });
+        });
+
+        if (!rejectedRequests.isEmpty())
+            throw new StreamRequestOutOfTokenRangeException(rejectedRequests);
     }
 
     /**
@@ -778,6 +825,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         }
     }
 
+    // ACI Cassandra - permit mocking control messages to test OOTR patch
+    protected Future<?> sendControlMessage(StreamMessage message)
+    {
+        return channel.sendControlMessage(message);
+    }
+
     /**
      * Call back after receiving a stream.
      *
@@ -794,7 +847,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         StreamingMetrics.totalIncomingBytes.inc(headerSize);
         metrics.incomingBytes.inc(headerSize);
         // send back file received message
-        channel.sendControlMessage(new ReceivedMessage(message.header.tableId, message.header.sequenceNumber));
+        sendControlMessage(new ReceivedMessage(message.header.tableId, message.header.sequenceNumber));
         StreamHook.instance.reportIncomingStream(message.header.tableId, message.stream, this, message.header.sequenceNumber);
         long receivedStartNanos = nanoTime();
         try
@@ -873,7 +926,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         }
         else
         {
-            channel.sendControlMessage(new CompleteMessage());
+            sendControlMessage(new CompleteMessage());
             closeSession(State.COMPLETE);
         }
 
@@ -988,7 +1041,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                 {
                     // pass the session planId/index to the OFM (which is only set at init(), after the transfers have already been created)
                     ofm.header.addSessionInfo(this);
-                    channel.sendControlMessage(ofm);
+                    sendControlMessage(ofm);
                 }
             }
             else

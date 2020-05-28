@@ -53,6 +53,9 @@ public class HintedHandoffMetrics
                                                                                         .executor(ImmediateExecutor.INSTANCE)
                                                                                         .build(address -> Metrics.counter(factory.createMetricName("Hints_created-" + address.toString().replace(':', '.'))));
 
+    /** Counter of hints received whose mutations are for keys outside the owned and pending ranges for this node */
+    private final Counter hintsReceivedForUnownedRanges = Metrics.counter(factory.createMetricName("Hints_for_unowned_ranges"));
+
     public void incrCreatedHints(InetAddressAndPort address)
     {
         createdHintCounts.get(address).inc();
@@ -61,6 +64,11 @@ public class HintedHandoffMetrics
     public void incrPastWindow(InetAddressAndPort address)
     {
         notStored.get(address).mark();
+    }
+
+    public void incrHintsReceivedForUnownedRanges()
+    {
+        hintsReceivedForUnownedRanges.inc();
     }
 
     public void log()
