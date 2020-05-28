@@ -39,7 +39,7 @@ public class Roles
     private static final Role NO_ROLE = new Role("", false, false, Collections.emptyMap(), Collections.emptySet());
 
     private static RolesCache cache;
-    static
+    public static void init()
     {
         initRolesCache(DatabaseDescriptor.getRoleManager(),
                        () -> DatabaseDescriptor.getAuthenticator().requireAuthentication());
@@ -49,8 +49,12 @@ public class Roles
     public static void initRolesCache(IRoleManager roleManager, BooleanSupplier enableCache)
     {
         if (cache != null)
+        {
             cache.unregisterMBean();
+            AuthCacheService.instance.unregister(cache);
+        }
         cache = new RolesCache(roleManager, enableCache);
+        AuthCacheService.instance.register(cache);
     }
 
     @VisibleForTesting
@@ -88,6 +92,16 @@ public class Roles
     {
         return cache.getRoles(primaryRole);
     }
+
+    /**
+     * Enumerate all the roles in the system, preferably these will be fetched from the cache, which in turn
+     * may have been warmed during startup.
+     */
+    public static Set<RoleResource> getAllRoles()
+    {
+        return cache.getAllRoles();
+    }
+
 
     /**
      * Returns true if the supplied role or any other role granted to it
