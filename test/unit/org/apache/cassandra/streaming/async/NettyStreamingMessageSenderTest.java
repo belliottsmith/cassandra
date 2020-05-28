@@ -68,7 +68,7 @@ public class NettyStreamingMessageSenderTest
         session.init(future);
         session.attachOutbound(channel);
 
-        sender = session.getMessageSender();
+        sender = (NettyStreamingMessageSender) session.getMessageSender();
         sender.setControlMessageChannel(channel);
     }
 
