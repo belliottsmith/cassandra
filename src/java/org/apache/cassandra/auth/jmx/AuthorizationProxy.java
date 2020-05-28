@@ -22,6 +22,7 @@ import java.lang.reflect.*;
 import java.security.AccessControlContext;
 import java.security.AccessController;
 import java.security.Principal;
+import java.util.Collections;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
@@ -490,6 +491,7 @@ public class AuthorizationProxy implements InvocationHandler
                   DatabaseDescriptor::setPermissionsCacheActiveUpdate,
                   DatabaseDescriptor::getPermissionsCacheActiveUpdate,
                   AuthorizationProxy::loadPermissions,
+                  Collections::emptyMap,
                   () -> true);
         }
     }
