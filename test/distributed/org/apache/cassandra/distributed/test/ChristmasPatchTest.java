@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.distributed.test;
 
+import java.io.IOException;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -25,6 +26,7 @@ import java.util.stream.Collectors;
 
 import org.junit.Test;
 
+import junit.framework.Assert;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SystemKeyspace;
@@ -33,8 +35,10 @@ import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.shared.RepairResult;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
@@ -92,6 +96,42 @@ public class ChristmasPatchTest extends TestBaseImpl
                 for (Pair<Range<Token>, Integer> repairTimes : holder.successfulRepairs)
                     assertEquals(successfulRepairs.get(repairTimes.left), repairTimes.right);
             }));
+        }
+    }
+
+    @Test
+    public void testNTMove() throws Throwable
+    {
+        try (Cluster cluster = init(Cluster.build(3)
+                                           .withConfig(config -> config.with(Feature.GOSSIP,
+                                                                             Feature.NETWORK)
+                                                                       .set("enable_christmas_patch", true))
+                                           .start()))
+        {
+            cluster.schemaChange("alter keyspace "+KEYSPACE+" with replication = {'class': 'SimpleStrategy', 'replication_factor': 2};");
+            cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, i int)");
+
+            for (int i = 0; i < 10000; i++)
+                cluster.coordinator(1).execute("insert into "+KEYSPACE+".tbl (id, i) VALUES (?, ?)", ConsistencyLevel.ALL, i, i);
+
+            RepairResult res = cluster.get(1).callOnInstance(repair(options(false, false)));
+            assertTrue(res.success);
+
+            cluster.get(3).runOnInstance(() -> {
+                Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").clearRepairedRangeUnsafes();
+            });
+            Assert.assertEquals(0, cluster.get(3).executeInternal("select * from system.repair_history where keyspace_name=? and columnfamily_name=?", KEYSPACE, "tbl").length);
+            cluster.get(2).runOnInstance(() -> {
+                try
+                {
+                    StorageService.instance.move("-6074457345618258603");
+                }
+                catch (IOException e)
+                {
+                    throw new RuntimeException(e);
+                }
+            });
+            assertTrue(cluster.get(3).executeInternal("select * from system.repair_history where keyspace_name=? and columnfamily_name=?", KEYSPACE, "tbl").length > 0);
         }
     }
 

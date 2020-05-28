@@ -179,13 +179,6 @@ public enum Verb
     STATUS_REQ             (114, P1, rpcTimeout,      ANTI_ENTROPY,      () -> StatusRequest.serializer,             () -> RepairMessageVerbHandler.instance,   REPAIR_RSP          ),
     ASYMMETRIC_SYNC_REQ    (116, P1, rpcTimeout,      ANTI_ENTROPY,      () -> AsymmetricSyncRequest.serializer,     () -> RepairMessageVerbHandler.instance,   REPAIR_RSP          ),
 
-    // CIE Xmas patch
-    APPLE_REPAIRED_RANGES         (-1000, P1, appleRepairedRangesRequestTimeout, MISC, () -> RepairedRangesRequest.serializer, () -> RepairedRangesVerbHandler.instance             ),
-    APPLE_UPDATE_REPAIRED_RANGES  (-1001, P1, rpcTimeout, MISC,          () -> UpdateRepairedRanges.serializer,      () -> UpdateRepairedRangesVerbHandler.instance                 ),
-    APPLE_REPAIR_SUCCESS          (-1002, P1, appleRepairSuccessTimeout, MISC,  () -> RepairSuccess.serializer,      () -> ActiveRepairService.RepairSuccessVerbHandler.instance, REPAIR_RSP    ),
-    // Mark as P0 so the pre-4.0 message will be converted to INTERNAL_RSP in org.apache.cassandra.net.Verb.toPre40Verb
-    APPLE_QUERY_REPAIR_HISTORY_RSP(-1063, P0, rpcTimeout, MISC,          () -> RepairHistorySyncTask.responseSerializer,() -> ResponseVerbHandler.instance                          ),
-    APPLE_QUERY_REPAIR_HISTORY_REQ(-1003, P1, rpcTimeout, MISC,          () -> RepairHistorySyncTask.requestSerializer, () -> RepairHistorySyncTask.verbHandler,APPLE_QUERY_REPAIR_HISTORY_RSP),
     REPLICATION_DONE_RSP   (82,  P0, rpcTimeout,      MISC,              () -> NoPayload.serializer,                 () -> ResponseVerbHandler.instance                             ),
     REPLICATION_DONE_REQ   (22,  P0, rpcTimeout,      MISC,              () -> NoPayload.serializer,                 () -> ReplicationDoneVerbHandler.instance, REPLICATION_DONE_RSP),
     SNAPSHOT_RSP           (87,  P0, rpcTimeout,      MISC,              () -> NoPayload.serializer,                 () -> ResponseVerbHandler.instance                             ),
@@ -204,6 +197,15 @@ public enum Verb
     REQUEST_RSP            (4,   P1, rpcTimeout,      REQUEST_RESPONSE,  () -> null,                                 () -> ResponseVerbHandler.instance                             ),
     @Deprecated
     INTERNAL_RSP           (23,  P1, rpcTimeout,      INTERNAL_RESPONSE, () -> null,                                 () -> ResponseVerbHandler.instance                             ),
+
+    // CIE Xmas patch
+    APPLE_UPDATE_REPAIRED_RANGES      (-1001, P1, rpcTimeout,                        MISC, () -> UpdateRepairedRanges.serializer,         () -> UpdateRepairedRangesVerbHandler.instance,              REPAIR_RSP                     ),
+    APPLE_REPAIRED_RANGES_RSP         (-1004, P1, appleRepairedRangesRequestTimeout, MISC, () -> UpdateRepairedRanges.serializer,         () -> ResponseVerbHandler.instance                                                          ),
+    APPLE_REPAIRED_RANGES_REQ         (-1000, P1, appleRepairedRangesRequestTimeout, MISC, () -> RepairedRangesRequest.serializer,        () -> RepairedRangesVerbHandler.instance,                    APPLE_REPAIRED_RANGES_RSP      ),
+    APPLE_REPAIR_SUCCESS              (-1002, P1, appleRepairSuccessTimeout,         MISC, () -> RepairSuccess.serializer,                () -> ActiveRepairService.RepairSuccessVerbHandler.instance, REPAIR_RSP                     ),
+    // Mark as P0 so the pre-4.0 message will be converted to INTERNAL_RSP in org.apache.cassandra.net.Verb.toPre40Verb
+    APPLE_QUERY_REPAIR_HISTORY_RSP    (-1063, P0, rpcTimeout,                        MISC, () -> RepairHistorySyncTask.responseSerializer,() -> ResponseVerbHandler.instance                                                          ),
+    APPLE_QUERY_REPAIR_HISTORY_REQ    (-1003, P1, rpcTimeout,                        MISC, () -> RepairHistorySyncTask.requestSerializer, () -> RepairHistorySyncTask.verbHandler,                     APPLE_QUERY_REPAIR_HISTORY_RSP),
 
     // largest used ID: 116
 

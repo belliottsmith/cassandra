@@ -78,6 +78,7 @@ public class RepairedRangesVerbHandler implements IVerbHandler<RepairedRangesReq
         }
 
         UpdateRepairedRanges response = new UpdateRepairedRanges(request.keyspace, retMap);
-        MessagingService.instance().send(Message.out(Verb.APPLE_UPDATE_REPAIRED_RANGES, response), message.from());
+
+        MessagingService.instance().send(message.responseWith(response), message.from());
     }
 }

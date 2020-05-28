@@ -113,9 +113,6 @@ import org.apache.cassandra.net.*;
 import org.apache.cassandra.repair.*;
 import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.repair.messages.UpdateRepairedRanges;
-import org.apache.cassandra.repair.messages.UpdateRepairedRangesResponse;
-import org.apache.cassandra.schema.CIEInternalKeyspace;
-import org.apache.cassandra.schema.CIEInternalLocalKeyspace;
 import org.apache.cassandra.schema.CompactionParams.TombstoneOption;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.MigrationManager;
@@ -4554,11 +4551,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         for (int i = 0; i < 4; i++)
         {
             CompletableFuture<Boolean> result = new CompletableFuture<>();
-            MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_UPDATE_REPAIRED_RANGES, request), address, new RequestCallback<UpdateRepairedRangesResponse>()
+            MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_UPDATE_REPAIRED_RANGES, request), address, new RequestCallback<NoPayload>()
             {
-                public void onResponse(Message<UpdateRepairedRangesResponse> msg)
+                public void onResponse(Message<NoPayload> msg)
                 {
-                    result.complete(msg.payload.success);
+                    result.complete(true);
                 }
 
                 public boolean invokeOnFailure()
