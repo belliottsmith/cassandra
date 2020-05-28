@@ -212,6 +212,35 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public static final StorageService instance = new StorageService();
 
+    private final java.util.function.Predicate<Keyspace> anyOutOfRangeOpsRecorded
+            = keyspace -> keyspace.metric.outOfRangeTokenReads.getCount() > 0
+                          || keyspace.metric.outOfRangeTokenWrites.getCount() > 0
+                          || keyspace.metric.outOfRangeTokenPaxosRequests.getCount() > 0;
+
+    private long[] getOutOfRangeOperationCounts(Keyspace keyspace)
+    {
+        return new long[]
+        {
+               keyspace.metric.outOfRangeTokenReads.getCount(),
+               keyspace.metric.outOfRangeTokenWrites.getCount(),
+               keyspace.metric.outOfRangeTokenPaxosRequests.getCount()
+        };
+    }
+
+    public Map<String, long[]> getOutOfRangeOperationCounts()
+    {
+        return Schema.instance.getKeyspaces()
+                              .stream()
+                              .map(Keyspace::open)
+                              .filter(anyOutOfRangeOpsRecorded)
+                              .collect(Collectors.toMap(Keyspace::getName, this::getOutOfRangeOperationCounts));
+    }
+
+    public void incOutOfRangeOperationCount()
+    {
+        (isStarting() ? StorageMetrics.startupOpsForInvalidToken : StorageMetrics.totalOpsForInvalidToken).inc();
+    }
+
     @Deprecated
     public boolean isInShutdownHook()
     {
@@ -248,6 +277,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         for (Replica r : getTokenMetadata().getPendingRanges(ks, broadcastAddress))
             ranges.add(r.range());
         return ranges;
+    }
+
+    public OwnedRanges getNormalizedLocalRanges(String keyspaceName)
+    {
+        return new OwnedRanges(getLocalReplicas(keyspaceName).ranges());
     }
 
     public Collection<Range<Token>> getPrimaryRanges(String keyspace)
@@ -4205,6 +4239,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return Keyspace.open(keyspaceName).getReplicationStrategy().getNaturalReplicasForToken(token);
     }
 
+    public boolean isEndpointValidForWrite(String keyspace, Token token)
+    {
+        AbstractReplicationStrategy replicationStrategy = Keyspace.open(keyspace).getReplicationStrategy();
+        return replicationStrategy.getNaturalAndPendingReplicasForToken(token).selfIfPresent() != null;
+    }
+
     public void setLoggingLevel(String classQualifier, String rawLevel) throws Exception
     {
         final Class<?> logClass = this.getClass().getClassLoader().loadClass(classQualifier);
@@ -5945,6 +5985,36 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void setDefaultKeyspaceQuotaBytes(long quotaInBytes)
     {
         DatabaseDescriptor.setDefaultKeyspaceQuotaBytes(quotaInBytes);
+    }
+
+    public boolean isOutOfTokenRangeRequestLoggingEnabled()
+    {
+        return DatabaseDescriptor.getLogOutOfTokenRangeRequests();
+    }
+
+    public void setOutOfTokenRangeRequestLoggingEnabled(boolean enabled)
+    {
+        if (enabled)
+            logger.info("Enabling logging of requests on tokens outside owned ranges");
+        else
+            logger.info("Disabling logging of requests on tokens outside owned ranges");
+
+        DatabaseDescriptor.setLogOutOfTokenRangeRequests(enabled);
+    }
+
+    public boolean isOutOfTokenRangeRequestRejectionEnabled()
+    {
+        return DatabaseDescriptor.getRejectOutOfTokenRangeRequests();
+    }
+
+    public void setOutOfTokenRangeRequestRejectionEnabled(boolean enabled)
+    {
+        if (enabled)
+            logger.info("Enabling rejection of requests on tokens outside owned ranges");
+        else
+            logger.info("Disabling rejection of requests on tokens outside owned ranges");
+
+        DatabaseDescriptor.setRejectOutOfTokenRangeRequests(enabled);
     }
 
     @VisibleForTesting
