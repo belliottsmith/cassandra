@@ -544,6 +544,18 @@ public class Config
     public Integer memtable_clock_shift = 17;
     public Long memtable_excess_waste_bytes = 10 * 1024 * 1024L;
 
+    /*
+     * Toggles to turn on the logging or rejection of operations for token ranges that the node does not own,
+     * or is not about to acquire.
+     * <rdar://problem/33279387> Don't allow writes for token range instance don't own
+     * <rdar://problem/33279491> Don't accept reads for ranges which we dont own
+     * <rdar://problem/33280054> Don't accept incoming out outgoing stream for token instance dont own.
+     * <rdar://problem/33280066> Don't accept Merkle tree request for ranges instance dont own
+     * <rdar://problem/33299827> Don't accepts hints for data instance dont own
+     */
+    public volatile boolean log_out_of_token_range_requests = true;
+    public volatile boolean reject_out_of_token_range_requests = true;
+
     public volatile Boolean enable_partition_blacklist = false;
 
     public volatile Boolean enable_blacklist_writes = true;
