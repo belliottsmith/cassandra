@@ -89,7 +89,7 @@ public class ReadRepairTest extends TestBaseImpl
     @Test
     public void movingTokenReadRepairTest() throws Throwable
     {
-        try (Cluster cluster = (Cluster) init(Cluster.create(4), 3))
+        try (Cluster cluster = (Cluster) init(builder().withNodes(4).withConfig(c -> c.set("reject_out_of_token_range_requests", false)).start(), 3))
         {
             List<Token> tokens = cluster.tokens();
 
