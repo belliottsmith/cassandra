@@ -1205,7 +1205,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         evolveSystemKeyspace(SystemDistributedKeyspace.metadata(), SystemDistributedKeyspace.GENERATION).ifPresent(changes::add);
 
         evolveSystemKeyspace(      CIEInternalKeyspace.metadata(),       CIEInternalKeyspace.GENERATION).ifPresent(changes::add);
-        evolveSystemKeyspace( CIEInternalLocalKeyspace.metadata(),  CIEInternalLocalKeyspace.GENERATION).ifPresent(changes::add);
 
         if (!changes.isEmpty())
             MigrationManager.announce(changes);

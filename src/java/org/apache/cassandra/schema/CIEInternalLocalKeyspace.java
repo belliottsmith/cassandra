@@ -28,17 +28,6 @@ public class CIEInternalLocalKeyspace
 
     public static final String NAME = "cie_internal_local";
 
-    /**
-     * Generation is used as a timestamp for automatic table creation on startup.
-     * If you make any changes to the tables below, make sure to increment the
-     * generation and document your change here.
-     *
-     * gen 1577836800000000: original modern definition in 3.0.19; maps to Jan 1 2020, the date it's assumed we
-     *                       will have no more fresh 2.1 or 3.0.17 clusters going up, or upgrades from 2.1 to 3.0.17.
-     * gen 1577836800000001: compression chunk length reduced to 16KiB, memtable_flush_period_in_ms now unset on all tables in 4.0
-     */
-    public static final long GENERATION = 1577836800000001L;
-
     public static final String HEALTH_CHECK_LOCAL_CF = "health_check_local";
 
     private static final TableMetadata HealthCheckLocal =
