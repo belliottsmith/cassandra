@@ -80,6 +80,7 @@ public final class Schema
         {
             load(SchemaKeyspace.metadata());
             load(SystemKeyspace.metadata());
+            load(CIEInternalLocalKeyspace.metadata());
         }
     }
 
