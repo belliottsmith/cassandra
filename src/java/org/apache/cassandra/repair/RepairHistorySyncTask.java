@@ -441,7 +441,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
 
         public synchronized void response(MessageIn<Response> msg)
         {
-            syncCallbackLogger.info("Got {} from {}", msg.payload, msg.from);
+            syncCallbackLogger.debug("Got {} from {}", msg.payload, msg.from);
             data.put(msg.from, msg.payload.history);
             if (data.size() == expectedResponses)
             {
@@ -466,7 +466,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
 
         public void doVerb(MessageIn<Request> message, int id) throws IOException
         {
-            verbLogger.info("received {} from {}", message.payload, message.from);
+            verbLogger.debug("received {} from {}", message.payload, message.from);
             Request request = message.payload;
             ColumnFamilyStore cfs = Keyspace.open(request.keyspace).getColumnFamilyStore(request.table);
 
@@ -499,7 +499,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
 
         public synchronized void response(MessageIn msg)
         {
-            correctionCallbackLogger.info("Got response from {}", msg.from);
+            correctionCallbackLogger.debug("Got response from {}", msg.from);
             responsesReceived++;
             if (responsesReceived == expectedResponses)
             {
@@ -553,7 +553,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
 
         if (corrections.isEmpty())
         {
-            logger.info("Repair history already in sync for {}", this);
+            logger.debug("Repair history already in sync for {}", this);
             return Futures.immediateFuture(new Object());
         }
         else
@@ -578,7 +578,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
 
     public void execute()
     {
-        logger.info("Syncing repair history for {}", this);
+        logger.debug("Syncing repair history for {}", this);
 
         HistoryCallback callback = new HistoryCallback(endpointRanges.size());
         for (Map.Entry<InetAddress, Set<Range<Token>>> entry: endpointRanges.entrySet())
@@ -592,7 +592,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
         {
             public void onSuccess(@Nullable Object result)
             {
-                logger.info("Completed repair history sync for {}", RepairHistorySyncTask.this);
+                logger.debug("Completed repair history sync for {}", RepairHistorySyncTask.this);
                 RepairHistorySyncTask.this.set(result);
             }
 
