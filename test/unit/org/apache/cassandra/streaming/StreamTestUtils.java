@@ -89,7 +89,7 @@ public class StreamTestUtils
 
         public boolean connected()
         {
-            return false;
+            return true;
         }
 
         public void close()
