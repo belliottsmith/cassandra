@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 import com.google.common.collect.Lists;
 import org.junit.Before;
@@ -35,6 +37,7 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.RangesAtEndpoint;
 import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.streaming.messages.SessionFailedMessage;
 import org.apache.cassandra.streaming.messages.StreamMessage;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -42,6 +45,7 @@ import static org.apache.cassandra.streaming.StreamTestUtils.session;
 import static org.apache.cassandra.streaming.messages.StreamMessage.Type.*;
 import static org.apache.cassandra.utils.TokenRangeTestUtil.*;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -150,23 +154,26 @@ public class StreamSessionOwnedRangesTest
         assertEquals(startMetricCount + (isOutOfRange ? 1 : 0), StorageMetrics.totalOpsForInvalidToken.getCount());
     }
 
-    private static void tryPrepareExpectingFailure(Collection<StreamRequest> requests)
+    private static void tryPrepareExpectingFailure(Collection<StreamRequest> requests) throws Exception
     {
         final List<StreamMessage> sent = new ArrayList<>();
         StreamSession session = session(sent);
         sent.clear();
         long startMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
-        try
-        {
-            session.state(StreamSession.State.PREPARING);
-            session.prepareAsync(requests, Collections.emptySet());
-            fail("Expected StreamRequestOfTokenRangeException");
+
+        session.state(StreamSession.State.PREPARING);
+        Future<Exception> f = session.prepare(requests, Collections.emptySet());
+        Exception ex = f.get();
+        assertNotNull(ex);
+        if (!(ex instanceof StreamRequestOutOfTokenRangeException))
+        {   // Unexpected exception
+            throw ex;
         }
-        catch (StreamRequestOutOfTokenRangeException e)
-        {
-            // expected
-        }
-        assertTrue(sent.isEmpty());
+
+        // make sure we sent a SessionFailedMessage
+        assertEquals(1, sent.size());
+        for (StreamMessage msg : sent)
+            assertTrue(msg instanceof SessionFailedMessage);
         assertEquals(startMetricCount + 1, StorageMetrics.totalOpsForInvalidToken.getCount());
     }
 
