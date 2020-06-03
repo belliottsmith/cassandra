@@ -21,6 +21,8 @@ package org.apache.cassandra.streaming;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 import com.google.common.collect.Lists;
 import org.junit.Before;
@@ -34,6 +36,7 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.RangesAtEndpoint;
 import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.streaming.messages.SessionFailedMessage;
 import org.apache.cassandra.streaming.messages.StreamMessage;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -150,7 +153,7 @@ public class StreamSessionOwnedRangesTest
         assertEquals(startMetricCount + (isOutOfRange ? 1 : 0), StorageMetrics.totalOpsForInvalidToken.getCount());
     }
 
-    private static void tryPrepareExpectingFailure(Collection<StreamRequest> requests)
+    private static void tryPrepareExpectingFailure(Collection<StreamRequest> requests) throws InterruptedException
     {
         StreamSession session = session();
         StreamTestUtils.StubMessageSender handler = (StreamTestUtils.StubMessageSender) session.getMessageSender();
@@ -159,14 +162,20 @@ public class StreamSessionOwnedRangesTest
         try
         {
             session.state(StreamSession.State.PREPARING);
-            session.prepareAsync(requests, Collections.emptySet());
+            Future<?> f = session.prepare(requests, Collections.emptySet());
+            f.get();
             fail("Expected StreamRequestOfTokenRangeException");
         }
-        catch (StreamRequestOutOfTokenRangeException e)
+        catch (ExecutionException e)
         {
-            // expected
+            if (!(e.getCause() instanceof StreamRequestOutOfTokenRangeException))
+                throw new RuntimeException(e);
+            // else expected
         }
-        assertTrue(handler.sentMessages.isEmpty());
+        // make sure we sent a SessionFailedMessage
+        assertEquals(1, handler.sentMessages.size());
+        for (StreamMessage msg : handler.sentMessages)
+            assertTrue(msg instanceof SessionFailedMessage);
         assertEquals(startMetricCount + 1, StorageMetrics.totalOpsForInvalidToken.getCount());
     }
 
