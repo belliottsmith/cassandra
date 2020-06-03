@@ -48,4 +48,12 @@ public class CreateTableValidationTest extends CQLTester
         // sanity check
         createTable("CREATE TABLE %s (a int PRIMARY KEY, b int) WITH bloom_filter_fp_chance = 0.1");
     }
+
+    @Test
+    public void testAllowsReadRepairChances()
+    {
+        // TODO: remove in 5.0; see rdar://58490910
+        createTable("CREATE TABLE %s (a int PRIMARY KEY) WITH read_repair_chance = 1.0;");
+        createTable("CREATE TABLE %s (a int PRIMARY KEY) WITH dclocal_read_repair_chance = 1.0;");
+    }
 }
