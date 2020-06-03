@@ -71,7 +71,6 @@ import org.apache.cassandra.streaming.messages.StreamMessageHeader;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
-import static org.apache.cassandra.streaming.StreamTestUtils.session;
 import static org.apache.cassandra.utils.TokenRangeTestUtil.broadcastAddress;
 import static org.apache.cassandra.utils.TokenRangeTestUtil.node1;
 import static org.apache.cassandra.utils.TokenRangeTestUtil.randomInt;
