@@ -704,19 +704,23 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     /**
      * Prepare this session for sending/receiving files.
+     *
+     * @return the prepare future for testing (CIE change to enable testing streaming for out of range tokens)
      */
-    public void prepare(Collection<StreamRequest> requests, Collection<StreamSummary> summaries)
+    public Future<Exception> prepare(Collection<StreamRequest> requests, Collection<StreamSummary> summaries)
     {
         // prepare tasks
         state(State.PREPARING);
-        ScheduledExecutors.nonPeriodicTasks.execute(() -> {
+        return ScheduledExecutors.nonPeriodicTasks.submit(() -> {
             try
             {
                 prepareAsync(requests, summaries);
+                return null;
             }
             catch (Exception e)
             {
                 onError(e);
+                return e;
             }
         });
     }
