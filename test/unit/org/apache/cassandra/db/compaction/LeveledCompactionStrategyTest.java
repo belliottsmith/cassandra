@@ -905,10 +905,7 @@ public class LeveledCompactionStrategyTest
         // everything is dropped in L1 - other levels should be empty since we have covered the whole range above
         assertTrue(lcs.manifest.getLevel(0).size() == 0);
         assertTrue(lcs.manifest.getLevel(1).size() > 0);
-        // NOTE; If aggressive compaction only compacts a single sstable (ie, the the boundaries only contain a single sstable)
-        // the sstable will stay in its current level (because it can do so without causing overlap).
-        // In this case we create the sstables so that we never get a single sstable in L2, that is why we can make this assertion:
-        assertTrue(lcs.manifest.getLevel(2).size() == 0);
+
         StorageService.instance.getTokenMetadata().clearUnsafe();
     }
 
