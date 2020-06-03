@@ -27,9 +27,7 @@ import com.google.common.collect.*;
 
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.dht.OwnedRanges;
-import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.locator.RangesAtEndpoint;
 
 import org.slf4j.Logger;
@@ -44,10 +42,8 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.*;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
-import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.metrics.StreamingMetrics;
 import org.apache.cassandra.net.OutboundConnectionSettings;
-import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.async.NettyStreamingMessageSender;
@@ -704,19 +700,23 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     /**
      * Prepare this session for sending/receiving files.
+     *
+     * @return the prepare future for testing (CIE change to enable testing streaming for out of range tokens)
      */
-    public void prepare(Collection<StreamRequest> requests, Collection<StreamSummary> summaries)
+    public Future<Exception> prepare(Collection<StreamRequest> requests, Collection<StreamSummary> summaries)
     {
         // prepare tasks
         state(State.PREPARING);
-        ScheduledExecutors.nonPeriodicTasks.execute(() -> {
+        return ScheduledExecutors.nonPeriodicTasks.submit(() -> {
             try
             {
                 prepareAsync(requests, summaries);
+                return null;
             }
             catch (Exception e)
             {
                 onError(e);
+                return e;
             }
         });
     }
