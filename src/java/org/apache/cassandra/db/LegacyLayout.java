@@ -50,6 +50,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static com.google.common.collect.Iterables.all;
+import static java.lang.String.format;
 import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 
 /**
@@ -86,6 +87,9 @@ public abstract class LegacyLayout
                              SetType.getInstance(UTF8Type.instance, true),
                              ColumnDefinition.NO_POSITION,
                              ColumnDefinition.Kind.REGULAR);
+
+    private static final ComplexCellWithoutCellPathBehavior COMPLEX_CELL_WITHOUT_PATH_BEHAVIOR = ComplexCellWithoutCellPathBehavior.get();
+    private static final ComplexCellWithoutCellPathBehavior COMPLEX_CELL_WITHOUT_PATH_FALLTHROUGH = ComplexCellWithoutCellPathBehavior.getFallThrough();
 
     private LegacyLayout() {}
 
@@ -1471,7 +1475,16 @@ public abstract class LegacyLayout
                         // and it's simpler. And since 1) this only matter for super column selection in thrift in
                         // practice and 2) is only used during upgrade, it's probably worth keeping things simple.
                         helper.startOfComplexColumn(column);
-                        path = cell.name.collectionElement == null ? null : CellPath.create(cell.name.collectionElement);
+                        if (cell.name.collectionElement == null)
+                        {
+                            // when collectionElement is null, CellPath is null which will cause BufferCell to throw
+                            // a assertion error
+                            COMPLEX_CELL_WITHOUT_PATH_BEHAVIOR.mayAddCell(column, cell, helper, builder);
+                            helper.endOfComplexColumn();
+                            return true;
+                        }
+                        path = CellPath.create(cell.name.collectionElement);
+
                         if (!helper.includes(path))
                             return true;
                     }
@@ -2792,5 +2805,179 @@ public abstract class LegacyLayout
             }
             return size;
         }
+    }
+
+    enum ComplexCellWithoutCellPathBehavior
+    {
+        LOG
+        {
+            void mayAddCell(ColumnDefinition column, LegacyCell cell, SerializationHelper helper, Row.Builder builder)
+            {
+                // in 2.1 this was valid and treated as a null value for the column
+                noSpamLogger.warn("Complex column " + column.ksName + "." + column.cfName + "(" + column.name + ": " + column.type + ") is expected to have a cell path but did not; dropping");
+            }
+        },
+        ATTEMPT_MIGRATE
+        {
+            void mayAddCell(ColumnDefinition column, LegacyCell cell, SerializationHelper helper, Row.Builder builder)
+            {
+                // likely a non-frozen type was encoded frozen... should we... let it go?
+                assert !column.type.isUDT() : format("Column %s.%s(%s: %s) is a complex user defined type, which requires non-null CellPath", column.ksName, column.cfName, column.name, column.type.toString());
+                assert !column.type.isFrozenCollection() : format("Column %s.%s(%s: %s) is complex and also frozen", column.ksName, column.cfName, column.name, column.type.toString());
+
+                if (cell.value == null || !cell.value.hasRemaining())
+                {
+                    // no value is present, so not possible to migrate from frozen to non-frozen
+                    COMPLEX_CELL_WITHOUT_PATH_FALLTHROUGH.mayAddCell(column, cell, helper, builder);
+                    return;
+                }
+
+                try
+                {
+                    CollectionType<Object> type = (CollectionType<Object>) column.type;
+                    AbstractType<Object> nameType = (AbstractType<Object>) type.nameComparator();
+                    AbstractType<Object> valueType = (AbstractType<Object>) type.valueComparator();
+                    Object values = type.compose(cell.value); // its frozen, so convert to java type
+                    // use class equality to avoid collections which extend and change behavior
+                    if (type.getClass().equals(SetType.class))
+                    {
+                        // set is (value, empty), so use nameType for decomposing
+                        builder.addComplexDeletion(column, new DeletionTime(cell.timestamp - 1, cell.localDeletionTime));
+                        for (Object o : ((Set) values)) //TODO should we sort?  Should be LinkedSet
+                        {
+                            ByteBuffer value = nameType.decompose(o);
+                            Cell c = new BufferCell(column, cell.timestamp, cell.ttl, cell.localDeletionTime, ByteBufferUtil.EMPTY_BYTE_BUFFER, CellPath.create(value));
+                            if (!helper.isDropped(c, column.isComplex()))
+                                builder.addCell(c);
+                        }
+
+                    }
+                    else if (type.getClass().equals(ListType.class))
+                    {
+                        // list is (timeuuid, value)
+                        builder.addComplexDeletion(column, new DeletionTime(cell.timestamp - 1, cell.localDeletionTime));
+                        int index = 0;
+                        for (Object o : ((List) values))
+                        {
+                            // when accessing list element via index, cassandra fully loads
+                            // the list into memory, finds the element at that offset, then has
+                            // access to the cell path to delete.
+                            // since this is a migration step that happens on many nodes, need
+                            // to make sure its determanistic, so avoids timeuuid in favor of a
+                            // constant mac with the time value being the index offset
+                            ByteBuffer uuid = ByteBuffer.wrap(UUIDGen.decompose(new UUID(UUIDGen.createTime(index++), 42)));
+                            ByteBuffer value = valueType.decompose(o);
+                            Cell c = new BufferCell(column, cell.timestamp, cell.ttl, cell.localDeletionTime, value, CellPath.create(uuid));
+                            if (!helper.isDropped(c, column.isComplex()))
+                                builder.addCell(c);
+                        }
+                    }
+                    else if (type.getClass().equals(MapType.class))
+                    {
+                        // map is (key, value)
+                        builder.addComplexDeletion(column, new DeletionTime(cell.timestamp - 1, cell.localDeletionTime));
+                        for (Map.Entry<Object, Object> e : ((Map<Object, Object>) values).entrySet())
+                        {
+                            ByteBuffer key = nameType.decompose(e.getKey());
+                            Cell c = new BufferCell(column, cell.timestamp, cell.ttl, cell.localDeletionTime, valueType.decompose(e.getValue()), CellPath.create(key));
+                            if (!helper.isDropped(c, column.isComplex()))
+                                builder.addCell(c);
+                        }
+                    }
+                    else
+                    {
+                        COMPLEX_CELL_WITHOUT_PATH_FALLTHROUGH.mayAddCell(column, cell, helper, builder);
+                    }
+                }
+                catch (Exception e)
+                {
+                    noSpamLogger.warn("Attempt to migrate frozen collection to multi-cell collection failed for " + column.ksName + "." + column.cfName + "(" + column.name + ": " + column.type + "); falling back to {}", COMPLEX_CELL_WITHOUT_PATH_FALLTHROUGH.name().toLowerCase(), e);
+                    COMPLEX_CELL_WITHOUT_PATH_FALLTHROUGH.mayAddCell(column, cell, helper, builder);
+                }
+            }
+        },
+        REJECT
+        {
+            public void mayAddCell(ColumnDefinition column, LegacyCell cell, SerializationHelper helper, Row.Builder builder)
+            {
+                throw new AssertionError("Column " + column.ksName + "." + column.cfName + "(" + column.name + ": " + column.type + ") requires non-null cell path");
+            }
+        };
+
+        public static ComplexCellWithoutCellPathBehavior get()
+        {
+            String value = System.getProperty("cassandra.legacy_complexcell_without_path_behavior", null);
+            if (value == null)
+                return REJECT;
+            try
+            {
+                return ComplexCellWithoutCellPathBehavior.valueOf(value.toUpperCase());
+            }
+            catch (Exception e)
+            {
+                logger.warn("cassandra.legacy_complexcell_without_path_behavior defined with {} which is not valid", value, e);
+                return REJECT;
+            }
+        }
+
+        public static void set(ComplexCellWithoutCellPathBehavior behavior)
+        {
+            if (behavior == null)
+            {
+                System.clearProperty("cassandra.legacy_complexcell_without_path_behavior");
+            }
+            else
+            {
+                System.setProperty("cassandra.legacy_complexcell_without_path_behavior", behavior.name());
+            }
+        }
+
+        public static ComplexCellWithoutCellPathBehavior getFallThrough()
+        {
+            String value = System.getProperty("cassandra.legacy_complexcell_without_path_fallthrough_behavior", null);
+            if (value == null)
+                return REJECT;
+            try
+            {
+                ComplexCellWithoutCellPathBehavior behavior = ComplexCellWithoutCellPathBehavior.valueOf(value.toUpperCase());
+                return validateFallThrough(behavior);
+            }
+            catch (Exception e)
+            {
+                logger.warn("cassandra.legacy_complexcell_without_path_fallthrough_behavior defined with {} which is not valid", value, e);
+                return REJECT;
+            }
+        }
+
+        public static void setFallThrough(ComplexCellWithoutCellPathBehavior behavior)
+        {
+            if (behavior == null)
+            {
+                System.clearProperty("cassandra.legacy_complexcell_without_path_fallthrough_behavior");
+            }
+            else
+            {
+                validateFallThrough(behavior);
+                System.setProperty("cassandra.legacy_complexcell_without_path_fallthrough_behavior", behavior.name());
+            }
+        }
+
+        private static ComplexCellWithoutCellPathBehavior validateFallThrough(ComplexCellWithoutCellPathBehavior behavior)
+        {
+            switch (behavior)
+            {
+                case LOG:
+                case REJECT:
+                    return behavior;
+                default:
+                    throw new UnsupportedOperationException("Behavior " + behavior.name() + " is not allowed as the fall through");
+            }
+        }
+
+
+        abstract void mayAddCell(ColumnDefinition column,
+                                 LegacyCell cell,
+                                 SerializationHelper helper,
+                                 Row.Builder builder);
     }
 }

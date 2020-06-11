@@ -31,6 +31,8 @@ import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.memory.AbstractAllocator;
 
+import static java.lang.String.format;
+
 public class BufferCell extends AbstractCell
 {
     private static final long EMPTY_SIZE = ObjectSizes.measure(new BufferCell(ColumnDefinition.regularDef("", "", "", ByteType.instance), 0L, 0, 0, ByteBufferUtil.EMPTY_BYTE_BUFFER, null));
@@ -45,7 +47,7 @@ public class BufferCell extends AbstractCell
     public BufferCell(ColumnDefinition column, long timestamp, int ttl, int localDeletionTime, ByteBuffer value, CellPath path)
     {
         super(column);
-        assert column.isComplex() == (path != null);
+        assert column.isComplex() == (path != null) : format("Column %s.%s(%s: %s) isComplex: %b with cellpath: %s", column.ksName, column.cfName, column.name, column.type.toString(), column.isComplex(), path);
         this.timestamp = timestamp;
         this.ttl = ttl;
         this.localDeletionTime = localDeletionTime;

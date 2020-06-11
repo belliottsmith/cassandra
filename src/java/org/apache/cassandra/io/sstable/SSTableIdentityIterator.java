@@ -63,6 +63,10 @@ public class SSTableIdentityIterator extends AbstractIterator<Unfiltered> implem
             sstable.markSuspect();
             throw new CorruptSSTableException(e, filename);
         }
+        catch (AssertionError e)
+        {
+            throw new AssertionError("Failed to read " + filename, e);
+        }
     }
 
     public CFMetaData metadata()

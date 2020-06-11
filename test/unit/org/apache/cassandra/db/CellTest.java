@@ -274,6 +274,24 @@ public class CellTest
         Assert.assertEquals(Lists.newArrayList(r1m1, r2m2, r2m3, r2m4), builder.cells);
     }
 
+    @Test
+    public void testComplexWithoutPathRejected()
+    {
+        ColumnDefinition m = cfm2.getColumnDefinition(new ColumnIdentifier("m", false));
+        int now1 = FBUtilities.nowInSeconds();
+        long ts1 = now1*1000000L;
+
+        try
+        {
+            BufferCell.live(cfm2, m, ts1, bb(1), null);
+            throw new IllegalStateException("Should not be able to create a complex BufferCell with a null path");
+        }
+        catch (AssertionError e)
+        {
+            Assert.assertEquals("Column CellTest.Collection1(m: org.apache.cassandra.db.marshal.MapType(org.apache.cassandra.db.marshal.IntegerType,org.apache.cassandra.db.marshal.IntegerType)) isComplex: true with cellpath: null", e.getMessage());
+        }
+    }
+
     private int testExpiring(String n1, String v1, long t1, int et1, String n2, String v2, Long t2, Integer et2)
     {
         if (n2 == null)

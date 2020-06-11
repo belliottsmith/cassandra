@@ -323,7 +323,7 @@ public class UUIDGen
         return createTime(nanosSince);
     }
 
-    private static long createTime(long nanosSince)
+    public static long createTime(long nanosSince)
     {
         long msb = 0L;
         msb |= (0x00000000ffffffffL & nanosSince) << 32;
