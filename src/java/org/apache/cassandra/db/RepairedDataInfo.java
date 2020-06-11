@@ -180,7 +180,7 @@ class RepairedDataInfo
 
                 assert purger != null;
                 Row purged = purger.applyToRow(row);
-                if (purged != null)
+                if (purged != null && !purged.isEmpty())
                 {
                     isFullyPurged = false;
                     purged.digest(getPerPartitionDigest());

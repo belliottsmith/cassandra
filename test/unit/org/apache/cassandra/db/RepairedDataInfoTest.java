@@ -180,6 +180,18 @@ public class RepairedDataInfoTest
         assertEquals(0, fromRepairedInfo.length);
     }
 
+    @Test
+    public void digestOfEmptyPartition()
+    {
+        // Static row is read greedily during transformation and if the underlying
+        // SSTableIterator doesn't contain the partition, an empty but non-null
+        // static row is read and digested.
+        UnfilteredRowIterator partition = partition(bytes(0));
+        // The partition is completely empty, so nothing should be added to the digest
+        byte[] fromRepairedInfo = consume(partition);
+        assertEquals(0, fromRepairedInfo.length);
+    }
+
     private RepairedDataInfo info()
     {
         return new RepairedDataInfo(DataLimits.NONE.newCounter(nowInSec, false, false, false));
@@ -192,7 +204,8 @@ public class RepairedDataInfoTest
                                Unfiltered...unfiltereds)
     {
         Digest perPartitionDigest = Digest.forRepairedDataTracking();
-        staticRow.digest(perPartitionDigest);
+        if (staticRow != null && !staticRow.isEmpty())
+            staticRow.digest(perPartitionDigest);
         deletion.digest(perPartitionDigest);
         perPartitionDigest.update(partitionKey);
         for (Unfiltered unfiltered : unfiltereds)
