@@ -41,6 +41,7 @@ import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.transform.RTBoundValidator;
+import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.SSTableReadsListener;
@@ -754,16 +755,8 @@ public class SinglePartitionReadCommand extends ReadCommand
 
                     // 'iter' is added to iterators which is closed on exception, or through the closing of the final merged iterator
                     @SuppressWarnings("resource")
-                    UnfilteredRowIterator iter = filter.filter(sstable.iterator(partitionKey(),
-                                                                                columnFilter(),
-                                                                                filter.isReversed(),
-                                                                                isForThrift(),
-                                                                                metricsCollector));
-
-                    if (isForThrift())
-                        iter = ThriftResultsMerger.maybeWrap(iter, nowInSec());
-
-                    inputCollector.addSSTableIterator(sstable, RTBoundValidator.validate(iter, RTBoundValidator.Stage.SSTABLE, false));
+                    UnfilteredRowIteratorWithLowerBound iter = makeIterator(sstable, true, metricsCollector);
+                    inputCollector.addSSTableIterator(sstable, iter);
                     mostRecentPartitionTombstone = Math.max(mostRecentPartitionTombstone,
                                                             iter.partitionLevelDeletion().markedForDeleteAt());
                 }
@@ -774,17 +767,13 @@ public class SinglePartitionReadCommand extends ReadCommand
                     if (sstable.hasTombstones())
                     {
                         @SuppressWarnings("resource") // 'iter' is either closed right away, or added to iterators which is close on exception, or through the closing of the final merged iterator
-                        UnfilteredRowIterator iter = filter.filter(sstable.iterator(partitionKey(),
-                                                                                    columnFilter(),
-                                                                                    filter.isReversed(),
-                                                                                    isForThrift(),
-                                                                                    metricsCollector));
+                        UnfilteredRowIteratorWithLowerBound iter = makeIterator(sstable, false, metricsCollector);
                         // if the sstable contains a partition delete, then we must include it regardless of whether it
                         // shadows any other data seen locally as we can't guarantee that other replicas have seen it
                         if (!iter.partitionLevelDeletion().isLive())
                         {
                             includedDueToTombstones++;
-                            inputCollector.addSSTableIterator(sstable, RTBoundValidator.validate(iter, RTBoundValidator.Stage.SSTABLE, false));
+                            inputCollector.addSSTableIterator(sstable, iter);
                             if (!sstable.isRepaired())
                                 oldestUnrepairedTombstone = Math.min(oldestUnrepairedTombstone, sstable.getMinLocalDeletionTime());
                             mostRecentPartitionTombstone = Math.max(mostRecentPartitionTombstone,
@@ -802,15 +791,13 @@ public class SinglePartitionReadCommand extends ReadCommand
                 Tracing.trace("Skipped {}/{} non-slice-intersecting sstables, included {} due to tombstones",
                               nonIntersectingSSTables, view.sstables.size(), includedDueToTombstones);
 
-            cfs.metric.updateSSTableIterated(metricsCollector.getMergedSSTables());
-
             if (inputCollector.isEmpty())
                 return EmptyIterators.unfilteredRow(cfs.metadata, partitionKey(), filter.isReversed());
 
             Tracing.trace("Merging data from memtables and {} sstables", metricsCollector.getMergedSSTables());
 
             @SuppressWarnings("resource") //  Closed through the closing of the result of that method.
-            UnfilteredRowIterator merged = UnfilteredRowIterators.merge(inputCollector.finalizeIterators(cfs, nowInSec(), oldestUnrepairedTombstone), nowInSec());
+            UnfilteredRowIterator merged = withSSTablesIterated(inputCollector.finalizeIterators(cfs, nowInSec(), oldestUnrepairedTombstone), cfs.metric, metricsCollector);
             if (!merged.isEmpty())
             {
                 DecoratedKey key = merged.partitionKey();
@@ -842,6 +829,50 @@ public class SinglePartitionReadCommand extends ReadCommand
             return true;
 
         return clusteringIndexFilter().shouldInclude(sstable);
+    }
+
+    private UnfilteredRowIteratorWithLowerBound makeIterator(final SSTableReader sstable,
+                                                             final boolean applyThriftTransformation,
+                                                             final SSTableReadsListener lister)
+    {
+        return new UnfilteredRowIteratorWithLowerBound(partitionKey(),
+                                                       sstable,
+                                                       clusteringIndexFilter(),
+                                                       columnFilter(),
+                                                       isForThrift(),
+                                                       nowInSec(),
+                                                       applyThriftTransformation,
+                                                       lister);
+    }
+
+    /**
+     * Return a wrapped iterator that when closed will update the sstables iterated and READ sample metrics.
+     * Note that we cannot use the Transformations framework because they greedily get the static row, which
+     * would cause all iterators to be initialized and hence all sstables to be accessed.
+     */
+    private UnfilteredRowIterator withSSTablesIterated(List<UnfilteredRowIterator> iterators,
+                                                       TableMetrics metrics,
+                                                       SSTableReadMetricsCollector metricsCollector)
+    {
+        @SuppressWarnings("resource") //  Closed through the closing of the result of the caller method.
+        UnfilteredRowIterator merged = UnfilteredRowIterators.merge(iterators, nowInSec());
+
+        if (!merged.isEmpty())
+        {
+            DecoratedKey key = merged.partitionKey();
+            metrics.topReadPartitionFrequency.addSample(key.getKey(), 1);
+        }
+
+        class UpdateSstablesIterated extends Transformation
+        {
+            public void onPartitionClose()
+            {
+                int mergedSSTablesIterated = metricsCollector.getMergedSSTables();
+                metrics.updateSSTableIterated(mergedSSTablesIterated);
+                Tracing.trace("Merged data from memtables and {} sstables", mergedSSTablesIterated);
+            }
+        };
+        return Transformation.apply(merged, new UpdateSstablesIterated());
     }
 
     private boolean queriesMulticellType()

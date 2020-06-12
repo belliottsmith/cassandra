@@ -961,8 +961,17 @@ public abstract class CQLTester
         {
             while (iter.hasNext())
             {
-                iter.next();
+                UntypedResultSet.Row actual = iter.next();
                 i++;
+
+                StringBuilder str = new StringBuilder();
+                for (int j = 0; j < meta.size(); j++)
+                {
+                    ColumnSpecification column = meta.get(j);
+                    ByteBuffer actualValue = actual.getBytes(column.name.toString());
+                    str.append(String.format("%s=%s ", column.name, formatValue(actualValue, column.type)));
+                }
+                logger.info("Extra row num {}: {}", i, str.toString());
             }
             Assert.fail(String.format("Got more rows than expected. Expected %d but got %d.", rows.length, i));
         }
