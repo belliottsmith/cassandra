@@ -134,13 +134,13 @@ public interface FrameCompressor
 
         private static final int INTEGER_BYTES = 4;
         private final net.jpountz.lz4.LZ4Compressor compressor;
-        private final net.jpountz.lz4.LZ4FastDecompressor decompressor;
+        private final net.jpountz.lz4.LZ4SafeDecompressor decompressor;
 
         private LZ4Compressor()
         {
             final LZ4Factory lz4Factory = LZ4Factory.fastestInstance();
             compressor = lz4Factory.fastCompressor();
-            decompressor = lz4Factory.fastDecompressor();
+            decompressor = lz4Factory.safeDecompressor();
         }
 
         public Frame compress(Frame frame) throws IOException
@@ -230,7 +230,7 @@ public interface FrameCompressor
 
             try
             {
-                int read = decompressor.decompress(input, INTEGER_BYTES, output.array(), output.arrayOffset(), uncompressedLength);
+                int read = decompressor.decompress(input, INTEGER_BYTES, input.length, output.array(), output.arrayOffset(), uncompressedLength);
                 if (read != input.length - INTEGER_BYTES)
                     throw new IOException("Compressed lengths mismatch");
 

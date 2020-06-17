@@ -23,6 +23,7 @@ import io.netty.buffer.Unpooled;
 import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4Factory;
 import net.jpountz.lz4.LZ4FastDecompressor;
+import net.jpountz.lz4.LZ4SafeDecompressor;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -45,7 +46,7 @@ public class LZ4UtilsTest
     {
         LZ4Factory lz4Factory = LZ4Factory.fastestInstance();
         LZ4Compressor compressor = lz4Factory.fastCompressor();
-        LZ4FastDecompressor decompressor = lz4Factory.fastDecompressor();
+        LZ4SafeDecompressor decompressor = lz4Factory.safeDecompressor();
         Checksum checksum = new CRC32();
 
         String randomString = generateRandomWord(10);
@@ -63,7 +64,7 @@ public class LZ4UtilsTest
     {
         LZ4Factory lz4Factory = LZ4Factory.fastestInstance();
         LZ4Compressor compressor = lz4Factory.fastCompressor();
-        LZ4FastDecompressor decompressor = lz4Factory.fastDecompressor();
+        LZ4SafeDecompressor decompressor = lz4Factory.safeDecompressor();
         Checksum checksum = new CRC32();
 
         // encode with multiple block sizes to make sure they all work
@@ -80,7 +81,7 @@ public class LZ4UtilsTest
         compressAndDecompress(highlyCompressableString, compressor, decompressor, checksum, 1 << 21); // 2mb
     }
 
-    private static void compressAndDecompress(String input, LZ4Compressor compressor, LZ4FastDecompressor decompressor,
+    private static void compressAndDecompress(String input, LZ4Compressor compressor, LZ4SafeDecompressor decompressor,
                                               Checksum checksum, int blockSize) throws IOException
     {
         byte[] expectedBytes = input.getBytes();

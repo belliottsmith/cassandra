@@ -22,6 +22,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4FastDecompressor;
+import net.jpountz.lz4.LZ4SafeDecompressor;
 
 import java.io.IOException;
 import java.util.zip.Checksum;
@@ -192,7 +193,7 @@ public class LZ4Utils
      * @return the actual resulting decompressed bytes for usage (free of any serialization etc.)
      * @throws IOException if we failed to decompress or match a checksum check on a chunk
      */
-    public static ByteBuf decompress(LZ4FastDecompressor decompressor, Checksum checksum, ByteBuf inputBuf) throws IOException
+    public static ByteBuf decompress(LZ4SafeDecompressor decompressor, Checksum checksum, ByteBuf inputBuf) throws IOException
     {
         int numChunks = readUnsignedShort(inputBuf);
 
@@ -234,7 +235,7 @@ public class LZ4Utils
             // get the compressed bytes for this chunk
             inputBuf.readBytes(buf, 0, compressedLength);
             // decompress it
-            byte[] decompressedChunk = decompressor.decompress(buf, decompressedLength);
+            byte[] decompressedChunk = decompressor.decompress(buf, 0, compressedLength, decompressedLength);
             // add the decompressed bytes into the ret buf
             System.arraycopy(decompressedChunk, 0, retBuf, currentPosition, decompressedChunk.length);
             currentPosition += decompressedChunk.length;
