@@ -61,12 +61,12 @@ public class StorageProxyTest
     @Test
     public void testSetGetPaxosVariant()
     {
-        Assert.assertEquals(Config.PaxosVariant.v1, DatabaseDescriptor.getPaxosVariant());
-        Assert.assertEquals("v1", StorageProxy.instance.getPaxosVariant());
+        Assert.assertEquals(Config.PaxosBackCompatVariant.v1_without_linearizable_reads_or_rejected_writes.variant, DatabaseDescriptor.getPaxosVariant());
+        Assert.assertEquals("v1_without_linearizable_reads_or_rejected_writes", StorageProxy.instance.getPaxosVariant());
         StorageProxy.instance.setPaxosVariant("v2");
         Assert.assertEquals("v2", StorageProxy.instance.getPaxosVariant());
         Assert.assertEquals(Config.PaxosVariant.v2, DatabaseDescriptor.getPaxosVariant());
-        DatabaseDescriptor.setPaxosVariant(Config.PaxosVariant.v1);
+        DatabaseDescriptor.setPaxosVariant(Config.PaxosBackCompatVariant.v1);
         Assert.assertEquals(Config.PaxosVariant.v1, DatabaseDescriptor.getPaxosVariant());
         Assert.assertEquals(Config.PaxosVariant.v1, DatabaseDescriptor.getPaxosVariant());
     }

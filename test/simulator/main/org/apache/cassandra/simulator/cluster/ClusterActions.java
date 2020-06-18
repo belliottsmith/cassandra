@@ -32,7 +32,7 @@ import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.config.Config.PaxosVariant;
+import org.apache.cassandra.config.Config.PaxosBackCompatVariant;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.marshal.Int32Type;
@@ -89,14 +89,14 @@ public class ClusterActions extends SimulatedSystems
         public final Choices<TopologyChange> choicesNoJoin;
 
         public final int[] minRf, initialRf, maxRf;
-        public final PaxosVariant changePaxosVariantTo;
+        public final PaxosBackCompatVariant changePaxosVariantTo;
 
         public Options(Options copy)
         {
             this(copy, copy.changePaxosVariantTo);
         }
 
-        public Options(Options copy, PaxosVariant changePaxosVariantTo)
+        public Options(Options copy, PaxosBackCompatVariant changePaxosVariantTo)
         {
             this.topologyChangeLimit = copy.topologyChangeLimit;
             this.topologyChangeInterval = copy.topologyChangeInterval;
@@ -109,7 +109,7 @@ public class ClusterActions extends SimulatedSystems
             this.changePaxosVariantTo = changePaxosVariantTo;
         }
 
-        public Options(int topologyChangeLimit, KindOfSequence.Period topologyChangeInterval, Choices<TopologyChange> choices, int[] minRf, int[] initialRf, int[] maxRf, PaxosVariant changePaxosVariantTo)
+        public Options(int topologyChangeLimit, KindOfSequence.Period topologyChangeInterval, Choices<TopologyChange> choices, int[] minRf, int[] initialRf, int[] maxRf, PaxosBackCompatVariant changePaxosVariantTo)
         {
             if (Arrays.equals(minRf, maxRf))
                 choices = choices.without(TopologyChange.CHANGE_RF);
@@ -131,7 +131,7 @@ public class ClusterActions extends SimulatedSystems
             return new Options(0, UNIFORM.period(null, null), Choices.uniform(), rf, rf, rf, null);
         }
 
-        public Options changePaxosVariantTo(PaxosVariant newVariant)
+        public Options changePaxosVariantTo(PaxosBackCompatVariant newVariant)
         {
             return new Options(this, newVariant);
         }
