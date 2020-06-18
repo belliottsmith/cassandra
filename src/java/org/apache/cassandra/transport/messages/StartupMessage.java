@@ -40,6 +40,7 @@ public class StartupMessage extends Message.Request
     public static final String DRIVER_NAME = "DRIVER_NAME";
     public static final String DRIVER_VERSION = "DRIVER_VERSION";
     public static final String THROW_ON_OVERLOAD = "THROW_ON_OVERLOAD";
+    public static final String USE_LEGACY_CHECKSUMS = "USE_CHECKSUMS"; // CIE 2.1/3.0 V4 protocol checksums
 
     public static final Message.Codec<StartupMessage> codec = new Message.Codec<StartupMessage>()
     {
@@ -105,6 +106,13 @@ public class StartupMessage extends Message.Request
             {
                 throw new ProtocolException(String.format("Unknown compression algorithm: %s", compression));
             }
+        }
+
+        // Workaround for <rdar://problem/30635462> Client: Add option for checksumming data between client and server
+        // Until we can actually rev the protocol version
+        if (options.containsKey(USE_LEGACY_CHECKSUMS))
+        {
+            connection.setSupportsCIEV4Checksums(true);
         }
 
         connection.setThrowOnOverload("1".equals(options.get(THROW_ON_OVERLOAD)));
