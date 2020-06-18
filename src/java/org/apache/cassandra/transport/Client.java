@@ -100,6 +100,11 @@ public class Client extends SimpleClient
         close();
     }
 
+    private boolean optionsHasChecksum(Map<String, String> options)
+    {
+        return options.containsKey(StartupMessage.CHECKSUM) || options.containsKey(StartupMessage.USE_LEGACY_CHECKSUMS);
+    }
+
     private Message.Request parseLine(String line)
     {
         Splitter splitter = Splitter.on(' ').trimResults().omitEmptyStrings();
@@ -113,6 +118,7 @@ public class Client extends SimpleClient
             options.put(StartupMessage.CQL_VERSION, "3.0.0");
             Compressor compressor = null;
             ChecksumType checksumType = null;
+            boolean useV4Checksum = false;
             while (iter.hasNext())
             {
                String next = iter.next().toLowerCase();
@@ -133,32 +139,50 @@ public class Client extends SimpleClient
                        break;
                    }
                    case "crc32": {
-                       if (options.containsKey(StartupMessage.CHECKSUM))
+                       if (optionsHasChecksum(options))
                            throw new RuntimeException("Multiple checksum types supplied");
                        options.put(StartupMessage.CHECKSUM, ChecksumType.CRC32.name());
                        checksumType = ChecksumType.CRC32;
                        break;
                    }
                    case "adler32": {
-                       if (options.containsKey(StartupMessage.CHECKSUM))
+                       if (optionsHasChecksum(options))
                            throw new RuntimeException("Multiple checksum types supplied");
                        options.put(StartupMessage.CHECKSUM, ChecksumType.ADLER32.name());
                        checksumType = ChecksumType.ADLER32;
                        break;
                    }
+                   case "v4checksum": {
+                       if (optionsHasChecksum(options))
+                           throw new RuntimeException("Multiple checksum types supplied");
+                       options.put(StartupMessage.USE_LEGACY_CHECKSUMS, "true");
+                       useV4Checksum = true;
+                       break;
+                   }
+                   default: {
+                       System.err.println(next + ": option not recognized");
+                       break;
+                   }
                }
             }
 
-            if (checksumType == null)
+            if (version.isGreaterOrEqualTo(ProtocolVersion.V5))
             {
-               if (compressor != null)
-               {
-                   connection.setTransformer(CompressingTransformer.getTransformer(compressor));
-               }
+                if (checksumType == null)
+                {
+                    if (compressor != null)
+                    {
+                        connection.setTransformer(CompressingTransformer.getTransformer(compressor));
+                    }
+                }
+                else
+                {
+                    connection.setTransformer(ChecksummingTransformer.getTransformer(checksumType, compressor));
+                }
             }
-            else
+            else if (useV4Checksum)
             {
-                connection.setTransformer(ChecksummingTransformer.getTransformer(checksumType, compressor));
+                connection.setTransformer(ChecksummingTransformer.getV4ChecksumTransformer());
             }
 
             return new StartupMessage(options);

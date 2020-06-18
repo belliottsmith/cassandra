@@ -26,6 +26,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.*;
+import org.apache.cassandra.transport.frame.FrameBodyTransformer;
 import org.apache.cassandra.transport.frame.checksum.ChecksummingTransformer;
 import org.apache.cassandra.transport.frame.compress.CompressingTransformer;
 import org.apache.cassandra.transport.frame.compress.Compressor;
@@ -47,6 +48,7 @@ public class StartupMessage extends Message.Request
     public static final String DRIVER_VERSION = "DRIVER_VERSION";
     public static final String CHECKSUM = "CONTENT_CHECKSUM";
     public static final String THROW_ON_OVERLOAD = "THROW_ON_OVERLOAD";
+    public static final String USE_LEGACY_CHECKSUMS = "USE_CHECKSUMS"; // CIE 2.1/3.0 V4 protocol checksums
 
     public static final Message.Codec<StartupMessage> codec = new Message.Codec<StartupMessage>()
     {
@@ -91,20 +93,7 @@ public class StartupMessage extends Message.Request
             throw new ProtocolException(e.getMessage());
         }
 
-        ChecksumType checksumType = getChecksumType();
-        Compressor compressor = getCompressor();
-
-        if (null != checksumType)
-        {
-            if (!connection.getVersion().supportsChecksums())
-                throw new ProtocolException(String.format("Invalid message flag. Protocol version %s does not support frame body checksums", connection.getVersion().toString()));
-            connection.setTransformer(ChecksummingTransformer.getTransformer(checksumType, compressor));
-        }
-        else if (null != compressor)
-        {
-            connection.setTransformer(CompressingTransformer.getTransformer(compressor));
-        }
-
+        connection.setTransformer(getTransformer(connection.getVersion(), options));
         connection.setThrowOnOverload("1".equals(options.get(THROW_ON_OVERLOAD)));
 
         ClientState clientState = state.getClientState();
@@ -129,7 +118,7 @@ public class StartupMessage extends Message.Request
         return newMap;
     }
 
-    private ChecksumType getChecksumType() throws ProtocolException
+    private static ChecksumType getChecksumType(Map<String, String> options) throws ProtocolException
     {
         String name = options.get(CHECKSUM);
         try
@@ -143,7 +132,7 @@ public class StartupMessage extends Message.Request
         }
     }
 
-    private Compressor getCompressor() throws ProtocolException
+    private static Compressor getCompressor(Map<String, String> options) throws ProtocolException
     {
         String name = options.get(COMPRESSION);
         if (null == name)
@@ -163,6 +152,32 @@ public class StartupMessage extends Message.Request
             default:
                 throw new ProtocolException(String.format("Unknown compression algorithm: %s", name));
         }
+    }
+
+    public static FrameBodyTransformer getTransformer(ProtocolVersion version, Map<String, String> options)
+    {
+        ChecksumType checksumType = getChecksumType(options);
+        Compressor compressor = getCompressor(options);
+
+        // Backward compatibility with V4 protocol clients requesting the CIE version of checksums
+        // Filter on V4 in case conflicting header flag added over the internal USE_CHECKSUMS.
+        boolean useV4Checksums = version.supportsV4Checksums() && options.containsKey(USE_LEGACY_CHECKSUMS) && compressor == LZ4Compressor.INSTANCE;
+
+        if (useV4Checksums)
+        {
+            return ChecksummingTransformer.getV4ChecksumTransformer();
+        }
+        else if (null != checksumType)
+        {
+            if (!version.supportsChecksums())
+                throw new ProtocolException(String.format("Invalid message flag. Protocol version %s does not support frame body checksums", version.toString()));
+            return ChecksummingTransformer.getTransformer(checksumType, compressor);
+        }
+        else if (null != compressor)
+        {
+            return CompressingTransformer.getTransformer(compressor);
+        }
+        return null;
     }
 
     @Override

@@ -107,7 +107,8 @@ public class Frame
             CUSTOM_PAYLOAD,
             WARNING,
             USE_BETA,
-            CHECKSUMMED;
+            CHECKSUMMED, // UNUSED_1 in CIE 2.1/3.0.x
+            V4_CHECKSUMMED; // pie-java-driver name LEGACY_CHECKSUMMING, prior majors called it SUPPORTS_LZ4_BLOCK_FORMAT_WITH_CHECKSUM
 
             private static final Flag[] ALL_VALUES = values();
 
@@ -320,7 +321,7 @@ public class Frame
         {
             Connection connection = ctx.channel().attr(Connection.attributeKey).get();
 
-            if ((!frame.header.flags.contains(Header.Flag.COMPRESSED) && !frame.header.flags.contains(Header.Flag.CHECKSUMMED)) || connection == null)
+            if ((!frame.header.flags.contains(Header.Flag.COMPRESSED) && !frame.header.flags.contains(Header.Flag.CHECKSUMMED) && !frame.header.flags.contains(Header.Flag.V4_CHECKSUMMED)) || connection == null)
             {
                 results.add(frame);
                 return;
