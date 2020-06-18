@@ -157,7 +157,15 @@ public class Envelope
             TRACING,
             CUSTOM_PAYLOAD,
             WARNING,
-            USE_BETA;
+            USE_BETA,
+            // Adding padding between the last flag to be added in trunk (USE_BETA) as of 3/1/17
+            // and our temporary addition of the SUPPORTS_LZ4_BLOCK_FORMAT_WITH_CHECKSUM flag
+            // to give us one additional bit worth of padding to avoid conflicts.
+            UNUSED_1,
+            // CIE-Specific V4 checksumming added in 2.1 for rdar://problem/30685321 and forward
+            // ported to 3.0 in rdar://problem/31664865
+            // pie-java-driver name LEGACY_CHECKSUMMING, prior majors called it SUPPORTS_LZ4_BLOCK_FORMAT_WITH_CHECKSUM
+            V4_CHECKSUMMED;
 
             private static final Flag[] ALL_VALUES = values();
 
@@ -518,6 +526,9 @@ public class Envelope
                 return;
             }
             source.header.flags.add(Header.Flag.COMPRESSED);
+            if (connection.supportsCIEV4Checksums())
+                source.header.flags.add(Header.Flag.V4_CHECKSUMMED);
+
             results.add(compressor.compress(source));
         }
     }

@@ -82,6 +82,8 @@
                      <exclude NAME="src/java/org/apache/cassandra/metrics/BlacklistMetrics.java"/>
                      <exclude NAME="src/java/org/apache/cassandra/schema/PartitionBlacklist.java"/>
                      <exclude NAME="test/unit/org/apache/cassandra/service/PartitionBlacklistTest.java"/>
+                     <exclude name="test/unit/org/apache/cassandra/transport/frame/FrameBodyTransformerTest.java"/>
+
             </fileset>
         </rat:report>
         <exec executable="grep" outputproperty="rat.failed.files" failifexecutionfails="false">
