@@ -47,6 +47,7 @@ public class StartupMessage extends Message.Request
     public static final String DRIVER_VERSION = "DRIVER_VERSION";
     public static final String CHECKSUM = "CONTENT_CHECKSUM";
     public static final String THROW_ON_OVERLOAD = "THROW_ON_OVERLOAD";
+    public static final String USE_CHECKSUMS = "USE_CHECKSUMS"; // CIE 2.1/3.0 V4 protocol checksums
 
     public static final Message.Codec<StartupMessage> codec = new Message.Codec<StartupMessage>()
     {
@@ -91,10 +92,18 @@ public class StartupMessage extends Message.Request
             throw new ProtocolException(e.getMessage());
         }
 
+        // Backward compatibility with V4 protocol clients requesting the CIE version of checksums
+        // Filter on V4 in case conflicting header flag added over the internal USE_CHECKSUMS.
+        boolean useV4Checksums = connection.getVersion().supportsV4Checksums() && options.containsKey(USE_CHECKSUMS);
+
         ChecksumType checksumType = getChecksumType();
         Compressor compressor = getCompressor();
 
-        if (null != checksumType)
+        if (useV4Checksums)
+        {
+            connection.setTransformer(ChecksummingTransformer.getV4ChecksumTransformer());
+        }
+        else if (null != checksumType)
         {
             if (!connection.getVersion().supportsChecksums())
                 throw new ProtocolException(String.format("Invalid message flag. Protocol version %s does not support frame body checksums", connection.getVersion().toString()));
