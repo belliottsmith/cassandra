@@ -30,7 +30,7 @@ public class Connection
 
     private boolean throwOnOverload;
     private volatile Compressor preV5MessageCompressor;
-
+    private volatile boolean supportsCIEV4Checksums;
     public Connection(Channel channel, ProtocolVersion version, Tracker tracker)
     {
         this.channel = channel;
@@ -49,6 +49,17 @@ public class Connection
     {
         return preV5MessageCompressor;
     }
+
+    public void setSupportsCIEV4Checksums(boolean supportsChecksums)
+    {
+        this.supportsCIEV4Checksums = supportsChecksums;
+    }
+
+    public boolean supportsCIEV4Checksums()
+    {
+        return supportsCIEV4Checksums;
+    }
+
 
     public void setThrowOnOverload(boolean throwOnOverload)
     {
