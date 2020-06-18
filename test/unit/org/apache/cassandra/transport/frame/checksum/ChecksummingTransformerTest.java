@@ -48,6 +48,7 @@ public class ChecksummingTransformerTest
     private static final int DEFAULT_BLOCK_SIZE = 1 << 15;
     private static final int MAX_INPUT_SIZE = 1 << 18;
     private static final EnumSet<Frame.Header.Flag> FLAGS = EnumSet.of(Frame.Header.Flag.COMPRESSED, Frame.Header.Flag.CHECKSUMMED);
+    private static final EnumSet<Frame.Header.Flag> V4_FLAGS = EnumSet.of(Frame.Header.Flag.COMPRESSED, Frame.Header.Flag.V4_CHECKSUMMED);
 
     @BeforeClass
     public static void init()
@@ -173,6 +174,41 @@ public class ChecksummingTransformerTest
         // reset reader index on expectedBuf back to 0 as it will have been entirely consumed by the transformOutbound() call
         expectedBuf.readerIndex(0);
         Assert.assertEquals(expectedBuf, inbound);
+    }
+
+    @Test
+    public void compressedDataSizeLargeThanUncompressedWithV4Checksums() throws IOException
+    {
+        Compressor compressor = LZ4Compressor.INSTANCE;
+        byte[] uncompressed = new byte[] {0, 0, 0, 1};
+        byte[] compressed = new byte[compressor.maxCompressedLength(uncompressed.length)];
+        int compressedLength = compressor.compress(uncompressed, 0, uncompressed.length, compressed, 0);
+        Assert.assertEquals(5, compressedLength);
+        Assert.assertTrue(compressor.compress(uncompressed, 0, uncompressed.length, compressed, 0) > uncompressed.length);
+
+        ChecksummingTransformer transformer = new ChecksummingTransformer(ChecksumType.CRC32,
+                                                                          DEFAULT_BLOCK_SIZE,
+                                                                          LZ4Compressor.INSTANCE,
+                                                                          true);
+        // Output should contain a single chunk so the bytes should be laid out like:
+        int outputLen = 2;              // number of chunks
+        outputLen += 4;                 // compressed length
+        outputLen += 4;                 // uncompressed length
+        outputLen += 4;                 // crc of lengths
+        outputLen += compressedLength;  // the LZ4 encoded bytes
+        outputLen += 4;                 // crc of the uncompressed bytes
+
+        ByteBuf inputBuf = Unpooled.wrappedBuffer(uncompressed);
+        // Transform outbound (server -> client) e.g. chunk and compress
+        ByteBuf outbound = transformer.transformOutbound(inputBuf);
+        Assert.assertEquals(outputLen, outbound.writerIndex());
+
+        // Transform inbound (client -> server) e.g. decompress and combine
+        ByteBuf inbound = transformer.transformInbound(outbound, V4_FLAGS);
+        Assert.assertEquals(4, inbound.readableBytes());
+        byte[] result = new byte[inbound.readableBytes()];
+        inbound.readBytes(result);
+        Assert.assertArrayEquals(uncompressed, result);
     }
 
     private void roundTrip(ReusableBuffer input, Compressor compressor, ChecksumType checksum, int blockSize)
