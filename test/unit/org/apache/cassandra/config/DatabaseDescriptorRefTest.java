@@ -85,6 +85,7 @@ public class DatabaseDescriptorRefTest
     "org.apache.cassandra.config.Config$MemtableAllocationType",
     "org.apache.cassandra.config.Config$PaxosOnLinearizabilityViolation",
     "org.apache.cassandra.config.Config$PaxosStatePurging",
+    "org.apache.cassandra.config.Config$PaxosBackCompatVariant",
     "org.apache.cassandra.config.Config$PaxosVariant",
     "org.apache.cassandra.config.Config$RepairCommandPoolFullStrategy",
     "org.apache.cassandra.config.Config$UserFunctionTimeoutPolicy",
