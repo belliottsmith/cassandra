@@ -102,14 +102,19 @@ public class ChecksummingTransformer implements FrameBodyTransformer
 
     private static final EnumSet<Frame.Header.Flag> CHECKSUMS_ONLY = EnumSet.of(Frame.Header.Flag.CHECKSUMMED);
     private static final EnumSet<Frame.Header.Flag> CHECKSUMS_AND_COMPRESSION = EnumSet.of(Frame.Header.Flag.CHECKSUMMED, Frame.Header.Flag.COMPRESSED);
+    private static final EnumSet<Frame.Header.Flag> V4_CHECKSUMMING_AND_COMPRESSION = EnumSet.of(Frame.Header.Flag.V4_CHECKSUMMED, Frame.Header.Flag.COMPRESSED);
 
     private static final int CHUNK_HEADER_OVERHEAD = Integer.BYTES + Integer.BYTES + Integer.BYTES + Integer.BYTES;
 
+    private static final ChecksummingTransformer V4_CHECKSUM;
     private static final ChecksummingTransformer CRC32_NO_COMPRESSION = new ChecksummingTransformer(ChecksumType.CRC32, null);
     private static final ChecksummingTransformer ADLER32_NO_COMPRESSION = new ChecksummingTransformer(ChecksumType.ADLER32, null);
     private static final ImmutableTable<ChecksumType, Compressor, ChecksummingTransformer> transformers;
     static
     {
+        V4_CHECKSUM = new ChecksummingTransformer(ChecksumType.CRC32, DatabaseDescriptor.getNativeTransportFrameBlockSize(),
+                                                  LZ4Compressor.INSTANCE, true);
+
         ImmutableTable.Builder<ChecksumType, Compressor, ChecksummingTransformer> builder = ImmutableTable.builder();
         builder.put(ChecksumType.CRC32, LZ4Compressor.INSTANCE, new ChecksummingTransformer(ChecksumType.CRC32, LZ4Compressor.INSTANCE));
         builder.put(ChecksumType.CRC32, SnappyCompressor.INSTANCE, new ChecksummingTransformer(ChecksumType.CRC32, SnappyCompressor.INSTANCE));
@@ -121,6 +126,12 @@ public class ChecksummingTransformer implements FrameBodyTransformer
     private final int blockSize;
     private final Compressor compressor;
     private final ChecksumType checksum;
+    private final boolean useV4Checksum;
+
+    public static ChecksummingTransformer getV4ChecksumTransformer()
+    {
+        return V4_CHECKSUM;
+    }
 
     public static ChecksummingTransformer getTransformer(ChecksumType checksumType, Compressor compressor)
     {
@@ -139,19 +150,36 @@ public class ChecksummingTransformer implements FrameBodyTransformer
 
     ChecksummingTransformer(ChecksumType checksumType, Compressor compressor)
     {
-        this(checksumType, DatabaseDescriptor.getNativeTransportFrameBlockSize(), compressor);
+        this(checksumType, DatabaseDescriptor.getNativeTransportFrameBlockSize(), compressor, false);
     }
 
     ChecksummingTransformer(ChecksumType checksumType, int blockSize, Compressor compressor)
     {
+        this(checksumType, blockSize, compressor, false);
+    }
+
+    ChecksummingTransformer(ChecksumType checksumType, int blockSize, Compressor compressor, boolean useV4Checksum)
+    {
         this.checksum = checksumType;
         this.blockSize = blockSize;
         this.compressor = compressor;
+        this.useV4Checksum = useV4Checksum;
     }
 
     public EnumSet<Frame.Header.Flag> getOutboundHeaderFlags()
     {
-        return null == compressor ? CHECKSUMS_ONLY : CHECKSUMS_AND_COMPRESSION;
+        if (useV4Checksum)
+        {
+            return V4_CHECKSUMMING_AND_COMPRESSION;
+        }
+        else if (null == compressor)
+        {
+            return CHECKSUMS_ONLY;
+        }
+        else
+        {
+            return CHECKSUMS_AND_COMPRESSION;
+        }
     }
 
     public ByteBuf transformOutbound(ByteBuf inputBuf)
@@ -172,7 +200,7 @@ public class ChecksummingTransformer implements FrameBodyTransformer
 
         byte[] inBuf = new byte[blockSize];
         byte[] outBuf = new byte[maxCompressedLength(blockSize)];
-        byte[] chunkLengths = new byte[8];
+        byte[] chunkLengths = new byte[useV4Checksum ? 2 : 8];
 
         int numCompressedChunks = 0;
         int readableBytes;
@@ -184,24 +212,34 @@ public class ChecksummingTransformer implements FrameBodyTransformer
             int uncompressedChunkChecksum = (int) checksum.of(inBuf, 0, lengthToRead);
             int compressedSize = maybeCompress(inBuf, lengthToRead, outBuf);
 
-            if (compressedSize < lengthToRead)
+            if (useV4Checksum)
             {
-                // there was some benefit to compression so write out the compressed
-                // and uncompressed sizes of the chunk
+                // V4 Checksum always sends compressed data, even if larger than source data.
                 ret.writeInt(compressedSize);
                 ret.writeInt(lengthToRead);
-                putInt(compressedSize, chunkLengths, 0);
+                putLow8Bits(compressedSize, chunkLengths, 0);
+                putLow8Bits(lengthToRead, chunkLengths, 1);
             }
             else
             {
-                // if no compression was possible, there's no need to write two lengths, so
-                // just write the size of the original content (or block size), with its
-                // sign flipped to signal no compression.
-                ret.writeInt(-lengthToRead);
-                putInt(-lengthToRead, chunkLengths, 0);
+                if (compressedSize < lengthToRead)
+                {
+                    // there was some benefit to compression so write out the compressed
+                    // and uncompressed sizes of the chunk
+                    ret.writeInt(compressedSize);
+                    ret.writeInt(lengthToRead);
+                    putInt(compressedSize, chunkLengths, 0);
+                }
+                else
+                {
+                    // if no compression was possible, there's no need to write two lengths, so
+                    // just write the size of the original content (or block size), with its
+                    // sign flipped to signal no compression.
+                    ret.writeInt(-lengthToRead);
+                    putInt(-lengthToRead, chunkLengths, 0);
+                }
+                putInt(lengthToRead, chunkLengths, 4);
             }
-
-            putInt(lengthToRead, chunkLengths, 4);
 
             // calculate the checksum of the compressed and decompressed lengths
             // protect us against a bogus length causing potential havoc on deserialization
@@ -209,7 +247,7 @@ public class ChecksummingTransformer implements FrameBodyTransformer
             ret.writeInt(lengthsChecksum);
 
             // figure out how many actual bytes we're going to write and make sure we have capacity
-            int toWrite = Math.min(compressedSize, lengthToRead);
+            int toWrite = useV4Checksum ? compressedSize : Math.min(compressedSize, lengthToRead);
             if (ret.writableBytes() < (CHUNK_HEADER_OVERHEAD + toWrite))
             {
                 // this really shouldn't ever happen -- it means we either mis-calculated the number of chunks we
@@ -224,7 +262,7 @@ public class ChecksummingTransformer implements FrameBodyTransformer
             }
 
             // write the bytes, either compressed or uncompressed
-            if (compressedSize < lengthToRead)
+            if (compressedSize < lengthToRead || useV4Checksum)
                 ret.writeBytes(outBuf, 0, toWrite); // compressed
             else
                 ret.writeBytes(inBuf, 0, toWrite);  // uncompressed
@@ -250,7 +288,7 @@ public class ChecksummingTransformer implements FrameBodyTransformer
 
         byte[] buf = null;
         byte[] retBuf = new byte[inputBuf.readableBytes()];
-        byte[] chunkLengths = new byte[8];
+        byte[] chunkLengths = new byte[useV4Checksum ? 2 : 8];
         for (int i = 0; i < numChunks; i++)
         {
             int compressedLength = inputBuf.readInt();
@@ -259,8 +297,16 @@ public class ChecksummingTransformer implements FrameBodyTransformer
             // and can derive the decompressed length from that
             decompressedLength = compressedLength >= 0 ? inputBuf.readInt() : Math.abs(compressedLength);
 
-            putInt(compressedLength, chunkLengths, 0);
-            putInt(decompressedLength, chunkLengths, 4);
+            if (useV4Checksum)
+            {
+                putLow8Bits(compressedLength, chunkLengths, 0);
+                putLow8Bits(decompressedLength, chunkLengths, 1);
+            }
+            else
+            {
+                putInt(compressedLength, chunkLengths, 0);
+                putInt(decompressedLength, chunkLengths, 4);
+            }
             lengthsChecksum = inputBuf.readInt();
             // calculate checksum on lengths (decompressed and compressed) and make sure it matches
             int calculatedLengthsChecksum = (int) checksum.of(chunkLengths, 0, chunkLengths.length);
@@ -358,4 +404,8 @@ public class ChecksummingTransformer implements FrameBodyTransformer
         dest[offset + 3] = (byte) (val);
     }
 
+    private void putLow8Bits(int val, byte[] dest, int offset)
+    {
+        dest[offset]     = (byte) (val);
+    }
 }
