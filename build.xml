@@ -1375,14 +1375,17 @@
                   reportFile="${build.dir}/src.rat.txt">
         <fileset dir="src/java">
           <patternset id="exclusions">
+            <exclude name="com/**"/>
             <exclude name="org/apache/cassandra/metrics/BlacklistMetrics.java"/>
             <exclude name="org/apache/cassandra/schema/PartitionBlacklist.java"/>
           </patternset>
         </fileset>
         <fileset dir="test/unit">
-            <patternset id="exclusions">
-              <exclude name="org/apache/cassandra/service/PartitionBlacklistTest.java"/>
-            </patternset>
+          <patternset id="exclusions">
+            <exclude name="com/**"/>
+            <exclude name="org/apache/cassandra/service/PartitionBlacklistTest.java"/>
+            <exclude name="org/apache/cassandra/transport/frame/FrameBodyTransformerTest.java"/>
+          </patternset>
         </fileset>
         <fileset dir="test/distributed"/>
       </rat:report>
