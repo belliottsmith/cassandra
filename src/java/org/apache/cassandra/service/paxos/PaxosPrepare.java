@@ -1162,19 +1162,32 @@ public class PaxosPrepare extends PaxosRequestCallback<PaxosPrepare.Response> im
         }
     }
 
+    private static void serializeRejection(DataOutputPlus out, Ballot supersededBy) throws IOException
+    {
+        out.writeByte(0);
+        supersededBy.serialize(out);
+    }
+
     public static class ResponseSerializer implements IVersionedSerializer<Response>
     {
         public void serialize(Response response, DataOutputPlus out, int version) throws IOException
         {
             if (response.isRejected())
             {
-                out.writeByte(0);
                 Rejected rejected = (Rejected) response;
-                rejected.supersededBy.serialize(out);
+                serializeRejection(out, rejected.supersededBy);
             }
             else
             {
                 Permitted promised = (Permitted) response;
+
+                // 3.0 Apple Paxos doesn't support PERMIT_READ, so we serialize it as a rejection here
+                if (version < MessagingService.VERSION_40 && promised.outcome == PERMIT_READ)
+                {
+                    serializeRejection(out, promised.supersededBy);
+                    return;
+                }
+
                 out.writeByte(1
                         | (promised.latestAcceptedButNotCommitted != null ? 2  : 0)
                         | (promised.readResponse != null                  ? 4  : 0)
@@ -1226,6 +1239,11 @@ public class PaxosPrepare extends PaxosRequestCallback<PaxosPrepare.Response> im
             else
             {
                 Permitted permitted = (Permitted) response;
+                // 3.0 Apple Paxos doesn't support PERMIT_READ, so we serialize it as a rejection here
+                if (version < MessagingService.VERSION_40 && permitted.outcome == PERMIT_READ)
+                {
+                    return 1 + Ballot.sizeInBytes();
+                }
                 return 1
                         + VIntCoding.computeUnsignedVIntSize(permitted.lowBound)
                         + (permitted.latestAcceptedButNotCommitted == null ? 0 : Accepted.serializer.serializedSize(permitted.latestAcceptedButNotCommitted, version))

@@ -20,7 +20,7 @@ package org.apache.cassandra.simulator.paxos;
 
 import java.io.IOException;
 
-import org.apache.cassandra.config.Config.PaxosVariant;
+import org.apache.cassandra.config.Config.PaxosBackCompatVariant;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.simulator.RandomSource;
 import org.apache.cassandra.simulator.ClusterSimulation;
@@ -34,8 +34,8 @@ class PaxosClusterSimulation extends ClusterSimulation<PaxosSimulation> implemen
     @SuppressWarnings("UnusedReturnValue")
     static class Builder extends ClusterSimulation.Builder<PaxosSimulation>
     {
-        PaxosVariant initialPaxosVariant = PaxosVariant.v2;
-        PaxosVariant finalPaxosVariant = null;
+        PaxosBackCompatVariant initialPaxosVariant = PaxosBackCompatVariant.v2;
+        PaxosBackCompatVariant finalPaxosVariant = null;
         Boolean stateCache;
         ConsistencyLevel serialConsistency = SERIAL;
 
@@ -51,13 +51,13 @@ class PaxosClusterSimulation extends ClusterSimulation<PaxosSimulation> implemen
             return this;
         }
 
-        public Builder initialPaxosVariant(PaxosVariant variant)
+        public Builder initialPaxosVariant(PaxosBackCompatVariant variant)
         {
             initialPaxosVariant = variant;
             return this;
         }
 
-        public Builder finalPaxosVariant(PaxosVariant variant)
+        public Builder finalPaxosVariant(PaxosBackCompatVariant variant)
         {
             finalPaxosVariant = variant;
             return this;

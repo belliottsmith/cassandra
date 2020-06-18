@@ -945,7 +945,7 @@ public class DatabaseDescriptor
         if (conf.paxos_repair_parallelism <= 0)
             conf.paxos_repair_parallelism = Math.max(1, conf.concurrent_writes / 8);
 
-        Paxos.setPaxosVariant(conf.paxos_variant);
+        Paxos.setPaxosVariant(conf.paxos_variant.variant);
         if (conf.paxos_state_purging == null)
             conf.paxos_state_purging = PaxosStatePurging.legacy;
 
@@ -2853,10 +2853,10 @@ public class DatabaseDescriptor
 
     public static Config.PaxosVariant getPaxosVariant()
     {
-        return conf.paxos_variant;
+        return conf.paxos_variant.variant;
     }
 
-    public static void setPaxosVariant(Config.PaxosVariant variant)
+    public static void setPaxosVariant(Config.PaxosBackCompatVariant variant)
     {
         conf.paxos_variant = variant;
     }
