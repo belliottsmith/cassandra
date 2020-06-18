@@ -250,7 +250,28 @@ public class JMXCompatabilityTest extends CQLTester
     @Test
     public void ciediff40() throws Throwable
     {
-        List<String> excludeObjects = Arrays.asList();
+        List<String> excludeObjects = Arrays.asList(
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_COMMIT_AND_PREPARE_RSP,name=CrossNodeDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_COMMIT_AND_PREPARE_RSP,name=Dropped",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_COMMIT_AND_PREPARE_RSP,name=InternalDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_PREPARE_REFRESH_RSP,name=CrossNodeDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_PREPARE_REFRESH_RSP,name=Dropped",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_PREPARE_REFRESH_RSP,name=InternalDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_PREPARE_RSP,name=CrossNodeDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_PREPARE_RSP,name=Dropped",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_PREPARE_RSP,name=InternalDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_PROPOSE_RSP,name=CrossNodeDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_PROPOSE_RSP,name=Dropped",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_PROPOSE_RSP,name=InternalDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_REPAIR_RSP,name=CrossNodeDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_REPAIR_RSP,name=Dropped",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_REPAIR_RSP,name=InternalDroppedLatency",
+            "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_COMMIT_AND_PREPARE_RSP-WaitLatency",
+            "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_PREPARE_REFRESH_RSP-WaitLatency",
+            "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_PREPARE_RSP-WaitLatency",
+            "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_PROPOSE_RSP-WaitLatency",
+            "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_REPAIR_RSP-WaitLatency"
+        );
         List<String> excludeAttributes = Arrays.asList();
         List<String> excludeOperations = Arrays.asList();
 

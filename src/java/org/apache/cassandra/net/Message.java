@@ -922,7 +922,14 @@ public class Message<T>
             // the same between now and when the recipient reconstructs it.
             out.writeInt((int) approxTime.translate().toMillisSinceEpoch(header.createdAtNanos));
             inetAddressAndPortSerializer.serialize(header.from, out, version);
-            out.writeInt(header.verb.toPre40Verb().id);
+
+            // due to an id collision betweeh APPLE_PAXOS_CLEANUP_COMPLETE and PARTITION_SIZE_REQ, we remap
+            // the id when sending to a 3.x node here
+            int verbId = header.verb == Verb.PAXOS2_CLEANUP_COMPLETE_REQ
+                       ? Verb.PARTITION_SIZE_REQ.id
+                       : header.verb.toPre40Verb().id;
+
+            out.writeInt(verbId);
             serializeParams(addFlagsToLegacyParams(header.params, header.flags), out, version);
         }
 
@@ -935,6 +942,12 @@ public class Message<T>
             long creationTimeNanos = calculateCreationTimeNanos(in.readInt(), timeSnapshot, currentTimeNanos);
             InetAddressAndPort from = inetAddressAndPortSerializer.deserialize(in, version);
             Verb verb = Verb.fromId(in.readInt());
+
+            // due to an id collision betweeh APPLE_PAXOS_CLEANUP_COMPLETE and PARTITION_SIZE_REQ, we remap
+            // the id when receiving from a 3.x node here
+            if (verb == Verb.PARTITION_SIZE_REQ)
+                verb = Verb.PAXOS2_CLEANUP_COMPLETE_REQ;
+
             Map<ParamType, Object> params = deserializeParams(in, version);
             int flags = removeFlagsFromLegacyParams(params);
             return new Header(id, verb, from, creationTimeNanos, verb.expiresAtNanos(creationTimeNanos), flags, params);

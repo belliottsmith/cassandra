@@ -1205,7 +1205,6 @@ public class Paxos
     {
         Preconditions.checkNotNull(paxosVariant);
         PAXOS_VARIANT = paxosVariant;
-        DatabaseDescriptor.setPaxosVariant(paxosVariant);
     }
 
     public static Config.PaxosVariant getPaxosVariant()

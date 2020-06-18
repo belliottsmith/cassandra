@@ -53,7 +53,7 @@ import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.DebuggableTask.RunnableDebuggableTask;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.CassandraRelevantProperties;
-import org.apache.cassandra.config.Config;
+import org.apache.cassandra.config.Config.PaxosBackCompatVariant;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -3477,7 +3477,9 @@ public class StorageProxy implements StorageProxyMBean
     public void setPaxosVariant(String variant)
     {
         Preconditions.checkNotNull(variant);
-        Paxos.setPaxosVariant(Config.PaxosVariant.valueOf(variant));
+        PaxosBackCompatVariant paxosBackCompatVariant = PaxosBackCompatVariant.valueOf(variant);
+        Paxos.setPaxosVariant(paxosBackCompatVariant.variant);
+        DatabaseDescriptor.setPaxosVariant(paxosBackCompatVariant);
     }
 
     @Override
