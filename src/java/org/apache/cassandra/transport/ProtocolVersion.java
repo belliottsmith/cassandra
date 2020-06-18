@@ -136,6 +136,11 @@ public enum ProtocolVersion implements Comparable<ProtocolVersion>
         return num;
     }
 
+    public boolean supportsV4Checksums()
+    {
+        return num == V4.asInt();
+    }
+
     @Override
     public String toString()
     {

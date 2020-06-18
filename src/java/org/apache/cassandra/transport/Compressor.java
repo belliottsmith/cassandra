@@ -18,6 +18,7 @@
 package org.apache.cassandra.transport;
 
 import java.io.IOException;
+import java.util.zip.CRC32;
 
 import io.netty.buffer.ByteBuf;
 import org.xerial.snappy.Snappy;
@@ -139,7 +140,27 @@ public interface Compressor
             decompressor = lz4Factory.decompressor();
         }
 
-        public Envelope compress(Envelope uncompressed)
+        public Envelope compress(Envelope uncompressed) throws IOException
+        {
+            return uncompressed.header.flags.contains(Envelope.Header.Flag.V4_CHECKSUMMED)
+                   ? internalCompressWithChecksum(uncompressed) : internalCompressWithoutChecksum(uncompressed);
+        }
+
+        private Envelope internalCompressWithChecksum(Envelope uncompressed) throws IOException
+        {
+            try
+            {
+                ByteBuf compressedFrameBody = CieV4LZ4Utils.compress(compressor, new CRC32(), uncompressed.body);
+                return uncompressed.with(compressedFrameBody);
+            }
+            finally
+            {
+                //release the old frame
+                uncompressed.release();
+            }
+        }
+
+        public Envelope internalCompressWithoutChecksum(Envelope uncompressed)
         {
             byte[] input = CBUtil.readRawBytes(uncompressed.body);
 
@@ -173,6 +194,25 @@ public interface Compressor
         }
 
         public Envelope decompress(Envelope compressed) throws IOException
+        {
+            return (compressed.header.flags.contains(Envelope.Header.Flag.V4_CHECKSUMMED))
+                   ? internalDecompressWithChecksum(compressed) : internalDecompressWithoutChecksum(compressed);
+        }
+
+        private Envelope internalDecompressWithChecksum(Envelope compressed) throws IOException
+        {
+            try
+            {
+                ByteBuf decompressedFrameBody = CieV4LZ4Utils.decompress(decompressor, new CRC32(), compressed.body);
+                return compressed.with(decompressedFrameBody);
+            }
+            finally
+            {
+                //release the old frame
+                compressed.release();
+            }
+        }
+        public Envelope internalDecompressWithoutChecksum(Envelope compressed) throws IOException
         {
             byte[] input = CBUtil.readRawBytes(compressed.body);
 
