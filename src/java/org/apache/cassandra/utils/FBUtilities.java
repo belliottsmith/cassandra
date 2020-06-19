@@ -148,15 +148,7 @@ public class FBUtilities
     {
         if (localInetAddressAndPort == null)
         {
-            if(DatabaseDescriptor.getRawConfig() == null)
-            {
-                localInetAddressAndPort = InetAddressAndPort.getByAddress(getJustLocalAddress());
-            }
-            else
-            {
-                localInetAddressAndPort = InetAddressAndPort.getByAddressOverrideDefaults(getJustLocalAddress(),
-                                                                                          DatabaseDescriptor.getStoragePort());
-            }
+            localInetAddressAndPort = InetAddressAndPort.getByAddress(getJustLocalAddress());
         }
         return localInetAddressAndPort;
     }
@@ -183,15 +175,7 @@ public class FBUtilities
     {
         if (broadcastInetAddressAndPort == null)
         {
-            if(DatabaseDescriptor.getRawConfig() == null)
-            {
-                broadcastInetAddressAndPort = InetAddressAndPort.getByAddress(getJustBroadcastAddress());
-            }
-            else
-            {
-                broadcastInetAddressAndPort = InetAddressAndPort.getByAddressOverrideDefaults(getJustBroadcastAddress(),
-                                                                                              DatabaseDescriptor.getStoragePort());
-            }
+            broadcastInetAddressAndPort = InetAddressAndPort.getByAddress(getJustBroadcastAddress());
         }
         return broadcastInetAddressAndPort;
     }
@@ -234,15 +218,8 @@ public class FBUtilities
     public static InetAddressAndPort getBroadcastNativeAddressAndPort()
     {
         if (broadcastNativeAddressAndPort == null)
-            if(DatabaseDescriptor.getRawConfig() == null)
-            {
-                broadcastNativeAddressAndPort = InetAddressAndPort.getByAddress(getJustBroadcastNativeAddress());
-            }
-            else
-            {
-                broadcastNativeAddressAndPort = InetAddressAndPort.getByAddressOverrideDefaults(getJustBroadcastNativeAddress(),
-                                                                                                DatabaseDescriptor.getNativeTransportPort());
-            }
+            broadcastNativeAddressAndPort = InetAddressAndPort.getByAddressOverrideDefaults(getJustBroadcastNativeAddress(),
+                                                                                             DatabaseDescriptor.getNativeTransportPort());
         return broadcastNativeAddressAndPort;
     }
 
