@@ -188,6 +188,9 @@ public class TableMetrics
     public final EstimatedHistogram sstablesPerRead = new EstimatedHistogram(35);
     public final EstimatedHistogram recentSSTablesPerRead = new EstimatedHistogram(35);
 
+    public final EstimatedHistogram sstablesSkippedPerRead = new EstimatedHistogram(35, true);
+    public final EstimatedHistogram recentSSTablesSkippedPerRead = new EstimatedHistogram(35, true);
+
     private final MetricNameFactory factory;
     private final MetricNameFactory aliasFactory;
     private static final MetricNameFactory globalFactory = new AllTableMetricNameFactory("Table");
@@ -966,6 +969,14 @@ public class TableMetrics
         sstablesPerReadHistogram.update(count);
         sstablesPerRead.add(count);
         recentSSTablesPerRead.add(count);
+    }
+
+    public void updateSSTablesSelected(int mergedSSTablesIterated, int intersectingSSTables, int includedDueToTombstones)
+    {
+        updateSSTableIterated(mergedSSTablesIterated);
+        int skipped = intersectingSSTables + includedDueToTombstones - mergedSSTablesIterated;
+        sstablesSkippedPerRead.add(skipped);
+        recentSSTablesSkippedPerRead.add(skipped);
     }
 
     /**

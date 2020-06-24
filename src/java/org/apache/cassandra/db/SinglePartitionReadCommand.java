@@ -728,6 +728,7 @@ public class SinglePartitionReadCommand extends ReadCommand
              * elimination in one pass, and minimize the number of sstables for which we read a partition tombstone.
              */
             Collections.sort(view.sstables, SSTableReader.maxTimestampComparator);
+            int intersectingSSTables = 0;
             int nonIntersectingSSTables = 0;
             int includedDueToTombstones = 0;
             SSTableReadMetricsCollector metricsCollector = new SSTableReadMetricsCollector();
@@ -750,6 +751,7 @@ public class SinglePartitionReadCommand extends ReadCommand
 
                 if (shouldInclude(sstable))
                 {
+                    intersectingSSTables++;
                     if (!sstable.isRepaired())
                         oldestUnrepairedTombstone = Math.min(oldestUnrepairedTombstone, sstable.getMinLocalDeletionTime());
 
@@ -797,7 +799,9 @@ public class SinglePartitionReadCommand extends ReadCommand
             Tracing.trace("Merging data from memtables and {} sstables", metricsCollector.getMergedSSTables());
 
             @SuppressWarnings("resource") //  Closed through the closing of the result of that method.
-            UnfilteredRowIterator merged = withSSTablesIterated(inputCollector.finalizeIterators(cfs, nowInSec(), oldestUnrepairedTombstone), cfs.metric, metricsCollector);
+            UnfilteredRowIterator merged = withSSTablesIterated(inputCollector.finalizeIterators(cfs, nowInSec(), oldestUnrepairedTombstone),
+                                                                cfs.metric, metricsCollector,
+                                                                intersectingSSTables, includedDueToTombstones);
             if (!merged.isEmpty())
             {
                 DecoratedKey key = merged.partitionKey();
@@ -852,7 +856,9 @@ public class SinglePartitionReadCommand extends ReadCommand
      */
     private UnfilteredRowIterator withSSTablesIterated(List<UnfilteredRowIterator> iterators,
                                                        TableMetrics metrics,
-                                                       SSTableReadMetricsCollector metricsCollector)
+                                                       SSTableReadMetricsCollector metricsCollector,
+                                                       int intersectingSSTables,
+                                                       int includedDueToTombstones)
     {
         @SuppressWarnings("resource") //  Closed through the closing of the result of the caller method.
         UnfilteredRowIterator merged = UnfilteredRowIterators.merge(iterators, nowInSec());
@@ -868,8 +874,8 @@ public class SinglePartitionReadCommand extends ReadCommand
             public void onPartitionClose()
             {
                 int mergedSSTablesIterated = metricsCollector.getMergedSSTables();
-                metrics.updateSSTableIterated(mergedSSTablesIterated);
-                Tracing.trace("Merged data from memtables and {} sstables", mergedSSTablesIterated);
+                metrics.updateSSTablesSelected(mergedSSTablesIterated, intersectingSSTables, includedDueToTombstones);
+                Tracing.trace("Merged data from memtables and {} sstables (selected {} sstables)", mergedSSTablesIterated, intersectingSSTables + includedDueToTombstones);
             }
         };
         return Transformation.apply(merged, new UpdateSstablesIterated());

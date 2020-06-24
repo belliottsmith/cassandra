@@ -2886,6 +2886,18 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     @Override
+    public long[] getSSTablesSkippedPerRead()
+    {
+        return metric.sstablesSkippedPerRead.getBuckets(false);
+    }
+
+    @Override
+    public long[] getRecentSSTablesSkippedPerRead()
+    {
+        return metric.recentSSTablesSkippedPerRead.getBuckets(true);
+    }
+
+    @Override
     public long[] getRecentWriteLatencyHistogramMicrosV3()
     {
         return metric.writeLatency.recentLatencyHistogram.getBuckets(true);

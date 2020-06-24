@@ -214,6 +214,18 @@ public interface ColumnFamilyStoreMBean
     public long[] getSSTablesPerReadHistogramV3();
 
     /**
+     * @see org.apache.cassandra.metrics.TableMetrics#sstablesSkippedPerRead
+     * @return a histogram of the number of sstables skipped per read (see CASSANDRA-8180)
+     */
+    public long[] getSSTablesSkippedPerRead();
+
+    /**
+     * @see org.apache.cassandra.metrics.TableMetrics#recentSSTablesSkippedPerRead
+     * @return a histogram of the number of sstables skipped per read (see CASSANDRA-8180): reading this property resets it
+     */
+    public long[] getRecentSSTablesSkippedPerRead();
+
+    /**
      * @see org.apache.cassandra.metrics.TableMetrics#readLatency
      * @return an array representing the latency histogram
      */
