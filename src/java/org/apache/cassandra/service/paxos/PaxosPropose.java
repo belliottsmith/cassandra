@@ -39,13 +39,13 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDSerializer;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE;
 import static org.apache.cassandra.net.MessagingService.Verb.REQUEST_RESPONSE;
+import static org.apache.cassandra.service.paxos.Paxos.canExecuteOnSelf;
 import static org.apache.cassandra.service.paxos.PaxosPropose.Superseded.SideEffects.NO;
 import static org.apache.cassandra.service.paxos.PaxosPropose.Superseded.SideEffects.MAYBE;
 import static org.apache.cassandra.net.MessagingService.verbStages;
@@ -120,6 +120,7 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
     private static final long TIMEOUT_INCREMENT = 1L << TIMEOUT_SHIFT;
     private static final long MASK = (1L << REFUSAL_SHIFT) - 1L;
 
+    private final UUID ballot;
     /** Wait until we know if we may have had side effects */
     private final boolean waitForNoSideEffect;
     /** Number of contacted nodes */
@@ -145,8 +146,9 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
     /** The newest superseding ballot from a refusal; only returned to the caller if we fail to reach a quorum */
     private volatile UUID supersededBy;
 
-    private PaxosPropose(int participants, int required, boolean waitForNoSideEffect, Consumer<Status> onDone)
+    private PaxosPropose(UUID ballot, int participants, int required, boolean waitForNoSideEffect, Consumer<Status> onDone)
     {
+        this.ballot = ballot;
         assert required > 0;
         this.waitForNoSideEffect = waitForNoSideEffect;
         this.participants = participants;
@@ -162,7 +164,7 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
     static Status sync(long deadline, Commit proposal, Paxos.Participants participants, boolean waitForNoSideEffect)
     {
         SimpleCondition done = new SimpleCondition();
-        PaxosPropose propose = new PaxosPropose(participants.contact.size(), participants.requiredForConsensus, waitForNoSideEffect, ignore -> done.signalAll());
+        PaxosPropose propose = new PaxosPropose(proposal.ballot, participants.poll.size(), participants.requiredForConsensus, waitForNoSideEffect, ignore -> done.signalAll());
         propose.start(participants, proposal);
 
         try
@@ -171,7 +173,7 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
         }
         catch (InterruptedException e)
         {
-            return new MaybeFailure(new Paxos.MaybeFailure(true, participants.contact.size(), participants.requiredForConsensus, 0, 0));
+            return new MaybeFailure(new Paxos.MaybeFailure(true, participants.poll.size(), participants.requiredForConsensus, 0, 0));
         }
 
         return propose.status();
@@ -179,7 +181,7 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
 
     static <T extends Consumer<Status>> T async(Commit proposal, Paxos.Participants participants, boolean waitForNoSideEffect, T onDone)
     {
-        PaxosPropose propose = new PaxosPropose(participants.contact.size(), participants.requiredForConsensus, waitForNoSideEffect, onDone);
+        PaxosPropose propose = new PaxosPropose(proposal.ballot, participants.poll.size(), participants.requiredForConsensus, waitForNoSideEffect, onDone);
         propose.start(participants, proposal);
         return onDone;
     }
@@ -188,10 +190,11 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
     {
         MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_PROPOSE, new Request(proposal), requestSerializer);
         boolean executeOnSelf = false;
-        for (int i = 0, size = participants.contact.size() ; i < size ; ++i)
+        for (int i = 0, size = participants.poll.size(); i < size ; ++i)
         {
-            InetAddress destination = participants.contact.get(i);
-            if (StorageProxy.canDoLocalRequest(destination)) executeOnSelf = true;
+            InetAddress destination = participants.poll.get(i);
+            logger.trace("Propose {} to {}", proposal, destination);
+            if (canExecuteOnSelf(destination)) executeOnSelf = true;
             else MessagingService.instance().sendRRWithFailure(message, destination, this);
         }
 
@@ -244,7 +247,7 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
 
     public void response(Response response, InetAddress from)
     {
-        logger.trace("Propose response {} from {}", response, from);
+        logger.trace("{} for {} from {}", response, ballot, from);
 
         UUID supersededBy = response.supersededBy;
         if (supersededBy != null)
@@ -260,13 +263,14 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
     @Override
     public void onFailure(InetAddress from)
     {
-        logger.debug("Received paxos propose failure response from {}", from);
+        logger.trace("Propose Failure for {} from {}", ballot, from);
         update(REFUSAL_INCREMENT);
     }
 
     @Override
     public void onExpired(InetAddress from)
     {
+        logger.trace("Propose Timeout for {} from {}", ballot, from);
         update(TIMEOUT_INCREMENT);
     }
 
@@ -362,6 +366,11 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
         {
             this.proposal = proposal;
         }
+
+        public String toString()
+        {
+            return "Propose(" + proposal.ballot + ", " + proposal.update + ')';
+        }
     }
 
     /**
@@ -375,7 +384,7 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
         {
             this.supersededBy = supersededBy;
         }
-        public String toString() { return supersededBy == null ? "Accept" : "Reject(" + supersededBy + ')'; }
+        public String toString() { return supersededBy == null ? "Accept" : "RejectProposal(" + supersededBy + ')'; }
     }
 
     /**
@@ -388,7 +397,7 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
         {
             Response response = execute(message.payload.proposal, message.from);
             if (response == null)
-                Paxos.sendFailureResponse("propose", message.from, message.payload.proposal.ballot, id);
+                Paxos.sendFailureResponse("Propose", message.from, message.payload.proposal.ballot, id);
             else
                 MessagingService.instance().sendReply(new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer), id, message.from);
         }

@@ -32,17 +32,34 @@ public class SimpleCondition implements Condition
     private volatile WaitQueue waiting;
     private volatile boolean signaled = false;
 
-    public void await() throws InterruptedException
+    private WaitQueue.Signal register()
     {
         if (isSignaled())
-            return;
+            return null;
         if (waiting == null)
             waitingUpdater.compareAndSet(this, null, new WaitQueue());
         WaitQueue.Signal s = waiting.register();
         if (isSignaled())
+        {
             s.cancel();
-        else
+            s = null;
+        }
+        return s;
+    }
+
+    public void await() throws InterruptedException
+    {
+        WaitQueue.Signal s = register();
+        if (s != null)
             s.await();
+        assert isSignaled();
+    }
+
+    public void awaitUninterruptibly()
+    {
+        WaitQueue.Signal s = register();
+        if (s != null)
+            s.awaitUninterruptibly();
         assert isSignaled();
     }
 
@@ -57,17 +74,8 @@ public class SimpleCondition implements Condition
     // until System.nanoTime
     public boolean awaitUntil(long until) throws InterruptedException
     {
-        if (isSignaled())
-            return true;
-        if (waiting == null)
-            waitingUpdater.compareAndSet(this, null, new WaitQueue());
-        WaitQueue.Signal s = waiting.register();
-        if (isSignaled())
-        {
-            s.cancel();
-            return true;
-        }
-        return s.awaitUntil(until) || isSignaled();
+        WaitQueue.Signal s = register();
+        return s == null|| s.awaitUntil(until) || isSignaled();
     }
 
     public void signal()
@@ -85,11 +93,6 @@ public class SimpleCondition implements Condition
         signaled = true;
         if (waiting != null)
             waiting.signalAll();
-    }
-
-    public void awaitUninterruptibly()
-    {
-        throw new UnsupportedOperationException();
     }
 
     public long awaitNanos(long nanosTimeout) throws InterruptedException

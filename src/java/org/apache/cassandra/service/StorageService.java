@@ -157,6 +157,7 @@ import org.apache.cassandra.utils.progress.jmx.JMXProgressSupport;
 import org.apache.cassandra.utils.progress.jmx.LegacyJMXProgressSupport;
 
 import static java.util.Arrays.asList;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.stream.Collectors.toList;
 import static org.apache.cassandra.index.SecondaryIndexManager.getIndexName;
@@ -2066,7 +2067,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         break;
                     case SCHEMA:
                         SystemKeyspace.updatePeerInfo(endpoint, "schema_version", UUID.fromString(value.value), executor);
-                        MigrationManager.instance.scheduleSchemaPull(endpoint, epState);
+                        MigrationManager.scheduleSchemaPull(endpoint, epState);
                         break;
                     case HOST_ID:
                         SystemKeyspace.updatePeerInfo(endpoint, "host_id", UUID.fromString(value.value), executor);

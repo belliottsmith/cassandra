@@ -42,9 +42,9 @@ import org.apache.cassandra.utils.concurrent.SimpleCondition;
 import static org.apache.cassandra.concurrent.StageManager.getStage;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_COMMIT;
 import static org.apache.cassandra.net.MessagingService.verbStages;
-import static org.apache.cassandra.service.StorageProxy.canDoLocalRequest;
 import static org.apache.cassandra.service.StorageProxy.shouldHint;
 import static org.apache.cassandra.service.StorageProxy.submitHint;
+import static org.apache.cassandra.service.paxos.Paxos.canExecuteOnSelf;
 
 // Does not support EACH_QUORUM, as no such thing as EACH_SERIAL
 public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
@@ -97,7 +97,7 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
         this.proposal = proposal;
         this.allowHints = allowHints;
         this.consistency = consistency;
-        this.participants = participants.allNatural.size() + participants.allPending.size();
+        this.participants = participants.all.size();
         this.onDone = onDone;
         this.required = participants.requiredFor(consistency, proposal.update.metadata());
         if (required == 0)
@@ -113,9 +113,8 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
         PaxosCommit commit = new PaxosCommit(proposal, allowHints, consistency, participants, ignore -> done.signalAll());
         commit.start(participants, false);
 
-        // We do not need to wait if a proposal is empty: so long as we have reached a QUORUM of acceptors, we have serialized
-        // the operation with respect to others.  There is no other visible effect on the storage nodes, so there is no user
-        // visible impact to failing to persist.  The incomplete round can be completed anytime.
+        // NOTE: we deliberately do not commit empty proposals anymore, so this optimisation should never be exercised
+        // There is no issue with commiting empty proposals, but no benefit either
         if (proposal.update.isEmpty())
             return success;
 
@@ -147,14 +146,8 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
     {
         boolean executeOnSelf = false;
         MessageOut<Commit> message = new MessageOut<>(PAXOS_COMMIT, proposal, Commit.serializer);
-        for (int i = 0, mi = participants.allNatural.size(); i < mi ; ++i)
-            executeOnSelf |= isSelfOrSend(message, participants.allNatural.get(i));
-
-        if (!participants.allPending.isEmpty())
-        {
-            for (InetAddress destination : participants.allPending)
-                executeOnSelf |= isSelfOrSend(message, destination);
-        }
+        for (int i = 0, mi = participants.all.size(); i < mi ; ++i)
+            executeOnSelf |= isSelfOrSend(message, participants.all.get(i));
 
         if (executeOnSelf)
         {
@@ -169,16 +162,18 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
      */
     private boolean isSelfOrSend(MessageOut<Commit> message, InetAddress destination)
     {
-        if (canDoLocalRequest(destination))
+        if (canExecuteOnSelf(destination))
             return true;
 
         if (FailureDetector.instance.isAlive(destination))
         {
+            logger.trace("Committing {} to {}", proposal, destination);
             MessagingService.instance().sendRRWithFailure(message, destination, this);
         }
         else
         {
-            onFailure(destination);
+            logger.trace("Not committing {} to down {}", proposal.ballot, destination);
+            onFailureInternal(destination);
         }
 
         return false;
@@ -188,6 +183,26 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
      * Record a failure response, and maybe submit a hint to {@code from}
      */
     public void onFailure(InetAddress from)
+    {
+        logger.trace("{} Failure from {}", proposal, from);
+
+        onFailureInternal(from);
+    }
+
+    /**
+     * Record a timeout response, and maybe submit a hint to {@code from}
+     */
+    public void onExpired(InetAddress from)
+    {
+        logger.trace("{} Timeout from {}", proposal, from);
+
+        onFailureInternal(from);
+    }
+
+    /**
+     * Record a failure or timeout, and maybe submit a hint to {@code from}
+     */
+    private void onFailureInternal(InetAddress from)
     {
         response(false, from);
 
@@ -200,6 +215,8 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
      */
     public void response(MessageIn<WriteResponse> msg)
     {
+        logger.trace("{} Success from {}", proposal, msg.from);
+
         response(true, msg.from);
     }
 
@@ -217,7 +234,7 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
         catch (Exception ex)
         {
             if (!(ex instanceof WriteTimeoutException))
-                logger.error("Failed to apply paxos commit locally", ex);
+                logger.error("Failed to apply {} locally", proposal, ex);
             onFailure(FBUtilities.getBroadcastAddress());
         }
     }
@@ -277,8 +294,9 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
         public void doVerb(MessageIn<Commit> message, int id)
         {
             MessageOut<WriteResponse> response = execute(message.payload, message.from);
+            // NOTE: for correctness, this must be our last action, so that we cannot throw an error and send both a response and a failure response
             if (response == null)
-                Paxos.sendFailureResponse("commit", message.from, message.payload.ballot, id);
+                Paxos.sendFailureResponse("Commit", message.from, message.payload.ballot, id);
             else
                 MessagingService.instance().sendReply(response, id, message.from);
         }

@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -33,6 +34,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+
+import org.junit.Assert;
 
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
@@ -60,7 +63,9 @@ import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.gms.ApplicationState;
+import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.gms.HeartBeatState;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.hints.HintsService;
 import org.apache.cassandra.index.SecondaryIndexManager;
@@ -246,7 +251,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             long timestamp = System.currentTimeMillis();
             out.writeInt((int) timestamp);
             messageOut.serialize(out, version);
-            return new Message(messageOut.verb.ordinal(), out.toByteArray(), id, version, from);
+            byte[] bytes = out.toByteArray();
+            // verify serialization accounting
+            if (messageOut.serializedSize(version) + 12 != bytes.length)
+                throw new IllegalStateException(messageOut.verb + ": " + (messageOut.serializedSize(version) + 12) + " != #" + Arrays.toString(bytes));
+            return new Message(messageOut.verb.ordinal(), bytes, id, version, from);
         }
         catch (IOException e)
         {
@@ -334,7 +343,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         }
         catch (IOException e)
         {
-            throw new RuntimeException();
+            throw new RuntimeException(e);
         }
     }
 
@@ -466,6 +475,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 }
                 else if (!config.has(NO_RING))
                 {
+                    Gossiper.instance.register(StorageService.instance);
                     initializeRing(cluster);
                 }
 
@@ -516,11 +526,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 Gossiper.instance.injectApplicationState(address,
                         ApplicationState.TOKENS,
                         new VersionedValue.VersionedValueFactory(partitioner).tokens(Collections.singleton(token)));
-                StorageService.instance.onChange(address,
-                        ApplicationState.STATUS,
-                        bootstrapping
-                                ? new VersionedValue.VersionedValueFactory(partitioner).bootstrapping(Collections.singleton(token))
-                                : new VersionedValue.VersionedValueFactory(partitioner).normal(Collections.singleton(token)));
+                VersionedValue status = bootstrapping
+                        ? new VersionedValue.VersionedValueFactory(partitioner).bootstrapping(Collections.singleton(token))
+                        : new VersionedValue.VersionedValueFactory(partitioner).normal(Collections.singleton(token));
+                Gossiper.instance.injectApplicationState(address, ApplicationState.STATUS, status);
+                StorageService.instance.onChange(address, ApplicationState.STATUS, status);
                 Gossiper.instance.realMarkAlive(address, Gossiper.instance.getEndpointStateForEndpoint(address));
             });
             int version = Math.min(MessagingService.current_version, peer.getMessagingVersion());
@@ -536,19 +546,40 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         }
     }
 
-    public static void addToRingNormal(IInstance ... peers)
+    // reset gossip state so we know of the node being alive only
+    public static void removeFromRing(IInstance peer)
     {
-        for (IInstance peer : peers)
-            addToRing(false, peer);
+        try
+        {
+            IInstanceConfig config = peer.config();
+            IPartitioner partitioner = FBUtilities.newPartitioner(config.getString("partitioner"));
+            Token token = partitioner.getTokenFactory().fromString(config.getString("initial_token"));
+            InetAddress address = config.broadcastAddressAndPort().address;
 
-        for (IInstance peer : peers)
-            assert StorageService.instance.getTokenMetadata().isMember(peer.broadcastAddressAndPort().address);
+            Gossiper.runInGossipStageBlocking(() -> {
+                StorageService.instance.onChange(address,
+                        ApplicationState.STATUS,
+                        new VersionedValue.VersionedValueFactory(partitioner).left(Collections.singleton(token), 0L, 0));
+                Gossiper.instance.unsafeAnulEndpoint(address);
+                Gossiper.instance.realMarkAlive(address, new EndpointState(new HeartBeatState(0, 0)));
+            });
+            PendingRangeCalculatorService.instance.blockUntilFinished();
+        }
+        catch (Throwable e) // UnknownHostException
+        {
+            throw new RuntimeException(e);
+        }
     }
 
-    public static void addToRingBootstrapping(IInstance ... peers)
+    public static void addToRingNormal(IInstance peer)
     {
-        for (IInstance peer : peers)
-            addToRing(true, peer);
+        addToRing(false, peer);
+        assert StorageService.instance.getTokenMetadata().isMember(peer.broadcastAddressAndPort().address);
+    }
+
+    public static void addToRingBootstrapping(IInstance peer)
+    {
+        addToRing(true, peer);
     }
 
     private static void initializeRing(ICluster cluster)

@@ -377,6 +377,11 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         return disableThreadCorrection;
     }
 
+    public static void runInGossipStageAsync(Runnable runnable)
+    {
+        StageManager.getStage(Stage.GOSSIP).execute(runnable);
+    }
+
     public static void runInGossipStageBlocking(Runnable runnable)
     {
         // run immediately if we're already in the gossip stage
@@ -451,7 +456,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
      * @param epState
      * @return
      */
-    int getMaxEndpointStateVersion(EndpointState epState)
+    static int getMaxEndpointStateVersion(EndpointState epState)
     {
         int maxVersion = epState.getHeartBeatState().getHeartBeatVersion();
         for (Map.Entry<ApplicationState, VersionedValue> state : epState.states())
@@ -500,6 +505,16 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         MessagingService.instance().destroyConnectionPool(endpoint);
         if (logger.isDebugEnabled())
             logger.debug("removing endpoint {}", endpoint);
+    }
+
+    @VisibleForTesting
+    public void unsafeAnulEndpoint(InetAddress endpoint)
+    {
+        removeEndpoint(endpoint);
+        justRemovedEndpoints.remove(endpoint);
+        endpointStateMap.remove(endpoint);
+        expireTimeEndpointMap.remove(endpoint);
+        unreachableEndpoints.remove(endpoint);
     }
 
     /**
@@ -1001,7 +1016,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         return ep1.getHeartBeatState().getGeneration() - ep2.getHeartBeatState().getGeneration();
     }
 
-    void notifyFailureDetector(Map<InetAddress, EndpointState> remoteEpStateMap)
+    public void notifyFailureDetector(Map<InetAddress, EndpointState> remoteEpStateMap)
     {
         for (Entry<InetAddress, EndpointState> entry : remoteEpStateMap.entrySet())
         {
@@ -1191,7 +1206,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         return pieces[0];
     }
 
-    void applyStateLocally(Map<InetAddress, EndpointState> epStateMap)
+    public void applyStateLocally(Map<InetAddress, EndpointState> epStateMap)
     {
         checkProperThreadForStateMutation();
         for (Entry<InetAddress, EndpointState> entry : epStateMap.entrySet())
@@ -1607,7 +1622,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         }
     }
 
-    protected boolean isInShadowRound()
+    public boolean isInShadowRound()
     {
         return inShadowRound;
     }
@@ -1625,6 +1640,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         Map<ApplicationState, VersionedValue> states = new EnumMap<>(ApplicationState.class);
         states.put(ApplicationState.NET_VERSION, StorageService.instance.valueFactory.networkVersion());
         states.put(ApplicationState.HOST_ID, StorageService.instance.valueFactory.hostId(uuid));
+        states.put(ApplicationState.RPC_ADDRESS, StorageService.instance.valueFactory.rpcaddress(addr));
+        states.put(ApplicationState.RELEASE_VERSION, StorageService.instance.valueFactory.releaseVersion());
         localState.addApplicationStates(states);
     }
 
