@@ -421,7 +421,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
         private int subnet;
         private File root;
         private Versions.Version version;
-        private Consumer<InstanceConfig> configUpdater;
+        private Consumer<IInstanceConfig> configUpdater;
         public Builder(int nodeCount, Factory<I, C> factory)
         {
             this.nodeCount = nodeCount;
@@ -446,7 +446,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster, 
             return this;
         }
 
-        public Builder<I, C> withConfig(Consumer<InstanceConfig> updater)
+        public Builder<I, C> withConfig(Consumer<IInstanceConfig> updater)
         {
             this.configUpdater = updater;
             return this;

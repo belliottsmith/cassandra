@@ -35,6 +35,8 @@ public interface IInstanceConfig
      */
     void propagate(Object writeToConfig);
 
+    IInstanceConfig with(Feature feature);
+    IInstanceConfig set(String fieldName, Object value);
     Object get(String fieldName);
     String getString(String fieldName);
     int getInt(String fieldName);

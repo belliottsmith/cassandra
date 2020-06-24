@@ -37,6 +37,7 @@ import com.sun.management.HotSpotDiagnosticMXBean;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.impl.InstanceConfig;
 import org.apache.cassandra.service.CassandraDaemon;
 import org.apache.cassandra.utils.FBUtilities;
@@ -140,7 +141,7 @@ public class ResourceLeakTest extends DistributedTestBase
         }
     }
 
-    void doTest(int numClusterNodes, Consumer<InstanceConfig> updater) throws Throwable
+    void doTest(int numClusterNodes, Consumer<IInstanceConfig> updater) throws Throwable
     {
         for (int loop = 0; loop < numTestLoops; loop++)
         {

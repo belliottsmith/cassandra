@@ -28,6 +28,7 @@ import java.util.function.Consumer;
 
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstance;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.impl.AbstractCluster;
 import org.apache.cassandra.distributed.impl.IInvokableInstance;
 import org.apache.cassandra.distributed.impl.InstanceConfig;
@@ -55,7 +56,7 @@ public class Cluster extends AbstractCluster<IInvokableInstance> implements IClu
         return new Builder<>(nodeCount, Cluster::new);
     }
 
-    public static Cluster create(int nodeCount, Consumer<InstanceConfig> configUpdater) throws IOException
+    public static Cluster create(int nodeCount, Consumer<IInstanceConfig> configUpdater) throws IOException
     {
         return build(nodeCount).withConfig(configUpdater).start();
     }

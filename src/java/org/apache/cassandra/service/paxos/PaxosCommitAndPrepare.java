@@ -23,12 +23,8 @@ import java.net.InetAddress;
 import java.util.UUID;
 
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
-import org.apache.cassandra.db.TypeSizes;
-import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.IVerbHandler;
@@ -36,7 +32,6 @@ import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.tracing.Tracing;
-import org.apache.cassandra.utils.UUIDSerializer;
 
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE;
 import static org.apache.cassandra.net.MessagingService.Verb.REQUEST_RESPONSE;
@@ -48,10 +43,10 @@ public class PaxosCommitAndPrepare
 {
     public static final RequestSerializer requestSerializer = new RequestSerializer();
 
-    static PaxosPrepare commitAndPrepare(Commit commit, Paxos.Participants participants, SinglePartitionReadCommand readCommand)
+    static PaxosPrepare commitAndPrepare(Commit commit, Paxos.Participants participants, SinglePartitionReadCommand readCommand, boolean tryOptimisticRead)
     {
-        UUID ballot = newBallot(commit.ballot);
-        Request request = new Request(commit, ballot, participants.consistencyForConsensus, participants.electorate, readCommand);
+        UUID ballot = newBallot(commit.ballot, participants.consistencyForConsensus);
+        Request request = new Request(commit, ballot, participants.electorate, readCommand, tryOptimisticRead);
         PaxosPrepare prepare = new PaxosPrepare(participants, request, null);
 
         Tracing.trace("Committing {}; Preparing {}", commit.ballot, ballot);
@@ -64,21 +59,21 @@ public class PaxosCommitAndPrepare
     {
         final Commit commit;
 
-        Request(Commit commit, UUID ballot, ConsistencyLevel consistency, Paxos.Electorate electorate, SinglePartitionReadCommand read)
+        Request(Commit commit, UUID ballot, Paxos.Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability)
         {
-            super(ballot, consistency, electorate, read);
+            super(ballot, electorate, read, checkProposalStability);
             this.commit = commit;
         }
 
-        private Request(Commit commit, UUID ballot, ConsistencyLevel consistency, Paxos.Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata)
+        private Request(Commit commit, UUID ballot, Paxos.Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability)
         {
-            super(ballot, consistency, electorate, partitionKey, metadata);
+            super(ballot, electorate, partitionKey, metadata, checkProposalStability);
             this.commit = commit;
         }
 
         Request withoutRead()
         {
-            return new Request(commit, ballot, consistency, electorate, partitionKey, metadata);
+            return new Request(commit, ballot, electorate, partitionKey, metadata, checkProposalStability);
         }
 
         public String toString()
@@ -87,59 +82,38 @@ public class PaxosCommitAndPrepare
         }
     }
 
-    public static class RequestSerializer implements IVersionedSerializer<Request>
+    public static class RequestSerializer extends PaxosPrepare.AbstractRequestSerializer<Request, Commit>
     {
+
+        Request construct(Commit param, UUID ballot, Paxos.Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability)
+        {
+            return new Request(param, ballot, electorate, read, checkProposalStability);
+        }
+
+        Request construct(Commit param, UUID ballot, Paxos.Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability)
+        {
+            return new Request(param, ballot, electorate, partitionKey, metadata, checkProposalStability);
+        }
+
         @Override
         public void serialize(Request request, DataOutputPlus out, int version) throws IOException
         {
             Commit.serializer.serialize(request.commit, out, version);
-            UUIDSerializer.serializer.serialize(request.ballot, out, version);
-            out.writeUnsignedVInt(request.consistency.code);
-            Paxos.Electorate.serializer.serialize(request.electorate, out, version);
-            out.writeBoolean(request.read != null);
-            if (request.read != null)
-            {
-                ReadCommand.serializer.serialize(request.read, out, version);
-            }
-            else
-            {
-                CFMetaData.serializer.serialize(request.metadata, out, version);
-                DecoratedKey.serializer.serialize(request.partitionKey, out, version);
-            }
+            super.serialize(request, out, version);
         }
 
         @Override
         public Request deserialize(DataInputPlus in, int version) throws IOException
         {
             Commit commit = Commit.serializer.deserialize(in, version);
-            UUID ballot = UUIDSerializer.serializer.deserialize(in, version);
-            ConsistencyLevel consistency = ConsistencyLevel.fromCode((int) in.readUnsignedVInt());
-            Paxos.Electorate electorate = Paxos.Electorate.serializer.deserialize(in, version);
-            boolean hasRead = in.readBoolean();
-            if (hasRead)
-            {
-                SinglePartitionReadCommand readCommand = (SinglePartitionReadCommand) ReadCommand.serializer.deserialize(in, version);
-                return new Request(commit, ballot, consistency, electorate, readCommand);
-            }
-            else
-            {
-                CFMetaData metadata = CFMetaData.serializer.deserialize(in, version);
-                DecoratedKey partitionKey = (DecoratedKey) DecoratedKey.serializer.deserialize(in, metadata.partitioner, version);
-                return new Request(commit, ballot, consistency, electorate, partitionKey, metadata);
-            }
+            return deserialize(commit, in, version);
         }
 
         @Override
         public long serializedSize(Request request, int version)
         {
             return Commit.serializer.serializedSize(request.commit, version)
-                    + UUIDSerializer.serializer.serializedSize(request.ballot, version)
-                    + TypeSizes.sizeofUnsignedVInt(request.consistency.code)
-                    + Paxos.Electorate.serializer.serializedSize(request.electorate, version)
-                    + 1 + (request.read != null
-                        ? ReadCommand.serializer.serializedSize(request.read, version)
-                            : CFMetaData.serializer.serializedSize(request.metadata, version)
-                            + DecoratedKey.serializer.serializedSize(request.partitionKey, version));
+                    + super.serializedSize(request, version);
         }
     }
 

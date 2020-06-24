@@ -166,4 +166,7 @@ public interface StorageProxyMBean
     void enableSecondaryIndex();
     void disableSecondaryIndex();
     boolean getSecondaryIndexEnabled();
+
+    void setPaxosVariant(String variant);
+    String getPaxosVariant();
 }

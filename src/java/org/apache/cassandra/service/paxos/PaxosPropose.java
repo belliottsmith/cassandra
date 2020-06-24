@@ -39,12 +39,13 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.paxos.Paxos.ConditionAsConsumer;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDSerializer;
-import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE;
 import static org.apache.cassandra.net.MessagingService.Verb.REQUEST_RESPONSE;
+import static org.apache.cassandra.service.paxos.Paxos.WAIT;
 import static org.apache.cassandra.service.paxos.Paxos.canExecuteOnSelf;
 import static org.apache.cassandra.service.paxos.PaxosPropose.Superseded.SideEffects.NO;
 import static org.apache.cassandra.service.paxos.PaxosPropose.Superseded.SideEffects.MAYBE;
@@ -56,7 +57,7 @@ import static org.apache.cassandra.net.MessagingService.verbStages;
  * indicating (respectively) that we have had no side effect, or that we cannot
  * know if we our proposal produced a side effect.
  */
-public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Response>
+public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> implements IAsyncCallbackWithFailure<PaxosPropose.Response>
 {
     private static final Logger logger = LoggerFactory.getLogger(PaxosPropose.class);
 
@@ -124,11 +125,11 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
     /** Wait until we know if we may have had side effects */
     private final boolean waitForNoSideEffect;
     /** Number of contacted nodes */
-    private final int participants;
+    final int participants;
     /** Number of accepts required */
-    private final int required;
+    final int required;
     /** Invoke on reaching a terminal status */
-    private final Consumer<Status> onDone;
+    final OnDone onDone;
 
     /**
      * bit 0-20:  accepts
@@ -146,7 +147,7 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
     /** The newest superseding ballot from a refusal; only returned to the caller if we fail to reach a quorum */
     private volatile UUID supersededBy;
 
-    private PaxosPropose(UUID ballot, int participants, int required, boolean waitForNoSideEffect, Consumer<Status> onDone)
+    private PaxosPropose(UUID ballot, int participants, int required, boolean waitForNoSideEffect, OnDone onDone)
     {
         this.ballot = ballot;
         assert required > 0;
@@ -157,36 +158,56 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
     }
 
     /**
-     * Submit the proposal for commit with all replicas, and wait synchronously until at most {@code deadline} for the result.
+     * Submit the proposal for commit with all replicas, and return an object that can be waited on synchronously for the result,
+     * or for the present status if the time elapses without a final result being reached.
      * @param waitForNoSideEffect if true, on failure we will wait until we can say with certainty there are no side effects
      *                            or until we know we will never be able to determine this with certainty
      */
-    static Status sync(long deadline, Commit proposal, Paxos.Participants participants, boolean waitForNoSideEffect)
+    static Paxos.Async<Status> async(Commit proposal, Paxos.Participants participants, boolean waitForNoSideEffect)
     {
-        SimpleCondition done = new SimpleCondition();
-        PaxosPropose propose = new PaxosPropose(proposal.ballot, participants.poll.size(), participants.requiredForConsensus, waitForNoSideEffect, ignore -> done.signalAll());
+        if (waitForNoSideEffect && proposal.update.isEmpty())
+            waitForNoSideEffect = false; // by definition this has no "side effects" (besides linearizing the operation)
+
+        // to avoid unnecessary object allocations we extend PaxosPropose to implements Paxos.Async
+        class Async extends PaxosPropose<ConditionAsConsumer<Status>> implements Paxos.Async<Status>
+        {
+            private Async(UUID ballot, int participants, int required, boolean waitForNoSideEffect)
+            {
+                super(ballot, participants, required, waitForNoSideEffect, new ConditionAsConsumer<>());
+            }
+
+            public Status awaitUntil(long deadline)
+            {
+                try
+                {
+                    WAIT.awaitUntil(onDone, deadline);
+                }
+                catch (InterruptedException e)
+                {
+                    Thread.currentThread().interrupt();
+                    return new MaybeFailure(new Paxos.MaybeFailure(true, participants, required, 0, 0));
+                }
+
+                return status();
+            }
+        }
+
+        Async propose = new Async(proposal.ballot, participants.poll.size(), participants.requiredForConsensus, waitForNoSideEffect);
         propose.start(participants, proposal);
-
-        try
-        {
-            done.awaitUntil(deadline);
-        }
-        catch (InterruptedException e)
-        {
-            return new MaybeFailure(new Paxos.MaybeFailure(true, participants.poll.size(), participants.requiredForConsensus, 0, 0));
-        }
-
-        return propose.status();
+        return propose;
     }
 
     static <T extends Consumer<Status>> T async(Commit proposal, Paxos.Participants participants, boolean waitForNoSideEffect, T onDone)
     {
-        PaxosPropose propose = new PaxosPropose(proposal.ballot, participants.poll.size(), participants.requiredForConsensus, waitForNoSideEffect, onDone);
+        if (waitForNoSideEffect && proposal.update.isEmpty())
+            waitForNoSideEffect = false; // by definition this has no "side effects" (besides linearizing the operation)
+
+        PaxosPropose<?> propose = new PaxosPropose<>(proposal.ballot, participants.poll.size(), participants.requiredForConsensus, waitForNoSideEffect, onDone);
         propose.start(participants, proposal);
         return onDone;
     }
 
-    private void start(Paxos.Participants participants, Commit proposal)
+    void start(Paxos.Participants participants, Commit proposal)
     {
         MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_PROPOSE, new Request(proposal), requestSerializer);
         boolean executeOnSelf = false;
@@ -313,7 +334,8 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
 
     private void signalDone()
     {
-        onDone.accept(status());
+        if (onDone != null)
+            onDone.accept(status());
     }
 
     private boolean isSuccessful(long responses)
@@ -384,13 +406,13 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
         {
             this.supersededBy = supersededBy;
         }
-        public String toString() { return supersededBy == null ? "Accept" : "RejectProposal(" + supersededBy + ')'; }
+        public String toString() { return supersededBy == null ? "Accept" : "RejectProposal(supersededBy=" + supersededBy + ')'; }
     }
 
     /**
      * The proposal request handler, i.e. receives a proposal from a peer and responds with either acccept/reject
      */
-    public static class RequestHandler implements IVerbHandler<PaxosPropose.Request>
+    public static class RequestHandler implements IVerbHandler<Request>
     {
         @Override
         public void doVerb(MessageIn<PaxosPropose.Request> message, int id)

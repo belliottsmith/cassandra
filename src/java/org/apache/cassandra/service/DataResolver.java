@@ -22,7 +22,6 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -45,7 +44,6 @@ import org.apache.cassandra.dht.ExcludingBounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
-import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.locator.NetworkTopologyStrategy;
 import org.apache.cassandra.net.*;
@@ -127,6 +125,12 @@ public class DataResolver extends ResponseResolver
     @SuppressWarnings("resource")
     public PartitionIterator resolve()
     {
+        return resolve(()->{});
+    }
+
+    @SuppressWarnings("resource")
+    public PartitionIterator resolve(Runnable onShortRead)
+    {
         // We could get more responses while this method runs, which is ok (we're happy to ignore any response not here
         // at the beginning of this method), so grab the response count once and use that through the method.
         int count = responses.size();
@@ -183,7 +187,7 @@ public class DataResolver extends ResponseResolver
         DataLimits.Counter mergedResultCounter =
             command.limits().newCounter(command.nowInSec(), true, command.selectsFullPartition(), enforceStrictLiveness);
 
-        UnfilteredPartitionIterator merged = mergeWithShortReadProtection(iters, sources, mergedResultCounter, repairedDataTracker);
+        UnfilteredPartitionIterator merged = mergeWithShortReadProtection(iters, sources, mergedResultCounter, repairedDataTracker, onShortRead);
         FilteredPartitions filtered =
             FilteredPartitions.filter(merged, new Filter(command.nowInSec(), command.metadata().enforceStrictLiveness()));
         PartitionIterator counted = Transformation.apply(filtered, mergedResultCounter);
@@ -201,7 +205,8 @@ public class DataResolver extends ResponseResolver
     private UnfilteredPartitionIterator mergeWithShortReadProtection(List<UnfilteredPartitionIterator> results,
                                                                      InetAddress[] sources,
                                                                      DataLimits.Counter mergedResultCounter,
-                                                                     RepairedDataTracker repairedDataTracker)
+                                                                     RepairedDataTracker repairedDataTracker,
+                                                                     Runnable onShortRead)
     {
         // If we have only one results, there is no read repair to do and we can't get short
         // reads and we can't make a comparison between repaired data sets
@@ -214,7 +219,7 @@ public class DataResolver extends ResponseResolver
          */
         if (!command.limits().isUnlimited())
             for (int i = 0; i < results.size(); i++)
-                results.set(i, extendWithShortReadProtection(results.get(i), sources[i], mergedResultCounter));
+                results.set(i, extendWithShortReadProtection(results.get(i), sources[i], mergedResultCounter, onShortRead));
 
         return UnfilteredPartitionIterators.merge(results, command.nowInSec(), new RepairMergeListener(sources, repairedDataTracker));
     }
@@ -702,13 +707,14 @@ public class DataResolver extends ResponseResolver
     @SuppressWarnings("resource")
     private UnfilteredPartitionIterator extendWithShortReadProtection(UnfilteredPartitionIterator partitions,
                                                                       InetAddress source,
-                                                                      DataLimits.Counter mergedResultCounter)
+                                                                      DataLimits.Counter mergedResultCounter,
+                                                                      Runnable onShortRead)
     {
         DataLimits.Counter singleResultCounter =
             command.limits().newCounter(command.nowInSec(), false, command.selectsFullPartition(), enforceStrictLiveness).onlyCount();
 
         ShortReadPartitionsProtection protection =
-            new ShortReadPartitionsProtection(source, singleResultCounter, mergedResultCounter);
+            new ShortReadPartitionsProtection(source, singleResultCounter, mergedResultCounter, onShortRead);
 
         /*
          * The order of extention and transformations is important here. Extending with more partitions has to happen
@@ -748,16 +754,22 @@ public class DataResolver extends ResponseResolver
 
         private final DataLimits.Counter singleResultCounter; // unmerged per-source counter
         private final DataLimits.Counter mergedResultCounter; // merged end-result counter
-
+        private final Runnable onShortRead;
         private DecoratedKey lastPartitionKey; // key of the last observed partition
 
         private boolean partitionsFetched; // whether we've seen any new partitions since iteration start or last moreContents() call
 
         private ShortReadPartitionsProtection(InetAddress source, DataLimits.Counter singleResultCounter, DataLimits.Counter mergedResultCounter)
         {
+            this(source, singleResultCounter, mergedResultCounter, () -> {});
+        }
+
+        private ShortReadPartitionsProtection(InetAddress source, DataLimits.Counter singleResultCounter, DataLimits.Counter mergedResultCounter, Runnable onShortRead)
+        {
             this.source = source;
             this.singleResultCounter = singleResultCounter;
             this.mergedResultCounter = mergedResultCounter;
+            this.onShortRead = onShortRead;
         }
 
         @Override
@@ -961,6 +973,7 @@ public class DataResolver extends ResponseResolver
 
                 ColumnFamilyStore.metricsFor(metadata.cfId).shortReadProtectionRequests.mark();
                 Tracing.trace("Requesting {} extra rows from {} for short read protection", lastQueried, source);
+                onShortRead.run();
 
                 SinglePartitionReadCommand cmd = makeFetchAdditionalRowsReadCommand(lastQueried);
                 return UnfilteredPartitionIterators.getOnlyElement(executeReadCommand(cmd), cmd);

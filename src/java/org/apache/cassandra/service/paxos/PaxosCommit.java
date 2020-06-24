@@ -37,17 +37,17 @@ import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 import static org.apache.cassandra.concurrent.StageManager.getStage;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_COMMIT;
 import static org.apache.cassandra.net.MessagingService.verbStages;
 import static org.apache.cassandra.service.StorageProxy.shouldHint;
 import static org.apache.cassandra.service.StorageProxy.submitHint;
+import static org.apache.cassandra.service.paxos.Paxos.WAIT;
 import static org.apache.cassandra.service.paxos.Paxos.canExecuteOnSelf;
 
 // Does not support EACH_QUORUM, as no such thing as EACH_SERIAL
-public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
+public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> implements IAsyncCallbackWithFailure<WriteResponse>
 {
     private static final Logger logger = LoggerFactory.getLogger(PaxosCommit.class);
 
@@ -78,9 +78,9 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
     final boolean allowHints;
     final ConsistencyLevel consistency;
 
-    private final int participants;
-    private final int required;
-    private final Consumer<Status> onDone;
+    final int participants;
+    final int required;
+    final OnDone onDone;
 
     /**
      * packs two 32-bit integers;
@@ -92,7 +92,7 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
      */
     private volatile long responses;
 
-    public PaxosCommit(Commit proposal, boolean allowHints, ConsistencyLevel consistency, Paxos.Participants participants, Consumer<Status> onDone)
+    public PaxosCommit(Commit proposal, boolean allowHints, ConsistencyLevel consistency, Paxos.Participants participants, OnDone onDone)
     {
         this.proposal = proposal;
         this.allowHints = allowHints;
@@ -107,26 +107,35 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
     /**
      * Submit the proposal for commit with all replicas, and wait synchronously until at most {@code deadline} for the result
      */
-    static Status sync(long deadline, Commit proposal, Paxos.Participants participants, ConsistencyLevel consistency, @Deprecated boolean allowHints)
+    static Paxos.Async<Status> async(Commit proposal, Paxos.Participants participants, ConsistencyLevel consistency, @Deprecated boolean allowHints)
     {
-        SimpleCondition done = new SimpleCondition();
-        PaxosCommit commit = new PaxosCommit(proposal, allowHints, consistency, participants, ignore -> done.signalAll());
-        commit.start(participants, false);
-
-        // NOTE: we deliberately do not commit empty proposals anymore, so this optimisation should never be exercised
-        // There is no issue with commiting empty proposals, but no benefit either
-        if (proposal.update.isEmpty())
-            return success;
-
-        try
+        // to avoid unnecessary object allocations we extend PaxosPropose to implements Paxos.Async
+        class Async extends PaxosCommit<Paxos.ConditionAsConsumer<Status>> implements Paxos.Async<Status>
         {
-            done.awaitUntil(deadline);
+            private Async(Commit proposal, boolean allowHints, ConsistencyLevel consistency, Paxos.Participants participants)
+            {
+                super(proposal, allowHints, consistency, participants, new Paxos.ConditionAsConsumer<>());
+            }
+
+            public Status awaitUntil(long deadline)
+            {
+                try
+                {
+                    WAIT.awaitUntil(onDone, deadline);
+                }
+                catch (InterruptedException e)
+                {
+                    Thread.currentThread().interrupt();
+                    return new Status(new Paxos.MaybeFailure(true, participants, required, 0, 0));
+                }
+
+                return status();
+            }
         }
-        catch (InterruptedException e)
-        {
-            return new Status(new Paxos.MaybeFailure(true, commit.participants, commit.required, 0, 0));
-        }
-        return commit.status();
+
+        Async async = new Async(proposal, allowHints, consistency, participants);
+        async.start(participants, false);
+        return async;
     }
 
     /**
@@ -142,7 +151,7 @@ public class PaxosCommit implements IAsyncCallbackWithFailure<WriteResponse>
     /**
      * Send commit messages to peers (or self)
      */
-    private void start(Paxos.Participants participants, boolean async)
+    void start(Paxos.Participants participants, boolean async)
     {
         boolean executeOnSelf = false;
         MessageOut<Commit> message = new MessageOut<>(PAXOS_COMMIT, proposal, Commit.serializer);

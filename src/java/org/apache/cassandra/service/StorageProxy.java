@@ -33,6 +33,7 @@ import com.google.common.collect.*;
 import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.Uninterruptibles;
 
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.ReadRepairDecision;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -74,6 +75,8 @@ import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.triggers.TriggerExecutor;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.AbstractIterator;
+
+import static org.apache.cassandra.config.Config.*;
 
 public class StorageProxy implements StorageProxyMBean
 {
@@ -274,7 +277,7 @@ public class StorageProxy implements StorageProxyMBean
                                   ConsistencyLevel consistencyForCommit)
     throws UnavailableException, IsBootstrappingException, RequestFailureException, RequestTimeoutException, InvalidRequestException
     {
-        return Paxos.USE_APPLE_PAXOS
+        return Paxos.useApplePaxos()
                 ? Paxos.cas(key, request, consistencyForPaxos, consistencyForCommit)
                 : legacyCas(keyspaceName, cfName, key, request, consistencyForPaxos, consistencyForCommit);
     }
@@ -467,7 +470,7 @@ public class StorageProxy implements StorageProxyMBean
             long ballotMicros = ClientState.getTimestampForPaxos(minTimestampMicrosToUse);
             // Note that ballotMicros is not guaranteed to be unique if two proposal are being handled concurrently by the same coordinator. But we still
             // need ballots to be unique for each proposal so we have to use getRandomTimeUUIDFromMicros.
-            UUID ballot = UUIDGen.getRandomTimeUUIDFromMicros(ballotMicros);
+            UUID ballot = Paxos.ballotForConsistency(ballotMicros, consistencyForPaxos);
 
             // prepare
             Tracing.trace("Preparing {}", ballot);
@@ -1710,7 +1713,7 @@ public class StorageProxy implements StorageProxyMBean
     private static PartitionIterator readWithPaxos(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyLevel)
     throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
     {
-        return Paxos.USE_APPLE_PAXOS
+        return Paxos.useApplePaxos()
                 ? Paxos.read(group, consistencyLevel)
                 : legacyReadWithPaxos(group, consistencyLevel);
     }
@@ -3451,5 +3454,15 @@ public class StorageProxy implements StorageProxyMBean
     public boolean getSecondaryIndexEnabled()
     {
         return DatabaseDescriptor.enableSecondaryIndex();
+    }
+
+    public void setPaxosVariant(String variant)
+    {
+        Paxos.setPaxosVariant(PaxosVariant.valueOf(variant));
+    }
+
+    public String getPaxosVariant()
+    {
+        return Paxos.getPaxosVariant();
     }
 }

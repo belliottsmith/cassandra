@@ -27,19 +27,18 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadOrderGroup;
 import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
-import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
@@ -57,13 +56,13 @@ import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDSerializer;
-import org.apache.cassandra.utils.vint.VIntCoding;
 
 import static org.apache.cassandra.concurrent.StageManager.getStage;
 import static org.apache.cassandra.net.CompactEndpointSerializationHelper.*;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE;
 import static org.apache.cassandra.net.MessagingService.current_version;
 import static org.apache.cassandra.net.MessagingService.verbStages;
+import static org.apache.cassandra.service.paxos.Commit.emptyBallot;
 import static org.apache.cassandra.service.paxos.Commit.isAfter;
 import static org.apache.cassandra.service.paxos.Paxos.*;
 import static org.apache.cassandra.service.paxos.Paxos.newBallot;
@@ -71,7 +70,6 @@ import static org.apache.cassandra.utils.CollectionSerializer.deserializeMap;
 import static org.apache.cassandra.utils.CollectionSerializer.newHashMap;
 import static org.apache.cassandra.utils.CollectionSerializer.serializeMap;
 import static org.apache.cassandra.utils.CollectionSerializer.serializedSizeMap;
-import static org.apache.cassandra.utils.NullableSerializer.*;
 
 /**
  * Perform one paxos "prepare" attempt, with various optimisations.
@@ -98,7 +96,7 @@ import static org.apache.cassandra.utils.NullableSerializer.*;
  * If we are completing an in-progress round we previously discovered, we save another round-trip by committing and
  * preparing simultaneously.
  */
-public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Response>, PaxosPrepareRefresh.Callbacks
+public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Response>, PaxosPrepareRefresh.Callbacks, Paxos.Async<PaxosPrepare.Status>
 {
     private static final Logger logger = LoggerFactory.getLogger(PaxosPrepare.class);
 
@@ -132,12 +130,14 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
     {
         final UUID ballot;
         final List<MessageIn<ReadResponse>> responses;
+        final boolean isReadConsistent;
 
-        Success(UUID ballot, Participants participants, List<MessageIn<ReadResponse>> responses)
+        Success(UUID ballot, Participants participants, List<MessageIn<ReadResponse>> responses, boolean isReadConsistent)
         {
             super(Outcome.SUCCESS, participants);
             this.ballot = ballot;
             this.responses = responses;
+            this.isReadConsistent = isReadConsistent;
         }
 
         public String toString() { return "Success(" + ballot + ", " + participants.electorate + ')'; }
@@ -220,6 +220,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
     private List<InetAddress> withLatest; // promised and have latest commit
     private List<InetAddress> needLatest; // promised without having witnessed latest commit, nor yet been refreshed by us
     private List<InetAddress> failures; // failed either on initial request or on refresh
+    private boolean hadProposalStability = true; // no successful proposal could have raced with us and not been seen
 
     private boolean isDone;
     private final Consumer<Status> onDone;
@@ -253,22 +254,22 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         return latestAccepted.isAfter(latestCommitted);
     }
 
-    static PaxosPrepare prepare(UUID minimumBallot, Participants initialParticipants, SinglePartitionReadCommand readCommand) throws UnavailableException
+    static PaxosPrepare prepare(UUID minimumBallot, Participants participants, SinglePartitionReadCommand readCommand, boolean tryOptimisticRead) throws UnavailableException
     {
-        return prepareWithBallot(newBallot(minimumBallot), initialParticipants, readCommand);
+        return prepareWithBallot(newBallot(minimumBallot, participants.consistencyForConsensus), participants, readCommand, tryOptimisticRead);
     }
 
-    static PaxosPrepare prepareWithBallot(UUID ballot, Participants initialParticipants, SinglePartitionReadCommand readCommand)
+    static PaxosPrepare prepareWithBallot(UUID ballot, Participants participants, SinglePartitionReadCommand readCommand, boolean tryOptimisticRead)
     {
         Tracing.trace("Preparing {} with read", ballot);
-        Request request = new Request(ballot, initialParticipants.consistencyForConsensus, initialParticipants.electorate, readCommand);
-        return prepareWithBallotInternal(initialParticipants, request, null);
+        Request request = new Request(ballot, participants.electorate, readCommand, tryOptimisticRead);
+        return prepareWithBallotInternal(participants, request, null);
     }
 
-    static <T extends Consumer<Status>> T prepareWithBallot(Participants initialParticipants, UUID ballot, DecoratedKey partitionKey, CFMetaData metadata, T onDone)
+    static <T extends Consumer<Status>> T prepareWithBallot(UUID ballot, Participants participants, DecoratedKey partitionKey, CFMetaData metadata, T onDone)
     {
         Tracing.trace("Preparing {}", ballot);
-        prepareWithBallotInternal(initialParticipants, new Request(ballot, initialParticipants.consistencyForConsensus, initialParticipants.electorate, partitionKey, metadata), onDone);
+        prepareWithBallotInternal(participants, new Request(ballot, participants.electorate, partitionKey, metadata), onDone);
         return onDone;
     }
 
@@ -303,18 +304,12 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             getStage(verbStages.get(send.verb)).execute(() -> prepare.executeOnSelf(send.payload, selfHandler));
     }
 
-    synchronized Status awaitUntil(long deadline)
+    public synchronized Status awaitUntil(long deadline)
     {
         try
         {
-            while (!isDone)
-            {
-                long wait = deadline - System.nanoTime();
-                if (wait <= 0)
-                    break;
-
-                wait((wait + 999999) / 1000000);
-            }
+            //noinspection StatementWithEmptyBody
+            while (!isDone && WAIT.waitUntil(this, deadline)) {}
 
             return status();
         }
@@ -348,7 +343,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             // we can only return success if we have received sufficient promises AND we know that at least that many
             // nodes have also committed the prior proposal
             if (withLatest() >= participants.requiredForConsensus)
-                return new Success(request.ballot, participants, readResponses);
+                return new Success(request.ballot, participants, readResponses, hadProposalStability);
         }
 
         return new MaybeFailure(new Paxos.MaybeFailure(participants, withLatest(), failures()), participants);
@@ -412,8 +407,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
     private synchronized void response(Response response, InetAddress from)
     {
-        Promised promised;
-        logger.trace("{} from {}", response, from);
+        logger.trace("{} for {} from {}", response, request.ballot, from);
 
         if (isDone)
             return;
@@ -426,8 +420,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             return;
         }
 
-        promised = response.promised();
-
+        Promised promised = response.promised();
         if (!needsGossipUpdate(promised.gossipInfo))
             promise(promised, from);
         else
@@ -448,7 +441,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
     private synchronized void promiseOrTerminateAfterGossipUpdate(Promised promised, InetAddress from)
     {
         // if the electorate has changed, finish so we can retry with the updated view of the ring
-        if (!Paxos.Electorate.get(request.metadata, request.partitionKey, request.consistency).equals(participants.electorate))
+        if (!Electorate.get(request.metadata, request.partitionKey, decodeConsistency(request.ballot)).equals(participants.electorate))
         {
             electorateMismatch = true;
             signalDone();
@@ -461,6 +454,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
     private void promise(Promised promised, InetAddress from)
     {
+        hadProposalStability &= promised.hadProposalStability;
         if (promised.latestCommitted.hasSameBallot(latestCommitted))
         {
             withLatest.add(from);
@@ -491,8 +485,14 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         {
             if (haveQuorumOfPromises)
             {
-                logger.error("{} serializability violation: {} promised by {} with latest {}; also by {} with latest {}",
-                        request.consistency, request.ballot, withLatest, latestCommitted, from, promised.latestCommitted);
+                logger.error("Linearizability violation: {} witnessed {} of latest {}({}) (withLatest: {}, readResponses: {}); {} promised with latest {}({})",
+                        request.ballot, decodeConsistency(request.ballot), latestCommitted, latestCommitted.ballot.timestamp(),
+                        withLatest, readResponses
+                                .stream()
+                                .map(r -> r.from)
+                                .map(Object::toString)
+                                .collect(Collectors.joining(", ", "[", "]")),
+                        from, promised.latestCommitted, promised.latestCommitted.ballot.timestamp());
             }
             // if promised.latestCommitted.isAfter(latestCommitted) we have a consistency violation,
             // as we should not be able to witness a newer committed after receiving a quorum of responses
@@ -558,7 +558,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         isDone = true;
         if (onDone != null)
             onDone.accept(status());
-        notify();
+        WAIT.notify(this);
     }
 
     /**
@@ -614,30 +614,30 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
     static abstract class AbstractRequest<R extends AbstractRequest<R>>
     {
         final UUID ballot;
-        final ConsistencyLevel consistency;
         final Electorate electorate;
         final SinglePartitionReadCommand read;
+        final boolean checkProposalStability;
         final DecoratedKey partitionKey;
         final CFMetaData metadata;
 
-        AbstractRequest(UUID ballot, ConsistencyLevel consistency, Electorate electorate, SinglePartitionReadCommand read)
+        AbstractRequest(UUID ballot, Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability)
         {
             this.ballot = ballot;
-            this.consistency = consistency;
             this.electorate = electorate;
             this.read = read;
+            this.checkProposalStability = checkProposalStability;
             this.partitionKey = read.partitionKey();
             this.metadata = read.metadata();
         }
 
-        AbstractRequest(UUID ballot, ConsistencyLevel consistency, Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata)
+        AbstractRequest(UUID ballot, Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability)
         {
             this.ballot = ballot;
-            this.consistency = consistency;
             this.electorate = electorate;
             this.partitionKey = partitionKey;
             this.metadata = metadata;
             this.read = null;
+            this.checkProposalStability = checkProposalStability;
         }
 
         abstract R withoutRead();
@@ -650,19 +650,29 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
     static class Request extends AbstractRequest<Request>
     {
-        Request(UUID ballot, ConsistencyLevel consistency, Electorate electorate, SinglePartitionReadCommand read)
+        Request(UUID ballot, Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability)
         {
-            super(ballot, consistency, electorate, read);
+            super(ballot, electorate, read, checkProposalStability);
         }
 
-        Request(UUID ballot, ConsistencyLevel consistency, Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata)
+        Request(UUID ballot, Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata)
         {
-            super(ballot, consistency, electorate, partitionKey, metadata);
+            this(ballot, electorate, partitionKey, metadata, false);
+        }
+
+        private Request(UUID ballot, Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability)
+        {
+            super(ballot, electorate, partitionKey, metadata, checkProposalStability);
         }
 
         Request withoutRead()
         {
-            return read == null ? this : new Request(ballot, consistency, electorate, partitionKey, metadata);
+            return read == null ? this : new Request(ballot, electorate, partitionKey, metadata, checkProposalStability);
+        }
+
+        public String toString()
+        {
+            return "Prepare(" + ballot + ')';
         }
     }
 
@@ -684,22 +694,24 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         @Nullable final Commit latestAcceptedButNotCommitted;
         final Commit latestCommitted;
         @Nullable final ReadResponse readResponse;
+        // latestAcceptedButNotCommitted and latestCommitted were the same before and after the read occurred, and no incomplete promise was witnessed
+        final boolean hadProposalStability;
         final Map<InetAddress, EndpointState> gossipInfo;
 
-        Promised(@Nullable Commit latestAcceptedButNotCommitted, Commit latestCommitted, @Nullable ReadResponse readResponse, Map<InetAddress, EndpointState> gossipInfo)
+        Promised(@Nullable Commit latestAcceptedButNotCommitted, Commit latestCommitted, @Nullable ReadResponse readResponse, boolean hadProposalStability, Map<InetAddress, EndpointState> gossipInfo)
         {
             super(true);
             this.latestAcceptedButNotCommitted = latestAcceptedButNotCommitted;
             this.latestCommitted = latestCommitted;
+            this.hadProposalStability = hadProposalStability;
             this.readResponse = readResponse;
             this.gossipInfo = gossipInfo;
         }
 
-
         @Override
         public String toString()
         {
-            return "Promised(" + latestAcceptedButNotCommitted + ", " + latestCommitted + ", " + gossipInfo + ')';
+            return "Promise(" + latestAcceptedButNotCommitted + ", " + latestCommitted + ", " + hadProposalStability + ", " + gossipInfo + ')';
         }
     }
 
@@ -716,7 +728,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         @Override
         public String toString()
         {
-            return "Rejected(" + supersededBy + ')';
+            return "RejectPromise(supersededBy=" + supersededBy + ')';
         }
     }
 
@@ -737,21 +749,32 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             if (!isInRangeAndShouldProcess(from, request.partitionKey, request.metadata))
                 return null;
 
-            PaxosState result = PaxosState.promiseIfNewer(request.partitionKey, request.metadata, request.ballot);
-
-            if (request.ballot == result.promised)
+            PaxosState.PromiseResult result = PaxosState.promiseIfNewer(request.partitionKey, request.metadata, request.ballot);
+            if (result.isPromised())
             {
-                Electorate localElectorate = Electorate.get(request.metadata, request.partitionKey, request.consistency);
-
                 // verify electorates; if they differ, send back gossip info for superset of two participant sets
-                Map<InetAddress, EndpointState> gossipInfo = Paxos.verifyElectorate(request.electorate, localElectorate);
+                Map<InetAddress, EndpointState> gossipInfo = verifyElectorate(request.electorate, Electorate.get(request.metadata, request.partitionKey, decodeConsistency(request.ballot)));
                 ReadResponse readResponse = null;
-                if (request.read != null && !localElectorate.pending.contains(FBUtilities.getBroadcastAddress()))
+                if (request.read != null)
                 {
                     try (ReadOrderGroup readGroup = request.read.startOrderGroup();
                          UnfilteredPartitionIterator iterator = request.read.executeLocally(readGroup))
                     {
                         readResponse = request.read.createResponse(iterator);
+                    }
+                }
+                boolean hasProposalStability = false;
+                if (request.checkProposalStability)
+                {
+                    // simply check we cannot race with a proposal, i.e. that we have not made a promise that
+                    // could be in the process of making a proposal; if a majority of nodes have made no such promise
+                    // then either we must have witnessed it (since it must have been committed), or it cannot happen
+                    hasProposalStability = result.previousPromised == emptyBallot()
+                            || (result.accepted.ballot.equals(result.previousPromised) && result.accepted.update.isEmpty());
+                    if (hasProposalStability && request.read != null)
+                    {
+                        PaxosState after = PaxosState.read(request.partitionKey, request.metadata, request.read.nowInSec());
+                        hasProposalStability = after.promised.equals(result.promised);
                     }
                 }
 
@@ -760,7 +783,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
                 if (!isAfter(acceptedButNotCommitted, committed))
                     acceptedButNotCommitted = null;
 
-                return new Promised(acceptedButNotCommitted, result.committed, readResponse, gossipInfo);
+                return new Promised(acceptedButNotCommitted, result.committed, readResponse, hasProposalStability, gossipInfo);
             }
             else
             {
@@ -770,15 +793,17 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         }
     }
 
-    public static class RequestSerializer implements IVersionedSerializer<Request>
+    static abstract class AbstractRequestSerializer<R extends AbstractRequest<R>, T> implements IVersionedSerializer<R>
     {
+        abstract R construct(T param, UUID ballot, Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability);
+        abstract R construct(T param, UUID ballot, Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability);
+
         @Override
-        public void serialize(Request request, DataOutputPlus out, int version) throws IOException
+        public void serialize(R request, DataOutputPlus out, int version) throws IOException
         {
             UUIDSerializer.serializer.serialize(request.ballot, out, version);
-            out.writeUnsignedVInt(request.consistency.code);
             Electorate.serializer.serialize(request.electorate, out, version);
-            out.writeBoolean(request.read != null);
+            out.writeByte((request.read != null ? 1 : 0) | (request.checkProposalStability ? 2 : 0));
             if (request.read != null)
             {
                 ReadCommand.serializer.serialize(request.read, out, version);
@@ -790,31 +815,28 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             }
         }
 
-        @Override
-        public Request deserialize(DataInputPlus in, int version) throws IOException
+        public R deserialize(T param, DataInputPlus in, int version) throws IOException
         {
             UUID ballot = UUIDSerializer.serializer.deserialize(in, version);
-            ConsistencyLevel consistency = ConsistencyLevel.fromCode((int) in.readUnsignedVInt());
             Electorate electorate = Electorate.serializer.deserialize(in, version);
-            boolean hasRead = in.readBoolean();
-            if (hasRead)
+            byte flag = in.readByte();
+            if ((flag & 1) != 0)
             {
                 SinglePartitionReadCommand readCommand = (SinglePartitionReadCommand) ReadCommand.serializer.deserialize(in, version);
-                return new Request(ballot, consistency, electorate, readCommand);
+                return construct(param, ballot, electorate, readCommand, (flag & 2) != 0);
             }
             else
             {
                 CFMetaData metadata = CFMetaData.serializer.deserialize(in, version);
                 DecoratedKey partitionKey = (DecoratedKey) DecoratedKey.serializer.deserialize(in, metadata.partitioner, version);
-                return new Request(ballot, consistency, electorate, partitionKey, metadata);
+                return construct(param, ballot, electorate, partitionKey, metadata, (flag & 2) != 0);
             }
         }
 
         @Override
-        public long serializedSize(Request request, int version)
+        public long serializedSize(R request, int version)
         {
             return UUIDSerializer.serializer.serializedSize(request.ballot, version)
-                    + VIntCoding.computeUnsignedVIntSize(request.consistency.code)
                     + Electorate.serializer.serializedSize(request.electorate, version)
                     + 1 + (request.read != null
                         ? ReadCommand.serializer.serializedSize(request.read, version)
@@ -823,21 +845,45 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         }
     }
 
+    public static class RequestSerializer extends AbstractRequestSerializer<Request, Object>
+    {
+        Request construct(Object ignore, UUID ballot, Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability)
+        {
+            return new Request(ballot, electorate, read, checkProposalStability);
+        }
+
+        Request construct(Object ignore, UUID ballot, Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability)
+        {
+            return new Request(ballot, electorate, partitionKey, metadata, checkProposalStability);
+        }
+
+        public Request deserialize(DataInputPlus in, int version) throws IOException
+        {
+            return deserialize(null, in, version);
+        }
+    }
+
     public static class ResponseSerializer implements IVersionedSerializer<Response>
     {
         public void serialize(Response response, DataOutputPlus out, int version) throws IOException
         {
-            out.writeBoolean(response.isPromised);
             if (response.isPromised)
             {
                 Promised promised = (Promised) response;
-                serializeNullable(Commit.serializer, promised.latestAcceptedButNotCommitted, out, version);
+                out.writeByte(1
+                        | (promised.latestAcceptedButNotCommitted != null ? 2 : 0)
+                        | (promised.readResponse != null                  ? 4 : 0)
+                        | (promised.hadProposalStability                  ? 8 : 0));
+                if (promised.latestAcceptedButNotCommitted != null)
+                    Commit.serializer.serialize(promised.latestAcceptedButNotCommitted, out, version);
                 Commit.serializer.serialize(promised.latestCommitted, out, version);
-                serializeNullable(ReadResponse.serializer, promised.readResponse, out, version);
+                if (promised.readResponse != null)
+                    ReadResponse.serializer.serialize(promised.readResponse, out, version);
                 serializeMap(endpointSerializer, EndpointState.nullableSerializer, promised.gossipInfo, out, version);
             }
             else
             {
+                out.writeByte(0);
                 Rejected rejected = (Rejected) response;
                 UUIDSerializer.serializer.serialize(rejected.supersededBy, out, version);
             }
@@ -845,14 +891,14 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
         public Response deserialize(DataInputPlus in, int version) throws IOException
         {
-            boolean isPromised = in.readBoolean();
-            if (isPromised)
+            byte flags = in.readByte();
+            if (flags != 0)
             {
-                Commit acceptedNotCommitted = deserializeNullable(Commit.serializer, in, version);
+                Commit acceptedNotCommitted = (flags & 2) != 0 ? Commit.serializer.deserialize(in, version) : null;
                 Commit committed = Commit.serializer.deserialize(in, version);
-                ReadResponse readResponse = deserializeNullable(ReadResponse.serializer, in, version);
+                ReadResponse readResponse = (flags & 4) != 0 ? ReadResponse.serializer.deserialize(in, version) : null;
                 Map<InetAddress, EndpointState> gossipInfo = deserializeMap(endpointSerializer, EndpointState.nullableSerializer, newHashMap(), in, version);
-                return new Promised(acceptedNotCommitted, committed, readResponse, gossipInfo);
+                return new Promised(acceptedNotCommitted, committed, readResponse, (flags & 8) != 0, gossipInfo);
             }
             else
             {
@@ -866,17 +912,16 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             if (response.isPromised)
             {
                 Promised promised = (Promised) response;
-                return TypeSizes.sizeof(true)
-                        + serializedSizeNullable(Commit.serializer, promised.latestAcceptedButNotCommitted, version)
+                return 1
+                        + (promised.latestAcceptedButNotCommitted == null ? 0 : Commit.serializer.serializedSize(promised.latestAcceptedButNotCommitted, version))
                         + Commit.serializer.serializedSize(promised.latestCommitted, version)
-                        + serializedSizeNullable(ReadResponse.serializer, promised.readResponse, version)
+                        + (promised.readResponse == null ? 0 : ReadResponse.serializer.serializedSize(promised.readResponse, version))
                         + serializedSizeMap(endpointSerializer, EndpointState.nullableSerializer, promised.gossipInfo, version);
             }
             else
             {
                 Rejected rejected = (Rejected) response;
-                return TypeSizes.sizeof(false)
-                        + UUIDSerializer.serializer.serializedSize(rejected.supersededBy, version);
+                return 1 + UUIDSerializer.serializer.serializedSize(rejected.supersededBy, version);
             }
         }
     }

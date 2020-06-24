@@ -18,14 +18,21 @@
 
 package org.apache.cassandra.distributed.test;
 
+import java.util.function.Consumer;
+import java.io.IOException;
+import java.util.function.BiConsumer;
+
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
 
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
+import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.impl.Instance;
+import org.apache.cassandra.net.MessagingService;
 
 import static org.apache.cassandra.db.ConsistencyLevel.ANY;
 import static org.apache.cassandra.db.ConsistencyLevel.ONE;
@@ -33,16 +40,29 @@ import static org.apache.cassandra.db.ConsistencyLevel.QUORUM;
 import static org.apache.cassandra.db.ConsistencyLevel.SERIAL;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE;
+import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_COMMIT;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PREPARE;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PROPOSE;
 import static org.apache.cassandra.net.MessagingService.Verb.READ;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class CASTest extends CASTestBase
 {
     @BeforeClass
     public static void beforeAll()
     {
-        System.setProperty("cassandra.paxos.use_apple_paxos", "true");
+        System.setProperty("cassandra.paxos.use_apple_paxos_self_execution", "false");
+    }
+
+    protected Consumer<IInstanceConfig> config()
+    {
+         return config -> config
+                 .set("paxos_variant", "apple_rrl")
+                 .set("write_request_timeout_in_ms", 200L)
+                 .set("cas_contention_timeout_in_ms", 200L)
+                 .set("request_timeout_in_ms", 200L);
     }
 
     /**
@@ -57,7 +77,7 @@ public class CASTest extends CASTestBase
     @Test
     public void testIncompleteWriteSupersededByConflictingRejectedCondition() throws Throwable
     {
-        try (Cluster cluster = init(Cluster.create(3, config -> config.set("write_request_timeout_in_ms", 200L).set("cas_contention_timeout_in_ms", 200L))))
+        try (Cluster cluster = init(Cluster.create(3, config())))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
@@ -65,7 +85,7 @@ public class CASTest extends CASTestBase
             try
             {
                 cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
-                Assert.fail();
+                fail();
             }
             catch (RuntimeException wrapped)
             {
@@ -92,7 +112,7 @@ public class CASTest extends CASTestBase
     @Test
     public void testIncompleteWriteSupersededByRead() throws Throwable
     {
-        try (Cluster cluster = init(Cluster.create(3, config -> config.set("write_request_timeout_in_ms", 200L).set("cas_contention_timeout_in_ms", 200L))))
+        try (Cluster cluster = init(Cluster.create(3, config())))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
@@ -100,7 +120,7 @@ public class CASTest extends CASTestBase
             try
             {
                 cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
-                Assert.fail();
+                fail();
             }
             catch (RuntimeException wrapped)
             {
@@ -115,6 +135,215 @@ public class CASTest extends CASTestBase
         }
     }
 
+    private int[] paxosAndReadVerbs() {
+        return new int[] {
+            MessagingService.Verb.PAXOS_PREPARE.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_PREPARE.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE.ordinal(),
+            MessagingService.Verb.PAXOS_PROPOSE.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_PROPOSE.ordinal(),
+            MessagingService.Verb.PAXOS_COMMIT.ordinal(),
+            MessagingService.Verb.READ.ordinal()
+        };
+    }
+
+    /**
+     * Base test to ensure that if a write times out but with a proposal accepted by some nodes (less then quorum), and
+     * a following SERIAL operation does not observe that write (the node having accepted it do not participate in that
+     * following operation), then that write is never applied, even when the nodes having accepted the original proposal
+     * participate.
+     *
+     * <p>In other words, if an operation timeout, it may or may not be applied, but that "fate" is persistently decided
+     * by the very SERIAL operation that "succeed" (in the sense of 'not timing out or throwing some other exception').
+     *
+     * @param postTimeoutOperation1 a SERIAL operation executed after an initial write that inserts the row [0, 0] times
+     *                              out. It is executed with a QUORUM of nodes that have _not_ see the timed out
+     *                              proposal, and so that operation should expect that the [0, 0] write has not taken
+     *                              place.
+     * @param postTimeoutOperation2 a 2nd SERIAL operation executed _after_ {@code postTimeoutOperation1}, with no
+     *                              write executed between the 2 operation. Contrarily to the 1st operation, the QORUM
+     *                              for this operation _will_ include the node that got the proposal for the [0, 0]
+     *                              insert but didn't participated to {@code postTimeoutOperation1}}. That operation
+     *                              should also no witness that [0, 0] write (since {@code postTimeoutOperation1}
+     *                              didn't).
+     * @param loseCommitOfOperation1 if {@code true}, the test will also drop the "commits" messages for
+     *                               {@code postTimeoutOperation1}. In general, the test should behave the same with or
+     *                               without that flag since a value is decided as soon as it has been "accepted by
+     *                               quorum" and the commits should always be properly replayed.
+     */
+    private void consistencyAfterWriteTimeoutTest(BiConsumer<String, ICoordinator> postTimeoutOperation1,
+                                                  BiConsumer<String, ICoordinator> postTimeoutOperation2,
+                                                  boolean loseCommitOfOperation1) throws IOException
+    {
+        try (Cluster cluster = init(Cluster.create(3, config())))
+        {
+            String table = KEYSPACE + ".t";
+            cluster.schemaChange("CREATE TABLE " + table + " (k int PRIMARY KEY, v int)");
+
+            // We do a CAS insertion, but have with the PROPOSE message dropped on node 1 and 2. The CAS will not get
+            // through and should timeout. Importantly, node 3 does receive and answer the PROPOSE.
+            IMessageFilters.Filter dropProposeFilter = cluster.filters()
+                    .verbs(PAXOS_PROPOSE.ordinal(), APPLE_PAXOS_PROPOSE.ordinal())
+                    .to(1, 2)
+                    .drop();
+
+            // Prepare A to {1, 2, 3}
+            // Propose A to {3}
+            // Timeout
+            try
+            {
+                // NOTE: the consistency below is the "commit" one, so it doesn't matter at all here.
+                cluster.coordinator(1)
+                        .execute("INSERT INTO " + table + "(k, v) VALUES (0, 0) IF NOT EXISTS", ONE);
+                fail("The insertion should have timed-out");
+            }
+            catch (Exception e)
+            {
+                // We expect a write timeout. If we get one, the test can continue, otherwise, we rethrow. Note that we
+                // look at the root cause because the dtest framework effectively wrap the exception in a RuntimeException
+                // (we could just look at the immediate cause, but this feel a bit more resilient this way).
+                // TODO: we can't use an instanceof below because the WriteTimeoutException we get is from a different class
+                //  loader than the one the test run under, and that's our poor-man work-around. This kind of things should
+                //  be improved at the dtest API level.
+                if (!e.getCause().getClass().getSimpleName().equals("WriteTimeoutException"))
+                    throw e;
+            }
+            finally
+            {
+                dropProposeFilter.off();
+            }
+
+            debugPaxosState(cluster, "t", 0);
+
+            // Prepare and Propose to {1, 2}
+            // Commit(?) to either {1, 2, 3} or {3}
+            // Isolates node 3 and executes the SERIAL operation. As neither node 1 or 2 got the initial insert proposal,
+            // there is nothing to "replay" and the operation should assert the table is still empty.
+            IMessageFilters.Filter ignoreNode3Filter = cluster.filters().verbs(paxosAndReadVerbs()).to(3).drop();
+            IMessageFilters.Filter dropCommitFilter = null;
+            if (loseCommitOfOperation1)
+            {
+                dropCommitFilter = cluster.filters().verbs(PAXOS_COMMIT.ordinal()).to(1, 2).drop();
+            }
+            try
+            {
+                postTimeoutOperation1.accept(table, cluster.coordinator(1));
+            }
+            finally
+            {
+                ignoreNode3Filter.off();
+                if (dropCommitFilter != null)
+                    dropCommitFilter.off();
+            }
+
+            debugPaxosState(cluster, "t", 0);
+
+            // Node 3 is now back and we isolate node 2 to ensure the next read hits node 1 and 3.
+            // What we want to ensure is that despite node 3 having the initial insert in its paxos state in a position of
+            // being replayed, that insert is _not_ replayed (it would contradict serializability since the previous
+            // operation asserted nothing was inserted). It is this execution that failed before CASSANDRA-12126.
+            IMessageFilters.Filter ignoreNode2Filter = cluster.filters().verbs(paxosAndReadVerbs()).to(2).drop();
+            try
+            {
+                postTimeoutOperation2.accept(table, cluster.coordinator(1));
+            }
+            finally
+            {
+                ignoreNode2Filter.off();
+            }
+        }
+    }
+
+    /**
+     * Tests that if a write timeouts and a following serial read does not see that write, then no following reads sees
+     * it, even if some nodes still have the write in their paxos state.
+     *
+     * <p>This specifically test for the inconsistency described/fixed by CASSANDRA-12126.
+     */
+    @Test
+    public void readConsistencyAfterWriteTimeoutTest() throws IOException
+    {
+        BiConsumer<String, ICoordinator> operation =
+                (table, coordinator) -> assertRows(coordinator.execute("SELECT * FROM " + table + " WHERE k=0",
+                        SERIAL));
+
+        consistencyAfterWriteTimeoutTest(operation, operation, false);
+        consistencyAfterWriteTimeoutTest(operation, operation, true);
+    }
+
+    /**
+     * Tests that if a write timeouts, then a following CAS succeed but does not apply in a way that indicate the write
+     * has not applied, then no following CAS can see that initial insert , even if some nodes still have the write in
+     * their paxos state.
+     *
+     * <p>This specifically test for the inconsistency described/fixed by CASSANDRA-12126.
+     */
+    @Test
+    public void nonApplyingCasConsistencyAfterWriteTimeout() throws IOException
+    {
+        // Note: we use CL.ANY so that the operation don't timeout in the case where we "lost" the operation1 commits.
+        // The commit CL shouldn't have impact on this test anyway, so this doesn't diminishes the test.
+        BiConsumer<String, ICoordinator> operation =
+                (table, coordinator) -> assertCasNotApplied(coordinator.execute("UPDATE " + table + " SET v = 1 WHERE k = 0 IF v = 0",
+                        ANY));
+        consistencyAfterWriteTimeoutTest(operation, operation, false);
+        consistencyAfterWriteTimeoutTest(operation, operation, true);
+    }
+
+    /**
+     * Tests that if a write timeouts and a following serial read does not see that write, then no following CAS see
+     * that initial insert, even if some nodes still have the write in their paxos state.
+     *
+     * <p>This specifically test for the inconsistency described/fixed by CASSANDRA-12126.
+     */
+    @Test
+    public void mixedReadAndNonApplyingCasConsistencyAfterWriteTimeout() throws IOException
+    {
+        BiConsumer<String, ICoordinator> operation1 =
+                (table, coordinator) -> assertRows(coordinator.execute("SELECT * FROM " + table + " WHERE k=0",
+                        SERIAL));
+        BiConsumer<String, ICoordinator> operation2 =
+                (table, coordinator) -> assertCasNotApplied(coordinator.execute("UPDATE " + table + " SET v = 1 WHERE k = 0 IF v = 0",
+                        QUORUM));
+        consistencyAfterWriteTimeoutTest(operation1, operation2, false);
+        consistencyAfterWriteTimeoutTest(operation1, operation2, true);
+    }
+
+    /**
+     * Tests that if a write timeouts and a following CAS succeed but does not apply in a way that indicate the write
+     * has not applied, then following serial reads do no see that write, even if some nodes still have the write in
+     * their paxos state.
+     *
+     * <p>This specifically test for the inconsistency described/fixed by CASSANDRA-12126.
+     */
+    @Test
+    public void mixedNonApplyingCasAndReadConsistencyAfterWriteTimeout() throws IOException
+    {
+        // Note: we use CL.ANY so that the operation don't timeout in the case where we "lost" the operation1 commits.
+        // The commit CL shouldn't have impact on this test anyway, so this doesn't diminishes the test.
+        BiConsumer<String, ICoordinator> operation1 =
+                (table, coordinator) -> assertCasNotApplied(coordinator.execute("UPDATE " + table + " SET v = 1 WHERE k = 0 IF v = 0",
+                        ANY));
+        BiConsumer<String, ICoordinator> operation2 =
+                (table, coordinator) -> assertRows(coordinator.execute("SELECT * FROM " + table + " WHERE k=0",
+                        SERIAL));
+        consistencyAfterWriteTimeoutTest(operation1, operation2, false);
+        consistencyAfterWriteTimeoutTest(operation1, operation2, true);
+    }
+
+    // TODO: this shoud probably be moved into the dtest API.
+    private void assertCasNotApplied(Object[][] resultSet)
+    {
+        assertFalse("Expected a CAS resultSet (with at least application result) but got an empty one.",
+                resultSet.length == 0);
+        assertFalse("Invalid empty first row in CAS resultSet.", resultSet[0].length == 0);
+        Object wasApplied = resultSet[0][0];
+        assertTrue("Expected 1st column of CAS resultSet to be a boolean, but got a " + wasApplied.getClass(),
+                wasApplied instanceof Boolean);
+        assertFalse("Expected CAS to not be applied, but was applied.", (Boolean)wasApplied);
+    }
+
     // failed write (by node that did not yet witness a range movement via gossip) is witnessed later as successful
     // conflicting with another successful write performed by a node that did witness the range movement
     // A Promised, Accepted and Committed by {1, 2}
@@ -123,9 +352,7 @@ public class CASTest extends CASTestBase
     @Test
     public void testSuccessfulWriteBeforeRangeMovement() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config -> config
-                .set("write_request_timeout_in_ms", 200L)
-                .set("cas_contention_timeout_in_ms", 200L)))
+        try (Cluster cluster = Cluster.create(4, config()))
         {
             cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
@@ -160,9 +387,7 @@ public class CASTest extends CASTestBase
     @Test
     public void testConflictingWritesWithStaleRingInformation() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config -> config
-                .set("write_request_timeout_in_ms", 200L)
-                .set("cas_contention_timeout_in_ms", 200L)))
+        try (Cluster cluster = Cluster.create(4, config()))
         {
             cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
@@ -195,9 +420,7 @@ public class CASTest extends CASTestBase
     @Test
     public void testSucccessfulWriteDuringRangeMovementFollowedByRead() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config -> config
-                .set("write_request_timeout_in_ms", 300L)
-                .set("cas_contention_timeout_in_ms", 300L)))
+        try (Cluster cluster = Cluster.create(4, config()))
         {
             cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
@@ -237,9 +460,7 @@ public class CASTest extends CASTestBase
     @Test
     public void testSuccessfulWriteDuringRangeMovementFollowedByConflicting() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config -> config
-                .set("write_request_timeout_in_ms", 200L)
-                .set("cas_contention_timeout_in_ms", 200L)))
+        try (Cluster cluster = Cluster.create(4, config()))
         {
             cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
@@ -287,9 +508,7 @@ public class CASTest extends CASTestBase
     @Test
     public void testIncompleteWriteFollowedBySuccessfulWriteWithStaleRingDuringRangeMovementFollowedByRead() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config -> config
-                .set("write_request_timeout_in_ms", 200L)
-                .set("cas_contention_timeout_in_ms", 200L)))
+        try (Cluster cluster = Cluster.create(4, config()))
         {
             cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
@@ -358,9 +577,7 @@ public class CASTest extends CASTestBase
     @Test
     public void testIncompleteWriteFollowedBySuccessfulWriteWithStaleRingDuringRangeMovementFollowedByWrite() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config -> config
-                .set("write_request_timeout_in_ms", 200L)
-                .set("cas_contention_timeout_in_ms", 200L)))
+        try (Cluster cluster = Cluster.create(4, config()))
         {
             cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
@@ -425,9 +642,7 @@ public class CASTest extends CASTestBase
     @Test
     public void testAbortedRangeMovement() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config -> config
-                .set("write_request_timeout_in_ms", 200L)
-                .set("cas_contention_timeout_in_ms", 200L)))
+        try (Cluster cluster = Cluster.create(4, config()))
         {
             cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");

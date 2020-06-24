@@ -18,24 +18,27 @@
 
 package org.apache.cassandra.distributed.test;
 
-import org.junit.BeforeClass;
+import java.util.function.Consumer;
+
 import org.junit.Ignore;
 import org.junit.Test;
 
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.impl.Instance;
 
 import static org.apache.cassandra.db.ConsistencyLevel.ANY;
 import static org.apache.cassandra.db.ConsistencyLevel.QUORUM;
-import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PREPARE;
-import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PROPOSE;
 
 public class LegacyCASTest extends CASTestBase
 {
-    @BeforeClass
-    public static void beforeAll()
+    protected Consumer<IInstanceConfig> config()
     {
-        System.setProperty("cassandra.paxos.use_apple_paxos", "false");
+        return config -> config
+                .set("paxos_variant", "legacy")
+                .set("write_request_timeout_in_ms", 200L)
+                .set("cas_contention_timeout_in_ms", 200L)
+                .set("request_timeout_in_ms", 200L);
     }
 
     /**
@@ -54,9 +57,7 @@ public class LegacyCASTest extends CASTestBase
     @Test
     public void testAbortedRangeMovement() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config -> config
-                .set("write_request_timeout_in_ms", 200L)
-                .set("cas_contention_timeout_in_ms", 200L)))
+        try (Cluster cluster = Cluster.create(4, config()))
         {
             cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");

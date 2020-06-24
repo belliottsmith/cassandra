@@ -31,6 +31,7 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.UUIDGen;
 
+import static org.apache.cassandra.service.paxos.Commit.emptyBallot;
 import static org.apache.cassandra.service.paxos.Commit.isAfter;
 
 public class PaxosState
@@ -59,18 +60,34 @@ public class PaxosState
 
     public static PrepareResponse legacyPrepare(Commit toPrepare)
     {
-        PaxosState state = promiseIfNewer(toPrepare.update.partitionKey(), toPrepare.update.metadata(), toPrepare.ballot);
-        if (toPrepare.ballot == state.promised)
-            return new PrepareResponse(true, state.accepted, state.committed);
+        PromiseResult result = promiseIfNewer(toPrepare.update.partitionKey(), toPrepare.update.metadata(), toPrepare.ballot);
+        if (result.isPromised())
+            return new PrepareResponse(true, result.accepted, result.committed);
         else
-            return new PrepareResponse(false, Commit.newPrepare(toPrepare.update.partitionKey(), toPrepare.update.metadata(), state.promised), state.committed);
+            return new PrepareResponse(false, Commit.newPrepare(toPrepare.update.partitionKey(), toPrepare.update.metadata(), result.promised), result.committed);
+    }
+
+    public static class PromiseResult extends PaxosState
+    {
+        final UUID previousPromised;
+
+        public PromiseResult(PaxosState previous, UUID promised)
+        {
+            super(promised, previous.accepted, previous.committed);
+            this.previousPromised = previous.promised;
+        }
+
+        public boolean isPromised()
+        {
+            return previousPromised != promised;
+        }
     }
 
     /**
      * Record the requested ballot as promised if it is newer than our current promise; otherwise do nothing.
      * @return a PaxosState object representing the state after this operation completes
      */
-    public static PaxosState promiseIfNewer(DecoratedKey key, CFMetaData metadata, UUID ballot)
+    public static PromiseResult promiseIfNewer(DecoratedKey key, CFMetaData metadata, UUID ballot)
     {
         long start = System.nanoTime();
         try
@@ -86,17 +103,19 @@ public class PaxosState
                 // tombstone that hides any re-submit). See CASSANDRA-12043 for details.
                 int nowInSec = UUIDGen.unixTimestampInSec(ballot);
                 PaxosState state = SystemKeyspace.loadPaxosState(key, metadata, nowInSec);
-                if (isAfter(ballot, state.promised))
+                // state.promised can be null, because it is invalidated by committed;
+                // we may also have accepted a newer proposal than we promised, so we confirm that we are the absolute newest
+                if (isAfter(ballot, state.promised) && isAfter(ballot, state.accepted) && isAfter(ballot, state.committed))
                 {
                     Tracing.trace("Promising ballot {}", ballot);
                     SystemKeyspace.savePaxosPromise(key, metadata, ballot);
-                    return new PaxosState(ballot, state.accepted, state.committed);
+                    return new PromiseResult(state, ballot);
                 }
                 else
                 {
                     Tracing.trace("Promise rejected; {} is not sufficiently newer than {}", ballot, state.promised);
                     // return the currently promised ballot (not the last accepted one) so the coordinator can make sure it uses newer ballot next time (#5667)
-                    return state;
+                    return new PromiseResult(state, state.promised);
                 }
             }
             finally
@@ -129,7 +148,10 @@ public class PaxosState
             {
                 int nowInSec = UUIDGen.unixTimestampInSec(proposal.ballot);
                 PaxosState state = SystemKeyspace.loadPaxosState(proposal.update.partitionKey(), proposal.update.metadata(), nowInSec);
-                if (proposal.hasBallot(state.promised) || proposal.isAfter(state.promised))
+                // state.promised can be null, because it is invalidated by committed;
+                // we may also have accepted a newer proposal than we promised, so we confirm that we are the absolute newest
+                // (or that we have the exact same ballot as our promise, which is the typical case)
+                if ((proposal.hasBallot(state.promised) || proposal.isAfter(state.promised)) && proposal.isAfter(state.accepted) && proposal.isAfter(state.committed))
                 {
                     Tracing.trace("Accepting proposal {}", proposal);
                     SystemKeyspace.savePaxosProposal(proposal);
