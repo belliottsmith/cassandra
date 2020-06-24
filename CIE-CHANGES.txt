@@ -1,0 +1,121 @@
+4.0.0.9
+
+4.0.0.8
+* Rebased on OSS 4.0-beta4, commit e4fac3582e0a9dda182313a3aa784be35d965f4e
+* <no radar> (Early merge) ninja fix CASSANDRA-16225 (adds synchronizing LogTransaction.untrackNew, will remove next rebase)
+* <rdar://70485582> (Apple Internal) Startup check to verify all sstables are version 3.0+ (#2039)
+* <rdar://70046246> (Early merge CASSANDRA-16277) CIE4 SSLEngine closed already exception on failed outbound connection (will be replaced by  next rebase)
+* <rdar://57320124> (original rdar://57320124) >  Fix "involved in several compactions" exception" (#1889)
+
+4.0.0.7
+* Rebased on OSS 4.0-beta3, commit 095540d54a
+* <rdar://69866491> (Apple Internal) Enable Christmas patch by default
+* <rdar://68081965> (Apple Internal) Messaging Service / Drain Exception thrown during minor upgrade
+* <rdar://70201623> (Apple Internal) Snapshots for repaired data mismatch include repair history
+* <rdar://70673285> (Apple Internal) Ignore non-DATA files when fixing sstable headers
+
+4.0.0.6
+* <rdar://68832338> (Apple Internal) Expand_cluster add DC failing on 4.x cluster with error
+* <rdar://69762139> (Early merge CASSANDRA-16147) ValueAccessor is using signed shorts in sliceWithSho… (#1937)
+* <rdar://69576522> (Apple Internal) Switch to use a released version of QuickTheories
+
+4.0.0.5
+* <rdar://69441893> CIE4 add JMX compatibility tests for CIE 3.0 and 4.0 releases
+* <rdar://57320124> Forward port <rdar://problem/57320124> Fix "involved in several compactions" exception (#1433)
+* <rdar://62984534> fix "Cannot service reads while bootstrapping" (#1893)
+* <rdar://68532101> make sure MockSchema.sstable() disposes of its FileHandles properly
+* <rdar://67080928> Re-order startup checks so that filesystem ownership check runs first
+* <rdar://68102540> (MapSerializer.getInstance does not include comparator in serializer cache, returning incorrect serializer)
+
+4.0.0.4
+ * <rdar://67940452> (Apple Internal) Exception during repair history sync (#1881)
+
+4.0.0.3
+ * <rdar://67760856> (CIE4 Out of token range patch does not handle PartitionRangeReadCommands)
+ * <rdar://66933802> (forward port rdar://60101151) Ensure current key for purger is set before applying repair tracking transform (#1870)
+ * <rdar://48979187> Fix CME in LeveledManifest#handlingRepaired (#1865)
+ * <rdar://65919072> (forward port) Reduce default bcrypt rounds
+ * <rdar://59313829> Cancel all ongoing preview repair sessions when we receive conflicting RepairSuccess (#1496) (#1855)
+ * <rdar://67404284> 4.0 NPE in getCompactionInfo (#1866)
+ * <rdar://58917305> Reduce the amount of logging from RepairHistorySyncTask (#1725) (#1856)
+ * <rdar://67306148> vnodes should be off by default in 4.0 (#1858)
+ * <rdar://66915547> Fix REPAIR_HISTORY{,_INVALIDATION}_CF missing from SystemKeyspace.ALL_TABLE_NAMES (#1857)
+ * <rdar://61943525> (forward port) Prepare a tool to repair instances of duplicate primary keys in itmsconnect (#1852)
+ * <rdar://61943479> (forward port) Prepare a tool to scan for instances of duplicate primary keys in itmsconnect (#1851)
+ * <rdar://61516500> log how much time was spent actually writing data during compaction (#1850)
+ * <rdar://61832569> Add logging/metrics for index summary redistribution (#1626) (#1849)
+
+4.0.0.2
+ * <rdar://66702985> Deprecate and warn if column index downsampling in 4.0
+ * <rdar://66700828> Temporarily retain pre-4.0 gossip application state (#1823)
+ * <rdar://66642434> Host replacement bootstrap node crashes on startup after receiving last repair info before loading repairs (#1822)
+
+4.0.0.1
+ * Bumping version to resolve naming clash with a 4.0.0.0 release created when testing the release pipeline.
+
+4.0.0.0
+ * <rdar://65999633> (Rio build changes to unify snapshot versions breaks on 4.0) ; uncommited CASSANDRA-15973
+ * <rdar://65940886> (fixup) (original rdar://27418106) OPS/COR Xmas patch… (#1808)
+ * <rdar://64435103> Replace lz4 jar with one built on CentOS 6
+ * <rdar://64453455> (original rdar://30685321) Support CIE-flavored checksum in V4 (original rdar://)rotocol
+ * <internal> add apple paxos placeholders to get ids for 3.0
+ * (CASSANDRA-15677) TEMPORARY REVERT Add the ability to run dTests on the same interface."
+ * <rdar://58490910> Allow but ignore (dclocal_)read_repair_chance params for one more major
+ * <internal> remove bad assert and comment to fix flaky LeveledCompactionStrategyTest testGetScheduledCompactionManySplits (#1719)
+ * <rdar://62615444> Node stuck in JOINING waiting on bootstrapStream future (#1728)
+ * <rdar://60088271> (original rdar://49109568) PRO/RST Disable resumable bootstrap
+ * <rdar://62556116> (AssertionError in Message.out when invoked by UpdateRepairedRangesVerbHandler.doVerb during bootstrap)
+ * <rdar://63042227> (CIE 4.0 BTreeRow.Builder#toString() has unmatched number of placeholders (7) and arguments (6)) (#1713)
+ * <rdar://60088349> (original rdar://48562620) PRO/FTR Add CappedSortedMap and supporting functions
+ * <rdar://60088346> (original rdar://48562466) PRO/FTR Custom cell builders for multi-cell types
+ * <rdar://60088344> (original rdar://48563792) UPS/FTR CASSANDRA-15005 Allow custom functions
+ * <rdar://60088334> (original rdar://57841413) OPS/LOG Logging to prep for nodetool import improvements
+ * <rdar://60088325> (original rdar://33279387) OPS/COR Don't allow requests for out of token range operations
+ * <rdar://60088322> (original rdar://27418106) OPS/COR Xmas patch. Only purge repaired tombstones.
+ * <rdar://60088320> (original rdar://31847727) OPS/PRF Configurable memtable exceess waste bytes/clock shift
+ * <rdar://60088314> (original rdar://30735785) PRO/FTR Quota for keyspaces
+ * <rdar://60088311> (original rdar://26203712) PRF/FTR SELECT_SIZE statement
+ * <rdar://60088308> (original rdar://38810468) OPS/PRF Skip auth cache refreshes once node decommissioned
+ * <rdar://60088304> (original rdar://35097544) OPS/PRF Reverse iteration order of resources during permissions checking
+ * <rdar://60088300> (original rdar://33193056) OPS/PRF Prewarm role and credential caches on startup
+ * <rdar://60088295> (original rdar://30002197) OPS/PRF Actively update auth caches before expiry
+ * <rdar://60088293> (original rdar://31658384) OPS/COR Skip sstable startup checks for dropped system tables
+ * <rdar://60088291> (original rdar://38864888) OPS/COR Switch to deterministic tableids to prevent duplicate exceptions
+ * <rdar://60088289> (original rdar://30635307) ENV/CPT Keep ks/table in sstable filenames. Fix format metdata.
+ * <rdar://60088281> (original rdar://46635385) PRO/RST Prevent nodetool verify without an override flag
+ * <rdar://60088278> (original rdar://53266164) PRO/RST Restrict column recreation on fixed/variable length mismatch and simple/complex mismatch
+ * <rdar://60088275> (original rdar://60088275) OPS/RST Limit in flight migration tasks
+ * <rdar://60088268> (original rdar://39871365) PRO/RST Block users from disabling compression
+ * <rdar://60088267> (original rdar://56247937) PRO/FTR Permit altering tables in cie_internal keyspaces
+ * <rdar://60088260> (original rdar://30318758) PRO/RST Add configuration to disable ALTER TABLE
+ * <rdar://60088257> (original rdar://27424094) PRO/RST Specify consistency level of authn/authz queries
+ * <rdar://60088255> (original rdar://25991887) PRO/FTR Blacklist CQL partitions
+ * <rdar://60088250> (original rdar://27005585) OPS/PRF Skip key cache for objects larger than the cache
+ * <rdar://60088239> (original rdar://35563981) OPS/PRF Compact biggest STCS bucket in L0
+ * <rdar://60088235> (original rdar://35792234) OPS/PRF Scheduled rolling sub range compactions
+ * <rdar://60088234> (original rdar://25376022) OPS/PRF Aggressive leveled compaction
+ * <rdar://60088229> (original rdar://27898173) PRO/RST Disallow removal of a DC from system_auth replication settings
+ * <rdar://60088220> (original rdar://27729987) PRO/RST Restrict replication strategy and factor
+ * <rdar://60088214> (original rdar://56795580) PRO/RST Disable creating index by default
+ * <rdar://60088207> (original rdar://23481606) PRO/RST Restrict incremental repair usage
+ * <rdar://60088206> (original rdar://30245265) PRO/RST Prevent enabling materialized views by config
+ * <rdar://60088204> (original rdar://56247982) ENV/CPT Ignore table ids when migrating tables
+ * <rdar://60088199> (original rdar://60088199) ENV/INF Set generation correctly for AuthKeyspace
+ * <rdar://60088195> (original rdar://20233447) ENV/INF Create health check table for C* Mgr to update
+ * <internal> disable materialized view tests since CIE does not support and the tests are flaky (#1669)
+ * <rdar://60088194> (original rdar://60088194) PRO/RST Record schema drops and prevent recreation
+ * <rdar://60088191> (original rdar://60088191) ENV/INF Create cie_internal/cie_internal_local keyspaces
+ * <rdar://60088187> (original rdar://32149498) PRO/DFT Set default maxHintTTL to 86400
+ * <rdar://60088183> (original rdar://27356463) PRO/DFT Default to leveled compaction for non-system tables
+ * <rdar://60088177> (original rdar://33219005) OPS/MTR Update CoordinatorScanLatency nanos
+ * <rdar://60088173> (original rdar://31996817) OPS/MTR Add metrics for read repair timeout
+ * <rdar://60088169> (original rdar://30198445) OPS/MTR Add CAS/ConditionNot metrics, track recent latency
+ * <rdar://60088154> (original rdar://38370262) OPS/LOG Optionally log blocking read repair for a period of time
+ * <rdar://60088150> (original rdar://31356522) OPS/LOG Log static column deserialization failures
+ * <rdar://60088134> (original rdar://27418044) ENV/CPT Update cassandra yaml closer to prior versions
+ * <rdar://60088129> (original rdar://59634512) ENV/CPT full_query_log_dir config CIE3.0 backward compat
+ * <rdar://60088125> (original rdar://50199618) ENV/COR Verify correct ownership of disk at startup
+ * <rdar://60088120> (original rdar://60088120) ENV/INF CIE-specific changes to bin/cassandra{,.in.sh}, conf/cassandra-env.sh
+ * <rdar://60088117> (original rdar://38144144) OPS/PRF Remove -XX:+PerfDisableSharedMem from JVM options
+ * <rdar://60087947> (original rdar://56258571) ENV/INF Add Amazon Corretto crypto provider
+ * <rdar://60087619> (original rdar://24418276) ENV/INF Replace logback with log4j2
