@@ -39,9 +39,9 @@ import org.apache.cassandra.service.paxos.PaxosRepair;
 import org.apache.cassandra.utils.UUIDGen;
 
 import static org.apache.cassandra.db.ConsistencyLevel.*;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_REPAIR;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_REPAIR_REQ;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_COMMIT;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PREPARE;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PROPOSE;
@@ -54,8 +54,8 @@ public abstract class CASTestBase extends DistributedTestBase
     void repair(Cluster cluster, int pk, int repairWith, int repairWithout)
     {
         IMessageFilters.Filter filter = cluster.filters().verbs(
-                APPLE_PAXOS_REPAIR.ordinal(),
-                APPLE_PAXOS_PREPARE.ordinal(), PAXOS_PREPARE.ordinal(), READ.ordinal()).from(repairWith).to(repairWithout).drop();
+                APPLE_PAXOS_REPAIR_REQ.ordinal(),
+                APPLE_PAXOS_PREPARE_REQ.ordinal(), PAXOS_PREPARE.ordinal(), READ.ordinal()).from(repairWith).to(repairWithout).drop();
         cluster.get(repairWith).runOnInstance(() -> {
             CFMetaData schema = Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").metadata;
             DecoratedKey key = schema.decorateKey(Int32Type.instance.decompose(pk));
@@ -97,7 +97,7 @@ public abstract class CASTestBase extends DistributedTestBase
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
-            IMessageFilters.Filter drop = cluster.filters().verbs(APPLE_PAXOS_PREPARE.ordinal(), PAXOS_PREPARE.ordinal()).from(1).to(2, 3).drop();
+            IMessageFilters.Filter drop = cluster.filters().verbs(APPLE_PAXOS_PREPARE_REQ.ordinal(), PAXOS_PREPARE.ordinal()).from(1).to(2, 3).drop();
             try
             {
                 cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
@@ -120,7 +120,7 @@ public abstract class CASTestBase extends DistributedTestBase
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
-            IMessageFilters.Filter drop1 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
+            IMessageFilters.Filter drop1 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
             try
             {
                 cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
@@ -264,8 +264,8 @@ public abstract class CASTestBase extends DistributedTestBase
 
     AutoCloseable drop(Cluster cluster, int from, int[] toPrepareAndRead, int[] toPropose, int[] toCommit)
     {
-        IMessageFilters.Filter filter1 = cluster.filters().verbs(APPLE_PAXOS_PREPARE.ordinal(), PAXOS_PREPARE.ordinal(), READ.ordinal()).from(from).to(toPrepareAndRead).drop();
-        IMessageFilters.Filter filter2 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE.ordinal(), PAXOS_PROPOSE.ordinal()).from(from).to(toPropose).drop();
+        IMessageFilters.Filter filter1 = cluster.filters().verbs(APPLE_PAXOS_PREPARE_REQ.ordinal(), PAXOS_PREPARE.ordinal(), READ.ordinal()).from(from).to(toPrepareAndRead).drop();
+        IMessageFilters.Filter filter2 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(from).to(toPropose).drop();
         IMessageFilters.Filter filter3 = cluster.filters().verbs(PAXOS_COMMIT.ordinal()).from(from).to(toCommit).drop();
         return () -> {
             filter1.off();
@@ -276,9 +276,9 @@ public abstract class CASTestBase extends DistributedTestBase
 
     AutoCloseable drop(Cluster cluster, int from, int[] toPrepare, int[] toRead, int[] toPropose, int[] toCommit)
     {
-        IMessageFilters.Filter filter1 = cluster.filters().verbs(APPLE_PAXOS_PREPARE.ordinal(), PAXOS_PREPARE.ordinal()).from(from).to(toPrepare).drop();
+        IMessageFilters.Filter filter1 = cluster.filters().verbs(APPLE_PAXOS_PREPARE_REQ.ordinal(), PAXOS_PREPARE.ordinal()).from(from).to(toPrepare).drop();
         IMessageFilters.Filter filter2 = cluster.filters().verbs(READ.ordinal()).from(from).to(toRead).drop();
-        IMessageFilters.Filter filter3 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE.ordinal(), PAXOS_PROPOSE.ordinal()).from(from).to(toPropose).drop();
+        IMessageFilters.Filter filter3 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(from).to(toPropose).drop();
         IMessageFilters.Filter filter4 = cluster.filters().verbs(PAXOS_COMMIT.ordinal()).from(from).to(toCommit).drop();
         return () -> {
             filter1.off();

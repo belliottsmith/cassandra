@@ -38,8 +38,8 @@ import static org.apache.cassandra.db.ConsistencyLevel.ANY;
 import static org.apache.cassandra.db.ConsistencyLevel.ONE;
 import static org.apache.cassandra.db.ConsistencyLevel.QUORUM;
 import static org.apache.cassandra.db.ConsistencyLevel.SERIAL;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_COMMIT;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PREPARE;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PROPOSE;
@@ -81,7 +81,7 @@ public class CASTest extends CASTestBase
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
-            IMessageFilters.Filter drop1 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
+            IMessageFilters.Filter drop1 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
             try
             {
                 cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
@@ -116,7 +116,7 @@ public class CASTest extends CASTestBase
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
-            IMessageFilters.Filter drop1 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
+            IMessageFilters.Filter drop1 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
             try
             {
                 cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
@@ -138,11 +138,11 @@ public class CASTest extends CASTestBase
     private int[] paxosAndReadVerbs() {
         return new int[] {
             MessagingService.Verb.PAXOS_PREPARE.ordinal(),
-            MessagingService.Verb.APPLE_PAXOS_PREPARE.ordinal(),
-            MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH.ordinal(),
-            MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ.ordinal(),
             MessagingService.Verb.PAXOS_PROPOSE.ordinal(),
-            MessagingService.Verb.APPLE_PAXOS_PROPOSE.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ.ordinal(),
             MessagingService.Verb.PAXOS_COMMIT.ordinal(),
             MessagingService.Verb.READ.ordinal()
         };
@@ -184,7 +184,7 @@ public class CASTest extends CASTestBase
             // We do a CAS insertion, but have with the PROPOSE message dropped on node 1 and 2. The CAS will not get
             // through and should timeout. Importantly, node 3 does receive and answer the PROPOSE.
             IMessageFilters.Filter dropProposeFilter = cluster.filters()
-                    .verbs(PAXOS_PROPOSE.ordinal(), APPLE_PAXOS_PROPOSE.ordinal())
+                    .verbs(PAXOS_PROPOSE.ordinal(), APPLE_PAXOS_PROPOSE_REQ.ordinal())
                     .to(1, 2)
                     .drop();
 
@@ -623,8 +623,8 @@ public class CASTest extends CASTestBase
                 cluster.get(i).acceptsOnInstance(Instance::addToRingNormal).accept(cluster.get(4));
 
             // {3} reads from !{2} => {3, 4}
-            cluster.filters().verbs(APPLE_PAXOS_PREPARE.ordinal(), PAXOS_PREPARE.ordinal(), READ.ordinal()).from(3).to(2).drop();
-            cluster.filters().verbs(APPLE_PAXOS_PROPOSE.ordinal(), PAXOS_PROPOSE.ordinal()).from(3).to(2).drop();
+            cluster.filters().verbs(APPLE_PAXOS_PREPARE_REQ.ordinal(), PAXOS_PREPARE.ordinal(), READ.ordinal()).from(3).to(2).drop();
+            cluster.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(3).to(2).drop();
             assertRows(cluster.coordinator(3).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk),
                     expectRow);
         }
