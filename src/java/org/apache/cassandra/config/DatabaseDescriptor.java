@@ -2689,6 +2689,16 @@ public class DatabaseDescriptor
         return conf.validation_pool_full_strategy;
     }
 
+    public static int getRepairPendingCompactionRejectThreshold()
+    {
+        return conf.reject_repair_compaction_threshold;
+    }
+
+    public static void setRepairPendingCompactionRejectThreshold(int value)
+    {
+        conf.reject_repair_compaction_threshold = value;
+    }
+
     public static boolean getLogOutOfTokenRangeRequests()
     {
         return conf.log_out_of_token_range_requests;

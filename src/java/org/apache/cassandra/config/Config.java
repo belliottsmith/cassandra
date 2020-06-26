@@ -236,6 +236,9 @@ public class Config
     public ValidationPoolFullStrategy validation_pool_full_strategy = ValidationPoolFullStrategy.queue;
     public volatile int concurrent_validations;
 
+    // The number of pending compactions at which we should reject new repair prepare requests
+    public volatile int reject_repair_compaction_threshold = 2048;
+
     /**
      * @deprecated retry support removed on CASSANDRA-10992
      */

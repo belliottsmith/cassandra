@@ -76,6 +76,17 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                 case PREPARE_MESSAGE:
                     PrepareMessage prepareMessage = (PrepareMessage) message.payload;
                     logger.debug("Preparing, {}", prepareMessage);
+
+                    // Snapshot values so failure message is consistent with decision
+                    int pendingCompactions = CompactionManager.instance.getPendingTasks();
+                    int pendingThreshold = ActiveRepairService.instance.getRepairPendingCompactionRejectThreshold();
+                    if (pendingCompactions > pendingThreshold)
+                    {
+                        logErrorAndSendFailureResponse(String.format("Rejecting incoming repair, pending compactions (%d) above threshold (%d)",
+                                                                     pendingCompactions, pendingThreshold), message.from, id);
+                        return;
+                    }
+
                     List<ColumnFamilyStore> columnFamilyStores = new ArrayList<>(prepareMessage.cfIds.size());
                     for (UUID cfId : prepareMessage.cfIds)
                     {

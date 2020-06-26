@@ -860,4 +860,15 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         logger.info("Stopping parent sessions {} due to truncation of tableId={}", parentSessionsToRemove, tableId);
         parentSessionsToRemove.forEach(this::removeParentRepairSession);
     }
+
+    public int getRepairPendingCompactionRejectThreshold()
+    {
+        return DatabaseDescriptor.getRepairPendingCompactionRejectThreshold();
+    }
+
+    public void setRepairPendingCompactionRejectThreshold(int value)
+    {
+        DatabaseDescriptor.setRepairPendingCompactionRejectThreshold(value);
+    }
+
 }
