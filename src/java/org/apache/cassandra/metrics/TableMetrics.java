@@ -310,7 +310,16 @@ public class TableMetrics
 
     public final Meter readRepairRequests;
     public final Meter shortReadProtectionRequests;
-    public final Meter replicaSideFilteringProtectionRequests;
+    
+    public final Meter replicaFilteringProtectionRequests;
+    
+    /**
+     * This histogram records the maximum number of rows {@link org.apache.cassandra.service.ReplicaFilteringProtection}
+     * caches at a point in time per query. With no replica divergence, this is equivalent to the maximum number of
+     * cached rows in a single partition during a query. It can be helpful when choosing appropriate values for the
+     * replica_filtering_protection thresholds in cassandra.yaml. 
+     */
+    public final Histogram rfpRowsCachedPerQuery;
 
     public final EnumMap<SamplerType, Sampler<?>> samplers;
     /**
@@ -943,7 +952,8 @@ public class TableMetrics
 
         readRepairRequests = createTableMeter("ReadRepairRequests");
         shortReadProtectionRequests = createTableMeter("ShortReadProtectionRequests");
-        replicaSideFilteringProtectionRequests = createTableMeter("ReplicaSideFilteringProtectionRequests");
+        replicaFilteringProtectionRequests = createTableMeter("ReplicaFilteringProtectionRequests");
+        rfpRowsCachedPerQuery = createHistogram("ReplicaFilteringProtectionRowsCachedPerQuery", true);
 
         confirmedRepairedInconsistencies = createTableMeter("RepairedDataInconsistenciesConfirmed", cfs.keyspace.metric.confirmedRepairedInconsistencies);
         unconfirmedRepairedInconsistencies = createTableMeter("RepairedDataInconsistenciesUnconfirmed", cfs.keyspace.metric.unconfirmedRepairedInconsistencies);
@@ -1093,6 +1103,13 @@ public class TableMetrics
         Meter tableMeter = Metrics.meter(factory.createMetricName(name), aliasFactory.createMetricName(alias));
         register(name, alias, tableMeter);
         return tableMeter;
+    }
+    
+    private Histogram createHistogram(String name, boolean considerZeroes)
+    {
+        Histogram histogram = Metrics.histogram(factory.createMetricName(name), aliasFactory.createMetricName(name), considerZeroes);
+        register(name, name, histogram);
+        return histogram;
     }
 
     /**
