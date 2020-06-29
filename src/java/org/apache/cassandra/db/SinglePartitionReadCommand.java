@@ -766,7 +766,7 @@ public class SinglePartitionReadCommand extends ReadCommand
                 {
                     nonIntersectingSSTables++;
                     // sstable contains no tombstone if maxLocalDeletionTime == Integer.MAX_VALUE, so we can safely skip those entirely
-                    if (sstable.hasTombstones())
+                    if (sstable.mayHaveTombstones())
                     {
                         @SuppressWarnings("resource") // 'iter' is either closed right away, or added to iterators which is close on exception, or through the closing of the final merged iterator
                         UnfilteredRowIteratorWithLowerBound iter = makeIterator(sstable, false, metricsCollector);
@@ -956,7 +956,7 @@ public class SinglePartitionReadCommand extends ReadCommand
                 // however: if it is set, it impacts everything and must be included. Getting that top-level partition deletion costs us
                 // some seek in general however (unless the partition is indexed and is in the key cache), so we first check if the sstable
                 // has any tombstone at all as a shortcut.
-                if (!sstable.hasTombstones())
+                if (!sstable.mayHaveTombstones())
                     continue; // Means no tombstone at all, we can skip that sstable
 
                 // We need to get the partition deletion and include it if it's live. In any case though, we're done with that sstable.
