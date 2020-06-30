@@ -78,7 +78,6 @@ public class CassandraServer implements Cassandra.Iface
     public CassandraServer()
     {
         requestScheduler = DatabaseDescriptor.getRequestScheduler();
-        registerMetrics();
     }
 
     public ThriftClientState state()
@@ -2494,11 +2493,6 @@ public class CassandraServer implements Cassandra.Iface
             return true;
         }
         return false;
-    }
-
-    private void registerMetrics()
-    {
-        ClientMetrics.instance.registerGauge("connectedThriftClients", ThriftSessionManager.instance::getConnectedClients);
     }
 
     private static class ThriftCASRequest implements CASRequest
