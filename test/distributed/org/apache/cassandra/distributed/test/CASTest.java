@@ -630,56 +630,8 @@ public class CASTest extends CASTestBase
         }
     }
 
-    /**
-     * Range movements do not necessarily complete; they may be aborted.
-     * CAS consistency should not be affected by this.
-     *
-     *  - Range moving from {1, 2} to {2, 3}; witnessed by all
-     *  - Promised and Accepted on {2, 3}; Commits are delayed and arrive after next commit (or perhaps vanish)
-     *  - Range move cancelled; a new one starts moving {1, 2} to {2, 4}; witnessed by all
-     *  - Promised, Accepted and Committed on {1, 4}
-     */
-    @Test
-    public void testAbortedRangeMovement() throws Throwable
-    {
-        try (Cluster cluster = Cluster.create(4, config()))
-        {
-            cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
-            int pk = pk(cluster, 1, 2);
-
-            // set {3} bootstrapping, {4} not in ring
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(3));
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(4));
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingBootstrapping).accept(cluster.get(3));
-
-            // {3} promises and accepts on !{1} => {2, 3}
-            // {3} commits do not YET arrive on either of {1, 2} (must be either due to read quorum differing on legacy Paxos)
-            drop(cluster, 3, to(1), to(), to(1), to(1, 2));
-            assertRows(cluster.coordinator(3).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", ANY, pk),
-                    row(true));
-
-            // abort {3} bootstrap, start {4} bootstrap
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(3));
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingBootstrapping).accept(cluster.get(4));
-
-            // {4} promises and accepts on !{2} => {1, 4}
-            // {4} commits on {1, 2, 4}
-            drop(cluster, 4, to(2), to(), to(2), to());
-            cluster.filters().verbs(PAXOS_PREPARE.ordinal()).from(4).to(2).drop();
-            cluster.filters().verbs(PAXOS_PROPOSE.ordinal()).from(4).to(2).drop();
-            assertRows(cluster.coordinator(4).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", QUORUM, pk),
-                    row(false, pk, 1, 1, null));
-        }
-    }
-
     // TODO: RF changes
+    // TODO: Aborted range movements
     // TODO: Leaving ring
-
-
+    
 }

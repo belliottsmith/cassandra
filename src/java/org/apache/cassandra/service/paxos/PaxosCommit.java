@@ -43,6 +43,7 @@ import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_COMMIT;
 import static org.apache.cassandra.net.MessagingService.verbStages;
 import static org.apache.cassandra.service.StorageProxy.shouldHint;
 import static org.apache.cassandra.service.StorageProxy.submitHint;
+import static org.apache.cassandra.service.paxos.Commit.*;
 import static org.apache.cassandra.service.paxos.Paxos.WAIT;
 import static org.apache.cassandra.service.paxos.Paxos.canExecuteOnSelf;
 
@@ -74,7 +75,7 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
 
     private static final AtomicLongFieldUpdater<PaxosCommit> responsesUpdater = AtomicLongFieldUpdater.newUpdater(PaxosCommit.class, "responses");
 
-    final Commit proposal;
+    final Agreed commit;
     final boolean allowHints;
     final ConsistencyLevel consistency;
 
@@ -92,14 +93,14 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
      */
     private volatile long responses;
 
-    public PaxosCommit(Commit proposal, boolean allowHints, ConsistencyLevel consistency, Paxos.Participants participants, OnDone onDone)
+    public PaxosCommit(Agreed commit, boolean allowHints, ConsistencyLevel consistency, Paxos.Participants participants, OnDone onDone)
     {
-        this.proposal = proposal;
+        this.commit = commit;
         this.allowHints = allowHints;
         this.consistency = consistency;
         this.participants = participants.all.size();
         this.onDone = onDone;
-        this.required = participants.requiredFor(consistency, proposal.update.metadata());
+        this.required = participants.requiredFor(consistency, commit.update.metadata());
         if (required == 0)
             onDone.accept(status());
     }
@@ -107,14 +108,14 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
     /**
      * Submit the proposal for commit with all replicas, and wait synchronously until at most {@code deadline} for the result
      */
-    static Paxos.Async<Status> async(Commit proposal, Paxos.Participants participants, ConsistencyLevel consistency, @Deprecated boolean allowHints)
+    static Paxos.Async<Status> commit(Agreed commit, Paxos.Participants participants, ConsistencyLevel consistency, @Deprecated boolean allowHints)
     {
         // to avoid unnecessary object allocations we extend PaxosPropose to implements Paxos.Async
         class Async extends PaxosCommit<Paxos.ConditionAsConsumer<Status>> implements Paxos.Async<Status>
         {
-            private Async(Commit proposal, boolean allowHints, ConsistencyLevel consistency, Paxos.Participants participants)
+            private Async(Agreed commit, boolean allowHints, ConsistencyLevel consistency, Paxos.Participants participants)
             {
-                super(proposal, allowHints, consistency, participants, new Paxos.ConditionAsConsumer<>());
+                super(commit, allowHints, consistency, participants, new Paxos.ConditionAsConsumer<>());
             }
 
             public Status awaitUntil(long deadline)
@@ -133,7 +134,7 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
             }
         }
 
-        Async async = new Async(proposal, allowHints, consistency, participants);
+        Async async = new Async(commit, allowHints, consistency, participants);
         async.start(participants, false);
         return async;
     }
@@ -141,10 +142,10 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
     /**
      * Submit the proposal for commit with all replicas, and wait synchronously until at most {@code deadline} for the result
      */
-    static <T extends Consumer<Status>> T async(Commit proposal, Paxos.Participants participants, ConsistencyLevel consistency, @Deprecated boolean allowHints, T onDone)
+    static <T extends Consumer<Status>> T commit(Agreed commit, Paxos.Participants participants, ConsistencyLevel consistency, @Deprecated boolean allowHints, T onDone)
     {
-        PaxosCommit commit = new PaxosCommit(proposal, allowHints, consistency, participants, onDone);
-        commit.start(participants, true);
+        new PaxosCommit<>(commit, allowHints, consistency, participants, onDone)
+                .start(participants, true);
         return onDone;
     }
 
@@ -154,7 +155,7 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
     void start(Paxos.Participants participants, boolean async)
     {
         boolean executeOnSelf = false;
-        MessageOut<Commit> message = new MessageOut<>(PAXOS_COMMIT, proposal, Commit.serializer);
+        MessageOut<Commit> message = new MessageOut<>(PAXOS_COMMIT, commit, serializer);
         for (int i = 0, mi = participants.all.size(); i < mi ; ++i)
             executeOnSelf |= isSelfOrSend(message, participants.all.get(i));
 
@@ -176,12 +177,12 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
 
         if (FailureDetector.instance.isAlive(destination))
         {
-            logger.trace("Committing {} to {}", proposal, destination);
+            logger.trace("{} to {}", commit, destination);
             MessagingService.instance().sendRRWithFailure(message, destination, this);
         }
         else
         {
-            logger.trace("Not committing {} to down {}", proposal.ballot, destination);
+            logger.trace("Not committing {} to down {}", commit, destination);
             onFailureInternal(destination);
         }
 
@@ -193,7 +194,7 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
      */
     public void onFailure(InetAddress from)
     {
-        logger.trace("{} Failure from {}", proposal, from);
+        logger.trace("{} Failure from {}", commit, from);
 
         onFailureInternal(from);
     }
@@ -203,7 +204,7 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
      */
     public void onExpired(InetAddress from)
     {
-        logger.trace("{} Timeout from {}", proposal, from);
+        logger.trace("{} Timeout from {}", commit, from);
 
         onFailureInternal(from);
     }
@@ -216,7 +217,7 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
         response(false, from);
 
         if (allowHints && shouldHint(from))
-            submitHint(proposal.makeMutation(), from, null);
+            submitHint(commit.makeMutation(), from, null);
     }
 
     /**
@@ -224,7 +225,7 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
      */
     public void response(MessageIn<WriteResponse> msg)
     {
-        logger.trace("{} Success from {}", proposal, msg.from);
+        logger.trace("{} Success from {}", commit, msg.from);
 
         response(true, msg.from);
     }
@@ -236,14 +237,14 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
     {
         try
         {
-            MessageOut<WriteResponse> response = RequestHandler.execute(proposal, FBUtilities.getBroadcastAddress());
+            MessageOut<WriteResponse> response = RequestHandler.execute(commit, FBUtilities.getBroadcastAddress());
             if (response != null)
                 response(true, FBUtilities.getBroadcastAddress());
         }
         catch (Exception ex)
         {
             if (!(ex instanceof WriteTimeoutException))
-                logger.error("Failed to apply {} locally", proposal, ex);
+                logger.error("Failed to apply {} locally", commit, ex);
             onFailure(FBUtilities.getBroadcastAddress());
         }
     }

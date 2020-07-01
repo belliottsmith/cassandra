@@ -39,6 +39,7 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.paxos.Commit.Proposal;
 import org.apache.cassandra.service.paxos.Paxos.ConditionAsConsumer;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDSerializer;
@@ -121,7 +122,7 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
     private static final long TIMEOUT_INCREMENT = 1L << TIMEOUT_SHIFT;
     private static final long MASK = (1L << REFUSAL_SHIFT) - 1L;
 
-    private final UUID ballot;
+    private final Proposal proposal;
     /** Wait until we know if we may have had side effects */
     private final boolean waitForNoSideEffect;
     /** Number of contacted nodes */
@@ -147,9 +148,9 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
     /** The newest superseding ballot from a refusal; only returned to the caller if we fail to reach a quorum */
     private volatile UUID supersededBy;
 
-    private PaxosPropose(UUID ballot, int participants, int required, boolean waitForNoSideEffect, OnDone onDone)
+    private PaxosPropose(Proposal proposal, int participants, int required, boolean waitForNoSideEffect, OnDone onDone)
     {
-        this.ballot = ballot;
+        this.proposal = proposal;
         assert required > 0;
         this.waitForNoSideEffect = waitForNoSideEffect;
         this.participants = participants;
@@ -163,7 +164,7 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
      * @param waitForNoSideEffect if true, on failure we will wait until we can say with certainty there are no side effects
      *                            or until we know we will never be able to determine this with certainty
      */
-    static Paxos.Async<Status> async(Commit proposal, Paxos.Participants participants, boolean waitForNoSideEffect)
+    static Paxos.Async<Status> propose(Proposal proposal, Paxos.Participants participants, boolean waitForNoSideEffect)
     {
         if (waitForNoSideEffect && proposal.update.isEmpty())
             waitForNoSideEffect = false; // by definition this has no "side effects" (besides linearizing the operation)
@@ -171,9 +172,9 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
         // to avoid unnecessary object allocations we extend PaxosPropose to implements Paxos.Async
         class Async extends PaxosPropose<ConditionAsConsumer<Status>> implements Paxos.Async<Status>
         {
-            private Async(UUID ballot, int participants, int required, boolean waitForNoSideEffect)
+            private Async(Proposal proposal, int participants, int required, boolean waitForNoSideEffect)
             {
-                super(ballot, participants, required, waitForNoSideEffect, new ConditionAsConsumer<>());
+                super(proposal, participants, required, waitForNoSideEffect, new ConditionAsConsumer<>());
             }
 
             public Status awaitUntil(long deadline)
@@ -192,29 +193,29 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
             }
         }
 
-        Async propose = new Async(proposal.ballot, participants.poll.size(), participants.requiredForConsensus, waitForNoSideEffect);
-        propose.start(participants, proposal);
+        Async propose = new Async(proposal, participants.sizeOfPoll(), participants.requiredForConsensus, waitForNoSideEffect);
+        propose.start(participants);
         return propose;
     }
 
-    static <T extends Consumer<Status>> T async(Commit proposal, Paxos.Participants participants, boolean waitForNoSideEffect, T onDone)
+    static <T extends Consumer<Status>> T propose(Proposal proposal, Paxos.Participants participants, boolean waitForNoSideEffect, T onDone)
     {
         if (waitForNoSideEffect && proposal.update.isEmpty())
             waitForNoSideEffect = false; // by definition this has no "side effects" (besides linearizing the operation)
 
-        PaxosPropose<?> propose = new PaxosPropose<>(proposal.ballot, participants.poll.size(), participants.requiredForConsensus, waitForNoSideEffect, onDone);
-        propose.start(participants, proposal);
+        PaxosPropose<?> propose = new PaxosPropose<>(proposal, participants.sizeOfPoll(), participants.requiredForConsensus, waitForNoSideEffect, onDone);
+        propose.start(participants);
         return onDone;
     }
 
-    void start(Paxos.Participants participants, Commit proposal)
+    void start(Paxos.Participants participants)
     {
         MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_PROPOSE_REQ, new Request(proposal), requestSerializer);
         boolean executeOnSelf = false;
-        for (int i = 0, size = participants.poll.size(); i < size ; ++i)
+        for (int i = 0, size = participants.sizeOfPoll(); i < size ; ++i)
         {
-            InetAddress destination = participants.poll.get(i);
-            logger.trace("Propose {} to {}", proposal, destination);
+            InetAddress destination = participants.electorateToPoll.get(i);
+            logger.trace("{} to {}", proposal, destination);
             if (canExecuteOnSelf(destination)) executeOnSelf = true;
             else MessagingService.instance().sendRRWithFailure(message, destination, this);
         }
@@ -268,7 +269,8 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
 
     public void response(Response response, InetAddress from)
     {
-        logger.trace("{} for {} from {}", response, ballot, from);
+        if (logger.isTraceEnabled())
+            logger.trace("{} for {} from {}", response, proposal, from);
 
         UUID supersededBy = response.supersededBy;
         if (supersededBy != null)
@@ -284,14 +286,14 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
     @Override
     public void onFailure(InetAddress from)
     {
-        logger.trace("Propose Failure for {} from {}", ballot, from);
+        logger.trace("{} Failure from {}", proposal, from);
         update(REFUSAL_INCREMENT);
     }
 
     @Override
     public void onExpired(InetAddress from)
     {
-        logger.trace("Propose Timeout for {} from {}", ballot, from);
+        logger.trace("{} Timeout from {}", proposal, from);
         update(TIMEOUT_INCREMENT);
     }
 
@@ -308,6 +310,7 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
             signalDone();
     }
 
+    // returns true at most once for a given PaxosPropose, so we do not propagate a signal more than once
     private boolean shouldSignal(long responses)
     {
         if (responses <= 0L) // already signalled via ambiguous signal bit
@@ -383,15 +386,15 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
      */
     static class Request
     {
-        final Commit proposal;
-        Request(Commit proposal)
+        final Proposal proposal;
+        Request(Proposal proposal)
         {
             this.proposal = proposal;
         }
 
         public String toString()
         {
-            return "Propose(" + proposal.ballot + ", " + proposal.update + ')';
+            return proposal.toString("Propose");
         }
     }
 
@@ -438,20 +441,20 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
         @Override
         public void serialize(Request request, DataOutputPlus out, int version) throws IOException
         {
-            Commit.serializer.serialize(request.proposal, out, version);
+            Proposal.serializer.serialize(request.proposal, out, version);
         }
 
         @Override
         public Request deserialize(DataInputPlus in, int version) throws IOException
         {
-            Commit propose = Commit.serializer.deserialize(in, version);
+            Proposal propose = Proposal.serializer.deserialize(in, version);
             return new Request(propose);
         }
 
         @Override
         public long serializedSize(Request request, int version)
         {
-            return Commit.serializer.serializedSize(request.proposal, version);
+            return Proposal.serializer.serializedSize(request.proposal, version);
         }
     }
 

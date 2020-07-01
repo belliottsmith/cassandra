@@ -635,10 +635,13 @@ public class PartitionUpdate extends AbstractBTreePartition
     }
 
     @Override
-    public String toString()
+    public String toString(boolean includeFullDetails)
     {
         if (isBuilt)
-            return super.toString();
+            return super.toString(includeFullDetails);
+
+        if (!includeFullDetails)
+            return "key=" + metadata.getKeyValidator().getString(partitionKey().getKey()) + " (not built)";
 
         // We intentionally override AbstractBTreePartition#toString() to avoid iterating over the rows in the
         // partition, which can result in build() being triggered and lead to errors if the PartitionUpdate is later
@@ -646,10 +649,10 @@ public class PartitionUpdate extends AbstractBTreePartition
 
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("[%s.%s] key=%s columns=%s",
-                                metadata.ksName,
-                                metadata.cfName,
-                                metadata.getKeyValidator().getString(partitionKey().getKey()),
-                                columns()));
+                metadata.ksName,
+                metadata.cfName,
+                metadata.getKeyValidator().getString(partitionKey().getKey()),
+                columns()));
 
         sb.append("\n    deletionInfo=").append(deletionInfo);
         sb.append(" (not built)");
