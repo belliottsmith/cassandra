@@ -17,7 +17,7 @@
  */
 package org.apache.cassandra.db;
 
-import java.nio.ByteBuffer;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import java.util.Collection;
 import java.util.UUID;
 
@@ -25,10 +25,23 @@ import org.apache.cassandra.db.partitions.PartitionUpdate;
 
 public interface IMutation
 {
+    public long MAX_MUTATION_SIZE = DatabaseDescriptor.getMaxMutationSize();
+
     public String getKeyspaceName();
     public Collection<UUID> getColumnFamilyIds();
     public DecoratedKey key();
     public long getTimeout();
     public String toString(boolean shallow);
     public Collection<PartitionUpdate> getPartitionUpdates();
+
+    /**
+     * Validates size of mutation does not exceed {@link DatabaseDescriptor#getMaxMutationSize()}.
+     *
+     * @param version the MessagingService version the mutation is being serialized for.
+     *                see {@link org.apache.cassandra.net.MessagingService#current_version}
+     * @param overhead overhadd to add for mutation size to validate. Pass zero if not required but not a negative value.
+     * @return size of the mutation (overhead is NOT included).
+     * @throws MutationExceededMaxSizeException if {@link DatabaseDescriptor#getMaxMutationSize()} is exceeded
+     */
+    public int validateSize(int version, int overhead);
 }

@@ -20,9 +20,11 @@ package org.apache.cassandra.db.commitlog;
 
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -63,6 +65,7 @@ import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.KillerForTests;
 import org.apache.cassandra.utils.vint.VIntCoding;
 
+import static org.apache.cassandra.db.commitlog.CommitLogSegment.ENTRY_OVERHEAD_SIZE;
 import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -379,7 +382,7 @@ public class CommitLogTest
                       .add("val", ByteBuffer.allocate(allocSize)).build();
 
         int max = DatabaseDescriptor.getMaxMutationSize();
-        max -= CommitLogSegment.ENTRY_OVERHEAD_SIZE; // log entry overhead
+        max -= ENTRY_OVERHEAD_SIZE; // log entry overhead
 
         // Note that the size of the value if vint encoded. So we first compute the ovehead of the mutation without the value and it's size
         int mutationOverhead = (int)Mutation.serializer.serializedSize(rm, MessagingService.current_version) - (VIntCoding.computeVIntSize(allocSize) + allocSize);
@@ -410,23 +413,54 @@ public class CommitLogTest
         CommitLog.instance.add(rm);
     }
 
-    @Test
+    @Test(expected = MutationExceededMaxSizeException.class)
     public void testExceedRecordLimit() throws Exception
     {
         CommitLog.instance.resetUnsafe(true);
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(STANDARD1);
+        Mutation rm = new RowUpdateBuilder(cfs.metadata, 0, "k")
+                      .clustering("bytes")
+                      .add("val", ByteBuffer.allocate(1 + getMaxRecordDataSize()))
+                      .build();
+        CommitLog.instance.add(rm);
+        throw new AssertionError("mutation larger than limit was accepted");
+    }
+
+    @Test
+    public void testExceedRecordLimitWithMultiplePartitions() throws Exception
+    {
+        CommitLog.instance.resetUnsafe(true);
+        List<Mutation> mutations = new ArrayList<>();
+        Keyspace ks = Keyspace.open(KEYSPACE1);
+        char[] keyChars = new char[MutationExceededMaxSizeException.PARTITION_MESSAGE_LIMIT];
+        Arrays.fill(keyChars, 'k');
+        String key = new String(keyChars);
+        // large mutation
+        mutations.add(new RowUpdateBuilder(ks.getColumnFamilyStore(STANDARD1).metadata, 0, key)
+                      .clustering("bytes")
+                      .add("val", ByteBuffer.allocate(1 + getMaxRecordDataSize()))
+                      .build());
+        // smaller mutation
+        mutations.add(new RowUpdateBuilder(ks.getColumnFamilyStore(STANDARD2).metadata, 0, key)
+                      .clustering("bytes")
+                      .add("val", ByteBuffer.allocate(1 + getMaxRecordDataSize() - 1024))
+                      .build());
+        Mutation mutation = Mutation.merge(mutations);
         try
         {
-            Mutation rm = new RowUpdateBuilder(cfs.metadata, 0, "k")
-                          .clustering("bytes")
-                          .add("val", ByteBuffer.allocate(1 + getMaxRecordDataSize()))
-                          .build();
-            CommitLog.instance.add(rm);
+            CommitLog.instance.add(Mutation.merge(mutations));
             throw new AssertionError("mutation larger than limit was accepted");
         }
-        catch (IllegalArgumentException e)
+        catch (MutationExceededMaxSizeException exception)
         {
-            // IAE is thrown on too-large mutations
+            String message = exception.getMessage();
+            long mutationSize = Mutation.serializer.serializedSize(mutation, MessagingService.current_version) + ENTRY_OVERHEAD_SIZE;
+            final String expectedMessagePrefix = String.format("Encountered an oversized mutation (%d/%d) for keyspace: %s.",
+                                                               mutationSize,
+                                                               DatabaseDescriptor.getMaxMutationSize(),
+                                                               KEYSPACE1);
+            assertTrue(message.startsWith(expectedMessagePrefix));
+            assertTrue(message.contains(String.format("%s.%s and 1 more.", STANDARD1, key)));
         }
     }
 

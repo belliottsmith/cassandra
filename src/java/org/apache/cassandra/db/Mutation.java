@@ -21,11 +21,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 
-import com.google.common.base.Throwables;
-import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -124,6 +121,17 @@ public class Mutation implements IMutation
     public PartitionUpdate getPartitionUpdate(UUID cfId)
     {
         return modifications.get(cfId);
+    }
+
+    public int validateSize(int version, int overhead)
+    {
+        long size = serializer.serializedSize(this, version);
+        long totalSize = size + overhead;
+        if(totalSize > MAX_MUTATION_SIZE)
+        {
+            throw new MutationExceededMaxSizeException(this, version, totalSize);
+        }
+        return (int) size;
     }
 
     public Mutation add(PartitionUpdate update)

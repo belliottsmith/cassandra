@@ -58,10 +58,6 @@ public class CommitLog implements CommitLogMBean
 
     public static final CommitLog instance = CommitLog.construct();
 
-    // we only permit records HALF the size of a commit log, to ensure we don't spin allocating many mostly
-    // empty segments when writing large records
-    private final long MAX_MUTATION_SIZE = DatabaseDescriptor.getMaxMutationSize();
-
     public final CommitLogSegmentManager allocator;
     public final CommitLogArchiver archiver;
     final CommitLogMetrics metrics;
@@ -237,16 +233,9 @@ public class CommitLog implements CommitLogMBean
     {
         assert mutation != null;
 
-        int size = (int) Mutation.serializer.serializedSize(mutation, MessagingService.current_version);
-
+        int size = mutation.validateSize(MessagingService.current_version, ENTRY_OVERHEAD_SIZE);
         int totalSize = size + ENTRY_OVERHEAD_SIZE;
-        if (totalSize > MAX_MUTATION_SIZE)
-        {
-            throw new IllegalArgumentException(String.format("Mutation of %s bytes is too large for the maximum size of %s",
-                                                             totalSize, MAX_MUTATION_SIZE));
-        }
-
-        Allocation alloc = allocator.allocate(mutation, (int) totalSize);
+        Allocation alloc = allocator.allocate(mutation, totalSize);
         CRC32 checksum = new CRC32();
         final ByteBuffer buffer = alloc.getBuffer();
         try (BufferedDataOutputStreamPlus dos = new DataOutputBufferFixed(buffer))

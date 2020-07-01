@@ -51,6 +51,8 @@ import org.apache.cassandra.service.reads.RepairedDataTracker;
 import org.apache.cassandra.service.reads.RepairedDataVerifier;
 import org.apache.cassandra.tracing.Tracing;
 
+import static org.apache.cassandra.db.IMutation.MAX_MUTATION_SIZE;
+
 public class DataResolver extends ResponseResolver
 {
     private static final boolean DROP_OVERSIZED_READ_REPAIR_MUTATIONS =
@@ -661,44 +663,44 @@ public class DataResolver extends ResponseResolver
             return null;
 
         Mutation mutation = new Mutation(update);
-        DecoratedKey key = mutation.key();
-        CFMetaData cfm = update.metadata();
-        Keyspace keyspace = Keyspace.open(cfm.ksName);
-
         int messagingVersion = MessagingService.instance().getVersion(destination);
-        int     mutationSize = Ints.checkedCast(Mutation.serializer.serializedSize(mutation, messagingVersion));
-        int  maxMutationSize = DatabaseDescriptor.getMaxMutationSize();
 
-        if (mutationSize <= maxMutationSize)
+        try
         {
+            mutation.validateSize( messagingVersion, 0);
             return mutation;
         }
-        else if (DROP_OVERSIZED_READ_REPAIR_MUTATIONS)
+        catch (MutationExceededMaxSizeException e)
         {
-            logger.debug("Encountered an oversized ({}/{}) read repair mutation for table {}.{}, key {}, node {}",
-                         mutationSize,
-                         maxMutationSize,
-                         cfm.ksName,
-                         cfm.cfName,
-                         cfm.getKeyValidator().getString(key.getKey()),
-                         destination);
-            return null;
-        }
-        else
-        {
-            logger.warn("Encountered an oversized ({}/{}) read repair mutation for table {}.{}, key {}, node {}",
-                        mutationSize,
-                        maxMutationSize,
-                        cfm.ksName,
-                        cfm.cfName,
-                        cfm.getKeyValidator().getString(key.getKey()),
-                        destination);
-
-            if (!suppressException)
+            DecoratedKey key = mutation.key();
+            CFMetaData cfm = update.metadata();
+            Keyspace keyspace = Keyspace.open(cfm.ksName);
+            if (DROP_OVERSIZED_READ_REPAIR_MUTATIONS)
             {
-                int blockFor = consistency.blockFor(keyspace);
-                Tracing.trace("Timed out while read-repairing after receiving all {} data and digest responses", blockFor);
-                throw new ReadTimeoutException(consistency, blockFor - 1, blockFor, true);
+                logger.debug("Encountered an oversized ({}/{}) read repair mutation for table {}.{}, key {}, node {}",
+                             e.mutationSize,
+                             MAX_MUTATION_SIZE,
+                             cfm.ksName,
+                             cfm.cfName,
+                             cfm.getKeyValidator().getString(key.getKey()),
+                             destination);
+            }
+            else
+            {
+                logger.warn("Encountered an oversized ({}/{}) read repair mutation for table {}.{}, key {}, node {}",
+                            e.mutationSize,
+                            MAX_MUTATION_SIZE,
+                            cfm.ksName,
+                            cfm.cfName,
+                            cfm.getKeyValidator().getString(key.getKey()),
+                            destination);
+
+                if (!suppressException)
+                {
+                    int blockFor = consistency.blockFor(keyspace);
+                    Tracing.trace("Timed out while read-repairing after receiving all {} data and digest responses", blockFor);
+                    throw new ReadTimeoutException(consistency, blockFor - 1, blockFor, true);
+                }
             }
             return null;
         }
