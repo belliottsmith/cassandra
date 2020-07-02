@@ -539,32 +539,6 @@ public class Config
 
     public String repair_history_sync_timeout = "10m";
 
-    /**
-     * If true, when a repaired data mismatch is detected at read time, a snapshot request will be
-     * issued to each replica participating in the query. These are limited at the replica level
-     * so that only a single snapshot per-day can be taken via this method.
-     */
-    public volatile boolean snapshot_on_repaired_data_mismatch = false;
-
-    /**
-     * If true, when rows with duplicate clustering keys are detected during a read or compaction
-     * a snapshot will be taken. In the read case, a snapshot request will be issued to each
-     * replica involved in the query, for compaction the snapshot will be created locally.
-     * These are limited at the replica level so that only a single snapshot per-day can be taken
-     * via this method.
-     *
-     * This requires check_for_duplicate_rows_during_reads and/or check_for_duplicate_rows_during_compaction
-     * below to be enabled
-     */
-    public volatile boolean snapshot_on_duplicate_row_detection = false;
-
-    /**
-     * If these are enabled duplicate keys will get logged, and if snapshot_on_duplicate_row_detection
-     * is enabled, the table will get snapshotted for offline investigation
-     */
-    public volatile boolean check_for_duplicate_rows_during_reads = true;
-    public volatile boolean check_for_duplicate_rows_during_compaction = true;
-
     public static boolean isClientMode()
     {
         return isClientMode;

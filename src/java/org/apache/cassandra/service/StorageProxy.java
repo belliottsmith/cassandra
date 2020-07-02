@@ -34,7 +34,6 @@ import com.google.common.collect.*;
 import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.Uninterruptibles;
 
-import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.ReadRepairDecision;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -3500,41 +3499,5 @@ public class StorageProxy implements StorageProxyMBean
     public String getPaxosVariant()
     {
         return Paxos.getPaxosVariant();
-    }
-
-    @Override
-    public boolean getCheckForDuplicateRowsDuringReads()
-    {
-        return DatabaseDescriptor.checkForDuplicateRowsDuringReads();
-    }
-
-    @Override
-    public void enableCheckForDuplicateRowsDuringReads()
-    {
-        DatabaseDescriptor.setCheckForDuplicateRowsDuringReads(true);
-    }
-
-    @Override
-    public void disableCheckForDuplicateRowsDuringReads()
-    {
-        DatabaseDescriptor.setCheckForDuplicateRowsDuringReads(false);
-    }
-
-    @Override
-    public boolean getCheckForDuplicateRowsDuringCompaction()
-    {
-        return DatabaseDescriptor.checkForDuplicateRowsDuringCompaction();
-    }
-
-    @Override
-    public void enableCheckForDuplicateRowsDuringCompaction()
-    {
-        DatabaseDescriptor.setCheckForDuplicateRowsDuringCompaction(true);
-    }
-
-    @Override
-    public void disableCheckForDuplicateRowsDuringCompaction()
-    {
-        DatabaseDescriptor.setCheckForDuplicateRowsDuringCompaction(false);
     }
 }

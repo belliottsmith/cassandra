@@ -2811,7 +2811,7 @@ public abstract class LegacyLayout
     {
         LOG
         {
-            void mayAddCell(ColumnDefinition column, LegacyCell cell, SerializationHelper helper, Row.Builder builder)
+            void mayAddCell(ColumnDefinition column, LegacyCell cell, DeserializationHelper helper, Row.Builder builder)
             {
                 // in 2.1 this was valid and treated as a null value for the column
                 noSpamLogger.warn("Complex column " + column.ksName + "." + column.cfName + "(" + column.name + ": " + column.type + ") is expected to have a cell path but did not; dropping");
@@ -2819,7 +2819,7 @@ public abstract class LegacyLayout
         },
         ATTEMPT_MIGRATE
         {
-            void mayAddCell(ColumnDefinition column, LegacyCell cell, SerializationHelper helper, Row.Builder builder)
+            void mayAddCell(ColumnDefinition column, LegacyCell cell, DeserializationHelper helper, Row.Builder builder)
             {
                 // likely a non-frozen type was encoded frozen... should we... let it go?
                 assert !column.type.isUDT() : format("Column %s.%s(%s: %s) is a complex user defined type, which requires non-null CellPath", column.ksName, column.cfName, column.name, column.type.toString());
@@ -2898,7 +2898,7 @@ public abstract class LegacyLayout
         },
         REJECT
         {
-            public void mayAddCell(ColumnDefinition column, LegacyCell cell, SerializationHelper helper, Row.Builder builder)
+            public void mayAddCell(ColumnDefinition column, LegacyCell cell, DeserializationHelper helper, Row.Builder builder)
             {
                 throw new AssertionError("Column " + column.ksName + "." + column.cfName + "(" + column.name + ": " + column.type + ") requires non-null cell path");
             }
@@ -2977,7 +2977,7 @@ public abstract class LegacyLayout
 
         abstract void mayAddCell(ColumnDefinition column,
                                  LegacyCell cell,
-                                 SerializationHelper helper,
+                                 DeserializationHelper helper,
                                  Row.Builder builder);
     }
 }
