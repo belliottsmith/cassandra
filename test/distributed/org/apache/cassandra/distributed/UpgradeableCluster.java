@@ -25,6 +25,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import org.apache.cassandra.distributed.api.ICluster;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.impl.AbstractCluster;
 import org.apache.cassandra.distributed.impl.IUpgradeableInstance;
 import org.apache.cassandra.distributed.impl.InstanceConfig;
@@ -59,7 +60,7 @@ public class UpgradeableCluster extends AbstractCluster<IUpgradeableInstance> im
         return build(nodeCount).start();
     }
 
-    public static UpgradeableCluster create(int nodeCount, Versions.Version version, Consumer<InstanceConfig> configUpdater) throws IOException
+    public static UpgradeableCluster create(int nodeCount, Versions.Version version, Consumer<IInstanceConfig> configUpdater) throws IOException
     {
         return build(nodeCount).withConfig(configUpdater).withVersion(version).start();
     }

@@ -25,10 +25,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import org.apache.cassandra.db.MutableDeletionInfo;
 import org.apache.cassandra.distributed.UpgradeableCluster;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.impl.Instance;
-import org.apache.cassandra.distributed.impl.InstanceConfig;
 import org.apache.cassandra.distributed.impl.Versions;
 import org.apache.cassandra.distributed.impl.Versions.Version;
 import org.apache.cassandra.distributed.test.DistributedTestBase;
@@ -69,7 +68,7 @@ public class UpgradeTestBase extends DistributedTestBase
         private RunOnClusterAndNode runAfterNodeUpgrade;
         private RunOnCluster runAfterClusterUpgrade;
         private final Set<Integer> nodesToUpgrade = new HashSet<>();
-        private Consumer<InstanceConfig> configConsumer;
+        private Consumer<IInstanceConfig> configConsumer;
 
         public TestCase()
         {
@@ -120,7 +119,7 @@ public class UpgradeTestBase extends DistributedTestBase
             return this;
         }
 
-        public TestCase withConfig(Consumer<InstanceConfig> config)
+        public TestCase withConfig(Consumer<IInstanceConfig> config)
         {
             this.configConsumer = config;
             return this;
