@@ -1,3 +1,187 @@
+3.0.19.50
+* <rdar://problem/65130093> (Paxos: Limit reproposals of previously agreed proposals)
+* <rdar://problem/60081738> (Paxos: Remove 2x Round Trips on contended/incomplete Prepare response)
+* <rdar://problem/46878531> (CASSANDRA-12126: CAS Reads Inconsistencies)
+* <rdar://problem/56204775> (Paxos: Remove 1x Write Round Trip by Combining Read with Prepare)
+* <rdar://problem/58350506> (Paxos: Remove 1x Fast-Read Roundtrips)
+* <rdar://problem/56204960> (Introduce Mechanism to Repair Incomplete Paxos Operations)
+* <rdar://problem/62542548> CASSANDRA-15789: Multiple records in Cassandra table with duplicated primary key
+* <rdar://problem/63403100> (Apple Internal) Enable use_offheap_merkle_trees by default
+* <rdar://problem/61094981> Fully backport CASSANDRA-15553: Investigate preview repair mismatch in ic2clouddb_p01
+* <rdar://problem/60007390> CASSANDRA-15674: liveDiskSpaceUsed and totalDiskSpaceUsed get corrupted if IndexSummaryRedistribution gets interrupted
+* <rdar://problem/59313829> Cancel all ongoing preview repair sessions when we receive conflicting RepairSuccess
+* <rdar://problem/59378688> Partially backport CASSANDRA-15553 - fail preview repair when intersecting incremental repair finishes
+* <rdar://problem/56761365> (CASSANDRA-15389: Minimize BTree iterator allocations) (#1467)
+* <rdar://problem/56762468> (CASSANDRA-15394: Remove list iterators) (#1464)
+* <rdar://problem/56761366> (CASSANDRA-15390: Avoid unnecessary collection/iterator allocations during btree construction) (#1462)
+* <rdar://problem/56761364> (CASSANDRA-15388: Add compaction allocation measurement test to support compaction gc optimization.) (#1461)
+* <rdar://problem/59221398> Mutating pending repair in sstable metadata on legacy sstables fails silently
+* <rdar://problem/59341781> Backport CASSANDRA-15505: Message interceptors
+* <rdar://problem/57472637> (Apple Internal) xmas patch: find minimal set of ranges that cover the sstable when checking if it is fully expired & droppable
+* <rdar://problem/57423903> (Apple Internal) xmas patch: avoid using the wrong last repair time when checking for fully droppable sstables
+* <rdar://problem/58781001> org.apache.cassandra.db.ImportTest#testImportCorruptWithoutValidation frequently fails in cie CI
+* <rdar://problem/56041528> CASSANDRA-15365: cie-cassandra 3.0.19.0: geoneutron / HBW-generated SSTables
+* <rdar://problem/57320124> CASSANDRA-15457: Fix "involved in several compactions" exception
+* <rdar://problem/57841413> (Apple Internal) Add logging in preparation for nodetool import improvements
+* <rdar://problem/56941622> CASSANDRA-15405: Avoid over trimming results in mixed mode clusters
+* <rdar://problem/56111207> CASSANDRA-15364: Avoid listing the data dir for every entry in the transaction log files
+* <rdar://problem/49936203> (Apple Internal) CassandraAuthorizer doesn't use configured CL for reads
+* <rdar://problem/56984041> (Apple Internal) fqltool dump is broken by changes to PagingState serialization
+* <rdar://problem/56815261> (Apple Internal) Increase system_traces keyspace GENERATION to override pre-2.0.2 created table params
+* <rdar://problem/56380554> In-JVM Dtest fixes/improvements break ReadRepairTest.movingTokenReadRepairTest
+* <rdar://problem/56171294> APNs koldestdeliverable/deliverable functions report incorrect type to client
+* <rdar://problem/39320596> CASSANDRA-8727: Allow checking state of compactions
+* <rdar://problem/56347691> CASSANDRA-14436 : Add sampler for query time and expose with nodetool
+* <rdar://problem/56795580> (Apple Internal) Disable creating 2i by default but add a config to allow
+* <rdar://problem/54397536> (Apple Internal) Wide partition read nospamlogger entry
+* <rdar://problem/58310998> CASSANDRA-15329: Fix in-JVM dtest failures on java 11 as the system ClassLoader is not a URLClassLoader as of java 9
+* <rdar://problem/44689118> Back-porting CASSANDRA-14781 to 3.0.19 (#1708)
+* <rdar://problem/59105518> Printing token in the log message when there are tombstone warnings or errors. (#1752)
+* <rdar://problem/58625233> CASSANDRA-15569: backport StorageProxy updateCoordinatorWriteLatencyTableMetric can produce misleading metrics
+* <rdar://problem/58625233> CASSANDRA-14820: backport repair speculative retry using the coordinator write sample introduced by CASSANDRA-14232 as a means to get repair tests passing
+* <rdar://problem/58625233> CASSANDRA-14232: backport coordinator write metrics to expose write latencies so we can use this for repair speculation
+* <rdar://problem/60556480> (3.0.19.next exceptions in MessageIn.read java.lang.ArrayIndexOutOfBoundsException: -1003) (#1584)
+* <rdar://problem/60063437> (CqlInputFormat does not limit to a single DC and will attempt to run on all DCs) (#1573)
+* <rdar://problem/59003346> (Allow resumeable bootstrap to be overriden in CI) (#1473)
+* <rdar://problem/58967081> Make disable_incremental_repair overridable via System Properties so CI is able to override for python dtests (#1472)
+* <rdar://problem/56987837> (When repair times out calling syncRepairHistory workflows hangs forever) (#1419)
+* <rdar://problem/57206649> (Migrate release image to use apple jdk) (#1429)
+* <rdar://problem/57103572> (Create CI build for per commit docker images) (#1425)
+* <rdar://problem/56801919> (Remove dtests from rio.yml since its completely broken)
+* <rdar://problem/56121542> Deadlock: Memtable flush blocked by earlier partition lock acquisition by a pending mutation (blocked by pending flush)
+* <rdar://problem/49156817> Adding default method to IAuthenticator interface to support certificate based MTLS authentication
+* <rdar://problem/56037814> Change concurrent_validators
+* <rdar://problem/60314097> Backport CASSANDRA-15620 UnleveledSSTables metric
+* <rdar://problem/56539184> Backport CASSANDRA-15172 into cie-cassandra-3.0.19 branches
+* <rdar://problem/56707070> Memtable initialisation is prone to fail due to CommitLog activity
+* <rdar://problem/56667737> Default values of concurrent_validations & concurrent_compactions prevents startup on local dev machines
+* <rdar://problem/63518261> CIE4 Followup - LeveledCompactionStrategyTest is flaky
+
+3.0.19.21
+* <rdar://problem/48863257> CASSANDRA-8180, CASSANDRA-13366, CASSANDRA-15690: Backport Optimize disk seek using min/max column name meta data when the LIMIT clause is used
+
+3.0.19.20
+* <rdar://problem/64435103> CASSANDRA-15556: Prevent the JVM from crashing due to corrupt LZ4 streams
+* <rdar://problem/64710319> CASSANDRA-15884: Add a startup check to detect if LZ4 uses java rather than native implementation
+* <rdar://problem/62769937> (Apple Internal) Repair shouldn't run when compaction is super far behind (#1652)
+* <rdar://problem/37960610> (Apple Internal) Disable binary before disabling gossip (#1649)
+
+3.0.19.19
+* <rdar://problem/64090054> (Apple Internal) AssertionError in RangeTombstoneList#insertFrom bounds check (impact: nice_s06 insert failures)
+* <rdar://problem/45564219> CASSANDRA-14849: some empty/invalid bounds aren't caught by SelectStatement
+* <rdar://problem/63955579> (Apple Internal) When 3.0 reads 2.1 data with a regular column set<text> it expects the cellName to contain a element and fails if not true (#1731)
+* <rdar://problem/64203472> (Apple Internal) Completely empty partitions should produce an empty repaired data digest
+* <rdar://problem/58917305> (Apple Internal) Reduce the amount of logging from RepairHistorySyncTask (#1725)
+
+3.0.19.18
+* <rdar://problem/63675902> Fix NPE in repaired data tracking
+
+3.0.19.17
+* <rdar://problem/63348778> (Apple Internal) Handle difference in timestamp precision between java11 and java8 in LogFile.java
+* <rdar://problem/63403100> (Apple Internal) Enable use_offheap_merkle_trees by default
+* <rdar://problem/63393027> CASSANDRA-15805: Potential duplicate rows on 2.X->3.X upgrade when multi-rows range tombstones interacts with collection tombstones
+* <rdar://problem/43563619> CASSANDRA-14659: Disable old protocol versions on demand
+* <rdar://problem/63419932> (Apple Internal) Log warning rather than stacktrace when preview repair validation conflicts with IR
+* <rdar://problem/60007390> CASSANDRA-15674: liveDiskSpaceUsed and totalDiskSpaceUsed get corrupted if IndexSummaryRedistribution gets interrupted
+* <rdar://problem/59675489> (Apple Internal) fqltool should be runnable *safely* on the cassandra hosts
+* <rdar://problem/62076377> (Apple Internal) [3.0 / 4.0]: Make DynamicEndpointSnitch more configurable at runtime
+* <rdar://problem/62542548> CASSANDRA-15789: Multiple records in Cassandra table with duplicated primary key
+
+3.0.19.16
+* <rdar://problem/60956968> (Apple Internal) Preview Repair Mismatch: Race w/Truncate (istshared21qa)
+* <rdar://problem/61832569> (Apple Internal) Add logging/metrics for index summary redistribution
+* <rdar://problem/61943525> (Apple Internal) Prepare a tool to repair instances of duplicate primary keys in itmsconnect
+* <rdar://problem/61943479> (Apple Internal) Prepare a tool to scan for instances of duplicate primary keys in itmsconnect
+* <rdar://problem/61943870> (Apple Internal) (Implement read-path detection, logging, snapshotting of multiple rows per primary key)
+* <rdar://problem/56111207> (CASSANDRA-15364) Avoid listing the data dir for every entry in the transaction log files
+* <rdar://problem/49631939> (Apple Internal) Prevent partition blacklist startup causing unavailable
+* <rdar://problem/62139800> (Apple Internal) Backport APNs koldestdeliverable/deliverable functions report incorrect type to client
+
+3.0.19.15
+* <rdar://problem/61516500> (Apple Internal) log how much time was spent actually writing data during compaction
+* <rdar://problem/61094981> Investigate preview repair mismatch in ic2clouddb_p01 - backport all of CASSANDRA-15553
+* <rdar://problem/61336161> (Apple Internal) Start ActiveRepairService before enabling auto-compaction
+* <rdar://problem/61206527> CASSANDRA-15690 SSTables with partition deletes can be incorrectly skipped during reads
+* <rdar://problem/61010307> (Apple Internal) IOBE in Paging State Version Inference (V3 State Received on V4 Connection)
+
+3.0.19.14
+* <rdar://problem/61042957> CASSANDRA-15637: CqlInputFormat generating incorrect number of splits
+
+3.0.19.13
+* <rdar://problem/61047801> (Apple Internal) Correctly count repaired data digests in SnapshottingVerifier
+
+3.0.19.12
+* <rdar://problem/60818976> (Apple Internal) Add option to snapshot tables on repaired data mismatch
+
+3.0.19.11
+* <rdar://problem/60789286> CASSANDRA-15637: CqlInputFormat query to table_estimates fails on some services with unexpected message
+
+3.0.19.10
+* <rdar://problem/60059786> CASSANDRA-15637: C* Bulk Export Slowness
+* <rdar://problem/58417519> CASSANDRA-15519: Native Transport Request Load Shedding
+* <rdar://problem/60279976> (Apple Internal)  Adding classifier for ACCP jar
+
+3.0.19.9
+* <rdar://problem/60104907> (Apple Internal) AbstractLocalAwareExecutorService should log exceptions at ERROR (instead of WARN)
+* <rdar://problem/60101151> (Apple Internal) istshared21dev : java.lang.NullPointerException during read
+
+3.0.19.8
+* <rdar://problem/55072765> IllegalStateException @ o.a.c.utils.concurrent.Accumulator.add in ResponseResolver
+* <rdar://problem/59313829> Cancel all ongoing preview repair sessions when we receive conflicting RepairSuccess
+* <rdar://problem/59378688> Partially backport CASSANDRA-15553 - fail preview repair when intersecting incremental repair finishes
+* <rdar://problem/59221398> Mutating pending repair in sstable metadata on legacy sstables fails silently
+* <rdar://problem/59309912> Repaired data tracking should attempt to read the same amount of data from each replica
+* <rdar://problem/59340760> Improve preview/incremental repair logging
+* <rdar://problem/59341781> Backport CASSANDRA-15505: Message interceptors
+
+3.0.19.7
+* <rdar://problem/59476715> Cut new cie-cassandra build with apple jdk packaged in docker image
+* <rdar://problem/58773355> Image Mirroring Failing for cie-cassandra 3.0.19+
+
+3.0.19.6
+* <rdar://problem/58885386> ampaeiad Static Column Removed and Re-added still Breaks LegacyLayout
+* <rdar://problem/58760061> Reset flag for fully purged partitions in repaired digest calculation during range reads
+* <rdar://problem/54223609> Replace pie/cie_cassandra and cpbuild/jdk1.8 with pie/cie-cassandra-build-jdk-8
+
+3.0.19.5
+* <rdar://problem/58121748> CASSANDRA-15501: Duplicate results when querying mixed mode clusters
+* <rdar://problem/58469170> ampaeiad static column removed and re-added breaks legacylayout
+
+3.0.19.4
+ * <rdar://problem/57423903> xmas patch: avoid using the wrong last repair time when checking for fully droppable sstables (#1434)
+ * <rdar://problem/57285106> GC-able tombstones cause false positives in repaired data tracking
+ * <rdar://problem/57320124> Fix "involved in several compactions" exception (#1433)
+ * <rdar://problem/56183035> buidl.xml changes for adding ACCP jar to package.
+
+3.0.19.3
+ - skipped due to build issue -
+
+3.0.19.2
+ * <rdar://problem/56941622> CASSANDRA-15405: Avoid over trimming results in mixed mode clusters
+ * <rdar://problem/56944595> CASSANDRA-15400: Cassandra 3.0.18 went OOM several hours after joining a cluster
+ * <rdar://problem/57075746> (Apple Internal) Materialized Views should be disabled by default in 3.0
+
+3.0.19.1
+ * <rdar://problem/56258571> Amazon Corretto Crypto Provider (ACCP) with cie-cassandra
+ * <rdar://problem/54995198> changing compaction options breaks compaction in 3.0 + IR cluster
+ * <rdar://problem/56591595> CASSANDRA-15373: validate value sizes in LegacyLayout
+ * <rdar://problem/56538173> CASSANDRA-15201: LegacyLayout does not handle paging states that cross a collection column
+ * <rdar://problem/56539156> CASSANDRA-15172: LegacyLayout RangeTombstoneList throws IndexOutOfBoundsException
+ * <rdar://problem/56041528> CASSANDRA-15365: cie-cassandra 3.0.19.0: geoneutron / HBW-generated SSTables
+ * <rdar://problem/56199323> CASSANDRA-15363: Upgrade SStables are not proceeding for 36 instances in nice_s00
+ * <rdar://problem/56044231> CASSANDRA-15335: Node can corrupt gossip state and become unreplaceable
+ * <rdar://problem/56044193> CASSANDRA-15340: Resource leak in CompressedSequentialWriter
+ * <rdar://problem/55783119> [3.0.x] Repair coordinator responses blocked by saturated anti-entropy thread pool
+ * <rdar://problem/56155096> Re-order startup checks so that filesystem ownership check runs first
+ * <rdar://problem/56247982> Ignore table ids in StorageService::maybeAddOrUpdateKeyspace()
+ * <rdar://problem/56247937> Permit altering tables in cie_internal and system_auth keyspaces
+ * <rdar://problem/56101440> Prevent 3.0 from overriding partition_blacklist table id
+ * <rdar://problem/56081518> Partially undo cie_internal_local changes to harmonise schema version calculation between 3.0.17 and 3.0.19
+ * <rdar://problem/55678938> Batch distributed system keyspace schema setup
+ * <rdar://problem/39320596> CASSANDRA-8727: Allow checking state of compactions
+ * <rdar://problem/50512638> CASSANDRA-9241: broken toppartitions in 3.0 for some HBBs
+ * <rdar://problem/56347691> CASSANDRA-14436 : Add sampler for query time and expose with nodetool
+
 3.0.19.0
  * <rdar://problem/50199618> K8s / Silk Road: Verify correct ownership of attached locations on disk at C* startup
  * <rdar://problem/28809414> CASSANDRA-8527:  range tombstones should count towards tombstone warn/fail limit
