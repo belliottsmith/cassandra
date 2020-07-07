@@ -558,6 +558,8 @@ public class Config
 
     public volatile boolean compact_biggest_stcs_bucket_l0 = false;
 
+    public boolean autocompaction_on_startup_enabled = Boolean.parseBoolean(System.getProperty("cassandra.autocompaction_on_startup_enabled", "true"));
+
     public enum PaxosVariant
     {
         legacy,

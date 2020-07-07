@@ -358,7 +358,16 @@ public class CassandraDaemon
                     // load the last successful repairs before enabling compaction
                     store.loadLastSuccessfulRepair();
                     if (store.getCompactionStrategyManager().shouldBeEnabled())
-                        store.enableAutoCompaction();
+                    {
+                        if (DatabaseDescriptor.getAutocompactionOnStartupEnabled())
+                        {
+                            store.enableAutoCompaction();
+                        }
+                        else
+                        {
+                            logger.info("Not enabling compaction for {}.{}; autocompaction_on_startup_enabled is set to false", store.keyspace.getName(), store.name);
+                        }
+                    }
                 }
             }
         }

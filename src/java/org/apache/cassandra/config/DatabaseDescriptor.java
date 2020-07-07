@@ -3027,4 +3027,9 @@ public class DatabaseDescriptor
     {
         conf.check_for_duplicate_rows_during_compaction = enabled;
     }
+
+    public static boolean getAutocompactionOnStartupEnabled()
+    {
+        return conf.autocompaction_on_startup_enabled;
+    }
 }
