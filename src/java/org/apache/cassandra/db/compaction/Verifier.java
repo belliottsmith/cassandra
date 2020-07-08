@@ -64,6 +64,7 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 public class Verifier implements Closeable
@@ -80,6 +81,12 @@ public class Verifier implements Closeable
     private final RowIndexEntry.IndexSerializer rowIndexEntrySerializer;
     private final Options options;
     private final boolean isOffline;
+    /**
+     * Given a keyspace, return the set of local and pending token ranges.  By default {@link StorageService#getLocalAndPendingRanges(String)}
+     * is expected, but for the standalone verifier case we can't use that, so this is here to allow the CLI to provide
+     * the token ranges.
+     */
+    private final Function<String, ? extends Collection<Range<Token>>> tokenLookup;
 
     private int goodRows;
 
@@ -107,6 +114,7 @@ public class Verifier implements Closeable
         this.verifyInfo = new VerifyInfo(dataFile, sstable);
         this.options = options;
         this.isOffline = isOffline;
+        this.tokenLookup = options.tokenLookup;
     }
 
     public void verify()
@@ -133,7 +141,7 @@ public class Verifier implements Closeable
         }
         catch (Throwable t)
         {
-            outputHandler.debug(t.getMessage());
+            outputHandler.warn(t.getMessage());
             markAndThrow(false);
         }
 
@@ -144,7 +152,7 @@ public class Verifier implements Closeable
         }
         catch (Throwable t)
         {
-            outputHandler.debug(t.getMessage());
+            outputHandler.warn(t.getMessage());
             markAndThrow();
         }
 
@@ -156,7 +164,7 @@ public class Verifier implements Closeable
         catch (Throwable t)
         {
             outputHandler.output("Index summary is corrupt - if it is removed it will get rebuilt on startup "+sstable.descriptor.filenameFor(Component.SUMMARY));
-            outputHandler.debug(t.getMessage());
+            outputHandler.warn(t.getMessage());
             markAndThrow(false);
         }
 
@@ -168,7 +176,7 @@ public class Verifier implements Closeable
         }
         catch (Throwable t)
         {
-            outputHandler.debug(t.getMessage());
+            outputHandler.warn(t.getMessage());
             markAndThrow();
         }
 
@@ -177,7 +185,7 @@ public class Verifier implements Closeable
             outputHandler.debug("Checking that all tokens are owned by the current node");
             try (KeyIterator iter = new KeyIterator(sstable.descriptor, sstable.metadata))
             {
-                List<Range<Token>> ownedRanges = Range.normalize(StorageService.instance.getLocalAndPendingRanges(cfs.metadata.ksName));
+                List<Range<Token>> ownedRanges = Range.normalize(tokenLookup.apply(cfs.metadata.ksName));
                 if (ownedRanges.isEmpty())
                     return;
                 RangeOwnHelper rangeOwnHelper = new RangeOwnHelper(ownedRanges);
@@ -217,7 +225,7 @@ public class Verifier implements Closeable
         }
         catch (IOException e)
         {
-            outputHandler.debug(e.getMessage());
+            outputHandler.warn(e.getMessage());
             markAndThrow();
         }
         finally
@@ -239,7 +247,7 @@ public class Verifier implements Closeable
                     markAndThrow();
             }
 
-            List<Range<Token>> ownedRanges = isOffline ? Collections.emptyList() : Range.normalize(StorageService.instance.getLocalAndPendingRanges(cfs.metadata.ksName));
+            List<Range<Token>> ownedRanges = isOffline ? Collections.emptyList() : Range.normalize(tokenLookup.apply(cfs.metadata.ksName));
             RangeOwnHelper rangeOwnHelper = new RangeOwnHelper(ownedRanges);
             DecoratedKey prevKey = null;
 
@@ -587,8 +595,9 @@ public class Verifier implements Closeable
         public final boolean mutateRepairStatus;
         public final boolean checkOwnsTokens;
         public final boolean quick;
+        public final Function<String, ? extends Collection<Range<Token>>> tokenLookup;
 
-        private Options(boolean invokeDiskFailurePolicy, boolean extendedVerification, boolean checkVersion, boolean mutateRepairStatus, boolean checkOwnsTokens, boolean quick)
+        private Options(boolean invokeDiskFailurePolicy, boolean extendedVerification, boolean checkVersion, boolean mutateRepairStatus, boolean checkOwnsTokens, boolean quick, Function<String, ? extends Collection<Range<Token>>> tokenLookup)
         {
             this.invokeDiskFailurePolicy = invokeDiskFailurePolicy;
             this.extendedVerification = extendedVerification;
@@ -596,6 +605,7 @@ public class Verifier implements Closeable
             this.mutateRepairStatus = mutateRepairStatus;
             this.checkOwnsTokens = checkOwnsTokens;
             this.quick = quick;
+            this.tokenLookup = tokenLookup;
         }
 
         @Override
@@ -619,6 +629,7 @@ public class Verifier implements Closeable
             private boolean mutateRepairStatus = false; // mutating repair status can be dangerous
             private boolean checkOwnsTokens = false;
             private boolean quick = false;
+            private Function<String, ? extends Collection<Range<Token>>> tokenLookup = StorageService.instance::getLocalAndPendingRanges;
 
             public Builder invokeDiskFailurePolicy(boolean param)
             {
@@ -656,9 +667,15 @@ public class Verifier implements Closeable
                 return this;
             }
 
+            public Builder tokenLookup(Function<String, ? extends Collection<Range<Token>>> tokenLookup)
+            {
+                this.tokenLookup = tokenLookup;
+                return this;
+            }
+
             public Options build()
             {
-                return new Options(invokeDiskFailurePolicy, extendedVerification, checkVersion, mutateRepairStatus, checkOwnsTokens, quick);
+                return new Options(invokeDiskFailurePolicy, extendedVerification, checkVersion, mutateRepairStatus, checkOwnsTokens, quick, tokenLookup);
             }
 
         }
