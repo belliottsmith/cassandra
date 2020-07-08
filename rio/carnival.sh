@@ -11,6 +11,7 @@ BUILD_VERSION="$3"
 # TODO - work out if Carnival really needs differently versioned artifacts than the main snapshot release - i.e. can it handle 4.0.0.0 vs 4.0.0
 
 export JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF8
+rm -rf build/dist
 ant -f rio-build.xml -Drelease=true -Dbase.version=${VERSION} clean artifacts
 
 DIST_DIR=.carnival
