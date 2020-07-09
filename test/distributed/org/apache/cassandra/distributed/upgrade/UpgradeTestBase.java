@@ -47,6 +47,7 @@ import org.apache.cassandra.distributed.shared.Versions;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 
+import static org.apache.cassandra.cql3.statements.schema.AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION;
 import static org.apache.cassandra.distributed.shared.Versions.Version;
 import static org.apache.cassandra.distributed.shared.Versions.find;
 
@@ -66,6 +67,14 @@ public class UpgradeTestBase extends DistributedTestBase
     @BeforeClass
     public static void beforeClass() throws Throwable
     {
+        System.setProperty("log4j2.disableJmx", "true"); // setting both ways as changes between versions
+        System.setProperty("log4j2.disable.jmx", "true");
+        System.setProperty("log4j.shutdownHookEnabled", "false");
+        System.setProperty("cassandra.test.logConfigProperty", "log4j.configurationFile");
+        System.setProperty("cassandra.test.logConfigPath", "test/conf/log4j2-dtest.xml");
+        System.setProperty("cassandra.allow_simplestrategy", "true"); // makes easier to share OSS tests without RF limits
+        System.setProperty("cassandra.minimum_replication_factor", "0"); // makes easier to share OSS tests without RF limits
+        System.setProperty(SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION, "true");
         ICluster.setup();
     }
 
