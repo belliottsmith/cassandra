@@ -494,6 +494,7 @@
 	         <exclusion groupId="commons-logging" artifactId="commons-logging"/>
           </dependency>
           <dependency groupId="junit" artifactId="junit" version="4.6" />
+          <dependency groupId="org.mockito" artifactId="mockito-core" version="3.2.4" />
           <dependency groupId="com.apple.pie.cassandra.quicktheories" artifactId="quicktheories" version="0.26-SNAPSHOT" />
           <dependency groupId="com.google.code.java-allocation-instrumenter" artifactId="java-allocation-instrumenter" version="${allocation-instrumenter.version}" />
           <dependency groupId="org.apache.rat" artifactId="apache-rat" version="0.10">
@@ -611,6 +612,7 @@
                 artifactId="cassandra-parent"
                 version="${version}"/>
         <dependency groupId="junit" artifactId="junit"/>
+        <dependency groupId="org.mockito" artifactId="mockito-core" />
         <dependency groupId="com.apple.pie.cassandra.quicktheories" artifactId="quicktheories" />
         <dependency groupId="com.google.code.java-allocation-instrumenter" artifactId="java-allocation-instrumenter" version="${allocation-instrumenter.version}" />
         <dependency groupId="org.psjava" artifactId="psjava" version="0.1.19" />
@@ -638,6 +640,7 @@
                 artifactId="cassandra-parent"
                 version="${version}"/>
         <dependency groupId="junit" artifactId="junit"/>
+        <dependency groupId="org.mockito" artifactId="mockito-core" />
         <dependency groupId="com.datastax.cassandra" artifactId="cassandra-driver-core" classifier="shaded"/>
         <dependency groupId="org.eclipse.jdt.core.compiler" artifactId="ecj"/>
         <dependency groupId="org.caffinitas.ohc" artifactId="ohc-core"/>
