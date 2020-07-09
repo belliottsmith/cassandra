@@ -1395,7 +1395,11 @@
             <exclude name="org/apache/cassandra/transport/frame/FrameBodyTransformerTest.java"/>
           </patternset>
         </fileset>
-        <fileset dir="test/distributed"/>
+        <fileset dir="test/distributed">
+          <patternset id="exclusions">
+            <exclude name="org/apache/cassandra/distributed/upgrade/AlterTypeTest.java"/>
+          </patternset>
+        </fileset>
       </rat:report>
       <fail message="Some files have missing or incorrect license information. Check RAT report in ${build.dir}/src.rat.txt for more details!">
         <condition>
