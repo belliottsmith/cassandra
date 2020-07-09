@@ -205,7 +205,7 @@ public abstract class LegacyLayout
         ByteBuffer collectionElement = metadata.isCompound() ? CompositeType.extractComponent(cellname, metadata.comparator.size() + 1) : null;
         if (collectionElement != null && def.type instanceof CollectionType)
         {
-            ((CollectionType)def.type).nameComparator().validateIfFixedSize(collectionElement);
+            validateCollectionNameIfFixedSize(def, collectionElement);
         }
 
         // Note that because static compact columns are translated to static defs in the new world order, we need to force a static
@@ -232,7 +232,7 @@ public abstract class LegacyLayout
         {
             // The non compound case is a lot easier, in that there is no EOC nor collection to worry about, so dealing
             // with that first.
-            metadata.comparator.subtype(0).validateIfFixedSize(bound);
+            validateIfFixedSize(metadata.clusteringColumns().get(0), bound);
             return new LegacyBound(isStart ? Slice.Bound.inclusiveStartOf(bound) : Slice.Bound.inclusiveEndOf(bound), false, null);
         }
 
@@ -243,7 +243,7 @@ public abstract class LegacyLayout
         byte eoc = CompositeType.lastEOC(bound);
         for (int i=0; i<Math.min(clusteringSize, components.size()); i++)
         {
-            metadata.comparator.subtype(i).validateIfFixedSize(components.get(i));
+            validateIfFixedSize(metadata.clusteringColumns().get(i), components.get(i));
         }
 
         // if the bound we have decoded is static, 2.2 format requires there to be N empty clusterings
@@ -454,8 +454,8 @@ public abstract class LegacyLayout
 
         for (int i=0; i<Math.min(csize, components.size()); i++)
         {
-            AbstractType<?> type = metadata.comparator.subtype(i);
-            type.validateIfFixedSize(components.get(i));
+            ColumnDefinition def = metadata.clusteringColumns().get(i);
+            validateIfFixedSize(def, components.get(i));
         }
         return new Clustering(components.subList(0, Math.min(csize, components.size())).toArray(new ByteBuffer[csize]));
     }
@@ -811,7 +811,7 @@ public abstract class LegacyLayout
                     continue;
 
                 foundOne = true;
-                cell.name.column.type.validateIfFixedSize(cell.value);
+                validateIfFixedSize(cell.name.column, cell.value);
                 builder.addCell(new BufferCell(cell.name.column, cell.timestamp, cell.ttl, cell.localDeletionTime, cell.value, null));
             }
             else
@@ -1318,6 +1318,34 @@ public abstract class LegacyLayout
         };
     }
 
+    private static void validateIfFixedSize(ColumnDefinition column, ByteBuffer value)
+    {
+        try
+        {
+            column.type.validateIfFixedSize(value);
+        }
+        catch (Throwable t)
+        {
+            // the reason not to include the stack trace is to avoid double logging; when this throws it will log the full stack trace
+            logger.error("Column {}.{}({}: {}) failed validation; {}", column.ksName, column.cfName, column.name, column.type, t.getMessage());
+            throw t;
+        }
+    }
+
+    private static void validateCollectionNameIfFixedSize(ColumnDefinition column, ByteBuffer value)
+    {
+        try
+        {
+            ((CollectionType) column.type).nameComparator().validateIfFixedSize(value);
+        }
+        catch (Throwable t)
+        {
+            // the reason not to include the stack trace is to avoid double logging; when this throws it will log the full stack trace
+            logger.error("Column {}.{}({}: {}) failed validation; {}", column.ksName, column.cfName, column.name, column.type, t.getMessage());
+            throw t;
+        }
+    }
+
     public static class CellGrouper
     {
         /**
@@ -1488,7 +1516,7 @@ public abstract class LegacyLayout
                         if (!helper.includes(path))
                             return true;
                     }
-                    column.type.validateIfFixedSize(cell.value);
+                    validateIfFixedSize(column, cell.value);
                     Cell c = new BufferCell(column, cell.timestamp, cell.ttl, cell.localDeletionTime, cell.value, path);
                     if (!helper.isDropped(c, column.isComplex()))
                         builder.addCell(c);
