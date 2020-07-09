@@ -1,7 +1,0 @@
-#! /bin/bash
-if [ $(id -u) -eq 0 ]
-then
-  exec /usr/sbin/capsh --drop=$(capsh --decode=ffffffff|cut -d= -f2) --caps= -- -c 'exec "$@"' $1 "$@"
-else
-  exec "$@"
-fi

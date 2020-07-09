@@ -2,30 +2,36 @@
 
 set -xe
 
-MAJOR_VERSION=$1
+echo === START CARNIVAL BUILD === 
 
-# if git describe --tags --long --match "${MAJOR_VERSION}"; then
-#     PREV_MIN_V=$(git describe --tags --match "${MAJOR_VERSION}" | sed -e "s/${MAJOR_VERSION}.//")
-# else
-#     PREV_MIN_V=0
-# fi
-# 
-# VERSION=$MAJOR_VERSION.$((PREV_MIN_V+1))
-VERSION=$MAJOR_VERSION
+VERSION="$1"
+CARNIVAL_VERSION_NAME="$2"
+BUILD_VERSION="$3"
+
+# TODO - work out if Carnival really needs differently versioned artifacts than the main snapshot release - i.e. can it handle 4.0.0.0 vs 4.0.0
 
 export JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF8
+rm -rf build/dist
 ant -f rio-build.xml -Drelease=true -Dbase.version=${VERSION} clean mvn-install
 
-DIST_DIR=.dist
+DIST_DIR=.carnival
 
 mkdir -p $DIST_DIR
 
 tar -xzvf build/cie-cassandra-${VERSION}-bin.tar.gz -C $DIST_DIR
 mv $DIST_DIR/cie-cassandra-${VERSION}/* $DIST_DIR/
 rm -rf cie-cassandra-${VERSION}
+rm -rf "$DIST_DIR/javadoc"
 
 touch $DIST_DIR/.application
 
 echo "Not cassandra jar. Just a placeholder for rio scripts. Look at lib/cie-cassandra-${VERSION}.jar, instead." > $DIST_DIR/cie-cassandra-${VERSION}.jar
+
+# v4 package template requires call to stage the app
+find $DIST_DIR -ls
+ci stage-app --app-name "cie-cassandra-${CARNIVAL_VERSION_NAME}" --app-version "${BUILD_VERSION}" "${DIST_DIR}/**"
+# find .cicd -ls
+
+echo === COMPLETE CARNIVAL BUILD === 
 
 set +xe

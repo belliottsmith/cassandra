@@ -2,6 +2,10 @@
 
 set -xe
 
+echo === the build env as rio/release.sh sees it ===
+env
+echo === and on with the build
+
 MAJOR_VERSION=$1
 
 # if git describe --tags --long --match "${MAJOR_VERSION}"; then
@@ -14,6 +18,7 @@ MAJOR_VERSION=$1
 VERSION=$MAJOR_VERSION
 
 export JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF8
+ant -f rio-build.xml -Drelease=true -Dbase.version=${VERSION} realclean
 ant -f rio-build.xml -Drelease=true -Dbase.version=${VERSION} mvn-install
 
 GROUP_DIR=.dist/publishable/com/apple/cie/db/cassandra
@@ -53,5 +58,13 @@ cp build/cie-cassandra-${VERSION}-javadoc.jar ${GROUP_DIR}/cassandra-all/${VERSI
 mkdir -p ${GROUP_DIR}/cie-cassandra/${VERSION}
 
 cp build/cie-cassandra-${VERSION}-bin.tar.gz ${GROUP_DIR}/cie-cassandra/${VERSION}/
+
+# Rio v4 freestyle publishing
+echo Current working dir: `pwd` $PWD
+find .dist -ls
+
+find /workspace/.cicd/ -ls
+ci stage-lib '.dist/publishable/**' -v5 --allow-external 
+find /workspace/.cicd/ -ls
 
 set +xe
