@@ -59,7 +59,7 @@ function getCarnivalCompatiblePackageName {
                         ;;
 
                     *)
-                        echo -n "${c}"
+                        echo -n "${c}" | tr '[:upper:]' '[:lower:]'
                         ;;
                 esac
         esac
