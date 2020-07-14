@@ -89,6 +89,7 @@
                      <exclude NAME="rio/*"/>
                      <exclude NAME="src/java/com/**"/>
                      <exclude NAME="test/*/com/**"/>
+                     <exclude name="test/unit/org/apache/cassandra/db/QueryMetricsTest.java"/>
                      <exclude name="test/unit/org/apache/cassandra/transport/frame/FrameBodyTransformerTest.java"/>
                      <exclude name="test/distributed/org/apache/cassandra/distributed/upgrade/AlterTypeTest.java"/>
             </fileset>
