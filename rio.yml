@@ -24,11 +24,6 @@
 # From CIE-VERSION a couple of scripts are used to parse out the versions needed by various
 # different packaging systems.
 #
-# BASE_VERSION is the digits from the version number with any custom suffix removed. For release
-# builds it is all four sequences of numbers, for snapshot builds it is the first three sequences
-# of numbers. This is the version passed in as base.version for ant build artifacts used in
-# Carnival packaging.
-#
 # FULL_VERSION includes any custom version suffix.
 #
 # ARTIFACTS_VERSION for releases, is just the base version, for snapshots is the base version
@@ -101,12 +96,10 @@ builds:
       baseImage: docker.apple.com/piedb/parallelci:latest
       env:
         CIE_VERSION: '$(./rio/cie-version.sh)'
-        BASE_VERSION: '$(./rio/version-tool.sh base snapshot ${GIT_BRANCH} ${CIE_VERSION})'
-        FULL_VERSION: '$(./rio/version-tool.sh full snapshot ${GIT_BRANCH} ${CIE_VERSION})'
-        CARNIVAL_SUFFIX: '$(./rio/version-tool.sh carnivalsuffix snapshot ${GIT_BRANCH} ${CIE_VERSION})'
+        FULL_VERSION: '$(./rio/version-tool.sh snapshot ${GIT_BRANCH} ${CIE_VERSION})'
         STUB_VERSION_NAME: '$(./rio/stub-version.sh ${FULL_VERSION})'
-        ARTIFACTS_VERSION: '${BASE_VERSION}-SNAPSHOT'
-        CARNIVAL_APP_NAME: '$(./rio/carnival-compatible-name.sh ${BASE_VERSION})${CARNIVAL_SUFFIX}'
+        ARTIFACTS_VERSION: '${FULL_VERSION}'
+        CARNIVAL_APP_NAME: '$(./rio/carnival-compatible-name.sh ${FULL_VERSION})'
         CARNIVAL_BUILD_VERSION: '1BUILD#{}'
         STUB_JAR: '/work/cassandrastub${STUB_VERSION_NAME}/cassandrastub${STUB_VERSION_NAME}.jar'
         DOCKER_IMAGE_VERSION: '${FULL_VERSION}.#{${FULL_VERSION}}'
@@ -121,7 +114,7 @@ builds:
         - ant -f rio-build.xml jar
         - ./rio/parallel-tests-step.sh
         - ./rio/release.sh ${ARTIFACTS_VERSION}
-        - ./rio/carnival.sh ${BASE_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+        - ./rio/carnival.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
     # timeout also set for parallelci command in rio/parallel-test-step.sh
     # and in rio/unittests.yml (although not currently implemented)
     timeout: 180
@@ -163,12 +156,10 @@ builds:
       baseImage: docker.apple.com/piedb/parallelci:latest
       env:
         CIE_VERSION: '$(./rio/cie-version.sh)'
-        BASE_VERSION: '$(./rio/version-tool.sh base release ${GIT_BRANCH} ${CIE_VERSION})'
-        FULL_VERSION: '$(./rio/version-tool.sh full release ${GIT_BRANCH} ${CIE_VERSION})'
-        CARNIVAL_SUFFIX: '$(./rio/version-tool.sh carnivalsuffix release ${GIT_BRANCH} ${CIE_VERSION})'
+        FULL_VERSION: '$(./rio/version-tool.sh release ${GIT_BRANCH} ${CIE_VERSION})'
         STUB_VERSION_NAME: '$(./rio/stub-version.sh ${FULL_VERSION})'
-        ARTIFACTS_VERSION: '${BASE_VERSION}'
-        CARNIVAL_APP_NAME: '$(./rio/carnival-compatible-name.sh ${BASE_VERSION})${CARNIVAL_SUFFIX}'
+        ARTIFACTS_VERSION: '${FULL_VERSION}'
+        CARNIVAL_APP_NAME: '$(./rio/carnival-compatible-name.sh ${FULL_VERSION})'
         CARNIVAL_BUILD_VERSION: '1BUILD#{}'
         STUB_JAR: '/work/cassandrastub${STUB_VERSION_NAME}/cassandrastub${STUB_VERSION_NAME}.jar'
         DOCKER_IMAGE_VERSION: '${FULL_VERSION}'
@@ -184,7 +175,7 @@ builds:
         - ant -f rio-build.xml jar
         - ./rio/parallel-tests-step.sh
         - ./rio/release.sh ${ARTIFACTS_VERSION}
-        - ./rio/carnival.sh ${BASE_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+        - ./rio/carnival.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
     # timeout also set for parallelci command in rio/parallel-test-step.sh
     # and in rio/unittests.yml (although not currently implemented) and
     # the mapper ant task
