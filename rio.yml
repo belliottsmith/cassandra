@@ -111,6 +111,7 @@ builds:
         CARNIVAL_BUILD_VERSION: '1BUILD#{}'
         STUB_JAR: '/work/cassandrastub${STUB_VERSION_NAME}/cassandrastub${STUB_VERSION_NAME}.jar'
         DOCKER_IMAGE_VERSION: '${FULL_VERSION}.#{${FULL_VERSION}}'
+        DOCKER_IMAGE_BRANCH_TAG: '$(echo "$GIT_BRANCH" | sed "s;cie-cassandra-;;g")-latest'
     secrets:
       names:
         - k8s_auth_token
@@ -147,6 +148,9 @@ builds:
         - dockerfilePath: "Dockerfile"
           version: "${DOCKER_IMAGE_VERSION}"
           perApplication: false
+          extraTags:
+            - "${FULL_VERSION}"
+            - "${DOCKER_IMAGE_BRANCH_TAG}"
           publish:
             - repo: docker.apple.com/piedb_ci/cie-cassandra
     finally:
