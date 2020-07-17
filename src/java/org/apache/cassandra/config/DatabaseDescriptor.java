@@ -2848,16 +2848,6 @@ public class DatabaseDescriptor
         return unsafeSystem;
     }
 
-    public static void setBackPressureEnabled(boolean backPressureEnabled)
-    {
-        conf.back_pressure_enabled = backPressureEnabled;
-    }
-
-    public static boolean backPressureEnabled()
-    {
-        return conf.back_pressure_enabled;
-    }
-
     public static boolean diagnosticEventsEnabled()
     {
         return conf.diagnostic_events_enabled;

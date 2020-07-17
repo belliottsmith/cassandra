@@ -259,19 +259,19 @@ public class MessagingServiceMBeanImpl implements MessagingServiceMBean
     @Override
     public Map<String, Double> getBackPressurePerHost()
     {
-        throw new UnsupportedOperationException();
+        throw new UnsupportedOperationException("This feature has been deprecated");
     }
 
     @Override
     public void setBackPressureEnabled(boolean enabled)
     {
-        DatabaseDescriptor.setBackPressureEnabled(enabled);
+        throw new UnsupportedOperationException("This feature has been deprecated");
     }
 
     @Override
     public boolean isBackPressureEnabled()
     {
-        return DatabaseDescriptor.backPressureEnabled();
+        return false;
     }
 
     @Override

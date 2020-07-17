@@ -121,11 +121,13 @@ public interface MessagingServiceMBean
     /**
      * Enable/Disable back-pressure
      */
+    @Deprecated
     public void setBackPressureEnabled(boolean enabled);
 
     /**
      * Get back-pressure enabled state
      */
+    @Deprecated
     public boolean isBackPressureEnabled();
 
     public int getVersion(String address) throws UnknownHostException;
