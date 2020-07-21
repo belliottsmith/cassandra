@@ -106,12 +106,12 @@ disk:
 
   directories:
     data:
-    #     - /var/lib/cassandra/data
+    # - /var/lib/cassandra/data
     # hints: /var/lib/cassandra/hints
     # saved_caches: /var/lib/cassandra/saved_caches
+    # commitlog: /var/lib/cassandra/commitlog
 
   commitlog:
-    # directory: /var/lib/cassandra/commitlog
     sync: periodic                 # batch or periodic (default: periodic)
     sync_period: 10000ms           # interval between periodic syncs
     # sync_group_window: 1000ms    # wait at least this long between syncs (for sync: batch only)
@@ -131,6 +131,8 @@ disk:
       # snapshot_before: false
     trickle_fsync: false
     trickle_fsync_interval: 10240kb
+    incremental_backups: false
+    auto_snapshot: true
 
 data_integrity:
   corruption:
@@ -140,17 +142,20 @@ data_integrity:
     commit: stop   # on commit disk failure: die, stop, stop_commit, ignore
 
 timeouts:
-  # exchange: true        # peers use a coordinator's query timeout; disable if NTP unreliable
-  reads: 5000ms
-  range_reads: 10000ms
-  writes: 2000ms
-  counter_writes: 5000ms
-  cas_contention: 1000ms
-  truncates: 60000ms
-  default: 10000ms
-  # tcp_connect: 2000ms
-  # tcp_user: 30000ms
-  local_execution: 500ms    # slow query termination
+  coordinator:
+    # exchange: true        # peers use a coordinator's query timeout; disable if NTP unreliable
+    reads: 5000ms
+    range_reads: 10000ms
+    writes: 2000ms
+    counter_writes: 5000ms
+    cas_contention: 1000ms
+    truncates: 60000ms
+    default: 10000ms
+  local:
+    query_execution: 500ms    # slow query termination
+  tcp:
+    # connect: 2000ms
+    # user: 30000ms
 
 limits:
   concurrency:
@@ -210,7 +215,6 @@ limits:
 
   warn:
     gc_pause: 1000ms                  # time process is paused for GC
-
     large_partition: 100mb
     tombstones: 1000
     batch_size: 5kb                   # multi-partition batch, logged or unlogged
@@ -267,6 +271,37 @@ features:
   # Enable this option to be able to use UDFs with "language javascript" or any custom JSR-223 provider.
   # This option has no effect, if user_defined_functions_enabled is false.
   scripted_user_defined_functions_enabled: false
+
+  # See http://wiki.apache.org/cassandra/HintedHandoff
+  hinted_handoff:
+    # May either be "true" or "false" to enable globally
+    enabled: true
+
+    # When hinted_handoff_enabled is true, a black list of data centers that will not
+    # perform hinted handoff
+    # disabled_datacenters:
+    #   - DC1
+    #   - DC2
+
+    # this defines the maximum amount of time a dead host will have hints
+    # generated.  After it has been dead this long, new hints for it will not be
+    # created until it has been seen alive and gone down again.
+    max_hint_window: 10800000ms # 3 hours
+
+    # How often hints should be flushed from the internal buffers to disk.
+    # Will *not* trigger fsync.
+    flush_period: 10000ms
+
+    # Maximum size for a single hints file, in megabytes.
+    max_hints_file_size: 128mb
+
+    # Compression to apply to the hint files. If omitted, hints files
+    # will be written uncompressed. LZ4, Snappy, and Deflate compressors
+    # are supported.
+    # compression:
+    #   - class_name: LZ4Compressor
+    #   parameters:
+    #     -
 
   cdc:
     enabled: false
@@ -331,14 +366,6 @@ features:
 
 # TODO
 
-# Set to true to have Cassandra create a hard link to each sstable
-# flushed or streamed locally in a backups/ subdirectory of the
-# keyspace data.  Removing these links is the operator's
-# responsibility.
-incremental_backups: false
-
-
-
 # TTL for different trace types used during logging of the repair process.
 tracetype_query_ttl: 86400
 tracetype_repair_ttl: 604800
@@ -346,11 +373,6 @@ tracetype_repair_ttl: 604800
 #####################################
 # Advanced automatic backup setting #
 #####################################
-# Whether or not a snapshot is taken of the data before keyspace truncation
-# or dropping of column families. The STRONGLY advised default of true
-# should be used to provide data safety. If you set this flag to false, you will
-# lose data on truncation or drop.
-auto_snapshot: true
 
 
 
@@ -383,42 +405,6 @@ report_unconfirmed_repaired_data_mismatches: false
 # each write which may be lower in order to facilitate availability.
 # ideal_consistency_level: EACH_QUORUM
 
-# Automatically upgrade sstables after upgrade - if there is no ordinary compaction to do, the
-# oldest non-upgraded sstable will get upgraded to the latest version
-# automatic_sstable_upgrade: false
-# Limit the number of concurrent sstable upgrades
-# max_concurrent_automatic_sstable_upgrades: 1
-
-# See http://wiki.apache.org/cassandra/HintedHandoff
-hinted_handoff:
-  # May either be "true" or "false" to enable globally
-  enabled: true
-
-  # When hinted_handoff_enabled is true, a black list of data centers that will not
-  # perform hinted handoff
-  # disabled_datacenters:
-  #   - DC1
-  #   - DC2
-
-  # this defines the maximum amount of time a dead host will have hints
-  # generated.  After it has been dead this long, new hints for it will not be
-  # created until it has been seen alive and gone down again.
-  max_hint_window: 10800000ms # 3 hours
-
-  # How often hints should be flushed from the internal buffers to disk.
-  # Will *not* trigger fsync.
-  flush_period: 10000ms
-
-  # Maximum size for a single hints file, in megabytes.
-  max_hints_file_size: 128mb
-
-  # Compression to apply to the hint files. If omitted, hints files
-  # will be written uncompressed. LZ4, Snappy, and Deflate compressors
-  # are supported.
-  # compression:
-  #   - class_name: LZ4Compressor
-  #   parameters:
-  #     -
 
 ########################
 # 4) Advanced settings #
