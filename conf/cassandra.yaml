@@ -171,47 +171,6 @@ cluster:
 # Common initialization properties #
 ####################################
 
-stability:
-  # Policy for commit disk failures:
-  #
-  # die
-  #   shut down the node and kill the JVM, so the node can be replaced.
-  #
-  # stop
-  #   shut down the node, leaving the node effectively dead, but
-  #   can still be inspected via JMX.
-  #
-  # stop_commit
-  #   shutdown the commit log, letting writes collect but
-  #   continuing to service reads, as in pre-2.0.5 Cassandra
-  #
-  # ignore
-  #   ignore fatal errors and let the batches fail
-  commit_failure_policy: stop
-
-  # Policy for data disk failures:
-  #
-  # die
-  #   shut down gossip and client transports and kill the JVM for any fs errors or
-  #   single-sstable errors, so the node can be replaced.
-  #
-  # stop_paranoid
-  #   shut down gossip and client transports even for single-sstable errors,
-  #   kill the JVM for errors during startup.
-  #
-  # stop
-  #   shut down gossip and client transports, leaving the node effectively dead, but
-  #   can still be inspected via JMX, kill the JVM for errors during startup.
-  #
-  # best_effort
-  #    stop using the failed disk and respond to requests based on
-  #    remaining available sstables.  This means you WILL see obsolete
-  #    data at CL.ONE!
-  #
-  # ignore
-  #    ignore fatal errors and let requests fail, as in pre-1.2 Cassandra
-  disk_failure_policy: stop
-
 internode:
   # Address or interface to bind to and tell other Cassandra nodes to connect to.
   # You _must_ change this if you want multiple nodes to be able to communicate!
@@ -647,17 +606,57 @@ disk:
   # spinning (for spinning disks)
   # strategy: ssd
 
+  # Policy for data disk failures:
+  #
+  # die
+  #   shut down gossip and client transports and kill the JVM for any fs errors or
+  #   single-sstable errors, so the node can be replaced.
+  #
+  # stop_paranoid
+  #   shut down gossip and client transports even for single-sstable errors,
+  #   kill the JVM for errors during startup.
+  #
+  # stop
+  #   shut down gossip and client transports, leaving the node effectively dead, but
+  #   can still be inspected via JMX, kill the JVM for errors during startup.
+  #
+  # best_effort
+  #    stop using the failed disk and respond to requests based on
+  #    remaining available sstables.  This means you WILL see obsolete
+  #    data at CL.ONE!
+  #
+  # ignore
+  #    ignore fatal errors and let requests fail, as in pre-1.2 Cassandra
+  data_failure_policy: stop
+
+  # Policy for commit disk failures:
+  #
+  # die
+  #   shut down the node and kill the JVM, so the node can be replaced.
+  #
+  # stop
+  #   shut down the node, leaving the node effectively dead, but
+  #   can still be inspected via JMX.
+  #
+  # stop_commit
+  #   shutdown the commit log, letting writes collect but
+  #   continuing to service reads, as in pre-2.0.5 Cassandra
+  #
+  # ignore
+  #   ignore fatal errors and let the batches fail
+  commit_failure_policy: stop
+
   throttle:
     # Maximum throttle in KBs per second, total. This will be
     # reduced proportionally to the number of nodes in the cluster.
-    batchlog: 1024kb
+    batchlog: 1024kbs
     compaction: 16MiBs
     # Maximum throttle in KBs per second, per delivery thread.  This will be
     # reduced proportionally to the number of nodes in the cluster.  (If there
     # are two nodes in the cluster, each delivery thread will use the maximum
     # rate; if there are three, each will throttle to half of the maximum,
     # since we expect two nodes to be delivering hints simultaneously.)
-    hint_delivery: 1024kb
+    hint_delivery: 1024kbs
 
 
   # When compacting, the replacement sstable(s) can be opened before they
@@ -1074,42 +1073,28 @@ num_tokens: 256
 # This is the replica factor within the datacenter, like NTS.
 # allocate_tokens_for_local_replication_factor: 3
 
-log:
-  # Log a warning when compacting partitions larger than this value
-  large_partition_warning_threshold: 100mb
-  #######################
-  # Tombstone settings #
-  #######################
-  # When executing a scan, within or across a partition, we need to keep the
-  # tombstones seen in memory so we can return them to the coordinator, which
-  # will use them to make sure other replicas also know about the deleted rows.
-  # With workloads that generate a lot of tombstones, this can cause performance
-  # problems and even exaust the server heap.
-  # (http://www.datastax.com/dev/blog/cassandra-anti-patterns-queues-and-queue-like-datasets)
-  # Adjust the thresholds here if you understand the dangers and want to
-  # scan more tombstones anyway.  These thresholds may also be adjusted at runtime
-  # using the StorageService mbean.
-  tombstone_warn_threshold: 1000
-  tombstone_failure_threshold: 100000
-  # Properties for advanced users or properties that are less commonly used.
-  # Log WARN on any multiple-partition batch size exceeding this value. 5kb per batch by default.
-  # Caution should be taken on increasing the size of this threshold as it can lead to node instability.
-  batch_size_warn_threshold: 5kb
+thresholds:
+  info:
+    # Log INFO when threshold breached
+    gc_pause: 200ms                   # time process is paused for GC
 
-  # Fail any multiple-partition batch exceeding this value. 50kb (10x warn threshold) by default.
-  batch_size_fail_threshold: 50kb
+  warn:
+    # Log a warning when thresholds are breached
 
-  # Log WARN on any batches not of type LOGGED than span across more partitions than this limit
-  unlogged_batch_across_partitions_warn_threshold: 10
+    # System thresholds
+    gc_pause: 1000ms                  # time process is paused for GC
 
-  # GC Pauses greater than 200 ms will be logged at INFO level
-  # This threshold can be adjusted to minimize logging if necessary
-  # gc_log_threshold: 200ms
+    # Query thresholds
+    large_partition: 100mb
+    tombstones: 1000
+    batch_size: 5kb                   # multi-partition batch, logged or unlogged
+    partitions_in_unlogged_batch: 10  #
 
-  # GC Pauses greater than gc_warn_threshold will be logged at WARN level
-  # Adjust the threshold based on your application throughput requirement. Setting to 0
-  # will deactivate the feature.
-  # gc_warn_threshold: 1000ms
+  fail:
+    # Fail a query exceeding one of these thresholds
+    # These are important for system stability, and should be revisited only with expert knowledge
+    tombstones: 100000   # number encountered serving a read
+    batch_size: 50kb     # multi-partition batch, logged or unlogged
 
 
 # TTL for different trace types used during logging of the repair process.
