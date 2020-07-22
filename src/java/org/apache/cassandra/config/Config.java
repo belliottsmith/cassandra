@@ -196,6 +196,8 @@ public class Config
     public int native_transport_port = 9042;
     public Integer native_transport_port_ssl = null;
     public int native_transport_max_threads = 128;
+    /** do bcrypt hashing in a limited pool to prevent cpu load spikes **/
+    public int native_transport_max_auth_threads = 4;
     public int native_transport_max_frame_size_in_mb = 256;
     public volatile long native_transport_max_concurrent_connections = -1L;
     public volatile long native_transport_max_concurrent_connections_per_ip = -1L;

@@ -73,6 +73,12 @@ public class AuthResponse extends Message.Request
     {
         try
         {
+            // client-side timeout can diseconnect while sitting in auth executor queue so (client default 12s)
+            // discard if connection closed anyway
+            if (!connection().channel().isActive())
+            {
+                throw new AuthenticationException("Auth check after connection closed");
+            }
             IAuthenticator.SaslNegotiator negotiator = ((ServerConnection) connection).getSaslNegotiator(queryState);
             byte[] challenge = negotiator.evaluateResponse(token);
             if (negotiator.isComplete())
