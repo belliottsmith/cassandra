@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,11 +48,31 @@ import static org.apache.cassandra.concurrent.SharedExecutorPool.SHARED;
 public class Dispatcher
 {
     private static final Logger logger = LoggerFactory.getLogger(Dispatcher.class);
-    
-    private static final LocalAwareExecutorService requestExecutor = SHARED.newExecutor(DatabaseDescriptor.getNativeTransportMaxThreads(),
+
+    @VisibleForTesting
+    static final LocalAwareExecutorService requestExecutor = SHARED.newExecutor(DatabaseDescriptor.getNativeTransportMaxThreads(),
                                                                                         DatabaseDescriptor::setNativeTransportMaxThreads,
                                                                                         "transport",
                                                                                         "Native-Transport-Requests");
+    /* rdar://49886282 (Rate-limit new client connection setup to avoid overwhelming during bcrypt)
+     * authExecutor is a separate thread pool for handling requests on connections that need to be authenticated.
+     * Calls to AUTHENTICATE can be expensive if the number of rounds for bcrypt is configured high,
+     * so during a connection storm checking the password hash starves existing connected clients for CPU and
+     * triggers timeouts.
+     *
+     * Moving authentication requests to a small, separate pool prevents starvation handling all other
+     * requests. If the authExecutor pool backs up, it may cause authentication timeouts, but the clients should
+     * back off and retry while the rest of the system continues to make progress.
+     *
+     * Setting less than 1 will cause it to operate like it did before this was available and execute everything in
+     * requestExecutor
+     */
+    @VisibleForTesting
+    static final LocalAwareExecutorService authExecutor = SHARED.newExecutor(Math.max(1, DatabaseDescriptor.getNativeTransportMaxAuthThreads()),
+                                                                             DatabaseDescriptor::setNativeTransportMaxAuthThreads,
+                                                                             "transport",
+                                                                             "Native-Transport-Auth-Requests");
+
 
     private static final ConcurrentMap<EventLoop, Flusher> flusherLookup = new ConcurrentHashMap<>();
     private final boolean useLegacyFlusher;
@@ -76,7 +97,16 @@ public class Dispatcher
 
     public void dispatch(Channel channel, Message.Request request, FlushItemConverter forFlusher, Overload backpressure)
     {
-        requestExecutor.submit(() -> processRequest(channel, request, forFlusher, backpressure));
+        // if native_transport_max_auth_threads is < 1 dont delegate to new pool on auth messages
+        if (DatabaseDescriptor.getNativeTransportMaxAuthThreads() > 0 && (request.type == Message.Type.AUTH_RESPONSE || request.type == Message.Type.CREDENTIALS))
+        {
+            // importantly will handle the AUTHENTICATE message which may be CPU intensive.
+            authExecutor.submit(() -> processRequest(channel, request, forFlusher, backpressure));
+        }
+        else
+        {
+            requestExecutor.submit(() -> processRequest(channel, request, forFlusher, backpressure));
+        }
     }
 
     /**
@@ -92,7 +122,7 @@ public class Dispatcher
         {
             String message = String.format("Request breached global limit of %d requests/second and triggered backpressure.",
                                            ClientResourceLimits.getNativeTransportMaxRequestsPerSecond());
-            
+
             NoSpamLogger.log(logger, NoSpamLogger.Level.INFO, 1, TimeUnit.MINUTES, message);
             ClientWarn.instance.warn(message);
         }
@@ -100,7 +130,7 @@ public class Dispatcher
         {
             String message = String.format("Request breached limit(s) on bytes in flight (Endpoint: %d, Global: %d) and triggered backpressure.",
                                            ClientResourceLimits.getEndpointLimit(), ClientResourceLimits.getGlobalLimit());
-            
+
             NoSpamLogger.log(logger, NoSpamLogger.Level.INFO, 1, TimeUnit.MINUTES, message);
             ClientWarn.instance.warn(message);
         }
@@ -169,6 +199,10 @@ public class Dispatcher
         if (requestExecutor != null)
         {
             requestExecutor.shutdown();
+        }
+        if (authExecutor != null)
+        {
+            authExecutor.shutdown();
         }
     }
 
