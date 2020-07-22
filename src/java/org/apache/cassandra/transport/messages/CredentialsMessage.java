@@ -75,6 +75,11 @@ public class CredentialsMessage extends Message.Request
     {
         try
         {
+            if (!connection().channel().isActive())
+            {
+                throw new AuthenticationException("Auth check after connection closed");
+            }
+
             AuthenticatedUser user = DatabaseDescriptor.getAuthenticator().legacyAuthenticate(credentials);
             state.getClientState().login(user);
             ClientMetrics.instance.markAuthSuccess();

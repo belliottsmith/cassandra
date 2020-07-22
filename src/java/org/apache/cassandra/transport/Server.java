@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
@@ -370,7 +371,8 @@ public class Server implements CassandraDaemon.Server
         final ResourceLimits.EndpointAndGlobal endpointAndGlobalPayloadsInFlight = new ResourceLimits.EndpointAndGlobal(new ResourceLimits.Concurrent(DatabaseDescriptor.getNativeTransportMaxConcurrentRequestsInBytesPerIp()),
                                                                                                                          globalRequestPayloadInFlight);
 
-        private EndpointPayloadTracker(InetAddress endpoint)
+        @VisibleForTesting
+        EndpointPayloadTracker(InetAddress endpoint)
         {
             this.endpoint = endpoint;
         }

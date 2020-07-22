@@ -37,6 +37,7 @@ import io.netty.channel.*;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.handler.codec.MessageToMessageEncoder;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
@@ -53,7 +54,6 @@ import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 
 import static org.apache.cassandra.concurrent.SharedExecutorPool.SHARED;
-
 /**
  * A message from the CQL binary protocol.
  */
@@ -425,10 +425,30 @@ public abstract class Message
 
     public static class Dispatcher extends SimpleChannelInboundHandler<Request>
     {
-        private static final LocalAwareExecutorService requestExecutor = SHARED.newExecutor(DatabaseDescriptor.getNativeTransportMaxThreads(),
+        @VisibleForTesting
+        static final LocalAwareExecutorService requestExecutor = SHARED.newExecutor(DatabaseDescriptor.getNativeTransportMaxThreads(),
                                                                                             Integer.MAX_VALUE,
                                                                                             "transport",
                                                                                             "Native-Transport-Requests");
+
+        /* rdar://49886282 (Rate-limit new client connection setup to avoid overwhelming during bcrypt)
+         * authExecutor is a separate thread pool for handling requests on connections that need to be authenticated.
+         * Calls to AUTHENTICATE can be expensive if the number of rounds for bcrypt is configured high,
+         * so during a connection storm checking the password hash starves existing connected clients for CPU and
+         * triggers timeouts.
+         *
+         * Moving authentication requests to a small, separate pool prevents starvation handling all other
+         * requests. If the authExecutor pool backs up, it may cause authentication timeouts, but the clients should
+         * back off and retry while the rest of the system continues to make progress.
+         *
+         * Setting less than 1 will cause it to operate like it did before this was available and execute everything in
+         * requestExecutor
+         */
+        @VisibleForTesting
+        static final LocalAwareExecutorService authExecutor = SHARED.newExecutor(Math.max(1, DatabaseDescriptor.getNativeTransportMaxAuthThreads()),
+                                                                                         Integer.MAX_VALUE,
+                                                                                         "transport",
+                                                                                         "Native-Transport-Auth-Requests");
 
         /**
          * Current count of *request* bytes that are live on the channel.
@@ -590,7 +610,19 @@ public abstract class Message
         {
             // if we decide to handle this message, process it outside of the netty event loop
             if (shouldHandleRequest(ctx, request))
-                requestExecutor.submit(() -> processRequest(ctx, request));
+            {
+                // if native_transport_max_auth_threads is < 1 dont delegate to new pool on auth messages
+                if (DatabaseDescriptor.getNativeTransportMaxAuthThreads() > 0 &&
+                    (request.type == Type.AUTH_RESPONSE || request.type == Type.CREDENTIALS))
+                {
+                    // importantly will handle the AUTHENTICATE message which may be CPU intensive.
+                    authExecutor.submit(() -> processRequest(ctx, request));
+                }
+                else
+                {
+                    requestExecutor.submit(() -> processRequest(ctx, request));
+                }
+            }
         }
 
         /** This check for inflight payload to potentially discard the request should have been ideally in one of the
@@ -601,7 +633,8 @@ public abstract class Message
          *
          * Note: this method should execute on the netty event loop.
          */
-        private boolean shouldHandleRequest(ChannelHandlerContext ctx, Request request)
+        @VisibleForTesting
+        boolean shouldHandleRequest(ChannelHandlerContext ctx, Request request)
         {
             long frameSize = request.getSourceFrame().header.bodySizeInBytes;
 
@@ -737,6 +770,10 @@ public abstract class Message
 
         public static void shutdown()
         {
+            if (authExecutor != null)
+            {
+                authExecutor.shutdown();
+            }
             if (requestExecutor != null)
             {
                 requestExecutor.shutdown();
