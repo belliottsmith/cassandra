@@ -207,6 +207,8 @@ public class Config
     public Integer native_transport_port_ssl = null;
     public int native_transport_max_threads = 128;
     public int native_transport_max_frame_size_in_mb = 64; // Update from CASSANDRA-16886, commitlog in prod is 64, so set at that to be safe.
+    /** do bcrypt hashing in a limited pool to prevent cpu load spikes **/
+    public int native_transport_max_auth_threads = 4;
     public volatile long native_transport_max_concurrent_connections = -1L;
     public volatile long native_transport_max_concurrent_connections_per_ip = -1L;
     public boolean native_transport_flush_in_batches_legacy = false;
