@@ -2334,6 +2334,21 @@ public class DatabaseDescriptor
         conf.native_transport_max_threads = max_threads;
     }
 
+    public static Integer getNativeTransportMaxAuthThreads()
+    {
+        return conf.native_transport_max_auth_threads;
+    }
+
+    /**
+     * this will not resize the thread pool but would change the value for purpose of doing auth requests in normal
+     * request pool
+     * see {@link org.apache.cassandra.transport.Dispatcher#dispatch(Channel, Message.Request, Dispatcher.FlushItemConverter)})
+     */
+    public static void setNativeTransportMaxAuthThreads(int threads)
+    {
+        conf.native_transport_max_auth_threads = threads;
+    }
+
     public static int getNativeTransportMaxFrameSize()
     {
         return (int) ByteUnit.MEBI_BYTES.toBytes(conf.native_transport_max_frame_size_in_mb);
