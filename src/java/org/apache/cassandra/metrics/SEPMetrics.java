@@ -58,14 +58,14 @@ public class SEPMetrics
         {
             public Integer getValue()
             {
-                return executor.getActiveCount();
+                return executor.getActiveTaskCount();
             }
         });
         pendingTasks = Metrics.register(factory.createMetricName("PendingTasks"), new Gauge<Long>()
         {
             public Long getValue()
             {
-                return executor.getPendingTasks();
+                return (long) executor.getPendingTaskCount();
             }
         });
         totalBlocked = Metrics.counter(factory.createMetricName("TotalBlockedTasks"));
@@ -75,14 +75,14 @@ public class SEPMetrics
         {
             public Long getValue()
             {
-                return executor.getCompletedTasks();
+                return executor.getCompletedTaskCount();
             }
         });
         maxPoolSize =  Metrics.register(factory.createMetricName("MaxPoolSize"), new Gauge<Integer>()
         {
             public Integer getValue()
             {
-                return executor.maxWorkers;
+                return executor.getMaximumPoolSize();
             }
         });
     }

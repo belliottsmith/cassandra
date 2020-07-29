@@ -54,6 +54,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.concurrent.LocalAwareExecutorService;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.PartitionSizeVerbHandler;
 import org.apache.cassandra.db.RangeSliceVerbHandler;
@@ -164,8 +165,10 @@ import org.apache.cassandra.utils.progress.jmx.JMXProgressSupport;
 import org.apache.cassandra.utils.progress.jmx.LegacyJMXProgressSupport;
 
 import static java.util.Arrays.asList;
+import static java.util.Arrays.stream;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
 import static org.apache.cassandra.index.SecondaryIndexManager.getIndexName;
 import static org.apache.cassandra.index.SecondaryIndexManager.isIndexColumnFamily;
 import static org.apache.cassandra.service.MigrationManager.evolveSystemKeyspace;
@@ -1641,6 +1644,28 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             logger.info("Resuming bootstrap is requested, but the node is already bootstrapped.");
             return false;
         }
+    }
+
+    private static List<Integer> getStageExecutorPoolSizes(Stage stage)
+    {
+        LocalAwareExecutorService executor = StageManager.getStage(stage);
+        return Arrays.asList(executor.getCorePoolSize(), executor.getMaximumPoolSize());
+    }
+
+    public Map<String,List<Integer>> getConcurrency(List<String> stageNames)
+    {
+        Stream<Stage> stageStream = stageNames.isEmpty() ? stream(Stage.values()) : stageNames.stream().map(Stage::fromPoolName);
+        return stageStream.collect(toMap(s -> s.getJmxName(),
+                                         StorageService::getStageExecutorPoolSizes));
+    }
+
+    public void setConcurrency(String threadPoolName, int newCorePoolSize, int newMaximumPoolSize)
+    {
+        Stage stage = Stage.fromPoolName(threadPoolName);
+        LocalAwareExecutorService executor = StageManager.getStage(stage);
+        if (newCorePoolSize >= 0)
+            executor.setCorePoolSize(newCorePoolSize);
+        executor.setMaximumPoolSize(newMaximumPoolSize);
     }
 
     public boolean isBootstrapMode()
