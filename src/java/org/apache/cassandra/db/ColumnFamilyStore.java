@@ -1710,13 +1710,16 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             }
         }
 
-        if (!rangeTimes.containsKey(range) || rangeTimes.get(range) < gcableTime)
+        final Integer currentGcableTime = rangeTimes.get(range);
+        if (!rangeTimes.containsKey(range) || currentGcableTime < gcableTime)
         {
             rangeTimes.put(range, gcableTime);
+            logger.debug("Updated last repair time for range {} from {} to {}", range, currentGcableTime, gcableTime);
         }
         else
         {
-            logger.error(String.format("Last repair time is in the past. Ignoring. %s %s", range, gcableTime));
+            logger.error("Updated last repair time is in the past for range {}. Last successful repair {}, ignoring update at {}",
+                         range, currentGcableTime, gcableTime);
             return null;
         }
 

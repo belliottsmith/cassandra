@@ -522,10 +522,6 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             };
 
             RepairSuccess success = new RepairSuccess(desc.keyspace, desc.columnFamily, desc.ranges, repairJobStartTime);
-            // store repair success for coordinator
-            ColumnFamilyStore cfs = Keyspace.open(success.keyspace).getColumnFamilyStore(success.columnFamily);
-            for (Range<Token> range : success.ranges)
-                cfs.updateLastSuccessfulRepair(range, success.succeedAt);
             for (InetAddressAndPort endpoint : allEndpoints)
                 MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_REPAIR_SUCCESS_REQ, success), endpoint, callback);
 
