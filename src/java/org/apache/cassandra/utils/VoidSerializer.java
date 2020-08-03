@@ -16,27 +16,19 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.service;
+package org.apache.cassandra.utils;
 
-import java.util.List;
-import java.util.Map;
+import java.io.IOException;
 
-public interface ActiveRepairServiceMBean
+import org.apache.cassandra.io.IVersionedSerializer;
+import org.apache.cassandra.io.util.DataInputPlus;
+import org.apache.cassandra.io.util.DataOutputPlus;
+
+public class VoidSerializer implements IVersionedSerializer<Void>
 {
-    public static final String MBEAN_NAME = "org.apache.cassandra.db:type=RepairService";
-
-    public List<Map<String, String>> getSessions(boolean all);
-    public void failSession(String session, boolean force);
-
-    public boolean getDebugValidationPreviewEnabled();
-    public void setDebugValidationPreviewEnabled(boolean enabled);
-
-    public boolean getUseOffheapMerkleTrees();
-    public void setUseOffheapMerkleTrees(boolean value);
-
-    public int getRepairPendingCompactionRejectThreshold();
-    public void setRepairPendingCompactionRejectThreshold(int value);
-
-    public int getPaxosRepairParalellism();
-    public void setPaxosRepairParalellism(int v);
+    public static final VoidSerializer serializer = new VoidSerializer();
+    private VoidSerializer() {}
+    public void serialize(Void v, DataOutputPlus out, int version) throws IOException {}
+    public Void deserialize(DataInputPlus in, int version) throws IOException { return null; }
+    public long serializedSize(Void v, int version) { return 0; }
 }

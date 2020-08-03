@@ -862,6 +862,9 @@ public class DatabaseDescriptor
             logger.warn("native_transport_max_protocol_version set to {}. native_transport_max_protocol_version is deprecated and has no effect", conf.native_transport_max_protocol_version);
 
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
+
+        if (conf.paxos_repair_paralellism <= 0)
+            config.paxos_repair_paralellism = conf.concurrent_writes / 8;
     }
 
     public static IEndpointSnitch createEndpointSnitch(boolean dynamic, String snitchClassName) throws ConfigurationException
@@ -2421,6 +2424,17 @@ public class DatabaseDescriptor
             logger.warn("repair_session_max_tree_depth of " + depth + " > 20 could lead to excessive memory usage");
 
         conf.repair_session_max_tree_depth = depth;
+    }
+
+    public static int getPaxosRepairParalellism()
+    {
+        return conf.paxos_repair_paralellism;
+    }
+
+    public static void setPaxosRepairParalellism(int v)
+    {
+        Preconditions.checkArgument(v > 0);
+        conf.paxos_repair_paralellism = v;
     }
 
     public static boolean getOutboundBindAny()

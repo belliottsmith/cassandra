@@ -16,27 +16,13 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.service;
+package org.apache.cassandra.service.paxos.uncommitted;
 
-import java.util.List;
-import java.util.Map;
+import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.DecoratedKey;
 
-public interface ActiveRepairServiceMBean
+public interface UncommittedPaxosKey
 {
-    public static final String MBEAN_NAME = "org.apache.cassandra.db:type=RepairService";
-
-    public List<Map<String, String>> getSessions(boolean all);
-    public void failSession(String session, boolean force);
-
-    public boolean getDebugValidationPreviewEnabled();
-    public void setDebugValidationPreviewEnabled(boolean enabled);
-
-    public boolean getUseOffheapMerkleTrees();
-    public void setUseOffheapMerkleTrees(boolean value);
-
-    public int getRepairPendingCompactionRejectThreshold();
-    public void setRepairPendingCompactionRejectThreshold(int value);
-
-    public int getPaxosRepairParalellism();
-    public void setPaxosRepairParalellism(int v);
+    DecoratedKey getKey();
+    ConsistencyLevel getConsistencyLevel();
 }

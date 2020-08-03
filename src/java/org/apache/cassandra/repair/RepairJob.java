@@ -22,32 +22,30 @@ import java.util.*;
 import java.util.concurrent.*;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Function;
 import com.google.common.util.concurrent.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.service.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupSession;
+import org.apache.cassandra.service.paxos.cleanup.PaxosPrepareCleanup;
 import org.apache.cassandra.streaming.PreviewKind;
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.tracing.Tracing;
-import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.MerkleTrees;
-import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.*;
 
 /**
  * RepairJob runs repair on given ColumnFamily.
  */
 public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
 {
-    private static Logger logger = LoggerFactory.getLogger(RepairJob.class);
+    private static final Logger logger = LoggerFactory.getLogger(RepairJob.class);
 
     private final RepairSession session;
     private final RepairJobDesc desc;
@@ -99,6 +97,45 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         allEndpoints.add(FBUtilities.getBroadcastAddress());
         this.repairJobStartTime = System.currentTimeMillis();
 
+        ListenableFuture<Object> paxosRepair;
+        if (session.repairPaxos || session.paxosOnly)
+        {
+            CFMetaData cfm = Schema.instance.getCFMetaData(desc.keyspace, desc.columnFamily);
+            ListenableFuture<UUID> cleanupPrepare = PaxosPrepareCleanup.prepare(session.endpoints);
+            paxosRepair = Futures.transform(cleanupPrepare, (AsyncFunction<UUID, Object>) highBallot -> {
+                PaxosCleanupSession cleanupSession = new PaxosCleanupSession(session.endpoints, cfm.cfId, session.ranges, highBallot);
+                taskExecutor.execute(cleanupSession);
+                return cleanupSession;
+            });
+        }
+        else
+        {
+            paxosRepair = Futures.immediateFuture(new Object());
+        }
+
+        if (session.paxosOnly)
+        {
+
+            Futures.addCallback(paxosRepair, new FutureCallback<Object>()
+            {
+                public void onSuccess(Object o)
+                {
+                    logger.info("{} {}.{} paxos repair completed", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
+                    set(new RepairResult(desc, Collections.emptyList()));
+                }
+
+                /**
+                 * Snapshot, validation and sync failures are all handled here
+                 */
+                public void onFailure(Throwable t)
+                {
+                    logger.warn("{} {}.{} paxos repair failed", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
+                    setException(t);
+                }
+            }, taskExecutor);
+            return;
+        }
+
         ListenableFuture<List<TreeResponse>> validations;
         // Create a snapshot at all nodes unless we're using pure parallel repairs
         if (parallelismDegree != RepairParallelism.PARALLEL)
@@ -107,47 +144,40 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             if (isIncremental)
             {
                 // consistent repair does it's own "snapshotting"
-                allSnapshotTasks = Futures.immediateFuture(allEndpoints);
+                allSnapshotTasks = Futures.transform(paxosRepair, (Function<Object, List<InetAddress>>) input -> allEndpoints);
             }
             else
             {
                 // Request snapshot to all replica
-                List<ListenableFuture<InetAddress>> snapshotTasks = new ArrayList<>(allEndpoints.size());
-                for (InetAddress endpoint : allEndpoints)
-                {
-                    SnapshotTask snapshotTask = new SnapshotTask(desc, endpoint);
-                    snapshotTasks.add(snapshotTask);
-                    taskExecutor.execute(snapshotTask);
-                }
-                allSnapshotTasks = Futures.allAsList(snapshotTasks);
+                allSnapshotTasks = Futures.transform(paxosRepair, (AsyncFunction<Object, List<InetAddress>>) input -> {
+                    List<ListenableFuture<InetAddress>> snapshotTasks = new ArrayList<>(allEndpoints.size());
+                    for (InetAddress endpoint : allEndpoints)
+                    {
+                        SnapshotTask snapshotTask = new SnapshotTask(desc, endpoint);
+                        snapshotTasks.add(snapshotTask);
+                        taskExecutor.execute(snapshotTask);
+                    }
+                    return Futures.allAsList(snapshotTasks);
+                });
             }
 
             // When all snapshot complete, send validation requests
-            validations = Futures.transform(allSnapshotTasks, new AsyncFunction<List<InetAddress>, List<TreeResponse>>()
-            {
-                public ListenableFuture<List<TreeResponse>> apply(List<InetAddress> endpoints) throws Exception
-                {
-                    if (parallelismDegree == RepairParallelism.SEQUENTIAL)
-                        return sendSequentialValidationRequest(endpoints);
-                    else
-                        return sendDCAwareValidationRequest(endpoints);
-                }
+            validations = Futures.transform(allSnapshotTasks, (AsyncFunction<List<InetAddress>, List<TreeResponse>>) endpoints -> {
+                if (parallelismDegree == RepairParallelism.SEQUENTIAL)
+                    return sendSequentialValidationRequest(endpoints);
+                else
+                    return sendDCAwareValidationRequest(endpoints);
             }, taskExecutor);
         }
         else
         {
             // If not sequential, just send validation request to all replica
-            validations = sendValidationRequest(allEndpoints);
+            validations = Futures.transform(paxosRepair, (AsyncFunction<Object, List<TreeResponse>>) input -> sendValidationRequest(allEndpoints));
         }
 
         // When all validations complete, submit sync tasks
-        ListenableFuture<List<SyncStat>> syncResults = Futures.transform(validations, new AsyncFunction<List<TreeResponse>, List<SyncStat>>()
-        {
-            public ListenableFuture<List<SyncStat>> apply(List<TreeResponse> trees)
-            {
-                return Futures.allAsList(createSyncTasks(trees, FBUtilities.getLocalAddress()));
-            }
-        }, taskExecutor);
+        AsyncFunction<List<TreeResponse>, List<SyncStat>> createSyncTasks = trees -> Futures.allAsList(createSyncTasks(trees, FBUtilities.getLocalAddress()));
+        ListenableFuture<List<SyncStat>> syncResults = Futures.transform(validations, createSyncTasks, taskExecutor);
 
         // When all sync complete, set the final result
         Futures.addCallback(syncResults, new FutureCallback<List<SyncStat>>()

@@ -63,8 +63,11 @@ import org.apache.cassandra.utils.Pair;
  * of column families. For each of the column family to repair, RepairSession
  * creates a {@link RepairJob} that handles the repair of that CF.
  *
- * A given RepairJob has the 2 main phases:
+ * A given RepairJob has the 3 main phases:
  * <ol>
+ *   <li>
+ *     Paxos repair: unfinished paxos operations in the range/keyspace/table are first completed
+ *   </li>
  *   <li>Validation phase: the job requests merkle trees from each of the replica involves
  *      ({@link org.apache.cassandra.repair.ValidationTask}) and waits until all trees are received (in
  *      validationComplete()).
@@ -97,7 +100,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
                                                                                   LocalSessions.Listener,
                                                                                   ActiveRepairService.RepairSuccessListener
 {
-    private static Logger logger = LoggerFactory.getLogger(RepairSession.class);
+    private static final Logger logger = LoggerFactory.getLogger(RepairSession.class);
 
     public final UUID parentRepairSession;
     /** Repair session ID */
@@ -116,6 +119,8 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
     public final boolean isIncremental;
     public final boolean allReplicas;
     public final PreviewKind previewKind;
+    public final boolean repairPaxos;
+    public final boolean paxosOnly;
 
     private final AtomicBoolean isFailed = new AtomicBoolean(false);
 
@@ -131,7 +136,6 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
 
     /**
      * Create new repair session.
-     *
      * @param parentRepairSession the parent sessions id
      * @param id this sessions id
      * @param ranges ranges to repair
@@ -140,6 +144,8 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
      * @param endpoints the data centers that should be part of the repair; null for all DCs
      * @param pullRepair true if the repair should be one way (from remote host to this host and only applicable between two hosts--see RepairOption)
      * @param force true if the repair should ignore dead endpoints (instead of failing)
+     * @param repairPaxos true if incomplete paxos operations should be completed as part of repair
+     * @param paxosOnly true if we should only complete paxos operations, not run a normal repair
      * @param cfnames names of columnfamilies
      */
     public RepairSession(UUID parentRepairSession,
@@ -153,8 +159,12 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
                          boolean pullRepair,
                          boolean force,
                          PreviewKind previewKind,
+                         boolean repairPaxos,
+                         boolean paxosOnly,
                          String... cfnames)
     {
+        this.repairPaxos = repairPaxos;
+        this.paxosOnly = paxosOnly;
         assert cfnames.length > 0 : "Repairing no column families seems pointless, doesn't it";
 
         this.parentRepairSession = parentRepairSession;
@@ -338,7 +348,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
 
         logger.info("{} parentSessionId = {}: new session: will sync {} on range {} for {}.{}", previewKind.logPrefix(getId()), parentRepairSession, repairedNodes(), ranges, keyspace, Arrays.toString(cfnames));
         Tracing.traceRepair("Syncing range {}", ranges);
-        if (!previewKind.isPreview())
+        if (!previewKind.isPreview() && !paxosOnly)
         {
             SystemDistributedKeyspace.startRepairs(getId(), parentRepairSession, keyspace, cfnames, ranges, endpoints);
         }
