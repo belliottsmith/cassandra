@@ -1,3 +1,6 @@
+4.0.0.1
+ * Bumping version to resolve naming clash with a 4.0.0.0 release created when testing the release pipeline.
+
 4.0.0.0
  * <rdar://65999633> (Rio build changes to unify snapshot versions breaks on 4.0) ; uncommited CASSANDRA-15973
  * <rdar://65940886> (fixup) (original rdar://27418106) OPS/COR Xmas patch… (#1808)
