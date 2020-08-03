@@ -1,4 +1,7 @@
-4.0.0-snapshot
+4.0.0.0
+ * <rdar://65999633> (Rio build changes to unify snapshot versions breaks on 4.0) ; uncommited CASSANDRA-15973
+ * <rdar://65940886> (fixup) (original rdar://27418106) OPS/COR Xmas patch… (#1808)
+ * <rdar://64435103> Replace lz4 jar with one built on CentOS 6
  * <rdar://64453455> (original rdar://30685321) Support CIE-flavored checksum in V4 (original rdar://)rotocol
  * <internal> add apple paxos placeholders to get ids for 3.0
  * (CASSANDRA-15677) TEMPORARY REVERT Add the ability to run dTests on the same interface."
