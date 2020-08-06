@@ -1,3 +1,5 @@
+4.0.0.2
+
 4.0.0.1
  * Bumping version to resolve naming clash with a 4.0.0.0 release created when testing the release pipeline.
 
