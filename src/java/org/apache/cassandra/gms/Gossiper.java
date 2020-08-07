@@ -1432,21 +1432,25 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
 
         Set<Entry<ApplicationState, VersionedValue>> updatedStates = remoteStates.stream().filter(entry -> {
-            // Filter out pre-4.0 versions of data for more complete 4.0 versions
-            switch (entry.getKey())
-            {
-                case INTERNAL_IP:
-                    if (remoteState.getApplicationState(ApplicationState.INTERNAL_ADDRESS_AND_PORT) != null) return false;
-                    break;
-                case STATUS:
-                    if (remoteState.getApplicationState(ApplicationState.STATUS_WITH_PORT) != null) return false;
-                    break;
-                case RPC_ADDRESS:
-                    if (remoteState.getApplicationState(ApplicationState.NATIVE_ADDRESS_AND_PORT) != null) return false;
-                    break;
-                default:
-                    break;
-            }
+
+//            TEMPORARILY DISABLED IN CIE4 UNTIL rdar://66700958 (Add mixed version gossip test and resolve issues in OSS 4.0)
+//            AND rdar://66701697 (FixMissingStatusWorkflow should check for STATUS_WITH_PORT before STATUS)
+//
+//            // Filter out pre-4.0 versions of data for more complete 4.0 versions
+//            switch (entry.getKey())
+//            {
+//                case INTERNAL_IP:
+//                    if (remoteState.getApplicationState(ApplicationState.INTERNAL_ADDRESS_AND_PORT) != null) return false;
+//                    break;
+//                case STATUS:
+//                    if (remoteState.getApplicationState(ApplicationState.STATUS_WITH_PORT) != null) return false;
+//                    break;
+//                case RPC_ADDRESS:
+//                    if (remoteState.getApplicationState(ApplicationState.NATIVE_ADDRESS_AND_PORT) != null) return false;
+//                    break;
+//                default:
+//                    break;
+//            }
 
             // filter out the states that are already up to date (has the same or higher version)
             VersionedValue local = localState.getApplicationState(entry.getKey());
