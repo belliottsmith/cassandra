@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 
 import org.junit.Test;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SystemKeyspace;
@@ -77,27 +77,48 @@ public class ChristmasPatchTest extends TestBaseImpl
             RepairResult res = cluster.get(1).callOnInstance(repair(options(false, false, range)));
             assertTrue(res.success); // repair should succeed
             // and make sure repair history is correct on both nodes
-            cluster.forEach((instance) -> instance.runOnInstance(() -> {
-                int time = -1;
-                Map<Range<Token>, Integer> successfulRepairs = SystemKeyspace.getLastSuccessfulRepair(KEYSPACE, "tbl");
-                assertEquals(2, successfulRepairs.size());
-                assertEquals(successfulRepairs.keySet(), repairRanges);
-                for (int repairTime : successfulRepairs.values())
-                {
-                    if (time == -1)
-                        time = repairTime;
-                    assertEquals(repairTime, time);
-                    assertTrue(repairTime >= startTime);
-                    assertTrue(repairTime <= FBUtilities.nowInSeconds());
-                }
+            cluster.forEach((instance) -> instance.runOnInstance(
+                () -> checkLastSuccessfulRepairInfo(startTime, repairRanges)));
 
-                ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl");
-                SuccessfulRepairTimeHolder holder = cfs.getRepairTimeSnapshot();
-                for (Pair<Range<Token>, Integer> repairTimes : holder.successfulRepairs)
-                    assertEquals(successfulRepairs.get(repairTimes.left), repairTimes.right);
-            }));
+            cluster.forEach((instance) -> {
+                try
+                {
+                    instance.shutdown().get();
+                }
+                catch (Throwable tr)
+                {
+                    Assert.fail("Shutdown failure: " + tr);
+                }
+                instance.startup();
+                instance.runOnInstance(() -> checkLastSuccessfulRepairInfo(startTime, repairRanges));
+            });
         }
     }
+
+
+    static void checkLastSuccessfulRepairInfo(int startTime, Set<Range<Token>> repairRanges)
+    {
+        int time = -1;
+        Map<Range<Token>, Integer> successfulRepairs = SystemKeyspace.getLastSuccessfulRepair(KEYSPACE, "tbl");
+        assertEquals(2, successfulRepairs.size());
+        assertEquals(successfulRepairs.keySet(), repairRanges);
+        for (int repairTime : successfulRepairs.values())
+        {
+            if (time == -1)
+                time = repairTime;
+            assertEquals(repairTime, time);
+            assertTrue(repairTime >= startTime);
+            assertTrue(repairTime <= FBUtilities.nowInSeconds());
+        }
+
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl");
+        SuccessfulRepairTimeHolder holder = cfs.getRepairTimeSnapshot();
+        assertEquals(2, holder.successfulRepairs.size());
+        for (Pair<Range<Token>, Integer> repairTimes : holder.successfulRepairs)
+            assertEquals(successfulRepairs.get(repairTimes.left), repairTimes.right);
+
+    }
+
 
     @Test
     public void testNTMove() throws Throwable
