@@ -912,6 +912,13 @@ public class DatabaseDescriptor
         repairHistorySyncTimeoutSeconds = parseScheduledCycleTimeSeconds(conf.repair_history_sync_timeout);
 
         scheduledCompactionCycleTimeSeconds = parseScheduledCycleTimeSeconds(conf.scheduled_compaction_cycle_time);
+
+        if (conf.column_index_max_target_size_in_kb != null || conf.column_index_max_target_index_objects != null)
+        {
+            logger.warn("The configuration options column_index_max_target_size_in_kb and " +
+                        "column_index_max_target_index_objects have been deprecated in 4.0 " +
+                        "and should be removed from cie-db-conf as it has no longer has any effect.");
+        }
     }
 
     @VisibleForTesting
