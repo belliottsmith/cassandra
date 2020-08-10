@@ -58,7 +58,7 @@ import com.datastax.driver.core.DataType;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.exceptions.UnauthorizedException;
 
-import com.datastax.shaded.netty.channel.EventLoopGroup;
+import mme.cassandraclient.shaded.io.netty.channel.EventLoopGroup;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.ServerTestUtils;
 import org.apache.cassandra.Util;
