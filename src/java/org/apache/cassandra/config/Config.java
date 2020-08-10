@@ -583,6 +583,14 @@ public class Config
 
     public volatile boolean use_deterministic_table_id = Boolean.parseBoolean(System.getProperty("cassandra.use_deterministic_table_id", "true"));
 
+    // Deprecated configuration from
+    // <rdar://problem/35142062> Cass: consider a transitional large-partition patch that dynamically downsamples column index (#964)
+    // remove after all clusters upgraded to 4.0 or setting removed from all cluster configurations
+    @Deprecated
+    public Integer column_index_max_target_size_in_kb = null;
+    @Deprecated
+    public Integer column_index_max_target_index_objects = null;
+
     /**
      * The intial capacity for creating RangeTombstoneList.
      */
