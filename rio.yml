@@ -176,6 +176,7 @@ builds:
         CARNIVAL_BUILD_VERSION: '1BUILD#{}'
         STUB_JAR: '/work/cassandrastub${STUB_VERSION_NAME}/cassandrastub${STUB_VERSION_NAME}.jar'
         DOCKER_IMAGE_VERSION: '${FULL_VERSION}'
+        SSH_AUTH_SOCK: "$( echo $SSH_AUTH_SOCK_DEPLOY_KEY )"
 
     secrets:
       names:
@@ -189,6 +190,7 @@ builds:
         - ./rio/parallel-tests-step.sh
         - ./rio/release.sh ${ARTIFACTS_VERSION}
         - ./rio/carnival.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+        - ./rio/bump-release-version.sh
     # timeout also set for parallelci command in rio/parallel-test-step.sh
     # and in rio/unittests.yml (although not currently implemented) and
     # the mapper ant task
