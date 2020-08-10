@@ -1,4 +1,7 @@
 4.0.0.2
+ * <rdar://66702985> Deprecate and warn if column index downsampling in 4.0
+ * <rdar://66700828> Temporarily retain pre-4.0 gossip application state (#1823)
+ * <rdar://66642434> Host replacement bootstrap node crashes on startup after receiving last repair info before loading repairs (#1822)
 
 4.0.0.1
  * Bumping version to resolve naming clash with a 4.0.0.0 release created when testing the release pipeline.
