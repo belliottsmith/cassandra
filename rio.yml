@@ -63,6 +63,8 @@ builds:
       maxConcurrentTotal: 2
     machine:
       baseImage: docker.apple.com/piedb/parallelci:latest
+      env: &env
+        SSH_AUTH_SOCK: "$( echo $SSH_AUTH_SOCK_DEPLOY_KEY )"
     secrets:
       names:
         - k8s_auth_token
@@ -180,6 +182,7 @@ builds:
         - ./rio/parallel-tests-step.sh
         - ./rio/release.sh ${ARTIFACTS_VERSION}
         - ./rio/carnival.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+        - ./rio/bump-release-version.sh
     # timeout also set for parallelci command in rio/parallel-test-step.sh
     # and in rio/unittests.yml (although not currently implemented) and
     # the mapper ant task
