@@ -28,11 +28,12 @@ import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
-import org.apache.cassandra.cql3.statements.ModificationStatement;
 import org.apache.cassandra.cql3.statements.SelectStatement;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICoordinator;
+import org.apache.cassandra.distributed.api.SimpleQueryResult;
 import org.apache.cassandra.service.ClientState;
+import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.pager.QueryPager;
 import org.apache.cassandra.transport.Server;
@@ -49,36 +50,43 @@ public class Coordinator implements ICoordinator
     }
 
     @Override
-    public Object[][] execute(String query, Enum<?> consistencyLevelOrigin, Object... boundValues)
+    public SimpleQueryResult executeWithResult(String query, Enum<?> consistencyLevelOrigin, Object... boundValues)
     {
-        return instance.sync(() -> {
-            ConsistencyLevel consistencyLevel = ConsistencyLevel.valueOf(consistencyLevelOrigin.name());
-            ClientState clientState = makeFakeClientState();
-            CQLStatement prepared = QueryProcessor.getStatement(query, clientState).statement;
-            List<ByteBuffer> boundBBValues = new ArrayList<>();
-            for (Object boundValue : boundValues)
-            {
-                boundBBValues.add(ByteBufferUtil.objectToBytes(boundValue));
-            }
-            prepared.checkAccess(clientState);
-            ResultMessage res = prepared.execute(QueryState.forInternalCalls(),
-                                                 QueryOptions.create(consistencyLevel,
-                                                                     boundBBValues,
-                                                                     false,
-                                                                     Integer.MAX_VALUE,
-                                                                     null,
-                                                                     ConsistencyLevel.SERIAL,
-                                                                     Server.CURRENT_VERSION));
+        return instance.sync(() -> executeInternal(query, consistencyLevelOrigin, boundValues)).call();
+    }
 
-            if (res != null && res.kind == ResultMessage.Kind.ROWS)
-            {
-                return RowUtil.toObjects((ResultMessage.Rows) res);
-            }
-            else
-            {
-                return new Object[][]{};
-            }
-        }).call();
+    private SimpleQueryResult executeInternal(String query, Enum<?> consistencyLevelOrigin, Object[] boundValues)
+    {
+        ConsistencyLevel consistencyLevel = ConsistencyLevel.valueOf(consistencyLevelOrigin.name());
+        ClientState clientState = makeFakeClientState();
+        CQLStatement prepared = QueryProcessor.getStatement(query, clientState).statement;
+        List<ByteBuffer> boundBBValues = new ArrayList<>();
+        
+        for (Object boundValue : boundValues)
+        {
+            boundBBValues.add(ByteBufferUtil.objectToBytes(boundValue));
+        }
+
+        prepared.checkAccess(clientState);
+
+        // Start capturing warnings on this thread. Note that this will implicitly clear out any previous 
+        // warnings as it sets a new State instance on the ThreadLocal.
+        ClientWarn.instance.captureWarnings();
+
+        ResultMessage res = prepared.execute(QueryState.forInternalCalls(),
+                                             QueryOptions.create(consistencyLevel,
+                                                                 boundBBValues,
+                                                                 false,
+                                                                 Integer.MAX_VALUE,
+                                                                 null,
+                                                                 ConsistencyLevel.SERIAL,
+                                                                 Server.CURRENT_VERSION));
+
+        // Collect warnings reported during the query.
+        if (res != null)
+            res.setWarnings(ClientWarn.instance.getWarnings());
+
+        return RowUtil.toQueryResult(res);
     }
 
     @Override

@@ -1590,6 +1590,35 @@ public class DatabaseDescriptor
         conf.tombstone_count_gcable = countGCable;
     }
 
+    public static void setReplicaFilteringProtectionEnabled(boolean enabled)
+    {
+        conf.replica_filtering_protection.enabled = enabled;
+    }
+
+    public static boolean isReplicaFilteringProtectionEnabled()
+    {
+        return conf.replica_filtering_protection.enabled;
+    }
+
+    public static int getCachedReplicaRowsWarnThreshold()
+    {
+        return conf.replica_filtering_protection.cached_rows_warn_threshold;
+    }
+
+    public static void setCachedReplicaRowsWarnThreshold(int threshold)
+    {
+        conf.replica_filtering_protection.cached_rows_warn_threshold = threshold;
+    }
+
+    public static int getCachedReplicaRowsFailThreshold()
+    {
+        return conf.replica_filtering_protection.cached_rows_fail_threshold;
+    }
+
+    public static void setCachedReplicaRowsFailThreshold(int threshold)
+    {
+        conf.replica_filtering_protection.cached_rows_fail_threshold = threshold;
+    }
 
     /**
      * size of commitlog segments to allocate

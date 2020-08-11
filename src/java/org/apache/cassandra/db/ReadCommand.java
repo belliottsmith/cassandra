@@ -436,8 +436,13 @@ public abstract class ReadCommand implements ReadQuery
         return oldestUnrepairedTombstone;
     }
 
+    /**
+     * Whether the underlying {@code ClusteringIndexFilter} is reversed or not.
+     *
+     * @return whether the underlying {@code ClusteringIndexFilter} is reversed or not.
+     */
+    public abstract boolean isReversed();
 
-    @SuppressWarnings("resource")
     public ReadResponse createResponse(UnfilteredPartitionIterator iterator)
     {
         // validate that the sequence of RT markers is correct: open is followed by close, deletion times for both

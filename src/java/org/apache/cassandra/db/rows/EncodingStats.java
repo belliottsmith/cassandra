@@ -21,8 +21,6 @@ import java.io.IOException;
 import java.util.*;
 import java.util.function.Function;
 
-import com.google.common.collect.Iterables;
-
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
 import org.apache.cassandra.io.util.DataInputPlus;
@@ -119,15 +117,15 @@ public class EncodingStats
             return function.apply(values.get(0));
 
         Collector collector = new Collector();
-        for (int i=0, isize=values.size(); i<isize; i++)
+        for (int i = 0, iSize = values.size(); i < iSize; i++)
         {
             V v = values.get(i);
             EncodingStats stats = function.apply(v);
             if (stats.minTimestamp != TIMESTAMP_EPOCH)
                 collector.updateTimestamp(stats.minTimestamp);
-            if(stats.minLocalDeletionTime != DELETION_TIME_EPOCH)
+            if (stats.minLocalDeletionTime != DELETION_TIME_EPOCH)
                 collector.updateLocalDeletionTime(stats.minLocalDeletionTime);
-            if(stats.minTTL != TTL_EPOCH)
+            if (stats.minTTL != TTL_EPOCH)
                 collector.updateTTL(stats.minTTL);
         }
         return collector.get();
