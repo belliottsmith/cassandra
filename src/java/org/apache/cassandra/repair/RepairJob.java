@@ -23,6 +23,7 @@ import java.util.concurrent.*;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.service.*;
+import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupSession;
 import org.apache.cassandra.service.paxos.cleanup.PaxosPrepareCleanup;
 import org.apache.cassandra.streaming.PreviewKind;
@@ -98,8 +100,9 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         this.repairJobStartTime = System.currentTimeMillis();
 
         ListenableFuture<Object> paxosRepair;
-        if (session.repairPaxos || session.paxosOnly)
+        if ((Paxos.useApplePaxos() && session.repairPaxos) || session.paxosOnly)
         {
+            logger.info("{} {}.{} starting paxos repair", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
             CFMetaData cfm = Schema.instance.getCFMetaData(desc.keyspace, desc.columnFamily);
             ListenableFuture<UUID> cleanupPrepare = PaxosPrepareCleanup.prepare(session.endpoints);
             paxosRepair = Futures.transform(cleanupPrepare, (AsyncFunction<UUID, Object>) highBallot -> {
@@ -110,12 +113,12 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         }
         else
         {
+            logger.info("{} {}.{} not running paxos repair", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
             paxosRepair = Futures.immediateFuture(new Object());
         }
 
         if (session.paxosOnly)
         {
-
             Futures.addCallback(paxosRepair, new FutureCallback<Object>()
             {
                 public void onSuccess(Object o)
