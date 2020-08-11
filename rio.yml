@@ -63,8 +63,6 @@ builds:
       maxConcurrentTotal: 2
     machine:
       baseImage: docker.apple.com/piedb/parallelci:latest
-      env: &env
-        SSH_AUTH_SOCK: "$( echo $SSH_AUTH_SOCK_DEPLOY_KEY )"
     secrets:
       names:
         - k8s_auth_token
@@ -169,6 +167,7 @@ builds:
         CARNIVAL_BUILD_VERSION: '1BUILD#{}'
         STUB_JAR: '/work/cassandrastub${STUB_VERSION_NAME}/cassandrastub${STUB_VERSION_NAME}.jar'
         DOCKER_IMAGE_VERSION: '${FULL_VERSION}'
+        SSH_AUTH_SOCK: "$( echo $SSH_AUTH_SOCK_DEPLOY_KEY )"
 
     secrets:
       names:
