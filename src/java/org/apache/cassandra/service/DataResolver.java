@@ -151,7 +151,7 @@ public class DataResolver extends ResponseResolver
 
     private boolean needsReplicaFilteringProtection()
     {
-        return !command.rowFilter().isEmpty();
+        return !command.rowFilter().isEmpty() && DatabaseDescriptor.isReplicaFilteringProtectionEnabled();
     }
 
     private class ResolveContext

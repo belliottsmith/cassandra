@@ -695,6 +695,14 @@ tombstone_failure_threshold: 100000
 # mechanism materializes replica results by partition on-heap at the coordinator. The more possibly
 # stale results returned by the replicas, the more rows materialized during the query.
 replica_filtering_protection:
+    # Whether replica filtering protection is enabled or not.
+    #
+    # Note that setting this to false explicitly disables the mechanism that makes filtering and
+    # index queries correct at read consistency levels above ONE/LOCAL_ONE. It should only be used
+    # in an emergency, when replica filtering protection itself appears to be problematic.
+    #
+    # It can also be enabled or disabled at runtime using the StorageService mbean.
+    enabled: true
     # These thresholds exist to limit the damage severely out-of-date replicas can cause during these
     # queries. They limit the number of rows from all replicas individual index and filtering queries
     # can materialize on-heap to return correct results at the desired read consistency level.

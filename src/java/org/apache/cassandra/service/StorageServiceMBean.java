@@ -711,6 +711,10 @@ public interface StorageServiceMBean extends NotificationEmitter
     /** Sets whether gcable tombstones should be counted towards TombstoneOverwhelming */
     public void setTombstoneCountGCable(boolean countGCable);
 
+    public void enableReplicaFilteringProtection();
+    public void disableReplicaFilteringProtection();
+    public boolean isReplicaFilteringProtectionEnabled();
+    
     /** Returns the number of rows cached at the coordinator before filtering/index queries log a warning. */
     public int getCachedReplicaRowsWarnThreshold();
 

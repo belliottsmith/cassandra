@@ -1590,6 +1590,15 @@ public class DatabaseDescriptor
         conf.tombstone_count_gcable = countGCable;
     }
 
+    public static void setReplicaFilteringProtectionEnabled(boolean enabled)
+    {
+        conf.replica_filtering_protection.enabled = enabled;
+    }
+
+    public static boolean isReplicaFilteringProtectionEnabled()
+    {
+        return conf.replica_filtering_protection.enabled;
+    }
 
     public static int getCachedReplicaRowsWarnThreshold()
     {

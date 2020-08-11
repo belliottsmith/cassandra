@@ -23,6 +23,7 @@ public class ReplicaFilteringProtectionOptions
     public static final int DEFAULT_WARN_THRESHOLD = 2000;
     public static final int DEFAULT_FAIL_THRESHOLD = 32000;
 
+    public volatile boolean enabled = true;
     public volatile int cached_rows_warn_threshold = DEFAULT_WARN_THRESHOLD;
     public volatile int cached_rows_fail_threshold = DEFAULT_FAIL_THRESHOLD;
 }
