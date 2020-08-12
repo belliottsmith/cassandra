@@ -88,8 +88,6 @@ public class CompactionStrategyManager implements INotificationConsumer
      */
     private volatile CompactionParams schemaCompactionParams;
 
-    private boolean shouldDefragment;
-
     public CompactionStrategyManager(ColumnFamilyStore cfs)
     {
         cfs.getTracker().subscribe(this);
@@ -232,7 +230,6 @@ public class CompactionStrategyManager implements INotificationConsumer
             repaired.startup();
             unrepaired.startup();
             pendingRepairs.startup();
-            shouldDefragment = unrepaired.shouldDefragment();
         }
         finally
         {
@@ -444,11 +441,6 @@ public class CompactionStrategyManager implements INotificationConsumer
                 res[i] = b[i];
         }
         return res;
-    }
-
-    public boolean shouldDefragment()
-    {
-        return shouldDefragment;
     }
 
     public Directories getDirectories()
