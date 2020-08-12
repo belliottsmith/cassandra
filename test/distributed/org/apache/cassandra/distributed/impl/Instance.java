@@ -73,6 +73,7 @@ import org.apache.cassandra.io.sstable.IndexSummaryManager;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.IMessageSink;
 import org.apache.cassandra.net.MessageIn;
@@ -81,6 +82,7 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.LegacySchemaMigrator;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.ClientState;
+import org.apache.cassandra.service.DefaultFSErrorHandler;
 import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageService;
@@ -423,6 +425,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 mkdirs();
 
                 DatabaseDescriptor.setDaemonInitialized();
+                FileUtils.setFSErrorHandler(new DefaultFSErrorHandler());
                 DatabaseDescriptor.createAllDirectories();
 
                 // We need to  persist this as soon as possible after startup checks.

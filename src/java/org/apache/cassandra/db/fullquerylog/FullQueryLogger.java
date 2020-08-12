@@ -42,6 +42,7 @@ import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.io.FSError;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.transport.CBUtil;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.Throwables;
@@ -474,7 +475,7 @@ public class FullQueryLogger
         }
         if (accumulate instanceof FSError)
         {
-            FileUtils.handleFSError((FSError)accumulate);
+            JVMStabilityInspector.inspectThrowable((FSError)accumulate);
         }
         return accumulate;
     }
