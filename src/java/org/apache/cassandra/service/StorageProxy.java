@@ -3384,6 +3384,32 @@ public class StorageProxy implements StorageProxyMBean
     }
 
     @Override
+    public void enableRepairedDataTrackingExclusions()
+    {
+        logger.info("Enabling repaired data tracking exclusions");
+        DatabaseDescriptor.setRepairedDataTrackingExclusionsEnabled(true);
+    }
+
+    @Override
+    public void disableRepairedDataTrackingExclusions()
+    {
+        logger.info("Disabling repaired data tracking exclusions");
+        DatabaseDescriptor.setRepairedDataTrackingExclusionsEnabled(false);
+    }
+
+    @Override
+    public boolean getRepairedDataTrackingExclusionsEnabled()
+    {
+        return DatabaseDescriptor.getRepairedDataTrackingExclusionsEnabled();
+    }
+
+    @Override
+    public String getRepairedDataTrackingExclusions()
+    {
+        return DatabaseDescriptor.getRepairedDataTrackingExclusions().toString();
+    }
+
+    @Override
     public void enableReportingUnconfirmedRepairedDataMismatches()
     {
         DatabaseDescriptor.reportUnconfirmedRepairedDataMismatches(true);

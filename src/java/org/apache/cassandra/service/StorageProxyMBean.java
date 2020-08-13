@@ -147,6 +147,11 @@ public interface StorageProxyMBean
     void disableRepairedDataTrackingForPartitionReads();
     boolean getRepairedDataTrackingEnabledForPartitionReads();
 
+    void enableRepairedDataTrackingExclusions();
+    void disableRepairedDataTrackingExclusions();
+    boolean getRepairedDataTrackingExclusionsEnabled();
+    String getRepairedDataTrackingExclusions();
+
     void enableReportingUnconfirmedRepairedDataMismatches();
     void disableReportingUnconfirmedRepairedDataMismatches();
     boolean getReportingUnconfirmedRepairedDataMismatchesEnabled();

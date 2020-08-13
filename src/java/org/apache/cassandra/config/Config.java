@@ -36,7 +36,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.EncryptionOptions.ServerEncryptionOptions;
-import org.apache.cassandra.db.ConsistencyLevel;
 
 /**
  * A class that contains configuration properties for the cassandra node it runs within.
@@ -503,6 +502,16 @@ public class Config
      */
     public volatile boolean repaired_data_tracking_for_range_reads_enabled = false;
     public volatile boolean repaired_data_tracking_for_partition_reads_enabled = false;
+
+    /**
+     * Allow keyspace, table or row level exclusions to repaired data tracking to be configured
+     * and enabled. Configuration must be done via cassandra.yaml, but enabling/disabling is
+     * exposed by JMX
+     * See o.a.c.config.RepairedDataTrackingExclusions for details of the config format
+     */
+    public volatile boolean repaired_data_tracking_exclusions_enabled = false;
+    public String repaired_data_tracking_exclusions;
+
     /* If true, unconfirmed mismatches (those which cannot be considered conclusive proof of out of
      * sync repaired data due to the presence of pending repair sessions, or unrepaired partition
      * deletes) will increment a metric, distinct from confirmed mismatches. If false, unconfirmed

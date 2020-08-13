@@ -138,6 +138,8 @@ public final class CFMetaData
     /** Caches a non-compact version of the metadata for compact tables to be used with the NO_COMPACT protocol option. */
     private volatile CFMetaData nonCompactCopy = null;
 
+    public final RepairedDataExclusion repairedDataExclusion;
+
     public boolean isSuperColumnKeyColumn(ColumnDefinition cd)
     {
         return cd.name.equals(superCfKeyColumn.name);
@@ -338,6 +340,7 @@ public final class CFMetaData
         rebuild();
 
         this.serializers = new Serializers(this);
+        this.repairedDataExclusion = DatabaseDescriptor.getRepairedDataTrackingExclusions().getExclusion(keyspace, name);
     }
 
     // This rebuild informations that are intrinsically duplicate of the table definition but

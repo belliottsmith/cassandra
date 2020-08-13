@@ -42,7 +42,6 @@ import org.apache.cassandra.io.sstable.metadata.MetadataComponent;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.service.ActiveRepairService;
-import org.apache.cassandra.service.SnapshotVerbHandler;
 import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.utils.DiagnosticSnapshotService;
 
@@ -348,6 +347,62 @@ public class RepairDigestTrackingTest extends DistributedTestBase implements Ser
 
             cluster.get(1).runOnInstance(() -> assertSnapshotPresent("tbl", snapshotName));
             cluster.get(2).runOnInstance(() -> assertSnapshotPresent("tbl", snapshotName));
+        }
+    }
+
+    @Test
+    public void testDigestExclusions() throws Throwable
+    {
+        String exclusions = "{ \""+KEYSPACE+"\": { \"tbl\" : [ \"666f6f\" ] } }";   // foo
+        try (Cluster cluster = init(Cluster.build(2)
+                                           .withConfig(config -> config.set("repaired_data_tracking_exclusions", exclusions))
+                                           .start()))
+        {
+
+            cluster.get(1).runOnInstance(() -> {
+                StorageProxy.instance.enableRepairedDataTrackingForRangeReads();
+                StorageProxy.instance.enableRepairedDataTrackingForPartitionReads();
+            });
+
+            cluster.forEach(i -> i.runOnInstance(() -> StorageProxy.instance.disableRepairedDataTrackingExclusions()));
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (k INT, c TEXT, v INT, PRIMARY KEY (k,c))");
+            for (int i = 0; i < 10; i++)
+            {
+                for (int j = 0; j < 10; j++)
+                {
+                    cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (?, ?, ?)",
+                                                   ConsistencyLevel.ALL, i, j % 2 == 0 ? "foo" + j : "bar" + j, j);
+                }
+            }
+            // overwrite on node1 only to generate digest mismatches then flush and mark everything repaired
+            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (0, ?, ?)", "foo6", 66);
+            cluster.forEach(c -> c.flush(KEYSPACE));
+            cluster.forEach(i -> i.runOnInstance(() -> markAllRepaired("tbl")));
+            cluster.forEach(i -> i.runOnInstance(() -> assertRepaired("tbl")));
+
+            // Execute a partition read and assert inconsistency is detected
+            long ccBefore = getConfirmedInconsistencies(cluster.get(1), "tbl");
+            cluster.coordinator(1).execute("SELECT * FROM "+KEYSPACE+".tbl WHERE k=0", ConsistencyLevel.ALL);
+            long ccAfter = getConfirmedInconsistencies(cluster.get(1), "tbl");
+            Assert.assertEquals("confirmed count should increment by 1 after each partition read", ccBefore + 1, ccAfter);
+
+            // re-introduce a mismatch and execute a range read then assert inconsistency is detected
+            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (0, ?, ?)", "foo6", 666);
+            cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl", ConsistencyLevel.ALL);
+            ccAfter = getConfirmedInconsistencies(cluster.get(1), "tbl");
+            Assert.assertEquals("confirmed count should increment by 1 after each partition read", ccBefore + 2, ccAfter);
+
+            // re-introduce a mismatch and try again after enabling exclusions
+            cluster.forEach(i -> i.runOnInstance(() -> StorageProxy.instance.enableRepairedDataTrackingExclusions()));
+            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (0, ?, ?)", "foo6", 6666);
+            cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE k=0", ConsistencyLevel.ALL);
+            ccAfter = getConfirmedInconsistencies(cluster.get(1), "tbl");
+            Assert.assertEquals("confirmed count should not increase when exlcusions are enabled", ccBefore + 2, ccAfter);
+
+            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (0, ?, ?)", "foo6", 66666);
+            cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl", ConsistencyLevel.ALL);
+            ccAfter = getConfirmedInconsistencies(cluster.get(1), "tbl");
+            Assert.assertEquals("confirmed count should not increase when exlcusions are enabled", ccBefore + 2, ccAfter);
         }
     }
 

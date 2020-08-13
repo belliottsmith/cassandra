@@ -152,6 +152,8 @@ public class DatabaseDescriptor
 
     private static long repairHistorySyncTimeoutSeconds;
 
+    private static RepairedDataTrackingExclusions repairedDataTrackingExclusions = RepairedDataTrackingExclusions.NO_EXCLUSIONS;
+
     static
     {
         // In client mode, we use a default configuration. Note that the fields of this class will be
@@ -865,6 +867,9 @@ public class DatabaseDescriptor
 
         if (conf.paxos_repair_paralellism <= 0)
             config.paxos_repair_paralellism = conf.concurrent_writes / 8;
+
+        repairedDataTrackingExclusions =
+            RepairedDataTrackingExclusions.fromJsonString(conf.repaired_data_tracking_exclusions);
     }
 
     public static IEndpointSnitch createEndpointSnitch(boolean dynamic, String snitchClassName) throws ConfigurationException
@@ -2975,6 +2980,21 @@ public class DatabaseDescriptor
     public static void setRepairedDataTrackingForPartitionReadsEnabled(boolean enabled)
     {
         conf.repaired_data_tracking_for_partition_reads_enabled = enabled;
+    }
+
+    public static boolean getRepairedDataTrackingExclusionsEnabled()
+    {
+        return conf.repaired_data_tracking_exclusions_enabled;
+    }
+
+    public static void setRepairedDataTrackingExclusionsEnabled(boolean enabled)
+    {
+        conf.repaired_data_tracking_exclusions_enabled = enabled;
+    }
+
+    public static RepairedDataTrackingExclusions getRepairedDataTrackingExclusions()
+    {
+        return repairedDataTrackingExclusions;
     }
 
     public static boolean snapshotOnRepairedDataMismatch()

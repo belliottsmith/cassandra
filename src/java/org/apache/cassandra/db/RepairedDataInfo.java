@@ -22,6 +22,10 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.partitions.PurgeFunction;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
@@ -36,6 +40,8 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 
 class RepairedDataInfo
 {
+    private static final Logger logger = LoggerFactory.getLogger(RepairedDataInfo.class);
+
     public static final RepairedDataInfo NULL_REPAIRED_DATA_INFO = new RepairedDataInfo(null)
     {
         boolean isConclusive(){ return true; }
@@ -138,6 +144,15 @@ class RepairedDataInfo
 
     public UnfilteredRowIterator withRepairedDataInfo(final UnfilteredRowIterator iterator)
     {
+        final CFMetaData tableMetadata = iterator.metadata();
+
+        if (tableMetadata.repairedDataExclusion.excludePartition(iterator))
+        {
+            if (logger.isTraceEnabled())
+                logger.trace("{}.{} is excluded from repaired data tracking", tableMetadata.ksName, tableMetadata.cfName);
+            return iterator;
+        }
+
         class WithTracking extends Transformation<UnfilteredRowIterator>
         {
             protected DeletionTime applyToDeletion(DeletionTime deletionTime)
@@ -177,6 +192,15 @@ class RepairedDataInfo
             {
                 if (repairedCounter.isDone())
                     return row;
+
+                // One or more prefixes are configured for clustering-based exclusion
+                // check this after the repaired counter so that we don't read too many rows
+                if (tableMetadata.repairedDataExclusion.excludeRow(row))
+                {
+                    if (logger.isTraceEnabled())
+                        logger.trace("Row {} matched exclusion prefix", row.clustering().toString(tableMetadata));
+                    return row;
+                }
 
                 assert purger != null;
                 Row purged = purger.applyToRow(row);

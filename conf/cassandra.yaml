@@ -1136,6 +1136,9 @@ repaired_data_tracking_for_partition_reads_enabled: false
 # mismatches will also be recorded. This is to avoid potential signal:noise issues are unconfirmed
 # mismatches are less actionable than confirmed ones.
 report_unconfirmed_repaired_data_mismatches: false
+# Exclusions from repaired data tracking. See o.a.c.config.RepairedDataTrackingExclusions for details
+#repaired_data_tracking_exclusions_enabled: false
+#repaired_data_tracking_exclusions: "{ \"prod_p98\": { \"files\" : [ \"02\" ] } }"
 
 # Log a warning when reading a partition's RowIndexEntry from disk larger than this value
 # This is related to the compaction_large_partition_warning_threshold_mb config
