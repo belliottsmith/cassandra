@@ -37,6 +37,8 @@ import com.google.common.util.concurrent.AbstractFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 
+import org.apache.cassandra.config.RepairedDataExclusion;
+import org.apache.cassandra.config.RepairedDataTrackingExclusions;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.compaction.CompactionManager;
@@ -259,6 +261,14 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
         if (endpoints.isEmpty())
             return null;
+
+        if (previewKind.isPreview() && DatabaseDescriptor.getRepairedDataTrackingExclusionsEnabled())
+            cfnames = filterTablesForRepairedDataTrackingExclusions(DatabaseDescriptor.getRepairedDataTrackingExclusions(),
+                                                                    previewKind,
+                                                                    parentRepairSession,
+                                                                    keyspace,
+                                                                    cfnames);
+
         if (cfnames.length == 0)
             return null;
 
@@ -289,6 +299,27 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         }, MoreExecutors.sameThreadExecutor());
         session.start(executor);
         return session;
+    }
+
+    @VisibleForTesting
+    public static String[] filterTablesForRepairedDataTrackingExclusions(RepairedDataTrackingExclusions exclusions,
+                                                                         PreviewKind previewKind,
+                                                                         UUID parentRepairSession,
+                                                                         String keyspace,
+                                                                         String[] cfnames)
+    {
+        List<String> filteredTables = new ArrayList<>(cfnames.length);
+        for (String table : cfnames)
+        {
+            if (exclusions.getExclusion(keyspace, table) != RepairedDataExclusion.ALL)
+                filteredTables.add(table);
+            else
+                logger.info("[{}] Skipping preview repair for {}.{} - it is excluded by repaired_data_tracking_exclusions",
+                            previewKind.logPrefix(parentRepairSession), keyspace, table);
+        }
+        if (cfnames.length != filteredTables.size())
+            cfnames = filteredTables.toArray(new String[0]);
+        return cfnames;
     }
 
     public boolean getUseOffheapMerkleTrees()

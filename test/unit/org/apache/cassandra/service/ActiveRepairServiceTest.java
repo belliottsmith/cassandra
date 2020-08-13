@@ -21,8 +21,6 @@ package org.apache.cassandra.service;
 import java.net.InetAddress;
 import java.util.*;
 
-import javax.xml.crypto.Data;
-
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import org.junit.Assert;
@@ -32,12 +30,12 @@ import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.RepairedDataTrackingExclusions;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
-import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -57,6 +55,7 @@ import static org.apache.cassandra.repair.messages.RepairOption.INCREMENTAL_KEY;
 import static org.apache.cassandra.repair.messages.RepairOption.RANGES_KEY;
 import static org.apache.cassandra.service.ActiveRepairService.UNREPAIRED_SSTABLE;
 import static org.apache.cassandra.service.ActiveRepairService.getRepairedAt;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -353,5 +352,32 @@ public class ActiveRepairServiceTest
 
         // full repair
         Assert.assertEquals(UNREPAIRED_SSTABLE, getRepairedAt(opts(INCREMENTAL_KEY, b2s(false)), false));
+    }
+
+    @Test
+    public void testMaybeFilterTables()
+    {
+        String [] tables = new String[] {"tbl1","tbl2","tbl3"};
+        DatabaseDescriptor.setRepairedDataTrackingExclusionsEnabled(true);
+        try
+        {
+            RepairedDataTrackingExclusions rdte = RepairedDataTrackingExclusions.fromJsonString("");
+            assertArrayEquals(tables, ActiveRepairService.filterTablesForRepairedDataTrackingExclusions(rdte, PreviewKind.REPAIRED, UUID.randomUUID(), "ks", tables));
+
+            rdte = RepairedDataTrackingExclusions.fromJsonString("{\"ks\": {}}");
+            assertArrayEquals(new String[]{}, ActiveRepairService.filterTablesForRepairedDataTrackingExclusions(rdte, PreviewKind.REPAIRED, UUID.randomUUID(), "ks", tables));
+
+            rdte = RepairedDataTrackingExclusions.fromJsonString("{\"ks\": {\"tbl1\": []}}");
+            assertArrayEquals(new String[] {"tbl2", "tbl3"}, ActiveRepairService.filterTablesForRepairedDataTrackingExclusions(rdte, PreviewKind.REPAIRED, UUID.randomUUID(), "ks", tables));
+
+            rdte = RepairedDataTrackingExclusions.fromJsonString("{\"ks\": {\"tbl1\": []," +
+                                                                           "\"tbl2\": [\"abc\"]}}");
+            assertArrayEquals(new String[] {"tbl2", "tbl3"}, ActiveRepairService.filterTablesForRepairedDataTrackingExclusions(rdte, PreviewKind.REPAIRED, UUID.randomUUID(), "ks", tables));
+
+        }
+        finally
+        {
+            DatabaseDescriptor.setRepairedDataTrackingExclusionsEnabled(false);
+        }
     }
 }

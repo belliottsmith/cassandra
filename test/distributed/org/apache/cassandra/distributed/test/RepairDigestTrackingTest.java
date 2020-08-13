@@ -435,7 +435,7 @@ public class RepairDigestTrackingTest extends DistributedTestBase implements Ser
                                                        ActiveRepairService.UNREPAIRED_SSTABLE));
     }
 
-    private void assertRepaired(String table)
+    public static void assertRepaired(String table)
     {
         Keyspace.open(KEYSPACE)
                 .getColumnFamilyStore(table)
@@ -443,12 +443,12 @@ public class RepairDigestTrackingTest extends DistributedTestBase implements Ser
                 .forEach(reader -> Assert.assertTrue("repaired at is not set for sstable: " + reader.descriptor, getRepairedAt(reader) > 0));
     }
 
-    private void markAllRepaired(String table)
+    public static void markAllRepaired(String table)
     {
         Keyspace.open(KEYSPACE)
                 .getColumnFamilyStore(table)
                 .getLiveSSTables()
-                .forEach(this::markRepaired);
+                .forEach(RepairDigestTrackingTest::markRepaired);
     }
 
     private void assertSnapshotPresent(String table, String snapshotName)
@@ -476,7 +476,7 @@ public class RepairDigestTrackingTest extends DistributedTestBase implements Ser
         Assert.assertFalse(cfs.snapshotExists(snapshotName));
     }
 
-    private long getRepairedAt(SSTableReader reader)
+    public static long getRepairedAt(SSTableReader reader)
     {
         Descriptor descriptor = reader.descriptor;
         try
@@ -492,7 +492,7 @@ public class RepairDigestTrackingTest extends DistributedTestBase implements Ser
 
     }
 
-    private void markRepaired(SSTableReader reader) {
+    public static void markRepaired(SSTableReader reader) {
         Descriptor descriptor = reader.descriptor;
         try
         {

@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
+import org.apache.cassandra.config.RepairedDataExclusion;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Digest;
@@ -190,9 +191,14 @@ public class Validator implements Runnable
 
     private MerkleTree.RowHash rowHash(UnfilteredRowIterator partition)
     {
+        RepairedDataExclusion repairedDataExclusion = partition.metadata().repairedDataExclusion;
+        if (previewKind.isPreview() && repairedDataExclusion.excludePartition(partition))
+            return null;
         validated++;
         // MerkleTree uses XOR internally, so we want lots of output bits here
         Digest digest = Digest.forValidator();
+        if (previewKind.isPreview())
+            partition = repairedDataExclusion.filter(partition);
         UnfilteredRowIterators.digest(null, partition, digest, MessagingService.current_version);
         // only return new hash for merkle tree in case digest was updated - see CASSANDRA-8979
         return digest.inputBytes() > 0
