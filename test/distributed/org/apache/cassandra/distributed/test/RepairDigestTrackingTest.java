@@ -353,7 +353,7 @@ public class RepairDigestTrackingTest extends DistributedTestBase implements Ser
     @Test
     public void testDigestExclusions() throws Throwable
     {
-        String exclusions = "{ \""+KEYSPACE+"\": { \"tbl\" : [ \"666f6f\" ] } }";   // foo
+        String exclusions = KEYSPACE + ":tbl:666f6f";
         try (Cluster cluster = init(Cluster.build(2)
                                            .withConfig(config -> config.set("repaired_data_tracking_exclusions", exclusions))
                                            .start()))

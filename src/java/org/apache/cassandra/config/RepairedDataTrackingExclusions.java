@@ -18,12 +18,8 @@
 
 package org.apache.cassandra.config;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
-
-import javax.annotation.Nullable;
 
 import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
@@ -34,8 +30,6 @@ import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.utils.FastByteOperations;
 import org.apache.cassandra.utils.Hex;
-import org.apache.cassandra.utils.NoSpamLogger;
-import org.codehaus.jackson.map.ObjectMapper;
 
 import static org.apache.cassandra.config.RepairedDataExclusion.*;
 
@@ -75,34 +69,30 @@ import static org.apache.cassandra.config.RepairedDataExclusion.*;
  * potential values than string or plain byte types.
  * For example, a prefix 0000 will match any int < 65536 (which in hex is 00010000)
  *
- * Exclusions are configured via a JSON-escaped string in cassandra.yaml. It would be possible to
- * do this directly in the yaml, but this would require changes to cassandracfg in order to inject
- * the custom values.
+ * Example config:
  *
- * Example json:
+ * repaired_data_tracking_exclusions: ks1:t1:02,ks1:t99,ks2
  *
- * {
- *    "ks1": {
- *      "t1": ["02"],         // any rows in ks1.t1 with a clustering beginning '0x02' excluded
- *      "t99": []             // all rows in ks1.t99 excluded
- *    },
- *    "ks2": {}               // all tables/rows in ks2 excluded
- * }
- *
- * in cassandra.yaml:
- *
- * repaired_data_tracking_exclusions: " { \"ks1\": { \"t1\": [\"02\"], \"t99\": [] }, \"ks2\": {} }"
+ * where ks1.t1 excludes clusterings beginning with 0x02, all rows in table ks1.t99 are ignored and keyspace ks2 is
+ * completely excluded
  */
 public class RepairedDataTrackingExclusions
 {
    private static final Logger logger = LoggerFactory.getLogger(RepairedDataTrackingExclusions.class);
 
-   static final RepairedDataTrackingExclusions NO_EXCLUSIONS = new RepairedDataTrackingExclusions(Collections.emptyMap());
+   public static final RepairedDataTrackingExclusions NO_EXCLUSIONS = new RepairedDataTrackingExclusions(Collections.emptyMap());
 
-   @SuppressWarnings("unchecked")
-   public static RepairedDataTrackingExclusions fromJsonString(String json)
+   /*
+config format is as follows:
+<ks>:<table>:<row>,<ks>:<table>:<row>,..
+
+where table and row are optional
+
+// todo: config like: "ks,ks:tbl,ks:tbl:row" - would currently only ignore row in ks.tbl, but we should probably ignore all of ks
+ */
+   public static RepairedDataTrackingExclusions fromConfig(String rawConf)
    {
-      if (Strings.isNullOrEmpty(json))
+      if (Strings.isNullOrEmpty(rawConf))
       {
          logger.info("No repaired data tracking exclusions specified in config");
          // no exclusions are specified in config, so we may as well ensure
@@ -112,25 +102,56 @@ public class RepairedDataTrackingExclusions
       }
 
       logger.info("Loading repaired data tracking exclusions from config");
-      ObjectMapper mapper = new ObjectMapper();
-      try
+      Map<String, Map<String, List<String>>> mappings = new HashMap<>();
+      String [] entries = rawConf.split(",");
+      for (String entry : entries)
       {
-         Object o = mapper.readValue(json, Object.class);
-         return new RepairedDataTrackingExclusions((Map<String, Map<String, List<String>>>) o);
+         String [] one = entry.split(":");
+         if (one.length == 0 || one.length > 3)
+            throw new ConfigurationException("Bad config entry for repaired_data_tracking_exclusions: "+entry);
+         String ks = one[0];
+         String table = one.length > 1 ? one[1] : null;
+         String row = one.length > 2 ? one[2] : null;
+
+         Map<String, List<String>> ksMap = mappings.computeIfAbsent(ks, k -> new HashMap<>());
+         if (table != null)
+         {
+            List<String> rows = ksMap.computeIfAbsent(table, k -> new ArrayList<>());
+            if (row != null)
+               rows.add(row);
+         }
       }
-      catch (IOException e)
-      {
-         throw new ConfigurationException("Failed to load repaired data tracking exclusions from config", e);
-      }
+      logger.info("Created repaired data tracking exclusions {}", mappings);
+      return new RepairedDataTrackingExclusions(mappings);
    }
 
    private RepairedDataTrackingExclusions(Map<String, Map<String, List<String>>> mappings)
    {
       this.mappings = mappings;
+      validate();
    }
 
    // Raw data from yaml
    private final Map<String, Map<String, List<String>>> mappings;
+
+   /**
+    * Makes sure we can create exclusions from the config
+    */
+   public void validate()
+   {
+      for (Map.Entry<String, Map<String, List<String>>> entry : mappings.entrySet())
+      {
+         String keyspace = entry.getKey();
+         if (!keyspace.matches("\\w+"))
+            throw new ConfigurationException("Invalid keyspace name for repaired_data_tracking_exclusions: "+ keyspace);
+         for (String table : entry.getValue().keySet())
+         {
+            if (!table.matches("\\w+"))
+               throw new ConfigurationException("Invalid table name for repaired_data_tracking_exclusions: "+ table);
+            getExclusion(entry.getKey(), table); // this checks that the prefixes can be hex decoded.
+         }
+      }
+   }
 
    public RepairedDataExclusion getExclusion(String keyspace, String table)
    {
@@ -193,9 +214,8 @@ public class RepairedDataTrackingExclusions
             }
             catch (Exception e)
             {
-               NoSpamLogger.log(logger, NoSpamLogger.Level.WARN,
-                                1L, TimeUnit.MINUTES,
-                                "Invalid hex string for exclusion prefix ({})", s);
+               // throw exception to avoid starting the node with a bad configuration - if we ignore it we get NPE on every read.
+               throw new ConfigurationException("Invalid hex string for exclusion prefix ("+s+")", e);
             }
          }
          longest = tmp;

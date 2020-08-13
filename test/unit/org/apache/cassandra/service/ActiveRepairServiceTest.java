@@ -361,17 +361,16 @@ public class ActiveRepairServiceTest
         DatabaseDescriptor.setRepairedDataTrackingExclusionsEnabled(true);
         try
         {
-            RepairedDataTrackingExclusions rdte = RepairedDataTrackingExclusions.fromJsonString("");
+            RepairedDataTrackingExclusions rdte = RepairedDataTrackingExclusions.fromConfig("");
             assertArrayEquals(tables, ActiveRepairService.filterTablesForRepairedDataTrackingExclusions(rdte, PreviewKind.REPAIRED, UUID.randomUUID(), "ks", tables));
 
-            rdte = RepairedDataTrackingExclusions.fromJsonString("{\"ks\": {}}");
+            rdte = RepairedDataTrackingExclusions.fromConfig("ks");
             assertArrayEquals(new String[]{}, ActiveRepairService.filterTablesForRepairedDataTrackingExclusions(rdte, PreviewKind.REPAIRED, UUID.randomUUID(), "ks", tables));
 
-            rdte = RepairedDataTrackingExclusions.fromJsonString("{\"ks\": {\"tbl1\": []}}");
+            rdte = RepairedDataTrackingExclusions.fromConfig("ks:tbl1");
             assertArrayEquals(new String[] {"tbl2", "tbl3"}, ActiveRepairService.filterTablesForRepairedDataTrackingExclusions(rdte, PreviewKind.REPAIRED, UUID.randomUUID(), "ks", tables));
 
-            rdte = RepairedDataTrackingExclusions.fromJsonString("{\"ks\": {\"tbl1\": []," +
-                                                                           "\"tbl2\": [\"abc\"]}}");
+            rdte = RepairedDataTrackingExclusions.fromConfig("ks:tbl1,ks:tbl2:aaaa");
             assertArrayEquals(new String[] {"tbl2", "tbl3"}, ActiveRepairService.filterTablesForRepairedDataTrackingExclusions(rdte, PreviewKind.REPAIRED, UUID.randomUUID(), "ks", tables));
 
         }

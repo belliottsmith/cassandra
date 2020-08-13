@@ -33,6 +33,7 @@ import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static org.apache.cassandra.Util.clustering;
@@ -80,19 +81,26 @@ public class RepairedDataTrackingExclusionsTest
     @Before
     public void setup()
     {
-        String json = "{ \n" +
-                      "  \"ks1\": { \n" +
-                      "    \"t1\": [ \"6161\", \"65666768\"], \n" +                     // text type [aa, efgh]
-                      "    \"t2\": [ \"6161\", \"65666768\" ], \n" +                    // (text, text) type [aa, efgh]
-                      "    \"t3\": [ \"0012d687\", \"0001869f\", \"0000\" ], \n" +      // (int) [1234567, 99999, (any int < 65536)]
-                      "    \"t4\": [ \"02\", \"05\", \"DEADBEEF\" ], \n" +              // (bytes) [0x02, 0x05, 0xDEADBEEF]
-                      "    \"t5\": [ \"02\", \"050505\", \"DEADBEEF\" ], \n" +          // (bytes, bytes) [0x02, 0x050505, 0xDEADBEEF]
-                      "    \"t6\": [ \"0261610001869f\", \"04AF34\", \"0807666F6F0000\" ], \n" + // Prefixes: [0x02:aa:99999, 0x04AF34, 0x08070605:foo:0000] (0000 == any int < 65536)
-                      "    \"t99\": []\n" +                                             // all rows excluded
-                      "  },\n" +
-                      "  \"ks3\": {} \n" +                                              // all tables/rows excluded
-                      "}";
-        exclusions = RepairedDataTrackingExclusions.fromJsonString(json);
+        String conf = "ks1:t1:6161," +             // text type [aa, efgh]
+                      "ks1:t1:65666768," +
+                      "ks1:t2:6161," +             // (text, text) type [aa, efgh]
+                      "ks1:t2:65666768," +
+                      "ks1:t3:0012d687," +         // (int) [1234567, 99999, (any int < 65536)]
+                      "ks1:t3:0001869f," +
+                      "ks1:t3:0000," +
+                      "ks1:t4:02," +               // (bytes) [0x02, 0x05, 0xDEADBEEF]
+                      "ks1:t4:05," +
+                      "ks1:t4:DEADBEEF," +
+                      "ks1:t5:02," +               // (bytes, bytes) [0x02, 0x050505, 0xDEADBEEF]
+                      "ks1:t5:050505," +
+                      "ks1:t5:DEADBEEF," +
+                      "ks1:t6:0261610001869f," +   // Prefixes: [0x02:aa:99999, 0x04AF34, 0x08070605:foo:0000] (0000 == any int < 65536)
+                      "ks1:t6:04AF34," +
+                      "ks1:t6:0807666F6F0000," +
+                      "ks1:t99," +                 // all rows excluded
+                      "ks3";                       // all tables/rows excluded
+        exclusions = RepairedDataTrackingExclusions.fromConfig(conf);
+
         DatabaseDescriptor.setRepairedDataTrackingExclusionsEnabled(true);
     }
 
@@ -363,6 +371,25 @@ public class RepairedDataTrackingExclusionsTest
         exclusion = exclusions.getExclusion(t99.ks, t99.table);
         assertTrue(exclusion.excludeRow(row));
     }
+
+    @Test(expected = ConfigurationException.class)
+    public void testInvalidKeyspace()
+    {
+        RepairedDataTrackingExclusions.fromConfig("ks1,ks.abc:iii:ccc");
+    }
+
+    @Test(expected = ConfigurationException.class)
+    public void testInvalidTable()
+    {
+        RepairedDataTrackingExclusions.fromConfig("ks1,ks:abc.iii:ccc");
+    }
+
+    @Test(expected = ConfigurationException.class)
+    public void testInvalidRow()
+    {
+        RepairedDataTrackingExclusions.fromConfig("ks1,ks:abc:ccc");
+    }
+
 
     private static ByteBuffer bytes(int...bytes)
     {

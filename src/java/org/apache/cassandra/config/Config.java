@@ -511,6 +511,12 @@ public class Config
      * See o.a.c.config.RepairedDataTrackingExclusions for details of the config format
      */
     public volatile boolean repaired_data_tracking_exclusions_enabled = false;
+
+    /**
+     * example:
+     *
+     * repaired_data_tracking_exclusions: ks1:tbl:02,ks1:tbl:03
+     */
     public String repaired_data_tracking_exclusions;
 
     /* If true, unconfirmed mismatches (those which cannot be considered conclusive proof of out of

@@ -869,7 +869,7 @@ public class DatabaseDescriptor
             config.paxos_repair_paralellism = conf.concurrent_writes / 8;
 
         repairedDataTrackingExclusions =
-            RepairedDataTrackingExclusions.fromJsonString(conf.repaired_data_tracking_exclusions);
+            RepairedDataTrackingExclusions.fromConfig(conf.repaired_data_tracking_exclusions);
     }
 
     public static IEndpointSnitch createEndpointSnitch(boolean dynamic, String snitchClassName) throws ConfigurationException
