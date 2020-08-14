@@ -28,6 +28,7 @@ import java.util.stream.IntStream;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -184,6 +185,12 @@ public class ReadCommandTest
         ActiveRepairService.instance.start();
     }
 
+    @Before
+    public void cleanup()
+    {
+        for (String table : Arrays.asList(CF1, CF2, CF3, CF4, CF5, CF6, CF7))
+            Keyspace.open(KEYSPACE).getColumnFamilyStore(table).truncateBlocking();
+    }
 
     @Test
     public void testSinglePartitionSliceRepairedDataTracking() throws Exception
@@ -216,7 +223,6 @@ public class ReadCommandTest
         // returning once all requested columns are not available so just assert that
         // all sstables are read when performing such queries
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF2);
-        cfs.truncateBlocking();
         cfs.disableAutoCompaction();
         cfs.metadata.params(TableParams.builder(cfs.metadata.params)
                                        .caching(CachingParams.CACHE_NOTHING)
@@ -267,7 +273,6 @@ public class ReadCommandTest
         // so false positive digest mismatches will be reported for scenarios where
         // there is nothing that can be done to "fix" the replicas
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF5);
-        cfs.truncateBlocking();
         cfs.disableAutoCompaction();
 
         // insert a row with the counter column having value 0, in a legacy shard.
@@ -328,7 +333,6 @@ public class ReadCommandTest
     public void purgeGCableTombstonesBeforeCalculatingDigest() throws Exception
     {
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF6);
-        cfs.truncateBlocking();
         cfs.disableAutoCompaction();
         cfs.metadata.params(TableParams.builder(cfs.metadata.params)
                                        .gcGraceSeconds(600)
@@ -406,7 +410,6 @@ public class ReadCommandTest
     public void testRepairedDataOverreadMetrics()
     {
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF7);
-        cfs.truncateBlocking();
         cfs.disableAutoCompaction();
         cfs.metadata.params(TableParams.builder(cfs.metadata.params)
                                        .caching(CachingParams.CACHE_NOTHING)
@@ -678,7 +681,6 @@ public class ReadCommandTest
     {
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF2);
 
-        cfs.truncateBlocking();
         cfs.disableAutoCompaction();
         cfs.metadata.params(TableParams.builder(cfs.metadata.params)
                                        .caching(CachingParams.CACHE_EVERYTHING)
@@ -889,7 +891,6 @@ public class ReadCommandTest
 
     private void testRepairedDataTracking(ColumnFamilyStore cfs, ReadCommand readCommand) throws IOException
     {
-        cfs.truncateBlocking();
         cfs.disableAutoCompaction();
 
         new RowUpdateBuilder(cfs.metadata, 0, ByteBufferUtil.bytes("key"))
