@@ -564,6 +564,11 @@ public class MigrationManager
         announce(SchemaKeyspace.makeDropAggregateMutation(ksm, udf, FBUtilities.timestampMicros()), announceLocally);
     }
 
+    static void announceGlobally(Mutation schema)
+    {
+        announce(Collections.singletonList(schema), false);
+    }
+
     /**
      * actively announce a new version to active hosts via rpc
      * @param schema The schema mutation to be applied
@@ -659,6 +664,53 @@ public class MigrationManager
         }
 
         logger.info("Local schema reset is complete.");
+    }
+
+    /**
+     * We have a set of non-local, distributed system keyspaces, e.g. system_traces, system_auth, etc.
+     * (see {@link Schema#REPLICATED_SYSTEM_KEYSPACE_NAMES}), that need to be created on cluster initialisation,
+     * and later evolved on major upgrades (sometimes minor too). This method compares the current known definitions
+     * of the tables (if the keyspace exists) to the expected, most modern ones expected by the running version of C*;
+     * if any changes have been detected, a schema Mutation will be created which, when applied, should make
+     * cluster's view of that keyspace aligned with the expected modern definition.
+     *
+     * @param keyspace   the expected modern definition of the keyspace
+     * @param generation timestamp to use for the table changes in the schema mutation
+     *
+     * @return empty Optional if the current definition is up to date, or an Optional with the Mutation that would
+     *         bring the schema in line with the expected definition.
+     */
+    static Optional<Mutation> evolveSystemKeyspace(KeyspaceMetadata keyspace, long generation)
+    {
+        Mutation mutation = null;
+
+        KeyspaceMetadata definedKeyspace = Schema.instance.getKSMetaData(keyspace.name);
+        if (null == definedKeyspace)
+            definedKeyspace = KeyspaceMetadata.create(keyspace.name, keyspace.params);
+
+        for (CFMetaData table : keyspace.tables)
+        {
+            /*
+             * Compare without taking into account tables' IDs; need to do this because for various
+             * historical reasons we've created some of our system-like tables manually - as part
+             * of upgrade workflows or otherwise. See rdar://56247982 for context.
+             */
+            if (table.equalsWithoutId(definedKeyspace.tables.getNullable(table.cfName)))
+                continue;
+
+            if (null == mutation)
+            {
+                // for the keyspace definition itself (name, replication, durability) always use generation 0;
+                // this ensures that any changes made to replication by the user will never be overwritten.
+                mutation = SchemaKeyspace.makeCreateKeyspaceMutation(keyspace.name, keyspace.params, 0);
+            }
+
+            // for table definitions always use the provided generation; these tables, unlike their containing
+            // keyspaces, are *NOT* meant to be altered by the user; if their definitions need to change,
+            // the schema must be updated in code, and the appropriate generation must be bumped.
+            SchemaKeyspace.addTableToSchemaMutation(table, generation, true, mutation);
+        }
+        return Optional.ofNullable(mutation);
     }
 
     public static class MigrationsSerializer implements IVersionedSerializer<Collection<Mutation>>

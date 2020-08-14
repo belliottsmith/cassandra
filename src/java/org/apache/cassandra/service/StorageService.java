@@ -166,6 +166,7 @@ import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.stream.Collectors.toList;
 import static org.apache.cassandra.index.SecondaryIndexManager.getIndexName;
 import static org.apache.cassandra.index.SecondaryIndexManager.isIndexColumnFamily;
+import static org.apache.cassandra.service.MigrationManager.evolveSystemKeyspace;
 
 /**
  * This abstraction contains the token/identifier of this node
@@ -1211,7 +1212,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (!authSetupCalled.getAndSet(true))
         {
             if (setUpSchema)
-                maybeAddOrUpdateAuthKeyspace();
+                evolveSystemKeyspace(AuthKeyspace.metadata(), AuthKeyspace.GENERATION).ifPresent(MigrationManager::announceGlobally);
 
             DatabaseDescriptor.getRoleManager().setup();
             DatabaseDescriptor.getAuthenticator().setup();
@@ -1222,61 +1223,19 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
-    private void maybeAddOrUpdateAuthKeyspace()
-    {
-        List<Mutation> changes = new ArrayList<>(1);
-        maybeAddOrUpdateKeyspace(changes, AuthKeyspace.metadata(), AuthKeyspace.GENERATION);
-        if (!changes.isEmpty())
-            MigrationManager.announce(changes, false);
-    }
-
-    private void setUpDistributedSystemKeyspaces()
+    @VisibleForTesting
+    public void setUpDistributedSystemKeyspaces()
     {
         Collection<Mutation> changes = new ArrayList<>(5);
 
-        maybeAddOrUpdateKeyspace(changes,              AuthKeyspace.metadata(),              AuthKeyspace.GENERATION);
-        maybeAddOrUpdateKeyspace(changes,             TraceKeyspace.metadata(),             TraceKeyspace.GENERATION);
-        maybeAddOrUpdateKeyspace(changes, SystemDistributedKeyspace.metadata(), SystemDistributedKeyspace.GENERATION);
-        maybeAddOrUpdateKeyspace(changes,       CIEInternalKeyspace.metadata(),       CIEInternalKeyspace.GENERATION);
-        maybeAddOrUpdateKeyspace(changes,  CIEInternalLocalKeyspace.metadata(),  CIEInternalLocalKeyspace.GENERATION);
+        evolveSystemKeyspace(            TraceKeyspace.metadata(),             TraceKeyspace.GENERATION).ifPresent(changes::add);
+        evolveSystemKeyspace(SystemDistributedKeyspace.metadata(), SystemDistributedKeyspace.GENERATION).ifPresent(changes::add);
+        evolveSystemKeyspace(             AuthKeyspace.metadata(),              AuthKeyspace.GENERATION).ifPresent(changes::add);
+        evolveSystemKeyspace(      CIEInternalKeyspace.metadata(),       CIEInternalKeyspace.GENERATION).ifPresent(changes::add);
+        evolveSystemKeyspace( CIEInternalLocalKeyspace.metadata(),  CIEInternalLocalKeyspace.GENERATION).ifPresent(changes::add);
 
         if (!changes.isEmpty())
             MigrationManager.announce(changes, false);
-    }
-
-    private void maybeAddOrUpdateKeyspace(Collection<Mutation> changes, KeyspaceMetadata keyspace, long generation)
-    {
-        Mutation change = null;
-
-        KeyspaceMetadata definedKeyspace = Schema.instance.getKSMetaData(keyspace.name);
-        if (null == definedKeyspace)
-            definedKeyspace = KeyspaceMetadata.create(keyspace.name, keyspace.params);
-
-        for (CFMetaData table : keyspace.tables)
-        {
-            /*
-             * Compare without taking into account tables' IDs; need to do this because for various
-             * historical reasons we've created some of our system-like tables manually - as part
-             * of upgrade workflows or otherwise. See rdar://56247982 for context.
-             */
-            if (table.equalsWithoutId(definedKeyspace.tables.getNullable(table.cfName)))
-                continue;
-
-            if (null == change)
-            {
-                 // for the keyspace definition itself (name, replication, durability) always use generation 0;
-                 // this ensures that any changes made to replication by the user will never be overwritten.
-                change = SchemaKeyspace.makeCreateKeyspaceMutation(keyspace.name, keyspace.params, 0);
-            }
-
-            // for table definitions always use the provided generation; these tables, unlike their containing
-            // keyspaces, are *NOT* meant to be altered by the user; if their definitions need to change,
-            // the schema must be updated in code, and the appropriate generation must be bumped.
-            SchemaKeyspace.addTableToSchemaMutation(table, generation, true, change);
-        }
-
-        if (null != change)
-            changes.add(change);
     }
 
     public boolean isJoined()
