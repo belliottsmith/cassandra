@@ -73,6 +73,7 @@ import org.apache.cassandra.thrift.cassandraConstants;
 import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.utils.*;
 
+import static java.lang.String.format;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonMap;
 import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
@@ -1473,23 +1474,23 @@ public final class SystemKeyspace
      */
     public static void clearEstimates(String keyspace, String table)
     {
-        String cqlFormat = "DELETE FROM %s.%s WHERE keyspace_name = ? AND table_name = ?";
-        String cql = String.format(cqlFormat, NAME, LEGACY_SIZE_ESTIMATES);
+        String cqlFormat = "DELETE FROM %s WHERE keyspace_name = ? AND table_name = ?";
+        String cql = format(cqlFormat, SizeEstimates.toStringCQLSafe());
         executeInternal(cql, keyspace, table);
-        cql = String.format(cqlFormat, NAME, TABLE_ESTIMATES);
+        cql = String.format(cqlFormat, TableEstimates.toStringCQLSafe());
         executeInternal(cql, keyspace, table);
     }
 
     /**
-     * Clears size estimates for a keyspace (used to manually clean when we miss a keyspace drop)
+     * truncates size_estimates and table_estimates tables
      */
-    public static void clearEstimates(String keyspace)
+    public static void clearAllEstimates()
     {
-        String cqlFormat = "DELETE FROM %s.%s WHERE keyspace_name = ?";
-        String cql = String.format(cqlFormat, NAME, LEGACY_SIZE_ESTIMATES);
-        executeInternal(cql, keyspace);
-        cql = String.format(cqlFormat, NAME, TABLE_ESTIMATES);
-        executeInternal(cql, keyspace);
+        for (CFMetaData table : Arrays.asList(SizeEstimates, TableEstimates))
+        {
+            String cql = String.format("TRUNCATE TABLE " + table.toStringCQLSafe());
+            executeInternal(cql);
+        }
     }
 
     /**

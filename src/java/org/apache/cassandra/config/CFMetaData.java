@@ -1335,6 +1335,12 @@ public final class CFMetaData
             .toString();
     }
 
+    public String toStringCQLSafe()
+    {
+        // CIE - OSS changed toString to do this, but we don't have the same in cie; so using this to help backports
+        return String.format("%s.%s", ColumnIdentifier.maybeQuote(ksName), ColumnIdentifier.maybeQuote(cfName));
+    }
+
     public static class Builder
     {
         private final String keyspace;

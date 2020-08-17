@@ -36,6 +36,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.MatchResult;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 import javax.annotation.Nullable;
 import javax.management.*;
 import javax.management.openmbean.CompositeData;
@@ -3357,24 +3359,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public void cleanupSizeEstimates()
     {
-        SetMultimap<String, String> sizeEstimates = SystemKeyspace.getTablesWithSizeEstimates();
-
-        for (Entry<String, Collection<String>> tablesByKeyspace : sizeEstimates.asMap().entrySet())
-        {
-            String keyspace = tablesByKeyspace.getKey();
-            if (!Schema.instance.getKeyspaces().contains(keyspace))
-            {
-                SystemKeyspace.clearEstimates(keyspace);
-            }
-            else
-            {
-                for (String table : tablesByKeyspace.getValue())
-                {
-                    if (!Schema.instance.hasCF(Pair.create(keyspace, table)))
-                        SystemKeyspace.clearEstimates(keyspace, table);
-                }
-            }
-        }
+        SystemKeyspace.clearAllEstimates();
     }
 
     /**
