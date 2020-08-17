@@ -161,6 +161,7 @@ public class CompactionTask extends AbstractCompactionTask
             long totalKeysWritten = 0;
             long estimatedKeys = 0;
             long inputSizeBytes;
+            long timeSpentWritingKeys;
             double droppableTombstoneRatioBefore = 0.0;
             boolean isTombstoneCompaction = compactionType == OperationType.TOMBSTONE_COMPACTION && transaction.originals().size() == 1;
             if (isTombstoneCompaction)
@@ -217,6 +218,7 @@ public class CompactionTask extends AbstractCompactionTask
                             lastCheckObsoletion = System.nanoTime();
                         }
                     }
+                    timeSpentWritingKeys = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
 
                     // point of no return
                     newSStables = writer.finish();
@@ -252,7 +254,7 @@ public class CompactionTask extends AbstractCompactionTask
 
                 String mergeSummary = updateCompactionHistory(cfs.keyspace.getName(), cfs.getTableName(), mergedRowCounts, startsize, endsize);
 
-                logger.info(String.format("Compacted (%s) %d sstables to [%s] to level=%d.  %s to %s (~%d%% of original) in %,dms.  Read Throughput = %s, Write Throughput = %s, Row Throughput = ~%,d/s.  %,d total partitions merged to %,d.  Partition merge counts were {%s}",
+                logger.info(String.format("Compacted (%s) %d sstables to [%s] to level=%d.  %s to %s (~%d%% of original) in %,dms.  Read Throughput = %s, Write Throughput = %s, Row Throughput = ~%,d/s.  %,d total partitions merged to %,d.  Partition merge counts were {%s}. Time spent writing keys = %,dms",
                                            taskId,
                                            transaction.originals().size(),
                                            newSSTableNames.toString(),
@@ -266,7 +268,8 @@ public class CompactionTask extends AbstractCompactionTask
                                            (int) totalSourceCQLRows / (TimeUnit.NANOSECONDS.toSeconds(durationInNano) + 1),
                                            totalSourceRows,
                                            totalKeysWritten,
-                                           mergeSummary));
+                                           mergeSummary,
+                                           timeSpentWritingKeys));
                 if (isTombstoneCompaction)
                 {
                     String ratiosAfter = newSStables.stream()
