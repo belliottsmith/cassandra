@@ -52,6 +52,7 @@ commands:
     # but currently they are required to be in build to be picked up; so copy there
     # TODO change behavior once (CASSANDRA-15489 - Allow end-user to configure dtest jar path) is in
     ant realclean
+    mkdir build
     if [[ -e dtest_jars ]]; then
       cp dtest_jars/* build/
     fi

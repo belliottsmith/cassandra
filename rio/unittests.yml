@@ -59,7 +59,6 @@ work:
       - include_command: 'Log Environment Information'
       - include_command: 'Display Splits'
       - include_command: 'Patch for internal networking'
-      - include_command: 'Build dtest jar'
       - include_command: 'Run Tests (testclasslist)'
         environment:
           CASSANDRA_TEST_KIND: distributed
