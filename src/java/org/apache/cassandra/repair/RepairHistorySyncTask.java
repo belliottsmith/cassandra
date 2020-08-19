@@ -442,7 +442,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
 
         public synchronized void onResponse(Message<Response> msg)
         {
-            syncCallbackLogger.info("Got {} from {}", msg.payload, msg.header.from);
+            syncCallbackLogger.debug("Got {} from {}", msg.payload, msg.header.from);
             data.put(msg.header.from, msg.payload.history);
             if (data.size() == expectedResponses)
             {
@@ -462,7 +462,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
 
         public void doVerb(Message<Request> message) throws IOException
         {
-            verbLogger.info("received {} from {}", message.payload, message.header.from);
+            verbLogger.debug("received {} from {}", message.payload, message.header.from);
             Request request = message.payload;
             ColumnFamilyStore cfs = Keyspace.open(request.keyspace).getColumnFamilyStore(request.table);
 
@@ -500,7 +500,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
 
         public synchronized void onResponse(Message<Object> msg)
         {
-            correctionCallbackLogger.info("Got response from {}", msg.header.from);
+            correctionCallbackLogger.debug("Got response from {}", msg.header.from);
             responsesReceived++;
             if (responsesReceived == expectedResponses)
             {
@@ -549,7 +549,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
 
         if (corrections.isEmpty())
         {
-            logger.info("Repair history already in sync for {}", this);
+            logger.debug("Repair history already in sync for {}", this);
             return Futures.immediateFuture(new Object());
         }
         else
@@ -574,7 +574,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
 
     public void execute()
     {
-        logger.info("Syncing repair history for {}", this);
+        logger.debug("Syncing repair history for {}", this);
 
         HistoryCallback callback = new HistoryCallback(endpointRanges.size());
         for (Map.Entry<InetAddressAndPort, Set<Range<Token>>> entry: endpointRanges.entrySet())
@@ -588,7 +588,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
         {
             public void onSuccess(@Nullable Object result)
             {
-                logger.info("Completed repair history sync for {}", RepairHistorySyncTask.this);
+                logger.debug("Completed repair history sync for {}", RepairHistorySyncTask.this);
                 RepairHistorySyncTask.this.set(result);
             }
 

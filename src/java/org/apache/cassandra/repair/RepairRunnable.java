@@ -287,7 +287,8 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
 
         List<ListenableFuture<Object>> futures = new ArrayList<>();
 
-        for (ColumnFamilyStore cfs: tables)
+        logger.info("Syncing repair history for [{}] on {}", tablesToString(tables), endpointRanges);
+        for (ColumnFamilyStore cfs : tables)
         {
             RepairHistorySyncTask syncTask = new RepairHistorySyncTask(cfs, ImmutableMap.copyOf(endpointRanges));
             syncTask.execute();
@@ -302,6 +303,16 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
         {
             throw new RuntimeException(e);
         }
+    }
+
+    private static String tablesToString(Iterable<ColumnFamilyStore> tables)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (ColumnFamilyStore table : tables)
+        {
+            sb.append(String.format("%s.%s, ", table.keyspace.getName(), table.name));
+        }
+        return sb.toString();
     }
 
     private void runMayThrow() throws Exception
