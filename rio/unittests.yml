@@ -1,9 +1,13 @@
 schemaVersion: v1
 
-work:
-  unit:
-    machine:
-      numberOfInstances: 100
+include:
+  - common.yml
+  - cassandra_common.yml
+
+# parallelci ignores variables it doesn't know, so safe to define these for reuse
+shared:
+  machine: &base-machine
+      numberOfInstances: 1
       resources:
         cpu: 4
         cpuRequest: 2
@@ -16,77 +20,69 @@ work:
       runtime:
         java:
           - 8
-            # disable java 11 for now to make things more stable
-            #- 11
       environment:
         - LANG: en_US.UTF-8
         # some tests can't run properly in circle ci, so they get skipped if this environment variable is set
         # these tests seem to also fail in k8s, so add this to cause those tests to get skipped
         # TODO - fix the tests =)
         - CIRCLECI: true
+        - JAVA_TOOL_OPTIONS: '-XX:ErrorFile=$PARALLEL_OUTPUT_DIR/hs_err_pid_%p.log'
+
+work:
+  unit:
+    machine:
+      <<: *base-machine
+      numberOfInstances: 100
     split:
-      - name: Determine Unit Tests to Run
-        timeout: PT15M
-        command: |
-          set -x
-          set -e
-          set -o pipefail
-          find test/unit -name '*Test.java' | sed 's;^test/unit/;;g' > $PARALLEL_OUTPUT_DIR/splits
-    map: 
-      - name: Log Environment Information
-        command: |
-          echo '*** id ***'
-          id
-          echo '*** cat /proc/cpuinfo ***'
-          cat /proc/cpuinfo
-          echo '*** free -m ***'
-          free -m
-          echo '*** df -m ***'
-          df -m
-          echo '*** ifconfig -a ***'
-          ifconfig -a
-          echo '*** uname -a ***'
-          uname -a
-          echo '*** mount ***'
-          mount
-          echo '*** env ***'
-          env
-          echo '*** java ***'
-          which java
-          java -version
-      # Rio seems to allow network access to maven central but k8s won't.
-      # rather than patching cie-cassandra this will apply the patch in CI instead
-      - name: Patch for internal networking
-        command: |
-          cat <<EOF > build.properties.default
-          # Maven2 Repository Locations (you can override these in "build.properties" to point to a local proxy, e.g. Nexus)
-          artifact.remoteRepository.central:     https://artifacts.apple.com/libs-release
-          artifact.remoteRepository.apache:      https://artifacts.apple.com/libs-release
-          EOF
-      # To help debugging, print out the splits so they are in the output tarball
-      - name: Display Splits
-        noOutputTimeout: PT15M
-        command: |
-          cat $PARALLEL_INPUT_DIR/input
-      # Run the tests
-      - name: Run Unit Tests (testclasslist)
-        noOutputTimeout: PT15M
-        command: |
-          set -x
-
-          JAVA_VERSION=$(java -version 2>&1 | awk -F '"' '/version/ {print $2}' | awk -F. '{print $1}')
-
-          if [ "$JAVA_VERSION" -ge 11 ]; then
-            export CASSANDRA_USE_JDK11=true
-          fi
-
-          ant testclasslist -Dmaven-ant-tasks.url=https://artifacts.apple.com/libs-release/org/apache/maven/maven-ant-tasks -Dtest.classlistfile=$PARALLEL_INPUT_DIR/input  -Dtest.classlistprefix=unit
-
-          if [ -e build/test/output ]; then
-            mkdir -p $PARALLEL_OUTPUT_DIR/build/test/output
-            cp -r build/test/output/* $PARALLEL_OUTPUT_DIR/build/test/output/
-          fi
-          if [ -e build/test/logs ]; then
-            mkdir -p $PARALLEL_OUTPUT_DIR/build/test/logs
-            cp -r build/test/logs/* $PARALLEL_OUTPUT_DIR/build/test/logs/
-          fi
+      - include_command: 'Log Environment Information'
+      - include_command: 'Determine Tests to Run'
+        environment:
+          CASSANDRA_TEST_KIND: unit
+    map:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Display Splits'
+      - include_command: 'Patch for internal networking'
+      - include_command: 'Run Tests (testclasslist)'
+        environment:
+          CASSANDRA_TEST_KIND: unit
+  jvm-dtest:
+    machine:
+      <<: *base-machine
+      numberOfInstances: 20
+    split:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Determine Tests to Run'
+        environment:
+          CASSANDRA_TEST_KIND: distributed
+          SPLIT_FILTER: "| grep -v upgrade"
+    map:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Display Splits'
+      - include_command: 'Patch for internal networking'
+      - include_command: 'Build dtest jar'
+      - include_command: 'Run Tests (testclasslist)'
+        environment:
+          CASSANDRA_TEST_KIND: distributed
+  jvm-dtest-upgrade:
+    machine:
+      <<: *base-machine
+      numberOfInstances: 20
+    split:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Determine Tests to Run'
+        environment:
+          CASSANDRA_TEST_KIND: distributed
+          SPLIT_FILTER: "| grep upgrade"
+    map:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Display Splits'
+      - include_command: 'Patch for internal networking'
+      - include_command: 'Build dtest jar'
+      - include_command: 'Run Tests (testclasslist)'
+        environment:
+          CASSANDRA_TEST_KIND: distributed
+          BEFORE_TEST: |
+            if [[ $(ls -1 build/dtest*.jar | wc -l) -lt 2 ]]; then
+            echo 'skipping upgrade tests'
+            exit 0
+            fi

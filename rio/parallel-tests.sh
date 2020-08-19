@@ -115,6 +115,68 @@ _trim_label() {
   esac
 }
 
+# clone the git branch only
+git_clone() {
+  local -r url="$1"
+  local -r branch="$2"
+  local -r out_dir="$3"
+
+  git clone --depth 1 "$url" -b "$branch" "$out_dir"
+  (cd "$out_dir"; echo "Cloned $url $branch to $out_dir; commit is $( git rev-parse HEAD )")
+}
+
+# apply any changes needed to get Apache Cassandra to build in Apple
+apply_cassandra_patches() {
+  local -r dir="$1"
+  local -r patch_dir="$bin/patches/cassandra"
+
+  cp "$patch_dir/build.properties.default" "$dir/build.properties.default"
+  cp "$patch_dir/parallelciignore" "$dir/.parallelciignore"
+}
+
+# clone cassandra and apply patches
+clone_cassandra() {
+  local -r url="$1"
+  local -r branch="$2"
+  local -r out_dir="$3"
+
+  git_clone "$url" "$branch" "$out_dir"
+
+  apply_cassandra_patches "$out_dir"
+}
+
+_download_and_build() {
+  local -r version="$1"
+  local -r output_dir="$2"
+
+  # prefix stdout and stderr with the branch being built so its clear where logs are coming from
+  exec > >( awk "{ print \"dtest-$version.jar> \", \$0 } " )
+  exec 2> >( awk "{ print \"dtest-$version.jar> \", \$0 } " )
+
+  # why hard code github?  If a Apple fork is used, the fork may be very out of date with the
+  # different branches which could lead to failing tests caused by out dated dtest jars to avoid
+  # this, rely on github
+  clone_cassandra "${CASSANDRA_UPGRADE_GIT_URL:-https://github.com/apache/cassandra.git}" "$version" "/tmp/$version"
+  cd "/tmp/$version"
+  # make sure to build jars outside of parallel ci since network access is more limited
+  ant dtest-jar
+  cp build/dtest*.jar "$output_dir"
+}
+
+_parallel_clone_branches() {
+  local -r output_dir="$1"; shift
+
+  mkdir -p "$output_dir"
+  pids=()
+  for version in "$@"; do
+    _download_and_build "$version" "$output_dir" &
+    pids+=( $! )
+  done
+  for pid in "${pids[@]}"; do
+    wait $pid
+  done
+}
+
 _main() {
   local yaml="$1"
   local output="$2"
@@ -130,6 +192,13 @@ _main() {
 
   _setup_k8s
   _setup_parallelci
+
+  if [ ! -z "${CASSANDRA_DTEST_VERSIONS:-}" ]; then
+    # In order to run jvm dtest upgrade tests, check out all versions requested
+    # CASSANDRA_DTEST_VERSIONS is not quoted that way each space acts as a different argument to the function
+    # make sure to call this AFTER cloning cassandra, else will need to copy jars here anyways
+    _parallel_clone_branches "$(abspath dtest_jars)" $CASSANDRA_DTEST_VERSIONS
+  fi
 
   # Labels are limited to 63 characters... pipeline spec id can exceed that
   labels=(
