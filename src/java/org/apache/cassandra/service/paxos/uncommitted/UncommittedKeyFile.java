@@ -117,7 +117,8 @@ class UncommittedKeyFile
     {
         long maxGeneration = Long.MIN_VALUE;
         List<UncommittedKeyFile> files = new ArrayList<>();
-        Pattern pattern = Pattern.compile(cfId.toString() + "-(\\d+)\\.paxos.*");
+        String prefix = cfId.toString();
+        Pattern pattern = Pattern.compile(prefix + "-(\\d+)\\.paxos.*");
         for (String fname : directory.list())
         {
             Matcher matcher = pattern.matcher(fname);
@@ -125,7 +126,7 @@ class UncommittedKeyFile
                 continue;
 
             File file = new File(directory, fname);
-            if (fname.endsWith(".tmp"))
+            if (fname.startsWith(prefix) && fname.endsWith(".tmp"))
                 FileUtils.deleteWithConfirm(file);
 
             if (fname.endsWith(".crc"))
@@ -154,7 +155,7 @@ class UncommittedKeyFile
             // cleanup orphaned crc files
             for (String fname : directory.list())
             {
-                if (fname.endsWith(".crc") && !currentFile.crcFile.getName().equals(fname))
+                if (fname.startsWith(prefix) && fname.endsWith(".crc") && !currentFile.crcFile.getName().equals(fname))
                     FileUtils.deleteWithConfirm(new File(directory, fname));
             }
         }
