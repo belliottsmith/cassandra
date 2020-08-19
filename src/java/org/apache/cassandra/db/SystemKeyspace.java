@@ -128,7 +128,7 @@ public final class SystemKeyspace
                                                                       PEER_EVENTS_V2, COMPACTION_HISTORY, SSTABLE_ACTIVITY,
                                                                       TABLE_ESTIMATES, AVAILABLE_RANGES_V2, TRANSFERRED_RANGES_V2,
                                                                       VIEW_BUILDS_IN_PROGRESS, SCHEDULED_COMPACTIONS_V2, BUILT_VIEWS, PREPARED_STATEMENTS,
-                                                                      REPAIRS,
+                                                                      REPAIRS, REPAIR_HISTORY_CF, REPAIR_HISTORY_INVALIDATION_CF,
 
                                                                       LEGACY_PEERS, LEGACY_PEER_EVENTS, LEGACY_TRANSFERRED_RANGES,
                                                                       LEGACY_AVAILABLE_RANGES, LEGACY_SIZE_ESTIMATES, LEGACY_SCHEDULED_COMPACTIONS_CF);
