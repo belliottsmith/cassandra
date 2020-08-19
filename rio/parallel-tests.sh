@@ -197,7 +197,7 @@ _main() {
     # In order to run jvm dtest upgrade tests, check out all versions requested
     # CASSANDRA_DTEST_VERSIONS is not quoted that way each space acts as a different argument to the function
     # make sure to call this AFTER cloning cassandra, else will need to copy jars here anyways
-    _parallel_clone_branches "$(abspath dtest_jars)" $CASSANDRA_DTEST_VERSIONS
+    _parallel_clone_branches "$(_abspath dtest_jars)" $CASSANDRA_DTEST_VERSIONS
   fi
 
   # Labels are limited to 63 characters... pipeline spec id can exceed that
