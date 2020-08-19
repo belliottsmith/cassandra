@@ -1619,9 +1619,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     }
 
     /**
-     * for testing and post-truncation
+     * Used to clear the successful repair ranges. There are 2 operational concerns with clearing repair history:
+     *
+     * If a node is down or otherwise misses a clear repair history call, reads that hit (previously) gc'able tombstones
+     * will always throw digest mismatches, which will potentially cause a ton of read repair.
+     *
+     * Repairs will need to be disabled before clearing history. Otherwise it could race with the sync repair history
+     * step and become "uncleared"
      */
-    @VisibleForTesting
     public void clearRepairedRangeUnsafes()
     {
         clearLastSucessfulRepairUnsafe();
@@ -1650,10 +1655,6 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
     }
 
-    /**
-     * for testing ONLY
-     */
-    @VisibleForTesting
     public void clearLastSucessfulRepairUnsafe()
     {
         synchronized (lastSuccessfulRepair)
