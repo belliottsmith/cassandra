@@ -148,13 +148,14 @@ public class PreviewRepairTest extends TestBaseImpl
             insert(cluster.coordinator(1), 100, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
 
+            SimpleCondition previewRepairStarted = new SimpleCondition();
             SimpleCondition continuePreviewRepair = new SimpleCondition();
-            DelayMessageFilter filter = new DelayMessageFilter(continuePreviewRepair);
+            DelayMessageFilter filter = new DelayMessageFilter(previewRepairStarted, continuePreviewRepair);
             // this pauses the validation request sent from node1 to node2 until we have run a full inc repair below
             cluster.filters().outbound().verbs(Verb.VALIDATION_REQ.id).from(1).to(2).messagesMatching(filter).drop();
 
-            Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, true))));
-            Thread.sleep(1000);
+            Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false))));
+            previewRepairStarted.await();
             // this needs to finish before the preview repair is unpaused on node2
             cluster.get(1).callOnInstance(repair(options(false, true)));
             continuePreviewRepair.signalAll();
@@ -188,8 +189,9 @@ public class PreviewRepairTest extends TestBaseImpl
             cluster.forEach((node) -> node.flush(KEYSPACE));
 
             // pause preview repair validation messages on node2 until node1 has finished
+            SimpleCondition previewRepairStarted = new SimpleCondition();
             SimpleCondition continuePreviewRepair = new SimpleCondition();
-            DelayMessageFilter filter = new DelayMessageFilter(continuePreviewRepair);
+            DelayMessageFilter filter = new DelayMessageFilter(previewRepairStarted, continuePreviewRepair);
             cluster.filters().outbound().verbs(Verb.VALIDATION_REQ.id).from(1).to(2).messagesMatching(filter).drop();
 
             // get local ranges to repair two separate ranges:
@@ -202,7 +204,7 @@ public class PreviewRepairTest extends TestBaseImpl
 
             assertEquals(2, localRanges.size());
             Future<RepairResult> repairStatusFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, true, localRanges.get(0)))));
-            Thread.sleep(1000); // wait for node1 to start validation compaction
+            previewRepairStarted.await();
             // this needs to finish before the preview repair is unpaused on node2
             assertTrue(cluster.get(1).callOnInstance(repair(options(false, true, localRanges.get(1)))).success);
 
@@ -310,12 +312,14 @@ public class PreviewRepairTest extends TestBaseImpl
 
     static class DelayMessageFilter implements IMessageFilters.Matcher
     {
-        private final SimpleCondition condition;
+        private final SimpleCondition pause;
+        private final SimpleCondition resume;
         private final AtomicBoolean waitForRepair = new AtomicBoolean(true);
 
-        public DelayMessageFilter(SimpleCondition condition)
+        public DelayMessageFilter(SimpleCondition pause, SimpleCondition resume)
         {
-            this.condition = condition;
+            this.pause = pause;
+            this.resume = resume;
         }
         public boolean matches(int from, int to, IMessage message)
         {
@@ -323,7 +327,10 @@ public class PreviewRepairTest extends TestBaseImpl
             {
                 // only the first validation req should be delayed:
                 if (waitForRepair.compareAndSet(true, false))
-                    condition.await();
+                {
+                    pause.signalAll();
+                    resume.await();
+                }
             }
             catch (Exception e)
             {
@@ -333,7 +340,7 @@ public class PreviewRepairTest extends TestBaseImpl
         }
     }
 
-    private static void insert(ICoordinator coordinator, int start, int count)
+    static void insert(ICoordinator coordinator, int start, int count)
     {
         insert(coordinator, start, count, "tbl");
     }
