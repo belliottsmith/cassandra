@@ -163,7 +163,7 @@ public class PreviewRepairTest extends TestBaseImpl
             cluster.filters().outbound().verbs(Verb.VALIDATION_REQ.id).from(1).to(2).messagesMatching(filter).drop();
 
             Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false))));
-            Thread.sleep(1000);
+            previewRepairStarted.await();
             // this needs to finish before the preview repair is unpaused on node2
             cluster.get(1).callOnInstance(repair(options(false, false)));
             continuePreviewRepair.signalAll();
@@ -271,7 +271,7 @@ public class PreviewRepairTest extends TestBaseImpl
 
             assertEquals(2, localRanges.size());
             Future<RepairResult> repairStatusFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false, localRanges.get(0)))));
-            Thread.sleep(1000); // wait for node1 to start validation compaction
+            previewRepairStarted.await();
             // this needs to finish before the preview repair is unpaused on node2
             assertTrue(cluster.get(1).callOnInstance(repair(options(false, false, localRanges.get(1)))).success);
 
@@ -401,7 +401,17 @@ public class PreviewRepairTest extends TestBaseImpl
                 if (matchesMessage(repairMessage) && waitForRepair.compareAndSet(true, false))
                 {
                     pause.signalAll();
-                    resume.await();
+                    for (;;)
+                    {
+                        try
+                        {
+                            resume.await();
+                            break;
+                        }
+                        catch (InterruptedException interruptedException)
+                        {
+                        }
+                    }
                 }
             }
             catch (Exception e)
