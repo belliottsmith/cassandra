@@ -785,6 +785,34 @@ public class LeveledManifest
         return ImmutableList.sortedCopyOf(comparator, generations.get(level));
     }
 
+    /**
+     * Checks the sstables if we are compacting repaired, unrepaired or pending sstables, and which data directory we are responsible for
+     *
+     * if there are no sstables or the sstables are pending, we return null
+     *
+     * @return a pair where .left is true if this strategy instance handles repaired sstables, false if not
+     *                  and .right contains the data directory for the sstables in this strategy
+     *        or null if we have no sstables or if we are handling pending sstables
+     *
+     */
+    synchronized Pair<Boolean, String> getStrategyInformation()
+    {
+        for (int i = 0, maxLevel = getLevelCount() - 1; i <= maxLevel; i++)
+        {
+            Set<SSTableReader> sstables = getLevel(i);
+            for (SSTableReader sstable : sstables)
+            {
+                if (sstable.isPendingRepair())
+                {
+                    logger.debug("SSTables pending repair, not running scheduled compactions for {}.{}", cfs.keyspace.getName(), cfs.getTableName());
+                    return null;
+                }
+                return Pair.create(sstable.isRepaired(), cfs.getDirectories().getDataDirectoryForFile(sstable.descriptor).location.getAbsolutePath());
+            }
+        }
+        return null;
+    }
+
     synchronized void newLevel(SSTableReader sstable, int oldLevel)
     {
         boolean removed = generations.get(oldLevel).remove(sstable);
