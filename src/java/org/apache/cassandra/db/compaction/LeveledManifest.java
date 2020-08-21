@@ -26,10 +26,8 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.primitives.Ints;
-import com.google.common.primitives.Longs;
 
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.dht.IPartitioner;
@@ -949,6 +947,31 @@ public class LeveledManifest
             sstables.addAll(generation);
         }
         return sstables;
+    }
+
+
+    /**
+     * Checks the sstables if we are compacting repaired, unrepaired or pending sstables
+     *
+     * if there are no sstables or the sstables are pending, we return null
+     *
+     * @return true if this strategy instance handles repaired sstables, false if not, and null if there are no sstables or if they are pending
+     */
+    synchronized Boolean handlingRepaired()
+    {
+        for (List<SSTableReader> sstables : generations)
+        {
+            for (SSTableReader sstable : sstables)
+            {
+                if (sstable.isPendingRepair())
+                {
+                    logger.debug("SSTables pending repair, not running scheduled compactions for {}.{}", cfs.keyspace.getName(), cfs.getTableName());
+                    return null;
+                }
+                return sstable.isRepaired();
+            }
+        }
+        return null;
     }
 
     public synchronized void newLevel(SSTableReader sstable, int oldLevel)

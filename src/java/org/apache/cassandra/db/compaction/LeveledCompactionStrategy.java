@@ -22,7 +22,6 @@ import java.util.concurrent.TimeUnit;
 
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
 import com.google.common.collect.*;
 import com.google.common.primitives.Doubles;
 
@@ -153,7 +152,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             LeveledManifest.CompactionCandidate candidate = manifest.getCompactionCandidates();
             if (candidate == null)
             {
-                Boolean repaired = handlingRepaired(); // returns null if there are no sstables or if we are handling pending sstables
+                Boolean repaired = manifest.handlingRepaired(); // returns null if there are no sstables or if we are handling pending sstables
                 if (runScheduledCompactions() && repaired != null && timeForScheduledCompaction(repaired))
                 {
                     logger.info("No standard compactions to do, checking if there is a scheduled compaction to run for {}.{} (repaired = {})", cfs.keyspace.getName(), cfs.getTableName(), repaired);
@@ -287,30 +286,6 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         else if (candidate.sstables.size() > DatabaseDescriptor.getMaxScheduledCompactionSSTableCount())
         {
             logger.info("Too many sstables for scheduled compaction for {}.{}: {}", cfs.keyspace.getName(), cfs.getColumnFamilyName(), candidate.sstables.size());
-        }
-        return null;
-    }
-
-    /**
-     * Checks the sstables if we are compacting repaired, unrepaired or pending sstables
-     *
-     * if there are no sstables or the sstables are pending, we return null
-     *
-     * @return true if this strategy instance handles repaired sstables, false if not, and null if there are no sstables or if they are pending
-     */
-    private Boolean handlingRepaired()
-    {
-        for (List<SSTableReader> sstables : manifest.generations)
-        {
-            for (SSTableReader sstable : sstables)
-            {
-                if (sstable.isPendingRepair())
-                {
-                    logger.debug("SSTables pending repair, not running scheduled compactions for {}.{}", cfs.keyspace.getName(), cfs.getTableName());
-                    return null;
-                }
-                return sstable.isRepaired();
-            }
         }
         return null;
     }
