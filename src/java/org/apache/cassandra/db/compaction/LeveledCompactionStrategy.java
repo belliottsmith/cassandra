@@ -167,7 +167,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
             LeveledManifest.CompactionCandidate candidate = manifest.getCompactionCandidates();
             if (candidate == null)
             {
-                Pair<Boolean, String> repaired = getStrategyInformation(); // returns null if there are no sstables or if we are handling pending sstables
+                Pair<Boolean, String> repaired = manifest.getStrategyInformation(); // returns null if there are no sstables or if we are handling pending sstables
                 if (runScheduledCompactions() && repaired != null && timeForScheduledCompaction(repaired.left, repaired.right))
                 {
                     logger.info("No standard compactions to do, checking if there is a scheduled compaction to run for {}.{} (repaired = {}, data directory = {})",
@@ -306,33 +306,6 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
         else if (candidate.sstables.size() > DatabaseDescriptor.getMaxScheduledCompactionSSTableCount())
         {
             logger.info("Too many sstables for scheduled compaction for {}.{}: {}", cfs.keyspace.getName(), cfs.getTableName(), candidate.sstables.size());
-        }
-        return null;
-    }
-
-    /**
-     * Checks the sstables if we are compacting repaired, unrepaired or pending sstables, and which data directory we are responsible for
-     *
-     * if there are no sstables or the sstables are pending, we return null
-     *
-     * @return a pair where .left is true if this strategy instance handles repaired sstables, false if not
-     *                  and .right contains the data directory for the sstables in this strategy
-     *        or null if we have no sstables or if we are handling pending sstables
-     *
-     */
-    private Pair<Boolean, String> getStrategyInformation()
-    {
-        for (List<SSTableReader> sstables : manifest.generations)
-        {
-            for (SSTableReader sstable : sstables)
-            {
-                if (sstable.isPendingRepair())
-                {
-                    logger.debug("SSTables pending repair, not running scheduled compactions for {}.{}", cfs.keyspace.getName(), cfs.getTableName());
-                    return null;
-                }
-                return Pair.create(sstable.isRepaired(), cfs.getDirectories().getDataDirectoryForFile(sstable.descriptor).location.getAbsolutePath());
-            }
         }
         return null;
     }
