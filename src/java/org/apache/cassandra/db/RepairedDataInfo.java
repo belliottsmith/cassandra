@@ -107,9 +107,6 @@ class RepairedDataInfo
 
     private void onNewPartition(UnfilteredRowIterator partition)
     {
-        assert purger != null;
-        purger.setCurrentKey(partition.partitionKey());
-        purger.setIsReverseOrder(partition.isReverseOrder());
         this.currentPartition = partition;
     }
 
@@ -215,6 +212,10 @@ class RepairedDataInfo
 
         if (repairedCounter.isDone())
             return iterator;
+
+        assert purger != null;
+        purger.setCurrentKey(iterator.partitionKey());
+        purger.setIsReverseOrder(iterator.isReverseOrder());
 
         UnfilteredRowIterator tracked = repairedCounter.applyTo(Transformation.apply(iterator, new WithTracking()));
         onNewPartition(tracked);
