@@ -21,13 +21,31 @@ package org.apache.cassandra.config;
 import com.google.common.base.Predicate;
 
 import org.apache.cassandra.db.Clustering;
+import org.apache.cassandra.db.rows.BaseRowIterator;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.db.transform.Transformation;
 
 public interface RepairedDataExclusion
 {
     boolean excludePartition(UnfilteredRowIterator partition);
     boolean excludeRow(Row row);
+
+    /**
+     * Filter out any excluded rows - used by preview repair.
+     */
+    default UnfilteredRowIterator filter(UnfilteredRowIterator partition)
+    {
+        return Transformation.apply(partition, new Transformation<BaseRowIterator<?>>()
+        {
+            protected Row applyToRow(Row row)
+            {
+                if (excludeRow(row))
+                    return null;
+                return super.applyToRow(row);
+            }
+        });
+    }
 
     static boolean exclusionsEnabled() { return DatabaseDescriptor.getRepairedDataTrackingExclusionsEnabled(); }
 

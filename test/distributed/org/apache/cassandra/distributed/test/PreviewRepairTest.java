@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Uninterruptibles;
+import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -56,6 +57,7 @@ import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.service.ActiveRepairService;
+import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.utils.FBUtilities;
@@ -65,6 +67,8 @@ import org.apache.cassandra.utils.progress.ProgressEventType;
 
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
+import static org.apache.cassandra.distributed.test.RepairDigestTrackingTest.assertRepaired;
+import static org.apache.cassandra.distributed.test.RepairDigestTrackingTest.markAllRepaired;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -322,6 +326,53 @@ public class PreviewRepairTest extends DistributedTestBase
             snapshotMessageCounter.set(0);
             cluster.get(3).callOnInstance(repair(options(true, true)));
             assertEquals(0, snapshotMessageCounter.get());
+        }
+    }
+
+    @Test
+    public void testDigestExclusions() throws Throwable
+    {
+        testDigestExclusionsHelper(KEYSPACE+":tbl:666f6f");
+    }
+
+    @Test
+    public void testDigestTableExclusions() throws Throwable
+    {
+        testDigestExclusionsHelper(KEYSPACE+":tbl");
+    }
+
+    private void testDigestExclusionsHelper(String exclusions) throws IOException, InterruptedException
+    {
+        try (Cluster cluster = init(Cluster.build(2)
+                                           .withConfig(config -> config.set("repaired_data_tracking_exclusions", exclusions)
+                                                                       .with(GOSSIP)
+                                                                       .with(NETWORK))
+                                           .start()))
+        {
+            Thread.sleep(1000);
+            cluster.forEach(i -> i.runOnInstance(() -> StorageProxy.instance.disableRepairedDataTrackingExclusions()));
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (k INT, c TEXT, v INT, PRIMARY KEY (k,c))");
+            for (int i = 0; i < 10; i++)
+            {
+                for (int j = 0; j < 10; j++)
+                {
+                    cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (?, ?, ?)",
+                                                   ConsistencyLevel.ALL, i, j % 2 == 0 ? "foo" + j : "bar" + j, j);
+                }
+            }
+            // overwrite on node1 only to generate digest mismatches then flush and mark everything repaired
+            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (0, ?, ?)", "foo6", 66);
+            cluster.forEach(c -> c.flush(KEYSPACE));
+            cluster.forEach(i -> i.runOnInstance(() -> markAllRepaired("tbl")));
+            cluster.forEach(i -> i.runOnInstance(() -> assertRepaired("tbl")));
+            Pair<Boolean, Boolean> res = cluster.get(1).callOnInstance(repair(options(true, true)));
+            assertTrue(res.right); // this should mismatch
+            cluster.forEach(i -> i.runOnInstance(() -> StorageProxy.instance.enableRepairedDataTrackingExclusions()));
+            res = cluster.get(1).callOnInstance(repair(options(true, true)));
+            assertFalse(res.right); // and no more mismatches after enabling
+            cluster.forEach(i -> i.runOnInstance(() -> StorageProxy.instance.disableRepairedDataTrackingExclusions()));
+            res = cluster.get(1).callOnInstance(repair(options(true, true)));
+            assertTrue(res.right); // and mismatch back again
         }
     }
 
