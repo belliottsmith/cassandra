@@ -21,25 +21,36 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import org.apache.cassandra.utils.MBeanWrapper;
 import org.apache.cassandra.metrics.SEPMetrics;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 import static org.apache.cassandra.concurrent.SEPWorker.Work;
 
-public class SEPExecutor extends AbstractLocalAwareExecutorService
+public class SEPExecutor extends AbstractLocalAwareExecutorService implements SEPExecutorMBean
 {
+    private static final Logger logger = LoggerFactory.getLogger(SEPExecutor.class);
     private final SharedExecutorPool pool;
 
-    public final int maxWorkers;
-    private final int maxTasksQueued;
+    private final AtomicInteger maximumPoolSize;
+    private final MaximumPoolSizeListener maximumPoolSizeListener;
+    public final String name;
+    private final String mbeanName;
+    public final int maxTasksQueued;
     private final SEPMetrics metrics;
 
     // stores both a set of work permits and task permits:
     //  bottom 32 bits are number of queued tasks, in the range [0..maxTasksQueued]   (initially 0)
-    //  top 32 bits are number of work permits available in the range [0..maxWorkers]   (initially maxWorkers)
+    //  top 32 bits are number of work permits available in the range [-resizeDelta..maximumPoolSize]   (initially maximumPoolSize)
+    //  the number of work permits will only ever be negative during a resize operation.  During
+    //  normal operation they should be non-negative.
     private final AtomicLong permits = new AtomicLong();
 
     // producers wait on this when there is no room on the queue
@@ -52,18 +63,28 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
     // TODO: see if other queue implementations might improve throughput
     protected final ConcurrentLinkedQueue<FutureTask<?>> tasks = new ConcurrentLinkedQueue<>();
 
-    SEPExecutor(SharedExecutorPool pool, int maxWorkers, int maxTasksQueued, String jmxPath, String name)
+    SEPExecutor(SharedExecutorPool pool, int maximumPoolSize, MaximumPoolSizeListener maximumPoolSizeListener, int maxTasksQueued, String jmxPath, String name)
     {
         this.pool = pool;
-        this.maxWorkers = maxWorkers;
+        this.name = name;
+        this.mbeanName = "org.apache.cassandra." + jmxPath + ":type=" + name;
+        this.maximumPoolSize = new AtomicInteger(maximumPoolSize);
+        this.maximumPoolSizeListener = maximumPoolSizeListener;
         this.maxTasksQueued = maxTasksQueued;
-        this.permits.set(combine(0, maxWorkers));
+        this.permits.set(combine(0, maximumPoolSize));
         this.metrics = new SEPMetrics(this, jmxPath, name);
+        MBeanWrapper.instance.registerMBean(this, mbeanName);
     }
 
     protected void onCompletion()
     {
         completedTasks.incrementAndGet();
+    }
+
+    @Override
+    public int getMaxTasksQueued()
+    {
+        return maxTasksQueued;
     }
 
     // schedules another worker for this pool if there is work outstanding and there are no spinning threads that
@@ -127,21 +148,44 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
         }
     }
 
+    public enum TakeTaskPermitResult
+    {
+        NONE_AVAILABLE,        // No task permits available
+        TOOK_PERMIT,           // Took a permit and reduced task permits
+        RETURNED_WORK_PERMIT   // Detected pool shrinking and returned work permit ahead of SEPWorker exit.
+    };
+
     // takes permission to perform a task, if any are available; once taken it is guaranteed
     // that a proceeding call to tasks.poll() will return some work
-    boolean takeTaskPermit()
+    TakeTaskPermitResult takeTaskPermit(boolean checkForWorkPermitOvercommit)
     {
+        TakeTaskPermitResult result;
         while (true)
         {
             long current = permits.get();
+            long updated;
+            int workPermits = workPermits(current);
             int taskPermits = taskPermits(current);
-            if (taskPermits == 0)
-                return false;
-            if (permits.compareAndSet(current, updateTaskPermits(current, taskPermits - 1)))
+            if (workPermits < 0 && checkForWorkPermitOvercommit)
+            {
+                // Work permits are negative when the pool is reducing in size.  Atomically
+                // adjust the number of work permits so there is no race of multiple SEPWorkers
+                // exiting.  On conflicting update, recheck.
+                result = TakeTaskPermitResult.RETURNED_WORK_PERMIT;
+                updated = updateWorkPermits(current, workPermits + 1);
+            }
+            else
+            {
+                if (taskPermits == 0)
+                    return TakeTaskPermitResult.NONE_AVAILABLE;
+                result = TakeTaskPermitResult.TOOK_PERMIT;
+                updated = updateTaskPermits(current, taskPermits - 1);
+            }
+            if (permits.compareAndSet(current, updated))
             {
                 if (taskPermits == maxTasksQueued && hasRoom.hasWaiters())
                     hasRoom.signalAll();
-                return true;
+                return result;
             }
         }
     }
@@ -155,7 +199,7 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
             long current = permits.get();
             int workPermits = workPermits(current);
             int taskPermits = taskPermits(current);
-            if (workPermits == 0 || taskPermits == 0)
+            if (workPermits <= 0 || taskPermits == 0)
                 return false;
             if (permits.compareAndSet(current, combine(taskPermits - taskDelta, workPermits - 1)))
             {
@@ -174,11 +218,7 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
             long current = permits.get();
             int workPermits = workPermits(current);
             if (permits.compareAndSet(current, updateWorkPermits(current, workPermits + 1)))
-            {
-                if (shuttingDown && workPermits + 1 == maxWorkers)
-                    shutdown.signalAll();
-                break;
-            }
+                return;
         }
     }
 
@@ -208,23 +248,24 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
 
     public synchronized void shutdown()
     {
+        if (shuttingDown)
+            return;
         shuttingDown = true;
         pool.executors.remove(this);
-        if (getActiveCount() == 0 && getPendingTasks() == 0)
+        if (getActiveTaskCount() == 0)
             shutdown.signalAll();
 
         // release metrics
         metrics.release();
+        MBeanWrapper.instance.unregisterMBean(mbeanName, MBeanWrapper.OnException.LOG);
     }
 
     public synchronized List<Runnable> shutdownNow()
     {
         shutdown();
         List<Runnable> aborted = new ArrayList<>();
-        while (takeTaskPermit())
+        while (takeTaskPermit(false) == TakeTaskPermitResult.TOOK_PERMIT)
             aborted.add(tasks.poll());
-        if (getActiveCount() == 0)
-            shutdown.signalAll();
         return aborted;
     }
 
@@ -244,19 +285,73 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
         return isTerminated();
     }
 
-    public long getPendingTasks()
+    @Override
+    public int getPendingTaskCount()
     {
         return taskPermits(permits.get());
     }
 
-    public long getCompletedTasks()
+    @Override
+    public long getCompletedTaskCount()
     {
         return completedTasks.get();
     }
 
-    public int getActiveCount()
+    public int getActiveTaskCount()
     {
-        return maxWorkers - workPermits(permits.get());
+        return maximumPoolSize.get() - workPermits(permits.get());
+    }
+
+    public int getCorePoolSize()
+    {
+        return 0;
+    }
+
+    public void setCorePoolSize(int newCorePoolSize)
+    {
+        throw new IllegalArgumentException("Cannot resize core pool size of SEPExecutor");
+    }
+
+    @Override
+    public int getMaximumPoolSize()
+    {
+        return maximumPoolSize.get();
+    }
+
+    @Override
+    public synchronized void setMaximumPoolSize(int newMaximumPoolSize)
+    {
+        final int oldMaximumPoolSize = maximumPoolSize.get();
+
+        if (newMaximumPoolSize < 0)
+        {
+            throw new IllegalArgumentException("Maximum number of workers must not be negative");
+        }
+
+        int deltaWorkPermits = newMaximumPoolSize - oldMaximumPoolSize;
+        if (deltaWorkPermits == 0)
+            return;
+
+        if (!maximumPoolSize.compareAndSet(oldMaximumPoolSize, newMaximumPoolSize))
+        {
+            throw new IllegalStateException("Maximum pool size has been changed while resizing");
+        }
+
+        // If resizing a busy pool that currently has more work permits taken than the new size allows,
+        // the number of available work permits can briefly go negative until enough SEPWorkers
+        // attempt to take new task permits and discover the executor pool has too many workers and exit,
+        // returning their work permits.
+        permits.updateAndGet(cur -> updateWorkPermits(cur, workPermits(cur) + deltaWorkPermits));
+        logger.info("Resized {} maximum pool size from {} to {}", name, oldMaximumPoolSize, newMaximumPoolSize);
+        try
+        {
+            maximumPoolSizeListener.onUpdateMaximumPoolSize(newMaximumPoolSize);
+        }
+        catch (Throwable tr)
+        {
+            logger.error(String.format("Calling the %s shared executor pool update maximum pool size listener from %d to %d threw an exception",
+                                       name, oldMaximumPoolSize, newMaximumPoolSize), tr);
+        }
     }
 
     private static int taskPermits(long both)
@@ -264,9 +359,9 @@ public class SEPExecutor extends AbstractLocalAwareExecutorService
         return (int) both;
     }
 
-    private static int workPermits(long both)
+    private static int workPermits(long both) // may be negative if resizing
     {
-        return (int) (both >>> 32);
+        return (int) (both >> 32); // sign extending right shift
     }
 
     private static long updateTaskPermits(long prev, int taskPermits)

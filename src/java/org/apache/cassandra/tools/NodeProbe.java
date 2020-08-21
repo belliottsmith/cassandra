@@ -1464,6 +1464,16 @@ public class NodeProbe implements AutoCloseable
         }
     }
 
+    public Map<String, List<Integer>> getMaximumPoolSizes(List<String> stageNames)
+    {
+        return ssProxy.getConcurrency(stageNames);
+    }
+
+    public void setConcurrency(String stageName, int coreThreads, int maxConcurrency)
+    {
+        ssProxy.setConcurrency(stageName, coreThreads, maxConcurrency);
+    }
+
     public void replayBatchlog() throws IOException
     {
         try

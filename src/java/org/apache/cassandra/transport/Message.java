@@ -427,9 +427,10 @@ public abstract class Message
     {
         @VisibleForTesting
         static final LocalAwareExecutorService requestExecutor = SHARED.newExecutor(DatabaseDescriptor.getNativeTransportMaxThreads(),
-                                                                                            Integer.MAX_VALUE,
-                                                                                            "transport",
-                                                                                            "Native-Transport-Requests");
+                                                                                    DatabaseDescriptor::setNativeTransportMaxThreads,
+                                                                                    Integer.MAX_VALUE,
+                                                                                    "transport",
+                                                                                    "Native-Transport-Requests");
 
         /* rdar://49886282 (Rate-limit new client connection setup to avoid overwhelming during bcrypt)
          * authExecutor is a separate thread pool for handling requests on connections that need to be authenticated.
@@ -446,9 +447,10 @@ public abstract class Message
          */
         @VisibleForTesting
         static final LocalAwareExecutorService authExecutor = SHARED.newExecutor(Math.max(1, DatabaseDescriptor.getNativeTransportMaxAuthThreads()),
-                                                                                         Integer.MAX_VALUE,
-                                                                                         "transport",
-                                                                                         "Native-Transport-Auth-Requests");
+                                                                                 DatabaseDescriptor::setNativeTransportMaxThreads,
+                                                                                 Integer.MAX_VALUE,
+                                                                                 "transport",
+                                                                                 "Native-Transport-Auth-Requests");
 
         /**
          * Current count of *request* bytes that are live on the channel.

@@ -41,7 +41,7 @@ import org.cliffc.high_scale_lib.NonBlockingHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.ExecutorLocals;
-import org.apache.cassandra.concurrent.JMXConfigurableThreadPoolExecutor;
+import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.concurrent.Stage;
@@ -1217,7 +1217,7 @@ public final class MessagingService implements MessagingServiceMBean
             this.server = server;
             String cleanHostName = server.getInetAddress().toString().replace(':', '.');
             String threadNamePrefix = "AcceptThread-" + cleanHostName + "-" + server.getLocalPort();
-            executor = new JMXConfigurableThreadPoolExecutor(8, 10, TimeUnit.SECONDS, new LinkedBlockingQueue<>(),
+            executor = new JMXEnabledThreadPoolExecutor(8, 10, TimeUnit.SECONDS, new LinkedBlockingQueue<>(),
                                                              new NamedThreadFactory(threadNamePrefix), "internal");
             executor.allowCoreThreadTimeOut(true);
         }

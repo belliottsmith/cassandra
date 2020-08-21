@@ -42,7 +42,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.codahale.metrics.Timer;
-import org.apache.cassandra.concurrent.JMXConfigurableThreadPoolExecutor;
+import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.SnapshotCommand;
@@ -717,7 +717,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
 
     private ListeningExecutorService createExecutor()
     {
-        return MoreExecutors.listeningDecorator(new JMXConfigurableThreadPoolExecutor(options.getJobThreads(),
+        return MoreExecutors.listeningDecorator(new JMXEnabledThreadPoolExecutor(options.getJobThreads(),
                                                                                       Integer.MAX_VALUE,
                                                                                       TimeUnit.SECONDS,
                                                                                       new LinkedBlockingQueue<>(),

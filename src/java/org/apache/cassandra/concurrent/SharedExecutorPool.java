@@ -108,9 +108,16 @@ public class SharedExecutorPool
             schedule(Work.SPINNING);
     }
 
-    public synchronized LocalAwareExecutorService newExecutor(int maxConcurrency, int maxQueuedTasks, String jmxPath, String name)
+    public LocalAwareExecutorService newExecutor(int maxConcurrency, int maxQueuedTasks, String jmxPath, String name)
     {
-        SEPExecutor executor = new SEPExecutor(this, maxConcurrency, maxQueuedTasks, jmxPath, name);
+        return newExecutor(maxConcurrency, i -> {}, maxQueuedTasks, jmxPath, name);
+    }
+
+    public synchronized LocalAwareExecutorService newExecutor(int maxConcurrency, LocalAwareExecutorService.MaximumPoolSizeListener maximumPoolSizeListener, int maxQueuedTasks, String jmxPath, String name)
+    {
+        if (shuttingDown)
+            throw new IllegalStateException("Cannot create a new SEPExecutor while shutting down");
+        SEPExecutor executor = new SEPExecutor(this, maxConcurrency, maximumPoolSizeListener, maxQueuedTasks, jmxPath, name);
         executors.add(executor);
         return executor;
     }

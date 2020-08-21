@@ -30,7 +30,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import io.netty.channel.ChannelHandlerContext;
-import org.apache.cassandra.concurrent.SEPExecutor;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.service.QueryState;
 
@@ -123,12 +122,12 @@ public class MessageDispatcherTest
 
     private long completedRequests()
     {
-        return ((SEPExecutor) Message.Dispatcher.requestExecutor).getCompletedTasks();
+        return Message.Dispatcher.requestExecutor.getCompletedTaskCount();
     }
 
     private long completedAuth()
     {
-        return ((SEPExecutor) Message.Dispatcher.authExecutor).getCompletedTasks();
+        return Message.Dispatcher.authExecutor.getCompletedTaskCount();
     }
 
     public long tryAuth(Callable<Long> check) throws Exception
@@ -136,6 +135,7 @@ public class MessageDispatcherTest
         return tryAuth(check, AUTH_RESPONSE_REQUEST);
     }
 
+    @SuppressWarnings("UnstableApiUsage")
     public long tryAuth(Callable<Long> check, Message.Request request) throws Exception
     {
         long start = check.call();

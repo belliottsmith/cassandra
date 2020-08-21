@@ -141,10 +141,10 @@ public class Config
 
     public volatile Double phi_convict_threshold = 8.0;
 
-    public Integer concurrent_reads = 32;
-    public Integer concurrent_writes = 32;
-    public Integer concurrent_counter_writes = 32;
-    public Integer concurrent_materialized_view_writes = 32;
+    public volatile Integer concurrent_reads = 32;
+    public volatile Integer concurrent_writes = 32;
+    public volatile Integer concurrent_counter_writes = 32;
+    public volatile Integer concurrent_materialized_view_writes = 32;
 
     @Deprecated
     public Integer concurrent_replicates = null;
@@ -194,9 +194,9 @@ public class Config
     public Boolean start_native_transport = false;
     public Integer native_transport_port = 9042;
     public Integer native_transport_port_ssl = null;
-    public Integer native_transport_max_threads = 128;
+    public volatile Integer native_transport_max_threads = 128;
     /** do bcrypt hashing in a limited pool to prevent cpu load spikes **/
-    public Integer native_transport_max_auth_threads = 2;
+    public volatile Integer native_transport_max_auth_threads = 2;
     public Integer native_transport_max_frame_size_in_mb = 256;
     public volatile Long native_transport_max_concurrent_connections = -1L;
     public volatile Long native_transport_max_concurrent_connections_per_ip = -1L;

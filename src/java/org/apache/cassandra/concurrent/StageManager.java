@@ -20,10 +20,13 @@ package org.apache.cassandra.concurrent;
 import java.util.EnumMap;
 import java.util.concurrent.*;
 
+import javax.xml.crypto.Data;
+
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.FBUtilities;
@@ -46,11 +49,11 @@ public class StageManager
 
     static
     {
-        stages.put(Stage.MUTATION, multiThreadedLowSignalStage(Stage.MUTATION, getConcurrentWriters()));
-        stages.put(Stage.COUNTER_MUTATION, multiThreadedLowSignalStage(Stage.COUNTER_MUTATION, getConcurrentCounterWriters()));
-        stages.put(Stage.VIEW_MUTATION, multiThreadedLowSignalStage(Stage.VIEW_MUTATION, getConcurrentViewWriters()));
-        stages.put(Stage.READ, multiThreadedLowSignalStage(Stage.READ, getConcurrentReaders()));
-        stages.put(Stage.REQUEST_RESPONSE, multiThreadedLowSignalStage(Stage.REQUEST_RESPONSE, FBUtilities.getAvailableProcessors()));
+        stages.put(Stage.MUTATION, multiThreadedLowSignalStage(Stage.MUTATION, getConcurrentWriters(), DatabaseDescriptor::setConcurrentWriters));
+        stages.put(Stage.COUNTER_MUTATION, multiThreadedLowSignalStage(Stage.COUNTER_MUTATION, getConcurrentCounterWriters(), DatabaseDescriptor::setConcurrentCounterWriters));
+        stages.put(Stage.VIEW_MUTATION, multiThreadedLowSignalStage(Stage.VIEW_MUTATION, getConcurrentViewWriters(), DatabaseDescriptor::setConcurrentViewWriters));
+        stages.put(Stage.READ, multiThreadedLowSignalStage(Stage.READ, getConcurrentReaders(), DatabaseDescriptor::setConcurrentReaders));
+        stages.put(Stage.REQUEST_RESPONSE, multiThreadedLowSignalStage(Stage.REQUEST_RESPONSE, FBUtilities.getAvailableProcessors(), null));
         stages.put(Stage.INTERNAL_RESPONSE, multiThreadedStage(Stage.INTERNAL_RESPONSE, FBUtilities.getAvailableProcessors()));
         // the rest are all single-threaded
         stages.put(Stage.GOSSIP, new JMXEnabledThreadPoolExecutor(Stage.GOSSIP));
@@ -89,9 +92,9 @@ public class StageManager
                                                 stage.getJmxType());
     }
 
-    private static LocalAwareExecutorService multiThreadedLowSignalStage(Stage stage, int numThreads)
+    private static LocalAwareExecutorService multiThreadedLowSignalStage(Stage stage, int numThreads, LocalAwareExecutorService.MaximumPoolSizeListener onSetMaximumPoolSize)
     {
-        return SharedExecutorPool.SHARED.newExecutor(numThreads, Integer.MAX_VALUE, stage.getJmxType(), stage.getJmxName());
+        return SharedExecutorPool.SHARED.newExecutor(numThreads, onSetMaximumPoolSize, Integer.MAX_VALUE, stage.getJmxType(), stage.getJmxName());
     }
 
     /**
@@ -144,6 +147,18 @@ public class StageManager
         public void maybeExecuteImmediately(Runnable command)
         {
             execute(command);
+        }
+
+        @Override
+        public int getActiveTaskCount()
+        {
+            return getActiveCount();
+        }
+
+        @Override
+        public int getPendingTaskCount()
+        {
+            return getQueue().size();
         }
 
         @Override
