@@ -20,6 +20,7 @@ package org.apache.cassandra.distributed.test;
 
 import java.net.InetAddress;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableSet;
@@ -27,11 +28,15 @@ import com.google.common.collect.Iterators;
 import org.junit.Assert;
 import org.junit.Test;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.impl.IInvokableInstance;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.gms.Gossiper;
@@ -42,18 +47,24 @@ import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.streaming.PreviewKind;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 
 public class PaxosRepairTest extends DistributedTestBase
 {
+    private static final Logger logger = LoggerFactory.getLogger(PaxosRepairTest.class);
     private static final String TABLE = "tbl";
 
     private static int getUncommitted(IInvokableInstance instance, String keyspace, String table)
     {
-        return instance.callsOnInstance(() -> {
+        if (instance.isShutdown())
+            return 0;
+        int uncommitted = instance.callsOnInstance(() -> {
             CFMetaData cfm = Schema.instance.getCFMetaData(keyspace, table);
             return Iterators.size(PaxosState.tracker().uncommittedKeyIterator(cfm.cfId, null, null));
         }).call();
+        logger.info("{} has {} uncommitted instances", instance, uncommitted);
+        return uncommitted;
     }
 
     private static void assertAllAlive(Cluster cluster)
@@ -76,7 +87,7 @@ public class PaxosRepairTest extends DistributedTestBase
 
     private static boolean hasUncommitted(Cluster cluster, String ks, String table)
     {
-        return cluster.stream().map(instance -> getUncommitted(instance, ks, table)).reduce((a, b) -> a + b).get() > 1;
+        return cluster.stream().map(instance -> getUncommitted(instance, ks, table)).reduce((a, b) -> a + b).get() > 0;
     }
 
     private static void repair(Cluster cluster, String keyspace, String table)
@@ -94,10 +105,6 @@ public class PaxosRepairTest extends DistributedTestBase
         options.put(RepairOption.IGNORE_UNREPLICATED_KS, Boolean.toString(false));
         options.put(RepairOption.REPAIR_PAXOS, Boolean.toString(true));
         options.put(RepairOption.PAXOS_ONLY, Boolean.toString(true));
-
-//        List<InetAddress> endpoints = new ArrayList<>(cluster.size());
-//        for (int i=0; i<cluster.size(); i++)
-//            endpoints.add(cluster.get(i+1).broadcastAddressAndPort().address);
 
         cluster.get(1).runOnInstance(() -> {
             int cmd = StorageService.instance.repairAsync(keyspace, options);
@@ -129,10 +136,18 @@ public class PaxosRepairTest extends DistributedTestBase
         });
     }
 
+    private static final Consumer<IInstanceConfig> CONFIG_CONSUMER = cfg -> {
+        cfg.with(Feature.NETWORK);
+        cfg.with(Feature.GOSSIP);
+        cfg.set("paxos_variant", "apple_norrl");
+        cfg.set("partitioner", "ByteOrderedPartitioner");
+        cfg.set("initial_token", ByteBufferUtil.bytesToHex(ByteBufferUtil.bytes(cfg.num() * 100)));
+    };
+
     @Test
     public void paxosRepairTest() throws Throwable
     {
-        try (Cluster cluster = init(Cluster.create(3, cfg -> cfg.with(Feature.NETWORK).with(Feature.GOSSIP))))
+        try (Cluster cluster = init(Cluster.create(3, CONFIG_CONSUMER)))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
             cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
