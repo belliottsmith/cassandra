@@ -1,3 +1,5 @@
+4.0.0.4
+
 4.0.0.3
  * <rdar://67760856> (CIE4 Out of token range patch does not handle PartitionRangeReadCommands)
  * <rdar://66933802> (forward port rdar://60101151) Ensure current key for purger is set before applying repair tracking transform (#1870)
