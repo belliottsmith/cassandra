@@ -1,4 +1,17 @@
 4.0.0.3
+ * <rdar://67760856> (CIE4 Out of token range patch does not handle PartitionRangeReadCommands)
+ * <rdar://66933802> (forward port rdar://60101151) Ensure current key for purger is set before applying repair tracking transform (#1870)
+ * <rdar://48979187> Fix CME in LeveledManifest#handlingRepaired (#1865)
+ * <rdar://65919072> (forward port) Reduce default bcrypt rounds
+ * <rdar://59313829> Cancel all ongoing preview repair sessions when we receive conflicting RepairSuccess (#1496) (#1855)
+ * <rdar://67404284> 4.0 NPE in getCompactionInfo (#1866)
+ * <rdar://58917305> Reduce the amount of logging from RepairHistorySyncTask (#1725) (#1856)
+ * <rdar://67306148> vnodes should be off by default in 4.0 (#1858)
+ * <rdar://66915547> Fix REPAIR_HISTORY{,_INVALIDATION}_CF missing from SystemKeyspace.ALL_TABLE_NAMES (#1857)
+ * <rdar://61943525> (forward port) Prepare a tool to repair instances of duplicate primary keys in itmsconnect (#1852)
+ * <rdar://61943479> (forward port) Prepare a tool to scan for instances of duplicate primary keys in itmsconnect (#1851)
+ * <rdar://61516500> log how much time was spent actually writing data during compaction (#1850)
+ * <rdar://61832569> Add logging/metrics for index summary redistribution (#1626) (#1849)
 
 4.0.0.2
  * <rdar://66702985> Deprecate and warn if column index downsampling in 4.0
