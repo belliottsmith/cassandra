@@ -1,3 +1,5 @@
+4.0.0.5
+
 4.0.0.4
  * <rdar://67940452> (Apple Internal) Exception during repair history sync (#1881)
 
