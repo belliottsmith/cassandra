@@ -106,6 +106,23 @@ public final class MessagingService implements MessagingServiceMBean
     public static final int current_version = FORCE_3_0_PROTOCOL_VERSION ? VERSION_30 : VERSION_3014;
     public static final int min_version = VERSION_12;
 
+    public enum Version
+    {
+        VERSION_12(MessagingService.VERSION_12),
+        VERSION_20(MessagingService.VERSION_20),
+        VERSION_21(MessagingService.VERSION_21),
+        VERSION_22(MessagingService.VERSION_22),
+        VERSION_30(MessagingService.VERSION_30),
+        VERSION_3014(MessagingService.VERSION_3014);
+
+        public final int value;
+
+        Version(int value)
+        {
+            this.value = value;
+        }
+    }
+
     public static final String FAILURE_CALLBACK_PARAM = "CAL_BAC";
     public static final byte[] ONE_BYTE = new byte[1];
     public static final String FAILURE_RESPONSE_PARAM = "FAIL";

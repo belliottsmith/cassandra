@@ -181,4 +181,23 @@ public final class Throwables
         }
         return Optional.empty();
     }
+
+    /**
+     * If the provided exception is unchecked, return it directly, otherwise wrap it into a {@link RuntimeException}
+     * to make it unchecked.
+     */
+    public static RuntimeException unchecked(Throwable t)
+    {
+        return t instanceof RuntimeException ? (RuntimeException)t : new RuntimeException(t);
+    }
+
+    /**
+     * throw the exception as a unchecked exception, wrapping if a checked exception, else rethroing as is.
+     */
+    public static RuntimeException throwAsUncheckedException(Throwable t)
+    {
+        if (t instanceof Error)
+            throw (Error) t;
+        throw unchecked(t);
+    }
 }
