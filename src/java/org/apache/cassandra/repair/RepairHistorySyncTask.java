@@ -524,7 +524,7 @@ public class RepairHistorySyncTask extends AbstractFuture<Object>
     protected void sendCorrection(RepairSuccess correction, InetAddressAndPort destination, RequestCallback callback)
     {
         logger.info("Sending correction {} to {}", correction, destination);
-        MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_REPAIR_SUCCESS_REQ, this), destination, callback);
+        MessagingService.instance().sendWithCallback(Message.out(Verb.APPLE_REPAIR_SUCCESS_REQ, correction), destination, callback);
     }
 
     private ListenableFuture<Object> processHistory(Map<InetAddressAndPort, RangeTimes> history)
