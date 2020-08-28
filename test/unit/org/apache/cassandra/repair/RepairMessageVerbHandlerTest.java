@@ -197,7 +197,7 @@ public class RepairMessageVerbHandlerTest
 
         handler.doVerb(message, messageId);
 
-        MessageDelivery response = messageSink.get(100, TimeUnit.MILLISECONDS);
+        MessageDelivery response = messageSink.get(1, TimeUnit.SECONDS);
         assertEquals(MessagingService.Verb.REPAIR_MESSAGE, response.message.verb);
         assertEquals(broadcastAddress, response.message.from);
         assertEquals(node1, response.to);
