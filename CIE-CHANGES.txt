@@ -1,4 +1,5 @@
 4.0.0.4
+ * <rdar://67940452> (Apple Internal) Exception during repair history sync (#1881)
 
 4.0.0.3
  * <rdar://67760856> (CIE4 Out of token range patch does not handle PartitionRangeReadCommands)
