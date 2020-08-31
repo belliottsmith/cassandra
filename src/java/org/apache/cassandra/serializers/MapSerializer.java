@@ -51,6 +51,14 @@ public class MapSerializer<K, V> extends CollectionSerializer<Map<K, V>>
         return t;
     }
 
+    // Added for APNs functions that creates a serializer with a non-standard comparator.
+    // Forces creation of a new instance, outside of the instances cache.
+    // It may be possible to remove the instances cache completely, but going for a lower impact change to CIE Cassandra.
+    public static <K, V> MapSerializer<K, V> newInstance(TypeSerializer<K> keys, TypeSerializer<V> values, ValueComparators comparators)
+    {
+        return new MapSerializer<>(keys, values, comparators);
+    }
+
     private MapSerializer(TypeSerializer<K> keys, TypeSerializer<V> values, ValueComparators comparators)
     {
         this.keys = keys;
@@ -84,7 +92,7 @@ public class MapSerializer<K, V> extends CollectionSerializer<Map<K, V>>
         {
             // Empty values are still valid.
             if (accessor.isEmpty(input)) return;
-            
+
             int n = readCollectionSize(input, accessor, version);
             int offset = sizeOfCollectionSize(n, version);
             for (int i = 0; i < n; i++)

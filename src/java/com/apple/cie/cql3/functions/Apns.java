@@ -150,7 +150,7 @@ public abstract class Apns
     );
 
     private static final MapSerializer<ByteBuffer, ByteBuffer> bytesBytesMapSerializer =
-        MapSerializer.getInstance(BytesSerializer.instance, BytesSerializer.instance, TimeUUIDType.instance.comparatorSet);
+        MapSerializer.newInstance(BytesSerializer.instance, BytesSerializer.instance, TimeUUIDType.instance.comparatorSet);
 
     private static boolean isDeliverable(ByteBuffer deliveryTuple, ByteBuffer afterTimestamp)
     {
