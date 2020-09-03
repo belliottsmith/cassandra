@@ -32,10 +32,10 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.distributed.Cluster;
-import org.apache.cassandra.distributed.impl.IInvokableInstance;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.metadata.MetadataComponent;
@@ -46,8 +46,9 @@ import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.utils.DiagnosticSnapshotService;
 
 import static junit.framework.TestCase.fail;
+import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 
-public class RepairDigestTrackingTest extends DistributedTestBase implements Serializable
+public class RepairDigestTrackingTest extends TestBaseImpl implements Serializable
 {
 
     @Test

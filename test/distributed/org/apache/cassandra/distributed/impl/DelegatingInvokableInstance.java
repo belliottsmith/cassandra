@@ -19,7 +19,7 @@
 package org.apache.cassandra.distributed.impl;
 
 import java.io.Serializable;
-import java.util.Set;
+import java.net.InetSocketAddress;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.function.BiConsumer;
@@ -30,13 +30,15 @@ import java.util.function.Function;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.distributed.api.IMessage;
-import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.distributed.api.SimpleQueryResult;
 
 public abstract class DelegatingInvokableInstance implements IInvokableInstance
 {
     protected abstract IInvokableInstance delegate();
+    protected abstract IInvokableInstance delegateForStartup();
     
     @Override
     public <E extends Serializable> E transfer(E object)
@@ -45,15 +47,20 @@ public abstract class DelegatingInvokableInstance implements IInvokableInstance
     }
 
     @Override
-    public InetAddressAndPort broadcastAddressAndPort()
+    public InetSocketAddress broadcastAddress()
     {
-        return delegate().broadcastAddressAndPort();
+        return delegate().broadcastAddress();
     }
 
     @Override
     public Object[][] executeInternal(String query, Object... args)
     {
         return delegate().executeInternal(query, args);
+    }
+
+    public SimpleQueryResult executeInternalWithResult(String query, Object... args)
+    {
+        return delegate().executeInternalWithResult(query, args);
     }
 
     @Override
@@ -81,7 +88,7 @@ public abstract class DelegatingInvokableInstance implements IInvokableInstance
     }
 
     @Override
-    public void setMessagingVersion(InetAddressAndPort endpoint, int version)
+    public void setMessagingVersion(InetSocketAddress endpoint, int version)
     {
         delegate().setMessagingVersion(endpoint, version);
     }
@@ -123,7 +130,7 @@ public abstract class DelegatingInvokableInstance implements IInvokableInstance
     @Override
     public void startup(ICluster cluster)
     {
-        delegate().startup(cluster);
+        delegateForStartup().startup(cluster);
     }
 
     @Override

@@ -446,14 +446,7 @@ public class CassandraDaemon
             TimeUnit.MILLISECONDS
         );
 
-        // Thrift
-        InetAddress rpcAddr = DatabaseDescriptor.getRpcAddress();
-        int rpcPort = DatabaseDescriptor.getRpcPort();
-        int listenBacklog = DatabaseDescriptor.getRpcListenBacklog();
-        thriftServer = new ThriftServer(rpcAddr, rpcPort, listenBacklog);
-
-        // Native transport
-        nativeTransportService = new NativeTransportService();
+        initializeNativeTransport();
 
         KeyspaceQuota.scheduleQuotaCheck();
 
@@ -471,6 +464,20 @@ public class CassandraDaemon
         AuthenticatedUser.startCacheActiveUpdate();
 
         completeSetup();
+    }
+
+    public void initializeNativeTransport()
+    {
+        // Thrift
+        InetAddress rpcAddr = DatabaseDescriptor.getRpcAddress();
+        int rpcPort = DatabaseDescriptor.getRpcPort();
+        int listenBacklog = DatabaseDescriptor.getRpcListenBacklog();
+        if (thriftServer == null)
+            thriftServer = new ThriftServer(rpcAddr, rpcPort, listenBacklog);
+
+        // Native transport
+        if (nativeTransportService == null)
+            nativeTransportService = new NativeTransportService();
     }
 
     /*
@@ -492,7 +499,6 @@ public class CassandraDaemon
     @VisibleForTesting
     public void completeSetup()
     {
-
         setupCompleted = true;
     }
 
@@ -626,6 +632,21 @@ public class CassandraDaemon
         }
     }
 
+    @VisibleForTesting
+    public void destroyNativeTransport() throws InterruptedException
+    {
+        if (nativeTransportService != null)
+        {
+            nativeTransportService.destroy();
+            nativeTransportService = null;
+        }
+
+        if (thriftServer != null)
+        {
+            thriftServer.stop();
+            thriftServer = null;
+        }
+    }
 
     /**
      * Clean up all resources obtained during the lifetime of the daemon. This
@@ -704,7 +725,7 @@ public class CassandraDaemon
         }
     }
 
-    public void startNativeTransport()
+    private void validateTransportsCanStart()
     {
         // We only start transports if bootstrap has completed and we're not in survey mode, OR if we are in
         // survey mode and streaming has completed but we're not using auth.
@@ -716,7 +737,7 @@ public class CassandraDaemon
                 if (StorageService.instance.isBootstrapMode() || DatabaseDescriptor.getAuthenticator().requireAuthentication())
                 {
                     throw new IllegalStateException("Not starting client transports in write_survey mode as it's bootstrapping or " +
-                            "auth is enabled");
+                                                    "auth is enabled");
                 }
             }
             else
@@ -724,21 +745,39 @@ public class CassandraDaemon
                 if (!SystemKeyspace.bootstrapComplete())
                 {
                     throw new IllegalStateException("Node is not yet bootstrapped completely. Use nodetool to check bootstrap" +
-                            " state and resume. For more, see `nodetool help bootstrap`");
+                                                    " state and resume. For more, see `nodetool help bootstrap`");
                 }
             }
         }
+    }
+
+    public void startNativeTransport()
+    {
+        validateTransportsCanStart();
 
         if (nativeTransportService == null)
             throw new IllegalStateException("setup() must be called first for CassandraDaemon");
-        else
-            nativeTransportService.start();
+
+        nativeTransportService.start();
+
+        if (thriftServer == null)
+            throw new IllegalStateException("thrift transport should be set up before it can be started");
+        thriftServer.start();
     }
 
     public void stopNativeTransport()
     {
         if (nativeTransportService != null)
+        {
             nativeTransportService.stop();
+            nativeTransportService = null;
+        }
+
+        if (thriftServer != null)
+        {
+            thriftServer.stop();
+            thriftServer = null;
+        }
     }
 
     public boolean isNativeTransportRunning()

@@ -39,6 +39,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
@@ -75,7 +76,7 @@ public class IsolatedExecutor implements IIsolatedExecutor
             return t;
         };
         ExecutorService shutdownExecutor = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 0, TimeUnit.SECONDS,
-                                                                  new LinkedBlockingQueue<Runnable>(), threadFactory);
+                                                                  new LinkedBlockingQueue<>(), threadFactory);
         return shutdownExecutor.submit(() -> {
             try
             {
@@ -97,6 +98,9 @@ public class IsolatedExecutor implements IIsolatedExecutor
             return null;
         });
     }
+
+    public <O> Supplier<Future<O>> supplyAsync(SerializableSupplier<O> call) { return () -> isolatedExecutor.submit(call::get); }
+    public <O> Supplier<O> supplySync(SerializableSupplier<O> call) { return () -> waitOn(supplyAsync(call).get()); }
 
     public <O> CallableNoExcept<Future<O>> async(CallableNoExcept<O> call) { return () -> isolatedExecutor.submit(call); }
     public <O> CallableNoExcept<O> sync(CallableNoExcept<O> call) { return () -> waitOn(async(call).call()); }
@@ -162,7 +166,7 @@ public class IsolatedExecutor implements IIsolatedExecutor
     public static Object deserializeOneObject(byte[] bytes)
     {
         try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
-             ObjectInputStream ois = new ObjectInputStream(bais);)
+             ObjectInputStream ois = new ObjectInputStream(bais))
         {
             return ois.readObject();
         }
@@ -187,7 +191,7 @@ public class IsolatedExecutor implements IIsolatedExecutor
         }
     }
 
-    private static <T> T waitOn(Future<T> f)
+    public static <T> T waitOn(Future<T> f)
     {
         try
         {

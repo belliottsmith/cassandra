@@ -20,11 +20,13 @@ package org.apache.cassandra.distributed.upgrade;
 
 import org.junit.Test;
 
-import org.apache.cassandra.db.ConsistencyLevel;
-import org.apache.cassandra.distributed.impl.Versions;
-import org.apache.cassandra.distributed.test.DistributedTestBase;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.shared.DistributedTestBase;
+import org.apache.cassandra.distributed.shared.Versions;
 
 import static java.lang.String.format;
+import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
+import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 
 /**
  * Tests related to the handle of range tombstones during 2.x to 3.x upgrades.

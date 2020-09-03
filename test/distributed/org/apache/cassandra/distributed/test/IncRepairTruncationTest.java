@@ -36,12 +36,13 @@ import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
 import net.bytebuddy.implementation.MethodDelegation;
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.impl.Instance;
+import org.apache.cassandra.distributed.shared.RepairResult;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.consistent.PendingAntiCompaction;
 import org.apache.cassandra.repair.messages.RepairMessage;
@@ -57,7 +58,7 @@ import static org.apache.cassandra.distributed.test.PreviewRepairTest.options;
 import static org.apache.cassandra.distributed.test.PreviewRepairTest.repair;
 import static org.junit.Assert.assertFalse;
 
-public class IncRepairTruncationTest extends DistributedTestBase
+public class IncRepairTruncationTest extends TestBaseImpl
 {
     /**
      * Lots of sleeps here to make it possible to reproduce, basic flow is
@@ -115,7 +116,7 @@ public class IncRepairTruncationTest extends DistributedTestBase
                 }
                 return false;
             }).drop();
-            Future<Pair<Boolean, Boolean>> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(false, false))));
+            Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(false, false))));
 
             Future<?> f = es.submit( () -> cluster.coordinator(1).execute("TRUNCATE "+KEYSPACE+".tbl", ConsistencyLevel.ALL));
             blockMerkleTreeResponses.signalAll();
@@ -125,7 +126,7 @@ public class IncRepairTruncationTest extends DistributedTestBase
             end.set(true);
             writes.get();
 
-            assertFalse(cluster.get(1).callOnInstance(repair(options(true, false))).right);
+            assertFalse(cluster.get(1).callOnInstance(repair(options(true, false))).wasInconsistent);
 
         }
         finally

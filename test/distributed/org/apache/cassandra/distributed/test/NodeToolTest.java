@@ -16,19 +16,24 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.api;
+package org.apache.cassandra.distributed.test;
 
-import org.apache.cassandra.locator.InetAddressAndPort;
+import org.junit.Test;
 
-import java.util.stream.Stream;
+import org.apache.cassandra.distributed.Cluster;
 
-public interface ICluster
+import static org.junit.Assert.assertEquals;
+
+public class NodeToolTest extends TestBaseImpl
 {
-
-    IInstance get(int i);
-    IInstance get(InetAddressAndPort endpoint);
-    int size();
-    Stream<? extends IInstance> stream();
-    IMessageFilters filters();
-
+    @Test
+    public void test() throws Throwable
+    {
+        try (Cluster cluster = init(Cluster.create(1)))
+        {
+            assertEquals(0, cluster.get(1).nodetool("help"));
+            assertEquals(0, cluster.get(1).nodetool("flush"));
+            assertEquals(1, cluster.get(1).nodetool("not_a_legal_command"));
+        }
+    }
 }

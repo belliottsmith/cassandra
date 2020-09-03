@@ -18,7 +18,10 @@
 
 package org.apache.cassandra.distributed.test;
 
+import java.net.InetAddress;
+import java.util.Collections;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import org.junit.Assert;
@@ -28,17 +31,28 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IMessageFilters;
+import org.apache.cassandra.gms.ApplicationState;
+import org.apache.cassandra.gms.EndpointState;
+import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.gms.HeartBeatState;
+import org.apache.cassandra.gms.VersionedValue;
+import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.paxos.PaxosRepair;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDGen;
 
 import static org.apache.cassandra.db.ConsistencyLevel.*;
+import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
+import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_REPAIR_REQ;
@@ -47,17 +61,27 @@ import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PREPARE;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PROPOSE;
 import static org.apache.cassandra.net.MessagingService.Verb.READ;
 
-public abstract class CASTestBase extends DistributedTestBase
+public abstract class CASTestBase extends TestBaseImpl
 {
-    protected abstract Consumer<IInstanceConfig> config();
+    static final AtomicInteger TABLE_COUNTER = new AtomicInteger(0);
 
-    void repair(Cluster cluster, int pk, int repairWith, int repairWithout)
+    static String tableName()
+    {
+        return tableName("tbl");
+    }
+
+    static String tableName(String prefix)
+    {
+        return prefix + TABLE_COUNTER.getAndIncrement();
+    }
+
+    static void repair(Cluster cluster, String tableName, int pk, int repairWith, int repairWithout)
     {
         IMessageFilters.Filter filter = cluster.filters().verbs(
                 APPLE_PAXOS_REPAIR_REQ.ordinal(),
                 APPLE_PAXOS_PREPARE_REQ.ordinal(), PAXOS_PREPARE.ordinal(), READ.ordinal()).from(repairWith).to(repairWithout).drop();
         cluster.get(repairWith).runOnInstance(() -> {
-            CFMetaData schema = Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").metadata;
+            CFMetaData schema = Keyspace.open(KEYSPACE).getColumnFamilyStore(tableName).metadata;
             DecoratedKey key = schema.decorateKey(Int32Type.instance.decompose(pk));
             try
             {
@@ -69,172 +93,6 @@ public abstract class CASTestBase extends DistributedTestBase
             }
         });
         filter.off();
-    }
-
-    @Test
-    public void simpleUpdate() throws Throwable
-    {
-        try (Cluster cluster = init(Cluster.create(3, config())))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL),
-                    row(1, 1, 1));
-            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 3 WHERE pk = 1 and ck = 1 IF v = 2", QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL),
-                    row(1, 1, 1));
-            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL),
-                    row(1, 1, 2));
-        }
-    }
-
-    @Test
-    public void incompletePrepare() throws Throwable
-    {
-        try (Cluster cluster = init(Cluster.create(3, config())))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            IMessageFilters.Filter drop = cluster.filters().verbs(APPLE_PAXOS_PREPARE_REQ.ordinal(), PAXOS_PREPARE.ordinal()).from(1).to(2, 3).drop();
-            try
-            {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
-                Assert.assertTrue(false);
-            }
-            catch (RuntimeException wrapped)
-            {
-                Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-            }
-            drop.off();
-            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL));
-        }
-    }
-
-    @Test
-    public void incompletePropose() throws Throwable
-    {
-        try (Cluster cluster = init(Cluster.create(3, config())))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            IMessageFilters.Filter drop1 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
-            try
-            {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
-                Assert.assertTrue(false);
-            }
-            catch (RuntimeException wrapped)
-            {
-                Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-            }
-            drop1.off();
-            // make sure we encounter one of the in-progress proposals so we complete it
-            drop(cluster, 1, to(2), to(), to());
-            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL),
-                    row(1, 1, 2));
-        }
-    }
-
-    @Test
-    public void incompleteCommit() throws Throwable
-    {
-        try (Cluster cluster = init(Cluster.create(3, config())))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            IMessageFilters.Filter drop1 = cluster.filters().verbs(PAXOS_COMMIT.ordinal()).from(1).to(2, 3).drop();
-            try
-            {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
-                Assert.assertTrue(false);
-            }
-            catch (RuntimeException wrapped)
-            {
-                Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-            }
-            drop1.off();
-            // make sure we see one of the successful commits
-            drop(cluster, 1, to(2), to(2), to());
-            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL),
-                    row(1, 1, 2));
-        }
-    }
-
-    /**
-     *  - Prepare A to {1, 2, 3}
-     *  - Propose A to {1}
-     */
-    @Test
-    public void testRepairIncompletePropose() throws Throwable
-    {
-        try (Cluster cluster = init(Cluster.create(3, config())))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            for (int repairWithout = 1 ; repairWithout <= 3 ; ++repairWithout)
-            {
-                try (AutoCloseable drop = drop(cluster, 1, to(), to(2, 3), to()))
-                {
-                    cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (?, 1, 1) IF NOT EXISTS", QUORUM, repairWithout);
-                    Assert.assertTrue(false);
-                }
-                catch (RuntimeException wrapped)
-                {
-                    Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-                }
-                int repairWith = repairWithout == 3 ? 2 : 3;
-                repair(cluster, repairWithout, repairWith, repairWithout);
-
-                try (AutoCloseable drop = drop(cluster, repairWith, to(repairWithout), to(), to()))
-                {
-                    Object[][] rows = cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = ?", QUORUM, repairWithout);
-                    if (repairWithout == 1) assertRows(rows); // invalidated
-                    else assertRows(rows, row(repairWithout, 1, 1)); // finished
-                }
-            }
-        }
-    }
-
-    /**
-     *  - Prepare A to {1, 2, 3}
-     *  - Propose A to {1, 2}
-     *  -  Commit A to {1}
-     *  - Repair using {2, 3}
-     */
-    @Test
-    public void testRepairIncompleteCommit() throws Throwable
-    {
-        try (Cluster cluster = init(Cluster.create(3, config())))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            for (int repairWithout = 1 ; repairWithout <= 3 ; ++repairWithout)
-            {
-                try (AutoCloseable drop = drop(cluster, 1, to(), to(3), to(2, 3)))
-                {
-                    cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (?, 1, 1) IF NOT EXISTS", QUORUM, repairWithout);
-                    Assert.assertTrue(false);
-                }
-                catch (RuntimeException wrapped)
-                {
-                    Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-                }
-
-                int repairWith = repairWithout == 3 ? 2 : 3;
-                repair(cluster, repairWithout, repairWith, repairWithout);
-                try (AutoCloseable drop = drop(cluster, repairWith, to(repairWithout), to(), to()))
-                {
-                    assertRows("" + repairWithout, cluster.coordinator(repairWith).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = ?", QUORUM, repairWithout),
-                            row(repairWithout, 1, 1));
-                }
-            }
-
-        }
     }
 
     static int pk(Cluster cluster, int lb, int ub)
@@ -307,4 +165,74 @@ public abstract class CASTestBase extends DistributedTestBase
                 System.out.println(i + ": " + (row[0] == null ? 0L : UUIDGen.microsTimestamp((UUID)row[0])) + ", " + (row[1] == null ? 0L : UUIDGen.microsTimestamp((UUID)row[1])) + ", " + (row[2] == null ? 0L : UUIDGen.microsTimestamp((UUID)row[2])));
     }
 
+    public static void addToRing(boolean bootstrapping, IInstance peer)
+    {
+        try
+        {
+            IInstanceConfig config = peer.config();
+            IPartitioner partitioner = FBUtilities.newPartitioner(config.getString("partitioner"));
+            Token token = partitioner.getTokenFactory().fromString(config.getString("initial_token"));
+            InetAddress address = peer.broadcastAddress().getAddress();
+
+            UUID hostId = config.hostId();
+            Gossiper.runInGossipStageBlocking(() -> {
+                Gossiper.instance.initializeNodeUnsafe(address, hostId, 1);
+                Gossiper.instance.injectApplicationState(address,
+                                                         ApplicationState.TOKENS,
+                                                         new VersionedValue.VersionedValueFactory(partitioner).tokens(Collections.singleton(token)));
+                VersionedValue status = bootstrapping
+                                        ? new VersionedValue.VersionedValueFactory(partitioner).bootstrapping(Collections.singleton(token))
+                                        : new VersionedValue.VersionedValueFactory(partitioner).normal(Collections.singleton(token));
+                Gossiper.instance.injectApplicationState(address, ApplicationState.STATUS, status);
+                StorageService.instance.onChange(address, ApplicationState.STATUS, status);
+                Gossiper.instance.realMarkAlive(address, Gossiper.instance.getEndpointStateForEndpoint(address));
+            });
+            int version = Math.min(MessagingService.current_version, peer.getMessagingVersion());
+            MessagingService.instance().setVersion(address, version);
+
+            if (!bootstrapping)
+                assert StorageService.instance.getTokenMetadata().isMember(address);
+            PendingRangeCalculatorService.instance.blockUntilFinished();
+        }
+        catch (Throwable e) // UnknownHostException
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // reset gossip state so we know of the node being alive only
+    public static void removeFromRing(IInstance peer)
+    {
+        try
+        {
+            IInstanceConfig config = peer.config();
+            IPartitioner partitioner = FBUtilities.newPartitioner(config.getString("partitioner"));
+            Token token = partitioner.getTokenFactory().fromString(config.getString("initial_token"));
+            InetAddress address = config.broadcastAddress().getAddress();
+
+            Gossiper.runInGossipStageBlocking(() -> {
+                StorageService.instance.onChange(address,
+                                                 ApplicationState.STATUS,
+                                                 new VersionedValue.VersionedValueFactory(partitioner).left(Collections.singleton(token), 0L, 0));
+                Gossiper.instance.unsafeAnulEndpoint(address);
+                Gossiper.instance.realMarkAlive(address, new EndpointState(new HeartBeatState(0, 0)));
+            });
+            PendingRangeCalculatorService.instance.blockUntilFinished();
+        }
+        catch (Throwable e) // UnknownHostException
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static void addToRingNormal(IInstance peer)
+    {
+        addToRing(false, peer);
+        assert StorageService.instance.getTokenMetadata().isMember(peer.broadcastAddress().getAddress());
+    }
+
+    public static void addToRingBootstrapping(IInstance peer)
+    {
+        addToRing(true, peer);
+    }
 }

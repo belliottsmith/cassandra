@@ -16,14 +16,37 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.impl;
+package org.apache.cassandra.distributed.test;
 
-import org.apache.cassandra.distributed.api.IInstance;
-import org.apache.cassandra.distributed.shared.Versions;
+import java.io.IOException;
 
-// this lives outside the api package so that we do not have to worry about inter-version compatibility
-public interface IUpgradeableInstance extends IInstance
+import org.junit.After;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
+
+import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.ICluster;
+
+public class SharedClusterTestBase extends TestBaseImpl
 {
-    // only to be invoked while the node is shutdown!
-    public void setVersion(Versions.Version version);
+    protected static ICluster<?> cluster;
+
+    @BeforeClass
+    public static void before() throws IOException
+    {
+        cluster = init(Cluster.build().withNodes(3).start());
+    }
+
+    @AfterClass
+    public static void after() throws Exception
+    {
+        cluster.close();
+    }
+
+    @After
+    public void afterEach()
+    {
+        cluster.schemaChange("DROP KEYSPACE IF EXISTS " + KEYSPACE);
+        init(cluster);
+    }
 }

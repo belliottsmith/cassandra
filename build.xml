@@ -209,6 +209,30 @@
             <equals arg1="${ant.java.version}" arg2="1.8"/>
         </not>
     </condition>
+    <!--
+      JVM arguments for tests.
+
+      There is a race condition bug in java 11 (see CASSANDRA-15981) which causes a crash of the
+      JVM; this race is between CMS and class unloading.  In java 8 we can cap the metaspace to
+      make tests stable on low resource environments, but in java 11 we need to make it unlimited
+      (don't define MaxMetaspaceSize) and disable class unloading in CMS outside of a
+      stop-the-world pause.
+    -->
+    <resources id="_jvm8_test_arg_items">
+        <string>-XX:MaxMetaspaceExpansion=64M</string>
+        <string>-XX:MaxMetaspaceSize=512M</string>
+        <string>-XX:MetaspaceSize=128M</string>
+    </resources>
+    <pathconvert property="_jvm8_test_arg_items_concat" refid="_jvm8_test_arg_items" pathsep=" "/>
+    <resources id="_jvm11_test_arg_items">
+        <string>-XX:-CMSClassUnloadingEnabled</string>
+    </resources>
+    <pathconvert property="_jvm11_test_arg_items_concat" refid="_jvm11_test_arg_items" pathsep=" "/>
+    <condition property="test-jvmargs" value="${_jvm11_test_arg_items_concat}" else="${_jvm8_test_arg_items_concat}">
+        <not>
+            <equals arg1="${ant.java.version}" arg2="1.8"/>
+        </not>
+    </condition>
 
     <condition property="build.java.11">
         <istrue value="${use.jdk11}"/>
@@ -493,8 +517,9 @@
           <dependency groupId="org.apache.thrift" artifactId="libthrift" version="0.9.2">
 	         <exclusion groupId="commons-logging" artifactId="commons-logging"/>
           </dependency>
-          <dependency groupId="junit" artifactId="junit" version="4.6" />
+          <dependency groupId="junit" artifactId="junit" version="4.12" />
           <dependency groupId="org.mockito" artifactId="mockito-core" version="3.2.4" />
+          <dependency groupId="org.apache.cassandra" artifactId="dtest-api" version="0.0.4" />
           <dependency groupId="com.apple.pie.cassandra.quicktheories" artifactId="quicktheories" version="0.26-SNAPSHOT" />
           <dependency groupId="com.google.code.java-allocation-instrumenter" artifactId="java-allocation-instrumenter" version="${allocation-instrumenter.version}" />
           <dependency groupId="org.apache.rat" artifactId="apache-rat" version="0.10">
@@ -616,6 +641,7 @@
                 version="${version}"/>
         <dependency groupId="junit" artifactId="junit"/>
         <dependency groupId="org.mockito" artifactId="mockito-core" />
+        <dependency groupId="org.apache.cassandra" artifactId="dtest-api" />
         <dependency groupId="com.apple.pie.cassandra.quicktheories" artifactId="quicktheories" />
         <dependency groupId="com.google.code.java-allocation-instrumenter" artifactId="java-allocation-instrumenter" version="${allocation-instrumenter.version}" />
         <dependency groupId="org.psjava" artifactId="psjava" version="0.1.19" />
@@ -1398,7 +1424,6 @@
              algorithm to limit the metaspace size and clean up SoftReferences
              more aggressively rather than waiting. See CASSANDRA-14922 for more details.
         -->
-        <jvmarg value="-XX:MaxMetaspaceSize=256M" />
         <jvmarg value="-XX:SoftRefLRUPolicyMSPerMB=0" />
         <jvmarg value="-Dcassandra.memtable_row_overhead_computation_step=100"/>
         <jvmarg value="-Dcassandra.test.use_prepared=${cassandra.test.use_prepared}"/>
@@ -1410,6 +1435,7 @@
         <jvmarg value="-Dcassandra.keepBriefBrief=${cassandra.keepBriefBrief}" />
         <jvmarg value="-Dcassandra.strict.runtime.checks=true" />
         <jvmarg line="${java11-jvmargs}"/>
+        <jvmarg line="${test-jvmargs}" />
 	<optjvmargs/>
         <classpath>
           <pathelement path="${java.class.path}"/>
@@ -1992,6 +2018,7 @@
       <jar jarfile="${build.dir}/dtest-${base.version}.jar">
           <zipgroupfileset dir="${build.lib}" includes="*.jar" excludes="META-INF/*.SF"/>
           <fileset dir="${build.classes.main}"/>
+          <fileset dir="${build.classes.thrift}"/>
           <fileset dir="${test.classes}"/>
           <fileset dir="${test.conf}" />
       </jar>

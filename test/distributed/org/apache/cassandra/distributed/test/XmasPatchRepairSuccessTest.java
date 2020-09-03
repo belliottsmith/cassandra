@@ -33,7 +33,8 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
-import org.apache.cassandra.distributed.impl.IInvokableInstance;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
+import org.apache.cassandra.distributed.shared.RepairResult;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.Pair;
@@ -48,7 +49,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-public class XmasPatchRepairSuccessTest extends DistributedTestBase
+public class XmasPatchRepairSuccessTest extends TestBaseImpl
 {
     /**
      * This tests when we receive a repair success (a finished full repair) during a preview repair
@@ -84,16 +85,16 @@ public class XmasPatchRepairSuccessTest extends DistributedTestBase
             SimpleCondition continuePreviewRepair = new SimpleCondition();
             PreviewRepairTest.DelayFirstRepairTypeMessageFilter filter = PreviewRepairTest.DelayFirstRepairTypeMessageFilter.validationRequest(previewRepairStarted, continuePreviewRepair);
             // this pauses the validation request sent from node1 to node2 until we have completed the inc repair below
-            cluster.filters().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
+            cluster.filters().outbound().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
 
-            Future<Pair<Boolean, Boolean>> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false))));
+            Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false))));
             previewRepairStarted.await();
             // this needs to finish before the preview repair is unpaused on node2
             cluster.get(1).callOnInstance(repair(options(false, true)));
             continuePreviewRepair.signalAll();
-            Pair<Boolean, Boolean> rs = rsFuture.get();
-            assertFalse(rs.left); // preview repair should have failed
-            assertFalse(rs.right); // and no mismatches should have been reported
+            RepairResult rs = rsFuture.get();
+            assertFalse(rs.success); // preview repair should have failed
+            assertFalse(rs.wasInconsistent); // and no mismatches should have been reported
             assertTrue(getRepairTimeFor(cluster.get(1), "0:0") > 0);
         }
         finally
@@ -120,7 +121,7 @@ public class XmasPatchRepairSuccessTest extends DistributedTestBase
             Thread.sleep(1000);
             insert(cluster.coordinator(1), 0, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
-            assertTrue(cluster.get(1).callOnInstance(repair(options(false, false))).left);
+            assertTrue(cluster.get(1).callOnInstance(repair(options(false, false))).success);
 
             insert(cluster.coordinator(1), 100, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
@@ -129,7 +130,7 @@ public class XmasPatchRepairSuccessTest extends DistributedTestBase
             SimpleCondition previewRepairStarted = new SimpleCondition();
             SimpleCondition continuePreviewRepair = new SimpleCondition();
             PreviewRepairTest.DelayFirstRepairTypeMessageFilter filter = PreviewRepairTest.DelayFirstRepairTypeMessageFilter.validationRequest(previewRepairStarted, continuePreviewRepair);
-            cluster.filters().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
+            cluster.filters().outbound().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
 
             // get local ranges to repair two separate ranges:
             List<String> localRanges = cluster.get(1).callOnInstance(() -> {
@@ -142,15 +143,15 @@ public class XmasPatchRepairSuccessTest extends DistributedTestBase
             assertEquals(2, localRanges.size());
             String previewedRange = localRanges.get(0);
             String repairedRange = localRanges.get(1);
-            Future<Pair<Boolean, Boolean>> repairStatusFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false, previewedRange))));
+            Future<RepairResult> repairStatusFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false, previewedRange))));
             Thread.sleep(1000); // wait for node1 to start validation compaction
             // this needs to finish before the preview repair is unpaused on node2
-            assertTrue(cluster.get(1).callOnInstance(repair(options(false, true, repairedRange))).left);
+            assertTrue(cluster.get(1).callOnInstance(repair(options(false, true, repairedRange))).success);
 
             continuePreviewRepair.signalAll();
-            Pair<Boolean, Boolean> rs = repairStatusFuture.get();
-            assertTrue(rs.left); // repair should succeed
-            assertFalse(rs.right); // and no mismatches
+            RepairResult rs = repairStatusFuture.get();
+            assertTrue(rs.success); // repair should succeed
+            assertFalse(rs.wasInconsistent); // and no mismatches
             int repairedRepairTime = getRepairTimeFor(cluster.get(1), repairedRange);
             int unrepairedRepairTime = getRepairTimeFor(cluster.get(1), previewedRange);
 

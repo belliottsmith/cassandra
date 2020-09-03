@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -33,9 +32,8 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Assert;
 import org.junit.Test;
 
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.distributed.Cluster;
-import org.apache.cassandra.service.paxos.Paxos;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 
 /**
  * A simple sanity check that uses CAS as mutex: each lock tries to CAS a variable thread_id for a specific row,
@@ -43,7 +41,7 @@ import org.apache.cassandra.service.paxos.Paxos;
  *
  * Write timeouts are handled by simply re-reading the variable and checking if locking has actually succeeded.
  */
-public class CasCriticalSectionTest extends DistributedTestBase
+public class CasCriticalSectionTest extends TestBaseImpl
 {
     private static Random rng = new Random();
     private static final int threadCount = 5;

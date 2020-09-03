@@ -25,18 +25,18 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.distributed.Cluster;
-import org.apache.cassandra.distributed.api.IInstance;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.SimpleQueryResult;
-import org.apache.cassandra.distributed.impl.IInvokableInstance;
 import org.apache.cassandra.exceptions.OverloadedException;
 import org.apache.cassandra.service.StorageService;
 
 import static org.apache.cassandra.config.ReplicaFilteringProtectionOptions.DEFAULT_FAIL_THRESHOLD;
 import static org.apache.cassandra.config.ReplicaFilteringProtectionOptions.DEFAULT_WARN_THRESHOLD;
-import static org.apache.cassandra.db.ConsistencyLevel.ALL;
+import static org.apache.cassandra.distributed.api.ConsistencyLevel.ALL;
+import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
+import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 import static org.junit.Assert.assertEquals;
 
 /**
@@ -44,7 +44,7 @@ import static org.junit.Assert.assertEquals;
  * mechanism that ensures distributed index and filtering queries at read consistency levels > ONE/LOCAL_ONE
  * avoid stale replica results.
  */
-public class ReplicaFilteringProtectionTest extends DistributedTestBase
+public class ReplicaFilteringProtectionTest extends TestBaseImpl
 {
     private static final int REPLICAS = 2;
     private static final int ROWS = 3;
@@ -52,9 +52,10 @@ public class ReplicaFilteringProtectionTest extends DistributedTestBase
     private static Cluster cluster;
 
     @BeforeClass
-    public static void startCluster() throws IOException
+    public static void setup() throws IOException
     {
-        cluster = init(Cluster.build(REPLICAS)
+        cluster = init(Cluster.build()
+                              .withNodes(REPLICAS)
                               .withConfig(config -> config.set("hinted_handoff_enabled", false)
                                                           .set("commitlog_sync", "batch")
                                                           .set("num_tokens", 1)).start());
@@ -65,7 +66,7 @@ public class ReplicaFilteringProtectionTest extends DistributedTestBase
     }
 
     @AfterClass
-    public static void teardown() throws IOException
+    public static void teardown()
     {
         cluster.close();
     }

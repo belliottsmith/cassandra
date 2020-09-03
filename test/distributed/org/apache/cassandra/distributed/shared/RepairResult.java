@@ -16,12 +16,16 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.api;
+package org.apache.cassandra.distributed.shared;
 
-public interface IListen
+public class RepairResult
 {
-    public interface Cancel { void cancel(); }
+    public final boolean success;
+    public final boolean wasInconsistent;
 
-    Cancel schema(Runnable onChange);
-    Cancel gossip(Runnable onChange);
+    public RepairResult(boolean success, boolean wasInconsistent)
+    {
+        this.success = success;
+        this.wasInconsistent = wasInconsistent;
+    }
 }

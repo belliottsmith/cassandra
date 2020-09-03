@@ -18,26 +18,29 @@
 
 package org.apache.cassandra.distributed.test;
 
-import java.util.function.Consumer;
 import java.io.IOException;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
+import org.junit.AfterClass;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
 
 import org.apache.cassandra.distributed.Cluster;
-import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.ICoordinator;
+import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IMessageFilters;
-import org.apache.cassandra.distributed.impl.Instance;
 import org.apache.cassandra.net.MessagingService;
 
-import static org.apache.cassandra.db.ConsistencyLevel.ANY;
-import static org.apache.cassandra.db.ConsistencyLevel.ONE;
-import static org.apache.cassandra.db.ConsistencyLevel.QUORUM;
-import static org.apache.cassandra.db.ConsistencyLevel.SERIAL;
+import static org.apache.cassandra.distributed.api.ConsistencyLevel.ANY;
+import static org.apache.cassandra.distributed.api.ConsistencyLevel.ONE;
+import static org.apache.cassandra.distributed.api.ConsistencyLevel.QUORUM;
+import static org.apache.cassandra.distributed.api.ConsistencyLevel.SERIAL;
+import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
+import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ;
 import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_COMMIT;
@@ -48,21 +51,47 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-public class CASTest extends CASTestBase
+public class CASTest extends CASCommonTestCases
 {
+    private static Cluster THREE_NODES;
+    private static Cluster FOUR_NODES;
+
     @BeforeClass
-    public static void beforeAll()
+    public static void beforeClass() throws Throwable
     {
         System.setProperty("cassandra.paxos.use_apple_paxos_self_execution", "false");
+        TestBaseImpl.beforeClass();
+        Consumer<IInstanceConfig> conf = config -> config
+                                                   .set("paxos_variant", "apple_rrl")
+                                                   .set("write_request_timeout_in_ms", 200L)
+                                                   .set("cas_contention_timeout_in_ms", 200L)
+                                                   .set("request_timeout_in_ms", 200L); 
+        THREE_NODES = init(Cluster.create(3, conf));
+        FOUR_NODES = init(Cluster.create(4, conf), 3);
     }
 
-    protected Consumer<IInstanceConfig> config()
+    @AfterClass
+    public static void afterClass()
     {
-         return config -> config
-                 .set("paxos_variant", "apple_rrl")
-                 .set("write_request_timeout_in_ms", 200L)
-                 .set("cas_contention_timeout_in_ms", 200L)
-                 .set("request_timeout_in_ms", 200L);
+        if (THREE_NODES != null)
+            THREE_NODES.close();
+        if (FOUR_NODES != null)
+            FOUR_NODES.close();
+    }
+
+    @Before
+    public void before()
+    {
+        THREE_NODES.filters().reset();
+        FOUR_NODES.filters().reset();
+        // tests add/remove nodes from the ring, so attempt to add them back
+        for (int i = 1 ; i <= 4 ; ++i)
+        {
+            for (int j = 1; j <= 4; j++)
+            {
+                FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingNormal).accept(FOUR_NODES.get(j));
+            }
+        }
     }
 
     /**
@@ -77,27 +106,25 @@ public class CASTest extends CASTestBase
     @Test
     public void testIncompleteWriteSupersededByConflictingRejectedCondition() throws Throwable
     {
-        try (Cluster cluster = init(Cluster.create(3, config())))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
+        String tableName = tableName("tbl");
+        THREE_NODES.schemaChange("CREATE TABLE " + KEYSPACE + "." + tableName + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
-            IMessageFilters.Filter drop1 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
-            try
-            {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
-                fail();
-            }
-            catch (RuntimeException wrapped)
-            {
-                Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-            }
-            drop(cluster, 2, to(1), to(1), to());
-            assertRows(cluster.coordinator(2).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", QUORUM),
-                    row(false));
-            drop1.off();
-            drop(cluster, 1, to(2), to(), to());
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL));
+        IMessageFilters.Filter drop1 = THREE_NODES.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
+        try
+        {
+            THREE_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
+            fail();
         }
+        catch (RuntimeException wrapped)
+        {
+            Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
+        }
+        drop(THREE_NODES, 2, to(1), to(1), to());
+        assertRows(THREE_NODES.coordinator(2).execute("UPDATE " + KEYSPACE + "." + tableName + " SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", QUORUM),
+                   row(false));
+        drop1.off();
+        drop(THREE_NODES, 1, to(2), to(), to());
+        assertRows(THREE_NODES.coordinator(1).execute("SELECT * FROM " + KEYSPACE + "." + tableName + " WHERE pk = 1", SERIAL));
     }
 
     /**
@@ -112,30 +139,30 @@ public class CASTest extends CASTestBase
     @Test
     public void testIncompleteWriteSupersededByRead() throws Throwable
     {
-        try (Cluster cluster = init(Cluster.create(3, config())))
+        String tableName = tableName();
+        String fullTableName = KEYSPACE + "." + tableName;
+        THREE_NODES.schemaChange("CREATE TABLE " + fullTableName + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
+
+        IMessageFilters.Filter drop1 = THREE_NODES.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
+        try
         {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            IMessageFilters.Filter drop1 = cluster.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
-            try
-            {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
-                fail();
-            }
-            catch (RuntimeException wrapped)
-            {
-                Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-            }
-            drop(cluster, 2, to(1), to(), to());
-            assertRows(cluster.coordinator(2).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL));
-            drop1.off();
-
-            drop(cluster, 1, to(2), to(), to());
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL));
+            THREE_NODES.coordinator(1).execute("INSERT INTO " + fullTableName + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
+            fail();
         }
+        catch (RuntimeException wrapped)
+        {
+            Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
+        }
+        drop(THREE_NODES, 2, to(1), to(), to());
+        assertRows(THREE_NODES.coordinator(2).execute("SELECT * FROM " + fullTableName + " WHERE pk = 1", SERIAL));
+        drop1.off();
+
+        drop(THREE_NODES, 1, to(2), to(), to());
+        assertRows(THREE_NODES.coordinator(1).execute("SELECT * FROM " + fullTableName + " WHERE pk = 1", SERIAL));
     }
 
-    private int[] paxosAndReadVerbs() {
+    private static int[] paxosAndReadVerbs()
+    {
         return new int[] {
             MessagingService.Verb.PAXOS_PREPARE.ordinal(),
             MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ.ordinal(),
@@ -146,113 +173,6 @@ public class CASTest extends CASTestBase
             MessagingService.Verb.PAXOS_COMMIT.ordinal(),
             MessagingService.Verb.READ.ordinal()
         };
-    }
-
-    /**
-     * Base test to ensure that if a write times out but with a proposal accepted by some nodes (less then quorum), and
-     * a following SERIAL operation does not observe that write (the node having accepted it do not participate in that
-     * following operation), then that write is never applied, even when the nodes having accepted the original proposal
-     * participate.
-     *
-     * <p>In other words, if an operation timeout, it may or may not be applied, but that "fate" is persistently decided
-     * by the very SERIAL operation that "succeed" (in the sense of 'not timing out or throwing some other exception').
-     *
-     * @param postTimeoutOperation1 a SERIAL operation executed after an initial write that inserts the row [0, 0] times
-     *                              out. It is executed with a QUORUM of nodes that have _not_ see the timed out
-     *                              proposal, and so that operation should expect that the [0, 0] write has not taken
-     *                              place.
-     * @param postTimeoutOperation2 a 2nd SERIAL operation executed _after_ {@code postTimeoutOperation1}, with no
-     *                              write executed between the 2 operation. Contrarily to the 1st operation, the QORUM
-     *                              for this operation _will_ include the node that got the proposal for the [0, 0]
-     *                              insert but didn't participated to {@code postTimeoutOperation1}}. That operation
-     *                              should also no witness that [0, 0] write (since {@code postTimeoutOperation1}
-     *                              didn't).
-     * @param loseCommitOfOperation1 if {@code true}, the test will also drop the "commits" messages for
-     *                               {@code postTimeoutOperation1}. In general, the test should behave the same with or
-     *                               without that flag since a value is decided as soon as it has been "accepted by
-     *                               quorum" and the commits should always be properly replayed.
-     */
-    private void consistencyAfterWriteTimeoutTest(BiConsumer<String, ICoordinator> postTimeoutOperation1,
-                                                  BiConsumer<String, ICoordinator> postTimeoutOperation2,
-                                                  boolean loseCommitOfOperation1) throws IOException
-    {
-        try (Cluster cluster = init(Cluster.create(3, config())))
-        {
-            String table = KEYSPACE + ".t";
-            cluster.schemaChange("CREATE TABLE " + table + " (k int PRIMARY KEY, v int)");
-
-            // We do a CAS insertion, but have with the PROPOSE message dropped on node 1 and 2. The CAS will not get
-            // through and should timeout. Importantly, node 3 does receive and answer the PROPOSE.
-            IMessageFilters.Filter dropProposeFilter = cluster.filters()
-                    .verbs(PAXOS_PROPOSE.ordinal(), APPLE_PAXOS_PROPOSE_REQ.ordinal())
-                    .to(1, 2)
-                    .drop();
-
-            // Prepare A to {1, 2, 3}
-            // Propose A to {3}
-            // Timeout
-            try
-            {
-                // NOTE: the consistency below is the "commit" one, so it doesn't matter at all here.
-                cluster.coordinator(1)
-                        .execute("INSERT INTO " + table + "(k, v) VALUES (0, 0) IF NOT EXISTS", ONE);
-                fail("The insertion should have timed-out");
-            }
-            catch (Exception e)
-            {
-                // We expect a write timeout. If we get one, the test can continue, otherwise, we rethrow. Note that we
-                // look at the root cause because the dtest framework effectively wrap the exception in a RuntimeException
-                // (we could just look at the immediate cause, but this feel a bit more resilient this way).
-                // TODO: we can't use an instanceof below because the WriteTimeoutException we get is from a different class
-                //  loader than the one the test run under, and that's our poor-man work-around. This kind of things should
-                //  be improved at the dtest API level.
-                if (!e.getCause().getClass().getSimpleName().equals("WriteTimeoutException"))
-                    throw e;
-            }
-            finally
-            {
-                dropProposeFilter.off();
-            }
-
-            debugPaxosState(cluster, "t", 0);
-
-            // Prepare and Propose to {1, 2}
-            // Commit(?) to either {1, 2, 3} or {3}
-            // Isolates node 3 and executes the SERIAL operation. As neither node 1 or 2 got the initial insert proposal,
-            // there is nothing to "replay" and the operation should assert the table is still empty.
-            IMessageFilters.Filter ignoreNode3Filter = cluster.filters().verbs(paxosAndReadVerbs()).to(3).drop();
-            IMessageFilters.Filter dropCommitFilter = null;
-            if (loseCommitOfOperation1)
-            {
-                dropCommitFilter = cluster.filters().verbs(PAXOS_COMMIT.ordinal()).to(1, 2).drop();
-            }
-            try
-            {
-                postTimeoutOperation1.accept(table, cluster.coordinator(1));
-            }
-            finally
-            {
-                ignoreNode3Filter.off();
-                if (dropCommitFilter != null)
-                    dropCommitFilter.off();
-            }
-
-            debugPaxosState(cluster, "t", 0);
-
-            // Node 3 is now back and we isolate node 2 to ensure the next read hits node 1 and 3.
-            // What we want to ensure is that despite node 3 having the initial insert in its paxos state in a position of
-            // being replayed, that insert is _not_ replayed (it would contradict serializability since the previous
-            // operation asserted nothing was inserted). It is this execution that failed before CASSANDRA-12126.
-            IMessageFilters.Filter ignoreNode2Filter = cluster.filters().verbs(paxosAndReadVerbs()).to(2).drop();
-            try
-            {
-                postTimeoutOperation2.accept(table, cluster.coordinator(1));
-            }
-            finally
-            {
-                ignoreNode2Filter.off();
-            }
-        }
     }
 
     /**
@@ -268,8 +188,8 @@ public class CASTest extends CASTestBase
                 (table, coordinator) -> assertRows(coordinator.execute("SELECT * FROM " + table + " WHERE k=0",
                         SERIAL));
 
-        consistencyAfterWriteTimeoutTest(operation, operation, false);
-        consistencyAfterWriteTimeoutTest(operation, operation, true);
+        consistencyAfterWriteTimeoutTest(operation, operation, false, THREE_NODES);
+        consistencyAfterWriteTimeoutTest(operation, operation, true, THREE_NODES);
     }
 
     /**
@@ -287,8 +207,8 @@ public class CASTest extends CASTestBase
         BiConsumer<String, ICoordinator> operation =
                 (table, coordinator) -> assertCasNotApplied(coordinator.execute("UPDATE " + table + " SET v = 1 WHERE k = 0 IF v = 0",
                         ANY));
-        consistencyAfterWriteTimeoutTest(operation, operation, false);
-        consistencyAfterWriteTimeoutTest(operation, operation, true);
+        consistencyAfterWriteTimeoutTest(operation, operation, false, THREE_NODES);
+        consistencyAfterWriteTimeoutTest(operation, operation, true, THREE_NODES);
     }
 
     /**
@@ -306,8 +226,8 @@ public class CASTest extends CASTestBase
         BiConsumer<String, ICoordinator> operation2 =
                 (table, coordinator) -> assertCasNotApplied(coordinator.execute("UPDATE " + table + " SET v = 1 WHERE k = 0 IF v = 0",
                         QUORUM));
-        consistencyAfterWriteTimeoutTest(operation1, operation2, false);
-        consistencyAfterWriteTimeoutTest(operation1, operation2, true);
+        consistencyAfterWriteTimeoutTest(operation1, operation2, false, THREE_NODES);
+        consistencyAfterWriteTimeoutTest(operation1, operation2, true, THREE_NODES);
     }
 
     /**
@@ -328,8 +248,8 @@ public class CASTest extends CASTestBase
         BiConsumer<String, ICoordinator> operation2 =
                 (table, coordinator) -> assertRows(coordinator.execute("SELECT * FROM " + table + " WHERE k=0",
                         SERIAL));
-        consistencyAfterWriteTimeoutTest(operation1, operation2, false);
-        consistencyAfterWriteTimeoutTest(operation1, operation2, true);
+        consistencyAfterWriteTimeoutTest(operation1, operation2, false, THREE_NODES);
+        consistencyAfterWriteTimeoutTest(operation1, operation2, true, THREE_NODES);
     }
 
     // TODO: this shoud probably be moved into the dtest API.
@@ -352,29 +272,26 @@ public class CASTest extends CASTestBase
     @Test
     public void testSuccessfulWriteBeforeRangeMovement() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config()))
-        {
-            cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
+        String tableName = tableName("tbl");
+        FOUR_NODES.schemaChange("CREATE TABLE " + KEYSPACE + "." + tableName + " (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
 
-            // make it so {1} is unaware (yet) that {4} is an owner of the token
-            cluster.get(1).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(4));
+        // make it so {1} is unaware (yet) that {4} is an owner of the token
+        FOUR_NODES.get(1).acceptsOnInstance(CASTestBase::removeFromRing).accept(FOUR_NODES.get(4));
 
-            int pk = pk(cluster, 1, 2);
+        int pk = pk(FOUR_NODES, 1, 2);
 
-            // {1} promises and accepts on !{3} => {1, 2}; commits on !{2,3} => {1}
-            drop(cluster, 1, to(3), to(3), to(2, 3));
-            assertRows(cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", ONE, pk),
-                    row(true));
+        // {1} promises and accepts on !{3} => {1, 2}; commits on !{2,3} => {1}
+        drop(FOUR_NODES, 1, to(3), to(3), to(2, 3));
+        assertRows(FOUR_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", ONE, pk),
+                   row(true));
 
-            for (int i = 1 ; i <= 3 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingNormal).accept(cluster.get(4));
+        for (int i = 1; i <= 3; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingNormal).accept(FOUR_NODES.get(4));
 
-            // {4} reads from !{2} => {3, 4}
-            drop(cluster, 4, to(2), to(2), to());
-            assertRows(cluster.coordinator(4).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk),
-                    row(false, pk, 1, 1, null));
-        }
+        // {4} reads from !{2} => {3, 4}
+        drop(FOUR_NODES, 4, to(2), to(2), to());
+        assertRows(FOUR_NODES.coordinator(4).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk),
+                   row(false, pk, 1, 1, null));
     }
 
     /**
@@ -387,25 +304,22 @@ public class CASTest extends CASTestBase
     @Test
     public void testConflictingWritesWithStaleRingInformation() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config()))
-        {
-            cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
+        String tableName = tableName("tbl");
+        FOUR_NODES.schemaChange("CREATE TABLE " + KEYSPACE + "." + tableName + " (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
 
-            // make it so {1} is unaware (yet) that {4} is an owner of the token
-            cluster.get(1).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(4));
+        // make it so {1} is unaware (yet) that {4} is an owner of the token
+        FOUR_NODES.get(1).acceptsOnInstance(CASTestBase::removeFromRing).accept(FOUR_NODES.get(4));
 
-            // {4} promises, accepts and commits on !{2} => {3, 4}
-            int pk = pk(cluster, 1, 2);
-            drop(cluster, 4, to(2), to(2), to(2));
-            assertRows(cluster.coordinator(4).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", ONE, pk),
-                    row(true));
+        // {4} promises, accepts and commits on !{2} => {3, 4}
+        int pk = pk(FOUR_NODES, 1, 2);
+        drop(FOUR_NODES, 4, to(2), to(2), to(2));
+        assertRows(FOUR_NODES.coordinator(4).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", ONE, pk),
+                   row(true));
 
-            // {1} promises, accepts and commmits on !{3} => {1, 2}
-            drop(cluster, 1, to(3), to(3), to(3));
-            assertRows(cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk),
-                    row(false, pk, 1, 1, null));
-        }
+        // {1} promises, accepts and commmits on !{3} => {1, 2}
+        drop(FOUR_NODES, 1, to(3), to(3), to(3));
+        assertRows(FOUR_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk),
+                   row(false, pk, 1, 1, null));
     }
 
     /**
@@ -420,33 +334,30 @@ public class CASTest extends CASTestBase
     @Test
     public void testSucccessfulWriteDuringRangeMovementFollowedByRead() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config()))
-        {
-            cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
+        String tableName = tableName("tbl");
+        FOUR_NODES.schemaChange("CREATE TABLE " + KEYSPACE + "." + tableName + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
-            // make it so {4} is bootstrapping, and this has propagated to only a quorum of other nodes
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(4));
-            for (int i = 2 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingBootstrapping).accept(cluster.get(4));
+        // make it so {4} is bootstrapping, and this has propagated to only a quorum of other nodes
+        for (int i = 1 ; i <= 4 ; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::removeFromRing).accept(FOUR_NODES.get(4));
+        for (int i = 2 ; i <= 4 ; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingBootstrapping).accept(FOUR_NODES.get(4));
 
-            int pk = pk(cluster, 1, 2);
+        int pk = pk(FOUR_NODES, 1, 2);
 
-            // {1} promises and accepts on !{3} => {1, 2}; commmits on !{2, 3} => {1}
-            drop(cluster, 1, to(3), to(3), to(2, 3));
-            assertRows(cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (?, 1, 1) IF NOT EXISTS", ONE, pk),
-                    row(true));
+        // {1} promises and accepts on !{3} => {1, 2}; commmits on !{2, 3} => {1}
+        drop(FOUR_NODES, 1, to(3), to(3), to(2, 3));
+        assertRows(FOUR_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v) VALUES (?, 1, 1) IF NOT EXISTS", ONE, pk),
+                   row(true));
 
-            // finish topology change
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingNormal).accept(cluster.get(4));
+        // finish topology change
+        for (int i = 1 ; i <= 4 ; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingNormal).accept(FOUR_NODES.get(4));
 
-            // {3} reads from !{2} => {3, 4}
-            drop(cluster, 3, to(2), to(), to());
-            assertRows(cluster.coordinator(3).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = ?", SERIAL, pk),
-                    row(pk, 1, 1));
-        }
+        // {3} reads from !{2} => {3, 4}
+        drop(FOUR_NODES, 3, to(2), to(), to());
+        assertRows(FOUR_NODES.coordinator(3).execute("SELECT * FROM " + KEYSPACE + "." + tableName + " WHERE pk = ?", SERIAL, pk),
+                   row(pk, 1, 1));
     }
 
     /**
@@ -460,35 +371,31 @@ public class CASTest extends CASTestBase
     @Test
     public void testSuccessfulWriteDuringRangeMovementFollowedByConflicting() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config()))
-        {
-            cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
+        FOUR_NODES.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
 
-            // make it so {4} is bootstrapping, and this has propagated to only a quorum of other nodes
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(4));
-            for (int i = 2 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingBootstrapping).accept(cluster.get(4));
+        // make it so {4} is bootstrapping, and this has propagated to only a quorum of other nodes
+        for (int i = 1 ; i <= 4 ; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::removeFromRing).accept(FOUR_NODES.get(4));
+        for (int i = 2 ; i <= 4 ; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingBootstrapping).accept(FOUR_NODES.get(4));
 
-            int pk = pk(cluster, 1, 2);
+        int pk = pk(FOUR_NODES, 1, 2);
 
-            // {1} promises and accepts on !{3} => {1, 2}; commits on !{2, 3} => {1}
-            drop(cluster, 1, to(3), to(3), to(2, 3));
-            assertRows(cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", ONE, pk),
-                    row(true));
+        // {1} promises and accepts on !{3} => {1, 2}; commits on !{2, 3} => {1}
+        drop(FOUR_NODES, 1, to(3), to(3), to(2, 3));
+        assertRows(FOUR_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", ONE, pk),
+                   row(true));
 
-            // finish topology change
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingNormal).accept(cluster.get(4));
+        // finish topology change
+        for (int i = 1 ; i <= 4 ; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingNormal).accept(FOUR_NODES.get(4));
 
-            // {3} reads from !{2} => {3, 4}
-            drop(cluster, 3, to(2), to(), to());
-            assertRows(cluster.coordinator(3).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk),
-                    row(false, pk, 1, 1, null));
+        // {3} reads from !{2} => {3, 4}
+        drop(FOUR_NODES, 3, to(2), to(), to());
+        assertRows(FOUR_NODES.coordinator(3).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk),
+                   row(false, pk, 1, 1, null));
 
-            // TODO: repair and verify base table state
-        }
+        // TODO: repair and verify base table state
     }
 
     /**
@@ -508,56 +415,53 @@ public class CASTest extends CASTestBase
     @Test
     public void testIncompleteWriteFollowedBySuccessfulWriteWithStaleRingDuringRangeMovementFollowedByRead() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config()))
+        String tableName = tableName("tbl");
+        FOUR_NODES.schemaChange("CREATE TABLE " + KEYSPACE + "." + tableName + " (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
+
+        // make it so {4} is bootstrapping, and this has propagated to only a quorum of other nodes
+        for (int i = 1 ; i <= 4 ; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::removeFromRing).accept(FOUR_NODES.get(4));
+        for (int i = 2 ; i <= 4 ; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingBootstrapping).accept(FOUR_NODES.get(4));
+
+        int pk = pk(FOUR_NODES, 1, 2);
+
+        // {4} promises !{1} => {2, 3, 4}, accepts on !{1, 2, 3} => {4}
+        drop(FOUR_NODES, 4, to(1), to(1, 2, 3), to());
+        try
         {
-            cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
-
-            // make it so {4} is bootstrapping, and this has propagated to only a quorum of other nodes
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(4));
-            for (int i = 2 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingBootstrapping).accept(cluster.get(4));
-
-            int pk = pk(cluster, 1, 2);
-
-            // {4} promises !{1} => {2, 3, 4}, accepts on !{1, 2, 3} => {4}
-            drop(cluster, 4, to(1), to(1, 2, 3), to());
-            try
-            {
-                cluster.coordinator(4).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", QUORUM, pk);
-                Assert.assertTrue(false);
-            }
-            catch (RuntimeException wrapped)
-            {
-                Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-            }
-
-            // {1} promises and accepts on !{3} => {1, 2}; commits on !{2, 3} => {1}
-            drop(cluster, 1, to(3), to(3), to(2, 3));
-            // two options: either we can invalidate the previous operation and succeed, or we can complete the previous operation
-            Object[][] result = cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk);
-            Object[] expectRow;
-            if (result[0].length == 1)
-            {
-                assertRows(result, row(true));
-                expectRow = row(pk, 1, null, 2);
-            }
-            else
-            {
-                assertRows(result, row(false, pk, 1, 1, null));
-                expectRow = row(pk, 1, 1, null);
-            }
-
-            // finish topology change
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingNormal).accept(cluster.get(4));
-
-            // {3} reads from !{2} => {3, 4}
-            drop(cluster, 3, to(2), to(2), to());
-            assertRows(cluster.coordinator(3).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = ?", SERIAL, pk),
-                    expectRow);
+            FOUR_NODES.coordinator(4).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", QUORUM, pk);
+            Assert.assertTrue(false);
         }
+        catch (RuntimeException wrapped)
+        {
+            Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
+        }
+
+        // {1} promises and accepts on !{3} => {1, 2}; commits on !{2, 3} => {1}
+        drop(FOUR_NODES, 1, to(3), to(3), to(2, 3));
+        // two options: either we can invalidate the previous operation and succeed, or we can complete the previous operation
+        Object[][] result = FOUR_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk);
+        Object[] expectRow;
+        if (result[0].length == 1)
+        {
+            assertRows(result, row(true));
+            expectRow = row(pk, 1, null, 2);
+        }
+        else
+        {
+            assertRows(result, row(false, pk, 1, 1, null));
+            expectRow = row(pk, 1, 1, null);
+        }
+
+        // finish topology change
+        for (int i = 1 ; i <= 4 ; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingNormal).accept(FOUR_NODES.get(4));
+
+        // {3} reads from !{2} => {3, 4}
+        drop(FOUR_NODES, 3, to(2), to(2), to());
+        assertRows(FOUR_NODES.coordinator(3).execute("SELECT * FROM " + KEYSPACE + "." + tableName + " WHERE pk = ?", SERIAL, pk),
+                   expectRow);
     }
 
     /**
@@ -577,61 +481,141 @@ public class CASTest extends CASTestBase
     @Test
     public void testIncompleteWriteFollowedBySuccessfulWriteWithStaleRingDuringRangeMovementFollowedByWrite() throws Throwable
     {
-        try (Cluster cluster = Cluster.create(4, config()))
+        String tableName = tableName("tbl");
+        FOUR_NODES.schemaChange("CREATE TABLE " + KEYSPACE + "." + tableName + " (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
+
+        // make it so {4} is bootstrapping, and this has propagated to only a quorum of other nodes
+        for (int i = 1; i <= 4; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::removeFromRing).accept(FOUR_NODES.get(4));
+        for (int i = 2; i <= 4; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingBootstrapping).accept(FOUR_NODES.get(4));
+
+        int pk = pk(FOUR_NODES, 1, 2);
+
+        // {4} promises and accepts on !{1} => {2, 3, 4}; commits on !{1, 2, 3} => {4}
+        drop(FOUR_NODES, 4, to(1), to(1, 2, 3), to());
+        try
         {
-            cluster.schemaChange("CREATE KEYSPACE " + KEYSPACE + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};");
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
-
-            // make it so {4} is bootstrapping, and this has propagated to only a quorum of other nodes
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(4));
-            for (int i = 2 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingBootstrapping).accept(cluster.get(4));
-
-            int pk = pk(cluster, 1, 2);
-
-            // {4} promises and accepts on !{1} => {2, 3, 4}; commits on !{1, 2, 3} => {4}
-            drop(cluster, 4, to(1), to(1, 2, 3), to());
-            try
-            {
-                cluster.coordinator(4).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", QUORUM, pk);
-                Assert.assertTrue(false);
-            }
-            catch (RuntimeException wrapped)
-            {
-                Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-            }
-
-            // {1} promises and accepts on !{3} => {1, 2}; commits on !{2, 3} => {1}
-            drop(cluster, 1, to(3), to(3), to(2, 3));
-            // two options: either we can invalidate the previous operation and succeed, or we can complete the previous operation
-            Object[][] result = cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk);
-            Object[] expectRow;
-            if (result[0].length == 1)
-            {
-                assertRows(result, row(true));
-                expectRow = row(false, pk, 1, null, 2);
-            }
-            else
-            {
-                assertRows(result, row(false, pk, 1, 1, null));
-                expectRow = row(false, pk, 1, 1, null);
-            }
-
-            // finish topology change
-            for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingNormal).accept(cluster.get(4));
-
-            // {3} reads from !{2} => {3, 4}
-            cluster.filters().verbs(APPLE_PAXOS_PREPARE_REQ.ordinal(), PAXOS_PREPARE.ordinal(), READ.ordinal()).from(3).to(2).drop();
-            cluster.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(3).to(2).drop();
-            assertRows(cluster.coordinator(3).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk),
-                    expectRow);
+            FOUR_NODES.coordinator(4).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", QUORUM, pk);
+            Assert.assertTrue(false);
         }
+        catch (RuntimeException wrapped)
+        {
+            Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
+        }
+
+        // {1} promises and accepts on !{3} => {1, 2}; commits on !{2, 3} => {1}
+        drop(FOUR_NODES, 1, to(3), to(3), to(2, 3));
+        // two options: either we can invalidate the previous operation and succeed, or we can complete the previous operation
+        Object[][] result = FOUR_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk);
+        Object[] expectRow;
+        if (result[0].length == 1)
+        {
+            assertRows(result, row(true));
+            expectRow = row(false, pk, 1, null, 2);
+        }
+        else
+        {
+            assertRows(result, row(false, pk, 1, 1, null));
+            expectRow = row(false, pk, 1, 1, null);
+        }
+
+        // finish topology change
+        for (int i = 1; i <= 4; ++i)
+            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingNormal).accept(FOUR_NODES.get(4));
+
+        // {3} reads from !{2} => {3, 4}
+        FOUR_NODES.filters().verbs(APPLE_PAXOS_PREPARE_REQ.ordinal(), PAXOS_PREPARE.ordinal(), READ.ordinal()).from(3).to(2).drop();
+        FOUR_NODES.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(3).to(2).drop();
+        assertRows(FOUR_NODES.coordinator(3).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk),
+                   expectRow);
     }
 
     // TODO: RF changes
     // TODO: Aborted range movements
     // TODO: Leaving ring
-    
+
+    static void consistencyAfterWriteTimeoutTest(BiConsumer<String, ICoordinator> postTimeoutOperation1, BiConsumer<String, ICoordinator> postTimeoutOperation2, boolean loseCommitOfOperation1, Cluster cluster)
+    {
+        String tableName = tableName("t");
+        String table = KEYSPACE + "." + tableName;
+        cluster.schemaChange("CREATE TABLE " + table + " (k int PRIMARY KEY, v int)");
+
+        // We do a CAS insertion, but have with the PROPOSE message dropped on node 1 and 2. The CAS will not get
+        // through and should timeout. Importantly, node 3 does receive and answer the PROPOSE.
+        IMessageFilters.Filter dropProposeFilter = cluster.filters()
+                                                          .verbs(PAXOS_PROPOSE.ordinal(), APPLE_PAXOS_PROPOSE_REQ.ordinal())
+                                                          .to(1, 2)
+                                                          .drop();
+
+        // Prepare A to {1, 2, 3}
+        // Propose A to {3}
+        // Timeout
+        try
+        {
+            // NOTE: the consistency below is the "commit" one, so it doesn't matter at all here.
+            cluster.coordinator(1)
+                   .execute("INSERT INTO " + table + "(k, v) VALUES (0, 0) IF NOT EXISTS", ONE);
+            fail("The insertion should have timed-out");
+        }
+        catch (Exception e)
+        {
+            // We expect a write timeout. If we get one, the test can continue, otherwise, we rethrow. Note that we
+            // look at the root cause because the dtest framework effectively wrap the exception in a RuntimeException
+            // (we could just look at the immediate cause, but this feel a bit more resilient this way).
+            // TODO: we can't use an instanceof below because the WriteTimeoutException we get is from a different class
+            //  loader than the one the test run under, and that's our poor-man work-around. This kind of things should
+            //  be improved at the dtest API level.
+            if (!e.getCause().getClass().getSimpleName().equals("WriteTimeoutException"))
+                throw e;
+        }
+        finally
+        {
+            dropProposeFilter.off();
+        }
+
+        debugPaxosState(cluster, tableName, 0);
+
+        // Prepare and Propose to {1, 2}
+        // Commit(?) to either {1, 2, 3} or {3}
+        // Isolates node 3 and executes the SERIAL operation. As neither node 1 or 2 got the initial insert proposal,
+        // there is nothing to "replay" and the operation should assert the table is still empty.
+        IMessageFilters.Filter ignoreNode3Filter = cluster.filters().verbs(paxosAndReadVerbs()).to(3).drop();
+        IMessageFilters.Filter dropCommitFilter = null;
+        if (loseCommitOfOperation1)
+        {
+            dropCommitFilter = cluster.filters().verbs(PAXOS_COMMIT.ordinal()).to(1, 2).drop();
+        }
+        try
+        {
+            postTimeoutOperation1.accept(table, cluster.coordinator(1));
+        }
+        finally
+        {
+            ignoreNode3Filter.off();
+            if (dropCommitFilter != null)
+                dropCommitFilter.off();
+        }
+
+        debugPaxosState(cluster, tableName, 0);
+
+        // Node 3 is now back and we isolate node 2 to ensure the next read hits node 1 and 3.
+        // What we want to ensure is that despite node 3 having the initial insert in its paxos state in a position of
+        // being replayed, that insert is _not_ replayed (it would contradict serializability since the previous
+        // operation asserted nothing was inserted). It is this execution that failed before CASSANDRA-12126.
+        IMessageFilters.Filter ignoreNode2Filter = cluster.filters().verbs(paxosAndReadVerbs()).to(2).drop();
+        try
+        {
+            postTimeoutOperation2.accept(table, cluster.coordinator(1));
+        }
+        finally
+        {
+            ignoreNode2Filter.off();
+        }
+    }
+
+    protected Cluster getCluster()
+    {
+        return THREE_NODES;
+    }
 }

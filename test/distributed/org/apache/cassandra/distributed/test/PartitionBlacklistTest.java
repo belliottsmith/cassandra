@@ -39,7 +39,7 @@ import org.apache.cassandra.utils.MBeanWrapper;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 
-public class PartitionBlacklistTest extends DistributedTestBase
+public class PartitionBlacklistTest extends TestBaseImpl
 {
     private static final Logger logger = LoggerFactory.getLogger(PartitionBlacklistTest.class);
     private static final int testReplicationFactor = 3;

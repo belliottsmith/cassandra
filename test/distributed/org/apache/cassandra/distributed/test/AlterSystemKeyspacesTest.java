@@ -19,12 +19,12 @@ package org.apache.cassandra.distributed.test;
 
 import org.junit.Test;
 
-import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.ICoordinator;
 
-public class AlterSystemKeyspacesTest extends DistributedTestBase
+public class AlterSystemKeyspacesTest extends TestBaseImpl
 {
     /**
      * See rdar://56247937 (Permit altering tables in cie_internal and system_auth keyspaces).

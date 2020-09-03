@@ -18,43 +18,40 @@
 
 package org.apache.cassandra.distributed;
 
-import java.io.File;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
-import org.apache.cassandra.distributed.api.ICluster;
-import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.impl.AbstractCluster;
-import org.apache.cassandra.distributed.impl.IInvokableInstance;
-import org.apache.cassandra.distributed.impl.InstanceConfig;
-import org.apache.cassandra.distributed.impl.Versions;
-import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.distributed.shared.AbstractBuilder;
+import org.apache.cassandra.distributed.shared.Versions;
 
 /**
  * A simple cluster supporting only the 'current' Cassandra version, offering easy access to the convenience methods
  * of IInvokableInstance on each node.
  */
-public class Cluster extends AbstractCluster<IInvokableInstance> implements ICluster, AutoCloseable
+public class Cluster extends AbstractCluster<IInvokableInstance>
 {
-    private Cluster(File root, Versions.Version version, List<InstanceConfig> configs, ClassLoader sharedClassLoader, BiConsumer<ClassLoader, Integer> instanceInit)
+
+    private Cluster(Builder builder)
     {
-        super(root, version, configs, sharedClassLoader, instanceInit);
+        super(builder);
     }
 
-    protected IInvokableInstance newInstanceWrapper(int generation, Versions.Version version, InstanceConfig config)
+    protected IInvokableInstance newInstanceWrapper(int generation, Versions.Version version, IInstanceConfig config)
     {
         return new Wrapper(generation, version, config);
     }
 
-    public static Builder<IInvokableInstance, Cluster> build(int nodeCount)
+    public static Builder build()
     {
-        return new Builder<>(nodeCount, Cluster::new);
+        return new Builder();
+    }
+
+    public static Builder build(int nodeCount)
+    {
+        return build().withNodes(nodeCount);
     }
 
     public static Cluster create(int nodeCount, Consumer<IInstanceConfig> configUpdater) throws IOException
@@ -67,56 +64,13 @@ public class Cluster extends AbstractCluster<IInvokableInstance> implements IClu
         return build(nodeCount).start();
     }
 
-    /**
-     * Will wait for a schema change AND agreement that occurs after it is created
-     * (and precedes the invocation to waitForAgreement)
-     *
-     * Works by simply checking if all UUIDs agree after any schema version change event,
-     * so long as the waitForAgreement method has been entered (indicating the change has
-     * taken place on the coordinator)
-     *
-     * This could perhaps be made a little more robust, but this should more than suffice.
-     */
-    public class GossipAgreementMonitor extends ChangeAgreementMonitor
+    public static final class Builder extends AbstractBuilder<IInvokableInstance, Cluster, Builder>
     {
-        final int[] betweenNodes;
-        public GossipAgreementMonitor(int[] betweenNodes)
+        public Builder()
         {
-            super(new ArrayList<>(betweenNodes.length));
-            this.betweenNodes = betweenNodes;
-            for (int node : betweenNodes)
-                cleanup.add(get(node).listen().gossip(this::signal));
-        }
-
-        protected boolean hasReachedAgreement()
-        {
-            // verify endpoint state for each node in the cluster, but only on those nominated nodes we want agreement for
-            for (int i = 1 ; i <= size() ; ++i)
-            {
-                List<String> states = new ArrayList<>(betweenNodes.length);
-                for (int j = 0 ; j < betweenNodes.length ; j++)
-                {
-                    states.add(get(betweenNodes[j])
-                            .appliesOnInstance((InetAddress inet) -> Objects.toString(Gossiper.instance.getEndpointStateForEndpoint(inet)))
-                            .apply(get(betweenNodes[j]).broadcastAddressAndPort().address));
-                }
-                if (1 != states.stream().distinct().count())
-                    return false;
-            }
-            return true;
+            super(Cluster::new);
+            withVersion(CURRENT_VERSION);
         }
     }
-
-    // TODO: this should be a cross-version feature, but for now this will do
-    public void waitForGossipAgreement(int ... betweenNodes)
-    {
-        get(1).sync(() -> {
-            try (GossipAgreementMonitor monitor = new GossipAgreementMonitor(betweenNodes))
-            {
-                monitor.await();
-            }
-        }).run();
-    }
-
 }
 

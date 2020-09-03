@@ -38,18 +38,19 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ICoordinator;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
-import org.apache.cassandra.distributed.impl.IInvokableInstance;
 import org.apache.cassandra.distributed.impl.Instance;
+import org.apache.cassandra.distributed.shared.RepairResult;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessagingService;
@@ -73,7 +74,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-public class PreviewRepairTest extends DistributedTestBase
+public class PreviewRepairTest extends TestBaseImpl
 {
     /**
      * makes sure that the repaired sstables are not matching on the two
@@ -111,9 +112,9 @@ public class PreviewRepairTest extends DistributedTestBase
                 cfs.enableAutoCompaction();
                 FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(cfs));
             });
-            Pair<Boolean, Boolean> rs = cluster.get(1).callOnInstance(repair(options(true, false)));
-            assertTrue(rs.left); // preview repair should succeed
-            assertFalse(rs.right); // and we should see no mismatches
+            RepairResult rs = cluster.get(1).callOnInstance(repair(options(true, false)));
+            assertTrue(rs.success); // preview repair should succeed
+            assertFalse(rs.wasInconsistent); // and we should see no mismatches
         }
     }
 
@@ -154,16 +155,16 @@ public class PreviewRepairTest extends DistributedTestBase
             SimpleCondition continuePreviewRepair = new SimpleCondition();
             DelayFirstRepairTypeMessageFilter filter = DelayFirstRepairTypeMessageFilter.validationRequest(previewRepairStarted, continuePreviewRepair);
             // this pauses the validation request sent from node1 to node2 until the inc repair below has completed
-            cluster.filters().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
+            cluster.filters().outbound().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
 
-            Future<Pair<Boolean, Boolean>> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false))));
+            Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false))));
             previewRepairStarted.await();
             // this needs to finish before the preview repair is unpaused on node2
             cluster.get(1).callOnInstance(repair(options(false, false)));
             continuePreviewRepair.signalAll();
-            Pair<Boolean, Boolean> rs = rsFuture.get();
-            assertFalse(rs.left); // preview repair should have failed
-            assertFalse(rs.right); // and no mismatches should have been reported
+            RepairResult rs = rsFuture.get();
+            assertFalse(rs.success); // preview repair should have failed
+            assertFalse(rs.wasInconsistent); // and no mismatches should have been reported
         }
         finally
         {
@@ -196,6 +197,7 @@ public class PreviewRepairTest extends DistributedTestBase
             SimpleCondition continuePreviewRepair = new SimpleCondition();
             // this pauses the validation request sent from node1 to node2 until the inc repair below has run
             cluster.filters()
+                   .outbound()
                    .verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal())
                    .from(1).to(2)
                    .messagesMatching(DelayFirstRepairTypeMessageFilter.validationRequest(previewRepairStarted, continuePreviewRepair))
@@ -205,29 +207,30 @@ public class PreviewRepairTest extends DistributedTestBase
             SimpleCondition continueIrRepair = new SimpleCondition();
             // this blocks the IR from committing, so we can reenale the preview
             cluster.filters()
+                   .outbound()
                    .verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal())
                    .from(1).to(2)
                    .messagesMatching(DelayFirstRepairTypeMessageFilter.finalizePropose(irRepairStarted, continueIrRepair))
                    .drop();
 
-            Future<Pair<Boolean, Boolean>> previewResult = cluster.get(1).asyncCallsOnInstance(repair(options(true, false))).call();
+            Future<RepairResult> previewResult = cluster.get(1).asyncCallsOnInstance(repair(options(true, false))).call();
             previewRepairStarted.await();
 
             // trigger IR and wait till its ready to commit
-            Future<Pair<Boolean, Boolean>> irResult = cluster.get(1).asyncCallsOnInstance(repair(options(false, false))).call();
+            Future<RepairResult> irResult = cluster.get(1).asyncCallsOnInstance(repair(options(false, false))).call();
             irRepairStarted.await();
 
             // unblock preview repair and wait for it to complete
             continuePreviewRepair.signalAll();
 
-            Pair<Boolean, Boolean> rs = previewResult.get();
-            assertFalse(rs.left); // preview repair should have failed
-            assertFalse(rs.right); // and no mismatches should have been reported
+            RepairResult rs = previewResult.get();
+            assertFalse(rs.success); // preview repair should have failed
+            assertFalse(rs.wasInconsistent); // and no mismatches should have been reported
 
             continueIrRepair.signalAll();
-            Pair<Boolean, Boolean> ir = irResult.get();
-            assertTrue(ir.left); // success
-            assertFalse(ir.right); // not preview, so we don't care about preview notification
+            RepairResult ir = irResult.get();
+            assertTrue(ir.success); // success
+            assertFalse(ir.wasInconsistent); // not preview, so we don't care about preview notification
         }
     }
 
@@ -250,7 +253,7 @@ public class PreviewRepairTest extends DistributedTestBase
             Thread.sleep(1000);
             insert(cluster.coordinator(1), 0, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
-            assertTrue(cluster.get(1).callOnInstance(repair(options(false, false))).left);
+            assertTrue(cluster.get(1).callOnInstance(repair(options(false, false))).success);
 
             insert(cluster.coordinator(1), 100, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
@@ -259,7 +262,7 @@ public class PreviewRepairTest extends DistributedTestBase
             SimpleCondition previewRepairStarted = new SimpleCondition();
             SimpleCondition continuePreviewRepair = new SimpleCondition();
             DelayFirstRepairTypeMessageFilter filter = DelayFirstRepairTypeMessageFilter.validationRequest(previewRepairStarted, continuePreviewRepair);
-            cluster.filters().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
+            cluster.filters().outbound().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
 
             // get local ranges to repair two separate ranges:
             List<String> localRanges = cluster.get(1).callOnInstance(() -> {
@@ -272,15 +275,15 @@ public class PreviewRepairTest extends DistributedTestBase
             assertEquals(2, localRanges.size());
             String previewedRange = localRanges.get(0);
             String repairedRange = localRanges.get(1);
-            Future<Pair<Boolean, Boolean>> repairStatusFuture = cluster.get(1).asyncCallsOnInstance(repair(options(true, false, previewedRange))).call();
+            Future<RepairResult> repairStatusFuture = cluster.get(1).asyncCallsOnInstance(repair(options(true, false, previewedRange))).call();
             previewRepairStarted.await(); // wait for node1 to start validation compaction
             // this needs to finish before the preview repair is unpaused on node2
-            assertTrue(cluster.get(1).callOnInstance(repair(options(false, false, repairedRange))).left);
+            assertTrue(cluster.get(1).callOnInstance(repair(options(false, false, repairedRange))).success);
 
             continuePreviewRepair.signalAll();
-            Pair<Boolean, Boolean> rs = repairStatusFuture.get();
-            assertTrue(rs.left); // repair should succeed
-            assertFalse(rs.right); // and no mismatches
+            RepairResult rs = repairStatusFuture.get();
+            assertTrue(rs.success); // repair should succeed
+            assertFalse(rs.wasInconsistent); // and no mismatches
         }
     }
 
@@ -312,7 +315,7 @@ public class PreviewRepairTest extends DistributedTestBase
             verifySnapshots(cluster, "tbl2", true);
 
             AtomicInteger snapshotMessageCounter = new AtomicInteger();
-            cluster.filters().verbs(MessagingService.Verb.SNAPSHOT.getId()).messagesMatching((from, to, message) -> {
+            cluster.filters().outbound().verbs(MessagingService.Verb.SNAPSHOT.getId()).messagesMatching((from, to, message) -> {
                 snapshotMessageCounter.incrementAndGet();
                 return false;
             }).drop();
@@ -365,14 +368,14 @@ public class PreviewRepairTest extends DistributedTestBase
             cluster.forEach(c -> c.flush(KEYSPACE));
             cluster.forEach(i -> i.runOnInstance(() -> markAllRepaired("tbl")));
             cluster.forEach(i -> i.runOnInstance(() -> assertRepaired("tbl")));
-            Pair<Boolean, Boolean> res = cluster.get(1).callOnInstance(repair(options(true, true)));
-            assertTrue(res.right); // this should mismatch
+            RepairResult res = cluster.get(1).callOnInstance(repair(options(true, true)));
+            assertTrue(res.wasInconsistent); // this should mismatch
             cluster.forEach(i -> i.runOnInstance(() -> StorageProxy.instance.enableRepairedDataTrackingExclusions()));
             res = cluster.get(1).callOnInstance(repair(options(true, true)));
-            assertFalse(res.right); // and no more mismatches after enabling
+            assertFalse(res.wasInconsistent); // and no more mismatches after enabling
             cluster.forEach(i -> i.runOnInstance(() -> StorageProxy.instance.disableRepairedDataTrackingExclusions()));
             res = cluster.get(1).callOnInstance(repair(options(true, true)));
-            assertTrue(res.right); // and mismatch back again
+            assertTrue(res.wasInconsistent); // and mismatch back again
         }
     }
 
@@ -502,7 +505,7 @@ public class PreviewRepairTest extends DistributedTestBase
     /**
      * returns a pair with [repair success, was inconsistent]
      */
-    static IIsolatedExecutor.SerializableCallable<Pair<Boolean, Boolean>> repair(Map<String, String> options)
+    static IIsolatedExecutor.SerializableCallable<RepairResult> repair(Map<String, String> options)
     {
         return () -> {
             SimpleCondition await = new SimpleCondition();
@@ -529,7 +532,7 @@ public class PreviewRepairTest extends DistributedTestBase
             {
                 throw new RuntimeException(e);
             }
-            return Pair.create(success.get(), wasInconsistent.get());
+            return new RepairResult(success.get(), wasInconsistent.get());
         };
     }
 

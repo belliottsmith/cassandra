@@ -16,22 +16,19 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.api;
+package org.apache.cassandra.tools;
 
-import java.io.Serializable;
+import java.io.IOException;
 
-import org.apache.cassandra.locator.InetAddressAndPort;
-
-/**
- * A cross-version interface for delivering internode messages via message sinks.
- *
- * Message implementations should be serializable so we could load into instances.
- */
-public interface IMessage extends Serializable
+public class NodeProbeFactory implements INodeProbeFactory
 {
-    int verb();
-    byte[] bytes();
-    int id();
-    int version();
-    InetAddressAndPort from();
+    public NodeProbe create(String host, int port) throws IOException
+    {
+        return new NodeProbe(host, port);
+    }
+
+    public NodeProbe create(String host, int port, String username, String password) throws IOException
+    {
+        return new NodeProbe(host, port, username, password);
+    }
 }

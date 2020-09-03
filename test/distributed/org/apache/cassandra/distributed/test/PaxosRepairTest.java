@@ -19,7 +19,10 @@
 package org.apache.cassandra.distributed.test;
 
 import java.net.InetAddress;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -27,17 +30,16 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 import org.junit.Assert;
 import org.junit.Test;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
-import org.apache.cassandra.distributed.impl.IInvokableInstance;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.net.MessagingService;
@@ -50,7 +52,7 @@ import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 
-public class PaxosRepairTest extends DistributedTestBase
+public class PaxosRepairTest extends TestBaseImpl
 {
     private static final Logger logger = LoggerFactory.getLogger(PaxosRepairTest.class);
     private static final String TABLE = "tbl";
@@ -69,7 +71,7 @@ public class PaxosRepairTest extends DistributedTestBase
 
     private static void assertAllAlive(Cluster cluster)
     {
-        Set<InetAddress> allEndpoints = cluster.stream().map(i -> i.broadcastAddressAndPort().address).collect(Collectors.toSet());
+        Set<InetAddress> allEndpoints = cluster.stream().map(i -> i.broadcastAddress().getAddress()).collect(Collectors.toSet());
         cluster.stream().forEach(instance -> {
             instance.runOnInstance(() -> {
                 ImmutableSet<InetAddress> endpoints = Gossiper.instance.getEndpoints();

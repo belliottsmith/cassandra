@@ -27,15 +27,17 @@ import org.junit.Test;
 
 import org.apache.cassandra.config.Config.DiskFailurePolicy;
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.RowIndexEntry;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.SliceableUnfilteredRowIterator;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor.SerializableCallable;
-import org.apache.cassandra.distributed.impl.IInvokableInstance;
+import org.apache.cassandra.distributed.shared.AbstractBuilder;
+import org.apache.cassandra.distributed.shared.NetworkTopology;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.format.ForwardingSSTableReader;
@@ -46,9 +48,10 @@ import org.apache.cassandra.service.CassandraDaemon;
 import org.apache.cassandra.service.StorageService;
 
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
+import static org.apache.cassandra.distributed.api.Feature.NATIVE_PROTOCOL;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 
-public class JVMStabilityInspectorCorruptSSTableExceptionTest extends DistributedTestBase
+public class JVMStabilityInspectorCorruptSSTableExceptionTest extends TestBaseImpl
 {
     @Test
     public void testAbstractLocalAwareExecutorServiceOnIgnoredDiskFailurePolicy() throws Exception
@@ -65,7 +68,7 @@ public class JVMStabilityInspectorCorruptSSTableExceptionTest extends Distribute
     private static void test(DiskFailurePolicy policy, boolean expectNativeTransportRunning, boolean expectGossiperEnabled) throws Exception
     {
         String table = policy.name();
-        try (final Cluster cluster = init(getCluster(policy)))
+        try (final Cluster cluster = init(getCluster(policy).start()))
         {
             IInvokableInstance node = cluster.get(1);
             boolean[] setup = node.callOnInstance(() -> {
@@ -76,8 +79,7 @@ public class JVMStabilityInspectorCorruptSSTableExceptionTest extends Distribute
             });
 
             // make sure environment is setup propertly
-            //TODO add when we backport native
-//            Assert.assertTrue("Native support is not running, test is not ready!", setup[0]);
+            Assert.assertTrue("Native support is not running, test is not ready!", setup[0]);
             Assert.assertTrue("Gossiper is not running, test is not ready!", setup[1]);
 
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + "." + table + " (id bigint PRIMARY KEY)");
@@ -102,14 +104,13 @@ public class JVMStabilityInspectorCorruptSSTableExceptionTest extends Distribute
                 }
             });
 
-            //TODO add when we backport native
-//            waitForStop(!expectNativeTransportRunning, node, new SerializableCallable<Boolean>()
-//            {
-//                public Boolean call()
-//                {
-//                    return StorageService.instance.isNativeTransportRunning();
-//                }
-//            });
+            waitForStop(!expectNativeTransportRunning, node, new SerializableCallable<Boolean>()
+            {
+                public Boolean call()
+                {
+                    return StorageService.instance.isNativeTransportRunning();
+                }
+            });
         }
     }
 
@@ -169,11 +170,12 @@ public class JVMStabilityInspectorCorruptSSTableExceptionTest extends Distribute
         });
     }
 
-    private static Cluster getCluster(DiskFailurePolicy diskFailurePolicy) throws IOException
+    private static AbstractBuilder<IInvokableInstance, Cluster, Cluster.Builder> getCluster(DiskFailurePolicy diskFailurePolicy)
     {
-        return Cluster.build(1)
-                      .withConfig(config -> config.with(NETWORK).with(GOSSIP)
-                                                  .set("disk_failure_policy", diskFailurePolicy.name())).start();
+        return Cluster.build()
+                      .withNodeIdTopology(NetworkTopology.singleDcNetworkTopology(1, "dc0", "rack0"))
+                      .withConfig(config -> config.with(NETWORK, GOSSIP, NATIVE_PROTOCOL)
+                                                  .set("disk_failure_policy", diskFailurePolicy.name()));
     }
 
     private static final class CorruptedSSTableReader extends ForwardingSSTableReader

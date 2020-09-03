@@ -20,24 +20,14 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
-import com.google.common.util.concurrent.Uninterruptibles;
-import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.repair.messages.RepairOption;
-import org.apache.cassandra.service.ActiveRepairService.ParentRepairStatus;
-import org.apache.cassandra.service.StorageService;
 
-public class IRHistorySyncTimeoutTest extends DistributedTestBase implements Serializable
+public class IRHistorySyncTimeoutTest extends TestBaseImpl implements Serializable
 {
     @Test
     public void testHistorySyncTimeout() throws IOException
@@ -58,27 +48,10 @@ public class IRHistorySyncTimeoutTest extends DistributedTestBase implements Ser
 
             // run a repair
             // for some reason the schema change is flakey on instance 1, but is stable on instance 2
-            cluster.get(2).runOnInstance(() -> {
-                String ranges = "0:" + Long.MIN_VALUE;
-                Map<String, String> options = new HashMap<String, String>() {{
-                    put(RepairOption.RANGES_KEY, ranges);
-                }};
-
-                int cmd = StorageService.instance.repairAsync("system_auth", options);
-                Assert.assertTrue("Command could not be registered; given " + cmd, cmd > 0);
-
-                List<String> status;
-                do
-                {
-                    Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
-                    status = StorageService.instance.getParentRepairStatus(cmd);
-                } while (status == null || status.get(0).equals(ParentRepairStatus.IN_PROGRESS.name()));
-
-                // repair complete, make sure it failed
-                Assert.assertEquals(status.toString(), 3, status.size());
-                Assert.assertEquals(ParentRepairStatus.FAILED.name(), status.get(0));
-                Assert.assertTrue("Expected message to contain \"Timeout waiting for task.\" but does not: given " + status.get(1), status.get(1).contains("Timeout waiting for task."));
-            });
+            cluster.get(2).nodetoolResult("repair", "system_auth", "--full", "--partitioner-range")
+                   .asserts()
+                   .failure()
+                   .errorContains("Timeout waiting for task");
         }
     }
 }

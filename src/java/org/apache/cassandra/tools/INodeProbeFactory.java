@@ -16,14 +16,13 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.impl;
+package org.apache.cassandra.tools;
 
-import org.apache.cassandra.distributed.api.IInstance;
-import org.apache.cassandra.distributed.shared.Versions;
+import java.io.IOException;
 
-// this lives outside the api package so that we do not have to worry about inter-version compatibility
-public interface IUpgradeableInstance extends IInstance
+public interface INodeProbeFactory
 {
-    // only to be invoked while the node is shutdown!
-    public void setVersion(Versions.Version version);
+    NodeProbe create(String host, int port) throws IOException;
+
+    NodeProbe create(String host, int port, String username, String password) throws IOException;
 }

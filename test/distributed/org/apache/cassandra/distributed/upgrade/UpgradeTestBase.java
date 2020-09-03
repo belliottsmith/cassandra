@@ -25,18 +25,50 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
+import org.junit.After;
+import org.junit.BeforeClass;
+
 import org.apache.cassandra.distributed.UpgradeableCluster;
+import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.impl.Instance;
-import org.apache.cassandra.distributed.impl.Versions;
-import org.apache.cassandra.distributed.impl.Versions.Version;
-import org.apache.cassandra.distributed.test.DistributedTestBase;
+import org.apache.cassandra.distributed.shared.DistributedTestBase;
+import org.apache.cassandra.distributed.shared.Versions;
 
-import static org.apache.cassandra.distributed.impl.Versions.Major;
-import static org.apache.cassandra.distributed.impl.Versions.find;
+import static org.apache.cassandra.cql3.statements.SchemaAlteringStatement.SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION;
+import static org.apache.cassandra.distributed.shared.Versions.Major;
+import static org.apache.cassandra.distributed.shared.Versions.Version;
+import static org.apache.cassandra.distributed.shared.Versions.find;
 
 public class UpgradeTestBase extends DistributedTestBase
 {
+    @After
+    public void afterEach()
+    {
+        System.runFinalization();
+        System.gc();
+    }
+
+    @BeforeClass
+    public static void beforeClass() throws Throwable
+    {
+        System.setProperty("log4j2.disableJmx", "true"); // setting both ways as changes between versions
+        System.setProperty("log4j2.disable.jmx", "true");
+        System.setProperty("log4j.shutdownHookEnabled", "false");
+        System.setProperty("cassandra.test.logConfigProperty", "log4j.configurationFile");
+        System.setProperty("cassandra.test.logConfigPath", "test/conf/log4j2-dtest.xml");
+        System.setProperty("cassandra.allow_simplestrategy", "true"); // makes easier to share OSS tests without RF limits
+        System.setProperty("cassandra.minimum_replication_factor", "0"); // makes easier to share OSS tests without RF limits
+        System.setProperty(SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION, "true");
+        ICluster.setup();
+    }
+
+
+    public UpgradeableCluster.Builder builder()
+    {
+        return UpgradeableCluster.build();
+    }
+
     public static interface RunOnCluster
     {
         public void run(UpgradeableCluster cluster) throws Throwable;
@@ -149,7 +181,7 @@ public class UpgradeTestBase extends DistributedTestBase
 
                     for (Version version : upgrade.upgrade)
                     {
-                        for (int n : nodesToUpgrade)
+                        for (int n=1; n<=nodesToUpgrade.size(); n++)
                         {
                             cluster.get(n).shutdown().get();
                             cluster.get(n).setVersion(version);

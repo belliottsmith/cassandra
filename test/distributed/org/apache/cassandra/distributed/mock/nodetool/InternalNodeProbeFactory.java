@@ -16,9 +16,27 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.api;
+package org.apache.cassandra.distributed.mock.nodetool;
 
-public enum Feature
+import java.io.IOException;
+
+import org.apache.cassandra.tools.NodeProbe;
+import org.apache.cassandra.tools.INodeProbeFactory;
+
+public class InternalNodeProbeFactory implements INodeProbeFactory
 {
-    NETWORK, GOSSIP, NO_RING
+    private final boolean withNotifications;
+
+    public InternalNodeProbeFactory(boolean withNotifications)
+    {
+        this.withNotifications = withNotifications;
+    }
+
+    public NodeProbe create(String host, int port) throws IOException {
+        return new InternalNodeProbe(withNotifications);
+    }
+
+    public NodeProbe create(String host, int port, String username, String password) throws IOException {
+        return new InternalNodeProbe(withNotifications);
+    }
 }

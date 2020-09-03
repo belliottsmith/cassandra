@@ -20,19 +20,38 @@ package org.apache.cassandra.distributed.test;
 
 import java.util.function.Consumer;
 
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
 
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
-import org.apache.cassandra.distributed.impl.Instance;
 
-import static org.apache.cassandra.db.ConsistencyLevel.ANY;
-import static org.apache.cassandra.db.ConsistencyLevel.QUORUM;
+import static org.apache.cassandra.distributed.api.ConsistencyLevel.ANY;
+import static org.apache.cassandra.distributed.api.ConsistencyLevel.QUORUM;
+import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
+import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 
-public class LegacyCASTest extends CASTestBase
+public class LegacyCASTest extends CASCommonTestCases
 {
-    protected Consumer<IInstanceConfig> config()
+    private static Cluster CLUSTER;
+
+    @BeforeClass
+    public static void beforeClass() throws Throwable
+    {
+        TestBaseImpl.beforeClass();
+        CLUSTER = init(Cluster.create(3, config()));
+    }
+
+    @AfterClass
+    public static void afterClass()
+    {
+        if (CLUSTER != null)
+            CLUSTER.close();
+    }
+    
+    private static Consumer<IInstanceConfig> config()
     {
         return config -> config
                 .set("paxos_variant", "legacy")
@@ -65,11 +84,11 @@ public class LegacyCASTest extends CASTestBase
 
             // set {3} bootstrapping, {4} not in ring
             for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(3));
+                cluster.get(i).acceptsOnInstance(CASTestBase::removeFromRing).accept(cluster.get(3));
             for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(4));
+                cluster.get(i).acceptsOnInstance(CASTestBase::removeFromRing).accept(cluster.get(4));
             for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingBootstrapping).accept(cluster.get(3));
+                cluster.get(i).acceptsOnInstance(CASTestBase::addToRingBootstrapping).accept(cluster.get(3));
 
             // {3} promises and accepts on !{1} => {2, 3}
             // {3} commits do not YET arrive on either of {1, 2} (must be either due to read quorum differing on legacy Paxos)
@@ -79,9 +98,9 @@ public class LegacyCASTest extends CASTestBase
 
             // abort {3} bootstrap, start {4} bootstrap
             for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::removeFromRing).accept(cluster.get(3));
+                cluster.get(i).acceptsOnInstance(CASTestBase::removeFromRing).accept(cluster.get(3));
             for (int i = 1 ; i <= 4 ; ++i)
-                cluster.get(i).acceptsOnInstance(Instance::addToRingBootstrapping).accept(cluster.get(4));
+                cluster.get(i).acceptsOnInstance(CASTestBase::addToRingBootstrapping).accept(cluster.get(4));
 
             // {4} promises and accepts on !{2} => {1, 4}
             // {4} commits on {1, 2, 4}
@@ -91,4 +110,8 @@ public class LegacyCASTest extends CASTestBase
         }
     }
 
+    protected Cluster getCluster()
+    {
+        return CLUSTER;
+    }
 }

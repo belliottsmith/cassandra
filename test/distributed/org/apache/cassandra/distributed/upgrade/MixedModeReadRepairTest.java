@@ -18,27 +18,18 @@
 
 package org.apache.cassandra.distributed.upgrade;
 
-import java.util.HashSet;
+import java.util.Arrays;
 import java.util.Iterator;
-import java.util.Set;
 
+import com.google.common.collect.Iterators;
 import org.junit.Test;
 
-import com.datastax.driver.core.ProtocolVersion;
-import com.datastax.driver.core.QueryOptions;
-import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.Row;
-import com.datastax.driver.core.Session;
-import com.datastax.driver.core.SimpleStatement;
-import com.datastax.driver.core.Statement;
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.distributed.UpgradeableCluster;
-import org.apache.cassandra.distributed.impl.Versions;
-import org.apache.cassandra.distributed.test.DistributedTestBase;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.distributed.shared.DistributedTestBase;
+import org.apache.cassandra.distributed.shared.Versions;
 
-import static org.apache.cassandra.distributed.impl.Versions.find;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class MixedModeReadRepairTest extends UpgradeTestBase
 {
@@ -48,66 +39,99 @@ public class MixedModeReadRepairTest extends UpgradeTestBase
         new TestCase()
         .nodes(2)
         .upgrade(Versions.Major.v22, Versions.Major.v30)
-        .nodesToUpgrade(2)
         .setup((cluster) -> cluster.schemaChange("CREATE TABLE " + DistributedTestBase.KEYSPACE + ".tbl (pk ascii, b boolean, v blob, PRIMARY KEY (pk)) WITH COMPACT STORAGE"))
-        .runAfterClusterUpgrade((cluster) -> {
-            // now node2 is 3.0 and node1 is 2.2
+        .runAfterNodeUpgrade((cluster, node) -> {
+            if (node != 1)
+                return;
+            // now node1 is 3.0 and node2 is 2.2
             // make sure 2.2 side does not get the mutation
-            cluster.get(2).executeInternal("DELETE FROM " + DistributedTestBase.KEYSPACE + ".tbl WHERE pk = ?",
+            cluster.get(1).executeInternal("DELETE FROM " + DistributedTestBase.KEYSPACE + ".tbl WHERE pk = ?",
                                                                           "something");
             // trigger a read repair
-            cluster.coordinator(1).execute("SELECT * FROM " + DistributedTestBase.KEYSPACE + ".tbl WHERE pk = ?",
+            cluster.coordinator(2).execute("SELECT * FROM " + DistributedTestBase.KEYSPACE + ".tbl WHERE pk = ?",
                                            ConsistencyLevel.ALL,
                                            "something");
-            cluster.get(1).flush(DistributedTestBase.KEYSPACE);
-            // upgrade node1 to 3.0
-            cluster.get(1).shutdown().get();
-            Versions allVersions = find();
-            cluster.get(1).setVersion(allVersions.getLatest(Versions.Major.v30));
-            cluster.get(1).startup();
-
-            // and make sure the sstables are readable
-            cluster.get(1).forceCompact(DistributedTestBase.KEYSPACE, "tbl");
-        }).run();
-    }
-
-    @Test
-    public void testReads() throws Throwable
-    {
-        new TestCase()
-        .nodes(2)
-        .upgrade(Versions.Major.v22, Versions.Major.v30)
-        .nodesToUpgrade(2)
-        .setup((cluster) ->
-               {
-                   cluster.disableAutoCompaction(DistributedTestBase.KEYSPACE);
-                   cluster.schemaChange("CREATE TABLE " + DistributedTestBase.KEYSPACE + ".tbl (pk int, ck int, v text, PRIMARY KEY (pk, ck)) ");
-                   for (int j = 0; j < 5000; j++)
-                   {
-                       for (int i = 0; i < 10; i++)
-                           cluster.coordinator(1).execute("insert into " + DistributedTestBase.KEYSPACE + ".tbl (pk, ck, v) VALUES ("+j+", " + i + ", 'hello')", ConsistencyLevel.ALL);
-                   }
-                   cluster.forEach(c -> c.flush(DistributedTestBase.KEYSPACE));
-                   checkDuplicates(cluster, "BOTH ON 2.2");
-               })
-        .runAfterClusterUpgrade((cluster) -> checkDuplicates(cluster, "MIXED MODE"))
+            cluster.get(2).flush(DistributedTestBase.KEYSPACE);
+        })
+        .runAfterClusterUpgrade((cluster) -> cluster.get(2).forceCompact(DistributedTestBase.KEYSPACE, "tbl"))
         .run();
     }
 
-    private void checkDuplicates(UpgradeableCluster cluster, String message) throws InterruptedException
+    @Test
+    public void mixedModeReadRepairDuplicateRows() throws Throwable
     {
-        String query = "select distinct token(pk) from "+DistributedTestBase.KEYSPACE +".tbl WHERE token(pk) > "+Long.MIN_VALUE+" AND token(pk) < "+Long.MAX_VALUE;
-        Iterator<Object[]> res = cluster.coordinator(0).executeWithPaging(query, ConsistencyLevel.ALL, 100);
-        Set<Object> seenTokens = new HashSet<>();
-        Set<Object> dupes = new HashSet<>();
-        while (res.hasNext())
+        final String[] workload1 = new String[]
         {
-            Object token = res.next()[0];
-            if (seenTokens.contains(token))
-                dupes.add(token);
-            seenTokens.add(token);
+            "DELETE FROM " + DistributedTestBase.KEYSPACE + ".tbl USING TIMESTAMP 1 WHERE pk = 1 AND ck = 2;",
+            "INSERT INTO " + DistributedTestBase.KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, {'a':'b'}) USING TIMESTAMP 3;",
+            "INSERT INTO " + DistributedTestBase.KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 2, {'c':'d'}) USING TIMESTAMP 3;",
+            "INSERT INTO " + DistributedTestBase.KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 3, {'e':'f'}) USING TIMESTAMP 3;",
+        };
+
+        final String[] workload2 = new String[]
+        {
+            "INSERT INTO " + DistributedTestBase.KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 2, {'g':'h'}) USING TIMESTAMP 5;",
+        };
+
+        new TestCase()
+        .nodes(2)
+        .upgrade(Versions.Major.v22, Versions.Major.v30)
+        .setup((cluster) ->
+        {
+            cluster.schemaChange("CREATE TABLE " + DistributedTestBase.KEYSPACE + ".tbl (pk int, ck int, v map<text, text>, PRIMARY KEY (pk, ck));");
+        })
+        .runAfterNodeUpgrade((cluster, node) ->
+        {
+            if (node == 2)
+                return;
+
+            // now node1 is 3.0 and node2 is 2.2
+            for (int i = 0; i < workload1.length; i++ )
+                cluster.coordinator(2).execute(workload1[i], ConsistencyLevel.QUORUM);
+
+            cluster.get(1).flush(KEYSPACE);
+            cluster.get(2).flush(KEYSPACE);
+
+            validate(cluster, 2, false);
+
+            for (int i = 0; i < workload2.length; i++ )
+                cluster.coordinator(2).execute(workload2[i], ConsistencyLevel.QUORUM);
+
+            cluster.get(1).flush(KEYSPACE);
+            cluster.get(2).flush(KEYSPACE);
+
+            validate(cluster, 1, true);
+        })
+        .run();
+    }
+
+    private void validate(UpgradeableCluster cluster, int nodeid, boolean local)
+    {
+        String query = "SELECT * FROM " + KEYSPACE + ".tbl";
+
+        Iterator<Object[]> iter = local
+                                ? Iterators.forArray(cluster.get(nodeid).executeInternal(query))
+                                : cluster.coordinator(nodeid).executeWithPaging(query, ConsistencyLevel.ALL, 2);
+
+        Object[] prevRow = null;
+        Object prevClustering = null;
+
+        while (iter.hasNext())
+        {
+            Object[] row = iter.next();
+            Object clustering = row[1];
+
+            if (clustering.equals(prevClustering))
+            {
+                fail(String.format("Duplicate rows on node %d in %s mode: \n%s\n%s",
+                                   nodeid,
+                                   local ? "local" : "distributed",
+                                   Arrays.toString(prevRow),
+                                   Arrays.toString(row)));
+            }
+
+            prevRow = row;
+            prevClustering = clustering;
         }
-        assertEquals(message+": too few rows", 5000, seenTokens.size());
-        assertTrue(message+": dupes is not empty", dupes.isEmpty());
     }
 }
