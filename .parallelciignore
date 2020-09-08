@@ -6,4 +6,4 @@ logs
 tmp
 .idea
 parallel-output
-.log
+parallelci-*.log
