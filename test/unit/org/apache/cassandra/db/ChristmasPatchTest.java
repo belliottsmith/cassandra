@@ -150,9 +150,10 @@ public class ChristmasPatchTest extends CQLTester
         cfs.updateLastSuccessfulRepair(range(400, 500), 30 * 1000);
         cfs.updateLastSuccessfulRepair(range(90, 120), 40 * 1000);
         List<Pair<Range<Token>, Integer>> successBefore = new ArrayList<>(cfs.getRepairTimeSnapshot().successfulRepairs);
-        List<SSTableReader> toImport = Lists.newArrayList(MockSchema.sstable(1, 5, 10, 7, cfs), // shouldn't affect - range is start-exclusive
-                                                          MockSchema.sstable(2, 300, 300, 4, cfs),
-                                                          MockSchema.sstable(3, 400, 1500, 2, cfs));
+        int gen = 0;
+        List<SSTableReader> toImport = Lists.newArrayList(MockSchema.sstable(++gen, 5, 10, 7, cfs), // shouldn't affect - range is start-exclusive
+                                                          MockSchema.sstable(++gen, 300, 300, 4, cfs),
+                                                          MockSchema.sstable(++gen, 400, 1500, 2, cfs));
 
         cfs.clearLastRepairTimesFor(toImport, 50);
         List<InvalidatedRepairedRange> afterFirstImport = cfs.getRepairTimeSnapshot().invalidatedRepairs;
@@ -179,7 +180,7 @@ public class ChristmasPatchTest extends CQLTester
         assertEquals(4, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk(250), 100));
 
         // import an sstable where min ldt is after the last repairs - should not affect anything:
-        cfs.clearLastRepairTimesFor(Collections.singletonList(MockSchema.sstable(4, 5, 10000, 50, cfs)), 50);
+        cfs.clearLastRepairTimesFor(Collections.singletonList(MockSchema.sstable(++gen, 5, 10000, 50, cfs)), 50);
         assertEquals(afterFirstImport, cfs.getRepairTimeSnapshot().invalidatedRepairs);
 
         /*
@@ -192,7 +193,7 @@ and it will update the (400, 500] one with a new invalidatedAtSeconds
          */
         InvalidatedRepairedRange irr400500 = cfs.getRepairTimeSnapshot().invalidatedRepairs.stream().filter(i -> i.range.equals(range(400, 500))).findFirst().get();
         InvalidatedRepairedRange irr200300 = cfs.getRepairTimeSnapshot().invalidatedRepairs.stream().filter(i -> i.range.equals(range(200, 300))).findFirst().get();
-        cfs.clearLastRepairTimesFor(Collections.singletonList(MockSchema.sstable(5, 5, 10000, 25, cfs)), 55);
+        cfs.clearLastRepairTimesFor(Collections.singletonList(MockSchema.sstable(++gen, 5, 10000, 25, cfs)), 55);
         InvalidatedRepairedRange irr400500After = cfs.getRepairTimeSnapshot().invalidatedRepairs.stream().filter(i -> i.range.equals(range(400, 500))).findFirst().get();
         InvalidatedRepairedRange irr200300After = cfs.getRepairTimeSnapshot().invalidatedRepairs.stream().filter(i -> i.range.equals(range(200, 300))).findFirst().get();
         InvalidatedRepairedRange irr90120After = cfs.getRepairTimeSnapshot().invalidatedRepairs.stream().filter(i -> i.range.equals(range(90, 120))).findFirst().get();
@@ -265,11 +266,12 @@ and it will update the (400, 500] one with a new invalidatedAtSeconds
     public void testBoundsAndOldestTombstone()
     {
         ColumnFamilyStore cfs = MockSchema.newCFS();
-        List<SSTableReader> sstables = Lists.newArrayList(MockSchema.sstable(1, 5, 10, 10, cfs),
-                                                          MockSchema.sstable(2, 300, 300, 13, cfs),
-                                                          MockSchema.sstable(3, 400, 1500, 5, cfs),
-                                                          MockSchema.sstable(3, 401, 1500, 6, cfs),
-                                                          MockSchema.sstable(3, 402, 1500, 7, cfs));
+        int gen = 0;
+        List<SSTableReader> sstables = Lists.newArrayList(MockSchema.sstable(++gen, 5, 10, 10, cfs),
+                                                          MockSchema.sstable(++gen, 300, 300, 13, cfs),
+                                                          MockSchema.sstable(++gen, 400, 1500, 5, cfs),
+                                                          MockSchema.sstable(++gen, 401, 1500, 6, cfs),
+                                                          MockSchema.sstable(++gen, 402, 1500, 7, cfs));
         BoundsAndOldestTombstone bot = new BoundsAndOldestTombstone(sstables);
         // non-intersecting
         assertEquals(Integer.MAX_VALUE, bot.getOldestIntersectingTombstoneLDT(range(0,1), 0));
@@ -312,13 +314,14 @@ and it will update the (400, 500] one with a new invalidatedAtSeconds
                                                        .add(Pair.create(newRepairedRange, 2000))
                                                        .add(Pair.create(oldRepairedRange, 1000)).build();
 
+        int gen = 0;
         SuccessfulRepairTimeHolder srt = new SuccessfulRepairTimeHolder(l, ImmutableList.of());
-        assertEquals(1000, srt.getFullyRepairedTimeFor(MockSchema.sstable(1, 15, 50, 10, cfs)));
-        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(2, -10, 50, 10, cfs)));
+        assertEquals(1000, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 15, 50, 10, cfs)));
+        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, -10, 50, 10, cfs)));
         // range is start-exclusive:
-        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(3, 0, 50, 10, cfs)));
-        assertEquals(1000, srt.getFullyRepairedTimeFor(MockSchema.sstable(3, 1, 100, 10, cfs)));
-        assertEquals(2000, srt.getFullyRepairedTimeFor(MockSchema.sstable(4, 15, 16, 10, cfs)));
+        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 0, 50, 10, cfs)));
+        assertEquals(1000, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 1, 100, 10, cfs)));
+        assertEquals(2000, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 15, 16, 10, cfs)));
     }
 
     @Test
@@ -334,20 +337,22 @@ and it will update the (400, 500] one with a new invalidatedAtSeconds
 
         SuccessfulRepairTimeHolder srt = new SuccessfulRepairTimeHolder(l, ImmutableList.of(irr));
 
+        int gen = 0;
+        
         // does not intersect the invalidated range, should give the newly repaired time:
-        assertEquals(2000, srt.getFullyRepairedTimeFor(MockSchema.sstable(1, 11, 15, 10, cfs)));
+        assertEquals(2000, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 11, 15, 10, cfs)));
 
         // not fully contained in a repaired range
-        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(2, -10, 50, 10, cfs)));
+        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, -10, 50, 10, cfs)));
 
         // fully contained in the invalidated range
-        assertEquals(800, srt.getFullyRepairedTimeFor(MockSchema.sstable(3, 19, 21, 10, cfs)));
+        assertEquals(800, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 19, 21, 10, cfs)));
 
         // the sstable was fully repaired, but the invalidation intersects the sstable
-        assertEquals(800, srt.getFullyRepairedTimeFor(MockSchema.sstable(3, 1, 100, 10, cfs)));
+        assertEquals(800, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 1, 100, 10, cfs)));
 
         // intersects the invalidation
-        assertEquals(800, srt.getFullyRepairedTimeFor(MockSchema.sstable(4, 1, 19, 10, cfs)));
+        assertEquals(800, srt.getFullyRepairedTimeFor(MockSchema.sstable(++gen, 1, 19, 10, cfs)));
     }
 
     @Test
