@@ -135,7 +135,7 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
         }
 
         Async async = new Async(commit, allowHints, consistency, participants);
-        async.start(participants, false);
+        async.start(participants, consistency, false);
         return async;
     }
 
@@ -145,17 +145,18 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
     static <T extends Consumer<Status>> T commit(Agreed commit, Paxos.Participants participants, ConsistencyLevel consistency, @Deprecated boolean allowHints, T onDone)
     {
         new PaxosCommit<>(commit, allowHints, consistency, participants, onDone)
-                .start(participants, true);
+                .start(participants, consistency, true);
         return onDone;
     }
 
     /**
      * Send commit messages to peers (or self)
      */
-    void start(Paxos.Participants participants, boolean async)
+    void start(Paxos.Participants participants, ConsistencyLevel consistency, boolean async)
     {
         boolean executeOnSelf = false;
-        MessageOut<Commit> message = new MessageOut<>(PAXOS_COMMIT, commit, serializer);
+        MessageOut<Commit> message = new MessageOut<>(PAXOS_COMMIT, commit, serializer)
+                .permitsArtificialDelay(consistency);
         for (int i = 0, mi = participants.all.size(); i < mi ; ++i)
             executeOnSelf |= isSelfOrSend(message, participants.all.get(i));
 
@@ -306,9 +307,9 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
             MessageOut<WriteResponse> response = execute(message.payload, message.from);
             // NOTE: for correctness, this must be our last action, so that we cannot throw an error and send both a response and a failure response
             if (response == null)
-                Paxos.sendFailureResponse("Commit", message.from, message.payload.ballot, id);
+                Paxos.sendFailureResponse("Commit", message.from, message.payload.ballot, id, message);
             else
-                MessagingService.instance().sendReply(response, id, message.from);
+                MessagingService.instance().sendReply(response.permitsArtificialDelay(message), id, message.from);
         }
 
         private static MessageOut<WriteResponse> execute(Commit commit, InetAddress from)

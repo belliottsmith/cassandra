@@ -41,7 +41,6 @@ import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.NetworkTopologyStrategy;
 import org.apache.cassandra.transport.ProtocolException;
-import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 import static com.google.common.collect.Iterables.*;
 
@@ -57,7 +56,11 @@ public enum ConsistencyLevel
     EACH_QUORUM (7),
     SERIAL      (8),
     LOCAL_SERIAL(9),
-    LOCAL_ONE   (10, true);
+    LOCAL_ONE   (10, true),
+    UNSAFE_DELAY_QUORUM(99, false),
+    UNSAFE_DELAY_SERIAL(100, false),
+    UNSAFE_DELAY_LOCAL_QUORUM(101, true),
+    UNSAFE_DELAY_LOCAL_SERIAL(102, true);
 
     private static final Logger logger = LoggerFactory.getLogger(ConsistencyLevel.class);
 
@@ -199,7 +202,9 @@ public enum ConsistencyLevel
         switch (this)
         {
             case LOCAL_ONE:
+            case UNSAFE_DELAY_LOCAL_QUORUM:
             case LOCAL_QUORUM:
+            case UNSAFE_DELAY_LOCAL_SERIAL:
             case LOCAL_SERIAL:
             {
                 int blockFor = blockFor(keyspace) + size(filter(allPending, ConsistencyLevel::isLocal));
@@ -284,11 +289,15 @@ public enum ConsistencyLevel
             case THREE:
                 return 3;
             case QUORUM:
+            case UNSAFE_DELAY_QUORUM:
             case SERIAL:
+            case UNSAFE_DELAY_SERIAL:
                 return quorumFor(keyspace);
             case ALL:
                 return keyspace.getReplicationStrategy().getReplicationFactor();
+            case UNSAFE_DELAY_LOCAL_QUORUM:
             case LOCAL_QUORUM:
+            case UNSAFE_DELAY_LOCAL_SERIAL:
             case LOCAL_SERIAL:
                 return localQuorumFor(keyspace, DatabaseDescriptor.getLocalDataCenter());
             case EACH_QUORUM:
@@ -426,6 +435,7 @@ public enum ConsistencyLevel
                 return true;
             case LOCAL_ONE:
                 return countLocalEndpoints(liveEndpoints) >= 1;
+            case UNSAFE_DELAY_LOCAL_QUORUM:
             case LOCAL_QUORUM:
                 return countLocalEndpoints(liveEndpoints) >= blockFor(keyspace);
             case EACH_QUORUM:
@@ -460,6 +470,7 @@ public enum ConsistencyLevel
                 if (countLocalEndpoints(liveEndpoints) < blockFor)
                     throw new UnavailableException(this, 1, 0);
                 break;
+            case UNSAFE_DELAY_LOCAL_QUORUM:
             case LOCAL_QUORUM:
                 int localLive = countLocalEndpoints(liveEndpoints);
                 if (localLive < blockFor)
@@ -516,7 +527,9 @@ public enum ConsistencyLevel
         switch (this)
         {
             case SERIAL:
+            case UNSAFE_DELAY_SERIAL:
             case LOCAL_SERIAL:
+            case UNSAFE_DELAY_LOCAL_SERIAL:
                 throw new InvalidRequestException("You must use conditional updates for serializable writes");
         }
     }
@@ -530,7 +543,9 @@ public enum ConsistencyLevel
                 requireNetworkTopologyStrategy(keyspaceName);
                 break;
             case SERIAL:
+            case UNSAFE_DELAY_SERIAL:
             case LOCAL_SERIAL:
+            case UNSAFE_DELAY_LOCAL_SERIAL:
                 throw new InvalidRequestException(this + " is not supported as conditional update commit consistency. Use ANY if you mean \"make sure it is accepted but I don't care how many replicas commit it for non-SERIAL reads\"");
         }
     }
@@ -543,7 +558,16 @@ public enum ConsistencyLevel
 
     public boolean isSerialConsistency()
     {
-        return this == SERIAL || this == LOCAL_SERIAL;
+        switch (this)
+        {
+            case SERIAL:
+            case UNSAFE_DELAY_SERIAL:
+            case LOCAL_SERIAL:
+            case UNSAFE_DELAY_LOCAL_SERIAL:
+                return true;
+            default:
+                return false;
+        }
     }
 
     public void validateCounterForWrite(CFMetaData metadata) throws InvalidRequestException

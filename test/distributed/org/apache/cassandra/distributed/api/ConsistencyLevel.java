@@ -15,23 +15,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.db;
 
-import java.net.InetAddress;
+package org.apache.cassandra.distributed.api;
 
-import org.apache.cassandra.net.MessageIn;
-import org.apache.cassandra.net.MessagingService;
-
-public class ReadRepairVerbHandler extends AbstractMutationVerbHandler<Mutation>
+public enum ConsistencyLevel
 {
-    public void doVerb(MessageIn<Mutation> message, int id)
-    {
-        processMessage(message, id, message.from);
-    }
+    ANY(0),
+    ONE(1),
+    TWO(2),
+    THREE(3),
+    QUORUM(4),
+    ALL(5),
+    LOCAL_QUORUM(6),
+    EACH_QUORUM(7),
+    SERIAL(8),
+    LOCAL_SERIAL(9),
+    LOCAL_ONE(10),
+    NODE_LOCAL(11),
+    UNSAFE_DELAY_QUORUM(99),
+    UNSAFE_DELAY_SERIAL(100),
+    UNSAFE_DELAY_LOCAL_QUORUM(101),
+    UNSAFE_DELAY_LOCAL_SERIAL(102);
 
-    void applyMutation(int version, MessageIn<Mutation> message, int id, InetAddress replyTo)
+    public final int code;
+    ConsistencyLevel(int code)
     {
-        message.payload.apply();
-        MessagingService.instance().sendReply(WriteResponse.createMessage().permitsArtificialDelay(message), id, replyTo);
+        this.code = code;
     }
 }

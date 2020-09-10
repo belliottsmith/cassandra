@@ -245,7 +245,8 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
 
                 for (InetAddress endpoint : endpoints)
                 {
-                    MessageOut<ReadCommand> message = command.createMessage(MessagingService.instance().getVersion(endpoint));
+                    MessageOut<ReadCommand> message = command.createMessage(MessagingService.instance().getVersion(endpoint))
+                            .permitsArtificialDelay(consistencyLevel);
                     MessagingService.instance().sendRR(message, endpoint, repairHandler);
                 }
             }

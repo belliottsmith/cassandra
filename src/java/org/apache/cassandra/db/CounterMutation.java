@@ -104,7 +104,8 @@ public class CounterMutation implements IMutation
 
     public MessageOut<CounterMutation> makeMutationMessage()
     {
-        return new MessageOut<>(MessagingService.Verb.COUNTER_MUTATION, this, serializer);
+        return new MessageOut<>(MessagingService.Verb.COUNTER_MUTATION, this, serializer)
+               .permitsArtificialDelay(consistency);
     }
 
     /**
