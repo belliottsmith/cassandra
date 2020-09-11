@@ -12,13 +12,14 @@
         <Console name="STDOUT" target="SYSTEM_OUT">
             <PatternLayout pattern="%-5level %date{HH:mm:ss,SSS} %msg%n"/>
             <Filters>
+                <ThresholdFilter level="ERROR" onMatch="DENY" onMismatch="NEUTRAL"/>
                 <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
             </Filters>
         </Console>
         <Console name="STDERR" target="SYSTEM_ERR">
             <PatternLayout pattern="%-5level %date{HH:mm:ss,SSS} %msg%n"/>
             <Filters>
-                <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+                <ThresholdFilter level="ERROR" onMatch="ACCEPT" onMismatch="DENY"/>
             </Filters>
         </Console>
         <Async name="ASYNC" includeLocation="true">
