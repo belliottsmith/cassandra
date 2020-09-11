@@ -1,3 +1,5 @@
+3.0.19.52
+
 3.0.19.51
 rdar://48843992 CASSANDRA-15277: make concurrent reads, concurrent writes hot prop
 rdar://48979187 Fix CME in LeveledManifest#handlingRepaired
