@@ -1,4 +1,42 @@
 3.0.19.51
+rdar://48843992 CASSANDRA-15277: make concurrent reads, concurrent writes hot prop
+rdar://48979187 Fix CME in LeveledManifest#handlingRepaired
+rdar://49886282 (Apple Internal) Rate-limit new client connection setup to avoid overwhelming during bcrypt
+rdar://50061816 (Apple Internal) allow last repair times to be updated via IR
+rdar://55357120 CASSANDRA-8272 & CASSANDRA-15907: Fix replica-side filtering returning stale data with CL > 1
+rdar://58587263 (Apple Internal) Internal execution of in-jvm dtest suite on CIE
+rdar://61524794 (Apple Internal) Use latest release of in-jvm api for CIE
+rdar://62336139 CASSANDRA-15753: bin/sstableverify should support user provided token ranges
+rdar://62902902 CASSANDRA-15790: EmptyType doesn't override writeValue so could attempt to write bytes when expected not to
+rdar://64019708 (Apple Internal) Track and Repair Incomplete Paxos Operations
+rdar://65013077 (Apple Internal) When legacy layout validation fails we should include the table and column which failed
+rdar://65284214 CASSANDRA-15929: Startup fails with NoClassDefFoundError
+rdar://65279692 (Apple Internal) Backport CIE 4.0 build changes to .next and hot fix branches
+rdar://65284829 (Define a snapshot versioning which does not conflict between hotfix and .next branches) (#1780)
+rdar://65284858 (New build setup is missing the -next tag)
+rdar://65622542 CASSANDRA-15907: Operational Improvements & Hardening for Replica Filtering Protection
+rdar://65622570 CASSANDRA-15920: SimpleQueryResult should contain client warnings
+rdar://65622579 CASSANDRA-15927: Add option to disable compaction at startup
+rdar://65622588 CASSANDRA-15933: Forbid adding new fields to UDTs used in partition key columns
+rdar://65738250 (Apple Internal) Cassandra release tries to tag docker twice which causes build failure
+rdar://65850078 CASSANDRA-15191, CASSANDRA-16002: stop_paranoid disk failure policy is ignored on CorruptSSTableException after node is up
+rdar://65919072 (Apple Internal) Reduce default bcrypt rounds
+rdar://66781700 (Apple Internal) Configuration Issues with Repaired Data Tracking Exclusions
+rdar://66777817 (Apple Internal) Make preview repair use the same exclusion mechanism as repaired data tracking
+rdar://66062346 (Apple Internal) Enable exclusions from repaired data tracking for content
+rdar://66027117 CASSANDRA-15970: 3.x fails to start if commit log has range tombstones from a column which is also deleted
+rdar://66777817 (Apple Internal) Make preview repair use the same exclusion mechanism as repaired data tracking
+rdar://66781700 (Apple Internal) Configuration Issues with Repaired Data Tracking Exclusions
+rdar://66787217 (Apple Internal) (backport rdar://66489094) Simplify the release process by having the release build bump the version and update {CIE-,}CHANGES.txt)
+rdar://66797156 (Apple Internal) guard paxos repair with apple paxos flag
+rdar://67353227 (Apple Internal) Support UNSAFE_DELAY_XXX CL's in 3.0.19.50+
+rdar://67420225 (Apple Internal) When 3.0 is in mixed mode with 2.2, messages sent to older version don't respect the property that serializedSize(version) == serialize(out, version).length)
+rdar://67685046 (Apple Internal) Investiage and fix failing test PaxosRepairTest
+rdar://67959022 (Apple Internal) RepairMessageVerbHandlerTest flaky with timeout for testValidationRequest* tests
+rdar://68372493 (Apple Internal) Ci build doesn't ignore files properly
+rdar://68511680 (Apple Internal) Paxos: Mitigate Local Contention
+rdar://67259599 CASSANDRA-15637: size estimate table broke python dtests
+
 
 3.0.19.50
 * <rdar://problem/65130093> (Paxos: Limit reproposals of previously agreed proposals)
