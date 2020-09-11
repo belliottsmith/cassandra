@@ -93,7 +93,6 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.UUIDGen;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
-import org.apache.cassandra.utils.concurrent.WaitMonitor;
 import org.apache.cassandra.service.paxos.PaxosPrepare.FoundIncompleteAccepted;
 import org.apache.cassandra.service.paxos.PaxosPrepare.FoundIncompleteCommitted;
 
@@ -122,12 +121,12 @@ import static org.apache.cassandra.service.paxos.PaxosPropose.propose;
 import static org.apache.cassandra.utils.CollectionSerializer.newHashSet;
 import static org.apache.cassandra.utils.NoSpamLogger.Level.WARN;
 import static org.apache.cassandra.utils.FBUtilities.getBroadcastAddress;
+import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
 
 public class Paxos
 {
     private static volatile Config.PaxosVariant PAXOS_VARIANT = DatabaseDescriptor.getPaxosVariant();
     private static final boolean USE_SELF_EXECUTION = Boolean.getBoolean("cassandra.paxos.use_apple_paxos_self_execution");
-    static WaitMonitor WAIT = WaitMonitor.NONE;
     private static BallotGenerator BALLOT_GENERATOR = new BallotGenerator.Default();
 
     private static final MessageOut<?> failureResponse = WriteResponse.createMessage()
@@ -155,6 +154,7 @@ public class Paxos
         {
             Token token = key.getToken();
             List<InetAddress> natural = StorageService.instance.getNaturalEndpoints(cfm.ksName, token);
+            // TODO: pending and natural can overlap, we should enforce that they do not
             Collection<InetAddress> pending = StorageService.instance.getTokenMetadata().pendingEndpointsFor(token, cfm.ksName);
             Collection<InetAddress> all = pending.isEmpty() ? natural :
                     new AbstractCollection<InetAddress>() {
@@ -421,7 +421,7 @@ public class Paxos
     {
         public void accept(T o)
         {
-            WAIT.signal(this);
+            waits().signal(this);
         }
     }
 
@@ -904,7 +904,7 @@ public class Paxos
 
         try
         {
-            WAIT.waitUntil(until);
+            waits().waitUntil(until);
         }
         catch (InterruptedException e)
         {
@@ -1075,9 +1075,9 @@ public class Paxos
         PAXOS_VARIANT = paxosVariant;
     }
 
-    public static String getPaxosVariant()
+    public static Config.PaxosVariant getPaxosVariant()
     {
-        return PAXOS_VARIANT.toString();
+        return PAXOS_VARIANT;
     }
 
     static boolean canExecuteOnSelf(InetAddress replica)
@@ -1115,11 +1115,6 @@ public class Paxos
         UUID generate(long fromInMicros, long toInMicros, boolean isSerial);
         long nextTimestamp(long minWhenInMicros);
         long prevTimestamp();
-    }
-
-    public static void unsafeSetWaitMonitor(WaitMonitor wait)
-    {
-        WAIT = wait;
     }
 
     public static void unsafeSetBallotGenerator(BallotGenerator ballotGenerator)

@@ -64,6 +64,8 @@ public abstract class CellPath
 
     public abstract long unsharedHeapSizeExcludingData();
 
+    public abstract long unsharedHeapSize();
+
     @Override
     public final int hashCode()
     {
@@ -129,6 +131,11 @@ public abstract class CellPath
         {
             return EMPTY_SIZE + ObjectSizes.sizeOnHeapExcludingData(value);
         }
+
+        public long unsharedHeapSize()
+        {
+            return EMPTY_SIZE + ObjectSizes.sizeOnHeapOf(value);
+        }
     }
 
     private static class EmptyCellPath extends CellPath
@@ -149,6 +156,11 @@ public abstract class CellPath
         }
 
         public long unsharedHeapSizeExcludingData()
+        {
+            return 0;
+        }
+
+        public long unsharedHeapSize()
         {
             return 0;
         }

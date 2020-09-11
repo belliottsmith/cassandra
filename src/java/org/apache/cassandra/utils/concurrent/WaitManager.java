@@ -20,9 +20,27 @@ package org.apache.cassandra.utils.concurrent;
 
 import java.util.concurrent.TimeUnit;
 
-public interface WaitMonitor
+import com.google.common.base.Preconditions;
+
+public interface WaitManager
 {
-    public static WaitMonitor NONE = new WaitMonitor()
+    public static final class Global
+    {
+        // deliberately not volatile to ensure zero overhead outside of testing;
+        // depend on other memory visibility primitives to ensure visibility
+        private static WaitManager INSTANCE = NONE;
+        public static WaitManager waits()
+        {
+            return INSTANCE;
+        }
+        public static void unsafeSet(WaitManager waits)
+        {
+            Preconditions.checkNotNull(waits);
+            INSTANCE = waits;
+        }
+    }
+
+    public static WaitManager NONE = new WaitManager()
     {
         public void waitUntil(long deadlineNanos) throws InterruptedException
         {
@@ -60,6 +78,8 @@ public interface WaitMonitor
         {
             monitor.notifyAll();
         }
+
+        public void nemesis() { }
     };
 
     void waitUntil(long deadlineNanos) throws InterruptedException;
@@ -70,4 +90,6 @@ public interface WaitMonitor
     void signal(Condition condition);
     void notify(Object monitor);
 
+    // used only for testing purposes, to reorder thread events
+    void nemesis();
 }
