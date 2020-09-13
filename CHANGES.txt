@@ -1,4 +1,5 @@
 3.0.19.52
+rdar://68799713 (Apple Internal) Paxos: legacyPrepare messages larger than necessary
 
 3.0.19.51
 rdar://48843992 CASSANDRA-15277: make concurrent reads, concurrent writes hot prop
@@ -38,7 +39,6 @@ rdar://67959022 (Apple Internal) RepairMessageVerbHandlerTest flaky with timeout
 rdar://68372493 (Apple Internal) Ci build doesn't ignore files properly
 rdar://68511680 (Apple Internal) Paxos: Mitigate Local Contention
 rdar://67259599 CASSANDRA-15637: size estimate table broke python dtests
-
 
 3.0.19.50
 * <rdar://problem/65130093> (Paxos: Limit reproposals of previously agreed proposals)
