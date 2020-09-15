@@ -18,10 +18,16 @@
 
 package org.apache.cassandra.distributed.test;
 
+import java.io.Closeable;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -29,8 +35,12 @@ import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
+import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.api.TokenSupplier;
 import org.apache.cassandra.distributed.shared.NetworkTopology;
+import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.net.Verb;
+import org.apache.cassandra.service.StorageService;
 
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
@@ -79,6 +89,65 @@ public class BootstrapTest extends TestBaseImpl
 
         for (Map.Entry<Integer, Long> e : withBootstrap.entrySet())
             Assert.assertTrue(e.getValue() >= naturally.get(e.getKey()));
+    }
+
+
+    /**
+     * Apple-internal
+     *
+     * The test creates a 2 nodes cluster. Node1 is the seed. Only node2 enters the bootstrap mode.
+     * A message filter is added to delay the APPLE_REPAIRED_RANGES message (so fetching repaired range cannot complete)
+     * until the insepctor has verified the node2 is still in bootstrap mode.
+     * Once the blocking cluster.startup() proceeds to the next line, all nodes should be _not_ in the bootstrap mode.
+     */
+    @Test
+    public void testBootstrapBlocksUntilAllStreamingCompletes() throws Exception
+    {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (Cluster cluster = Cluster.build(2)
+                                      .withConfig(config -> config.set("enable_christmas_patch", true)
+                                                                  .set("auto_bootstrap", true)
+                                                                  .with(GOSSIP)
+                                                                  .with(NETWORK))
+                                      .createWithoutStarting();
+             Closeable executorCloser = executor::shutdown)
+        {
+
+            final CountDownLatch messageGuard = new CountDownLatch(1);
+            final CountDownLatch inspectorReady = new CountDownLatch(1);
+            final IMessageFilters.Matcher delayMessage = (from, to, msg) ->
+            {
+                inspectorReady.countDown();
+                Uninterruptibles.awaitUninterruptibly(messageGuard);
+                // additional wait time that blocks the bootstrap process and defer the completion of cluster.startup()/
+                Uninterruptibles.sleepUninterruptibly(2, TimeUnit.SECONDS);
+                return false; // do not drop
+            };
+            cluster.filters()
+                   .verbs(Verb.APPLE_REPAIRED_RANGES_REQ.id)
+                   .messagesMatching(delayMessage)
+                   .drop();
+
+            final Runnable inspector = () ->
+            {
+                Uninterruptibles.awaitUninterruptibly(inspectorReady);
+                cluster.get(2).runOnInstance(() -> {
+                    Assert.assertTrue("Node 2 should be still bootstrapping while streaming repaired ranges",
+                                      StorageService.instance.isBootstrapMode());
+                });
+                messageGuard.countDown();
+            };
+            executor.submit(inspector);
+
+            cluster.startup();
+            cluster.forEach(node -> {
+                int nodeId = node.config().num();
+                node.runOnInstance(() -> {
+                    String errorFormat = "All nodes should not be in bootstrap mode after cluster start up. But node %d is still in bootstrap mode";
+                    Assert.assertFalse(String.format(errorFormat, nodeId), StorageService.instance.isBootstrapMode());
+                });
+            });
+        }
     }
 
     public void populate(ICluster cluster)
