@@ -22,13 +22,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.base.Function;
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import javax.annotation.Nullable;
-
 import com.google.common.collect.Multimap;
+import com.google.common.util.concurrent.MoreExecutors;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.gms.FailureDetector;
@@ -160,24 +161,15 @@ public class BootStrapper extends ProgressEventNotifierSupport
                 fireProgressEvent("bootstrap", currentProgress);
             }
         });
-        bootstrapStreamResult.addEventListener(new StreamEventHandler()
+
+        // Run `fetchRepairedRanges` on the completion of bootstrapStreamResult.
+        // If bootstrapStreamResult is failed, the function is skipped.
+        Function<StreamState, StreamState> repairedRangesFetcher = streamState ->
         {
-            public void handleStreamEvent(StreamEvent event)
-            {
-                // Ignore, only care about  ultimate success/failure
-            }
-
-            public void onSuccess(@Nullable StreamState streamState)
-            {
-                streamer.fetchRepairedRanges(Integer.MAX_VALUE);
-            }
-
-            public void onFailure(Throwable throwable)
-            {
-                logger.error("Bootstrap failed, not fetching ranges");
-            }
-        });
-        return bootstrapStreamResult;
+            streamer.fetchRepairedRanges(Integer.MAX_VALUE);
+            return streamState;
+        };
+        return Futures.transform(bootstrapStreamResult, repairedRangesFetcher, MoreExecutors.directExecutor());
     }
 
     public static volatile boolean stopFetchingRepairRanges = false;
