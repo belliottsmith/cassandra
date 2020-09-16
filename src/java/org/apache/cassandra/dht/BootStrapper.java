@@ -22,13 +22,11 @@ import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.base.Function;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-
-import javax.annotation.Nullable;
 
 import com.google.common.collect.Multimap;
 import org.apache.cassandra.utils.FBUtilities;
@@ -57,7 +55,6 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.service.StorageService;
 
 public class BootStrapper extends ProgressEventNotifierSupport
 {
@@ -162,20 +159,19 @@ public class BootStrapper extends ProgressEventNotifierSupport
                 fireProgressEvent("bootstrap", currentProgress);
             }
         });
-        Futures.addCallback(bootstrapStreamResult, new FutureCallback<StreamState>()
-        {
-            public void onSuccess(@Nullable StreamState streamState)
-            {
-                if (DatabaseDescriptor.enableChristmasPatch())
-                    fetchRepairedRanges(streamer.toFetch(), Integer.MAX_VALUE);
-            }
 
-            public void onFailure(Throwable throwable)
+        // Run `fetchRepairedRanges` on the completion of bootstrapStreamResult.
+        // If bootstrapStreamResult is failed, the function is skipped.
+        Function<StreamState, StreamState> repairedRangesFetcher = streamState ->
+        {
+            if (DatabaseDescriptor.enableChristmasPatch())
             {
-                logger.error("Bootstrap failed, not fetching ranges");
+                fetchRepairedRanges(streamer.toFetch(), Integer.MAX_VALUE);
             }
-        });
-        return bootstrapStreamResult;
+            return streamState;
+        };
+
+        return Futures.transform(bootstrapStreamResult, repairedRangesFetcher);
     }
 
     public static volatile boolean stopFetchingRepairRanges = false;
