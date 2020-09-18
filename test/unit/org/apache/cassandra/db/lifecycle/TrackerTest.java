@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.annotation.Nullable;
 
@@ -34,6 +35,7 @@ import org.junit.Test;
 
 import junit.framework.Assert;
 import org.apache.cassandra.MockSchema;
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Memtable;
@@ -267,23 +269,21 @@ public class TrackerTest
         Tracker tracker = cfs.getTracker();
         tracker.subscribe(listener);
 
-        Memtable prev1 = tracker.switchMemtable(true, new Memtable(CommitLog.instance.getContext(), cfs));
+        Memtable prev1 = tracker.switchMemtable(true, new Memtable(new AtomicReference<>(CommitLog.instance.getContext()), cfs));
         OpOrder.Group write1 = cfs.keyspace.writeOrder.getCurrent();
         OpOrder.Barrier barrier1 = cfs.keyspace.writeOrder.newBarrier();
-        prev1.setDiscarding(barrier1);
-        prev1.setCommitLogContiguousUpperBound(CommitLog.instance.getContext());
+        prev1.setDiscarding(barrier1, new AtomicReference<>(CommitLog.instance.getContext()));
         barrier1.issue();
-        Memtable prev2 = tracker.switchMemtable(false, new Memtable(prev1.commitLogContiguousUpperBound(), cfs));
+        Memtable prev2 = tracker.switchMemtable(false, new Memtable(new AtomicReference<>(CommitLog.instance.getContext()), cfs));
         OpOrder.Group write2 = cfs.keyspace.writeOrder.getCurrent();
         OpOrder.Barrier barrier2 = cfs.keyspace.writeOrder.newBarrier();
-        prev2.setDiscarding(barrier2);
-        prev2.setCommitLogContiguousUpperBound(CommitLog.instance.getContext());
+        prev2.setDiscarding(barrier2, new AtomicReference<>(CommitLog.instance.getContext()));
         barrier2.issue();
         Memtable cur = tracker.getView().getCurrentMemtable();
         OpOrder.Group writecur = cfs.keyspace.writeOrder.getCurrent();
-        Assert.assertEquals(prev1, tracker.getMemtableFor(write1));
-        Assert.assertEquals(prev2, tracker.getMemtableFor(write2));
-        Assert.assertEquals(cur, tracker.getMemtableFor(writecur));
+        Assert.assertEquals(prev1, tracker.getMemtableFor(write1, ReplayPosition.NONE));
+        Assert.assertEquals(prev2, tracker.getMemtableFor(write2, ReplayPosition.NONE));
+        Assert.assertEquals(cur, tracker.getMemtableFor(writecur, ReplayPosition.NONE));
         Assert.assertEquals(1, listener.received.size());
         Assert.assertTrue(listener.received.get(0) instanceof MemtableRenewedNotification);
         listener.received.clear();
@@ -314,7 +314,7 @@ public class TrackerTest
         tracker = cfs.getTracker();
         listener = new MockListener(false);
         tracker.subscribe(listener);
-        prev1 = tracker.switchMemtable(false, new Memtable(CommitLog.instance.getContext(), cfs));
+        prev1 = tracker.switchMemtable(false, new Memtable(new AtomicReference<>(CommitLog.instance.getContext()), cfs));
         tracker.markFlushing(prev1);
         reader = MockSchema.sstable(0, 10, true, cfs);
         cfs.invalidate(false);
