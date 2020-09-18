@@ -22,12 +22,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import org.junit.Before;
 import org.junit.Assume;
@@ -41,14 +35,11 @@ import static org.junit.Assert.assertTrue;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
-import com.google.common.util.concurrent.Uninterruptibles;
-
 import org.apache.cassandra.*;
 import org.apache.cassandra.config.*;
 import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
-import org.apache.cassandra.db.commitlog.ReplayPosition;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.db.partitions.*;
@@ -57,7 +48,6 @@ import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.index.transactions.UpdateTransaction;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
@@ -68,9 +58,6 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Hex;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.WrappedRunnable;
-import org.apache.cassandra.utils.concurrent.OpOrder;
-import org.apache.cassandra.utils.memory.MemtableAllocator;
-
 import static junit.framework.Assert.assertNotNull;
 @RunWith(OrderedJUnit4ClassRunner.class)
 public class ColumnFamilyStoreTest
@@ -580,45 +567,6 @@ public class ColumnFamilyStoreTest
             Assert.assertTrue(storedSuccessfulRepairs.containsKey(entry.left));
             Assert.assertEquals(storedSuccessfulRepairs.get(entry.left), entry.right);
         }
-    }
-
-    @Test
-    public void testFlushWhenMemoryExhausted() throws InterruptedException, ExecutionException, TimeoutException
-    {
-        Keyspace keyspace = Keyspace.open(KEYSPACE1);
-        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
-
-        new RowUpdateBuilder(cfs.metadata, 2, "key").clustering("name").add("val", "1").build().applyUnsafe();
-        new RowUpdateBuilder(cfs.metadata, 2, "key1").clustering("name").add("val", "1").build().applyUnsafe();
-        new RowUpdateBuilder(cfs.metadata, 2, "key2").clustering("name").add("val", "1").build().applyUnsafe();
-        PartitionUpdate u1 = new RowUpdateBuilder(cfs.metadata, 2, "key").clustering("name").add("val", "2").build()
-                                                                         .getPartitionUpdates().iterator().next();
-        PartitionUpdate u2 = new RowUpdateBuilder(cfs.metadata, 2, "key").clustering("name").add("val", "3").build()
-                                                                         .getPartitionUpdates().iterator().next();
-        Future<ReplayPosition> flush;
-        ExecutorService exec = Executors.newCachedThreadPool();
-        try (OpOrder.Group g1 = Keyspace.writeOrder.start())
-        {
-            flush = cfs.forceFlush();
-            OpOrder.Group g2 = Keyspace.writeOrder.start();
-            Memtable m2 = cfs.getTracker().getMemtableFor(g2);
-            m2.getAllocator().offHeap().consumeAllMemory();
-            m2.getAllocator().onHeap().consumeAllMemory();
-            m2.markContended(u1.partitionKey());
-            exec.submit(() -> {
-                cfs.apply(u2, UpdateTransaction.NO_OP, g2);
-                g2.close();
-            });
-            exec.submit(() -> {
-                cfs.apply(u1, UpdateTransaction.NO_OP, g1);
-            }).get(10L, TimeUnit.SECONDS);
-        }
-        finally
-        {
-            exec.shutdownNow();
-        }
-        flush.get(10L, TimeUnit.SECONDS);
-        cfs.forceBlockingFlush();
     }
 
     @Test(expected = IllegalStateException.class)
