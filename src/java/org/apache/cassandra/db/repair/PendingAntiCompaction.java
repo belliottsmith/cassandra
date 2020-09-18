@@ -145,13 +145,16 @@ public class PendingAntiCompaction
                 }
                 return false;
             }
-            CompactionInfo ci = CompactionManager.instance.active.getCompactionForSSTable(sstable);
-            if (ci != null && ci.getTaskType() == OperationType.ANTICOMPACTION)
+            Collection<CompactionInfo> cis = CompactionManager.instance.active.getCompactionsForSSTable(sstable, OperationType.ANTICOMPACTION);
+            if (cis != null && !cis.isEmpty())
             {
+                StringBuilder sb = new StringBuilder();
+                for (CompactionInfo ci : cis)
+                    sb.append(ci.getTaskId() == null ? "no compaction id" : ci.getTaskId()).append(':').append(ci.getSSTables()).append(',');
                 // todo: start tracking the parent repair session id that created the anticompaction to be able to give a better error messsage here:
                 String message = String.format("Prepare phase for incremental repair session %s has failed because it encountered " +
-                                               "intersecting sstables (%s) belonging to another incremental repair session. This is " +
-                                               "caused by starting multiple conflicting incremental repairs at the same time", prsid, ci.getSSTables());
+                                               "intersecting sstables belonging to another incremental repair session. This is " +
+                                               "caused by starting multiple conflicting incremental repairs at the same time. Conflicting anticompactions: %s", prsid, sb.toString());
                 throw new SSTableAcquisitionException(message);
             }
             return true;
