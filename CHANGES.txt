@@ -1,4 +1,7 @@
 3.0.19.53
+rdar://62984534 (Apple Internal) Fetching Repaired Ranges is not Guaranteed to Finish Before Bootstrap Completes (#1735)
+rdar://45919099 CASSANDRA-14878: Fix race condition when setting bootstrap flags
+rdar://69098111 (Apple Internal) Revert two commits that comprised an initial CIE-only solution for CASSANDRA-15367 (#1910)
 
 3.0.19.52
 rdar://68799713 (Apple Internal) Paxos: legacyPrepare messages larger than necessary
