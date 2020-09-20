@@ -40,6 +40,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.yaml.snakeyaml.TypeDescription;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.Constructor;
+import org.yaml.snakeyaml.constructor.CustomClassLoaderConstructor;
 import org.yaml.snakeyaml.error.YAMLException;
 import org.yaml.snakeyaml.introspector.MissingProperty;
 import org.yaml.snakeyaml.introspector.Property;
@@ -112,7 +113,7 @@ public class YamlConfigurationLoader implements ConfigurationLoader
                 throw new AssertionError(e);
             }
 
-            Constructor constructor = new CustomConstructor(Config.class);
+            Constructor constructor = new CustomConstructor(Config.class, Yaml.class.getClassLoader());
             MissingPropertiesChecker propertiesChecker = new MissingPropertiesChecker();
             constructor.setPropertyUtils(propertiesChecker);
             Yaml yaml = new Yaml(constructor);
@@ -126,11 +127,11 @@ public class YamlConfigurationLoader implements ConfigurationLoader
         }
     }
 
-    static class CustomConstructor extends Constructor
+    static class CustomConstructor extends CustomClassLoaderConstructor
     {
-        CustomConstructor(Class<?> theRoot)
+        CustomConstructor(Class<?> theRoot, ClassLoader classLoader)
         {
-            super(theRoot);
+            super(theRoot, classLoader);
 
             TypeDescription seedDesc = new TypeDescription(ParameterizedClass.class);
             seedDesc.putMapPropertyType("parameters", String.class, String.class);
@@ -156,6 +157,9 @@ public class YamlConfigurationLoader implements ConfigurationLoader
         }
     }
 
+    /**
+     * Utility class to check that there are no extra properties.
+     */
     private static class MissingPropertiesChecker extends PropertyUtils
     {
         private final Set<String> missingProperties = new HashSet<>();
