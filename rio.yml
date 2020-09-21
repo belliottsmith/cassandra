@@ -64,8 +64,9 @@ builds:
     machine:
       baseImage: docker.apple.com/piedb/parallelci:latest
       env: &upgrade_test_envs
+        #TODO support cie for 3.0 builds
         CASSANDRA_UPGRADE_GIT_URL: "https://github.com/apache/cassandra.git"
-        CASSANDRA_DTEST_VERSIONS: "cassandra-2.2"
+        CASSANDRA_DTEST_VERSIONS: "cassandra-2.2 cassandra-3.0 cassandra-3.11"
     secrets:
       names:
         - k8s_auth_token
