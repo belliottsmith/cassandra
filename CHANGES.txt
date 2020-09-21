@@ -1,3 +1,5 @@
+3.0.19.54
+
 3.0.19.53
 rdar://62984534 (Apple Internal) Fetching Repaired Ranges is not Guaranteed to Finish Before Bootstrap Completes (#1735)
 rdar://45919099 CASSANDRA-14878: Fix race condition when setting bootstrap flags
