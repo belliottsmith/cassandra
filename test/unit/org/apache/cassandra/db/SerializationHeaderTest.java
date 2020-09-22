@@ -96,7 +96,8 @@ public class SerializationHeaderTest
                 // CIE uses keyspace/table name in the path - make them under the tempDir
                 // so that the sstables can be opened again.
                 File dir = Paths.get(tempDir.getPath(), schema.keyspace, schema.name).toFile();
-                dir.mkdirs();                Descriptor descriptor = new Descriptor(BigFormat.latestVersion, dir, schema.keyspace, schema.name, generation.incrementAndGet(), SSTableFormat.Type.BIG);
+                dir.mkdirs();
+                Descriptor descriptor = new Descriptor(BigFormat.latestVersion, dir, schema.keyspace, schema.name, generation.incrementAndGet(), SSTableFormat.Type.BIG);
 
                 SerializationHeader header = SerializationHeader.makeWithoutStats(schema);
                 try (LifecycleTransaction txn = LifecycleTransaction.offline(OperationType.WRITE);
