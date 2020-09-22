@@ -500,11 +500,23 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
     public void schemaChange(String query)
     {
+        schemaChange(query, false);
+    }
+
+    public void schemaChangeIgnoringStoppedInstances(String query)
+    {
+        schemaChange(query, true);
+    }
+
+    private void schemaChange(String query, boolean ignoreStoppedInstances)
+    {
         get(1).sync(() -> {
             try (SchemaChangeMonitor monitor = new SchemaChangeMonitor())
             {
                 // execute the schema change
                 coordinator(1).execute(query, ConsistencyLevel.ALL);
+                if (ignoreStoppedInstances)
+                    monitor.ignoreStoppedInstances();
                 monitor.waitForCompletion();
             }
         }).run();
@@ -539,14 +551,21 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         final SimpleCondition completed;
         private final long timeOut;
         private final TimeUnit timeoutUnit;
+        protected Predicate<IInstance> instanceFilter;
         volatile boolean changed;
 
         public ChangeMonitor(long timeOut, TimeUnit timeoutUnit)
         {
             this.timeOut = timeOut;
             this.timeoutUnit = timeoutUnit;
+            this.instanceFilter = i -> true;
             this.cleanup = new ArrayList<>(instances.size());
             this.completed = new SimpleCondition();
+        }
+
+        public void ignoreStoppedInstances()
+        {
+            instanceFilter = instanceFilter.and(i -> !i.isShutdown());
         }
 
         protected void signal()
@@ -580,8 +599,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
         private void startPolling()
         {
-            for (IInstance instance : instances)
-                cleanup.add(startPolling(instance));
+            instances.stream().filter(instanceFilter).forEach(instance -> cleanup.add(startPolling(instance)));
         }
 
         protected abstract IListen.Cancel startPolling(IInstance instance);
@@ -616,7 +634,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
         protected boolean isCompleted()
         {
-            return 1 == instances.stream().map(IInstance::schemaVersion).distinct().count();
+            return 1 == instances.stream().filter(instanceFilter).map(IInstance::schemaVersion).distinct().count();
         }
 
         protected String getMonitorTimeoutMessage()
