@@ -748,6 +748,8 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy
                 double r2 = o2.getEstimatedDroppableTombstoneRatio(gcBefore);
                 return -1 * Doubles.compare(r1, r2);
             });
+           if (tombstoneSortedSSTables.isEmpty())
+                continue;
 
             Set<SSTableReader> compacting = cfs.getTracker().getCompacting();
             for (SSTableReader sstable : tombstoneSortedSSTables)
