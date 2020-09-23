@@ -288,11 +288,11 @@ public class LeveledManifest
         final Set<SSTableReader> overlaps = new HashSet<>();
         for (int i = generations.levelCount() - 1; i >= 0; i--)
         {
-            if (!getLevel(i).isEmpty())
+            if (!generations.get(i).isEmpty())
             {
                 // overlappingWithMin handles the wrap-around case - if range.right == partitioner min token, all sstables
                 // with end token larger than start will get included
-                overlaps.addAll(overlappingWithMin(cfs.getPartitioner(), range.left, range.right, getLevel(i)));
+                overlaps.addAll(overlappingWithMin(cfs.getPartitioner(), range.left, range.right, generations.get(i)));
             }
         }
         final Set<SSTableReader> toCompact = new HashSet<>(overlaps);
@@ -323,9 +323,9 @@ public class LeveledManifest
         // For example, we might have an sstable covering the full partitioner range in L2, but tiny (range-wise) sstables in L1
         // Then toCompact would currently contain the big L2 sstable, but not all L1 sstables. Here we add everything
         // that overlaps anything in L1 to make sure we can actually drop the result in L1 without causing overlap.
-        if (!getLevel(1).isEmpty())
+        if (!generations.get(1).isEmpty())
         {
-            toCompact.addAll(overlapping(toCompact, getLevel(1)));
+            toCompact.addAll(overlapping(toCompact, generations.get(1)));
         }
 
         return new CompactionCandidate(toCompact, 1, cfs.getCompactionStrategyManager().getMaxSSTableBytes());
@@ -775,6 +775,7 @@ public class LeveledManifest
         return newLevel;
     }
 
+    @VisibleForTesting
     synchronized Set<SSTableReader> getLevel(int level)
     {
         return ImmutableSet.copyOf(generations.get(level));
