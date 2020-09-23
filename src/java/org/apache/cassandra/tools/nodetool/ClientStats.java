@@ -88,7 +88,7 @@ public class ClientStats extends NodeToolCmd
             if (!clients.isEmpty())
             {
                 TableBuilder table = new TableBuilder();
-                table.add("Address", "SSL", "Version", "User", "Keyspace", "Requests");
+                table.add("Address", "SSL", "Cipher", "Protocol", "Version", "User", "Keyspace", "Requests");
                 for (Map<String, String> conn : clients)
                 {
                     table.add(conn.get(ConnectedClient.ADDRESS),
