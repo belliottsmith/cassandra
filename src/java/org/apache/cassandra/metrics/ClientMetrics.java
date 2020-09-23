@@ -21,6 +21,7 @@ package org.apache.cassandra.metrics;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.Timer;
+import org.apache.cassandra.transport.ClientStat;
+import org.apache.cassandra.transport.ConnectedClient;
 import org.apache.cassandra.transport.Server;
 
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
@@ -86,7 +89,7 @@ public final class ClientMetrics
         registerGauge("connectedNativeClients",       this::countConnectedClients);
         registerGauge("connectedNativeClientsByUser", this::countConnectedClientsByUser);
         registerGauge("connections",                  this::connectedClients);
-        registerGauge("clientsByProtocolVersion",     this::connectedClientsByProtocolVersion);
+        registerGauge("clientsByProtocolVersion",     this::recentClientStats);
 
         authSuccess = registerMeter("AuthSuccess");
         authFailure = registerMeter("AuthFailure");
@@ -105,7 +108,7 @@ public final class ClientMetrics
         int count = 0;
 
         for (Server server : servers)
-            count += server.getConnectedClients();
+            count += server.countConnectedClients();
 
         return count;
     }
@@ -116,7 +119,7 @@ public final class ClientMetrics
 
         for (Server server : servers)
         {
-            server.getConnectedClientsByUser()
+            server.countConnectedClientsByUser()
                   .forEach((username, count) -> counts.put(username, counts.getOrDefault(username, 0) + count));
         }
 
@@ -128,30 +131,31 @@ public final class ClientMetrics
         List<Map<String, String>> clients = new ArrayList<>();
 
         for (Server server : servers)
-            for (Map<String, String> client : server.getConnectionStates())
-                clients.add(client);
+            for (ConnectedClient client : server.getConnectedClients())
+                clients.add(new HashMap<>(client.asMap())); // HashMap is in JDK, for client RMI compatibility
 
         return clients;
     }
 
-    private List<Map<String, String>> connectedClientsByProtocolVersion()
+    private List<Map<String, String>> recentClientStats()
     {
+        List<Map<String, String>> stats = new ArrayList<>();
 
-        List<Map<String, String>> result = new ArrayList<>();
         for (Server server : servers)
-        {
-            result.addAll(server.getClientsByProtocolVersion());
-        }
-        return result;
+            for (ClientStat stat : server.recentClientStats())
+                stats.add(stat.asMap());
+
+        stats.sort(Comparator.comparing(map -> map.get(ClientStat.PROTOCOL_VERSION)));
+
+        return stats;
     }
 
-    public <T> Gauge<T> registerGauge(String name, Gauge<T> gauge)
+    private <T> Gauge<T> registerGauge(String name, Gauge<T> gauge)
     {
-
         return Metrics.register(factory.createMetricName(name), gauge);
     }
 
-    public Meter registerMeter(String name)
+    private Meter registerMeter(String name)
     {
         return Metrics.meter(factory.createMetricName(name));
     }

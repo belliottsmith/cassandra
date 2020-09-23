@@ -29,6 +29,8 @@ import org.apache.cassandra.tools.nodetool.formatter.TableBuilder;
 
 import io.airlift.command.Command;
 import io.airlift.command.Option;
+import org.apache.cassandra.transport.ClientStat;
+import org.apache.cassandra.transport.ConnectedClient;
 
 @Command(name = "clientstats", description = "Print information about connected clients")
 public class ClientStats extends NodeToolCmd
@@ -68,7 +70,9 @@ public class ClientStats extends NodeToolCmd
 
                 for (Map<String, String> client : clients)
                 {
-                    table.add(client.get("protocolVersion"), client.get("inetAddress"), sdf.format(new Date(Long.valueOf(client.get("lastSeenTime")))));
+                    table.add(client.get(ClientStat.PROTOCOL_VERSION),
+                              client.get(ClientStat.INET_ADDRESS),
+                              sdf.format(new Date(Long.valueOf(client.get(ClientStat.LAST_SEEN_TIME)))));
                 }
 
                 table.printTo(System.out);
@@ -84,11 +88,17 @@ public class ClientStats extends NodeToolCmd
             if (!clients.isEmpty())
             {
                 TableBuilder table = new TableBuilder();
-                table.add("Address", "SSL", "Version", "User", "Keyspace", "Requests");
+                table.add("Address", "SSL", "Cipher", "Protocol", "Version", "User", "Keyspace", "Requests");
                 for (Map<String, String> conn : clients)
                 {
-                    table.add(conn.get("address"), conn.get("ssl"), conn.get("version"), 
-                              conn.get("user"), conn.get("keyspace"), conn.get("requests"));
+                    table.add(conn.get(ConnectedClient.ADDRESS),
+                              conn.get(ConnectedClient.SSL),
+                              conn.get(ConnectedClient.CIPHER),
+                              conn.get(ConnectedClient.PROTOCOL),
+                              conn.get(ConnectedClient.VERSION),
+                              conn.get(ConnectedClient.USER),
+                              conn.get(ConnectedClient.KEYSPACE),
+                              conn.get(ConnectedClient.REQUESTS));
                 }
                 table.printTo(System.out);
                 System.out.println();
