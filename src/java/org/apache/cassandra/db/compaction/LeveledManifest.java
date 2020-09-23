@@ -799,7 +799,7 @@ public class LeveledManifest
     {
         for (int i = 0, maxLevel = getLevelCount() - 1; i <= maxLevel; i++)
         {
-            Set<SSTableReader> sstables = getLevel(i);
+            Set<SSTableReader> sstables = generations.get(i);
             for (SSTableReader sstable : sstables)
             {
                 if (sstable.isPendingRepair())
