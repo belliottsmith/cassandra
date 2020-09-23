@@ -92,6 +92,8 @@
                      <exclude name="test/unit/org/apache/cassandra/db/QueryMetricsTest.java"/>
                      <exclude name="test/unit/org/apache/cassandra/transport/frame/FrameBodyTransformerTest.java"/>
                      <exclude name="test/distributed/org/apache/cassandra/distributed/upgrade/AlterTypeTest.java"/>
+                     <exclude name="**/test/data/jmxdump/cie-*-jmx.yaml"/>
+                     <exclude name="**/*log4j*.xml"/>
             </fileset>
         </rat:report>
         <exec executable="grep" outputproperty="rat.failed.files" failifexecutionfails="false">
