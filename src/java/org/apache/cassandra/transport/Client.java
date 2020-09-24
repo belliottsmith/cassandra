@@ -102,7 +102,7 @@ public class Client extends SimpleClient
 
     private boolean optionsHasChecksum(Map<String, String> options)
     {
-        return options.containsKey(StartupMessage.CHECKSUM) || options.containsKey(StartupMessage.USE_CHECKSUMS);
+        return options.containsKey(StartupMessage.CHECKSUM) || options.containsKey(StartupMessage.USE_LEGACY_CHECKSUMS);
     }
 
     private Message.Request parseLine(String line)
@@ -155,7 +155,7 @@ public class Client extends SimpleClient
                    case "v4checksum": {
                        if (optionsHasChecksum(options))
                            throw new RuntimeException("Multiple checksum types supplied");
-                       options.put(StartupMessage.USE_CHECKSUMS, "true");
+                       options.put(StartupMessage.USE_LEGACY_CHECKSUMS, "true");
                        useV4Checksum = true;
                        break;
                    }
