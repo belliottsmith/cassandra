@@ -298,7 +298,7 @@ public final class Generators
         if (max < min)
             throw new IllegalArgumentException("Max was less than min; given min=" + min + " and max=" + max);
         Constraint sizeConstraint = Constraint.between(min, max);
-        return rnd -> {
+        Gen<ByteBuffer> gen = rnd -> {
             // since Constraint is immutable and the max was checked, its already proven to be int
             int size = (int) rnd.next(sizeConstraint);
             // to add more randomness, also shift offset in the array so the same size doesn't yield the same bytes
@@ -306,6 +306,7 @@ public final class Generators
 
             return ByteBuffer.wrap(LazySharedBlob.SHARED_BYTES, offset, size);
         };
+        return gen.describedAs(ByteBufferUtil::bytesToHex);
     }
 
     /**

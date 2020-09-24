@@ -230,9 +230,9 @@ public interface FrameCompressor
 
             try
             {
-                int read = decompressor.decompress(input, INTEGER_BYTES, input.length, output.array(), output.arrayOffset(), uncompressedLength);
-                if (read != input.length - INTEGER_BYTES)
-                    throw new IOException("Compressed lengths mismatch");
+                int read = decompressor.decompress(input, INTEGER_BYTES, input.length - INTEGER_BYTES, output.array(), output.arrayOffset(), uncompressedLength);
+                if (read != uncompressedLength)
+                    throw new IOException("Compressed lengths mismatch; expected " + uncompressedLength + " but given " + read);
 
                 output.writerIndex(uncompressedLength);
 
