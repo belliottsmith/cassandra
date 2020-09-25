@@ -1,4 +1,10 @@
 4.0.0.5
+* <rdar://69441893> CIE4 add JMX compatibility tests for CIE 3.0 and 4.0 releases
+* <rdar://57320124> Forward port <rdar://problem/57320124> Fix "involved in several compactions" exception (#1433)
+* <rdar://62984534> fix "Cannot service reads while bootstrapping" (#1893)
+* <rdar://68532101> make sure MockSchema.sstable() disposes of its FileHandles properly
+* <rdar://67080928> Re-order startup checks so that filesystem ownership check runs first
+* <rdar://68102540> (MapSerializer.getInstance does not include comparator in serializer cache, returning incorrect serializer)
 
 4.0.0.4
  * <rdar://67940452> (Apple Internal) Exception during repair history sync (#1881)
