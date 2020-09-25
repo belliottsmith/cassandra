@@ -1,3 +1,5 @@
+4.0.0.6
+
 4.0.0.5
 * <rdar://69441893> CIE4 add JMX compatibility tests for CIE 3.0 and 4.0 releases
 * <rdar://57320124> Forward port <rdar://problem/57320124> Fix "involved in several compactions" exception (#1433)
