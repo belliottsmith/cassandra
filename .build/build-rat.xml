@@ -74,6 +74,7 @@
                      <!-- ACI Cassandra files -->
                      <exclude NAME="LOCAL-RIO.md"/>
                      <exclude NAME="rio.yml"/>
+                     <exclude NAME="rio-build.xml"/>
                      <exclude NAME="rio/*"/>
                      <exclude NAME="src/java/com/**"/>
                      <exclude NAME="test/*/com/**"/>
