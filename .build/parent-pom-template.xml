@@ -456,9 +456,9 @@
         <scope>test</scope>
       </dependency>
       <dependency>
-        <groupId>org.quicktheories</groupId>
+        <groupId>com.apple.pie.cassandra.quicktheories</groupId>
         <artifactId>quicktheories</artifactId>
-        <version>0.26</version>
+        <version>0.26.1</version>
         <scope>test</scope>
       </dependency>
       <dependency>
