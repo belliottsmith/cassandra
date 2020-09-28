@@ -536,7 +536,7 @@
             <exclusion groupId="org.hamcrest" artifactId="hamcrest-core"/>
           </dependency>
           <dependency groupId="org.mockito" artifactId="mockito-core" version="3.2.4" scope="test"/>
-          <dependency groupId="org.quicktheories" artifactId="quicktheories" version="0.26" scope="test"/>
+          <dependency groupId="com.apple.pie.cassandra.quicktheories" artifactId="quicktheories" version="0.26.1" scope="test"/>
           <dependency groupId="com.google.code.java-allocation-instrumenter" artifactId="java-allocation-instrumenter" version="${allocation-instrumenter.version}" scope="test">
             <exclusion groupId="com.google.guava" artifactId="guava"/>
           </dependency>
@@ -736,7 +736,7 @@
         <dependency groupId="org.ow2.asm" artifactId="asm-util" version="${asm.version}" scope="test"/>
         <dependency groupId="com.google.jimfs" artifactId="jimfs" version="1.1" scope="test"/>
         <dependency groupId="com.puppycrawl.tools" artifactId="checkstyle" scope="test"/>
-        <dependency groupId="org.quicktheories" artifactId="quicktheories" scope="test"/>
+        <dependency groupId="com.apple.pie.cassandra.quicktheories" artifactId="quicktheories"/>
         <dependency groupId="org.reflections" artifactId="reflections" scope="test"/>
         <dependency groupId="com.google.code.java-allocation-instrumenter" artifactId="java-allocation-instrumenter" version="${allocation-instrumenter.version}" scope="test"/>
         <dependency groupId="org.apache.cassandra" artifactId="dtest-api" scope="test"/>
