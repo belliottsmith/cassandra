@@ -447,7 +447,7 @@ public abstract class Message
          */
         @VisibleForTesting
         static final LocalAwareExecutorService authExecutor = SHARED.newExecutor(Math.max(1, DatabaseDescriptor.getNativeTransportMaxAuthThreads()),
-                                                                                 DatabaseDescriptor::setNativeTransportMaxThreads,
+                                                                                 DatabaseDescriptor::setNativeTransportMaxAuthThreads,
                                                                                  Integer.MAX_VALUE,
                                                                                  "transport",
                                                                                  "Native-Transport-Auth-Requests");
