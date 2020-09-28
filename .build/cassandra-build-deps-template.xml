@@ -63,7 +63,7 @@
       <artifactId>checkstyle</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.quicktheories</groupId>
+      <groupId>com.apple.pie.cassandra.quicktheories</groupId>
       <artifactId>quicktheories</artifactId>
     </dependency>
     <dependency>
