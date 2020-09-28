@@ -529,7 +529,7 @@
             <exclusion groupId="org.hamcrest" artifactId="hamcrest-core"/>
           </dependency>
           <dependency groupId="org.mockito" artifactId="mockito-core" version="3.2.4" scope="test"/>
-          <dependency groupId="org.quicktheories" artifactId="quicktheories" version="0.26" scope="test"/>
+          <dependency groupId="com.apple.pie.cassandra.quicktheories" artifactId="quicktheories" version="0.26.1" scope="test"/>
           <dependency groupId="com.google.code.java-allocation-instrumenter" artifactId="java-allocation-instrumenter" version="${allocation-instrumenter.version}" scope="test">
             <exclusion groupId="com.google.guava" artifactId="guava"/>
           </dependency>
@@ -719,7 +719,7 @@
         <dependency groupId="junit" artifactId="junit"/>
         <dependency groupId="commons-io" artifactId="commons-io"/>
         <dependency groupId="org.mockito" artifactId="mockito-core"/>
-        <dependency groupId="org.quicktheories" artifactId="quicktheories"/>
+        <dependency groupId="com.apple.pie.cassandra.quicktheories" artifactId="quicktheories"/>
         <dependency groupId="org.reflections" artifactId="reflections"/>
         <dependency groupId="com.google.code.java-allocation-instrumenter" artifactId="java-allocation-instrumenter" version="${allocation-instrumenter.version}"/>
         <dependency groupId="org.apache.cassandra" artifactId="dtest-api"/>
