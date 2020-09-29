@@ -167,6 +167,11 @@ public class ByteBufferAccessor implements ValueAccessor<ByteBuffer>
         return value.getShort(value.position() + offset);
     }
 
+    public int getUnsignedShort(ByteBuffer value, int offset)
+    {
+        return ByteBufferUtil.getShortLength(value, offset);
+    }
+
     public int toInt(ByteBuffer value)
     {
         return ByteBufferUtil.toInt(value);
