@@ -164,6 +164,12 @@ public class ByteArrayAccessor implements ValueAccessor<byte[]>
         return ByteArrayUtil.getShort(value, offset);
     }
 
+    @Override
+    public int getUnsignedShort(byte[] value, int offset)
+    {
+        return ByteArrayUtil.getUnsignedShort(value, offset);
+    }
+
     public int toInt(byte[] value)
     {
         return getInt(value, 0);
