@@ -1,4 +1,7 @@
 4.0.0.6
+* <rdar://68832338> (Apple Internal) Expand_cluster add DC failing on 4.x cluster with error
+* <rdar://69762139> (Early merge CASSANDRA-16147) ValueAccessor is using signed shorts in sliceWithSho… (#1937)
+* <rdar://69576522> (Apple Internal) Switch to use a released version of QuickTheories
 
 4.0.0.5
 * <rdar://69441893> CIE4 add JMX compatibility tests for CIE 3.0 and 4.0 releases
