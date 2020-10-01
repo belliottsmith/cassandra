@@ -21,22 +21,30 @@ package org.apache.cassandra.service.paxos.cleanup;
 import java.net.InetAddress;
 import java.util.*;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.AbstractFuture;
 import com.google.common.util.concurrent.ListenableFuture;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.gms.EndpointState;
+import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.net.*;
+import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.paxos.Commit;
 import org.apache.cassandra.service.paxos.Paxos;
+import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.utils.UUIDSerializer;
-import org.apache.cassandra.utils.VoidSerializer;
+
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_CLEANUP_PREPARE;
 
 /**
  * Determines the highest ballot we should attempt to repair
  */
 public class PaxosPrepareCleanup extends AbstractFuture<UUID> implements IAsyncCallbackWithFailure<UUID>
 {
+    private static final Logger logger = LoggerFactory.getLogger(PaxosPrepareCleanup.class);
     private final Set<InetAddress> waitingResponse;
     private UUID maxBallot = null;
 
@@ -45,12 +53,17 @@ public class PaxosPrepareCleanup extends AbstractFuture<UUID> implements IAsyncC
         this.waitingResponse = new HashSet<>(endpoints);
     }
 
-    public static ListenableFuture<UUID> prepare(Collection<InetAddress> endpoints)
+    /**
+     * We run paxos repair as part of topology changes, so we include the local endpoint state in the paxos repair
+     * prepare message to prevent racing with gossip dissemination and guarantee that every repair participant is aware
+     * of the pending ring change during repair.
+     */
+    public static PaxosPrepareCleanup prepare(Collection<InetAddress> endpoints, EndpointState localEpState)
     {
         PaxosPrepareCleanup callback = new PaxosPrepareCleanup(endpoints);
-        MessageOut<Void> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_CLEANUP_PREPARE, null, VoidSerializer.serializer);
+        MessageOut<EndpointState> message = new MessageOut<>(APPLE_PAXOS_CLEANUP_PREPARE, localEpState, EndpointState.serializer);
         for (InetAddress endpoint : endpoints)
-            MessagingService.instance().sendRR(message, endpoint, callback);
+            MessagingService.instance().sendRRWithFailure(message, endpoint, callback);
         return callback;
     }
 
@@ -79,10 +92,32 @@ public class PaxosPrepareCleanup extends AbstractFuture<UUID> implements IAsyncC
         return false;
     }
 
-    public static final IVerbHandler<Void> verbHandler = (message, id) -> {
-        MessageOut<UUID> msg = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE,
-                                                Paxos.newBallot(null, ConsistencyLevel.SERIAL),
-                                                UUIDSerializer.serializer);
+    private static void maybeUpdateTopology(InetAddress endpoint, EndpointState remote)
+    {
+        EndpointState local = Gossiper.instance.getEndpointStateForEndpoint(endpoint);
+        if (local == null || local.isSupersededBy(remote))
+        {
+            logger.trace("updating endpoint info for {} with {}", endpoint, remote);
+            Map<InetAddress, EndpointState> states = Collections.singletonMap(endpoint, remote);
+
+            Gossiper.runInGossipStageBlocking(() -> {
+                Gossiper.instance.notifyFailureDetector(states);
+                Gossiper.instance.applyStateLocally(states);
+            });
+            // TODO: We should also wait for schema pulls/pushes, however this would be quite an involved change to MigrationManager
+            //       (which currently drops some migration tasks on the floor).
+            //       Note it would be fine for us to fail to complete the migration task and simply treat this response as a failure/timeout.
+        }
+        // even if we have th latest gossip info, wait until pending range calculations are complete
+        PendingRangeCalculatorService.instance.blockUntilFinished();
+    }
+
+    public static final IVerbHandler<EndpointState> verbHandler = (message, id) -> {
+        maybeUpdateTopology(message.from, message.payload);
+        UUID highBound = PaxosState.ballotTracker().getHighBound();
+        if (highBound == null)
+            highBound = Paxos.newBallot(null, ConsistencyLevel.SERIAL);
+        MessageOut<UUID> msg = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, highBound, UUIDSerializer.serializer);
         MessagingService.instance().sendReply(msg, id, message.from);
     };
 }

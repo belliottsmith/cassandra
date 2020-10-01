@@ -882,8 +882,8 @@ public class DatabaseDescriptor
 
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
 
-        if (conf.paxos_repair_paralellism <= 0)
-            config.paxos_repair_paralellism = Math.max(1, conf.concurrent_writes / 8);
+        if (conf.paxos_repair_parallelism <= 0)
+            conf.paxos_repair_parallelism = Math.max(1, conf.concurrent_writes / 8);
 
         repairedDataTrackingExclusions =
             RepairedDataTrackingExclusions.fromConfig(conf.repaired_data_tracking_exclusions);
@@ -1890,6 +1890,26 @@ public class DatabaseDescriptor
         return conf.paxos_variant;
     }
 
+    public static boolean skipPaxosRepairOnTopologyChange()
+    {
+        return conf.skip_paxos_repair_on_topology_change;
+    }
+
+    public static void setSkipPaxosRepairOnTopologyChange(boolean value)
+    {
+        conf.skip_paxos_repair_on_topology_change = value;
+    }
+
+    public static Set<String> skipPaxosRepairOnTopologyChangeKeyspaces()
+    {
+        return conf.skip_paxos_repair_on_topology_change_keyspaces;
+    }
+
+    public static void setSkipPaxosRepairOnTopologyChangeKeyspaces(String keyspaces)
+    {
+        conf.skip_paxos_repair_on_topology_change_keyspaces = Config.splitCommaDelimited(keyspaces);
+    }
+
     public static boolean getNativeTransportAllowOlderProtocols()
     {
         return conf.native_transport_allow_older_protocols;
@@ -2546,15 +2566,15 @@ public class DatabaseDescriptor
         conf.repair_session_max_tree_depth = depth;
     }
 
-    public static int getPaxosRepairParalellism()
+    public static int getPaxosRepairParallelism()
     {
-        return conf.paxos_repair_paralellism;
+        return conf.paxos_repair_parallelism;
     }
 
-    public static void setPaxosRepairParalellism(int v)
+    public static void setPaxosRepairParallelism(int v)
     {
         Preconditions.checkArgument(v > 0);
-        conf.paxos_repair_paralellism = v;
+        conf.paxos_repair_parallelism = v;
     }
 
     public static boolean getOutboundBindAny()

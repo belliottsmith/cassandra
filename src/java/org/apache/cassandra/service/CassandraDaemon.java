@@ -31,10 +31,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import javax.management.MBeanServer;
 import javax.management.ObjectName;
 import javax.management.StandardMBean;
 import javax.management.remote.JMXConnectorServer;
@@ -61,7 +57,6 @@ import org.apache.cassandra.auth.AuthenticatedUser;
 import org.apache.cassandra.auth.IAuthenticator;
 import org.apache.cassandra.auth.PasswordAuthenticator;
 import org.apache.cassandra.auth.Roles;
-import org.apache.cassandra.concurrent.*;
 import org.apache.cassandra.config.CFMetaData;
 
 import org.apache.cassandra.concurrent.ScheduledExecutors;
@@ -193,7 +188,7 @@ public class CassandraDaemon
 
         NativeLibrary.tryMlockall();
 
-        PaxosState.initializeTracker();
+        PaxosState.initializeTrackers();
 
         try
         {

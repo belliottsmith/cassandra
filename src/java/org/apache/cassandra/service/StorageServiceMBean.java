@@ -834,4 +834,10 @@ public interface StorageServiceMBean extends NotificationEmitter
     {
         DatabaseDescriptor.setLargePartitionIndexWarningThresholdKb(value);
     }
+
+    boolean getSkipPaxosRepairOnTopologyChange();
+    void setSkipPaxosRepairOnTopologyChange(boolean v);
+
+    String getSkipPaxosRepairOnTopologyChangeKeyspaces();
+    void setSkipPaxosRepairOnTopologyChangeKeyspaces(String v);
 }

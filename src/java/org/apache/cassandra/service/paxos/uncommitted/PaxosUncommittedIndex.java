@@ -34,6 +34,7 @@ import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.partitions.*;
+import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.InvalidRequestException;
@@ -46,6 +47,9 @@ import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.OpOrder;
+
+import static org.apache.cassandra.service.paxos.PaxosState.ballotTracker;
+import static org.apache.cassandra.service.paxos.PaxosState.uncommittedTracker;
 
 /**
  * A 2i implementation made specifically for system.paxos that listens for changes to paxos state by interpreting
@@ -61,7 +65,6 @@ import org.apache.cassandra.utils.concurrent.OpOrder;
 public class PaxosUncommittedIndex implements Index, PaxosUncommittedTracker.UpdateSupplier
 {
     public final ColumnFamilyStore baseCfs;
-    private final PaxosUncommittedTracker tracker = PaxosState.tracker();
     protected IndexMetadata metadata;
 
     private static final Collection<Range<Token>> FULL_RANGE = Collections.singleton(new Range<>(DatabaseDescriptor.getPartitioner().getMinimumToken(),
@@ -77,7 +80,7 @@ public class PaxosUncommittedIndex implements Index, PaxosUncommittedTracker.Upd
         this.metadata = metadata;
 
         this.memtableColumnFilter = ColumnFilter.all(baseCfs.metadata);
-        PaxosState.tracker().setUpdateSupplier(this);
+        uncommittedTracker().setUpdateSupplier(this);
     }
 
     public static IndexMetadata indexMetadata()
@@ -160,7 +163,8 @@ public class PaxosUncommittedIndex implements Index, PaxosUncommittedTracker.Upd
     public Callable<?> getBlockingFlushTask()
     {
         return (Callable<Object>) () -> {
-            tracker.flushUpdates();
+            uncommittedTracker().flushUpdates();
+            ballotTracker().flush();
             return null;
         };
     }
@@ -168,7 +172,8 @@ public class PaxosUncommittedIndex implements Index, PaxosUncommittedTracker.Upd
     public Callable<?> getInvalidateTask()
     {
         return (Callable<Object>) () -> {
-            tracker.truncate();
+            uncommittedTracker().truncate();
+            ballotTracker().truncate();
             return null;
         };
     }
@@ -176,7 +181,8 @@ public class PaxosUncommittedIndex implements Index, PaxosUncommittedTracker.Upd
     public Callable<?> getTruncateTask(long truncatedAt)
     {
         return (Callable<Object>) () -> {
-            tracker.truncate();
+            uncommittedTracker().truncate();
+            ballotTracker().truncate();
             return null;
         };
     }
@@ -219,7 +225,7 @@ public class PaxosUncommittedIndex implements Index, PaxosUncommittedTracker.Upd
 
     public Indexer indexerFor(DecoratedKey key, PartitionColumns columns, int nowInSec, OpOrder.Group opGroup, IndexTransaction.Type transactionType)
     {
-        return null;
+        return indexer;
     }
 
     public BiFunction<PartitionIterator, ReadCommand, PartitionIterator> postProcessorFor(ReadCommand command)
@@ -231,4 +237,24 @@ public class PaxosUncommittedIndex implements Index, PaxosUncommittedTracker.Upd
     {
         throw new UnsupportedOperationException();
     }
+
+    private final Indexer indexer = new Indexer()
+    {
+        public void begin() {}
+        public void partitionDelete(DeletionTime deletionTime) {}
+        public void rangeTombstone(RangeTombstone tombstone) {}
+
+        public void insertRow(Row row)
+        {
+            ballotTracker().onUpdate(row);
+        }
+
+        public void updateRow(Row oldRowData, Row newRowData)
+        {
+            ballotTracker().onUpdate(newRowData);
+        }
+
+        public void removeRow(Row row) {}
+        public void finish() {}
+    };
 }

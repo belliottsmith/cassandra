@@ -37,6 +37,6 @@ public interface ActiveRepairServiceMBean
     public int getRepairPendingCompactionRejectThreshold();
     public void setRepairPendingCompactionRejectThreshold(int value);
 
-    public int getPaxosRepairParalellism();
-    public void setPaxosRepairParalellism(int v);
+    public int getPaxosRepairParallelism();
+    public void setPaxosRepairParallelism(int v);
 }
