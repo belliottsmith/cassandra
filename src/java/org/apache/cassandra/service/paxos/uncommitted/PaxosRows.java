@@ -36,9 +36,11 @@ import org.apache.cassandra.service.paxos.Commit;
 import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.CloseableIterator;
 
+import static org.apache.cassandra.service.paxos.Commit.latest;
+
 class PaxosRows
 {
-    private static final ColumnDefinition IN_PROGRESS = paxosUUIDColumn("in_progress_ballot");
+    private static final ColumnDefinition PROMISE = paxosUUIDColumn("in_progress_ballot");
     private static final ColumnDefinition PROPOSAL = paxosUUIDColumn("proposal_ballot");
     private static final ColumnDefinition COMMIT = paxosUUIDColumn("most_recent_commit_at");
 
@@ -90,15 +92,15 @@ class PaxosRows
         if (targetCfId != null && !targetCfId.equals(cfId))
             return null;
 
-        UUID proposal = getBallot(row, PROPOSAL);
+        UUID inProgress = latest(getBallot(row, PROMISE), getBallot(row, PROPOSAL));
         UUID commit = getBallot(row, COMMIT);
 
-        if (proposal == null && commit == null)
+        if (inProgress == null && commit == null)
             return null;
 
         // if uncommitted & commit are equal, we'll return committed
-        return Commit.isAfter(proposal, commit) ?
-               new PaxosKeyState(cfId, key, proposal, false) :
+        return Commit.isAfter(inProgress, commit) ?
+               new PaxosKeyState(cfId, key, inProgress, false) :
                new PaxosKeyState(cfId, key, commit, true);
     }
 
@@ -177,11 +179,11 @@ class PaxosRows
         ColumnDefinition maxCDef = null;
 
 
-        long inProgress = getTimestamp(row, IN_PROGRESS);
+        long inProgress = getTimestamp(row, PROMISE);
         if (inProgress > maxBallot)
         {
             maxBallot = inProgress;
-            maxCDef = IN_PROGRESS;
+            maxCDef = PROMISE;
         }
 
         long proposal = getTimestamp(row, PROPOSAL);

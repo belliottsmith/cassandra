@@ -89,7 +89,7 @@ public class PaxosUncommittedTrackerIntegrationTest
 
         try (CloseableIterator<UncommittedPaxosKey> iterator = tracker.uncommittedKeyIterator(cfm.cfId, ALL_RANGES, null))
         {
-            Assert.assertFalse(iterator.hasNext());
+            Assert.assertEquals(key, Iterators.getOnlyElement(iterator).getKey());
         }
 
         try (PaxosState state = PaxosState.get(key, cfm, proposal.ballot))
