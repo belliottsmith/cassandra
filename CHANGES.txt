@@ -1,4 +1,21 @@
 3.0.19.54
+rdar://69866491 (Apple Internal) Enable Christmas patch by default (#1949) (#1950)
+rdar://69950605 (Apple Internal) Paxos: assertion error during transition from legacy to apple_rrl
+rdar://69879381 (Apple Internal) Paxos: Possible linearizability violation with topology repair (#1947)
+rdar://69453633 (Apple Internal) 3.0.19.52: AssertionError @ org.apache.cassandra.service.paxos.PaxosState$Snapshot.<init>(PaxosState.java:126) (#1923)
+rdar://69875601 (Apple Internal) Paxos: Linearizability violation detected[4] (#1946)
+rdar://69802282 (Apple Internal) Paxos: Linearizability violation detected[2] (#1944)
+rdar://69827755 (Apple Internal) Paxos: Linearizability violation detected (#1941)
+<rdar://69576522> (Apple Internal) Switch to use a released version of QuickTheories
+rdar://68102268 (Apple Internal) MapSerializer.getInstance does not include comparator in serializer cache, returning incorrect serializer
+rdar://69713275 (Apple Internal) Paxos: Promises may timeout instead of retrying (#1943)
+rdar://69713758 (Apple Internal) Paxos: Repair may live-lock (#1935)
+rdar://69832419 (Apple Internal) Paxos: Topology repair calculates wrong endpoints
+rdar://69834144 (Apple Internal) Paxos: Repair must invalidate old operations (#1787)
+rdar://69713828 (Apple Internal) Paxos: Verify transition to/from Legacy Paxos and Apple Paxos (#1936)
+rdar://68864529 (Apple Internal) Resizing auth thread pool incorrectly updates the request pool size
+rdar://69331245 (Apple Internal) LZ4 decompression errors on connect: 'java.lang.ArrayIndexOutOfBoundsException: Array index out of range: X' (#1915) (#1917)
+rdar://64899420 (Apple Internal) Clean up and refactor client metrics
 
 3.0.19.53
 rdar://62984534 (Apple Internal) Fetching Repaired Ranges is not Guaranteed to Finish Before Bootstrap Completes (#1735)
