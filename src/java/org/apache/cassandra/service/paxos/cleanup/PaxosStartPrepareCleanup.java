@@ -41,23 +41,23 @@ import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.paxos.Commit;
 import org.apache.cassandra.utils.UUIDSerializer;
 
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_CLEANUP_PREPARE;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_CLEANUP_START_PREPARE;
 import static org.apache.cassandra.service.paxos.Paxos.newBallot;
 import static org.apache.cassandra.service.paxos.PaxosState.ballotTracker;
 
 /**
  * Determines the highest ballot we should attempt to repair
  */
-public class PaxosPrepareCleanup extends AbstractFuture<UUID> implements IAsyncCallbackWithFailure<UUID>
+public class PaxosStartPrepareCleanup extends AbstractFuture<UUID> implements IAsyncCallbackWithFailure<UUID>
 {
-    private static final Logger logger = LoggerFactory.getLogger(PaxosPrepareCleanup.class);
+    private static final Logger logger = LoggerFactory.getLogger(PaxosStartPrepareCleanup.class);
 
     public static final RequestSerializer serializer = new RequestSerializer();
 
     private final Set<InetAddress> waitingResponse;
     private UUID maxBallot = null;
 
-    PaxosPrepareCleanup(Collection<InetAddress> endpoints)
+    PaxosStartPrepareCleanup(Collection<InetAddress> endpoints)
     {
         this.waitingResponse = new HashSet<>(endpoints);
     }
@@ -67,10 +67,10 @@ public class PaxosPrepareCleanup extends AbstractFuture<UUID> implements IAsyncC
      * prepare message to prevent racing with gossip dissemination and guarantee that every repair participant is aware
      * of the pending ring change during repair.
      */
-    public static PaxosPrepareCleanup prepare(UUID cfId, Collection<InetAddress> endpoints, EndpointState localEpState)
+    public static PaxosStartPrepareCleanup prepare(UUID cfId, Collection<InetAddress> endpoints, EndpointState localEpState)
     {
-        PaxosPrepareCleanup callback = new PaxosPrepareCleanup(endpoints);
-        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_CLEANUP_PREPARE, new Request(cfId, localEpState), serializer);
+        PaxosStartPrepareCleanup callback = new PaxosStartPrepareCleanup(endpoints);
+        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_CLEANUP_START_PREPARE, new Request(cfId, localEpState), serializer);
         for (InetAddress endpoint : endpoints)
             MessagingService.instance().sendRRWithFailure(message, endpoint, callback);
         return callback;

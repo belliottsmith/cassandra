@@ -22,35 +22,29 @@ import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.Executor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.*;
 
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.gms.EndpointState;
-import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.utils.FBUtilities;
 
-public class PaxosCleanupSession extends AbstractFuture<UUID> implements Runnable
+public class PaxosCleanupSession extends AbstractFuture<Void> implements Runnable
 {
     private static final Map<UUID, PaxosCleanupSession> sessions = new ConcurrentHashMap<>();
 
     private final UUID session = UUID.randomUUID();
     private final UUID cfId;
     private final Collection<Range<Token>> ranges;
-    private final UUID before;
     private final Queue<InetAddress> pendingCleanups = new ConcurrentLinkedQueue<>();
     private InetAddress inProgress = null;
 
-    public PaxosCleanupSession(Collection<InetAddress> endpoints, UUID cfId, Collection<Range<Token>> ranges, UUID before)
+    public PaxosCleanupSession(Collection<InetAddress> endpoints, UUID cfId, Collection<Range<Token>> ranges)
     {
         this.cfId = cfId;
         this.ranges = ranges;
-        this.before = before;
 
         pendingCleanups.addAll(endpoints);
     }
@@ -75,7 +69,7 @@ public class PaxosCleanupSession extends AbstractFuture<UUID> implements Runnabl
 
     private void startCleanup(InetAddress endpoint)
     {
-        PaxosCleanupRequest completer = new PaxosCleanupRequest(session, cfId, ranges, before);
+        PaxosCleanupRequest completer = new PaxosCleanupRequest(session, cfId, ranges);
         MessageOut<PaxosCleanupRequest> msg = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_CLEANUP_REQUEST, completer, PaxosCleanupRequest.serializer);
         MessagingService.instance().sendOneWay(msg, endpoint);
     }
@@ -98,7 +92,7 @@ public class PaxosCleanupSession extends AbstractFuture<UUID> implements Runnabl
         else
         {
             removeSession(this);
-            set(before);
+            set(null);
         }
     }
 

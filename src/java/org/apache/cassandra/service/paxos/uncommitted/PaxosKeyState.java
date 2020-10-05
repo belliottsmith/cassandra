@@ -22,7 +22,6 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterators;
@@ -31,12 +30,9 @@ import com.google.common.primitives.Longs;
 
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.service.paxos.Commit;
 import org.apache.cassandra.service.paxos.Paxos;
-import org.apache.cassandra.utils.AbstractIterator;
 import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.MergeIterator;
-import org.apache.cassandra.utils.UUIDGen;
 
 class PaxosKeyState implements UncommittedPaxosKey
 {
@@ -131,39 +127,9 @@ class PaxosKeyState implements UncommittedPaxosKey
         }
     }
 
-    private static class FilteringIterator extends AbstractIterator<PaxosKeyState> implements CloseableIterator<PaxosKeyState>
+    public static CloseableIterator<PaxosKeyState> mergeUncommitted(CloseableIterator<PaxosKeyState>... iterators)
     {
-        private final MergeIterator<PaxosKeyState, PaxosKeyState> mergeIterator;
-        private final UUID before;
-
-        public FilteringIterator(MergeIterator<PaxosKeyState, PaxosKeyState> mergeIterator, UUID before)
-        {
-            this.mergeIterator = mergeIterator;
-            this.before = before;
-        }
-
-        protected PaxosKeyState computeNext()
-        {
-            while (mergeIterator.hasNext())
-            {
-                PaxosKeyState next = mergeIterator.next();
-                if (next.committed || (before != null && Commit.isAfter(next.ballot, before)))
-                    continue;
-                return next;
-            }
-            return endOfData();
-        }
-
-        public void close()
-        {
-            mergeIterator.close();
-        }
-    }
-
-    public static CloseableIterator<PaxosKeyState> mergeUncommitted(UUID before, CloseableIterator<PaxosKeyState>... iterators)
-    {
-        MergeIterator<PaxosKeyState, PaxosKeyState> mergeIterator = MergeIterator.get(Lists.newArrayList(iterators), PaxosKeyState.KEY_COMPARATOR, new Reducer());
-        return new FilteringIterator(mergeIterator, before);
+        return MergeIterator.get(Lists.newArrayList(iterators), PaxosKeyState.KEY_COMPARATOR, new Reducer());
     }
 
     public static CloseableIterator<UncommittedPaxosKey> toUncommittedInfo(CloseableIterator<PaxosKeyState> iter)

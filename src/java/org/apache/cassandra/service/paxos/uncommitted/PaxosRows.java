@@ -18,7 +18,7 @@
 
 package org.apache.cassandra.service.paxos.uncommitted;
 
-import java.nio.ByteBuffer;
+import java.io.IOException;
 import java.util.UUID;
 
 import com.google.common.collect.Lists;
@@ -26,29 +26,38 @@ import com.google.common.collect.Lists;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.BytesType;
+import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.TimeUUIDType;
 import org.apache.cassandra.db.marshal.UUIDType;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.DeserializationHelper;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
-import org.apache.cassandra.service.paxos.Commit;
 import org.apache.cassandra.utils.AbstractIterator;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CloseableIterator;
+import org.apache.cassandra.utils.JVMStabilityInspector;
+import org.apache.cassandra.utils.UUIDGen;
 
-import static org.apache.cassandra.service.paxos.Commit.latest;
+import static org.apache.cassandra.db.partitions.PartitionUpdate.PartitionUpdateSerializer.*;
+import static org.apache.cassandra.service.paxos.Commit.isAfter;
 
 class PaxosRows
 {
-    private static final ColumnDefinition PROMISE = paxosUUIDColumn("in_progress_ballot");
-    private static final ColumnDefinition PROPOSAL = paxosUUIDColumn("proposal_ballot");
-    private static final ColumnDefinition COMMIT = paxosUUIDColumn("most_recent_commit_at");
+    private static final ColumnDefinition PROMISE = paxosColumn("in_progress_ballot", TimeUUIDType.instance);
+    private static final ColumnDefinition PROPOSAL = paxosColumn("proposal_ballot", TimeUUIDType.instance);
+    private static final ColumnDefinition PROPOSAL_UPDATE = paxosColumn("proposal", BytesType.instance);
+    private static final ColumnDefinition PROPOSAL_VERSION = paxosColumn("proposal_version", Int32Type.instance);
+    private static final ColumnDefinition COMMIT = paxosColumn("most_recent_commit_at", TimeUUIDType.instance);
 
     private PaxosRows() {}
 
-    private static ColumnDefinition paxosUUIDColumn(String name)
+    private static ColumnDefinition paxosColumn(String name, AbstractType<?> type)
     {
-        return ColumnDefinition.regularDef(SystemKeyspace.NAME, SystemKeyspace.PAXOS, name, TimeUUIDType.instance);
+        return ColumnDefinition.regularDef(SystemKeyspace.NAME, SystemKeyspace.PAXOS, name, type);
     }
 
     static UUID getCfId(Row row)
@@ -64,22 +73,33 @@ class PaxosRows
         return TimeUUIDType.instance.compose(cell.value());
     }
 
+    private static boolean proposalIsEmpty(Row row, DecoratedKey key)
+    {
+        try
+        {
+            Cell proposalVersionCell = row.getCell(PROPOSAL_VERSION);
+            if (proposalVersionCell == null || !proposalVersionCell.value().hasRemaining())
+                return true;
+            int proposalVersion = ByteBufferUtil.toInt(proposalVersionCell.value());
+
+            Cell proposal = row.getCell(PROPOSAL_UPDATE);
+            if (proposal == null || !proposal.value().hasRemaining())
+                return true;
+            return isEmpty(proposal.value(), proposalVersion, DeserializationHelper.Flag.LOCAL, key);
+        }
+        catch (IOException e)
+        {
+            JVMStabilityInspector.inspectThrowable(e);
+            throw new RuntimeException(e);
+        }
+    }
+
     private static long getTimestamp(Row row, ColumnDefinition cdef)
     {
         Cell cell = row.getCell(cdef);
-        if (cell == null)
+        if (cell == null || !cell.value().hasRemaining())
             return Long.MIN_VALUE;
-
-        ByteBuffer value = cell.value();
-        if (!value.hasRemaining())
-            return Long.MIN_VALUE;
-
-        long mostSigBits = value.getLong(value.position());
-
-        // copied from timestamp method in UUID.java
-        return (mostSigBits & 0x0FFFL) << 48
-               | ((mostSigBits >> 16) & 0x0FFFFL) << 32
-               | mostSigBits >>> 32;
+        return cell.timestamp();
     }
 
     static PaxosKeyState getCommitState(DecoratedKey key, Row row, UUID targetCfId)
@@ -92,16 +112,34 @@ class PaxosRows
         if (targetCfId != null && !targetCfId.equals(cfId))
             return null;
 
-        UUID inProgress = latest(getBallot(row, PROMISE), getBallot(row, PROPOSAL));
+        UUID promise = getBallot(row, PROMISE);
+        UUID proposal = getBallot(row, PROPOSAL);
         UUID commit = getBallot(row, COMMIT);
 
-        if (inProgress == null && commit == null)
-            return null;
+        UUID inProgress = null;
+        UUID committed = null;
+        if (isAfter(promise, proposal))
+        {
+            if (isAfter(promise, commit))
+                inProgress = promise;
+            else
+                committed = commit;
+        }
+        else if (isAfter(proposal, commit))
+        {
+            if (proposalIsEmpty(row, key))
+                committed = proposal;
+            else
+                inProgress = proposal;
+        }
+        else
+        {
+            committed = commit;
+        }
 
-        // if uncommitted & commit are equal, we'll return committed
-        return Commit.isAfter(inProgress, commit) ?
+        return inProgress != null ?
                new PaxosKeyState(cfId, key, inProgress, false) :
-               new PaxosKeyState(cfId, key, commit, true);
+               new PaxosKeyState(cfId, key, committed, true);
     }
 
     private static class KeyCommitStateIterator extends AbstractIterator<PaxosKeyState> implements CloseableIterator<PaxosKeyState>
@@ -175,9 +213,8 @@ class PaxosRows
 
     static UUID getHighBallot(Row row, UUID current)
     {
-        long maxBallot = current != null ? current.timestamp() : Long.MIN_VALUE;
+        long maxBallot = current != null ? UUIDGen.microsTimestamp(current) : Long.MIN_VALUE;
         ColumnDefinition maxCDef = null;
-
 
         long inProgress = getTimestamp(row, PROMISE);
         if (inProgress > maxBallot)
