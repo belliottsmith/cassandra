@@ -501,7 +501,7 @@ public class Config
     public ConsistencyLevel auth_read_consistency_level = ConsistencyLevel.LOCAL_QUORUM;
     public ConsistencyLevel auth_write_consistency_level = ConsistencyLevel.EACH_QUORUM;
 
-    public Boolean enable_christmas_patch = false;
+    public Boolean enable_christmas_patch = true;
 
     public Boolean enable_shadow_christmas_patch = false;
 
