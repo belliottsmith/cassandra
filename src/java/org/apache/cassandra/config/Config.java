@@ -119,7 +119,7 @@ public class Config
 
     public ConsistencyLevel blacklist_consistency_level = ConsistencyLevel.QUORUM;
 
-    public Boolean enable_christmas_patch = false;
+    public Boolean enable_christmas_patch = true;
 
     public Boolean enable_shadow_christmas_patch = false;
 

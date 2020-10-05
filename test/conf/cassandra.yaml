@@ -52,3 +52,4 @@ custom_functions:
     - com.apple.cie.cql3.functions.Int32Literals
     - com.apple.cie.cql3.functions.FakeTime # For testing only
 enable_secondary_index: true
+enable_christmas_patch: false
