@@ -70,9 +70,6 @@ builds:
       maxConcurrentTotal: 2
     machine:
       baseImage: docker.apple.com/piedb/parallelci:latest
-      env: &upgrade_test_envs
-        CASSANDRA_UPGRADE_GIT_URL: "https://github.com/apache/cassandra.git"
-        CASSANDRA_DTEST_VERSIONS: "cassandra-2.2"
     secrets:
       names:
         - k8s_auth_token
@@ -106,7 +103,6 @@ builds:
     machine:
       baseImage: docker.apple.com/piedb/parallelci:latest
       env:
-        <<: *upgrade_test_envs
         CIE_VERSION: '$(./rio/cie-version.sh)'
         FULL_VERSION: '$(./rio/version-tool.sh snapshot ${GIT_BRANCH} ${CIE_VERSION})'
         STUB_VERSION_NAME: '$(./rio/stub-version.sh ${FULL_VERSION})'
@@ -172,7 +168,6 @@ builds:
     machine:
       baseImage: docker.apple.com/piedb/parallelci:latest
       env:
-        <<: *upgrade_test_envs
         CIE_VERSION: '$(./rio/cie-version.sh)'
         FULL_VERSION: '$(./rio/version-tool.sh release ${GIT_BRANCH} ${CIE_VERSION})'
         STUB_VERSION_NAME: '$(./rio/stub-version.sh ${FULL_VERSION})'
