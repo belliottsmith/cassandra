@@ -146,8 +146,9 @@ clone_cassandra() {
 }
 
 _download_and_build() {
-  local -r version="$1"
-  local -r output_dir="$2"
+  local -r repo="$1"
+  local -r version="$2"
+  local -r output_dir="$3"
 
   # prefix stdout and stderr with the branch being built so its clear where logs are coming from
   exec > >( awk "{ print \"dtest-$version.jar> \", \$0 } " )
@@ -156,7 +157,7 @@ _download_and_build() {
   # why hard code github?  If a Apple fork is used, the fork may be very out of date with the
   # different branches which could lead to failing tests caused by out dated dtest jars to avoid
   # this, rely on github
-  clone_cassandra "${CASSANDRA_UPGRADE_GIT_URL:-https://github.com/apache/cassandra.git}" "$version" "/tmp/$version"
+  clone_cassandra "$repo" "$version" "/tmp/$version"
   cd "/tmp/$version"
   # make sure to build jars outside of parallel ci since network access is more limited
   ant dtest-jar
@@ -168,8 +169,12 @@ _parallel_clone_branches() {
 
   mkdir -p "$output_dir"
   pids=()
-  for version in "$@"; do
-    _download_and_build "$version" "$output_dir" &
+  local repo
+  local branch
+  for line in "$@"; do
+    repo="$(echo "$line" | awk '{print $1}')"
+    branch="$(echo "$line" | awk '{print $2}')"
+    _download_and_build "$repo" "$branch" "$output_dir" &
     pids+=( $! )
   done
   for pid in "${pids[@]}"; do
@@ -193,11 +198,12 @@ _main() {
   _setup_k8s
   _setup_parallelci
 
-  if [ ! -z "${CASSANDRA_DTEST_VERSIONS:-}" ]; then
-    # In order to run jvm dtest upgrade tests, check out all versions requested
-    # CASSANDRA_DTEST_VERSIONS is not quoted that way each space acts as a different argument to the function
-    # make sure to call this AFTER cloning cassandra, else will need to copy jars here anyways
-    _parallel_clone_branches "$(_abspath dtest_jars)" $CASSANDRA_DTEST_VERSIONS
+  if [[ -e "$bin/dtest-upgrade-versions.sh" ]]; then
+    source "$bin/dtest-upgrade-versions.sh"
+
+    if [ "${#dtest_upgrade_versions[@]}" -ne 0 ]; then
+      _parallel_clone_branches "$(_abspath dtest_jars)" "${dtest_upgrade_versions[@]}"
+    fi
   fi
 
   # Labels are limited to 63 characters... pipeline spec id can exceed that
