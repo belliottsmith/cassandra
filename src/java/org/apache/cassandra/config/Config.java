@@ -609,6 +609,10 @@ public class Config
     public volatile boolean skip_paxos_repair_on_topology_change = Boolean.getBoolean("cassandra.skip_paxos_repair_on_topology_change");
     public volatile Set<String> skip_paxos_repair_on_topology_change_keyspaces = splitCommaDelimited(System.getProperty("cassandra.skip_paxos_repair_on_topology_change_keyspaces"));
 
+    public String paxos_contention_min_wait;
+    public String paxos_contention_max_wait;
+    public String paxos_contention_min_delta;
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;
