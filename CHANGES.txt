@@ -1,4 +1,9 @@
 3.0.19.55
+* <rdar://70252084> (Apple Internal) Paxos: Auto Trace/Log Contended Operations)
+* <rdar://70268521> (Apple Internal) Paxos: Introduce variant apple_norrfwl (#1963)
+* <rdar://70250861> (Apple Internal) Paxos: Configurable contention strategy (#1960)
+* <rdar://70225679> (Apple Internal) Paxos: read contention not correctly maintained
+* <rdar://68102268> (Apple Internal, backport rdar://68102540) MapSerializer.getInstance does not include comparator
 
 3.0.19.54
 rdar://69866491 (Apple Internal) Enable Christmas patch by default (#1949) (#1950)
