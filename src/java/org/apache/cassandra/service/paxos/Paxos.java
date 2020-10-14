@@ -113,6 +113,7 @@ import static org.apache.cassandra.service.StorageProxy.readMetrics;
 import static org.apache.cassandra.service.StorageProxy.readMetricsMap;
 import static org.apache.cassandra.service.StorageProxy.writeMetricsMap;
 import static org.apache.cassandra.service.StorageProxy.verifyAgainstBlacklist;
+import static org.apache.cassandra.service.paxos.ContentionStrategy.*;
 import static org.apache.cassandra.service.paxos.PaxosCommit.commit;
 import static org.apache.cassandra.service.paxos.PaxosCommitAndPrepare.commitAndPrepare;
 import static org.apache.cassandra.service.paxos.PaxosPrepare.prepare;
@@ -625,7 +626,7 @@ public class Paxos
                                 // We have been superseded without our proposal being accepted by anyone, so we can safely retry
                                 Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
                                 failedAttemptsDueToContention++;
-                                if (!ContentionStrategy.waitForContention(proposeDeadline, ++failedAttemptsDueToContention))
+                                if (!waitForContention(proposeDeadline, ++failedAttemptsDueToContention, metadata, key, consistencyForPaxos, true))
                                     throw new MaybeFailure(participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
                         }
                     }
@@ -716,7 +717,7 @@ public class Paxos
                                 minimumBallot = propose.superseded().by;
                                 // We have been superseded without our proposal being accepted by anyone, so we can safely retry
                                 Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
-                                if (!ContentionStrategy.waitForContention(deadline, ++failedAttemptsDueToContention))
+                                if (!waitForContention(deadline, ++failedAttemptsDueToContention, group.metadata(), group.commands.get(0).partitionKey(), consistencyForPaxos, false))
                                     throw new MaybeFailure(begin.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
                         }
                     }
@@ -847,7 +848,7 @@ public class Paxos
                 {
                     Tracing.trace("Some replicas have already promised a higher ballot than ours; aborting");
                     // sleep a random amount to give the other proposer a chance to finish
-                    if (!ContentionStrategy.waitForContention(deadline, ++failedAttemptsDueToContention))
+                    if (!waitForContention(deadline, ++failedAttemptsDueToContention, readCommand.metadata(), readCommand.partitionKey(), consistencyForConsensus, isWrite))
                         throw new MaybeFailure(prepare.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
                     retry = prepare(prepare.supersededBy(), prepare.participants, readCommand, !isWrite);
                     break;

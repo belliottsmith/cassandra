@@ -20,7 +20,13 @@ package org.apache.cassandra.service.paxos;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.tracing.Tracing;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,7 +107,7 @@ public class ContentionStrategy
     private static volatile ContentionStrategy current;
     static
     {
-        current = new ContentionStrategy(defaultMinWait(), defaultMaxWait(), defaultMinDelta());
+        current = new ContentionStrategy(defaultMinWait(), defaultMaxWait(), defaultMinDelta(), Integer.MAX_VALUE);
     }
 
     static interface LatencySelector
@@ -154,16 +160,37 @@ public class ContentionStrategy
     }
 
     final Bound min, max, minDelta;
+    final int traceAfterAttempts;
 
-    public ContentionStrategy(String min, String max, String minDelta)
+    public ContentionStrategy(String min, String max, String minDelta, int traceAfterAttempts)
     {
         this.min = parseBound(min, true);
         this.max = parseBound(max, false);
         this.minDelta = parseBound(minDelta, true);
+        this.traceAfterAttempts = traceAfterAttempts;
     }
 
-    private boolean doWaitForContention(long deadline, int attempts)
+    private boolean doWaitForContention(long deadline, int attempts, CFMetaData table, DecoratedKey partitionKey, ConsistencyLevel consistency, boolean isWrite)
     {
+        if (attempts >= traceAfterAttempts && !Tracing.isTracing())
+        {
+            Tracing.instance.newSession(Tracing.TraceType.QUERY);
+            Tracing.instance.begin(isWrite ? "Contended Paxos Write" : "Contended Paxos Read",
+                    ImmutableMap.of(
+                            "keyspace", table.ksName,
+                            "table", table.cfName,
+                            "partitionKey", table.getKeyValidator().getString(partitionKey.getKey()),
+                            "consistency", consistency.name(),
+                            "kind", isWrite ? "write" : "read"
+                            ));
+
+            logger.info("Tracing contended paxos {} for key {} on {}.{} with trace id {}",
+                        isWrite ? "write" : "read",
+                        ByteBufferUtil.bytesToHex(partitionKey.getKey()),
+                        table.ksName, table.cfName,
+                        Tracing.instance.getSessionId());
+        }
+
         long minWaitMicros = min.get(attempts);
         long maxWaitMicros = max.get(attempts);
         long minDeltaMicros = minDelta.get(attempts);
@@ -195,9 +222,9 @@ public class ContentionStrategy
         return true;
     }
 
-    static boolean waitForContention(long deadline, int attempts)
+    static boolean waitForContention(long deadline, int attempts, CFMetaData table, DecoratedKey partitionKey, ConsistencyLevel consistency, boolean isWrite)
     {
-        return current.doWaitForContention(deadline, attempts);
+        return current.doWaitForContention(deadline, attempts, table, partitionKey, consistency, isWrite);
     }
 
     static class ParsedStrategy
@@ -221,13 +248,14 @@ public class ContentionStrategy
         String min = find(args, "min");
         String max = find(args, "max");
         String minDelta = find(args, "delta");
+        String trace = find(args, "trace");
 
         if (min == null) min = defaultMinWait();
         if (max == null) max = defaultMaxWait();
         if (minDelta == null) minDelta = defaultMinDelta();
+        int traceAfterAttempts = trace == null ? current.traceAfterAttempts: Integer.parseInt(trace);
 
-        ContentionStrategy strategy = new ContentionStrategy(min, max, minDelta);
-
+        ContentionStrategy strategy = new ContentionStrategy(min, max, minDelta, traceAfterAttempts);
         return new ParsedStrategy(min, max, minDelta, strategy);
     }
 
@@ -243,7 +271,10 @@ public class ContentionStrategy
 
     public static String getStrategySpec()
     {
-        return "min=" + defaultMinWait() + ",max=" + defaultMaxWait() + ",delta=" + defaultMinDelta();
+        return "min=" + defaultMinWait()
+                + ",max=" + defaultMaxWait()
+                + ",delta=" + defaultMinDelta()
+                + ",trace=" + current.traceAfterAttempts;
     }
 
     private static String find(String[] args, String param)

@@ -19,9 +19,15 @@
 package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
+import com.google.common.util.concurrent.Uninterruptibles;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.service.paxos.ContentionStrategy;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
@@ -35,18 +41,14 @@ import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.net.MessagingService;
 
+import static org.apache.cassandra.distributed.api.ConsistencyLevel.*;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ANY;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ONE;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.QUORUM;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.SERIAL;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ;
-import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_COMMIT;
-import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PREPARE;
-import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PROPOSE;
-import static org.apache.cassandra.net.MessagingService.Verb.READ;
+import static org.apache.cassandra.net.MessagingService.Verb.*;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -65,7 +67,7 @@ public class CASTest extends CASCommonTestCases
                                                    .set("paxos_variant", "apple_rrl")
                                                    .set("write_request_timeout_in_ms", 200L)
                                                    .set("cas_contention_timeout_in_ms", 200L)
-                                                   .set("request_timeout_in_ms", 200L); 
+                                                   .set("request_timeout_in_ms", 200L);
         THREE_NODES = init(Cluster.create(3, conf));
         FOUR_NODES = init(Cluster.create(4, conf), 3);
     }
