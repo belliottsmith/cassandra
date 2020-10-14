@@ -20,13 +20,9 @@ package org.apache.cassandra.distributed.test;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 
-import org.apache.cassandra.concurrent.Stage;
-import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
-import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.service.paxos.ContentionStrategy;
-import org.apache.cassandra.utils.FBUtilities;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -38,7 +34,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
-import static org.apache.cassandra.distributed.api.ConsistencyLevel.ALL;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.QUORUM;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ;
 
@@ -75,29 +70,21 @@ public class CASContentionTest extends CASTestBase
             String tableName = tableName("tbl");
             THREE_NODES.schemaChange("CREATE TABLE " + KEYSPACE + '.' + tableName + " (pk int, v int, PRIMARY KEY (pk))");
 
-            int attempts = 0;
-            do
-            {
-                Assert.assertTrue(String.format("Unable to detect contention after %s attempts", attempts), attempts < 10);
-                CountDownLatch haveInvalidated = new CountDownLatch(1);
-                THREE_NODES.verbs(APPLE_PAXOS_PREPARE_REQ).from(1).messagesMatching((from, to, verb) -> {
-                    Uninterruptibles.awaitUninterruptibly(haveInvalidated);
-                    return false;
-                }).drop();
-                THREE_NODES.get(1).runOnInstance(() -> ContentionStrategy.setStrategy("trace=1"));
-                Future<?> insert = THREE_NODES.get(1).async(() -> {
-                    THREE_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + tableName + " (pk, v) VALUES (1, 1) IF NOT EXISTS", QUORUM);
-                }).call();
-                Uninterruptibles.sleepUninterruptibly(1, TimeUnit.MILLISECONDS);
-                THREE_NODES.coordinator(2).execute("INSERT INTO " + KEYSPACE + '.' + tableName + " (pk, v) VALUES (1, 1) IF NOT EXISTS", QUORUM);
-                haveInvalidated.countDown();
-                THREE_NODES.filters().reset();
-                insert.get();
-                THREE_NODES.forEach(i -> i.runOnInstance(() -> FBUtilities.waitOnFuture(StageManager.getStage(Stage.TRACING).submit(StageManager.NO_OP_TASK))));
-                attempts++;
-            } while (THREE_NODES.get(1).callOnInstance(() -> StorageProxy.casWriteMetrics.contention.getCount()) == 0);
-
-            Object[][] result = THREE_NODES.coordinator(1).execute("SELECT parameters FROM system_traces.sessions", ALL);
+            CountDownLatch haveInvalidated = new CountDownLatch(1);
+            THREE_NODES.verbs(APPLE_PAXOS_PREPARE_REQ).from(1).messagesMatching((from, to, verb) -> {
+                Uninterruptibles.awaitUninterruptibly(haveInvalidated);
+                return false;
+            }).drop();
+            THREE_NODES.get(1).runOnInstance(() -> ContentionStrategy.setStrategy("trace=1"));
+            Future<?> insert = THREE_NODES.get(1).async(() -> {
+                THREE_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + tableName + " (pk, v) VALUES (1, 1) IF NOT EXISTS", QUORUM);
+            }).call();
+            Uninterruptibles.sleepUninterruptibly(1, TimeUnit.MILLISECONDS);
+            THREE_NODES.coordinator(2).execute("INSERT INTO " + KEYSPACE + '.' + tableName + " (pk, v) VALUES (1, 1) IF NOT EXISTS", QUORUM);
+            haveInvalidated.countDown();
+            THREE_NODES.filters().reset();
+            insert.get();
+            Object[][] result = THREE_NODES.coordinator(1).execute("SELECT parameters FROM system_traces.sessions", QUORUM);
             Assert.assertEquals(1, result.length);
             Assert.assertEquals(1, result[0].length);
             Assert.assertTrue(Map.class.isAssignableFrom(result[0][0].getClass()));
