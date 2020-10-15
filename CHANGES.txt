@@ -1,4 +1,5 @@
 3.0.19.56
+* <rdar://70355825> (Apple Internal) custom index target columns aren't quoted (#1974)
 
 3.0.19.55
 * <rdar://70252084> (Apple Internal) Paxos: Auto Trace/Log Contended Operations)
