@@ -81,7 +81,7 @@ public class SimpleReadWriteTest extends SharedClusterTestBase
         cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
         cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1)",
-                                       ConsistencyLevel.QUORUM);
+                                       ConsistencyLevel.ALL);
 
         for (int i = 0; i < 3; i++)
         {
