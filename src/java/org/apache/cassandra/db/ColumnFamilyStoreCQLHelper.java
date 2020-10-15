@@ -273,7 +273,7 @@ public class ColumnFamilyStoreCQLHelper
                                  quoteIdentifier(indexMetadata.name),
                                  quoteIdentifier(keyspace),
                                  quoteIdentifier(cf),
-                                 indexMetadata.options.get(IndexTarget.TARGET_OPTION_NAME),
+                                 quoteIdentifier(indexMetadata.options.get(IndexTarget.TARGET_OPTION_NAME)),
                                  indexMetadata.options.get(IndexTarget.CUSTOM_INDEX_OPTION_NAME),
                                  options.isEmpty() ? "" : " WITH OPTIONS " + toCQL(options));
         }
@@ -283,7 +283,7 @@ public class ColumnFamilyStoreCQLHelper
                                  quoteIdentifier(indexMetadata.name),
                                  quoteIdentifier(keyspace),
                                  quoteIdentifier(cf),
-                                 indexMetadata.options.get(IndexTarget.TARGET_OPTION_NAME));
+                                 quoteIdentifier(indexMetadata.options.get(IndexTarget.TARGET_OPTION_NAME)));
         }
     }
     private static String toCQL(UserType userType)
