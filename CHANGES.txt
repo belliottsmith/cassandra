@@ -1,3 +1,5 @@
+3.0.19.57
+
 3.0.19.56
 * <rdar://70355825> (Apple Internal) custom index target columns aren't quoted (#1974)
 
