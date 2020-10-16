@@ -211,6 +211,7 @@ builds:
             - repo: docker.apple.com/piedb/cie-cassandra
       mirror:
         target: silkroad
+        artifactPackageFilters: []
     finally:
       tag:
         enabled: true
