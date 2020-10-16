@@ -22,6 +22,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import org.apache.cassandra.config.CFMetaData;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
@@ -47,8 +48,6 @@ import static java.util.concurrent.TimeUnit.MICROSECONDS;
 import static org.apache.cassandra.config.DatabaseDescriptor.*;
 import static org.apache.cassandra.service.StorageProxy.casReadMetrics;
 import static org.apache.cassandra.service.StorageProxy.casWriteMetrics;
-import static org.apache.cassandra.service.paxos.ContentionStrategy.LatencyModifier.*;
-import static org.apache.cassandra.service.paxos.ContentionStrategy.LatencySelector.*;
 import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
 
 /**
@@ -70,14 +69,14 @@ import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
  * <p>The calculation may take any of these forms
  * <li> constant            {@code $constant$[mu]s}
  * <li> dynamic constant    {@code pX() * constant}
- * <li> dynamic linea       {@code pX() * constant * attempts}
+ * <li> dynamic linear      {@code pX() * constant * attempts}
  * <li> dynamic exponential {@code pX() * constant ^ attempts}
  *
  * <p>Furthermore, the dynamic calculations can be bounded with a min/max, like so:
  *  {@code min[mu]s <= dynamic expr <= max[mu]s}
  *
  * e.g.
- * <li> {@code 0 <= p50(rw)*0.66}
+ * <li> {@code 10ms <= p50(rw)*0.66}
  * <li> {@code 10ms <= p95(rw)*1.8^attempts <= 100ms}
  * <li> {@code 5ms <= p50(rw)*0.5}
  *
@@ -95,7 +94,7 @@ public class ContentionStrategy
     private static final Pattern BOUND = Pattern.compile(
                 "((?<min>0|[0-9]+[mu]s) *<= *)?" +
                     "p(?<perc>[0-9]+)\\((?<rw>r|w|rw|wr)\\)" +
-                    "(([*](?<mod>[0-9.]+))?(?<modkind>[*^]attempts)?)?" +
+                    "\\s*([*]\\s*(?<mod>[0-9.]+)?\\s*(?<modkind>[*^]\\s*attempts)?)?" +
                 "( *<= *(?<max>0|[0-9]+[mu]s))?" +
                 "|(?<const>0|[0-9]+[mu]s)");
     private static final Pattern TIME = Pattern.compile(
@@ -105,6 +104,11 @@ public class ContentionStrategy
     private static final String DEFAULT_MIN_DELTA = "5ms <= p50(rw)*0.5"; // at least 5ms, and at least 50% of median latency
 
     private static volatile ContentionStrategy current;
+
+    // Factories can be useful for testing purposes, to supply custom implementations of selectors and modifiers.
+    final static LatencySelectorFactory selectors = new LatencySelectorFactory(){};
+    final static LatencyModifierFactory modifiers = new LatencyModifierFactory(){};
+
     static
     {
         current = new ContentionStrategy(defaultMinWait(), defaultMaxWait(), defaultMinDelta(), Integer.MAX_VALUE);
@@ -113,19 +117,27 @@ public class ContentionStrategy
     static interface LatencySelector
     {
         abstract long select(DoubleToLongFunction readLatencyHistogram, DoubleToLongFunction writeLatencyHistogram);
-        static LatencySelector constant(long latency) { return (read, write) -> latency; }
-        static LatencySelector read(double percentile) { return (read, write) -> read.applyAsLong(percentile); }
-        static LatencySelector write(double percentile) { return (read, write) -> write.applyAsLong(percentile); }
-        static LatencySelector maxReadWrite(double percentile) { return (read, write) -> max(read.applyAsLong(percentile), write.applyAsLong(percentile)); }
+    }
+
+    static interface LatencySelectorFactory
+    {
+        default LatencySelector constant(long latency) { return (read, write) -> latency; }
+        default LatencySelector read(double percentile) { return (read, write) -> read.applyAsLong(percentile); }
+        default LatencySelector write(double percentile) { return (read, write) -> write.applyAsLong(percentile); }
+        default LatencySelector maxReadWrite(double percentile) { return (read, write) -> max(read.applyAsLong(percentile), write.applyAsLong(percentile)); }
     }
 
     static interface LatencyModifier
     {
         long modify(long latency, int attempts);
-        static LatencyModifier identity() { return (l, a) -> l; }
-        static LatencyModifier multiply(double constant) { return (l, a) -> saturatedCast(l * constant); }
-        static LatencyModifier multiplyByAttempts(double multiply) { return (l, a) -> saturatedCast(l * multiply * a); }
-        static LatencyModifier multiplyByAttemptsExp(double base) { return (l, a) -> saturatedCast(l * pow(base, a)); }
+    }
+
+    static interface LatencyModifierFactory
+    {
+        default LatencyModifier identity() { return (l, a) -> l; }
+        default LatencyModifier multiply(double constant) { return (l, a) -> saturatedCast(l * constant); }
+        default LatencyModifier multiplyByAttempts(double multiply) { return (l, a) -> saturatedCast(l * multiply * a); }
+        default LatencyModifier multiplyByAttemptsExp(double base) { return (l, a) -> saturatedCast(l * pow(base, a)); }
     }
 
     static class Bound
@@ -156,6 +168,17 @@ public class ContentionStrategy
                 NoSpamLogger.getLogger(logger, 1L, MINUTES).info("", t);
                 return onFailure;
             }
+        }
+
+        public String toString()
+        {
+            return "Bound{" +
+                   "min=" + min +
+                   ", max=" + max +
+                   ", onFailure=" + onFailure +
+                   ", modifier=" + modifier +
+                   ", selector=" + selector +
+                   '}';
         }
     }
 
@@ -284,34 +307,34 @@ public class ContentionStrategy
                 .findFirst().orElse(null);
     }
 
-    private static LatencySelector parseLatencySelector(Matcher m)
+    private static LatencySelector parseLatencySelector(Matcher m, LatencySelectorFactory selectors)
     {
         double percentile = parseDouble("0." + m.group("perc"));
         String rw = m.group("rw");
         if (rw.length() == 2)
-            return maxReadWrite(percentile);
+            return selectors.maxReadWrite(percentile);
         else if ("r".equals(rw))
-            return read(percentile);
+            return selectors.read(percentile);
         else
-            return write(percentile);
+            return selectors.write(percentile);
     }
 
-    private static LatencyModifier parseLatencyModifier(Matcher m)
+    private static LatencyModifier parseLatencyModifier(Matcher m, LatencyModifierFactory modifiers)
     {
         String mod = m.group("mod");
         if (mod == null)
-            return identity();
+            return modifiers.identity();
 
         double modifier = parseDouble(mod);
 
         String modkind = m.group("modkind");
         if (modkind == null)
-            return multiply(modifier);
+            return modifiers.multiply(modifier);
 
         if (modkind.startsWith("*"))
-            return multiplyByAttempts(modifier);
+            return modifiers.multiplyByAttempts(modifier);
         else if (modkind.startsWith("^"))
-            return multiplyByAttemptsExp(modifier);
+            return modifiers.multiplyByAttemptsExp(modifier);
         else
             throw new IllegalArgumentException("Unrecognised attempt modifier: " + modkind);
     }
@@ -323,8 +346,13 @@ public class ContentionStrategy
         return (long) v;
     }
 
-    @VisibleForTesting
     static Bound parseBound(String input, boolean isMin)
+    {
+        return parseBound(input, isMin, selectors, modifiers);
+    }
+
+    @VisibleForTesting
+    static Bound parseBound(String input, boolean isMin, LatencySelectorFactory selectors, LatencyModifierFactory modifiers)
     {
         Matcher m = BOUND.matcher(input);
         if (!m.matches())
@@ -334,12 +362,12 @@ public class ContentionStrategy
         if (maybeConst != null)
         {
             long v = parseInMicros(maybeConst);
-            return new Bound(v, v, v, identity(), constant(v));
+            return new Bound(v, v, v, modifiers.identity(), selectors.constant(v));
         }
 
         long min = parseInMicros(m.group("min"), 0);
         long max = parseInMicros(m.group("max"), maxQueryTimeout() / 2);
-        return new Bound(min, max, isMin ? min : max, parseLatencyModifier(m), parseLatencySelector(m));
+        return new Bound(min, max, isMin ? min : max, parseLatencyModifier(m, modifiers), parseLatencySelector(m, selectors));
     }
 
     private static long parseInMicros(String input, long orElse)
