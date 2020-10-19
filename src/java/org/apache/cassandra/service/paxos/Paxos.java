@@ -883,7 +883,7 @@ public class Paxos
     static void sendFailureResponse(String action, InetAddress to, UUID ballot, int messageId, MessageIn<?> respondingTo)
     {
         if (Tracing.isTracing())
-            Tracing.trace("Sending {} failure response to {} for {}", action, ballot, to);
+            Tracing.trace("Sending {} failure response to {} for {}", action, to, ballot);
         MessagingService.instance().sendReply(failureResponse.permitsArtificialDelay(respondingTo), messageId, to);
     }
 

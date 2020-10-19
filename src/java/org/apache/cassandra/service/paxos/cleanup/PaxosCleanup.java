@@ -26,20 +26,36 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
-import com.google.common.util.concurrent.*;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Iterables;
+import com.google.common.util.concurrent.AbstractFuture;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.ScheduledExecutors;
+import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.NoSpamLogger;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.config.DatabaseDescriptor.getCasContentionTimeout;
 import static org.apache.cassandra.config.DatabaseDescriptor.getWriteRpcTimeout;
+import static org.apache.cassandra.utils.NoSpamLogger.Level.WARN;
 
 public class PaxosCleanup extends AbstractFuture<Void> implements Runnable
 {
+    private static final Logger logger = LoggerFactory.getLogger(PaxosCleanup.class);
+
     private final Collection<InetAddress> endpoints;
     private final UUID cfId;
     private final Collection<Range<Token>> ranges;
@@ -111,5 +127,45 @@ public class PaxosCleanup extends AbstractFuture<Void> implements Runnable
         complete = new PaxosCleanupComplete(endpoints, cfId, ranges, lowBound, skippedReplicas);
         addCallback(complete, this::set);
         executor.execute(complete);
+    }
+
+    private static boolean isOutOfRange(String ksName, Collection<Range<Token>> repairRanges)
+    {
+        Keyspace keyspace = Keyspace.open(ksName);
+        Collection<Range<Token>> localRanges = Range.normalize(keyspace.getReplicationStrategy()
+                                                                       .getAddressRanges()
+                                                                       .get(FBUtilities.getBroadcastAddress()));
+
+        for (Range<Token> repairRange : Range.normalize(repairRanges))
+        {
+            if (!Iterables.any(localRanges, localRange -> localRange.contains(repairRange)))
+                return true;
+        }
+        return false;
+    }
+
+    static boolean isInRangeAndShouldProcess(InetAddress from, Collection<Range<Token>> ranges, UUID cfId)
+    {
+        CFMetaData metadata = Schema.instance.getCFMetaData(cfId);
+        boolean outOfRangeTokenLogging = StorageService.instance.isOutOfTokenRangeRequestLoggingEnabled();
+        boolean outOfRangeTokenRejection = StorageService.instance.isOutOfTokenRangeRequestRejectionEnabled();
+
+        Keyspace keyspace = Keyspace.open(metadata.ksName);
+        Preconditions.checkNotNull(keyspace);
+
+
+        if ((outOfRangeTokenLogging || outOfRangeTokenRejection) && isOutOfRange(metadata.ksName, ranges))
+        {
+            StorageService.instance.incOutOfRangeOperationCount();
+            Keyspace.open(metadata.ksName).metric.outOfRangeTokenPaxosRequests.inc();
+
+            // Log at most 1 message per second
+            if (outOfRangeTokenLogging)
+                NoSpamLogger.log(logger, WARN, 1, SECONDS, "Received paxos request from {} for {} outside valid range for keyspace {}", from, ranges, metadata.ksName);
+
+            return !outOfRangeTokenRejection;
+        }
+
+        return true;
     }
 }

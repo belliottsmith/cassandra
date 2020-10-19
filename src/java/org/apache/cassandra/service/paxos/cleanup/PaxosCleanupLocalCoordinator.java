@@ -22,6 +22,9 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.AbstractFuture;
@@ -35,7 +38,6 @@ import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.service.paxos.PaxosRepair;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.service.paxos.uncommitted.UncommittedPaxosKey;
 import org.apache.cassandra.utils.CloseableIterator;
@@ -44,6 +46,8 @@ public class PaxosCleanupLocalCoordinator extends AbstractFuture<PaxosCleanupRes
 {
     private static final Logger logger = LoggerFactory.getLogger(PaxosCleanupLocalCoordinator.class);
 
+    private static final ConcurrentMap<UUID, PaxosTableRepairs> tableRepairsMap = new ConcurrentHashMap<>();
+
     private final UUID session;
     private final UUID cfId;
     private final CFMetaData cfm;
@@ -51,7 +55,8 @@ public class PaxosCleanupLocalCoordinator extends AbstractFuture<PaxosCleanupRes
     private final CloseableIterator<UncommittedPaxosKey> uncommittedIter;
     private int count = 0;
 
-    private final Map<DecoratedKey, PaxosRepair> inflight = new HashMap<>();
+    private final Map<DecoratedKey, PaxosTableRepairs.QueueableRepair> inflight = new HashMap<>();
+    private final PaxosTableRepairs tableRepairs;
 
     private PaxosCleanupLocalCoordinator(UUID session, UUID cfId, Collection<Range<Token>> ranges, CloseableIterator<UncommittedPaxosKey> uncommittedIter)
     {
@@ -60,6 +65,7 @@ public class PaxosCleanupLocalCoordinator extends AbstractFuture<PaxosCleanupRes
         this.cfm = Schema.instance.getCFMetaData(cfId);
         this.ranges = ranges;
         this.uncommittedIter = uncommittedIter;
+        this.tableRepairs = tableRepairsMap.computeIfAbsent(cfId, k -> new PaxosTableRepairs());
     }
 
     public synchronized void start()
@@ -106,13 +112,12 @@ public class PaxosCleanupLocalCoordinator extends AbstractFuture<PaxosCleanupRes
         if (consistency == null)
             return false;
 
-        PaxosRepair repair = PaxosRepair.async(consistency, uncommitted.getKey(), cfm, result -> {
+        inflight.put(uncommitted.getKey(), tableRepairs.startOrQueue(uncommitted.getKey(), uncommitted.getConsistencyLevel(), cfm, result -> {
             if (result.wasSuccessful())
                 onKeyFinish(uncommitted.getKey());
             else
                 onKeyFailure(result.toString());
-        });
-        inflight.put(uncommitted.getKey(), repair);
+        }));
         return true;
     }
 
@@ -132,7 +137,7 @@ public class PaxosCleanupLocalCoordinator extends AbstractFuture<PaxosCleanupRes
 
     private synchronized void onKeyFailure(String reason)
     {
-        for (PaxosRepair repair: inflight.values())
+        for (PaxosTableRepairs.QueueableRepair repair: inflight.values())
             repair.cancel();
         fail(reason);
     }
