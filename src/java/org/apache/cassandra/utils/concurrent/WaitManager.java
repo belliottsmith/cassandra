@@ -44,7 +44,7 @@ public interface WaitManager
     {
         public void waitUntil(long deadlineNanos) throws InterruptedException
         {
-            long waitNanos = System.nanoTime() - deadlineNanos;
+            long waitNanos = deadlineNanos - System.nanoTime();
             if (waitNanos > 0)
                 TimeUnit.NANOSECONDS.sleep(waitNanos);
         }
