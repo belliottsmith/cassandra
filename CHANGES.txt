@@ -1,4 +1,9 @@
 3.0.19.57
+* <rdar://70593412> (Apple Internal) apple_norrfwl retains read/read linearizability
+* <rdar://70591830> (Apple Internal) WaitManager.waitUntil incorrectly calculates time to wait)
+* <rdar://70250861> (Apple Internal) Follow-up: Avoid incrementing failedAttemptsDueToContention twice
+* <rdar://70250861> (Apple Internal) Improve tests for (Paxos: Configurable contention strategy)
+* <rdar://70358960> (Apple Internal) Cie-cassandra images not properly mirroring to SR
 
 3.0.19.56
 * <rdar://70355825> (Apple Internal) custom index target columns aren't quoted (#1974)
