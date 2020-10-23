@@ -49,7 +49,7 @@ public class SnapshotsTest extends TestBaseImpl
         properties.set(CassandraRelevantProperties.SNAPSHOT_CLEANUP_INITIAL_DELAY_SECONDS, 0);
         properties.set(CassandraRelevantProperties.SNAPSHOT_CLEANUP_PERIOD_SECONDS, SNAPSHOT_CLEANUP_PERIOD_SECONDS);
         properties.set(CassandraRelevantProperties.SNAPSHOT_MIN_ALLOWED_TTL_SECONDS, FIVE_SECONDS);
-        cluster = init(Cluster.build(1).withConfig(c -> c.with(Feature.GOSSIP)).start());
+        cluster = init(Cluster.build(1).withConfig(c -> c.with(Feature.GOSSIP).set("enable_secondary_index", "true")).start());
     }
 
     @AfterClass
