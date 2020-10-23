@@ -1150,3 +1150,10 @@ report_unconfirmed_repaired_data_mismatches: false
 # Enable or disable the ability to create secondary indexes.  This configuration will not have any
 # affect on tables which already have secondary indexes, but will reject new ones from being created.
 #enable_secondary_index: false
+
+# Whether or not DROP COMPACT STORAGE is allowed. By default this is disabled to make sure that
+# operators do not inadvertently re-introduce a performance regression around SSTable skipping.
+# See rdar://70389638 for more details.
+#
+# This can be enabled or disabled at runtime via the StorageProxy MBean.
+allow_drop_compact_storage: false

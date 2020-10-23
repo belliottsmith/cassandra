@@ -3595,4 +3595,22 @@ public class StorageProxy implements StorageProxyMBean
     {
         return PaxosState.getDisableCoordinatorLocking();
     }
+
+    @Override
+    public void enableDropCompactStorage()
+    {
+        DatabaseDescriptor.setAllowDropCompactStorage(true);
+    }
+
+    @Override
+    public void disableDropCompactStorage()
+    {
+        DatabaseDescriptor.setAllowDropCompactStorage(false);
+    }
+
+    @Override
+    public boolean allowDropCompactStorage()
+    {
+        return DatabaseDescriptor.allowDropCompactStorage();
+    }
 }

@@ -3267,4 +3267,15 @@ public class DatabaseDescriptor
     {
         return conf.autocompaction_on_startup_enabled;
     }
+
+    public static void setAllowDropCompactStorage(boolean allow)
+    {
+        logger.info("Setting allow_drop_compact_storage to {}", allow);
+        conf.allow_drop_compact_storage = allow;
+    }
+
+    public static boolean allowDropCompactStorage()
+    {
+        return conf.allow_drop_compact_storage;
+    }
 }
