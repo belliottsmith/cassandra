@@ -2362,6 +2362,16 @@ public class CompactionManager implements CompactionManagerMBean
         DatabaseDescriptor.setCompactBiggestSTCSBucketInL0(value);
     }
 
+    public void setAllowUnsafeAggressiveSSTableExpiration(boolean allow)
+    {
+        DatabaseDescriptor.setAllowUnsafeAggressiveSSTableExpiration(allow);
+    }
+
+    public boolean allowUnsafeAggressiveSSTableExpiration()
+    {
+        return DatabaseDescriptor.allowUnsafeAggressiveSSTableExpiration();
+    }
+
     /**
      * Try to stop all of the compactions for given ColumnFamilies.
      *

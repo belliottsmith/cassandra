@@ -4501,4 +4501,15 @@ public class DatabaseDescriptor
     {
         conf.disable_schema_drop_check = value;
     }
+
+    public static void setAllowUnsafeAggressiveSSTableExpiration(boolean allow)
+    {
+        logger.info("Setting allow_unsafe_aggressive_sstable_expiration to {}", allow);
+        conf.allow_unsafe_aggressive_sstable_expiration = allow;
+    }
+
+    public static boolean allowUnsafeAggressiveSSTableExpiration()
+    {
+        return conf.allow_unsafe_aggressive_sstable_expiration;
+    }
 }
