@@ -200,4 +200,14 @@ public interface CompactionManagerMBean
      */
     public void setCompactBiggestSTCSBucketInL0(boolean value);
 
+    /**
+     * Set whether we allow TWCS to drop sstables without checking for overlaps
+     * @param allow
+     */
+    public void setAllowUnsafeAggressiveSSTableExpiration(boolean allow);
+
+    /**
+     * Do we allow TWCS to drop sstables without checking for overlaps?
+     */
+    public boolean allowUnsafeAggressiveSSTableExpiration();
 }
