@@ -38,9 +38,16 @@ public class EchoVerbHandler implements IVerbHandler<EchoMessage>
 
     public void doVerb(MessageIn<EchoMessage> message, int id)
     {
-        MessageOut<EchoMessage> echoMessage = new MessageOut<EchoMessage>(MessagingService.Verb.REQUEST_RESPONSE, EchoMessage.instance,
-                                                                          EchoMessage.serializer, GOSSIP);
-        logger.trace("Sending a EchoMessage reply {}", message.from);
-        MessagingService.instance().sendReply(echoMessage, id, message.from);
+        if (!StorageService.instance.isShutdown())
+        {
+            logger.trace("Sending a EchoMessage reply {}", message.from);
+            MessageOut<EchoMessage> echoMessage = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, EchoMessage.instance,
+                                                                              EchoMessage.serializer, GOSSIP);
+            MessagingService.instance().sendReply(echoMessage, id, message.from);
+        }
+        else
+        {
+            logger.trace("Not sending EchoMessage reply to {} - we are shutdown", message.from);
+        }
     }
 }
