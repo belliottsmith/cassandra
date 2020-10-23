@@ -521,6 +521,8 @@ public class Config
 
     public volatile boolean compact_biggest_stcs_bucket_l0 = false;
 
+    public volatile boolean allow_unsafe_aggressive_sstable_expiration = false;
+
     /**
      * Class names to look for custom functions in.  They must define a static @code{Collection<Function> all()}
      * that returns the custom functions to add.
