@@ -1,3 +1,5 @@
+3.0.19.58
+
 3.0.19.57
 * <rdar://70593412> (Apple Internal) apple_norrfwl retains read/read linearizability
 * <rdar://70591830> (Apple Internal) WaitManager.waitUntil incorrectly calculates time to wait)
