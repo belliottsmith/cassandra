@@ -36,6 +36,7 @@ import com.google.common.collect.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
@@ -46,6 +47,7 @@ import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.utils.Pair;
 
 import static com.google.common.collect.Iterables.filter;
+import static org.apache.cassandra.db.compaction.TimeWindowCompactionStrategyOptions.UNSAFE_AGGRESSIVE_SSTABLE_EXPIRATION_KEY;
 
 public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
 {
@@ -72,6 +74,10 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
             logger.debug("Disabling tombstone compactions for TWCS");
             disableTombstoneCompactions = true;
         }
+
+        // only logging a warning here to allow for operators to alter the table, but then only actually enable the expiration on a single node.
+        if (this.options.ignoreOverlapsSchema && !DatabaseDescriptor.allowUnsafeAggressiveSSTableExpiration())
+            logger.warn("{} is set to true, but it is disallowed in configuration - not ignoring overlaps when dropping sstables. Set allow_unsafe_aggressive_sstable_expiration to true to enable.", UNSAFE_AGGRESSIVE_SSTABLE_EXPIRATION_KEY);
     }
 
     @Override
@@ -98,7 +104,7 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
 
             LifecycleTransaction modifier = cfs.getTracker().tryModify(latestBucket, OperationType.COMPACTION);
             if (modifier != null)
-                return new TimeWindowCompactionTask(cfs, modifier, gcBefore, options.ignoreOverlaps);
+                return new TimeWindowCompactionTask(cfs, modifier, gcBefore, options.ignoreOverlaps());
             previousCandidate = latestBucket;
         }
     }
@@ -121,8 +127,8 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
         if (System.currentTimeMillis() - lastExpiredCheck > options.expiredSSTableCheckFrequency)
         {
             logger.debug("TWCS expired check sufficiently far in the past, checking for fully expired SSTables");
-            expired = CompactionController.getFullyExpiredSSTables(cfs, uncompacting, options.ignoreOverlaps ? Collections.emptySet() : cfs.getOverlappingLiveSSTables(uncompacting),
-                                                                   gcBefore, options.ignoreOverlaps, repairTimeHolder);
+            expired = CompactionController.getFullyExpiredSSTables(cfs, uncompacting, options.ignoreOverlaps() ? Collections.emptySet() : cfs.getOverlappingLiveSSTables(uncompacting),
+                                                                   gcBefore, options.ignoreOverlaps(), repairTimeHolder);
             lastExpiredCheck = System.currentTimeMillis();
         }
         else
@@ -383,7 +389,7 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
         LifecycleTransaction txn = cfs.getTracker().tryModify(filteredSSTables, OperationType.COMPACTION);
         if (txn == null)
             return null;
-        return Collections.singleton(new TimeWindowCompactionTask(cfs, txn, gcBefore, options.ignoreOverlaps));
+        return Collections.singleton(new TimeWindowCompactionTask(cfs, txn, gcBefore, options.ignoreOverlaps()));
     }
 
     @Override
@@ -399,7 +405,7 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
             return null;
         }
 
-        return new TimeWindowCompactionTask(cfs, modifier, gcBefore, options.ignoreOverlaps).setUserDefined(true);
+        return new TimeWindowCompactionTask(cfs, modifier, gcBefore, options.ignoreOverlaps()).setUserDefined(true);
     }
 
     public int getEstimatedRemainingTasks()
