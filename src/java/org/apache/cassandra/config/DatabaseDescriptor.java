@@ -3613,4 +3613,15 @@ public class DatabaseDescriptor
     {
         conf.use_deterministic_table_id = value;
     }
+
+    public static void setAllowUnsafeAggressiveSSTableExpiration(boolean allow)
+    {
+        logger.info("Setting allow_unsafe_aggressive_sstable_expiration to {}", allow);
+        conf.allow_unsafe_aggressive_sstable_expiration = allow;
+    }
+
+    public static boolean allowUnsafeAggressiveSSTableExpiration()
+    {
+        return conf.allow_unsafe_aggressive_sstable_expiration;
+    }
 }
