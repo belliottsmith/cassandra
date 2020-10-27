@@ -27,7 +27,7 @@ import org.apache.logging.log4j.core.lookup.StrLookup;
 /**
  * Used by log4j to find/define property value, see log4j2-dtest.xml
  */
-@Plugin(name="instance", category = StrLookup.CATEGORY)
+@Plugin(name="cluster", category = StrLookup.CATEGORY)
 public class ClusterIDDefiner implements StrLookup
 {
     private static volatile String ID = "<main>";

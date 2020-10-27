@@ -28,7 +28,7 @@
 <Configuration status="ERROR" packages="org.apache.cassandra.distributed" shutdownHook="disable">
     <Appenders>
         <File name="INSTANCEFILE"
-              fileName="./build/test/logs/${sys:cassandra.testtag}/${sys:suitename}/{cluster:id}/{instance:id}/system.log"
+              fileName="./build/test/logs/${sys:cassandra.testtag}/${sys:suitename}/${cluster:id}/${instance:id}/system.log"
               immediateFlush="true">
 	        <PatternLayout pattern="%-5level [%thread] {instance:id} %date{ISO8601} %msg%n"/>
         </File>
