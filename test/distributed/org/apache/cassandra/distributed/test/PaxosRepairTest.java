@@ -19,10 +19,7 @@
 package org.apache.cassandra.distributed.test;
 
 import java.net.InetAddress;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -40,9 +37,11 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.config.*;
+import org.apache.cassandra.cql3.ColumnIdentifier;
+import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
@@ -55,12 +54,10 @@ import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.service.paxos.PaxosState;
+import org.apache.cassandra.service.paxos.*;
 import org.apache.cassandra.service.paxos.cleanup.PaxosCleanup;
 import org.apache.cassandra.streaming.PreviewKind;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.ExecutorUtils;
-import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.*;
 
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
@@ -109,7 +106,7 @@ public class PaxosRepairTest extends TestBaseImpl
         return cluster.stream().map(instance -> getUncommitted(instance, ks, table)).reduce((a, b) -> a + b).get() > 0;
     }
 
-    private static void repair(Cluster cluster, String keyspace, String table)
+    private static void repair(Cluster cluster, String keyspace, String table, boolean force)
     {
         Map<String, String> options = new HashMap<>();
         options.put(RepairOption.PARALLELISM_KEY, RepairParallelism.SEQUENTIAL.getName());
@@ -119,7 +116,7 @@ public class PaxosRepairTest extends TestBaseImpl
         options.put(RepairOption.TRACE_KEY, Boolean.toString(false));
         options.put(RepairOption.COLUMNFAMILIES_KEY, "");
         options.put(RepairOption.PULL_REPAIR_KEY, Boolean.toString(false));
-        options.put(RepairOption.FORCE_REPAIR_KEY, Boolean.toString(false));
+        options.put(RepairOption.FORCE_REPAIR_KEY, Boolean.toString(force));
         options.put(RepairOption.PREVIEW, PreviewKind.NONE.toString());
         options.put(RepairOption.IGNORE_UNREPLICATED_KS, Boolean.toString(false));
         options.put(RepairOption.REPAIR_PAXOS, Boolean.toString(true));
@@ -153,6 +150,11 @@ public class PaxosRepairTest extends TestBaseImpl
                 }
             }
         });
+    }
+
+    private static void repair(Cluster cluster, String keyspace, String table)
+    {
+        repair(cluster, keyspace, table, false);
     }
 
     private static final Consumer<IInstanceConfig> CONFIG_CONSUMER = cfg -> {
@@ -265,7 +267,7 @@ public class PaxosRepairTest extends TestBaseImpl
             List<InetAddress> endpoints = cluster.stream().map(i -> i.broadcastAddress().getAddress()).collect(Collectors.toList());
             Future<?> cleanup = cluster.get(1).appliesOnInstance((List<InetAddress> es, ExecutorService exec)-> {
                 CFMetaData metadata = Keyspace.open(KEYSPACE).getMetadata().getTableOrViewNullable(TABLE);
-                return PaxosCleanup.cleanup(es, metadata.cfId, StorageService.instance.getLocalRanges(KEYSPACE), exec);
+                return PaxosCleanup.cleanup(es, metadata.cfId, StorageService.instance.getLocalRanges(KEYSPACE), false, exec);
             }).apply(endpoints, executor);
 
             Uninterruptibles.awaitUninterruptibly(haveFetchedLowBound);
@@ -325,7 +327,7 @@ public class PaxosRepairTest extends TestBaseImpl
             List<InetAddress> endpoints = cluster.stream().map(i -> i.broadcastAddress().getAddress()).collect(Collectors.toList());
             Future<?> cleanup = cluster.get(1).appliesOnInstance((List<InetAddress> es, ExecutorService exec)-> {
                 CFMetaData metadata = Keyspace.open(KEYSPACE).getMetadata().getTableOrViewNullable(TABLE);
-                return PaxosCleanup.cleanup(es, metadata.cfId, StorageService.instance.getLocalRanges(KEYSPACE), exec);
+                return PaxosCleanup.cleanup(es, metadata.cfId, StorageService.instance.getLocalRanges(KEYSPACE), false, exec);
             }).apply(endpoints, executor);
 
             cleanup.get();
@@ -338,6 +340,84 @@ public class PaxosRepairTest extends TestBaseImpl
             }
             ExecutorUtils.shutdownNowAndWait(1L, TimeUnit.MINUTES, executor);
             Assert.assertFalse(hasUncommitted(cluster, KEYSPACE, TABLE));
+        }
+    }
+
+    @Test
+    public void paxosRepairPreventsStaleReproposal() throws Throwable
+    {
+        UUID staleBallot = Paxos.newBallot(Ballot.none(), org.apache.cassandra.db.ConsistencyLevel.SERIAL);
+        try (Cluster cluster = init(Cluster.create(3, cfg -> cfg
+                                                             .set("paxos_variant", "apple_rrl")
+                                                             .set("truncate_request_timeout_in_ms", 1000L)))
+        )
+        {
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (k int primary key, v int)");
+            repair(cluster, KEYSPACE, TABLE);
+
+            // stop and start node 2 to test loading paxos repair history from disk
+            cluster.get(2).shutdown();
+            cluster.get(2).startup();
+
+            for (int i=0; i<cluster.size(); i++)
+            {
+                cluster.get(i+1).runOnInstance(() -> {
+                    ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+                    DecoratedKey key = cfs.decorateKey(ByteBufferUtil.bytes(1));
+                    Assert.assertFalse(FBUtilities.getBroadcastAddress().toString(), Commit.isAfter(staleBallot, cfs.getPaxosRepairLowBound(key)));
+                });
+            }
+
+            // add in the stale proposal
+            cluster.get(1).runOnInstance(() -> {
+                CFMetaData cfm = Schema.instance.getCFMetaData(KEYSPACE, TABLE);
+                DecoratedKey key = DatabaseDescriptor.getPartitioner().decorateKey(ByteBufferUtil.bytes(1));
+                ColumnDefinition cdef = cfm.getColumnDefinition(new ColumnIdentifier("v", false));
+                Cell cell = BufferCell.live(cfm, cdef, UUIDGen.microsTimestamp(staleBallot), ByteBufferUtil.bytes(1));
+                Row row = BTreeRow.singleCellRow(Clustering.EMPTY, cell);
+                PartitionUpdate update = PartitionUpdate.singleRowUpdate(cfm, key, row);
+                Commit.Proposal proposal = Commit.Proposal.from(staleBallot, update);
+                SystemKeyspace.savePaxosProposal(proposal);
+            });
+
+            // shutdown node 3 so we're guaranteed to see the stale proposal
+            cluster.get(3).shutdown();
+
+            // the stale inflight proposal should be ignored and the query should succeed
+            String query = "INSERT INTO " + KEYSPACE + '.' + TABLE + " (k, v) VALUES (1, 2) IF NOT EXISTS";
+            Object[][] result = cluster.coordinator(1).execute(query, ConsistencyLevel.QUORUM);
+            Assert.assertEquals(new Object[][]{new Object[]{ true }}, result);
+        }
+    }
+
+    @Test
+    public void paxosRepairHistoryIsntUpdatedInForcedRepair() throws Throwable
+    {
+        UUID staleBallot = Paxos.newBallot(Ballot.none(), org.apache.cassandra.db.ConsistencyLevel.SERIAL);
+        try (Cluster cluster = init(Cluster.create(3, cfg -> cfg.with(Feature.GOSSIP, Feature.NETWORK)
+                                                             .set("paxos_variant", "apple_rrl")
+                                                             .set("truncate_request_timeout_in_ms", 1000L)))
+        )
+        {
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (k int primary key, v int)");
+            cluster.get(3).shutdown();
+            InetAddress node3 = cluster.get(3).broadcastAddress().getAddress();
+
+            for (int i=0; i<10; i++)
+            {
+                if (!cluster.get(1).callOnInstance(() -> FailureDetector.instance.isAlive(node3)))
+                    break;
+            }
+
+            repair(cluster, KEYSPACE, TABLE, true);
+            for (int i=0; i<cluster.size() -1; i++)
+            {
+                cluster.get(i+1).runOnInstance(() -> {
+                    ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+                    DecoratedKey key = cfs.decorateKey(ByteBufferUtil.bytes(1));
+                    Assert.assertTrue(FBUtilities.getBroadcastAddress().toString(), Commit.isAfter(staleBallot, cfs.getPaxosRepairLowBound(key)));
+                });
+            }
         }
     }
 }

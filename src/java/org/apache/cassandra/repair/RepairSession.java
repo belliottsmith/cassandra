@@ -386,7 +386,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         List<ListenableFuture<RepairResult>> jobs = new ArrayList<>(cfnames.length);
         for (String cfname : cfnames)
         {
-            RepairJob job = new RepairJob(this, cfname, isIncremental, previewKind);
+            RepairJob job = new RepairJob(this, cfname, isIncremental, previewKind, skippedReplicas);
             executor.execute(job);
             jobs.add(job);
         }

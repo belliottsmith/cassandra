@@ -34,12 +34,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.db.ReadCommand;
-import org.apache.cassandra.db.ReadOrderGroup;
-import org.apache.cassandra.db.ReadResponse;
-import org.apache.cassandra.db.SinglePartitionReadCommand;
+import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
@@ -290,6 +286,9 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
         // If we aren't newer than latestCommitted, then we're done
         if (!latestAccepted.isAfter(latestCommitted))
+            return false;
+
+        if (latestAccepted.ballot.timestamp() <= maxLowBound)
             return false;
 
         // We can be a re-proposal of latestCommitted, in which case we do not need to re-propose it
@@ -932,8 +931,10 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
                 Accepted acceptedButNotCommitted = result.after.accepted;
                 Committed committed = result.after.committed;
 
-                return new Promised(ballotTracker().getLowBound().timestamp(),
-                        acceptedButNotCommitted, committed, readResponse, hasProposalStability, gossipInfo);
+                ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreInstance(request.metadata.cfId);
+                long lowBound = cfs.getPaxosRepairLowBound(request.partitionKey).timestamp();
+
+                return new Promised(lowBound, acceptedButNotCommitted, committed, readResponse, hasProposalStability, gossipInfo);
             }
             else
             {

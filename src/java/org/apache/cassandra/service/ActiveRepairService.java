@@ -942,7 +942,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                                              range, ksName, reason, downEndpoints));
                 }
                 endpoints.addAll(StorageService.instance.getTokenMetadata().pendingEndpointsFor(range.right, ksName));
-                ListenableFuture<Void> future = PaxosCleanup.cleanup(endpoints, cfm.cfId, Collections.singleton(range), repairCommandExecutor());
+                ListenableFuture<Void> future = PaxosCleanup.cleanup(endpoints, cfm.cfId, Collections.singleton(range), false, repairCommandExecutor());
                 futures.add(future);
             }
         }

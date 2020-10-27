@@ -81,6 +81,9 @@ import org.apache.cassandra.schema.*;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.service.paxos.Commit;
+import org.apache.cassandra.service.paxos.PaxosRepairHistory;
+import org.apache.cassandra.service.paxos.TablePaxosRepairHistory;
 import org.apache.cassandra.utils.DefaultValue;
 import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.FBUtilities;
@@ -252,6 +255,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * reverse-sorted based on the timestamp (see {@link ColumnFamilyStore#lastRepairTimeComparator}).
      */
     private final AtomicReference<SuccessfulRepairTimeHolder> lastSuccessfulRepair = new AtomicReference<>(SuccessfulRepairTimeHolder.EMPTY);
+
+    private final TablePaxosRepairHistory paxosRepairHistory;
 
     public static void shutdownFlushExecutor() throws InterruptedException
     {
@@ -489,6 +494,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             oldMBeanName= null;
         }
         sstableImporter = new SSTableImporter(this);
+        paxosRepairHistory = TablePaxosRepairHistory.load(keyspace.getName(), columnFamilyName);
     }
 
     public void updateSpeculationThreshold()
@@ -590,7 +596,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return createColumnFamilyStore(keyspace, metadata.cfName, metadata, loadSSTables);
     }
 
-    public static synchronized ColumnFamilyStore createColumnFamilyStore(Keyspace keyspace,
+    public static ColumnFamilyStore createColumnFamilyStore(Keyspace keyspace,
                                                                          String columnFamily,
                                                                          CFMetaData metadata,
                                                                          boolean loadSSTables)
@@ -1801,6 +1807,26 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
 
         return history;
+    }
+
+    public PaxosRepairHistory getHistoryForRanges(Collection<Range<Token>> ranges)
+    {
+        return paxosRepairHistory.getHistoryForRanges(ranges);
+    }
+
+    public void syncPaxosRepairHistory(PaxosRepairHistory sync)
+    {
+        paxosRepairHistory.merge(sync);
+    }
+
+    public void onPaxosRepairComplete(Collection<Range<Token>> ranges, UUID highBallot)
+    {
+        paxosRepairHistory.add(ranges, highBallot);
+    }
+
+    public UUID getPaxosRepairLowBound(DecoratedKey key)
+    {
+        return paxosRepairHistory.getBallotForToken(key.getToken());
     }
 
     public int gcBefore(int nowInSec)

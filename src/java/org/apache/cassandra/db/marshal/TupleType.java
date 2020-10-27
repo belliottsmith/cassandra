@@ -132,15 +132,23 @@ public class TupleType extends AbstractType<ByteBuffer>
      */
     public ByteBuffer[] split(ByteBuffer value)
     {
-        ByteBuffer[] components = new ByteBuffer[size()];
+        return split(value, size());
+    }
+
+    /**
+     * Split a tuple value into its component values.
+     */
+    public static ByteBuffer[] split(ByteBuffer value, int numberOfElements)
+    {
+        ByteBuffer[] components = new ByteBuffer[numberOfElements];
         ByteBuffer input = value.duplicate();
-        for (int i = 0; i < size(); i++)
+        for (int i = 0; i < numberOfElements; i++)
         {
             if (!input.hasRemaining())
                 return Arrays.copyOfRange(components, 0, i);
 
-            int size = input.getInt();
-            components[i] = size < 0 ? null : ByteBufferUtil.readBytes(input, size);
+            int length = input.getInt();
+            components[i] = length < 0 ? null : ByteBufferUtil.readBytes(input, length);
         }
         return components;
     }

@@ -24,7 +24,6 @@ import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-
 import javax.annotation.Nullable;
 
 import com.google.common.util.concurrent.*;
@@ -44,18 +43,21 @@ public class PaxosCleanup extends AbstractFuture<Void> implements Runnable
     private final Collection<InetAddress> endpoints;
     private final UUID cfId;
     private final Collection<Range<Token>> ranges;
+    private final boolean skippedReplicas;
     private final Executor executor;
 
     // references kept for debugging
     private PaxosStartPrepareCleanup startPrepare;
     private PaxosFinishPrepareCleanup finishPrepare;
     private PaxosCleanupSession session;
+    private PaxosCleanupComplete complete;
 
-    public PaxosCleanup(Collection<InetAddress> endpoints, UUID cfId, Collection<Range<Token>> ranges, Executor executor)
+    public PaxosCleanup(Collection<InetAddress> endpoints, UUID cfId, Collection<Range<Token>> ranges, boolean skippedReplicas, Executor executor)
     {
         this.endpoints = endpoints;
         this.cfId = cfId;
         this.ranges = ranges;
+        this.skippedReplicas = skippedReplicas;
         this.executor = executor;
     }
 
@@ -75,9 +77,9 @@ public class PaxosCleanup extends AbstractFuture<Void> implements Runnable
         });
     }
 
-    public static PaxosCleanup cleanup(Collection<InetAddress> endpoints, UUID cfId, Collection<Range<Token>> ranges, Executor executor)
+    public static PaxosCleanup cleanup(Collection<InetAddress> endpoints, UUID cfId, Collection<Range<Token>> ranges, boolean skippedReplicas, Executor executor)
     {
-        PaxosCleanup cleanup = new PaxosCleanup(endpoints, cfId, ranges, executor);
+        PaxosCleanup cleanup = new PaxosCleanup(endpoints, cfId, ranges, skippedReplicas, executor);
         executor.execute(cleanup);
         return cleanup;
     }
@@ -85,22 +87,29 @@ public class PaxosCleanup extends AbstractFuture<Void> implements Runnable
     public void run()
     {
         EndpointState localEpState = Gossiper.instance.getEndpointStateForEndpoint(FBUtilities.getBroadcastAddress());
-        startPrepare = PaxosStartPrepareCleanup.prepare(cfId, endpoints, localEpState);
+        startPrepare = PaxosStartPrepareCleanup.prepare(cfId, endpoints, localEpState, ranges);
         addCallback(startPrepare, this::finishPrepare);
     }
 
-    private void finishPrepare(UUID highBallot)
+    private void finishPrepare(PaxosCleanupHistory result)
     {
         ScheduledExecutors.nonPeriodicTasks.schedule(() -> {
-            finishPrepare = PaxosFinishPrepareCleanup.finish(endpoints, highBallot);
-            addCallback(finishPrepare, this::startSession);
+            finishPrepare = PaxosFinishPrepareCleanup.finish(endpoints, result);
+            addCallback(finishPrepare, (v) -> startSession(result.highBound));
         }, Math.min(getCasContentionTimeout(), getWriteRpcTimeout()), TimeUnit.MILLISECONDS);
     }
 
-    private void startSession(Void ignore)
+    private void startSession(UUID lowBound)
     {
         session = new PaxosCleanupSession(endpoints, cfId, ranges);
-        addCallback(session, this::set);
+        addCallback(session, (v) -> finish(lowBound));
         executor.execute(session);
+    }
+
+    private void finish(UUID lowBound)
+    {
+        complete = new PaxosCleanupComplete(endpoints, cfId, ranges, lowBound, skippedReplicas);
+        addCallback(complete, this::set);
+        executor.execute(complete);
     }
 }
