@@ -1,3 +1,5 @@
+3.0.19.59
+
 3.0.19.58
 * <rdar://70624271> (Apple Internal) apple paxos can re-prepare stable ballots in some cases
 * <rdar://70717584> (Apple Internal) Deadlock in Keyspace/Table initialisation
