@@ -1,4 +1,8 @@
 3.0.19.58
+* <rdar://70624271> (Apple Internal) apple paxos can re-prepare stable ballots in some cases
+* <rdar://70717584> (Apple Internal) Deadlock in Keyspace/Table initialisation
+* <rdar://70632084> CASSANDRA-15623: cqlsh return non-zero status when STDIN CQL fails
+* <rdar://70610232> CASSANDRA-16094: Avoid marking shutting down nodes as up after receiving gossip shutdown message
 
 3.0.19.57
 * <rdar://70593412> (Apple Internal) apple_norrfwl retains read/read linearizability
