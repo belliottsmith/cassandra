@@ -9,7 +9,7 @@ shared:
   machine: &base-machine
       numberOfInstances: 1
       resources:
-        cpu: 4
+        cpu: 8
         cpuRequest: 2
         memory: 16Gi
         priorityClassName: p3
