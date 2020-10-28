@@ -65,8 +65,7 @@ public class RepairSessionTest
         Set<InetAddressAndPort> endpoints = Sets.newHashSet(remote);
         RepairSession session = new RepairSession(parentSessionId, sessionId,
                                                   new CommonRange(endpoints, Collections.emptySet(), Arrays.asList(repairRange)),
-                                                  "Keyspace1", RepairParallelism.SEQUENTIAL, true,
-                                                  false, false,
+                                                  "Keyspace1", RepairParallelism.SEQUENTIAL, true, false, false,
                                                   PreviewKind.NONE, false, "Standard1");
 
         // perform convict

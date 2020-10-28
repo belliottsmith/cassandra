@@ -170,8 +170,7 @@ public class RepairJobTest
 
         this.session = new MeasureableRepairSession(parentRepairSession, UUIDGen.getTimeUUID(),
                                                     new CommonRange(neighbors, Collections.emptySet(), FULL_RANGE),
-                                                    KEYSPACE, RepairParallelism.SEQUENTIAL, true,
-                                                    false, false,
+                                                    KEYSPACE, RepairParallelism.SEQUENTIAL, true, false, false,
                                                     PreviewKind.NONE, false, CF);
 
         this.job = new RepairJob(session, CF);

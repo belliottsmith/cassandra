@@ -74,7 +74,7 @@ public class ChristmasPatchTest extends TestBaseImpl
                 assertTrue(SystemKeyspace.getLastSuccessfulRepair(KEYSPACE, "tbl").isEmpty());
             }));
 
-            RepairResult res = cluster.get(1).callOnInstance(repair(options(false, false, range)));
+            RepairResult res = cluster.get(1).callOnInstance(repair(options(false, true, range)));
             assertTrue(res.success); // repair should succeed
             // and make sure repair history is correct on both nodes
             cluster.forEach((instance) -> instance.runOnInstance(
@@ -135,7 +135,7 @@ public class ChristmasPatchTest extends TestBaseImpl
             for (int i = 0; i < 10000; i++)
                 cluster.coordinator(1).execute("insert into "+KEYSPACE+".tbl (id, i) VALUES (?, ?)", ConsistencyLevel.ALL, i, i);
 
-            RepairResult res = cluster.get(1).callOnInstance(repair(options(false, false)));
+            RepairResult res = cluster.get(1).callOnInstance(repair(options(false, true)));
             assertTrue(res.success);
 
             cluster.get(3).runOnInstance(() -> {
