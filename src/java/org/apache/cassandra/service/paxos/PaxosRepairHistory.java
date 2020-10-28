@@ -47,6 +47,21 @@ public class PaxosRepairHistory
     private static final Token.TokenFactory TOKEN_FACTORY = DatabaseDescriptor.getPartitioner().getTokenFactory();
     private static final Token MIN_TOKEN = DatabaseDescriptor.getPartitioner().getMinimumToken();
 
+    /**
+     * The following two fields represent the mapping of ranges to ballot lower bounds, for example:
+     *
+     *   ballotLowBound           = [ none(), b2, none(), b4, none() ]
+     *   tokenInclusiveUpperBound = [ t1, t2, t3, t4 ]
+     *
+     * Correspond to the following token bounds:
+     *
+     *   (MIN_VALUE, t1] => none()
+     *   (t1, t2]        => b2
+     *   (t2, t3]        => none()
+     *   (t3, t4]        => b4
+     *   (t4, MAX_VALUE) => none()
+     */
+
     private final Token[] tokenInclusiveUpperBound;
     private final UUID[] ballotLowBound; // always one longer to capture values up to "MAX_VALUE" (which in some cases doesn't exist, as is infinite)
 
@@ -71,7 +86,7 @@ public class PaxosRepairHistory
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         PaxosRepairHistory that = (PaxosRepairHistory) o;
-        return Arrays.equals(ballotLowBound, that.ballotLowBound) && Arrays.equals(tokenInclusiveUpperBound, tokenInclusiveUpperBound);
+        return Arrays.equals(ballotLowBound, that.ballotLowBound) && Arrays.equals(tokenInclusiveUpperBound, that.tokenInclusiveUpperBound);
     }
 
     public int hashCode()
@@ -148,8 +163,8 @@ public class PaxosRepairHistory
 
         Builder builder = new Builder(historyLeft.size() + historyRight.size());
 
-        RangeIterator left = historyRight.rangeIterator();
-        RangeIterator right = historyLeft.rangeIterator();
+        RangeIterator left = historyLeft.rangeIterator();
+        RangeIterator right = historyRight.rangeIterator();
         while (left.hasUpperBound() && right.hasUpperBound())
         {
             int cmp = left.tokenInclusiveUpperBound().compareTo(right.tokenInclusiveUpperBound());
@@ -171,13 +186,13 @@ public class PaxosRepairHistory
 
         while (left.hasUpperBound())
         {
-            builder.append(left.tokenInclusiveUpperBound(), left.ballotLowBound());
+            builder.append(left.tokenInclusiveUpperBound(), latest(left.ballotLowBound(), right.ballotLowBound()));
             left.next();
         }
 
         while (right.hasUpperBound())
         {
-            builder.append(right.tokenInclusiveUpperBound(), right.ballotLowBound());
+            builder.append(right.tokenInclusiveUpperBound(), latest(left.ballotLowBound(), right.ballotLowBound()));
             right.next();
         }
 
@@ -372,8 +387,11 @@ public class PaxosRepairHistory
 
         void append(Token inclusiveLowBound, UUID ballotLowBound)
         {
-            assert tokenInclusiveUpperBounds.size() == ballotLowBounds.size();
             int tailIdx = tokenInclusiveUpperBounds.size() - 1;
+
+            assert tokenInclusiveUpperBounds.size() == ballotLowBounds.size();
+            assert tailIdx < 0 || inclusiveLowBound.compareTo(tokenInclusiveUpperBounds.get(tailIdx)) >= 0;
+
             boolean sameAsTailToken = tailIdx >= 0 && inclusiveLowBound.equals(tokenInclusiveUpperBounds.get(tailIdx));
             boolean sameAsTailBallot = tailIdx >= 0 && ballotLowBound.equals(ballotLowBounds.get(tailIdx));
             if (sameAsTailToken || sameAsTailBallot)
@@ -392,7 +410,12 @@ public class PaxosRepairHistory
 
         void appendLast(UUID ballotLowBound)
         {
-            ballotLowBounds.add(ballotLowBound);
+            assert ballotLowBounds.size() == tokenInclusiveUpperBounds.size();
+            int tailIdx = tokenInclusiveUpperBounds.size() - 1;
+            if (!ballotLowBounds.isEmpty() && ballotLowBound.equals(ballotLowBounds.get(tailIdx)))
+                tokenInclusiveUpperBounds.remove(tailIdx);
+            else
+                ballotLowBounds.add(ballotLowBound);
         }
 
         PaxosRepairHistory build()

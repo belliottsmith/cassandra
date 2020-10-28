@@ -19,9 +19,13 @@
 package org.apache.cassandra.distributed.test;
 
 import com.google.common.util.concurrent.Uninterruptibles;
+import org.apache.cassandra.concurrent.Stage;
+import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.service.paxos.ContentionStrategy;
+import org.apache.cassandra.tracing.Tracing;
+import org.apache.cassandra.utils.FBUtilities;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -83,6 +87,7 @@ public class CASContentionTest extends CASTestBase
             haveInvalidated.countDown();
             THREE_NODES.filters().reset();
             insert.get();
+            THREE_NODES.forEach(i -> i.runOnInstance(() -> FBUtilities.waitOnFuture(StageManager.getStage(Stage.TRACING).submit(StageManager.NO_OP_TASK))));
             Object[][] result = THREE_NODES.coordinator(1).execute("SELECT parameters FROM system_traces.sessions", QUORUM);
             Assert.assertEquals(1, result.length);
             Assert.assertEquals(1, result[0].length);
