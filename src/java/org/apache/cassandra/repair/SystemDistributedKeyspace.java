@@ -81,7 +81,9 @@ public final class SystemDistributedKeyspace
                      + "range_begin text,"
                      + "range_end text,"
                      + "coordinator inet,"
+                     + "coordinator_port int,"
                      + "participants set<inet>,"
+                     + "participants_v2 set<text>,"
                      + "exception_message text,"
                      + "exception_stacktrace text,"
                      + "status text,"
@@ -105,6 +107,7 @@ public final class SystemDistributedKeyspace
                      + "exception_stacktrace text,"
                      + "requested_ranges set<text>,"
                      + "successful_ranges set<text>,"
+                     + "options map<text, text>,"
                      + "PRIMARY KEY (parent_id))")
         .defaultTimeToLive((int) TimeUnit.DAYS.toSeconds(30))
         .compaction(CompactionParams.twcs(ImmutableMap.of("compaction_window_unit","DAYS",
