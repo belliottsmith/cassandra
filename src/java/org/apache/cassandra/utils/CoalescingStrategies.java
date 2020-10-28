@@ -49,6 +49,8 @@ public class CoalescingStrategies
     /*
      * Log debug information at info level about what the average is and when coalescing is enabled/disabled
      */
+    public static final String NO_ARTIFICIAL_LATENCY_LIMIT_PROPERTY = Config.PROPERTY_PREFIX + "no_artificial_latency_limit";
+    private static final boolean NO_ARTIFICIAL_LATENCY_LIMIT = Boolean.getBoolean(NO_ARTIFICIAL_LATENCY_LIMIT_PROPERTY);
     private static final String DEBUG_COALESCING_PROPERTY = Config.PROPERTY_PREFIX + "coalescing_debug";
     private static final boolean DEBUG_COALESCING = Boolean.getBoolean(DEBUG_COALESCING_PROPERTY);
 
@@ -73,7 +75,7 @@ public class CoalescingStrategies
 
     public static void setArtificialLatencyMillis(int ms)
     {
-        if (ms > 100)
+        if (!NO_ARTIFICIAL_LATENCY_LIMIT && ms > 100)
             throw new IllegalArgumentException();
         artificialLatencyMs = ms;
     }

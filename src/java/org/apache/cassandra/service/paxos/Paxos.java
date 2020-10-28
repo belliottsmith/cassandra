@@ -921,8 +921,8 @@ public class Paxos
         switch (serial)
         {
             default: throw new IllegalStateException();
-            case SERIAL: return QUORUM;
-            case LOCAL_SERIAL: return LOCAL_QUORUM;
+            case UNSAFE_DELAY_SERIAL: case SERIAL: return QUORUM;
+            case UNSAFE_DELAY_LOCAL_SERIAL: case LOCAL_SERIAL: return LOCAL_QUORUM;
         }
     }
 
@@ -950,7 +950,7 @@ public class Paxos
         long timestampMicros = BALLOT_GENERATOR.nextTimestamp(minTimestampMicros);
         // Note that ballotMicros is not guaranteed to be unique if two proposal are being handled concurrently by the same coordinator. But we still
         // need ballots to be unique for each proposal so we have to use getRandomTimeUUIDFromMicros.
-        return BALLOT_GENERATOR.generate(timestampMicros, consistency == SERIAL);
+        return BALLOT_GENERATOR.generate(timestampMicros, consistency == SERIAL || consistency == UNSAFE_DELAY_SERIAL);
     }
 
     static UUID staleBallotNewerThan(UUID than, ConsistencyLevel consistency)
@@ -959,9 +959,9 @@ public class Paxos
         long maxTimestampMicros = BALLOT_GENERATOR.prevTimestamp();
         maxTimestampMicros -= Math.min((maxTimestampMicros - minTimestampMicros) / 2, SECONDS.toMicros(5L));
         if (maxTimestampMicros <= minTimestampMicros)
-            return BALLOT_GENERATOR.generate(minTimestampMicros, consistency == SERIAL);
+            return BALLOT_GENERATOR.generate(minTimestampMicros, consistency == SERIAL || consistency == UNSAFE_DELAY_SERIAL);
 
-        return BALLOT_GENERATOR.generate(minTimestampMicros, maxTimestampMicros, consistency == SERIAL);
+        return BALLOT_GENERATOR.generate(minTimestampMicros, maxTimestampMicros, consistency == SERIAL || consistency == UNSAFE_DELAY_SERIAL);
     }
 
     /**
@@ -975,7 +975,7 @@ public class Paxos
     public static UUID ballotForConsistency(long whenInMicros, ConsistencyLevel consistency)
     {
         Preconditions.checkArgument(consistency.isSerialConsistency());
-        return BALLOT_GENERATOR.generate(whenInMicros, consistency == SERIAL);
+        return BALLOT_GENERATOR.generate(whenInMicros, consistency == SERIAL || consistency == UNSAFE_DELAY_SERIAL);
     }
 
     public static ConsistencyLevel decodeConsistency(UUID ballot)

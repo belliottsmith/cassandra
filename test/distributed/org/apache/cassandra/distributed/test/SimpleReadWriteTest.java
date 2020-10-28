@@ -18,28 +18,77 @@
 
 package org.apache.cassandra.distributed.test;
 
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
-import org.junit.Assert;
-import org.junit.Test;
+import com.google.common.base.Joiner;
+
+import org.apache.cassandra.config.Config;
+import org.apache.cassandra.distributed.api.*;
+import org.apache.cassandra.net.MessagingService;
+
+import org.junit.*;
 
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.distributed.Cluster;
-import org.apache.cassandra.distributed.api.ConsistencyLevel;
-import org.apache.cassandra.distributed.api.ICluster;
-import org.apache.cassandra.distributed.api.IInvokableInstance;
-import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.service.StorageProxy;
+import org.apache.cassandra.utils.CoalescingStrategies;
 
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
+import static org.apache.cassandra.net.MessagingService.Verb.*;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 // TODO: this test should be removed after running in-jvm dtests is set up via the shared API repository
 public class SimpleReadWriteTest extends SharedClusterTestBase
 {
+    static
+    {
+        System.setProperty(CoalescingStrategies.NO_ARTIFICIAL_LATENCY_LIMIT_PROPERTY, "true");
+    }
+
+    @BeforeClass
+    public static void before() throws IOException
+    {
+        Consumer<IInstanceConfig> cfg = config -> config.with(Feature.NETWORK).set("otc_coalescing_strategy", "ARTIFICIAL_LATENCY");
+        cluster = init(Cluster.build().withNodes(3).withConfig(cfg).start());
+    }
+
+    private static void setPaxosVariant(Config.PaxosVariant variant)
+    {
+        cluster.forEach(i -> i.runOnInstance(() -> {
+            StorageProxy.instance.setPaxosVariant(variant.toString());
+        }));
+    }
+
+    private static void setupArtificialLatency(int millis, boolean onlyPermittedCLs, MessagingService.Verb... verbs)
+    {
+        Arrays.sort(verbs, Comparator.comparingInt(Enum::ordinal));
+        String verbString = Joiner.on(',').join(verbs);
+        cluster.forEach(i -> i.runOnInstance(() -> {
+            StorageProxy.instance.setArtificialLatencyMillis(millis);
+            StorageProxy.instance.setArtificialLatencyOnlyPermittedConsistencyLevels(onlyPermittedCLs);
+            StorageProxy.instance.setArtificialLatencyVerbs(verbString);
+        }));
+    }
+
+    @Before
+    public void setup()
+    {
+        setupArtificialLatency(0, true);
+        cluster.forEach(i -> i.runOnInstance(() -> {
+            StorageProxy.instance.setArtificialLatencyMillis(0);
+            StorageProxy.instance.setArtificialLatencyOnlyPermittedConsistencyLevels(true);
+            StorageProxy.instance.setArtificialLatencyVerbs("");
+        }));
+    }
+
     @Test
     public void coordinatorReadTest()
     {
@@ -94,97 +143,112 @@ public class SimpleReadWriteTest extends SharedClusterTestBase
                    row(1, 1, 1));
     }
 
-    @Test
-    public void coordinatorDelaySerialWriteTest() throws Throwable
+    private void coordinatorDelaySerialWriteTest(Config.PaxosVariant variant) throws Throwable
     {
-        System.setProperty("cassandra.artificial_latency_verbs", "PAXOS_PREPARE,PAXOS_PROPOSE,PAXOS_COMMIT,REQUEST_RESPONSE");
-        System.setProperty("cassandra.artificial_latency_ms", "100");
-        try (Cluster cluster = init(Cluster.create(3, config -> config.with(Feature.NETWORK)
-                                                                      .set("otc_coalescing_strategy", "ARTIFICIAL_LATENCY"))))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
+        setPaxosVariant(variant);
+        setupArtificialLatency(100, false, APPLE_PAXOS_PREPARE_REQ, APPLE_PAXOS_PROPOSE_REQ, APPLE_PAXOS_PREPARE_REFRESH_REQ, APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, PAXOS_PREPARE, PAXOS_PROPOSE, PAXOS_COMMIT, REQUEST_RESPONSE);
+        cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
-            long start = System.nanoTime();
-            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS",
-                                           ConsistencyLevel.UNSAFE_DELAY_SERIAL, ConsistencyLevel.UNSAFE_DELAY_QUORUM);
-            long end = System.nanoTime();
+        long start = System.nanoTime();
+        cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS",
+                                       ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM);
+        long end = System.nanoTime();
 
-            assertTrue(end - start > TimeUnit.MILLISECONDS.toNanos(600));
+        assertTrue(variant.name() + ' ' + TimeUnit.NANOSECONDS.toMillis(end - start), end - start > TimeUnit.MILLISECONDS.toNanos(variant == Config.PaxosVariant.legacy ? 600 : 400));
 
-            start = System.nanoTime();
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
-                                                      ConsistencyLevel.UNSAFE_DELAY_SERIAL),
-                       row(1, 1, 1));
-            end = System.nanoTime();
-            assertTrue(end - start > TimeUnit.MILLISECONDS.toNanos(200));
-        }
-        finally
-        {
-            System.clearProperty("cassandra.artificial_latency_verbs");
-            System.clearProperty("cassandra.artificial_latency_ms");
-        }
+        start = System.nanoTime();
+        assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
+                                                  ConsistencyLevel.SERIAL),
+                   row(1, 1, 1));
+        end = System.nanoTime();
+        assertTrue(variant.name() + ' ' + TimeUnit.NANOSECONDS.toMillis(end - start), end - start > TimeUnit.MILLISECONDS.toNanos(variant == Config.PaxosVariant.legacy ? 200 : 100));
     }
 
     @Test
+    public void legacyPaxosCoordinatorDelaySerialWriteTest() throws Throwable
+    {
+        coordinatorDelaySerialWriteTest(Config.PaxosVariant.legacy);
+    }
+
+    @Test
+    public void applePaxosCoordinatorDelaySerialWriteTest() throws Throwable
+    {
+        coordinatorDelaySerialWriteTest(Config.PaxosVariant.apple_rrl);
+    }
+
+    private void coordinatorDelayUnsafeXSerialWriteTest(Config.PaxosVariant variant) throws Throwable
+    {
+        setPaxosVariant(variant);
+        setupArtificialLatency(100, true, APPLE_PAXOS_PREPARE_REQ, APPLE_PAXOS_PROPOSE_REQ, APPLE_PAXOS_PREPARE_REFRESH_REQ, APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, PAXOS_PREPARE, PAXOS_PROPOSE, PAXOS_COMMIT, REQUEST_RESPONSE);
+        cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
+
+        long start = System.nanoTime();
+        cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS",
+                                       ConsistencyLevel.UNSAFE_DELAY_SERIAL, ConsistencyLevel.UNSAFE_DELAY_QUORUM);
+        long end = System.nanoTime();
+
+        assertTrue(variant.name() + " " + TimeUnit.NANOSECONDS.toMillis(end - start), end - start > TimeUnit.MILLISECONDS.toNanos(variant == Config.PaxosVariant.legacy ? 600 : 400));
+
+        start = System.nanoTime();
+        assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
+                                                  ConsistencyLevel.UNSAFE_DELAY_SERIAL),
+                   row(1, 1, 1));
+        end = System.nanoTime();
+        assertTrue(variant.name() + " " + TimeUnit.NANOSECONDS.toMillis(end - start), end - start > TimeUnit.MILLISECONDS.toNanos(variant == Config.PaxosVariant.legacy ? 200 : 100));
+    }
+
+    @Test
+    public void legacyPaxosCoordinatorDelayUnsafeXSerialWriteTest() throws Throwable
+    {
+        coordinatorDelayUnsafeXSerialWriteTest(Config.PaxosVariant.legacy);
+    }
+
+    @Test
+    public void applePaxosCoordinatorDelayUnsafeXSerialWriteTest() throws Throwable
+    {
+        coordinatorDelayUnsafeXSerialWriteTest(Config.PaxosVariant.apple_rrl);
+    }
+//
+    @Test
     public void coordinatorDelayQuorumReadWriteTest() throws Throwable
     {
-        System.setProperty("cassandra.artificial_latency_verbs", "PAXOS_PREPARE,PAXOS_PROPOSE,PAXOS_COMMIT,MUTATION,READ,READ_REPAIR,REQUEST_RESPONSE");
-        System.setProperty("cassandra.artificial_latency_ms", "100");
-        try (Cluster cluster = init(Cluster.create(3, config -> config.with(Feature.NETWORK)
-                                                                      .set("otc_coalescing_strategy", "ARTIFICIAL_LATENCY"))))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
+        setupArtificialLatency(100, true, PAXOS_PREPARE, PAXOS_PROPOSE, PAXOS_COMMIT, MUTATION, READ, READ_REPAIR, REQUEST_RESPONSE);
+        cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
-            long start = System.nanoTime();
-            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1)",
-                                           ConsistencyLevel.UNSAFE_DELAY_QUORUM);
-            long end = System.nanoTime();
+        long start = System.nanoTime();
+        cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1)",
+                                       ConsistencyLevel.UNSAFE_DELAY_QUORUM);
+        long end = System.nanoTime();
 
-            assertTrue(end - start > TimeUnit.MILLISECONDS.toNanos(200));
+        assertTrue(end - start > TimeUnit.MILLISECONDS.toNanos(200));
 
-            start = System.nanoTime();
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
-                                                      ConsistencyLevel.UNSAFE_DELAY_LOCAL_QUORUM),
-                       row(1, 1, 1));
-            end = System.nanoTime();
-            assertTrue(end - start > TimeUnit.MILLISECONDS.toNanos(200));
-        }
-        finally
-        {
-            System.clearProperty("cassandra.artificial_latency_verbs");
-            System.clearProperty("cassandra.artificial_latency_ms");
-        }
+        start = System.nanoTime();
+        assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
+                                                  ConsistencyLevel.UNSAFE_DELAY_LOCAL_QUORUM),
+                   row(1, 1, 1));
+        end = System.nanoTime();
+        assertTrue(end - start > TimeUnit.MILLISECONDS.toNanos(200));
     }
 
     @Test
     public void coordinatorNoDelayQuorumReadWriteTest() throws Throwable
     {
-        System.setProperty("cassandra.artificial_latency_verbs", "PAXOS_PREPARE,PAXOS_PROPOSE,PAXOS_COMMIT,MUTATION,READ,READ_REPAIR,REQUEST_RESPONSE");
-        System.setProperty("cassandra.unsafe_artificial_latency_ms", "1000");
-        try (Cluster cluster = init(Cluster.create(3, config -> config.with(Feature.NETWORK)
-                                                                      .set("otc_coalescing_strategy", "ARTIFICIAL_LATENCY"))))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
+        setupArtificialLatency(1000, true, PAXOS_PREPARE, PAXOS_PROPOSE, PAXOS_COMMIT, MUTATION, READ, READ_REPAIR, REQUEST_RESPONSE);
+        cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
-            long start = System.nanoTime();
-            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1)",
-                                           ConsistencyLevel.QUORUM);
-            long end = System.nanoTime();
+        long start = System.nanoTime();
+        cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1)",
+                                       ConsistencyLevel.QUORUM);
+        long end = System.nanoTime();
 
-            assertTrue(end - start < TimeUnit.MILLISECONDS.toNanos(1000));
+        assertTrue(end - start < TimeUnit.MILLISECONDS.toNanos(1000));
 
-            start = System.nanoTime();
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
-                                                      ConsistencyLevel.QUORUM),
-                       row(1, 1, 1));
-            end = System.nanoTime();
-            assertTrue(end - start < TimeUnit.MILLISECONDS.toNanos(1000));
-        }
-        finally
-        {
-            System.clearProperty("cassandra.artificial_latency_verbs");
-            System.clearProperty("cassandra.unsafe_artificial_latency_ms");
-        }
+        start = System.nanoTime();
+        assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
+                                                  ConsistencyLevel.QUORUM),
+                   row(1, 1, 1));
+        end = System.nanoTime();
+        assertTrue(end - start < TimeUnit.MILLISECONDS.toNanos(1000));
     }
 
     @Test
@@ -207,58 +271,64 @@ public class SimpleReadWriteTest extends SharedClusterTestBase
     }
 
     @Test
-    public void writeWithSchemaDisagreement()
+    public void writeWithSchemaDisagreement() throws Throwable
     {
-        cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
-
-        cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
-        cluster.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
-        cluster.get(3).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
-
-        // Introduce schema disagreement
-        cluster.schemaChange("ALTER TABLE " + KEYSPACE + ".tbl ADD v2 int", 1);
-
-        Exception thrown = null;
-        try
+        try (Cluster cluster = init(Cluster.create(3)))
         {
-            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1, v2) VALUES (2, 2, 2, 2)",
-                                           ConsistencyLevel.QUORUM);
-        }
-        catch (RuntimeException e)
-        {
-            thrown = e;
-        }
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
 
-        Assert.assertTrue(thrown.getMessage().contains("Exception occurred on node"));
-        Assert.assertTrue(thrown.getCause().getCause().getCause().getMessage().contains("Unknown column v2 during deserialization"));
+            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
+            cluster.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
+            cluster.get(3).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
+
+            // Introduce schema disagreement
+            cluster.schemaChange("ALTER TABLE " + KEYSPACE + ".tbl ADD v2 int", 1);
+
+            Exception thrown = null;
+            try
+            {
+                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1, v2) VALUES (2, 2, 2, 2)",
+                                               ConsistencyLevel.QUORUM);
+            }
+            catch (RuntimeException e)
+            {
+                thrown = e;
+            }
+
+            Assert.assertTrue(thrown.getMessage().contains("Exception occurred on node"));
+            Assert.assertTrue(thrown.getCause().getCause().getCause().getMessage().contains("Unknown column v2 during deserialization"));
+        }
     }
 
     @Test
-    public void readWithSchemaDisagreement()
+    public void readWithSchemaDisagreement() throws Throwable
     {
-        cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
-
-        cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
-        cluster.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
-        cluster.get(3).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
-
-        // Introduce schema disagreement
-        cluster.schemaChange("ALTER TABLE " + KEYSPACE + ".tbl ADD v2 int", 1);
-
-        Exception thrown = null;
-        try
+        try (Cluster cluster = init(Cluster.create(3)))
         {
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
-                                                      ConsistencyLevel.ALL),
-                       row(1, 1, 1, null));
-        }
-        catch (Exception e)
-        {
-            thrown = e;
-        }
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
 
-        Assert.assertTrue(thrown.getMessage().contains("Exception occurred on node"));
-        Assert.assertTrue(thrown.getCause().getCause().getCause().getMessage().contains("Unknown column v2 during deserialization"));
+            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
+            cluster.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
+            cluster.get(3).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
+
+            // Introduce schema disagreement
+            cluster.schemaChange("ALTER TABLE " + KEYSPACE + ".tbl ADD v2 int", 1);
+
+            Exception thrown = null;
+            try
+            {
+                assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
+                                                          ConsistencyLevel.ALL),
+                           row(1, 1, 1, null));
+            }
+            catch (Exception e)
+            {
+                thrown = e;
+            }
+
+            Assert.assertTrue(thrown.getMessage().contains("Exception occurred on node"));
+            Assert.assertTrue(thrown.getCause().getCause().getCause().getMessage().contains("Unknown column v2 during deserialization"));
+        }
     }
 
     @Test
