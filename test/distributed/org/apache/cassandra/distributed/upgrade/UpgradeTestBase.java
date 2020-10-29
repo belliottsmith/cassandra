@@ -216,22 +216,15 @@ public class UpgradeTestBase extends DistributedTestBase
 
                     for (Version version : upgrade.upgrade)
                     {
-                        try
+                        for (int n : nodesToUpgrade)
                         {
-                            for (int n : nodesToUpgrade)
-                            {
-                                cluster.get(n).shutdown().get();
-                                cluster.get(n).setVersion(version);
-                                cluster.get(n).startup();
-                                runAfterNodeUpgrade.run(cluster, n);
-                            }
+                            cluster.get(n).shutdown().get();
+                            cluster.get(n).setVersion(version);
+                            cluster.get(n).startup();
+                            runAfterNodeUpgrade.run(cluster, n);
+                        }
 
-                            runAfterClusterUpgrade.run(cluster);
-                        }
-                        catch (Throwable t)
-                        {
-                            throw new AssertionError("Failing running test " + upgrade.initial.version + "->" + Stream.of(upgrade.upgrade).map(v -> v.version).collect(Collectors.joining(",", "[", "]")) + " against version " + version.version, t);
-                        }
+                        runAfterClusterUpgrade.run(cluster);
                     }
                 }
 
