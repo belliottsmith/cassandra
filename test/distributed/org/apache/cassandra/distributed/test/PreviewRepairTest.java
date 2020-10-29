@@ -402,7 +402,17 @@ public class PreviewRepairTest extends TestBaseImpl
                 if (matchesMessage(repairMessage) && waitForRepair.compareAndSet(true, false))
                 {
                     pause.signalAll();
-                    resume.await();
+                    for (;;)
+                    {
+                        try
+                        {
+                            resume.await();
+                            break;
+                        }
+                        catch (InterruptedException interruptedException)
+                        {
+                        }
+                    }
                 }
             }
             catch (Exception e)

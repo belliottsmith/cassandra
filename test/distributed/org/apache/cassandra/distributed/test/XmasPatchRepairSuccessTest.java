@@ -26,8 +26,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
@@ -50,6 +52,17 @@ import static org.junit.Assert.assertTrue;
 
 public class XmasPatchRepairSuccessTest extends TestBaseImpl
 {
+    @BeforeClass
+    public static void setup() throws Throwable
+    {
+        TestBaseImpl.beforeClass();
+
+        // Load the conf in the main classloader so that conf.cross_node_timeout is populated
+        // as it gets used when messages are deserialized in PreviewRepairTest.DelayFirstRepairTypeMessageFilter
+        // for message filtering
+        DatabaseDescriptor.daemonInitialization();
+    }
+
     /**
      * This tests when we receive a repair success (a finished full repair) during a preview repair
      *
@@ -75,7 +88,7 @@ public class XmasPatchRepairSuccessTest extends TestBaseImpl
             Thread.sleep(2000);
             insert(cluster.coordinator(1), 0, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
-            cluster.get(1).callOnInstance(repair(options(false, true)));
+            cluster.get(1).callOnInstance(repair(options(false, false)));
 
             insert(cluster.coordinator(1), 100, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
@@ -85,10 +98,10 @@ public class XmasPatchRepairSuccessTest extends TestBaseImpl
             PreviewRepairTest.DelayFirstRepairTypeMessageFilter filter = PreviewRepairTest.DelayFirstRepairTypeMessageFilter.validationRequest(previewRepairStarted, continuePreviewRepair);
             // this pauses the validation request sent from node1 to node2 until we have completed the inc repair below
             cluster.filters().outbound().verbs(Verb.VALIDATION_REQ.id).from(1).to(2).messagesMatching(filter).drop();
-            Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false))));
+            Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, true))));
             previewRepairStarted.await();
             // this needs to finish before the preview repair is unpaused on node2
-            cluster.get(1).callOnInstance(repair(options(false, false)));
+            cluster.get(1).callOnInstance(repair(options(false, true)));
             continuePreviewRepair.signalAll();
             RepairResult rs = rsFuture.get();
             assertFalse(rs.success); // preview repair should have failed
@@ -119,7 +132,7 @@ public class XmasPatchRepairSuccessTest extends TestBaseImpl
             Thread.sleep(1000);
             insert(cluster.coordinator(1), 0, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
-            assertTrue(cluster.get(1).callOnInstance(repair(options(false, true))).success);
+            assertTrue(cluster.get(1).callOnInstance(repair(options(false, false))).success);
 
             insert(cluster.coordinator(1), 100, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
@@ -141,10 +154,10 @@ public class XmasPatchRepairSuccessTest extends TestBaseImpl
             assertEquals(2, localRanges.size());
             String previewedRange = localRanges.get(0);
             String repairedRange = localRanges.get(1);
-            Future<RepairResult> repairStatusFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false, previewedRange))));
+            Future<RepairResult> repairStatusFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, true, previewedRange))));
             previewRepairStarted.await();
             // this needs to finish before the preview repair is unpaused on node2
-            assertTrue(cluster.get(1).callOnInstance(repair(options(false, false, repairedRange))).success);
+            assertTrue(cluster.get(1).callOnInstance(repair(options(false, true, repairedRange))).success);
 
             continuePreviewRepair.signalAll();
             RepairResult rs = repairStatusFuture.get();
