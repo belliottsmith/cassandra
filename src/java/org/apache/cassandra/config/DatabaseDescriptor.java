@@ -330,9 +330,40 @@ public class DatabaseDescriptor
         {
             SSLFactory.initHotReloading(conf.server_encryption_options, conf.client_encryption_options, false);
         }
-        catch(IOException e)
+        catch (IOException e)
         {
             throw new ConfigurationException("Failed to initialize SSL hot reloading", e);
+        }
+    }
+
+    @VisibleForTesting
+    static void applyTokensConfig(Config config) throws ConfigurationException
+    {
+        if (config.num_tokens != null && config.num_tokens > MAX_NUM_TOKENS)
+            throw new ConfigurationException(String.format("A maximum number of %d tokens per node is supported", MAX_NUM_TOKENS), false);
+
+        if (config.initial_token != null)
+        {
+            Collection<String> tokens = tokensFromString(config.initial_token);
+            if (config.num_tokens == null)
+            {
+                throw new ConfigurationException("initial_token was set but num_tokens is not!", false);
+            }
+
+            if (tokens.size() != config.num_tokens)
+            {
+                throw new ConfigurationException(String.format("The number of initial tokens (by initial_token) specified (%s) is different from num_tokens value (%s)",
+                                                               tokens.size(),
+                                                               config.num_tokens),
+                                                 false);
+            }
+
+            for (String token : tokens)
+                partitioner.getTokenFactory().validate(token);
+        }
+        else if (config.num_tokens == null)
+        {
+            config.num_tokens = 1;
         }
     }
 
@@ -732,21 +763,7 @@ public class DatabaseDescriptor
         if (conf.repair_command_pool_size < 1)
             conf.repair_command_pool_size = conf.concurrent_validations;
 
-        if (conf.num_tokens == null)
-            conf.num_tokens = 1;
-        else if (conf.num_tokens > MAX_NUM_TOKENS)
-            throw new ConfigurationException(String.format("A maximum number of %d tokens per node is supported", MAX_NUM_TOKENS), false);
-
-        if (conf.initial_token != null)
-        {
-            Collection<String> tokens = tokensFromString(conf.initial_token);
-            if (tokens.size() != conf.num_tokens)
-                throw new ConfigurationException("The number of initial tokens (by initial_token) specified is different from num_tokens value", false);
-
-            for (String token : tokens)
-                partitioner.getTokenFactory().validate(token);
-        }
-
+        applyTokensConfig(config);
 
         try
         {
