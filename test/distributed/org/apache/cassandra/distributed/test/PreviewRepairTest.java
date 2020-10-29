@@ -40,6 +40,7 @@ import org.junit.Test;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -59,6 +60,7 @@ import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.messages.FinalizePropose;
 import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.repair.messages.RepairOption;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.repair.messages.ValidationRequest;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
@@ -310,8 +312,10 @@ public class PreviewRepairTest extends TestBaseImpl
             waitMarkedRepaired(cluster);
             // make node2 mismatch
             unmarkRepaired(cluster.get(2), "tbl");
-            verifySnapshots(cluster, "tbl", true);
-            verifySnapshots(cluster, "tbl2", true);
+            verifySnapshots(cluster, KEYSPACE, "tbl", true);
+            verifySnapshots(cluster, KEYSPACE, "tbl2", true);
+            verifySnapshots(cluster, SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.REPAIR_HISTORY_CF, true);
+            verifySnapshots(cluster, SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.REPAIR_HISTORY_INVALIDATION_CF, true);
 
             AtomicInteger snapshotMessageCounter = new AtomicInteger();
             cluster.filters().verbs(Verb.SNAPSHOT_REQ.id).messagesMatching((from, to, message) -> {
@@ -319,9 +323,11 @@ public class PreviewRepairTest extends TestBaseImpl
                 return false;
             }).drop();
             cluster.get(1).callOnInstance(repair(options(true, true)));
-            verifySnapshots(cluster, "tbl", false);
+            verifySnapshots(cluster, KEYSPACE, "tbl", false);
+            verifySnapshots(cluster, SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.REPAIR_HISTORY_CF, false);
+            verifySnapshots(cluster, SchemaConstants.SYSTEM_KEYSPACE_NAME, SystemKeyspace.REPAIR_HISTORY_INVALIDATION_CF, false);
             // tbl2 should not have a mismatch, so the snapshots should be empty here
-            verifySnapshots(cluster, "tbl2", true);
+            verifySnapshots(cluster, KEYSPACE, "tbl2", true);
             assertEquals(3, snapshotMessageCounter.get());
 
             // and make sure that we don't try to snapshot again
@@ -362,10 +368,10 @@ public class PreviewRepairTest extends TestBaseImpl
         });
     }
 
-    private void verifySnapshots(Cluster cluster, String table, boolean shouldBeEmpty)
+    private void verifySnapshots(Cluster cluster, String keyspace, String table, boolean shouldBeEmpty)
     {
         cluster.forEach(node -> node.runOnInstance(() -> {
-            ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(table);
+            ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(table);
             if(shouldBeEmpty)
             {
                 assertTrue(cfs.getSnapshotDetails().isEmpty());
