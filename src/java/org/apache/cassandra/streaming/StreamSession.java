@@ -700,9 +700,9 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     /**
      * Prepare this session for sending/receiving files.
      *
-     * @return the prepare future for testing
+     * @return the prepare future for testing (CIE change to enable testing streaming for out of range tokens)
      */
-    public Future<?> prepare(Collection<StreamRequest> requests, Collection<StreamSummary> summaries)
+    public Future<Exception> prepare(Collection<StreamRequest> requests, Collection<StreamSummary> summaries)
     {
         // prepare tasks
         state(State.PREPARING);
@@ -710,11 +710,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             try
             {
                 prepareAsync(requests, summaries);
+                return null;
             }
             catch (Exception e)
             {
                 onError(e);
-                throw e;
+                return e;
             }
         });
     }

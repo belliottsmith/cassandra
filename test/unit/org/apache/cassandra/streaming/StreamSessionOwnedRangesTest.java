@@ -44,6 +44,7 @@ import static org.apache.cassandra.streaming.StreamTestUtils.session;
 import static org.apache.cassandra.streaming.messages.StreamMessage.Type.*;
 import static org.apache.cassandra.utils.TokenRangeTestUtil.*;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -153,25 +154,22 @@ public class StreamSessionOwnedRangesTest
         assertEquals(startMetricCount + (isOutOfRange ? 1 : 0), StorageMetrics.totalOpsForInvalidToken.getCount());
     }
 
-    private static void tryPrepareExpectingFailure(Collection<StreamRequest> requests) throws InterruptedException
+    private static void tryPrepareExpectingFailure(Collection<StreamRequest> requests) throws Exception
     {
         StreamSession session = session();
         StreamTestUtils.StubMessageSender handler = (StreamTestUtils.StubMessageSender) session.getMessageSender();
         handler.reset();
         long startMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
-        try
-        {
-            session.state(StreamSession.State.PREPARING);
-            Future<?> f = session.prepare(requests, Collections.emptySet());
-            f.get();
-            fail("Expected StreamRequestOfTokenRangeException");
+
+        session.state(StreamSession.State.PREPARING);
+        Future<Exception> f = session.prepare(requests, Collections.emptySet());
+        Exception ex = f.get();
+        assertNotNull(ex);
+        if (!(ex instanceof StreamRequestOutOfTokenRangeException))
+        {   // Unexpected exception
+            throw ex;
         }
-        catch (ExecutionException e)
-        {
-            if (!(e.getCause() instanceof StreamRequestOutOfTokenRangeException))
-                throw new RuntimeException(e);
-            // else expected
-        }
+
         // make sure we sent a SessionFailedMessage
         assertEquals(1, handler.sentMessages.size());
         for (StreamMessage msg : handler.sentMessages)
