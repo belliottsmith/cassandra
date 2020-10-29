@@ -1,3 +1,5 @@
+4.0.0.8
+
 4.0.0.7
 * Rebased on OSS 4.0-beta3, commit 095540d54a
 * <rdar://69866491> (Apple Internal) Enable Christmas patch by default
