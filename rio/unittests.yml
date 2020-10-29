@@ -18,6 +18,8 @@ shared:
           dst: ~/.m2/settings.xml
       # don't care about the image, as long as the provided runtime is present
       runtime:
+        os:
+          - centos7
         java:
           - 11
       environment:
