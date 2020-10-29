@@ -389,9 +389,26 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier
         for (Range<Token> range : options.getRanges())
         {
             EndpointsForRange unfilteredNeighbors = ActiveRepairService.getAllNeighbors(keyspace, keyspaceLocalRanges, range);
+
+            if (unfilteredNeighbors.isEmpty())
+            {
+                if (options.ignoreUnreplicatedKeyspaces())
+                {
+                    logger.info("{} Found no neighbors for range {} for {} - ignoring since repairing with --ignore-unreplicated-keyspaces", parentSession, range, keyspace);
+                    continue;
+                }
+                else
+                {
+                    throw new RuntimeException(String.format("Nothing to repair for %s in %s - aborting", range, keyspace));
+                }
+            }
+
             EndpointsForRange neighbors = ActiveRepairService.filterNeighbors(unfilteredNeighbors, range,
                                                                               options.getDataCenters(),
                                                                               options.getHosts());
+            // Duplicate the check in CIE - splitting getNeighbors into getAllNeighbors/filterNeighbors means that
+            // if the replicaSet does not contain the rangeSet it doesn't skip the filtering. Lowest risk change
+            // is to repeat the check on the unfiltered and filtered neighbors.
             if (neighbors.isEmpty())
             {
                 if (options.ignoreUnreplicatedKeyspaces())
