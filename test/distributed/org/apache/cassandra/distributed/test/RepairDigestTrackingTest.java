@@ -19,8 +19,6 @@
 package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.Map;
@@ -34,6 +32,7 @@ import org.junit.Test;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
@@ -43,8 +42,8 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.metadata.MetadataComponent;
 import org.apache.cassandra.io.sstable.metadata.MetadataType;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.ActiveRepairService;
-import org.apache.cassandra.service.SnapshotVerbHandler;
 import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.utils.DiagnosticSnapshotService;
 
@@ -445,9 +444,14 @@ public class RepairDigestTrackingTest extends TestBaseImpl
         {
             // snapshots are taken asynchronously, this is crude but it gives it a chance to happen
             int attempts = 100;
-            ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
-
-            while (cfs.getSnapshotDetails().isEmpty())
+            ColumnFamilyStore                       cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+            ColumnFamilyStore             repairHistory = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_CF);
+            ColumnFamilyStore repairHistoryInvalidation = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_INVALIDATION_CF);
+            while (cfs.getSnapshotDetails().isEmpty()
+                   || repairHistory.getSnapshotDetails().isEmpty()
+                   || repairHistoryInvalidation.getSnapshotDetails().isEmpty())
             {
                 Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
                 if (attempts-- < 0)
@@ -460,8 +464,20 @@ public class RepairDigestTrackingTest extends TestBaseImpl
     {
         return () ->
         {
-            ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+            ColumnFamilyStore                       cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
+            ColumnFamilyStore             repairHistory = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_CF);
+            ColumnFamilyStore repairHistoryInvalidation = Keyspace.open(SchemaConstants.SYSTEM_KEYSPACE_NAME)
+                                                                  .getColumnFamilyStore(SystemKeyspace.REPAIR_HISTORY_INVALIDATION_CF);
             Assert.assertFalse(cfs.snapshotExists(snapshotName));
+            Assert.assertFalse(repairHistory.getSnapshotDetails()
+                                            .keySet()
+                                            .stream()
+                                            .anyMatch(s -> s.startsWith(snapshotName)));
+            Assert.assertFalse(repairHistoryInvalidation.getSnapshotDetails()
+                                                        .keySet()
+                                                        .stream()
+                                                        .anyMatch(s -> s.startsWith(snapshotName)));
         };
     }
 
