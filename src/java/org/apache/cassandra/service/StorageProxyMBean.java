@@ -186,4 +186,7 @@ public interface StorageProxyMBean
 
     void setPaxosContentionStrategy(String variant);
     String getPaxosContentionStrategy();
+
+    void setPaxosCoordinatorLockingDisabled(boolean disabled);
+    boolean getPaxosCoordinatorLockingDisabled();
 }

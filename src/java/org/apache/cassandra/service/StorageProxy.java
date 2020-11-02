@@ -3583,4 +3583,16 @@ public class StorageProxy implements StorageProxyMBean
     {
         return ContentionStrategy.getStrategySpec();
     }
+
+    @Override
+    public void setPaxosCoordinatorLockingDisabled(boolean disabled)
+    {
+        PaxosState.setDisableCoordinatorLocking(disabled);
+    }
+
+    @Override
+    public boolean getPaxosCoordinatorLockingDisabled()
+    {
+        return PaxosState.getDisableCoordinatorLocking();
+    }
 }

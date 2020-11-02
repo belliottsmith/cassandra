@@ -58,8 +58,9 @@ import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
  * We save to memory the result of each operation before persisting to disk, however each operation that performs
  * the update does not return a result to the coordinator until the result is fully persisted.
  */
-public class PaxosState implements AutoCloseable
+public class PaxosState implements PaxosOperationLock
 {
+    private static volatile boolean DISABLE_COORDINATOR_LOCKING = Boolean.getBoolean("cassandra.paxos.disable_coordinator_locking");
     public static final ConcurrentHashMap<Key, PaxosState> ACTIVE = new ConcurrentHashMap<>();
     public static final ConcurrentLinkedHashMap<Key, Snapshot> RECENT = new ConcurrentLinkedHashMap.Builder<Key, Snapshot>()
             .weigher(s -> Ints.saturatedCast(
@@ -86,6 +87,16 @@ public class PaxosState implements AutoCloseable
                 throw new RuntimeException(e);
             }
         }
+    }
+
+    public static void setDisableCoordinatorLocking(boolean disable)
+    {
+        DISABLE_COORDINATOR_LOCKING = disable;
+    }
+
+    public static boolean getDisableCoordinatorLocking()
+    {
+        return DISABLE_COORDINATOR_LOCKING;
     }
 
     public static PaxosUncommittedTracker uncommittedTracker()
@@ -278,6 +289,7 @@ public class PaxosState implements AutoCloseable
         return getUnsafe(partitionKey, metadata).maybeLoad(ballot, nowInSec);
     }
 
+    // does not increment total number of accessors, since we would accept null (so only access if others are, not for own benefit)
     private static PaxosState tryGetUnsafe(DecoratedKey partitionKey, CFMetaData metadata)
     {
         return ACTIVE.compute(new Key(partitionKey, metadata), (key, cur) -> {
@@ -308,6 +320,23 @@ public class PaxosState implements AutoCloseable
         });
     }
 
+    // don't increment the total count, as we are only using this for locking purposes when coordinating
+    static PaxosOperationLock getLock(DecoratedKey partitionKey, CFMetaData metadata)
+    {
+        if (DISABLE_COORDINATOR_LOCKING)
+            return PaxosOperationLock.noOp();
+
+        return ACTIVE.compute(new Key(partitionKey, metadata), (key, cur) -> {
+            if (cur == null)
+            {
+                //noinspection resource
+                cur = new PaxosState(key, RECENT.remove(key));
+            }
+            ++cur.active;
+            return cur;
+        });
+    }
+
     private PaxosState maybeLoad(UUID ballot, int nowInSec)
     {
         // CASSANDRA-12043 is not an issue for Apple Paxos, as we perform Commit+Prepare and PrepareRefresh
@@ -323,7 +352,7 @@ public class PaxosState implements AutoCloseable
             Snapshot current = this.current;
             if (current == null || current instanceof UnsafeSnapshot)
             {
-                synchronized (this)
+                synchronized (key)
                 {
                     current = this.current;
                     if (current == null || current instanceof UnsafeSnapshot)
@@ -346,7 +375,7 @@ public class PaxosState implements AutoCloseable
     private void load(UUID ballot)
     {
         int nowInSec = UUIDGen.unixTimestampInSec(ballot);
-        synchronized (this)
+        synchronized (key)
         {
             Snapshot snapshot = SystemKeyspace.loadPaxosState(key.partitionKey, key.metadata, nowInSec);
             currentUpdater.accumulateAndGet(this, snapshot, Snapshot::merge);
@@ -365,9 +394,12 @@ public class PaxosState implements AutoCloseable
             return null;
         });
         int active = 1 + this.active, total = this.total;
-        TableMetrics metrics = Keyspace.openAndGetStore(key.metadata).metric;
-        metrics.casLocalConcurrency.update(active);
-        metrics.casLocalRecentOverlaps.update(total);
+        if (active > 1 && total > 1)
+        {
+            TableMetrics metrics = Keyspace.openAndGetStore(key.metadata).metric;
+            metrics.casLocalConcurrency.update(active);
+            metrics.casLocalRecentOverlaps.update(total);
+        }
     }
 
     Snapshot current()
@@ -424,7 +456,7 @@ public class PaxosState implements AutoCloseable
             UUID latest = before.latestWitnessedOrLowBound();
             if (!proposal.isSameOrAfter(latest))
             {
-                Tracing.trace("Rejecting proposal for {} because latest is now {}", proposal, latest);
+                Tracing.trace("Rejecting proposal {}; latest is now {}", proposal.ballot, latest);
                 return latest;
             }
 
@@ -509,7 +541,7 @@ public class PaxosState implements AutoCloseable
         long start = System.nanoTime();
         try (PaxosState unsafeState = get(toPrepare))
         {
-            synchronized (unsafeState)
+            synchronized (unsafeState.key)
             {
                 // When preparing, we need to use the same time as "now" (that's the time we use to decide if something
                 // is expired or not) across nodes otherwise we may have a window where a Most Recent Commit shows up
@@ -560,7 +592,7 @@ public class PaxosState implements AutoCloseable
         long start = System.nanoTime();
         try (PaxosState unsafeState = get(proposal))
         {
-            synchronized (unsafeState)
+            synchronized (unsafeState.key)
             {
                 Config.PaxosVariant variant = Paxos.getPaxosVariant();
                 if (variant == legacy)
