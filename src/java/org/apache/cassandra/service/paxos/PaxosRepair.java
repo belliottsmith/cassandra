@@ -23,18 +23,24 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.InetAddress;
-import java.util.UUID;
+import java.util.*;
 import java.util.function.Consumer;
-
+import java.util.function.Function;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -43,6 +49,7 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.paxos.PaxosRepair.Result.Outcome;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDSerializer;
@@ -527,6 +534,60 @@ public class PaxosRepair
         {
             return String.format("Response(%s, %s, %s", latestWitnessedOrLowBound, acceptedButNotCommitted, committed);
         }
+    }
+
+    private static Map<String, Set<InetAddress>> mapToDc(Collection<InetAddress> endpoints, Function<InetAddress, String> dcFunc)
+    {
+        Map<String, Set<InetAddress>> map = new HashMap<>();
+        endpoints.forEach(e -> map.computeIfAbsent(dcFunc.apply(e), k -> new HashSet<>()).add(e));
+        return map;
+    }
+
+    private static boolean hasQuorumOrSingleDead(Collection<InetAddress> all, Collection<InetAddress> live, boolean requireQuorum)
+    {
+        Preconditions.checkArgument(all.size() >= live.size());
+        return live.size() >= (all.size() / 2) + 1 || (!requireQuorum && live.size() >= all.size() - 1);
+    }
+
+    @VisibleForTesting
+    static boolean hasSufficientLiveNodesForTopologyChange(Collection<InetAddress> allEndpoints, Collection<InetAddress> liveEndpoints, Function<InetAddress, String> dcFunc, boolean onlyQuorumRequired, boolean strictQuorum)
+    {
+
+        Map<String, Set<InetAddress>> allDcMap = mapToDc(allEndpoints, dcFunc);
+        Map<String, Set<InetAddress>> liveDcMap = mapToDc(liveEndpoints, dcFunc);
+
+        if (!hasQuorumOrSingleDead(allEndpoints, liveEndpoints, strictQuorum))
+            return false;
+
+        if (onlyQuorumRequired)
+            return true;
+
+        for (Map.Entry<String, Set<InetAddress>> entry : allDcMap.entrySet())
+        {
+            Set<InetAddress> all = entry.getValue();
+            Set<InetAddress> live = liveDcMap.getOrDefault(entry.getKey(), Collections.emptySet());
+            if (!hasQuorumOrSingleDead(all, live, strictQuorum))
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * checks if we have enough live nodes to perform a paxos repair for topology repair. Generally, this means that we need enough
+     * live participants to reach EACH_QUORUM, with a few exceptions. The EACH_QUORUM requirement is meant to support workload using either
+     * SERIAL or LOCAL_SERIAL
+     *
+     * if paxos_topology_repair_strict_each_quorum is set to false (the default), we will accept either a quorum or n-1 live nodes
+     * in the cluster and per dc. If paxos_topology_repair_no_dc_checks is true, we only check the live nodes in the cluster,
+     * and do not do any per-dc checks.
+     */
+    public static boolean hasSufficientLiveNodesForTopologyChange(Keyspace keyspace, Range<Token> range, Collection<InetAddress> liveEndpoints)
+    {
+        return hasSufficientLiveNodesForTopologyChange(StorageService.instance.getNaturalEndpoints(keyspace.getName(), range.right),
+                                                       liveEndpoints,
+                                                       DatabaseDescriptor.getEndpointSnitch()::getDatacenter,
+                                                       DatabaseDescriptor.paxoTopologyRepairNoDcChecks(),
+                                                       DatabaseDescriptor.paxoTopologyRepairStrictEachQuorum());
     }
 
     /**

@@ -75,6 +75,7 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.paxos.PaxosRepair;
 import org.apache.cassandra.service.paxos.cleanup.PaxosCleanup;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.repair.RepairJobDesc;
@@ -920,11 +921,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
             for (CFMetaData cfm : cfms)
             {
                 Set<InetAddress> endpoints = Sets.newHashSet(StorageService.instance.getLiveNaturalEndpoints(keyspace, range.right));
-                try
-                {
-                    ConsistencyLevel.EACH_QUORUM.assureSufficientLiveNodes(keyspace, endpoints);
-                }
-                catch (UnavailableException e)
+                if (!PaxosRepair.hasSufficientLiveNodesForTopologyChange(keyspace, range, endpoints))
                 {
                     Set<InetAddress> downEndpoints = Sets.newHashSet(StorageService.instance.getNaturalEndpoints(ksName, range.right));
                     downEndpoints.removeAll(endpoints);

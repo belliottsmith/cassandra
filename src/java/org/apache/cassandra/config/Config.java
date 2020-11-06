@@ -608,11 +608,26 @@ public class Config
     public volatile PaxosVariant paxos_variant = PaxosVariant.legacy;
 
     public volatile boolean skip_paxos_repair_on_topology_change = Boolean.getBoolean("cassandra.skip_paxos_repair_on_topology_change");
+
+    /**
+     * If true, paxos topology change repair only requires a global quorum of live nodes. If false,
+     * it requires a global quorum as well as a local quorum for each dc (EACH_QUORUM), with the
+     * exception explained in paxos_topology_repair_strict_each_quorum
+     */
+    public boolean paxos_topology_repair_no_dc_checks = false;
+
+    /**
+     * If true, a quorum will be required for the global and local quorum checks. If false, we will
+     * accept a quorum OR n - 1 live nodes. This is to allow for topologies like 2:2:2, where paxos queries
+     * always use SERIAL, and a single node down in a dc should not preclude a paxos repair
+     */
+    public boolean paxos_topology_repair_strict_each_quorum = false;
     public volatile Set<String> skip_paxos_repair_on_topology_change_keyspaces = splitCommaDelimited(System.getProperty("cassandra.skip_paxos_repair_on_topology_change_keyspaces"));
 
     public String paxos_contention_min_wait;
     public String paxos_contention_max_wait;
     public String paxos_contention_min_delta;
+
 
     public static Supplier<Config> getOverrideLoadConfig()
     {
