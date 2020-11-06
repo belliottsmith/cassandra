@@ -1306,8 +1306,8 @@ public final class SystemKeyspace
      */
     public static PaxosState.Snapshot loadPaxosState(DecoratedKey key, CFMetaData metadata, int nowInSec)
     {
-        String req = "SELECT * FROM system.%s WHERE row_key = ? AND cf_id = ?";
-        UntypedResultSet results = QueryProcessor.executeInternalWithNow(nowInSec, String.format(req, PAXOS), key.getKey(), metadata.cfId);
+        String cql = "SELECT * FROM system." + PAXOS + " WHERE row_key = ? AND cf_id = ?";
+        UntypedResultSet results = QueryProcessor.executeInternalWithNow(nowInSec, cql, key.getKey(), metadata.cfId);
         if (results.isEmpty())
         {
             Committed noneCommitted = Committed.none(key, metadata);
@@ -1315,19 +1315,29 @@ public final class SystemKeyspace
         }
 
         UntypedResultSet.Row row = results.one();
-        UUID promised = row.has("in_progress_ballot")
-                        ? row.getUUID("in_progress_ballot")
-                        : Ballot.none();
+
+        UUID promised = row.getUUID("in_progress_ballot", Ballot.none());
         // either we have both a recently accepted ballot and update or we have neither
-        int proposalVersion = row.has("proposal_version") ? row.getInt("proposal_version") : MessagingService.VERSION_21;
-        Accepted accepted = row.has("proposal")
-                        ? new Accepted(row.getUUID("proposal_ballot"), PartitionUpdate.fromBytes(row.getBytes("proposal"), proposalVersion, key))
-                        : null;
+        Accepted accepted = null;
+        if (row.has("proposal"))
+        {
+            int proposalVersion = row.getInt("proposal_version", MessagingService.VERSION_21);
+            accepted = new Accepted(row.getUUID("proposal_ballot"), PartitionUpdate.fromBytes(row.getBytes("proposal"), proposalVersion, key));
+        }
         // either most_recent_commit and most_recent_commit_at will both be set, or neither
-        int mostRecentVersion = row.has("most_recent_commit_version") ? row.getInt("most_recent_commit_version") : MessagingService.VERSION_21;
-        Committed committed = row.has("most_recent_commit")
-                         ? new Committed(row.getUUID("most_recent_commit_at"), PartitionUpdate.fromBytes(row.getBytes("most_recent_commit"), mostRecentVersion, key))
-                         : Committed.none(key, metadata);
+        Committed committed;
+        if (row.has("most_recent_commit"))
+        {
+            int mostRecentVersion = row.getInt("most_recent_commit_version", MessagingService.VERSION_21);
+            committed = new Committed(row.getUUID("most_recent_commit_at"), PartitionUpdate.fromBytes(row.getBytes("most_recent_commit"), mostRecentVersion, key));
+            // fix a race with TTL/deletion resolution, where TTL expires after equal deletion is inserted; TTL wins the resolution, and is read using an old ballot's nowInSec
+            if (accepted != null && !accepted.isAfter(committed))
+                accepted = null;
+        }
+        else
+        {
+            committed = Committed.none(key, metadata);
+        }
         return new PaxosState.Snapshot(promised, accepted, committed);
     }
 
