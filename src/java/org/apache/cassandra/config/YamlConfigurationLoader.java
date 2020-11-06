@@ -17,12 +17,13 @@
  */
 package org.apache.cassandra.config;
 
-import java.beans.IntrospectionException;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.io.IOException;
+import java.lang.annotation.Annotation;
 import java.net.URL;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -143,19 +144,13 @@ public class YamlConfigurationLoader implements ConfigurationLoader
         }
 
         @Override
-        protected Map<Object, Object> createDefaultMap()
+        protected Map<Object, Object> createDefaultMap(int initSize)
         {
             return Maps.newConcurrentMap();
         }
 
         @Override
         protected Set<Object> createDefaultSet(int initSize)
-        {
-            return Sets.newConcurrentHashSet();
-        }
-
-        @Override
-        protected Set<Object> createDefaultSet()
         {
             return Sets.newConcurrentHashSet();
         }
@@ -171,7 +166,7 @@ public class YamlConfigurationLoader implements ConfigurationLoader
         }
 
         @Override
-        public Property getProperty(Class<? extends Object> type, String name) throws IntrospectionException
+        public Property getProperty(Class<? extends Object> type, String name)
         {
             Property result = super.getProperty(type, name);
             if (result instanceof MissingProperty)
@@ -187,6 +182,16 @@ public class YamlConfigurationLoader implements ConfigurationLoader
             {
                 throw new ConfigurationException("Invalid yaml. Please remove properties " + missingProperties + " from your cassandra.yaml");
             }
+        }
+
+        public List<Annotation> getAnnotations()
+        {
+            return Collections.EMPTY_LIST;
+        }
+
+        public <A extends Annotation> A getAnnotation(Class<A> aClass)
+        {
+            return null;
         }
     }
 }
