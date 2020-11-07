@@ -1,4 +1,8 @@
 3.0.19.61
+<rdar://70890252> (Apple Internal) Relax topology paxos repair participant requirements
+<rdar://71121568> (Apple Internal) AssertionError in clouddb_p97 with 3.0.19.59
+<rdar://56205057> (Apple Internal) Mitigate CAS Write Contention via Lightweight Coordinator locking
+<rdar://70780990> (CASSANDRA-15385) Ensure that tracing doesn't break connections in 3.x/4.0 mixed mode by default
 
 3.0.19.60
 * <rdar://70624271> (Apple Internal) Follow-up: apple paxos can re-prepare stable ballots in some cases
