@@ -4,7 +4,7 @@ set -xe
 
 export REVISION=`git rev-parse --short HEAD`
 export VERSION=$1
-export ARTIFACT_NAME=cassandra-dtest
+export ARTIFACT_NAME=cie-cassandra-dtest
 export REPO_DIR=.dist/
 
 cd /workspace

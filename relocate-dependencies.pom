@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.apple.cie.db</groupId>
-    <artifactId>cassandra-dtest-shaded</artifactId>
+    <artifactId>cie-cassandra-dtest-shaded</artifactId>
     <version>${env.VERSION}</version>
     <packaging>jar</packaging>
 
@@ -59,7 +59,7 @@
 
                     <artifactSet>
                         <includes>
-                            <include>com.apple.cie.db:cassandra-dtest-local</include>
+                            <include>com.apple.cie.db:cie-cassandra-dtest-local</include>
                         </includes>
                     </artifactSet>
 
