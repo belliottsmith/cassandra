@@ -3749,6 +3749,20 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         logger.info("paxos repair for {} complete", reason);
     }
 
+    public ListenableFuture autoRepairPaxos(UUID cfId)
+    {
+        CFMetaData cfm = Schema.instance.getCFMetaData(cfId);
+        if (cfm == null)
+            return Futures.immediateFuture(null);
+
+        List<Range<Token>> ranges = new ArrayList<>();
+        ranges.addAll(getLocalRanges(cfm.ksName));
+        ranges.addAll(getPendingRanges(cfm.ksName));
+        PaxosCleanupLocalCoordinator coordinator = PaxosCleanupLocalCoordinator.createForAutoRepair(cfId, ranges);
+        ScheduledExecutors.optionalTasks.submit(coordinator::start);
+        return coordinator;
+    }
+
     public void forceTerminateAllRepairSessions() {
         ActiveRepairService.instance.terminateSessions();
     }

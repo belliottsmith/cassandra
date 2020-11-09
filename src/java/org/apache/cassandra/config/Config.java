@@ -628,6 +628,10 @@ public class Config
     public String paxos_contention_max_wait;
     public String paxos_contention_min_delta;
 
+    /**
+     * The amount of disk space paxos uncommitted key files can consume before we begin automatically scheduling paxos repairs
+     */
+    public int paxos_auto_repair_threshold_mb = 128;
 
     public static Supplier<Config> getOverrideLoadConfig()
     {

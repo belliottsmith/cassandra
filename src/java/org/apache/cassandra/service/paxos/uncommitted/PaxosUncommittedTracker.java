@@ -20,23 +20,38 @@ package org.apache.cassandra.service.paxos.uncommitted;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.schema.KeyspaceMetadata;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.CloseableIterator;
+import org.apache.cassandra.utils.Pair;
 
 /**
  * Tracks uncommitted paxos operations to enable operation completion as part of repair by returning an iterator of
@@ -52,6 +67,10 @@ public class PaxosUncommittedTracker
     private static final Logger logger = LoggerFactory.getLogger(PaxosUncommittedTracker.class);
     private static final Range<Token> FULL_RANGE = new Range<>(DatabaseDescriptor.getPartitioner().getMinimumToken(),
                                                                DatabaseDescriptor.getPartitioner().getMinimumToken());
+
+    private static final long AUTO_REPAIR_TIMEOUT_MILLIS = TimeUnit.HOURS.toMillis(2);
+
+    private final Set<UUID> autoRepairCfIds = Sets.newConcurrentHashSet();
 
     interface UpdateSupplier
     {
@@ -136,8 +155,16 @@ public class PaxosUncommittedTracker
             throw new IOException(t);
         }
 
+        long bytesFlushed = 0;
         for (UncommittedKeyFileContainer.FlushWriter writer : flushWriters.values())
-            writer.finish();
+            bytesFlushed += writer.finish();
+
+        int threshold = DatabaseDescriptor.getPaxosAutoRepairThresholdMB();
+        if (bytesFlushed >= threshold * 1048576L)
+        {
+            logger.info("flushed more than {}MB uncommitted data ({}MB), scheduling repairs", threshold, (bytesFlushed / 1048576L));
+            schedulePaxosRepairs();
+        }
     }
 
     @VisibleForTesting
@@ -166,5 +193,66 @@ public class PaxosUncommittedTracker
         logger.info("truncating paxos uncommitted info");
         tableStates.values().forEach(UncommittedKeyFileContainer::truncate);
         tableStates = ImmutableMap.of();
+    }
+
+    synchronized void schedulePaxosRepairs()
+    {
+
+        List<UUID> paxosTables = new ArrayList<>();
+        for (KeyspaceMetadata ksm : Schema.instance.getReplicatedKeyspaces())
+        {
+            if (Schema.REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(ksm.name))
+                continue;
+
+            for (CFMetaData cfm : ksm.tables)
+            {
+                UncommittedKeyFileContainer keyFile = getTableState(cfm.cfId);
+                if (keyFile == null)
+                    continue;
+
+                if (keyFile.getCurrentFile().sizeOnDisk() > 0)
+                    paxosTables.add(cfm.cfId);
+            }
+        }
+
+        for (UUID cfId : paxosTables)
+        {
+            Pair<String, String> tableName = Schema.instance.getCF(cfId);
+            if (tableName == null)
+                continue;
+
+            logger.info("Starting paxos auto repair for {}.{}", tableName.left, tableName.right);
+
+            long now = System.currentTimeMillis();
+            if (!autoRepairCfIds.add(cfId))
+            {
+                logger.info("Skipping paxos auto repair for {}.{}, another auto repair is already in progress", tableName.left, tableName.right);
+                continue;
+            }
+
+            ListenableFuture repair = StorageService.instance.autoRepairPaxos(cfId);
+            Futures.addCallback(repair, new FutureCallback<Object>()
+            {
+                @Override
+                public void onSuccess(@Nullable Object v)
+                {
+                    logger.info("Paxos auto repair for {}.{} completed", tableName.left, tableName.right);
+                    autoRepairCfIds.remove(cfId);
+                }
+
+                @Override
+                public void onFailure(Throwable throwable)
+                {
+                    logger.error(String.format("Paxos auto repair for %s.%s failed", tableName.left, tableName.right), throwable);
+                    autoRepairCfIds.remove(cfId);
+                }
+            });
+        }
+    }
+
+    @VisibleForTesting
+    public boolean hasInflightAutoRepairs()
+    {
+        return !autoRepairCfIds.isEmpty();
     }
 }

@@ -21,8 +21,8 @@ package org.apache.cassandra.service.paxos.cleanup;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -45,6 +45,7 @@ import org.apache.cassandra.utils.CloseableIterator;
 public class PaxosCleanupLocalCoordinator extends AbstractFuture<PaxosCleanupResponse>
 {
     private static final Logger logger = LoggerFactory.getLogger(PaxosCleanupLocalCoordinator.class);
+    private static final UUID INTERNAL_SESSION = new UUID(0, 0);
 
     private static final ConcurrentMap<UUID, PaxosTableRepairs> tableRepairsMap = new ConcurrentHashMap<>();
 
@@ -85,6 +86,12 @@ public class PaxosCleanupLocalCoordinator extends AbstractFuture<PaxosCleanupRes
     {
         CloseableIterator<UncommittedPaxosKey> iterator = PaxosState.uncommittedTracker().uncommittedKeyIterator(request.cfId, request.ranges);
         return new PaxosCleanupLocalCoordinator(request.session, request.cfId, request.ranges, iterator);
+    }
+
+    public static PaxosCleanupLocalCoordinator createForAutoRepair(UUID cfId, Collection<Range<Token>> ranges)
+    {
+        CloseableIterator<UncommittedPaxosKey> iterator = PaxosState.uncommittedTracker().uncommittedKeyIterator(cfId, ranges);
+        return new PaxosCleanupLocalCoordinator(INTERNAL_SESSION, cfId, ranges, iterator);
     }
 
     /**

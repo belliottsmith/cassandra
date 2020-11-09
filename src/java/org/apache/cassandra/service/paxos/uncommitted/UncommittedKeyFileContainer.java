@@ -101,7 +101,7 @@ class UncommittedKeyFileContainer
     public interface FlushWriter
     {
         void update(PaxosKeyState commitState) throws IOException;
-        void finish() throws IOException;
+        long finish() throws IOException;
         Throwable abort(Throwable accumulate);
     }
 
@@ -124,6 +124,7 @@ class UncommittedKeyFileContainer
     {
         private final UncommittedKeyFile.MergeWriter writer;
         private boolean finished = false;
+        private long size = -1;
 
         public FlushingFileState(UncommittedKeyFile file)
         {
@@ -136,14 +137,16 @@ class UncommittedKeyFileContainer
             writer.mergeAndAppend(commitState);
         }
 
-        public synchronized void finish() throws IOException
+        public synchronized long finish() throws IOException
         {
             if (finished)
-                return;
+                return size;
+            size = file != null ? file.sizeOnDisk() : 0;
             verifyAndSetFileState(this, new FileState(writer.finish()));
             if (file != null)
                 file.markDeleted();
             finished = true;
+            return size;
         }
 
         public synchronized Throwable abort(Throwable accumulate)
