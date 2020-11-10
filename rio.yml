@@ -225,11 +225,6 @@ builds:
         - ./rio/release-dtest-jar.sh 4.0-beta3
       template: freestyle:v4:publish
     timeout: 30
-    finally:
-      radar:
-        annotate: false
-      tag:
-        enabled: false
     package:
       freeform:
         - publish:
@@ -238,3 +233,18 @@ builds:
       junit: false
     machine:
       baseImage: docker.apple.com/cpbuild/applejdk-8:latest
+    finally:
+      radar:
+        annotate: false
+      tag:
+        enabled: false
+      pipelineChain:
+        - project: pie-harry
+          pipeline: docker-publish
+          buildArguments:
+            - name: CASSANDRA_VERSION
+              value: "4.0-beta3-${GIT_COMMIT_SHORT}"
+            - name: DTEST_VERSION
+              value: "0.0.6"
+            - name: CASSANDRA_BRANCH
+              value: "${GIT_BRANCH}"
