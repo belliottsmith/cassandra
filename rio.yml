@@ -238,3 +238,14 @@ builds:
       junit: false
     machine:
       baseImage: docker.apple.com/cpbuild/applejdk-8:latest
+    finally:
+        pipelineChain:
+        - project: pie-harry
+          pipeline: docker-publish
+          buildArguments:
+            - name: CASSANDRA_VERSION
+              value: "4.0-beta3-${GIT_COMMIT_SHORT}"
+            - name: DTEST_VERSION
+              value: "0.0.6"
+            - name: CASSANDRA_BRANCH
+              value: "${GIT_BRANCH}"
