@@ -1801,6 +1801,11 @@ public class DatabaseDescriptor
         return conf.internode_recv_buff_size_in_bytes;
     }
 
+    public static int getInternodeSocketTimeoutMillis()
+    {
+        return conf.internode_socket_timeout_ms;
+    }
+
     public static boolean startNativeTransport()
     {
         return conf.start_native_transport;

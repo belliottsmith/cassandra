@@ -21,6 +21,7 @@ import java.io.*;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
 import java.util.zip.Checksum;
@@ -73,6 +74,15 @@ public class IncomingTcpConnection extends FastThreadLocalThread implements Clos
                 logger.warn("Failed to set receive buffer size on internode socket.", se);
             }
         }
+
+        try
+        {
+            this.socket.setSoTimeout(DatabaseDescriptor.getInternodeSocketTimeoutMillis());
+        }
+        catch (SocketException se)
+        {
+            logger.warn("Failed to set blocking read timeout on internode socket.", se);
+        }
     }
 
     /**
@@ -100,6 +110,10 @@ public class IncomingTcpConnection extends FastThreadLocalThread implements Clos
         catch (UnknownColumnFamilyException e)
         {
             logger.warn("UnknownColumnFamilyException reading from socket; closing", e);
+        }
+        catch (SocketTimeoutException e)
+        {
+            logger.warn("A timeout occurred while attempting to read from socket; closing...", e);
         }
         catch (IOException e)
         {
