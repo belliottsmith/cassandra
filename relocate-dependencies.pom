@@ -11,6 +11,7 @@
 
     <properties>
         <project.type>library</project.type>
+        <java.version>1.8</java.version>
         <test.source.directory>src/test/unit/java</test.source.directory>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -72,9 +73,21 @@
                             <pattern>com.google</pattern>
                             <shadedPattern>relocated.shaded.com.google</shadedPattern>
                         </relocation>
+
+                        <relocation>
+                            <pattern>com.datastax</pattern>
+                            <shadedPattern>relocated.shaded.com.datastax</shadedPattern>
+                        </relocation>
                     </relocations>
 
                     <filters>
+                        <filter>
+                            <artifact>*:*</artifact>
+                            <excludes>
+                                <exclude>**/Log4j2Plugins.dat</exclude>
+                            </excludes>
+                        </filter>
+
                         <filter>
                             <artifact>io.netty:netty-*</artifact>
                             <excludes>
@@ -96,6 +109,14 @@
                                 <exclude>META-INF/maven/</exclude>
                             </excludes>
                         </filter>
+
+                        <filter>
+                            <artifact>com.datastax.cassandra:cassandra-driver-core</artifact>
+                            <excludes>
+                                <exclude>META-INF/maven/</exclude>
+                            </excludes>
+                        </filter>
+
                     </filters>
                 </configuration>
 
@@ -125,4 +146,12 @@
         <system>Radar</system>
         <url><![CDATA[rdar://component/838638]]></url>
     </issueManagement>
+
+    <repositories>
+        <repository>
+            <id>snapshots</id>
+            <name>Local Repo</name>
+            <url>file://${basedir}/.dist</url>
+        </repository>
+    </repositories>
 </project>
