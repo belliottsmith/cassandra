@@ -910,7 +910,7 @@ public final class SchemaKeyspace
 
     private static boolean isSafeToDropCompactStorage(String keyspaceName, String tableName)
     {
-        if (!Boolean.parseBoolean(System.getProperty("cassandra.auto_drop_compact_storage", "false")))
+        if (!Boolean.parseBoolean(System.getProperty("cassandra.auto_drop_compact_storage", "true")))
             return false;
 
         String columnQuery = String.format("SELECT kind, type FROM %s.%s WHERE keyspace_name='%s' and table_name='%s'",
