@@ -53,6 +53,11 @@ import org.slf4j.LoggerFactory;
 
 import net.jpountz.lz4.LZ4Factory;
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.cql3.UntypedResultSet;
+import org.apache.cassandra.io.sstable.format.big.BigFormat;
+import org.apache.cassandra.io.util.PathUtils;
+import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.StartupChecksOptions;
@@ -124,6 +129,9 @@ public class StartupChecks
     }
 
     private static final Logger logger = LoggerFactory.getLogger(StartupChecks.class);
+
+    static final String SKIP_MIN_SSTABLE_VERSION_CHECK_PROPERTY = "cassandra.skip_min_sstable_version_startup_check";
+
     // List of checks to run before starting up. If any test reports failure, startup will be halted.
     private final List<StartupCheck> preFlightChecks = new ArrayList<>();
 
@@ -540,6 +548,7 @@ public class StartupChecks
             if (options.isDisabled(getStartupCheckType()))
                 return;
             final Set<String> invalid = new HashSet<>();
+            final Set<String> unsupported = new HashSet<>();
             final Set<String> nonSSTablePaths = new HashSet<>();
             final List<String> withIllegalGenId = new ArrayList<>();
             nonSSTablePaths.add(FileUtils.getCanonicalPath(DatabaseDescriptor.getCommitLogLocation()));
@@ -562,6 +571,11 @@ public class StartupChecks
 
                         if (!DatabaseDescriptor.isUUIDSSTableIdentifiersEnabled() && desc.id instanceof UUIDBasedSSTableId)
                             withIllegalGenId.add(file.toString());
+
+                        if (!Boolean.getBoolean(SKIP_MIN_SSTABLE_VERSION_CHECK_PROPERTY)
+                            && !desc.version.isCompatibleForCie())
+                            unsupported.add(file.toString());
+
                     }
                     catch (Exception e)
                     {
@@ -612,23 +626,35 @@ public class StartupChecks
                 }
             }
 
+            List<String> errors = new ArrayList<>();
             if (!invalid.isEmpty())
-                throw new StartupException(StartupException.ERR_WRONG_DISK_STATE,
-                                           String.format("Detected unreadable sstables %s, please check " +
-                                                         "NEWS.txt and ensure that you have upgraded through " +
-                                                         "all required intermediate versions, running " +
-                                                         "upgradesstables",
-                                                         Joiner.on(",").join(invalid)));
+                errors.add(String.format("Detected unreadable sstables %s, please check " +
+                                         "NEWS.txt and ensure that you have upgraded through " +
+                                         "all required intermediate versions, running " +
+                                         "upgradesstables",
+                                         Joiner.on(",").join(invalid)));
 
             if (!withIllegalGenId.isEmpty())
-                throw new StartupException(StartupException.ERR_WRONG_CONFIG,
-                                           "UUID sstable identifiers are disabled but some sstables have been " +
+                errors.add("UUID sstable identifiers are disabled but some sstables have been " +
                                            "created with UUID identifiers. You have to either delete those " +
                                            "sstables or enable UUID based sstable identifers in cassandra.yaml " +
                                            "(enable_uuid_sstable_identifiers). The list of affected sstables is: " +
                                            Joiner.on(", ").join(withIllegalGenId) + ". If you decide to delete sstables, " +
                                            "and have that data replicated over other healthy nodes, those will be brought" +
                                            "back during repair");
+            if (!unsupported.isEmpty())
+                errors.add(String.format("Detected readable but unsupported sstables %s. Please check " +
+                                         "that you have run upgradesstables to ensure all files are at " +
+                                         "least version %s, set the allowed min version using " +
+                                         "-D%s=version or skip the check altogether with -D%s=true",
+                                         Joiner.on(",").join(unsupported),
+                                         BigFormat.cieMinimumSupportedVersion.getVersion(),
+                                         BigFormat.CIE_MIN_SSTABLE_VERSION_PROPERTY,
+                                         SKIP_MIN_SSTABLE_VERSION_CHECK_PROPERTY));
+
+            if (!invalid.isEmpty() || !withIllegalGenId.isEmpty() || !unsupported.isEmpty())
+                throw new StartupException(StartupException.ERR_WRONG_DISK_STATE,
+                                           String.join(System.lineSeparator(), errors));
         }
     };
 
