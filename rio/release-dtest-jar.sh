@@ -3,7 +3,8 @@
 set -xe
 
 export REVISION=${GIT_COMMIT_SHORT}
-export VERSION=$1
+export BASE_VERSION=$(./rio/base-version.sh)
+export VERSION=$(./rio/cie-version.sh)
 export ARTIFACT_NAME=cie-cassandra-dtest
 export REPO_DIR=.dist/
 
@@ -13,12 +14,12 @@ ant clean
 ant dtest-jar
 
 # Install the version that will be shaded
-mvn install:install-file               \
-   -Dfile=./build/dtest-${VERSION}.jar \
-   -DgroupId=com.apple.cie.db          \
-   -DartifactId=${ARTIFACT_NAME}-local \
-   -Dversion=${VERSION}                \
-   -Dpackaging=jar                     \
+mvn install:install-file                    \
+   -Dfile=./build/dtest-${BASE_VERSION}.jar \
+   -DgroupId=com.apple.cie.db               \
+   -DartifactId=${ARTIFACT_NAME}-local      \
+   -Dversion=${VERSION}                     \
+   -Dpackaging=jar                          \
    -DgeneratePom=true
 
 # Create shaded artifact
@@ -35,8 +36,8 @@ mvn install:install-file                                 \
    -DlocalRepositoryPath=${REPO_DIR}
 
 # Deploy the unshaded artifact
-mvn install:install-file               \
-   -Dfile=./build/dtest-${VERSION}.jar \
+mvn install:install-file                    \
+   -Dfile=./build/dtest-${BASE_VERSION}.jar \
    -DgroupId=com.apple.cie.db          \
    -DartifactId=${ARTIFACT_NAME}       \
    -Dversion=${VERSION}-${REVISION}    \
