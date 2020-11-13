@@ -43,6 +43,7 @@ import org.slf4j.LoggerFactory;
 import net.jpountz.lz4.LZ4Factory;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
+import org.apache.cassandra.io.sstable.format.big.BigFormat;
 import org.apache.cassandra.io.util.PathUtils;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.Config;
@@ -88,6 +89,9 @@ import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
 public class StartupChecks
 {
     private static final Logger logger = LoggerFactory.getLogger(StartupChecks.class);
+
+    static final String SKIP_MIN_SSTABLE_VERSION_CHECK_PROPERTY = "cassandra.skip_min_sstable_version_startup_check";
+
     // List of checks to run before starting up. If any test reports failure, startup will be halted.
     private final List<StartupCheck> preFlightChecks = new ArrayList<>();
 
@@ -464,6 +468,7 @@ public class StartupChecks
         public void execute() throws StartupException
         {
             final Set<String> invalid = new HashSet<>();
+            final Set<String> unsupported = new HashSet<>();
             final Set<String> nonSSTablePaths = new HashSet<>();
             nonSSTablePaths.add(FileUtils.getCanonicalPath(DatabaseDescriptor.getCommitLogLocation()));
             nonSSTablePaths.add(FileUtils.getCanonicalPath(DatabaseDescriptor.getSavedCachesLocation()));
@@ -479,8 +484,13 @@ public class StartupChecks
 
                     try
                     {
-                        if (!Descriptor.fromFilename(file).isCompatible())
+                        Descriptor descriptor = Descriptor.fromFilename(file);
+                        if (!descriptor.isCompatible())
                             invalid.add(file.toString());
+
+                        if (!Boolean.getBoolean(SKIP_MIN_SSTABLE_VERSION_CHECK_PROPERTY)
+                            && !descriptor.version.isCompatibleForCie())
+                            unsupported.add(file.toString());
                     }
                     catch (Exception e)
                     {
@@ -531,14 +541,27 @@ public class StartupChecks
                 }
             }
 
+            List<String> errors = new ArrayList<>();
             if (!invalid.isEmpty())
-                throw new StartupException(StartupException.ERR_WRONG_DISK_STATE,
-                                           String.format("Detected unreadable sstables %s, please check " +
-                                                         "NEWS.txt and ensure that you have upgraded through " +
-                                                         "all required intermediate versions, running " +
-                                                         "upgradesstables",
-                                                         Joiner.on(",").join(invalid)));
+                errors.add(String.format("Detected unreadable sstables %s, please check " +
+                                         "NEWS.txt and ensure that you have upgraded through " +
+                                         "all required intermediate versions, running " +
+                                         "upgradesstables",
+                                         Joiner.on(",").join(invalid)));
 
+            if (!unsupported.isEmpty())
+                errors.add(String.format("Detected readable but unsupported sstables %s. Please check " +
+                                         "that you have run upgradesstables to ensure all files are at " +
+                                         "least version %s, set the allowed min version using " +
+                                         "-D%s=version or skip the check altogether with -D%s=true",
+                                         Joiner.on(",").join(unsupported),
+                                         BigFormat.cieMinimumSupportedVersion.getVersion(),
+                                         BigFormat.CIE_MIN_SSTABLE_VERSION_PROPERTY,
+                                         SKIP_MIN_SSTABLE_VERSION_CHECK_PROPERTY));
+
+            if (!invalid.isEmpty() || !unsupported.isEmpty())
+                throw new StartupException(StartupException.ERR_WRONG_DISK_STATE,
+                                           String.join(System.lineSeparator(), errors));
         }
     };
 
