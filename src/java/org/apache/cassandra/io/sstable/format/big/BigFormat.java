@@ -36,8 +36,10 @@ import org.apache.cassandra.utils.TimeUUID;
  */
 public class BigFormat implements SSTableFormat
 {
+    public static final String CIE_MIN_SSTABLE_VERSION_PROPERTY = "cassandra.cie_min_sstable_version";
     public static final BigFormat instance = new BigFormat();
     public static final Version latestVersion = new BigVersion(BigVersion.current_version);
+    public static final Version cieMinimumSupportedVersion = new BigVersion(BigVersion.cie_minimum_supported_version);
     private static final SSTableReader.Factory readerFactory = new ReaderFactory();
     private static final SSTableWriter.Factory writerFactory = new WriterFactory();
 
@@ -114,6 +116,8 @@ public class BigFormat implements SSTableFormat
     {
         public static final String current_version = "nb";
         public static final String earliest_supported_version = "ma";
+        // CIE: mf is the version with all bug fixes. We reinforce the restriction on sstables format
+        public static final String cie_minimum_supported_version = System.getProperty(CIE_MIN_SSTABLE_VERSION_PROPERTY, "mf");
 
         // ma (3.0.0): swap bf hash order
         //             store rows natively
@@ -244,6 +248,12 @@ public class BigFormat implements SSTableFormat
         public boolean hasOriginatingHostId()
         {
             return hasOriginatingHostId;
+        }
+
+        @Override
+        public boolean isCompatibleForCie()
+        {
+            return isCompatible() && version.compareTo(cie_minimum_supported_version) >= 0;
         }
 
         @Override
