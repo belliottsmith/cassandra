@@ -231,14 +231,9 @@ builds:
     name: publish-dtest-cie-3.0.19
     build:
       steps:
-      - ./rio/release-dtest.sh 3.0.19
+      - ./rio/release-dtest.sh
       template: freestyle:v4:publish
     timeout: 30
-    finally:
-      radar:
-        annotate: false
-      tag:
-        enabled: false
     package:
       freeform:
       - publish:
@@ -248,13 +243,17 @@ builds:
     machine:
       baseImage: docker.apple.com/cpbuild/applejdk-8:latest
     finally:
-        pipelineChain:
-        - project: pie-harry
-          pipeline: docker-publish
-          buildArguments:
-            - name: CASSANDRA_VERSION
-              value: "3.0.19-${GIT_COMMIT_SHORT}"
-            - name: DTEST_VERSION
-              value: "0.0.4"
-            - name: CASSANDRA_BRANCH
-              value: "${GIT_BRANCH}"
+      radar:
+        annotate: false
+      tag:
+        enabled: false
+      pipelineChain:
+      - project: pie-harry
+        pipeline: docker-publish
+        buildArguments:
+          - name: CASSANDRA_VERSION
+            value: "$(./rio/cie-version.sh)-${GIT_COMMIT_SHORT}"
+          - name: DTEST_VERSION
+            value: "$(./rio/dtest-version.sh)"
+          - name: CASSANDRA_BRANCH
+            value: "${GIT_BRANCH}"
