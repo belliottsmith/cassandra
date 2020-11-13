@@ -243,8 +243,8 @@ builds:
           pipeline: docker-publish
           buildArguments:
             - name: CASSANDRA_VERSION
-              value: "4.0-beta3-${GIT_COMMIT_SHORT}"
+              value: "$(./rio/cie-version.sh)-${GIT_COMMIT_SHORT}"
             - name: DTEST_VERSION
-              value: "0.0.6"
+              value: "$(./rio/dtest-version.sh)"
             - name: CASSANDRA_BRANCH
               value: "${GIT_BRANCH}"
