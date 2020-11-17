@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -70,6 +71,12 @@ public class PaxosRepairTest extends TestBaseImpl
 {
     private static final Logger logger = LoggerFactory.getLogger(PaxosRepairTest.class);
     private static final String TABLE = "tbl";
+
+    @BeforeClass
+    public static void before()
+    {
+        System.setProperty("cassandra.paxos.use_apple_paxos_self_execution", "false");
+    }
 
     private static int getUncommitted(IInvokableInstance instance, String keyspace, String table)
     {
