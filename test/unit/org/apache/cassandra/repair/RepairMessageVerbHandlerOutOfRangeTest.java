@@ -195,7 +195,7 @@ public class RepairMessageVerbHandlerOutOfRangeTest
         int messageId = randomInt();
         Message<RepairMessage> message = Message.builder(Verb.VALIDATION_REQ, (RepairMessage)request).from(node1).withId(messageId).build();
         handler.doVerb(message);
-        MessageDelivery response = messageSink.get(100, TimeUnit.MILLISECONDS);
+        MessageDelivery response = messageSink.get(500, TimeUnit.MILLISECONDS);
         assertEquals(Verb.VALIDATION_RSP, response.message.verb());
         assertEquals(broadcastAddress, response.message.from());
         assertEquals(node1, response.to);
