@@ -33,14 +33,14 @@
 	        <PatternLayout pattern="%-5level [%thread] {instance:id} %date{ISO8601} %msg%n"/>
         </File>
 
-        <Console name="INSTANCESTDERR" target="SYSTEM_ERR">
+        <Console name="INSTANCESTDERR" target="SYSTEM_ERR" direct="false" follow="true">
             <PatternLayout pattern="%-5level %date{HH:mm:ss,SSS} [%thread] ${instance:id} %msg%n"/>
             <Filters>
                 <ThresholdFilter level="WARN" onMatch="ACCEPT" onMismatch="DENY"/>
             </Filters>
         </Console>
 
-        <Console name="INSTANCESTDOUT" target="SYSTEM_OUT">
+        <Console name="INSTANCESTDOUT" target="SYSTEM_OUT" direct="false" follow="true">
             <PatternLayout pattern="%-5level [%thread] ${instance:id} %date{HH:mm:ss,SSS} - %F:%L %msg%n"/>
             <Filters>
                 <ThresholdFilter level="DEBUG" onMatch="ACCEPT" onMismatch="DENY"/>
