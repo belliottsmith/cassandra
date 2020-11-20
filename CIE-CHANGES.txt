@@ -1,4 +1,9 @@
 4.0.0.8
+* Rebased on OSS 4.0-beta4, commit e4fac3582e0a9dda182313a3aa784be35d965f4e
+* <no radar> (Early merge) ninja fix CASSANDRA-16225 (adds synchronizing LogTransaction.untrackNew, will remove next rebase)
+* <rdar://70485582> (Apple Internal) Startup check to verify all sstables are version 3.0+ (#2039)
+* <rdar://70046246> (Early merge CASSANDRA-16277) CIE4 SSLEngine closed already exception on failed outbound connection (will be replaced by  next rebase)
+* <rdar://57320124> (original rdar://57320124) >  Fix "involved in several compactions" exception" (#1889)
 
 4.0.0.7
 * Rebased on OSS 4.0-beta3, commit 095540d54a
