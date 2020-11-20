@@ -67,7 +67,7 @@ public class NodeToolTest extends TestBaseImpl
     public void testNodetoolSystemExit()
     {
         // Verify currently calls System.exit, this test uses that knowlege to test System.exit behavior in jvm-dtest
-        CLUSTER.get(1).nodetoolResult("verify", "--check-tokens")
+        CLUSTER.get(1).nodetoolResult("verify", "--check-tokens", "--force")
                .asserts()
                .failure()
                .stdoutContains("Token verification requires --extended-verify");
