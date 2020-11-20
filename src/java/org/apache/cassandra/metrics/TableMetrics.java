@@ -151,8 +151,6 @@ public class TableMetrics
     public final LatencyMetrics casPropose;
     /** CAS Commit metrics */
     public final LatencyMetrics casCommit;
-    public final TableHistogram casLocalConcurrency;
-    public final TableHistogram casLocalRecentOverlaps;
     /** percent of the data that is repaired */
     public final Gauge<Double> percentRepaired;
 
@@ -934,8 +932,6 @@ public class TableMetrics
         casPrepare = new LatencyMetrics(factory, "CasPrepare", cfs.keyspace.metric.casPrepare);
         casPropose = new LatencyMetrics(factory, "CasPropose", cfs.keyspace.metric.casPropose);
         casCommit = new LatencyMetrics(factory, "CasCommit", cfs.keyspace.metric.casCommit);
-        casLocalConcurrency = createTableHistogram("CasLocalConcurrency", cfs.keyspace.metric.casLocalConcurrency, false);
-        casLocalRecentOverlaps = createTableHistogram("CasLocalRecentOverlaps", cfs.keyspace.metric.casLocalConcurrency, false);
 
         anticompactionTime = createTableTimer("AnticompactionTime", cfs.keyspace.metric.anticompactionTime);
         validationTime = createTableTimer("ValidationTime", cfs.keyspace.metric.validationTime);

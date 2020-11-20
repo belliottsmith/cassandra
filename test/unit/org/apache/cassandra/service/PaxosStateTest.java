@@ -18,8 +18,13 @@
 package org.apache.cassandra.service;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.*;
+import java.util.function.Supplier;
 
 import com.google.common.collect.Iterables;
+import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.dht.Murmur3Partitioner;
+import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.service.paxos.PaxosOperationLock;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -123,10 +128,36 @@ public class PaxosStateTest
     }
 
     @Test
-    public void testDisabledLock()
+    public void testPaxosLock() throws ExecutionException, InterruptedException
     {
-        PaxosOperationLock a = PaxosOperationLock.noOp();
-        PaxosOperationLock b = PaxosOperationLock.noOp();
-        Assert.assertNotEquals(a, b);
+        DecoratedKey key = new BufferDecoratedKey(Murmur3Partitioner.MINIMUM, ByteBufferUtil.EMPTY_BYTE_BUFFER);
+        CFMetaData metadata = Keyspace.open("PaxosStateTestKeyspace1").getColumnFamilyStore("Standard1").metadata;
+        Supplier<PaxosOperationLock> locker = () -> PaxosState.lock(key, metadata, System.nanoTime() + TimeUnit.SECONDS.toNanos(1L), ConsistencyLevel.SERIAL, false);
+        ExecutorService executor = Executors.newFixedThreadPool(1);
+        Future<?> future;
+        try (PaxosOperationLock lock = locker.get())
+        {
+            try
+            {
+                try (PaxosOperationLock lock2 = locker.get())
+                {
+                    Assert.fail();
+                }
+            }
+            catch (ReadTimeoutException rte)
+            {
+            }
+
+            future = executor.submit(() -> {
+                try (PaxosOperationLock lock2 = locker.get())
+                {
+                }
+            });
+        }
+        finally
+        {
+            executor.shutdown();
+        }
+        future.get();
     }
 }
