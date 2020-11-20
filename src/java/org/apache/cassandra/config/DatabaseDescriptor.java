@@ -1901,6 +1901,11 @@ public class DatabaseDescriptor
         conf.paxos_variant = variant;
     }
 
+    public static String getPaxosContentionWaitRandomizer()
+    {
+        return conf.paxos_contention_wait_randomizer;
+    }
+
     public static String getPaxosContentionMinWait()
     {
         return conf.paxos_contention_min_wait;
@@ -1914,6 +1919,11 @@ public class DatabaseDescriptor
     public static String getPaxosContentionMinDelta()
     {
         return conf.paxos_contention_min_delta;
+    }
+
+    public static void setPaxosContentionWaitRandomizer(String waitRandomizer)
+    {
+        conf.paxos_contention_wait_randomizer = waitRandomizer;
     }
 
     public static void setPaxosContentionMinWait(String minWait)

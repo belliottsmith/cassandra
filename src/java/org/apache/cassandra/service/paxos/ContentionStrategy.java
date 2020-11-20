@@ -33,7 +33,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.DoubleSupplier;
 import java.util.function.DoubleToLongFunction;
+import java.util.function.LongBinaryOperator;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -44,7 +46,6 @@ import static java.lang.Math.*;
 import static java.lang.Math.min;
 import static java.util.Arrays.stream;
 import static java.util.concurrent.TimeUnit.*;
-import static java.util.concurrent.TimeUnit.MICROSECONDS;
 import static org.apache.cassandra.config.DatabaseDescriptor.*;
 import static org.apache.cassandra.service.StorageProxy.casReadMetrics;
 import static org.apache.cassandra.service.StorageProxy.casWriteMetrics;
@@ -92,13 +93,16 @@ public class ContentionStrategy
     private static final Logger logger = LoggerFactory.getLogger(ContentionStrategy.class);
 
     private static final Pattern BOUND = Pattern.compile(
-                "((?<min>0|[0-9]+[mu]s) *<= *)?" +
-                    "p(?<perc>[0-9]+)\\((?<rw>r|w|rw|wr)\\)" +
+                "(?<const>0|[0-9]+[mu]s)" +
+                "|((?<min>0|[0-9]+[mu]s) *<= *)?" +
+                    "(p(?<perc>[0-9]+)\\((?<rw>r|w|rw|wr)\\)|(?<constbase>0|[0-9]+[mu]s))" +
                     "\\s*([*]\\s*(?<mod>[0-9.]+)?\\s*(?<modkind>[*^]\\s*attempts)?)?" +
-                "( *<= *(?<max>0|[0-9]+[mu]s))?" +
-                "|(?<const>0|[0-9]+[mu]s)");
+                "( *<= *(?<max>0|[0-9]+[mu]s))?");
     private static final Pattern TIME = Pattern.compile(
                 "0|([0-9]+)ms|([0-9]+)us");
+    private static final Pattern RANDOMIZER = Pattern.compile(
+                "uniform|exp(onential)?[(](?<exp>[0-9.]+)[)]|q(uantized)?exp(onential)?[(](?<qexp>[0-9.]+)[)]");
+    private static final String DEFAULT_WAIT_RANDOMIZER = "qexp(1.5)"; // at least 0ms, and at least 66% of median latency
     private static final String DEFAULT_MIN = "0 <= p50(rw)*0.66"; // at least 0ms, and at least 66% of median latency
     private static final String DEFAULT_MAX = "10ms <= p95(rw)*1.8^attempts <= 100ms"; // p95 latency with exponential back-off at rate of 1.8^attempts
     private static final String DEFAULT_MIN_DELTA = "5ms <= p50(rw)*0.5"; // at least 5ms, and at least 50% of median latency
@@ -108,11 +112,21 @@ public class ContentionStrategy
     // Factories can be useful for testing purposes, to supply custom implementations of selectors and modifiers.
     final static LatencySelectorFactory selectors = new LatencySelectorFactory(){};
     final static LatencyModifierFactory modifiers = new LatencyModifierFactory(){};
+    final static WaitRandomizerFactory randomizers = new WaitRandomizerFactory(){};
 
     static
     {
-        current = new ContentionStrategy(defaultMinWait(), defaultMaxWait(), defaultMinDelta(), Integer.MAX_VALUE);
+        current = new ContentionStrategy(defaultWaitRandomizer(), defaultMinWait(), defaultMaxWait(), defaultMinDelta(), Integer.MAX_VALUE);
     }
+
+    static interface LatencyModifierFactory
+    {
+        default LatencyModifier identity() { return (l, a) -> l; }
+        default LatencyModifier multiply(double constant) { return (l, a) -> saturatedCast(l * constant); }
+        default LatencyModifier multiplyByAttempts(double multiply) { return (l, a) -> saturatedCast(l * multiply * a); }
+        default LatencyModifier multiplyByAttemptsExp(double base) { return (l, a) -> saturatedCast(l * pow(base, a)); }
+    }
+
 
     static interface LatencySelector
     {
@@ -132,12 +146,89 @@ public class ContentionStrategy
         long modify(long latency, int attempts);
     }
 
-    static interface LatencyModifierFactory
+    static interface WaitRandomizer
     {
-        default LatencyModifier identity() { return (l, a) -> l; }
-        default LatencyModifier multiply(double constant) { return (l, a) -> saturatedCast(l * constant); }
-        default LatencyModifier multiplyByAttempts(double multiply) { return (l, a) -> saturatedCast(l * multiply * a); }
-        default LatencyModifier multiplyByAttemptsExp(double base) { return (l, a) -> saturatedCast(l * pow(base, a)); }
+        abstract long wait(long min, long max, int attempts);
+    }
+
+    static interface WaitRandomizerFactory
+    {
+        default LongBinaryOperator uniformLongSupplier() { return ThreadLocalRandom.current()::nextLong; }
+        default DoubleSupplier uniformDoubleSupplier() { return ThreadLocalRandom.current()::nextDouble; }
+        
+        default WaitRandomizer uniform() { return new Uniform(uniformLongSupplier()); }
+        default WaitRandomizer exponential(double power) { return new Exponential(uniformLongSupplier(), uniformDoubleSupplier(), power); }
+        default WaitRandomizer quantizedExponential(double power) { return new QuantizedExponential(uniformLongSupplier(), uniformDoubleSupplier(), power); }
+
+        static class Uniform implements WaitRandomizer
+        {
+            final LongBinaryOperator uniformLong;
+
+            public Uniform(LongBinaryOperator uniformLong)
+            {
+                this.uniformLong = uniformLong;
+            }
+
+            @Override
+            public long wait(long min, long max, int attempts)
+            {
+                return uniformLong.applyAsLong(min, max);
+            }
+        }
+
+        static abstract class AbstractExponential implements WaitRandomizer
+        {
+            final LongBinaryOperator uniformLong;
+            final DoubleSupplier uniformDouble;
+            final double power;
+
+            public AbstractExponential(LongBinaryOperator uniformLong, DoubleSupplier uniformDouble, double power)
+            {
+                this.uniformLong = uniformLong;
+                this.uniformDouble = uniformDouble;
+                this.power = power;
+            }
+        }
+
+        static class Exponential extends AbstractExponential
+        {
+            public Exponential(LongBinaryOperator uniformLong, DoubleSupplier uniformDouble, double power)
+            {
+                super(uniformLong, uniformDouble, power);
+            }
+
+            @Override
+            public long wait(long min, long max, int attempts)
+            {
+                if (attempts == 1)
+                    return uniformLong.applyAsLong(min, max);
+
+                double p = uniformDouble.getAsDouble();
+                long delta = max - min;
+                delta *= Math.pow(p, power);
+                return max - delta;
+            }
+        }
+
+        static class QuantizedExponential extends AbstractExponential
+        {
+            public QuantizedExponential(LongBinaryOperator uniformLong, DoubleSupplier uniformDouble, double power)
+            {
+                super(uniformLong, uniformDouble, power);
+            }
+
+            @Override
+            public long wait(long min, long max, int attempts)
+            {
+                long quanta = (max - min) / attempts;
+                if (attempts == 1 || quanta == 0)
+                    return uniformLong.applyAsLong(min, max);
+
+                double p = uniformDouble.getAsDouble();
+                int base = (int) (attempts * Math.pow(p, power));
+                return max - ThreadLocalRandom.current().nextLong(quanta * base, quanta * (base + 1));
+            }
+        }
     }
 
     static class Bound
@@ -182,11 +273,13 @@ public class ContentionStrategy
         }
     }
 
+    final WaitRandomizer waitRandomizer;
     final Bound min, max, minDelta;
     final int traceAfterAttempts;
 
-    public ContentionStrategy(String min, String max, String minDelta, int traceAfterAttempts)
+    public ContentionStrategy(String waitRandomizer, String min, String max, String minDelta, int traceAfterAttempts)
     {
+        this.waitRandomizer = parseWaitRandomizer(waitRandomizer);
         this.min = parseBound(min, true);
         this.max = parseBound(max, false);
         this.minDelta = parseBound(minDelta, true);
@@ -228,7 +321,7 @@ public class ContentionStrategy
             }
         }
 
-        long wait = MICROSECONDS.toNanos(ThreadLocalRandom.current().nextLong(minWaitMicros, maxWaitMicros));
+        long wait = waitRandomizer.wait(minWaitMicros, maxWaitMicros, attempts);
         long until = System.nanoTime() + wait;
         if (until >= deadline)
             return false;
@@ -252,11 +345,12 @@ public class ContentionStrategy
 
     static class ParsedStrategy
     {
-        final String min, max, minDelta;
+        final String waitRandomizer, min, max, minDelta;
         final ContentionStrategy strategy;
 
-        ParsedStrategy(String min, String max, String minDelta, ContentionStrategy strategy)
+        ParsedStrategy(String waitRandomizer, String min, String max, String minDelta, ContentionStrategy strategy)
         {
+            this.waitRandomizer = waitRandomizer;
             this.min = min;
             this.max = max;
             this.minDelta = minDelta;
@@ -268,18 +362,20 @@ public class ContentionStrategy
     static ParsedStrategy parseStrategy(String spec)
     {
         String[] args = spec.split(",");
+        String waitRandomizer = find(args, "random");
         String min = find(args, "min");
         String max = find(args, "max");
         String minDelta = find(args, "delta");
         String trace = find(args, "trace");
 
+        if (waitRandomizer == null) waitRandomizer = defaultWaitRandomizer();
         if (min == null) min = defaultMinWait();
         if (max == null) max = defaultMaxWait();
         if (minDelta == null) minDelta = defaultMinDelta();
         int traceAfterAttempts = trace == null ? current.traceAfterAttempts: Integer.parseInt(trace);
 
-        ContentionStrategy strategy = new ContentionStrategy(min, max, minDelta, traceAfterAttempts);
-        return new ParsedStrategy(min, max, minDelta, strategy);
+        ContentionStrategy strategy = new ContentionStrategy(waitRandomizer, min, max, minDelta, traceAfterAttempts);
+        return new ParsedStrategy(waitRandomizer, min, max, minDelta, strategy);
     }
 
 
@@ -287,6 +383,7 @@ public class ContentionStrategy
     {
         ParsedStrategy parsed = parseStrategy(spec);
         current = parsed.strategy;
+        setPaxosContentionWaitRandomizer(parsed.waitRandomizer);
         setPaxosContentionMinWait(parsed.min);
         setPaxosContentionMaxWait(parsed.max);
         setPaxosContentionMinDelta(parsed.minDelta);
@@ -297,6 +394,7 @@ public class ContentionStrategy
         return "min=" + defaultMinWait()
                 + ",max=" + defaultMaxWait()
                 + ",delta=" + defaultMinDelta()
+                + ",random=" + defaultWaitRandomizer()
                 + ",trace=" + current.traceAfterAttempts;
     }
 
@@ -309,7 +407,11 @@ public class ContentionStrategy
 
     private static LatencySelector parseLatencySelector(Matcher m, LatencySelectorFactory selectors)
     {
-        double percentile = parseDouble("0." + m.group("perc"));
+        String perc = m.group("perc");
+        if (perc == null)
+            return selectors.constant(parseInMicros(m.group("constbase")));
+
+        double percentile = parseDouble("0." + perc);
         String rw = m.group("rw");
         if (rw.length() == 2)
             return selectors.maxReadWrite(percentile);
@@ -344,6 +446,27 @@ public class ContentionStrategy
         if (v > Long.MAX_VALUE)
             return Long.MAX_VALUE;
         return (long) v;
+    }
+
+    static WaitRandomizer parseWaitRandomizer(String input)
+    {
+        return parseWaitRandomizer(input, randomizers);
+    }
+
+    static WaitRandomizer parseWaitRandomizer(String input, WaitRandomizerFactory randomizers)
+    {
+        Matcher m = RANDOMIZER.matcher(input);
+        if (!m.matches())
+            throw new IllegalArgumentException(input + " does not match" + RANDOMIZER);
+
+        String exp;
+        exp = m.group("exp");
+        if (exp != null)
+            return randomizers.exponential(Double.parseDouble(exp));
+        exp = m.group("qexp");
+        if (exp != null)
+            return randomizers.quantizedExponential(Double.parseDouble(exp));
+        return randomizers.uniform();
     }
 
     static Bound parseBound(String input, boolean isMin)
@@ -391,6 +514,12 @@ public class ContentionStrategy
             return parseInt(text);
         else
             return 0;
+    }
+
+    @VisibleForTesting
+    static String defaultWaitRandomizer()
+    {
+        return orElse(DatabaseDescriptor::getPaxosContentionWaitRandomizer, DEFAULT_WAIT_RANDOMIZER);
     }
 
     @VisibleForTesting
