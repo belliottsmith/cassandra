@@ -1,3 +1,5 @@
+4.0.0.9
+
 4.0.0.8
 * Rebased on OSS 4.0-beta4, commit e4fac3582e0a9dda182313a3aa784be35d965f4e
 * <no radar> (Early merge) ninja fix CASSANDRA-16225 (adds synchronizing LogTransaction.untrackNew, will remove next rebase)
