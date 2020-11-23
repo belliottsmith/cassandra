@@ -53,13 +53,14 @@ import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
 
 /**
  * <p>A strategy for making back-off decisions for Paxos operations that fail to make progress because of other paxos operations.
- * The strategy is defined by three values: <ul>
+ * The strategy is defined by four factors: <ul>
  * <li> {@link #min}
  * <li> {@link #max}
  * <li> {@link #minDelta}
+ * <li> {@link #waitRandomizer}
  * </ul>
  *
- * <p>All three may be defined dynamically based on a simple calculation over: <ul>
+ * <p>The first three represent time periods, and may be defined dynamically based on a simple calculation over: <ul>
  * <li> {@code pX()} recent experienced latency distribution for successful operations,
  *                 e.g. {@code p50(rw)} the maximum of read and write median latencies,
  *                      {@code p999(r)} the 99.9th percentile of read latencies
@@ -67,7 +68,7 @@ import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
  * <li> {@code constant} a user provided floating point constant
  * </ul>
  *
- * <p>The calculation may take any of these forms
+ * <p>Their calculation may take any of these forms
  * <li> constant            {@code $constant$[mu]s}
  * <li> dynamic constant    {@code pX() * constant}
  * <li> dynamic linear      {@code pX() * constant * attempts}
@@ -87,6 +88,23 @@ import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
  * <p>With the constraint that {@code max} must be {@code minDelta} greater than {@code min},
  * but no greater than its expression-defined maximum. {@code max} will be increased up until
  * this point, after which {@code min} will be decreased until this gap is imposed.
+ *
+ * <p>The {@link #waitRandomizer} property specifies the manner in which a random value is drawn from the range.
+ * It is defined using one of the following specifiers:
+ * <li> uniform
+ * <li> exp($power$) or exponential($power$)
+ * <li> qexp($power$) or qexponential($power$) or quantizedexponential($power$)
+ *
+ * The uniform specifier is self-explanatory, selecting all values in the range with equal probability.
+ * The exponential specifier draws values towards the end of the range with higher probability, raising
+ * a floating point number in the range [0..1.0) to the power provided, and translating the resulting value
+ * to a uniform value in the range.
+ * The quantized exponential specifier partitions the range into {@code attempts} buckets, then applies the pure
+ * exponential approach to draw values from [0..attempts), before drawing a uniform value from the corresponding bucket
+ *
+ * <p>Finally, there is also a {@link #traceAfterAttempts} property that permits initiating tracing of operations
+ * that experience a certain minimum number of failed paxos rounds due to contention. A setting of 0 or 1 will initiate
+ * a trace session after the first failed ballot.
  */
 public class ContentionStrategy
 {
