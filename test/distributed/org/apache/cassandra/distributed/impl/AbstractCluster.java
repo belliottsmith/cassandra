@@ -20,6 +20,7 @@ package org.apache.cassandra.distributed.impl;
 
 import java.io.File;
 import java.net.InetSocketAddress;
+import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -76,6 +77,8 @@ import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 import org.reflections.Reflections;
+import org.reflections.util.ClasspathHelper;
+import org.reflections.util.ConfigurationBuilder;
 
 import static org.apache.cassandra.distributed.shared.NetworkTopology.addressAndPort;
 
@@ -853,9 +856,11 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
     private static Set<String> findClassesMarkedForSharedClassLoader()
     {
-        return new Reflections("org.apache.cassandra").getTypesAnnotatedWith(Shared.class).stream()
-                                .map(Class::getName)
-                                .collect(Collectors.toSet());
+        return new Reflections(ConfigurationBuilder.build("org.apache.cassandra")
+                                                   .setExpandSuperTypes(false))
+                           .getTypesAnnotatedWith(Shared.class).stream()
+                           .map(Class::getName)
+                           .collect(Collectors.toSet());
     }
 }
 
