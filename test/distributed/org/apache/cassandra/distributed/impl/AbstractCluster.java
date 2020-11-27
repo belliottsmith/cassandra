@@ -81,6 +81,7 @@ import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 import org.reflections.Reflections;
+import org.reflections.util.ClasspathHelper;
 import org.reflections.util.ConfigurationBuilder;
 
 import static org.apache.cassandra.distributed.shared.NetworkTopology.addressAndPort;
