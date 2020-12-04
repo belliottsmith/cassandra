@@ -560,7 +560,7 @@ public class Paxos
                 {
                     // finish the paxos round w/ the desired updates
                     // TODO "turn null updates into delete?" - what does this TODO even mean?
-                    PartitionUpdate updates = request.makeUpdates(current);
+                    PartitionUpdate updates = request.makeUpdates(current, ballot.timestamp());
 
                     // Apply triggers to cas updates. A consideration here is that
                     // triggers emit Mutations, and so a given trigger implementation

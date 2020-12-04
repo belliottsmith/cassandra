@@ -2587,7 +2587,7 @@ public class CassandraServer implements Cassandra.Iface
             return true;
         }
 
-        public PartitionUpdate makeUpdates(FilteredPartition current)
+        public PartitionUpdate makeUpdates(FilteredPartition current, long ballotTimestamp)
         {
             return updates;
         }
