@@ -33,8 +33,7 @@ import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.SyntaxException;
 import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.schema.SchemaKeyspace;
-import org.apache.cassandra.transport.Server;
-import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.service.StorageService;
 
 import org.junit.Assert;
@@ -688,5 +687,25 @@ public class AlterTest extends CQLTester
         assertInvalidMessage(table1, format("ALTER TYPE %s.%s ADD v2 int;", keyspace(), type1));
         assertInvalidMessage(table2, format("ALTER TYPE %s.%s ADD v2 int;", keyspace(), type1));
         assertInvalidMessage(table3, format("ALTER TYPE %s.%s ADD v2 int;", keyspace(), type1));
+    }
+
+    /*
+     * See rdar://70389638
+     */
+    @Test
+    public void testAllowDropCompactStorage() throws Throwable
+    {
+        try
+        {
+            createTable("CREATE TABLE %s (a int PRiMARY KEY, b int) WITH COMPACT STORAGE");
+            assertInvalidMessage("Dropping COMPACT STORAGE is disabled", "ALTER TABLE %s DROP COMPACT STORAGE");
+
+            StorageProxy.instance.enableDropCompactStorage();
+            execute("ALTER TABLE %s DROP COMPACT STORAGE");
+        }
+        finally
+        {
+            StorageProxy.instance.disableDropCompactStorage();
+        }
     }
 }

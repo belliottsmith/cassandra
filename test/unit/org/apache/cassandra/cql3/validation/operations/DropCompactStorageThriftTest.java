@@ -25,6 +25,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.config.CFMetaData;
@@ -44,6 +46,7 @@ import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.index.internal.CassandraIndex;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.thrift.Cassandra;
 import org.apache.cassandra.thrift.CfDef;
 import org.apache.cassandra.thrift.Column;
@@ -66,6 +69,18 @@ import static org.junit.Assert.fail;
 
 public class DropCompactStorageThriftTest extends ThriftCQLTester
 {
+    @BeforeClass
+    public static void enableDropCompactStorage()
+    {
+        StorageProxy.instance.enableDropCompactStorage();    
+    }
+
+    @AfterClass
+    public static void disableDropCompactStorage()
+    {
+        StorageProxy.instance.disableDropCompactStorage();
+    }
+    
     @Test
     public void thriftCreatedTableTest() throws Throwable
     {

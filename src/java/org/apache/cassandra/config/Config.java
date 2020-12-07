@@ -544,6 +544,8 @@ public class Config
      */
     public volatile boolean report_unconfirmed_repaired_data_mismatches = false;
 
+    public volatile boolean allow_drop_compact_storage = false;
+
     /**
      * If true, when a repaired data mismatch is detected at read time, a snapshot request will be
      * issued to each replica participating in the query. These are limited at the replica level
