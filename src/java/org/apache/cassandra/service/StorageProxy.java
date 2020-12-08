@@ -3341,6 +3341,17 @@ public class StorageProxy implements StorageProxyMBean
         return Paxos.getPaxosVariant().toString();
     }
 
+
+    public boolean getAllowCompactStorage()
+    {
+        return DatabaseDescriptor.allowCompactStorage();
+    }
+
+    public void setAllowCompactStorage(boolean allowCompactStorage)
+    {
+        DatabaseDescriptor.setAllowCompactStorage(allowCompactStorage);
+    }
+
     @Override
     public void enableDropCompactStorage()
     {
