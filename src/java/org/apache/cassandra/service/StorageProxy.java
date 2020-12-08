@@ -80,6 +80,7 @@ import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.TruncateRequest;
 import org.apache.cassandra.db.WriteType;
 import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
+import org.apache.cassandra.db.guardrails.Guardrails;
 import org.apache.cassandra.db.partitions.FilteredPartition;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionIterators;
@@ -3400,6 +3401,19 @@ public class StorageProxy implements StorageProxyMBean
     public String getPaxosVariant()
     {
         return Paxos.getPaxosVariant().toString();
+    }
+
+
+    @Deprecated // use guardrails JMX endpoint instead
+    public boolean getAllowCompactStorage()
+    {
+        return Guardrails.instance.getCompactTablesEnabled();
+    }
+
+    @Deprecated // use guardrails JMX endpoint instead
+    public void setAllowCompactStorage(boolean allowCompactStorage)
+    {
+        Guardrails.instance.setCompactTablesEnabled(allowCompactStorage);
     }
 
     @Override

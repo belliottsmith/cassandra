@@ -49,8 +49,8 @@ public final class Guardrails implements GuardrailsMBean
     public static final GuardrailsConfigProvider CONFIG_PROVIDER = GuardrailsConfigProvider.instance;
     private static final GuardrailsOptions DEFAULT_CONFIG = DatabaseDescriptor.getGuardrailsConfig();
 
-    @VisibleForTesting
-    static final Guardrails instance = new Guardrails();
+    // Visible to allow backward compatible JMX calls
+    public static final Guardrails instance = new Guardrails();
 
     /**
      * Guardrail on the total number of user keyspaces.
