@@ -36,6 +36,7 @@ import org.apache.cassandra.cql3.*;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.exceptions.AlreadyExistsException;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.schema.*;
 import org.apache.cassandra.schema.Keyspaces.KeyspacesDiff;
 import org.apache.cassandra.service.ClientState;
@@ -246,6 +247,9 @@ public final class CreateTableStatement extends AlterSchemaStatement
             ++n;
         }
 
+        if (useCompactStorage && !DatabaseDescriptor.allowCompactStorage())
+            throw new InvalidRequestException("Creating tables WITH COMPACT STORAGE is no longer allowed in cie-cassandra-4.0.x");
+        
         // For COMPACT STORAGE, we reject any "feature" that we wouldn't be able to translate back to thrift.
         if (useCompactStorage)
         {
