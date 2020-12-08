@@ -196,6 +196,8 @@ public interface StorageProxyMBean
     public void enableDropCompactStorage();
     public void disableDropCompactStorage();
     public boolean allowDropCompactStorage();
+    boolean getAllowCompactStorage();
+    void setAllowCompactStorage(boolean allowCompactStorage);
 
     public void setIgnorePkLivenessForRowCompletion(boolean ignore);
     public boolean getIgnorePkLivenessForRowCompletion();

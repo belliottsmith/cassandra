@@ -1101,6 +1101,8 @@ public class Config
      */
     public volatile int paxos_repair_parallelism = -1;
 
+    public volatile boolean allow_compact_storage = true;
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;
