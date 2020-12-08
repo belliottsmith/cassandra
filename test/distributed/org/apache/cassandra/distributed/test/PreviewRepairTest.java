@@ -34,7 +34,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Uninterruptibles;
-import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -49,6 +48,7 @@ import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
+import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.impl.Instance;
 import org.apache.cassandra.distributed.shared.RepairResult;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
@@ -91,7 +91,6 @@ public class PreviewRepairTest extends TestBaseImpl
                                           .start()))
         {
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
-            Thread.sleep(1000);
             insert(cluster.coordinator(1), 0, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
             cluster.get(1).callOnInstance(repair(options(false, false)));
@@ -143,7 +142,6 @@ public class PreviewRepairTest extends TestBaseImpl
                                           .start()))
         {
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
-            Thread.sleep(2000);
             insert(cluster.coordinator(1), 0, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
             cluster.get(1).callOnInstance(repair(options(false, false)));
@@ -185,7 +183,6 @@ public class PreviewRepairTest extends TestBaseImpl
                                           .start()))
         {
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
-            Thread.sleep(2000);
             insert(cluster.coordinator(1), 0, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
             cluster.get(1).callOnInstance(repair(options(false, false)));
@@ -238,7 +235,6 @@ public class PreviewRepairTest extends TestBaseImpl
      * Same as testFinishingIncRepairDuringPreview but the previewed range does not intersect the incremental repair
      * so both preview and incremental repair should finish fine (without any mismatches)
      */
-
     @Test
     public void testFinishingNonIntersectingIncRepairDuringPreview() throws IOException, InterruptedException, ExecutionException
     {
@@ -287,6 +283,63 @@ public class PreviewRepairTest extends TestBaseImpl
         }
     }
 
+    /**
+     * Makes sure we can start a non-intersecting preview repair while there are other pending sstables on disk
+     */
+    @Test
+    public void testStartNonIntersectingPreviewRepair() throws IOException, InterruptedException, ExecutionException
+    {
+        ExecutorService es = Executors.newSingleThreadExecutor();
+        try(Cluster cluster = init(Cluster.build(2).withConfig(config ->
+                                                               config.set("disable_incremental_repair", false)
+                                                                     .with(GOSSIP)
+                                                                     .with(NETWORK))
+                                          .start()))
+        {
+            cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
+            insert(cluster.coordinator(1), 0, 100);
+            cluster.forEach((node) -> node.flush(KEYSPACE));
+            cluster.get(1).nodetoolResult("repair", KEYSPACE, "tbl").asserts().success();
+
+            insert(cluster.coordinator(1), 100, 100);
+            cluster.forEach((node) -> node.flush(KEYSPACE));
+
+            // pause inc repair validation messages on node2 until node1 has finished
+            SimpleCondition incRepairStarted = new SimpleCondition();
+            SimpleCondition continueIncRepair = new SimpleCondition();
+
+            DelayFirstRepairTypeMessageFilter filter = DelayFirstRepairTypeMessageFilter.validationRequest(incRepairStarted, continueIncRepair);
+            cluster.filters().outbound().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
+
+            // get local ranges to repair two separate ranges:
+            List<String> localRanges = cluster.get(1).callOnInstance(() -> {
+                List<String> res = new ArrayList<>();
+                for (Range<Token> r : StorageService.instance.getLocalRanges(KEYSPACE))
+                    res.add(r.left.getTokenValue()+ ":"+ r.right.getTokenValue());
+                return res;
+            });
+
+            assertEquals(2, localRanges.size());
+            String [] previewedRange = localRanges.get(0).split(":");
+            String [] repairedRange = localRanges.get(1).split(":");
+            Future<NodeToolResult> repairStatusFuture = es.submit(() -> cluster.get(1).nodetoolResult("repair", "-st", repairedRange[0], "-et", repairedRange[1], KEYSPACE, "tbl"));
+            incRepairStarted.await(); // wait for node1 to start validation compaction
+            // now we have pending sstables in range "repairedRange", make sure we can preview "previewedRange"
+            cluster.get(1).nodetoolResult("repair", "-vd", "-st", previewedRange[0], "-et", previewedRange[1], KEYSPACE, "tbl")
+                          .asserts()
+                          .success()
+                          .notificationContains("Repaired data is in sync for");
+
+            continueIncRepair.signalAll();
+
+            repairStatusFuture.get().asserts().success();
+        }
+        finally
+        {
+            es.shutdown();
+        }
+    }
+
     @Test
     public void snapshotTest() throws IOException, InterruptedException
     {
@@ -299,7 +352,6 @@ public class PreviewRepairTest extends TestBaseImpl
         {
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
             cluster.schemaChange("create table " + KEYSPACE + ".tbl2 (id int primary key, t int)");
-            Thread.sleep(1000);
 
             // populate 2 tables
             insert(cluster.coordinator(1), 0, 100, "tbl");
@@ -352,7 +404,6 @@ public class PreviewRepairTest extends TestBaseImpl
                                                                        .with(NETWORK))
                                            .start()))
         {
-            Thread.sleep(1000);
             cluster.forEach(i -> i.runOnInstance(() -> StorageProxy.instance.disableRepairedDataTrackingExclusions()));
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (k INT, c TEXT, v INT, PRIMARY KEY (k,c))");
             for (int i = 0; i < 10; i++)

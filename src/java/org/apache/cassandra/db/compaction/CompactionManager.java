@@ -1491,12 +1491,12 @@ public class CompactionManager implements CompactionManagerMBean
             // were marked as repairing, we would miss any ranges that were compacted away and this would cause us to overstream
             predicate = (s) -> !prs.isIncremental || !s.isRepaired();
         }
-
-        try (ColumnFamilyStore.RefViewFragment sstableCandidates = cfs.selectAndReference(View.select(SSTableSet.CANONICAL, predicate)))
+        // we grab all CANONICAL sstables here and apply the predicate in the loop below, after checking range intersection
+        try (ColumnFamilyStore.RefViewFragment sstableCandidates = cfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL)))
         {
             for (SSTableReader sstable : sstableCandidates.sstables)
             {
-                if (new Bounds<>(sstable.first.getToken(), sstable.last.getToken()).intersects(validator.desc.ranges))
+                if (new Bounds<>(sstable.first.getToken(), sstable.last.getToken()).intersects(validator.desc.ranges) && predicate.apply(sstable))
                 {
                     sstablesToValidate.add(sstable);
                 }
