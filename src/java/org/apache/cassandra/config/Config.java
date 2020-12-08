@@ -668,6 +668,8 @@ public class Config
 
     public volatile int consecutive_message_errors_threshold = 1;
 
+    public volatile boolean allow_compact_storage = true;
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;
