@@ -176,7 +176,7 @@ public final class FileUtils
         assert exists || !expect : "attempted to delete non-existing file " + file.getName();
         try
         {
-            if (!StorageService.instance.isSetupCompleted())
+            if (!StorageService.instance.isDaemonSetupCompleted())
                 logger.info("Deleting file during startup: {}", file);
 
             if (exists)
@@ -430,7 +430,7 @@ public final class FileUtils
 
     public static boolean delete(String file)
     {
-        if (!StorageService.instance.isSetupCompleted())
+        if (!StorageService.instance.isDaemonSetupCompleted())
             logger.info("Deleting file during startup: {}", file);
 
         File f = new File(file);
@@ -448,7 +448,7 @@ public final class FileUtils
 
         for ( File file : files )
         {
-            if (!StorageService.instance.isSetupCompleted())
+            if (!StorageService.instance.isDaemonSetupCompleted())
                 logger.info("Deleting file during startup: {}", file);
 
             file.delete();

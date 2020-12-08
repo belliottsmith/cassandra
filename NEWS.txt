@@ -44,6 +44,10 @@ using the provided 'sstableupgrade' tool.
 
 3.0.19
 ======
+   - Collision checks are performed when joining the token ring, regardless of whether
+     the node should bootstrap. Additionally, replace_address can legitimately be used
+     without bootstrapping to help with recovery of nodes with partially failed disks.
+     See CASSANDRA-10134 and CASSANDRA-13851 for more details.
    - *Experimental* support for Java 11 has been added. JVM options that differ between or are
      specific for Java 8 and 11 have been moved from jvm.options into jvm8.options and jvm11.options.
      IMPORTANT: Running C* on Java 11 is *experimental* and do it at your own risk.

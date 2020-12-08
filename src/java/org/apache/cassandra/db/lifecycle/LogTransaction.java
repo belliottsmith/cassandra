@@ -216,7 +216,7 @@ class LogTransaction extends Transactional.AbstractTransactional implements Tran
     {
         try
         {
-            if (!StorageService.instance.isSetupCompleted())
+            if (!StorageService.instance.isDaemonSetupCompleted())
                 logger.info("Unfinished transaction log, deleting {} ", file);
             else if (logger.isTraceEnabled())
                 logger.trace("Deleting {}", file);
