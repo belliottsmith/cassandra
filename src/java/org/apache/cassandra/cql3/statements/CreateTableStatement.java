@@ -30,9 +30,12 @@ import org.apache.cassandra.cql3.*;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.exceptions.*;
+import org.apache.cassandra.repair.SystemDistributedKeyspace;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.TableParams;
 import org.apache.cassandra.schema.Types;
+import org.apache.cassandra.service.CIEInternalKeyspace;
+import org.apache.cassandra.service.CIEInternalLocalKeyspace;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.QueryState;
@@ -278,6 +281,13 @@ public class CreateTableStatement extends SchemaAlteringStatement
             }
 
             boolean useCompactStorage = properties.useCompactStorage;
+            if (useCompactStorage && !DatabaseDescriptor.allowCompactStorage() &&
+                !(keyspace().equalsIgnoreCase(SystemKeyspace.NAME) ||
+                  keyspace().equalsIgnoreCase(SystemDistributedKeyspace.NAME) ||
+                  keyspace().equalsIgnoreCase(CIEInternalKeyspace.NAME) ||
+                  keyspace().equalsIgnoreCase(CIEInternalLocalKeyspace.NAME)))
+                throw new InvalidRequestException("Creating tables WITH COMPACT STORAGE is no longer allowed in cie-cassandra-3.0.x");
+
             // Dense means that on the thrift side, no part of the "thrift column name" stores a "CQL/metadata column name".
             // This means COMPACT STORAGE with at least one clustering type (otherwise it's a thrift "static" CF).
             stmt.isDense = useCompactStorage && !stmt.clusteringTypes.isEmpty();

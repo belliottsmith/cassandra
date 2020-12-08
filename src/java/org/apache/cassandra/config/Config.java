@@ -638,6 +638,8 @@ public class Config
      */
     public int paxos_auto_repair_threshold_mb = 128;
 
+    public volatile boolean allow_compact_storage = true;
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;

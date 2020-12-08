@@ -193,4 +193,6 @@ public interface StorageProxyMBean
     public void enableDropCompactStorage();
     public void disableDropCompactStorage();
     public boolean allowDropCompactStorage();
+    boolean getAllowCompactStorage();
+    void setAllowCompactStorage(boolean allowCompactStorage);
 }

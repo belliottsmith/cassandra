@@ -3268,6 +3268,7 @@ public class DatabaseDescriptor
         return conf.autocompaction_on_startup_enabled;
     }
 
+
     public static void setAllowDropCompactStorage(boolean allow)
     {
         logger.info("Setting allow_drop_compact_storage to {}", allow);
@@ -3288,5 +3289,16 @@ public class DatabaseDescriptor
     public static boolean allowUnsafeAggressiveSSTableExpiration()
     {
         return conf.allow_unsafe_aggressive_sstable_expiration;
+    }
+
+    public static boolean allowCompactStorage()
+    {
+        return conf.allow_compact_storage;
+    }
+
+    public static void setAllowCompactStorage(boolean allowCompactStorage)
+    {
+        logger.info("Setting allow_compact_storage = " + allowCompactStorage);
+        conf.allow_compact_storage = allowCompactStorage;
     }
 }
