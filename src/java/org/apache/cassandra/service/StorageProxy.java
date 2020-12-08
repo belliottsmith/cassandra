@@ -2206,19 +2206,27 @@ public class StorageProxy implements StorageProxyMBean
         {
             try
             {
+                command.trackExcessTombstones();
+                boolean readRejected = false;
+                ReadResponse response;
                 try (ReadOrderGroup orderGroup = command.startOrderGroup(); UnfilteredPartitionIterator iterator = command.executeLocally(orderGroup))
                 {
-                    handler.response(command.createResponse(iterator));
+                    response = command.createResponse(iterator);
                 }
-                MessagingService.instance().addLatency(FBUtilities.getBroadcastAddress(), TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
+                catch (TombstoneOverwhelmingException e)
+                {
+                    response = command.createResponse(EmptyIterators.unfilteredPartition(command.metadata(), command.isForThrift()));
+                    readRejected = true;
+                }
+                handler.response(response, readRejected, command.hasTombstoneWarning(), command.tombstoneWarning());
+
+                if (!readRejected)
+                    MessagingService.instance().addLatency(FBUtilities.getBroadcastAddress(), TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
             }
             catch (Throwable t)
             {
                 handler.onFailure(FBUtilities.getBroadcastAddress());
-                if (t instanceof TombstoneOverwhelmingException)
-                    logger.error(t.getMessage());
-                else
-                    throw t;
+                throw t;
             }
         }
     }

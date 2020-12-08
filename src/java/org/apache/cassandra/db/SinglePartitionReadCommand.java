@@ -49,7 +49,6 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.net.MessageOut;
-import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.ClientState;
@@ -62,6 +61,9 @@ import org.apache.cassandra.utils.SearchIterator;
 import org.apache.cassandra.utils.btree.BTreeSet;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 import org.apache.cassandra.utils.memory.HeapAllocator;
+
+import static org.apache.cassandra.net.MessagingService.ONE_BYTE;
+import static org.apache.cassandra.net.MessagingService.Verb.READ;
 
 
 /**
@@ -1166,7 +1168,7 @@ public class SinglePartitionReadCommand extends ReadCommand
 
     public MessageOut<ReadCommand> createMessage(int version)
     {
-        return new MessageOut<>(MessagingService.Verb.READ, this, readSerializer);
+        return new MessageOut<>(READ, this, readSerializer).withParameter(TRACK_EXCESS_TOMBSTONES, ONE_BYTE);
     }
 
     protected void appendCQLWhereClause(StringBuilder sb)
@@ -1183,6 +1185,12 @@ public class SinglePartitionReadCommand extends ReadCommand
         String filterString = clusteringIndexFilter().toCQLString(metadata());
         if (!filterString.isEmpty())
             sb.append(" AND ").append(filterString);
+    }
+
+    @Override
+    public String loggableTokens()
+    {
+        return "token=" + partitionKey.getToken().toString();
     }
 
     protected void serializeSelection(DataOutputPlus out, int version) throws IOException

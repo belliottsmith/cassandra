@@ -161,7 +161,10 @@ public class KeyspaceMetrics
     
     /** set containing names of all the metrics stored here, for releasing later */
     private Set<String> allMetrics = Sets.newHashSet();
-    
+
+    public final Meter clientTombstoneWarnings;
+    public final Meter clientTombstoneAborts;
+
     /**
      * Creates metrics for given {@link ColumnFamilyStore}.
      *
@@ -344,6 +347,9 @@ public class KeyspaceMetrics
         repairedDataTrackingOverreadTime = Metrics.timer(factory.createMetricName("RepairedOverreadTime"));
 
         largePartitionIndexBytes = Metrics.histogram(factory.createMetricName("LargePartitionIndexBytesHistogram"), false);
+
+        clientTombstoneWarnings = Metrics.meter(factory.createMetricName("ClientTombstoneWarnings"));
+        clientTombstoneAborts = Metrics.meter(factory.createMetricName("ClientTombstoneAborts"));
     }
 
     /**

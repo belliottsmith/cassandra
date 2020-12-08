@@ -164,6 +164,13 @@ public class ByteArrayUtil
         b[off    ] = (byte) (val >>> 24);
     }
 
+    public static byte[] bytes(int i)
+    {
+        byte[] b = new byte[Integer.BYTES];
+        putInt(b, 0, i);
+        return b;
+    }
+
     /**
      * Store a signed float at the given offset encoded as big endian
      */

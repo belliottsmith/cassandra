@@ -47,6 +47,10 @@ import org.apache.cassandra.service.pager.*;
 import org.apache.cassandra.thrift.ThriftResultsMerger;
 import org.apache.cassandra.tracing.Tracing;
 
+import static org.apache.cassandra.net.MessagingService.ONE_BYTE;
+import static org.apache.cassandra.net.MessagingService.Verb.PAGED_RANGE;
+import static org.apache.cassandra.net.MessagingService.Verb.RANGE_SLICE;
+
 /**
  * A read command that selects a (part of a) range of partitions.
  */
@@ -345,8 +349,8 @@ public class PartitionRangeReadCommand extends ReadCommand
     public MessageOut<ReadCommand> createMessage(int version)
     {
         return dataRange().isPaging()
-             ? new MessageOut<>(MessagingService.Verb.PAGED_RANGE, this, pagedRangeSerializer)
-             : new MessageOut<>(MessagingService.Verb.RANGE_SLICE, this, rangeSliceSerializer);
+             ? new MessageOut<>(PAGED_RANGE, this, pagedRangeSerializer).withParameter(TRACK_EXCESS_TOMBSTONES, ONE_BYTE)
+             : new MessageOut<>(RANGE_SLICE, this, rangeSliceSerializer).withParameter(TRACK_EXCESS_TOMBSTONES, ONE_BYTE);
     }
 
     protected void appendCQLWhereClause(StringBuilder sb)
@@ -364,6 +368,15 @@ public class PartitionRangeReadCommand extends ReadCommand
         }
         if (!dataRange.isUnrestricted())
             sb.append(dataRange.toCQLString(metadata()));
+    }
+
+    @Override
+    public String loggableTokens()
+    {
+        return "token range: " + (dataRange.keyRange.inclusiveLeft() ? '[' : '(') +
+               dataRange.keyRange.left.getToken().toString() + ", " +
+               dataRange.keyRange.right.getToken().toString() +
+               (dataRange.keyRange.inclusiveRight() ? ']' : ')');
     }
 
     /**

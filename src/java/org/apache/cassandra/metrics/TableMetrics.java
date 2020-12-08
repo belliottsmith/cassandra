@@ -239,6 +239,9 @@ public class TableMetrics
     public final Sampler<String> topLocalReadQueryTime;
     public final TableHistogram largePartitionIndexBytes;
 
+    public final TableMeter clientTombstoneWarnings;
+    public final TableMeter clientTombstoneAborts;
+
     private static Pair<Long, Long> totalNonSystemTablesSize(Predicate<SSTableReader> predicate)
     {
         long total = 0;
@@ -971,6 +974,9 @@ public class TableMetrics
             }
             return cnt;
         });
+
+        clientTombstoneWarnings = createTableMeter("ClientTombstoneWarnings", cfs.keyspace.metric.clientTombstoneWarnings);
+        clientTombstoneAborts = createTableMeter("ClientTombstoneAborts", cfs.keyspace.metric.clientTombstoneAborts);
     }
 
     public void updateSSTableIterated(int count)

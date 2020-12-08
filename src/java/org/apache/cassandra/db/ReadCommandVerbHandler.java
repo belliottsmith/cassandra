@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db;
 
+import org.apache.cassandra.db.filter.TombstoneOverwhelmingException;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.io.IVersionedSerializer;
 import java.util.concurrent.TimeUnit;
@@ -30,6 +31,7 @@ import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.tracing.Tracing;
+import org.apache.cassandra.utils.ByteArrayUtil;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NoSpamLogger;
@@ -75,6 +77,9 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
             }
         }
 
+        if (message.parameters.containsKey(ReadCommand.TRACK_EXCESS_TOMBSTONES))
+            command.trackExcessTombstones();
+
         // If tracking of repaired data is requested by the coordinator (see comment below),
         // then mark that on the command before it's executed
         if (message.parameters.containsKey(ReadCommand.TRACK_REPAIRED_DATA))
@@ -84,6 +89,18 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
         try (ReadOrderGroup opGroup = command.startOrderGroup(); UnfilteredPartitionIterator iterator = command.executeLocally(opGroup))
         {
             response = command.createResponse(iterator);
+        }
+        catch (TombstoneOverwhelmingException e)
+        {
+            if (!command.trackingExcessTombstones())
+                throw e;
+
+            response = command.createResponse(EmptyIterators.unfilteredPartition(command.metadata(), command.isForThrift()));
+            MessageOut<ReadResponse> reply = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, response, serializer())
+                                             .permitsArtificialDelay(message);
+            reply = reply.withParameter(ReadCommand.TOMBSTONE_ABORT, ByteArrayUtil.bytes(command.tombstoneWarning()));
+            MessagingService.instance().sendReply(reply, id, message.from);
+            return;
         }
 
         // From 3.0.17.x, a coordinator may request additional info about the repaired data that
@@ -103,6 +120,9 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
                                : ReadCommand.INCONCLUSIVE_REPAIRED_DATA_DIGEST;
             reply = reply.withParameter(paramName, ByteBufferUtil.getArray(command.getRepairedDataDigest()));
         }
+
+        if (command.trackingExcessTombstones() && command.hasTombstoneWarning())
+            reply = reply.withParameter(ReadCommand.TOMBSTONE_WARNING, ByteArrayUtil.bytes(command.tombstoneWarning()));
 
         Tracing.trace("Enqueuing response to {}", message.from);
         MessagingService.instance().sendReply(reply, id, message.from);

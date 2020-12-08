@@ -19,10 +19,13 @@ package org.apache.cassandra.service;
 
 import java.net.InetAddress;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,11 +33,13 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.transform.DuplicateRowChecker;
 import org.apache.cassandra.exceptions.ReadFailureException;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
+import org.apache.cassandra.exceptions.TombstoneAbortException;
 import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.metrics.ReadRepairMetrics;
 import org.apache.cassandra.net.IAsyncCallbackWithFailure;
@@ -44,8 +49,12 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
+import org.apache.cassandra.utils.ByteArrayUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
+
+import static org.apache.cassandra.db.ReadCommand.TOMBSTONE_ABORT;
+import static org.apache.cassandra.db.ReadCommand.TOMBSTONE_WARNING;
 
 public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
 {
@@ -64,6 +73,23 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
     private static final AtomicIntegerFieldUpdater<ReadCallback> failuresUpdater
             = AtomicIntegerFieldUpdater.newUpdater(ReadCallback.class, "failures");
     private volatile int failures = 0;
+
+    private volatile int tombstoneWarnings = 0;
+    private static final AtomicIntegerFieldUpdater<ReadCallback> tombstoneWarningsUpdater
+            = AtomicIntegerFieldUpdater.newUpdater(ReadCallback.class, "tombstoneWarnings");
+    // the highest number of tombstones reported by a node's warning
+    private volatile int maxTombstoneWarningCount = 0;
+    private static final AtomicIntegerFieldUpdater<ReadCallback> maxTombstoneWarningCountUpdater
+            = AtomicIntegerFieldUpdater.newUpdater(ReadCallback.class, "maxTombstoneWarningCount");
+
+    private volatile int tombstoneAborts = 0;
+    private static final AtomicIntegerFieldUpdater<ReadCallback> tombstoneAbortsUpdater
+            = AtomicIntegerFieldUpdater.newUpdater(ReadCallback.class, "tombstoneAborts");
+    // the highest number of tombstones reported by a node's rejection. This should be the same as
+    // our configured limit, but including to aid in diagnosing misconfigurations
+    private volatile int maxTombstoneAbortCount = 0;
+    private static final AtomicIntegerFieldUpdater<ReadCallback> maxTombstoneAbortCountUpdater
+            = AtomicIntegerFieldUpdater.newUpdater(ReadCallback.class, "maxTombstoneAbortCount");
 
     private final Keyspace keyspace; // TODO push this into ConsistencyLevel?
 
@@ -109,10 +135,44 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
         }
     }
 
+    @VisibleForTesting
+    public static String tombstoneAbortMessage(int nodes, int tombstones)
+    {
+        return String.format("%s nodes scanned over %s tombstones and aborted the query", nodes, tombstones);
+    }
+
+    @VisibleForTesting
+    public static String tombstoneWarnMessage(int nodes, int tombstones)
+    {
+        return String.format("%s nodes scanned up to %s tombstones and issued tombstone warnings", nodes, tombstones);
+    }
+
+    private ColumnFamilyStore cfs()
+    {
+        return Schema.instance.getColumnFamilyStoreInstance(command.metadata().cfId);
+    }
+
     public void awaitResults() throws ReadFailureException, ReadTimeoutException
     {
         boolean signaled = await(command.getTimeout(), TimeUnit.MILLISECONDS);
         boolean failed = blockfor + failures > endpoints.size();
+
+        if (tombstoneAborts > 0)
+        {
+            String msg = tombstoneAbortMessage(tombstoneAborts, maxTombstoneAbortCount);
+            ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
+            logger.warn("{} with query {}", msg, command.toCQLString());
+            cfs().metric.clientTombstoneAborts.mark();
+        }
+
+        if (tombstoneWarnings > 0)
+        {
+            String msg = tombstoneWarnMessage(tombstoneWarnings, maxTombstoneWarningCount);
+            ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
+            logger.warn("{} with query {}", msg, command.toCQLString());
+            cfs().metric.clientTombstoneWarnings.mark();
+        }
+
         if (signaled && !failed)
             return;
 
@@ -126,6 +186,9 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
             String gotData = received > 0 ? (resolver.isDataPresent() ? " (including data)" : " (only digests)") : "";
             logger.debug("{}; received {} of {} responses{}", new Object[]{ (failed ? "Failed" : "Timed out"), received, blockfor, gotData });
         }
+
+        if (tombstoneAborts > 0)
+            throw new TombstoneAbortException(tombstoneAborts, maxTombstoneAbortCount);
 
         // Same as for writes, see AbstractWriteResponseHandler
         throw failed
@@ -148,8 +211,36 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
         return blockfor;
     }
 
+    private void updateTombstoneStats(InetAddress from, byte[] tombstoneBytes, AtomicIntegerFieldUpdater<ReadCallback> updater, AtomicIntegerFieldUpdater<ReadCallback> maxUpdater)
+    {
+        if (!waitingFor(from))
+            return;
+
+        int tombstones = ByteArrayUtil.getInt(tombstoneBytes);
+        updater.incrementAndGet(this);
+
+        int currentMax;
+        do
+        {
+            currentMax = maxUpdater.get(this);
+        } while (tombstones > currentMax && !maxUpdater.compareAndSet(this, currentMax, tombstones));
+    }
+
     public void response(MessageIn<ReadResponse> message)
     {
+        if (message.parameters.containsKey(TOMBSTONE_ABORT))
+        {
+            updateTombstoneStats(message.from, message.parameters.get(TOMBSTONE_ABORT),
+                                 tombstoneAbortsUpdater, maxTombstoneAbortCountUpdater);
+            onFailure(message.from);
+            return;
+        }
+        else if (message.parameters.containsKey(TOMBSTONE_WARNING))
+        {
+            updateTombstoneStats(message.from, message.parameters.get(TOMBSTONE_WARNING),
+                                 tombstoneWarningsUpdater, maxTombstoneWarningCountUpdater);
+        }
+
         resolver.preprocess(message);
         int n = waitingFor(message.from)
               ? recievedUpdater.incrementAndGet(this)
@@ -187,11 +278,15 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
         return received;
     }
 
-    public void response(ReadResponse result)
+    public void response(ReadResponse result, boolean tombstoneAbort, boolean tombstoneWarning, int tombstones)
     {
+        Map<String, byte[]> params = tombstoneAbort || tombstoneWarning ? new HashMap<>() : Collections.emptyMap();
+        if (tombstoneAbort || tombstoneWarning)
+            params.put(tombstoneAbort ? TOMBSTONE_ABORT : TOMBSTONE_WARNING, ByteArrayUtil.bytes(tombstones));
+
         MessageIn<ReadResponse> message = MessageIn.create(FBUtilities.getBroadcastAddress(),
                                                            result,
-                                                           Collections.<String, byte[]>emptyMap(),
+                                                           params,
                                                            MessagingService.Verb.INTERNAL_RESPONSE,
                                                            MessagingService.current_version);
         response(message);
