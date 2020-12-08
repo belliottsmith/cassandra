@@ -221,6 +221,12 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
                 SyncTask task;
 
                 List<Range<Token>> differences = MerkleTrees.difference(r1.trees, r2.trees);
+                if (!differences.isEmpty())
+                {
+                    logger.debug("{} {} and {} differ on {}", previewKind.logPrefix(desc.sessionId), r1.endpoint, r2.endpoint, differences);
+                    if (Tracing.isTracing())
+                        Tracing.traceRepair(String.format("%s and %s differ on %s", r1.endpoint, r2.endpoint, differences));
+                }
 
                 if (r1.endpoint.equals(local) || r2.endpoint.equals(local))
                 {
