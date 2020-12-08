@@ -25,6 +25,7 @@ import java.util.List;
 import org.junit.Ignore;
 import org.junit.Test;
 
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
@@ -183,6 +184,33 @@ public class ReadRepairTest extends TestBaseImpl
                                                              "test", 16, 20));
             cluster.get(2).executeInternal("DELETE FROM distributed_test_keyspace.tbl WHERE key=? AND column1>? AND column1<?;",
                                            "test", Integer.MIN_VALUE, Integer.MAX_VALUE);
+        }
+    }
+
+    @Test
+    public void speculativeRetryMergeRTErrorTest() throws Throwable
+    {
+        try (Cluster cluster = init(Cluster.create(3)))
+        {
+            cluster.schemaChange("CREATE TABLE distributed_test_keyspace.tbl (\n" +
+                                 "    key text,\n" +
+                                 "    column1 int,\n" +
+                                 "    PRIMARY KEY (key, column1)\n" +
+                                 ") WITH CLUSTERING ORDER BY (column1 ASC) " +
+                                 " AND speculative_retry='ALWAYS'");
+
+            cluster.forEach(i -> i.runOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").disableAutoCompaction()));
+
+            for (int i = 1; i <= 2; i++)
+            {
+                cluster.get(i).executeInternal("DELETE FROM distributed_test_keyspace.tbl USING TIMESTAMP 1598413424397000 WHERE key=?;", "test");
+                cluster.get(i).executeInternal("DELETE FROM distributed_test_keyspace.tbl USING TIMESTAMP 1598414684094000 WHERE key=? and column1 >= ? and column1 < ?;", "test", 10, 100);
+                cluster.get(i).executeInternal("DELETE FROM distributed_test_keyspace.tbl USING TIMESTAMP 1598414676775001 WHERE key=? and column1 = ?;", "test", 30);
+                cluster.get(i).flush(KEYSPACE);
+            }
+            cluster.get(3).executeInternal("DELETE FROM distributed_test_keyspace.tbl USING TIMESTAMP 1598415280715000 WHERE key=?;", "test");
+            cluster.get(3).flush(KEYSPACE);
+            cluster.coordinator(3).execute("SELECT * FROM distributed_test_keyspace.tbl WHERE key=? and column1 >= ? and column1 <= ?", ConsistencyLevel.QUORUM, "test", 20, 40);
         }
     }
 

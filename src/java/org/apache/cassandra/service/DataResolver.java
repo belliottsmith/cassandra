@@ -629,6 +629,9 @@ public class DataResolver extends ResponseResolver
 
                 for (int i = 0; i < versions.length; i++)
                 {
+                    // we are not collecting a mutation for this version/source, skip;
+                    if (shouldWriteBackTo != null && !shouldWriteBackTo.get(i))
+                        continue;
                     RangeTombstoneMarker marker = versions[i];
 
                     // Update what the source now thinks is the current deletion
