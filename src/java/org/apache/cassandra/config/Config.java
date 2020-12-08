@@ -732,6 +732,8 @@ public class Config
     }
     public volatile PaxosVariant paxos_variant = PaxosVariant.v1_without_linearizable_reads;
 
+    public volatile boolean allow_compact_storage = true;
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;
