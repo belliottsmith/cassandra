@@ -3984,4 +3984,15 @@ public class DatabaseDescriptor
         logger.info("Setting dump_heap_on_uncaught_exception to {}", enabled);
         conf.dump_heap_on_uncaught_exception = enabled;
     }
+
+    public static boolean allowCompactStorage()
+    {
+        return conf.allow_compact_storage;
+    }
+
+    public static void setAllowCompactStorage(boolean allowCompactStorage)
+    {
+        logger.info("Setting allow_compact_storage = " + allowCompactStorage);
+        conf.allow_compact_storage = allowCompactStorage;
+    }
 }
