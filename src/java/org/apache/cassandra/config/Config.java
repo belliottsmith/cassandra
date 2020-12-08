@@ -928,6 +928,8 @@ public class Config
     @Replaces(oldName = "enable_secondary_index", converter = Converters.IDENTITY, deprecated = true)
     public volatile boolean secondary_indexes_enabled = false;
     public volatile boolean uncompressed_tables_enabled = CassandraRelevantProperties.ALLOW_DISABLED_COMPRESSION.getBoolean();
+
+    @Replaces(oldName = "allow_compact_storage", converter = Converters.IDENTITY, deprecated = true)
     public volatile boolean compact_tables_enabled = true;
     public volatile boolean read_before_write_list_operations_enabled = true;
     public volatile boolean allow_filtering_enabled = true;
