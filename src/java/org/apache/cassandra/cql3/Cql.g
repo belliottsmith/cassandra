@@ -1658,6 +1658,7 @@ basic_unreserved_keyword returns [String str]
         | K_JSON
         | K_CALLED
         | K_INPUT
+        | K_REPLACE
         ) { $str = $k.text; }
     ;
 
