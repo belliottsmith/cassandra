@@ -575,6 +575,8 @@ public class Config
 
     public String repair_history_sync_timeout = "10m";
 
+    public volatile boolean allow_unsafe_aggressive_sstable_expiration = false;
+
     public static boolean isClientMode()
     {
         return isClientMode;

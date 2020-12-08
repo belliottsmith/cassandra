@@ -3278,4 +3278,15 @@ public class DatabaseDescriptor
     {
         return conf.allow_drop_compact_storage;
     }
+
+    public static void setAllowUnsafeAggressiveSSTableExpiration(boolean allow)
+    {
+        logger.info("Setting allow_unsafe_aggressive_sstable_expiration to {}", allow);
+        conf.allow_unsafe_aggressive_sstable_expiration = allow;
+    }
+
+    public static boolean allowUnsafeAggressiveSSTableExpiration()
+    {
+        return conf.allow_unsafe_aggressive_sstable_expiration;
+    }
 }

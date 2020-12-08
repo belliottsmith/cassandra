@@ -19,7 +19,6 @@ package org.apache.cassandra.db.compaction;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import javax.management.openmbean.TabularData;
 
 public interface CompactionManagerMBean
@@ -175,4 +174,13 @@ public interface CompactionManagerMBean
      */
     public void setCompactBiggestSTCSBucketInL0(boolean value);
 
+    /**
+     * Set whether we allow TWCS to drop sstables without checking for overlaps
+     * @param allow
+     */
+    public void setAllowUnsafeAggressiveSSTableExpiration(boolean allow);
+    /**
+     * Do we allow TWCS to drop sstables without checking for overlaps?
+     */
+    public boolean allowUnsafeAggressiveSSTableExpiration();
 }
