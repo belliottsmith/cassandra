@@ -67,8 +67,9 @@ public class SuccessfulRepairTimeHolder
         int lastRepairTime = Integer.MIN_VALUE;
         // successfulRepairs are sorted by last repair time - this means that if we find a range that contains the
         // token, it is guaranteed to be the newest repair for that token
-        for (Pair<Range<Token>, Integer> lastRepairSuccess : successfulRepairs)
+        for (int i = 0, isize = successfulRepairs.size(); i < isize; i++)
         {
+            Pair<Range<Token>, Integer> lastRepairSuccess = successfulRepairs.get(i);
             if (lastRepairSuccess.left.contains(t))
             {
                 lastRepairTime = lastRepairSuccess.right;
@@ -81,8 +82,9 @@ public class SuccessfulRepairTimeHolder
         // now we need to check if a range that contains this token has been invalidated by nodetool import:
         // invalidatedRepairs is sorted by smallest local deletion time first (ie, we keep the oldest tombstone ldt
         // first in the list since this is what we are interested in here)
-        for (InvalidatedRepairedRange irr : invalidatedRepairs)
+        for (int i = 0, isize = invalidatedRepairs.size(); i < isize; i++)
         {
+            InvalidatedRepairedRange irr = invalidatedRepairs.get(i);
             // if the nodetool import was run *after* the last repair time and the range repaired contains
             // the token, it is invalid and we must use the min ldt as a last repair time.
             if (irr.invalidatedAtSeconds > lastRepairTime && irr.range.contains(t))
@@ -109,8 +111,9 @@ public class SuccessfulRepairTimeHolder
         Bounds<Token> sstableBound = new Bounds<>(sstable.first.getToken(), sstable.last.getToken());
         List<AbstractBounds<Token>> sstableBounds = new ArrayList<>();
         sstableBounds.add(sstableBound);
-        for (Pair<Range<Token>, Integer> intersectingRepair : successfulRepairs)
+        for (int i = 0, isize = successfulRepairs.size(); i < isize; i++)
         {
+            Pair<Range<Token>, Integer> intersectingRepair = successfulRepairs.get(i);
             Range<Token> repairedRange = intersectingRepair.left;
             int repairTime = intersectingRepair.right;
 
@@ -119,8 +122,9 @@ public class SuccessfulRepairTimeHolder
 
             if (sstableBounds.isEmpty())
             {
-                for (InvalidatedRepairedRange irr : invalidatedRepairs)
+                for (int j = 0, jsize = invalidatedRepairs.size(); j < jsize; j++)
                 {
+                    InvalidatedRepairedRange irr = invalidatedRepairs.get(j);
                     if (irr.invalidatedAtSeconds > repairTime && irr.range.intersects(sstableBound))
                     {
                         // The sstable range was (partly) invalidated after the last repair.
