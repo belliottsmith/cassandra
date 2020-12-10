@@ -27,6 +27,7 @@ import java.util.stream.StreamSupport;
 
 import org.apache.commons.cli.*;
 
+import com.apple.cie.db.marshal.AbstractCappedMapCellsResolver;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.cql3.ColumnIdentifier;
@@ -143,6 +144,10 @@ public class SSTableExport
     @SuppressWarnings("resource")
     public static void main(String[] args) throws ConfigurationException
     {
+        // Disable the capped collection resolver so that all cells present in the SSTable are resolved
+        // and output, otherwise any cells exceeding the caps will be removed.
+        AbstractCappedMapCellsResolver.setCappedMapCellResolutionEnabled(false);
+
         CommandLineParser parser = new PosixParser();
         try
         {

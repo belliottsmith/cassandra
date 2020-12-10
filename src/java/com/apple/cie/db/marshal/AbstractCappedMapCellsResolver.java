@@ -63,11 +63,12 @@ import org.apache.cassandra.utils.MBeanWrapper;
  * hot property.  While the cells resolver is disabled, updated cap tombstones will be treated as normal
  * tombstone cells and will survive as long as they would normally in a map.
  */
-abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsResolverMBean
+public abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsResolverMBean
 {
     private static final Logger logger = LoggerFactory.getLogger(AbstractCappedMapCellsResolver.class);
 
-    private static final int CAP_LOCAL_DELETION_TIMESTAMP = Cell.MAX_DELETION_TIME - 1;
+    private static final int CAP_IMMORTAL_DELETION_TIMESTAMP = Cell.MAX_DELETION_TIME - 1;
+    private static final int CAP_MORTAL_DELETION_TIMESTAMP = 1; // Almost minimal local deletion time, but not zero in case used as sentinel
     protected volatile int defaultCap;
     protected int minEffectiveCap = 0;
     protected int maxEffectiveCap = CappedSortedMap.CAP_MAX;
@@ -153,15 +154,29 @@ abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsR
             // emit the cap cell before any regular values
             if (regularsOut == 0 && capCell != null)
             {
-                // override the local deletion timestamp to prevent the cap (which is a tombstone) from being
-                // compacted out when there may be live cells available in the queue.  If no regular cells
-                // added to the resolver, then this will not be called and the cap cell will be dropped then.
-                if (capCell.localDeletionTime() != CAP_LOCAL_DELETION_TIMESTAMP)
-                    capCell = capCell.withUpdatedTimestampAndLocalDeletionTime(capCell.timestamp(), CAP_LOCAL_DELETION_TIMESTAMP);
-                builder.addCell(capCell);
+                keepImmortalCapCell();
             }
 
             onRegularCell(cell);
+        }
+
+        private void keepImmortalCapCell()
+        {
+            // override the local deletion timestamp to prevent the cap (which is a tombstone) from being
+            // compacted out when there may be live cells available in the queue.  If no regular cells
+            // added to the resolver, then this will not be called and the cap cell will be dropped then.
+            if (capCell.localDeletionTime() != CAP_IMMORTAL_DELETION_TIMESTAMP)
+                capCell = capCell.withUpdatedTimestampAndLocalDeletionTime(capCell.timestamp(), CAP_IMMORTAL_DELETION_TIMESTAMP);
+            builder.addCell(capCell);
+        }
+
+        private void keepMortalCapCell()
+        {
+            // Convert the cap cell to a very old deleted cell so that the purger can remove it like it would
+            // any other cell.  Previously the cell resolver just dropped it which caused problems when receiving a streamed
+            // sstable.  See rdar://72042385 (Empty partition is written to SSTable when APNS capped collection is used with TTL)
+            capCell = capCell.withUpdatedTimestampAndLocalDeletionTime(capCell.timestamp(), CAP_MORTAL_DELETION_TIMESTAMP);
+            builder.addCell(capCell);
         }
 
         // Called for each regular cell
@@ -177,6 +192,12 @@ abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsR
         @Override
         public void endColumn()
         {
+            // During reconciliation we have to emit at least one cell (so we can go from N cells to at least one).
+            // Reloated code is located in BTreeRow#CellResolver#resolve . Because this code is on a read/compaction
+            // path (SSTableSimpleIterator$CurrentFormatIterator -> UnfilteredSerializer), it is used when reading from
+            // the disk. If we end up with an empty partition after that - it’s only because it was written this way.
+            if (regularsOut == 0)
+                keepMortalCapCell(); // give something for the purger to remove
             capCell = null;
             regularsIn = 0;
             regularsOut = 0;
@@ -244,5 +265,19 @@ abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsR
     {
         logger.info("Setting {} default cap from {} to {}", typeName(), this.defaultCap, cap);
         this.defaultCap = cap;
+    }
+
+    /* Make it possible to disable capping behaviour - for example in sstabledump it is confusing if
+     * the read iterator dropped cap cells when there were no regular cells.
+     */
+    private static String CAPPED_MAP_CELL_RESOLUTION_ENABLED_PROPERTY = "cie-cassandra.capped_map_cell_resolution_enabled";
+
+    public static void setCappedMapCellResolutionEnabled(boolean enabled)
+    {
+        System.setProperty(CAPPED_MAP_CELL_RESOLUTION_ENABLED_PROPERTY, Boolean.toString(enabled));
+    }
+    public static boolean isCappedMapCellResolutionEnabled()
+    {
+        return Boolean.parseBoolean(System.getProperty(CAPPED_MAP_CELL_RESOLUTION_ENABLED_PROPERTY, "true"));
     }
 }

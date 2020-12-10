@@ -444,4 +444,128 @@ public class CappedSortedMapTypeTest extends CQLTester
             CappedSortedMapCellsResolver.instance.setCellResolverEnabled(true);
         }
     }
+
+    @Test
+    public void emptyPartitionExpirationNonPurged() throws Throwable
+    {
+        int pk = 1;
+        int ck = 1;
+
+        emptyPartitionExpirationSetup(pk, ck);
+        Thread.sleep(6_000); // expire but don't purge tombstone
+        assertRows(execute("SELECT csm FROM %s WHERE pk = ? AND ck = ?", pk, ck));
+        compact(); // First compaction will expire all the TTLd cells and make the cap cell mortal again
+        Assert.assertEquals(1, getCurrentColumnFamilyStore().getLiveSSTables().size());
+        compact(); // Second compaction will remove the now-mortal cap cell
+        Assert.assertEquals(0, getCurrentColumnFamilyStore().getLiveSSTables().size());
+    }
+
+    @Test
+    public void emptyPartitionExpirationPurged() throws Throwable
+    {
+        int pk = 1;
+        int ck = 1;
+
+        emptyPartitionExpirationSetup(pk, ck);
+        Thread.sleep(11_000); // 5 seconds of TTL + 5 seconds of GC Grace
+        assertRows(execute("SELECT csm FROM %s WHERE pk = ? AND ck = ?", pk, ck));
+        compact(); // First compaction will expire all the TTLd cells and make the cap cell mortal again
+        Assert.assertEquals(1, getCurrentColumnFamilyStore().getLiveSSTables().size());
+        compact(); // Second compaction will remove the now-mortal cap cell
+        Assert.assertEquals(0, getCurrentColumnFamilyStore().getLiveSSTables().size());
+    }
+
+    public void emptyPartitionExpirationSetup(int pk, int ck) throws Throwable
+    {
+        createTable("CREATE TABLE %s (pk int, ck int, csm 'com.apple.cie.db.marshal.CappedSortedMapType(Int32Type)', PRIMARY KEY (pk, ck))" +
+                    " WITH gc_grace_seconds = 5");
+
+        final UUID cap = CappedSortedMap.withCap(3);
+        for (int msgIdx = 1; msgIdx <= 5; msgIdx++)
+        {
+            UUID messageId = makeMessageId(msgIdx);
+            execute("UPDATE %s USING TTL 5 SET csm[?] = null, csm[?] = ? WHERE pk = ? AND ck = ? ",
+                    cap, messageId, msgIdx, pk, ck);
+            flush();
+        }
+    }
+
+    @Test
+    public void mixedExpiredAndAliveRows() throws Throwable
+    {
+        createTable("CREATE TABLE %s (pk int, ck int, csm 'com.apple.cie.db.marshal.CappedSortedMapType(Int32Type)', " +
+                    "PRIMARY KEY (pk, ck))");
+
+        int pk = 1;
+        int ck = 1;
+        final UUID cap = CappedSortedMap.withCap(3);
+
+        write(pk, ck, cap, 1, 5);
+        flush();
+        write(pk, ck, cap, 2, 10);
+        flush();
+        Thread.sleep(6_000);
+        compact();
+
+        assertRows(execute("SELECT csm FROM %s WHERE pk = ? AND ck = ?", pk, ck),
+                   row(map(makeMessageId(2), 2)));
+
+        compact();
+        Assert.assertEquals(1, getCurrentColumnFamilyStore().getLiveSSTables().size());
+    }
+
+    @Test
+    public void mixedTtlAndAliveRows() throws Throwable
+    {
+        createTable("CREATE TABLE %s (pk int, ck int, csm 'com.apple.cie.db.marshal.CappedSortedMapType(Int32Type)', " +
+                    "PRIMARY KEY (pk, ck)) WITH gc_grace_seconds = 5");
+
+        int pk = 1;
+        int ck = 1;
+        final UUID cap = CappedSortedMap.withCap(3);
+
+        // Write one non-expiring cell
+        write(pk, ck, cap, 1, 0);
+        flush();
+        write(pk, ck, cap, 2, 5);
+        write(pk, ck, cap, 3, 5);
+        write(pk, ck, cap, 4, 5);
+        flush();
+        compact();
+
+        // Non-expiring cell is kicked out by the later writes
+        assertRows(execute("SELECT csm FROM %s WHERE pk = ? AND ck = ?", pk, ck),
+                   row(map(makeMessageId(2), 2,
+                           makeMessageId(3), 3,
+                           makeMessageId(4), 4)));
+
+        // After compaction, we have one sstable, where cap cell has MAX_DELETION_TIME ldt
+        Assert.assertEquals(1, getCurrentColumnFamilyStore().getLiveSSTables().size());
+        Thread.sleep(11_000);
+        compact(); // First compaction will expire all the TTLd cells and make the cap cell mortal again
+        compact(); // Second compaction will remove the now-mortal cap cell
+
+        // All cells are now expired
+        assertRows(execute("SELECT csm FROM %s WHERE pk = ? AND ck = ?", pk, ck));
+
+        // Now, cell is compacted away
+        Assert.assertEquals(0, getCurrentColumnFamilyStore().getLiveSSTables().size());
+    }
+
+    public void write(int pk, int ck, UUID cap, int msgIdx, int ttl) throws Throwable
+    {
+        UUID messageId = makeMessageId(msgIdx);
+        if (ttl > 0)
+        {
+            execute("UPDATE %s USING TTL ? SET csm[?] = null, csm[?] = ? WHERE pk = ? AND ck = ? ",
+                    ttl, cap, messageId, msgIdx, pk, ck);
+        }
+        else
+        {
+            execute("UPDATE %s SET csm[?] = null, csm[?] = ? WHERE pk = ? AND ck = ? ",
+                    cap, messageId, msgIdx, pk, ck);
+
+        }
+    }
+
 }

@@ -55,6 +55,7 @@ import org.apache.cassandra.exceptions.SyntaxException;
 public class CappedSortedMapType<E> extends MapType<UUID, E>
 {
     final private static AbstractType<UUID> keyType = ReversedType.getInstance(TimeUUIDType.instance);
+    final private static boolean cappedMapCellResolutionEnabled = AbstractCappedMapCellsResolver.isCappedMapCellResolutionEnabled();
 
     public CappedSortedMapType(AbstractType<E> elementType)
     {
@@ -79,7 +80,7 @@ public class CappedSortedMapType<E> extends MapType<UUID, E>
 
     public Cells.Builder wrapCellsBuilder(Cells.Builder builder)
     {
-        return CappedSortedMapCellsResolver.instance.wrapCellsBuilder(builder);
+        return cappedMapCellResolutionEnabled ? CappedSortedMapCellsResolver.instance.wrapCellsBuilder(builder) : builder;
     }
 
     @Override

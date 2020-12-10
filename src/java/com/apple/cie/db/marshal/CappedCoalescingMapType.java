@@ -75,6 +75,7 @@ import org.apache.cassandra.exceptions.SyntaxException;
 public class CappedCoalescingMapType<E> extends CappedSortedMapType<ByteBuffer>
 {
     final private AbstractType<E> elementType;
+    final private static boolean cappedMapCellResolutionEnabled = AbstractCappedMapCellsResolver.isCappedMapCellResolutionEnabled();
 
     public CappedCoalescingMapType(AbstractType<E> elementType)
     {
@@ -100,7 +101,7 @@ public class CappedCoalescingMapType<E> extends CappedSortedMapType<ByteBuffer>
 
     public Cells.Builder wrapCellsBuilder(Cells.Builder builder)
     {
-        return CappedCoalescingMapCellsResolver.instance.wrapCellsBuilder(builder, (TupleType) getValuesType());
+        return cappedMapCellResolutionEnabled ? CappedCoalescingMapCellsResolver.instance.wrapCellsBuilder(builder, (TupleType) getValuesType()) : builder;
     }
 
     @Override
