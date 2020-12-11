@@ -636,7 +636,7 @@ public class Config
     /**
      * The amount of disk space paxos uncommitted key files can consume before we begin automatically scheduling paxos repairs
      */
-    public int paxos_auto_repair_threshold_mb = 32;
+    public volatile int paxos_auto_repair_threshold_mb = 32;
 
     public volatile boolean allow_compact_storage = true;
 
