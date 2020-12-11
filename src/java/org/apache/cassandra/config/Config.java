@@ -177,7 +177,7 @@ public class Config
     // Defensive settings for protecting Cassandra from true network partitions. See (CASSANDRA-14358) for details.
     // The amount of time to wait for internode tcp connections to establish.
     public int internode_tcp_connect_timeout_in_ms = 2000;
-    // The amount of time unacknowledged data is allowed on a connection before we throw fout the connection
+    // The amount of time unacknowledged data is allowed on a connection before we throw out the connection
     // Note this is only supported on Linux + epoll, and it appears to behave oddly above a setting of 30000
     // (it takes much longer than 30s) as of Linux 4.12. If you want something that high set this to 0
     // (which picks up the OS default) and configure the net.ipv4.tcp_retries2 sysctl to be ~8.
