@@ -108,7 +108,7 @@ public class JMXCompatabilityTest extends CQLTester
 
                                                     // CIE exclude objects
                                                     "org.apache.cassandra.metrics:type=Client,name=MessageQueueLatency", // Waiting for forward port of rdar://58417519 (Native Transport Request Load Shedding) (#1474)
-                                                    "org.apache.cassandra.metrics:type=ClientRequestSize,name=((Incoming|Outgoing)Bytes|Bytes(Read|Written)PerQuery)", // Waiting for V5 client protocol to land, was temporarily renamed PerFrame, but will revert.
+                                                    "org.apache.cassandra.metrics:type=ClientRequestSize,name=((Incoming|Outgoing)Bytes|Bytes(Read|Written)PerQuery)", // Was temporarily renamed PerFrame during 4.0 dev, but name reverted.
                                                     "org.apache.cassandra.metrics:type=Keyspace,keyspace=.*,name=RepairedOverread(Rows|Time)", // Renamed RepairedDataTrackingOverread(Rows|Time)
                                                     "org.apache.cassandra.metrics:type=(Keyspace|Table|ColumnFamily)(|,keyspace=.*),name=SyncTime", // Renamed RepairSyncTime when open sourced
                                                     "org.apache.cassandra.metrics:type=Storage,name=ColumnIndexDownsamples", // Not forward ported
