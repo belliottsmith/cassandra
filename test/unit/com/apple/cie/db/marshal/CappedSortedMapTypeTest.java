@@ -26,18 +26,6 @@ import static org.junit.Assert.assertEquals;
 
 public class CappedSortedMapTypeTest extends CQLTester
 {
-    // abstract out mapElement representation as CQLTester support for
-    // tuples/UDTs changes in future versions, this isolates the change.
-    Object mapElement(int cap, int numRetries, Long timestamp, String message)
-    {
-        return userType((byte) cap, (byte) numRetries, timestamp, message);
-    }
-
-    Object mapElement(Object cap, int numRetries, Long timestamp, String message)
-    {
-        return userType(cap, (byte) numRetries, timestamp, message);
-    }
-
     @Test
     public void basicFunctionality() throws Throwable
     {
