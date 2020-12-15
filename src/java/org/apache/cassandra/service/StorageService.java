@@ -3535,7 +3535,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             parallelism = RepairParallelism.PARALLEL;
         }
 
-        RepairOption options = new RepairOption(parallelism, primaryRange, !fullRepair, false, 1, Collections.<Range<Token>>emptyList(), false, false, false, PreviewKind.NONE, false, false, false);
+        RepairOption options = new RepairOption(parallelism, primaryRange, !fullRepair, false, 1, Collections.<Range<Token>>emptyList(), false, false, false, PreviewKind.NONE, false, false, false, false);
         if (dataCenters != null)
         {
             options.getDataCenters().addAll(dataCenters);
@@ -3627,7 +3627,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         "The repair will occur but without anti-compaction.");
         Collection<Range<Token>> repairingRange = createRepairRangeFrom(beginToken, endToken);
 
-        RepairOption options = new RepairOption(parallelism, false, !fullRepair, false, 1, repairingRange, true, false, false, PreviewKind.NONE, false, false, false);
+        RepairOption options = new RepairOption(parallelism, false, !fullRepair, false, 1, repairingRange, true, false, false, PreviewKind.NONE, false, false, false, false);
         if (dataCenters != null)
         {
             options.getDataCenters().addAll(dataCenters);
@@ -5971,5 +5971,35 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             logger.info("Changing paxos auto repair threshold (MiB) from {} to {}", getPaxosAutoRepairThresholdMb(), threshold);
             DatabaseDescriptor.setPaxosAutoRepairThresholdMB(threshold);
         }
+    }
+
+    public boolean autoOptimiseIncRepairStreams()
+    {
+        return DatabaseDescriptor.autoOptimiseIncRepairStreams();
+    }
+
+    public void setAutoOptimiseIncRepairStreams(boolean enabled)
+    {
+        DatabaseDescriptor.setAutoOptimiseIncRepairStreams(enabled);
+    }
+
+    public boolean autoOptimiseFullRepairStreams()
+    {
+        return DatabaseDescriptor.autoOptimiseFullRepairStreams();
+    }
+
+    public void setAutoOptimiseFullRepairStreams(boolean enabled)
+    {
+        DatabaseDescriptor.setAutoOptimiseFullRepairStreams(enabled);
+    }
+
+    public boolean autoOptimisePreviewRepairStreams()
+    {
+        return DatabaseDescriptor.autoOptimisePreviewRepairStreams();
+    }
+
+    public void setAutoOptimisePreviewRepairStreams(boolean enabled)
+    {
+        DatabaseDescriptor.setAutoOptimisePreviewRepairStreams(enabled);
     }
 }

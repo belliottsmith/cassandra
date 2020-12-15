@@ -103,6 +103,9 @@ public class Repair extends NodeToolCmd
     @Option(title = "ignore_unreplicated_keyspaces", name = {"-iuk","--ignore-unreplicated-keyspaces"}, description = "Use --ignore-unreplicated-keyspaces to ignore keyspaces which are not replicated, otherwise the repair will fail")
     private boolean ignoreUnreplicatedKeyspaces = false;
 
+    @Option(title = "optimise_streams", name = {"-os", "--optimise-streams"}, description = "Use --optimise-streams to try to reduce the number of streams we do (EXPERIMENTAL, see CASSANDRA-3200).")
+    private boolean optimiseStreams = false;
+
     private PreviewKind getPreviewKind()
     {
         if (validate)
@@ -156,6 +159,7 @@ public class Repair extends NodeToolCmd
             options.put(RepairOption.IGNORE_UNREPLICATED_KS, Boolean.toString(ignoreUnreplicatedKeyspaces));
             options.put(RepairOption.REPAIR_PAXOS, Boolean.toString(!skipPaxos && getPreviewKind() == PreviewKind.NONE));
             options.put(RepairOption.PAXOS_ONLY, Boolean.toString(paxosOnly && getPreviewKind() == PreviewKind.NONE));
+            options.put(RepairOption.OPTIMISE_STREAMS_KEY, Boolean.toString(optimiseStreams));
 
             if (!startToken.isEmpty() || !endToken.isEmpty())
             {

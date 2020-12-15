@@ -15,48 +15,40 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.repair;
 
 import java.net.InetAddress;
 import java.util.List;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.RepairException;
+import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.repair.messages.SyncRequest;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.streaming.SessionSummary;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 
-/**
- * RemoteSyncTask sends {@link SyncRequest} to remote(non-coordinator) node
- * to repair(stream) data with other replica.
- *
- * When RemoteSyncTask receives SyncComplete from remote node, task completes.
- */
-public class RemoteSyncTask extends SyncTask implements CompletableRemoteSyncTask
+public class AsymmetricRemoteSyncTask extends SyncTask implements CompletableRemoteSyncTask
 {
-    private static final Logger logger = LoggerFactory.getLogger(RemoteSyncTask.class);
-
-    public RemoteSyncTask(RepairJobDesc desc, InetAddress firstEndpoint, InetAddress secondEndpoint, List<Range<Token>> rangesToSync, PreviewKind previewKind)
+    public AsymmetricRemoteSyncTask(RepairJobDesc desc, InetAddress fetchNode, InetAddress fetchFrom, List<Range<Token>> rangesToFetch, PreviewKind previewKind)
     {
-        super(desc, firstEndpoint, secondEndpoint, rangesToSync, previewKind);
+        super(desc, fetchNode, fetchFrom, rangesToFetch, previewKind);
     }
 
-    @Override
-    protected void startSync()
+    public void startSync()
     {
         InetAddress local = FBUtilities.getBroadcastAddress();
-        SyncRequest request = new SyncRequest(desc, local, firstEndpoint, secondEndpoint, rangesToSync, previewKind, false);
+        SyncRequest request = new SyncRequest(desc, local, firstEndpoint, secondEndpoint, rangesToSync, previewKind, true);
         String message = String.format("Forwarding streaming repair of %d ranges to %s (to be streamed with %s)", request.ranges.size(), request.src, request.dst);
-        logger.info("{} {}", previewKind.logPrefix(desc.sessionId), message);
         Tracing.traceRepair(message);
-        MessagingService.instance().sendOneWay(request.createMessage(), request.src);
+
+        MessageOut<RepairMessage> msg = request.createMessage();
+        MessagingService.instance().sendOneWay(msg, request.src);
     }
 
     public void syncComplete(boolean success, List<SessionSummary> summaries)
@@ -69,6 +61,5 @@ public class RemoteSyncTask extends SyncTask implements CompletableRemoteSyncTas
         {
             setException(new RepairException(desc, previewKind, String.format("Sync failed between %s and %s", firstEndpoint, secondEndpoint)));
         }
-        finished();
     }
 }

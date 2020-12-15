@@ -21,6 +21,7 @@ package org.apache.cassandra.repair;
 import java.net.InetAddress;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -93,7 +94,7 @@ public class LocalSyncTaskTest extends AbstractRepairTest
         LocalSyncTask task = new LocalSyncTask(desc, r1.endpoint, r2.endpoint,
                                                MerkleTrees.difference(r1.trees, r2.trees),
                                                ActiveRepairService.NO_PENDING_REPAIR,
-                                               false, PreviewKind.NONE);
+                                               true, false, PreviewKind.NONE);
         task.run();
 
         assertEquals(0, task.get().numberOfDifferences);
@@ -133,7 +134,7 @@ public class LocalSyncTaskTest extends AbstractRepairTest
         TreeResponse r2 = new TreeResponse(InetAddress.getByName("127.0.0.2"), tree2);
         LocalSyncTask task = new LocalSyncTask(desc, r1.endpoint, r2.endpoint,
                                                MerkleTrees.difference(r1.trees, r2.trees),
-                                               ActiveRepairService.NO_PENDING_REPAIR, false, PreviewKind.NONE);
+                                               ActiveRepairService.NO_PENDING_REPAIR, true, false, PreviewKind.NONE);
         task.run();
 
         // ensure that the changed range was recorded
@@ -152,7 +153,7 @@ public class LocalSyncTaskTest extends AbstractRepairTest
 
         LocalSyncTask task = new LocalSyncTask(desc, r1.endpoint, r2.endpoint,
                                                MerkleTrees.difference(r1.trees, r2.trees),
-                                               NO_PENDING_REPAIR, false, PreviewKind.NONE);
+                                               NO_PENDING_REPAIR, true, false, PreviewKind.NONE);
         StreamPlan plan = task.createStreamPlan(PARTICIPANT1, PARTICIPANT2, Lists.newArrayList(RANGE1));
 
         assertEquals(NO_PENDING_REPAIR, plan.getPendingRepair());
@@ -171,7 +172,7 @@ public class LocalSyncTaskTest extends AbstractRepairTest
 
         LocalSyncTask task = new LocalSyncTask(desc, r1.endpoint, r2.endpoint,
                                                MerkleTrees.difference(r1.trees, r2.trees),
-                                               desc.parentSessionId, false, PreviewKind.NONE);
+                                               desc.parentSessionId, true, false, PreviewKind.NONE);
         StreamPlan plan = task.createStreamPlan(PARTICIPANT1, PARTICIPANT2, Lists.newArrayList(RANGE1));
 
         assertEquals(desc.parentSessionId, plan.getPendingRepair());

@@ -254,6 +254,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                              boolean pullRepair,
                                              boolean force,
                                              PreviewKind previewKind,
+                                             boolean optimiseStreams,
                                              boolean repairPaxos,
                                              boolean paxosOnly,
                                              ListeningExecutorService executor,
@@ -276,7 +277,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         if (cfnames.length == 0)
             return null;
 
-        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, allReplicas, endpoints, isIncremental, pullRepair, force, previewKind, repairPaxos, paxosOnly, cfnames);
+        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, allReplicas, endpoints, isIncremental, pullRepair, force, previewKind, repairPaxos, paxosOnly, optimiseStreams, cfnames);
 
         sessions.put(session.getId(), session);
         // register listeners

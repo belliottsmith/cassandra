@@ -43,7 +43,8 @@ import org.apache.cassandra.streaming.PreviewKind;
  */
 public class SyncRequest extends RepairMessage
 {
-    public static MessageSerializer serializer = new SyncRequestSerializer();
+    public static MessageSerializer serializer = new SyncRequestSerializer(false);
+    public static MessageSerializer asymmetricSerializer = new SyncRequestSerializer(true);
 
     public final InetAddress initiator;
     public final InetAddress src;
@@ -51,9 +52,9 @@ public class SyncRequest extends RepairMessage
     public final Collection<Range<Token>> ranges;
     public final PreviewKind previewKind;
 
-    public SyncRequest(RepairJobDesc desc, InetAddress initiator, InetAddress src, InetAddress dst, Collection<Range<Token>> ranges, PreviewKind previewKind)
+    public SyncRequest(RepairJobDesc desc, InetAddress initiator, InetAddress src, InetAddress dst, Collection<Range<Token>> ranges, PreviewKind previewKind, boolean asymmetric)
     {
-        super(Type.SYNC_REQUEST, desc);
+        super(asymmetric ? Type.ASYMMETRIC_SYNC_REQUEST : Type.SYNC_REQUEST, desc);
         this.initiator = initiator;
         this.src = src;
         this.dst = dst;
@@ -84,6 +85,13 @@ public class SyncRequest extends RepairMessage
 
     public static class SyncRequestSerializer implements MessageSerializer<SyncRequest>
     {
+        private final boolean asymmetric;
+
+        public SyncRequestSerializer(boolean asymmetric)
+        {
+            this.asymmetric = asymmetric;
+        }
+
         public void serialize(SyncRequest message, DataOutputPlus out, int version) throws IOException
         {
             RepairJobDesc.serializer.serialize(message.desc, out, version);
@@ -110,7 +118,7 @@ public class SyncRequest extends RepairMessage
             for (int i = 0; i < rangesCount; ++i)
                 ranges.add((Range<Token>) AbstractBounds.tokenSerializer.deserialize(in, MessagingService.globalPartitioner(), version));
             PreviewKind previewKind = PreviewKind.deserialize(in.readInt());
-            return new SyncRequest(desc, owner, src, dst, ranges, previewKind);
+            return new SyncRequest(desc, owner, src, dst, ranges, previewKind, asymmetric);
         }
 
         public long serializedSize(SyncRequest message, int version)

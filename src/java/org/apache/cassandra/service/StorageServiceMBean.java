@@ -715,7 +715,7 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void enableReplicaFilteringProtection();
     public void disableReplicaFilteringProtection();
     public boolean isReplicaFilteringProtectionEnabled();
-    
+
     /** Returns the number of rows cached at the coordinator before filtering/index queries log a warning. */
     public int getCachedReplicaRowsWarnThreshold();
 
@@ -843,4 +843,12 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     int getPaxosAutoRepairThresholdMb();
     void setPaxosAutoRepairThresholdMb(int threshold);
+
+    // see CASSANDRA-3200
+    public boolean autoOptimiseIncRepairStreams();
+    public void setAutoOptimiseIncRepairStreams(boolean enabled);
+    public boolean autoOptimiseFullRepairStreams();
+    public void setAutoOptimiseFullRepairStreams(boolean enabled);
+    public boolean autoOptimisePreviewRepairStreams();
+    public void setAutoOptimisePreviewRepairStreams(boolean enabled);
 }

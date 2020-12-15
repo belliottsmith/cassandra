@@ -115,8 +115,8 @@ public class StreamWriter
                 // make sure that current section is sent
                 compressedOutput.flush();
             }
-            logger.debug("[Stream #{}] Finished streaming file {} to {}, bytesTransferred = {}, totalSize = {}",
-                         session.planId(), sstable.getFilename(), session.peer, progress, totalSize);
+            logger.info("[Stream #{}] Finished streaming file {} to {}, bytesTransferred = {}, totalSize = {}",
+                        session.planId(), sstable.getFilename(), session.peer, progress, totalSize);
         }
     }
 

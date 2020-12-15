@@ -141,8 +141,8 @@ public class StreamReader
                 // TODO move this to BytesReadTracker
                 session.progress(desc, ProgressInfo.Direction.IN, in.getBytesRead(), totalSize);
             }
-            logger.debug("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}",
-                         session.planId(), fileSeqNum, session.peer, in.getBytesRead(), totalSize);
+            logger.info("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}",
+                        session.planId(), fileSeqNum, session.peer, in.getBytesRead(), totalSize);
             return writer;
         }
         catch (Throwable e)

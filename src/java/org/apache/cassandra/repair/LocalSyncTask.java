@@ -48,24 +48,32 @@ public class LocalSyncTask extends SyncTask implements StreamEventHandler
     private static final Logger logger = LoggerFactory.getLogger(LocalSyncTask.class);
 
     private final UUID pendingRepair;
-    private final boolean pullRepair;
+    public final boolean requestRanges;
+    public final boolean transferRanges;
 
-    public LocalSyncTask(RepairJobDesc desc, InetAddress firstEndpoint, InetAddress secondEndpoint, List<Range<Token>> rangesToSync, UUID pendingRepair, boolean pullRepair, PreviewKind previewKind)
+    public LocalSyncTask(RepairJobDesc desc, InetAddress firstEndpoint, InetAddress secondEndpoint,
+                         List<Range<Token>> rangesToSync, UUID pendingRepair,
+                         boolean requestRanges, boolean transferRanges, PreviewKind previewKind)
     {
         super(desc, firstEndpoint, secondEndpoint, rangesToSync, previewKind);
         this.pendingRepair = pendingRepair;
-        this.pullRepair = pullRepair;
+        this.requestRanges = requestRanges;
+        this.transferRanges = transferRanges;
     }
-
 
     @VisibleForTesting
     StreamPlan createStreamPlan(InetAddress dst, InetAddress preferred, List<Range<Token>> differences)
     {
         StreamPlan plan = new StreamPlan("Repair", 1, false, pendingRepair, previewKind)
                           .listeners(this)
-                          .flushBeforeTransfer(pendingRepair == null)
-                          .requestRanges(dst, preferred, desc.keyspace, differences, desc.columnFamily);  // request ranges from the remote node
-        if (!pullRepair)
+                          .flushBeforeTransfer(pendingRepair == null);
+
+        if (requestRanges)
+        {
+            plan.requestRanges(dst, preferred, desc.keyspace, differences, desc.columnFamily);  // request ranges from the remote node
+        }
+
+        if (transferRanges)
         {
             // send ranges to the remote node if we are not performing a pull repair
             plan.transferRanges(dst, preferred, desc.keyspace, differences, desc.columnFamily);
@@ -79,18 +87,18 @@ public class LocalSyncTask extends SyncTask implements StreamEventHandler
      * that will be called out of band once the streams complete.
      */
     @Override
-    protected void startSync(List<Range<Token>> differences)
+    protected void startSync()
     {
         InetAddress local = FBUtilities.getBroadcastAddress();
         // We can take anyone of the node as source or destination, however if one is localhost, we put at source to avoid a forwarding
         InetAddress dst = secondEndpoint.equals(local) ? firstEndpoint : secondEndpoint;
         InetAddress preferred = SystemKeyspace.getPreferredIP(dst);
 
-        String message = String.format("Performing streaming repair of %d ranges with %s", differences.size(), dst);
+        String message = String.format("Performing streaming repair of %d ranges with %s", rangesToSync.size(), dst);
         logger.info("{} {}", previewKind.logPrefix(desc.sessionId), message);
         Tracing.traceRepair(message);
 
-        StreamPlan plan = createStreamPlan(dst, preferred, differences);
+        StreamPlan plan = createStreamPlan(dst, preferred, rangesToSync);
         logger.info("{} executing StreamPlan {}", previewKind.logPrefix(desc.parentSessionId), plan.getPlanId());
         plan.execute();
     }
@@ -134,5 +142,10 @@ public class LocalSyncTask extends SyncTask implements StreamEventHandler
     {
         setException(t);
         finished();
+    }
+
+    boolean isLocal()
+    {
+        return true;
     }
 }

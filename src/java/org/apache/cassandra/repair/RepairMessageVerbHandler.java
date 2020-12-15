@@ -167,10 +167,18 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                     break;
 
                 case SYNC_REQUEST:
+                case ASYMMETRIC_SYNC_REQUEST:
                     // forwarded sync request
                     SyncRequest request = (SyncRequest) message.payload;
                     logger.debug("Syncing {}", request);
-                    StreamingRepairTask task = new StreamingRepairTask(desc, request, isIncremental(desc.parentSessionId) ? desc.parentSessionId : null, request.previewKind);
+                    StreamingRepairTask task = new StreamingRepairTask(desc,
+                                                                       request.initiator,
+                                                                       request.src,
+                                                                       request.dst,
+                                                                       request.ranges,
+                                                                       isIncremental(desc.parentSessionId) ? desc.parentSessionId : null,
+                                                                       request.previewKind,
+                                                                       request.messageType == RepairMessage.Type.ASYMMETRIC_SYNC_REQUEST);
                     task.run();
                     break;
 

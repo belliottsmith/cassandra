@@ -91,8 +91,8 @@ public class CompressedStreamWriter extends StreamWriter
                     session.progress(sstable.descriptor, ProgressInfo.Direction.OUT, progress, totalSize);
                 }
             }
-            logger.debug("[Stream #{}] Finished streaming file {} to {}, bytesTransferred = {}, totalSize = {}",
-                         session.planId(), sstable.getFilename(), session.peer, progress, totalSize);
+            logger.info("[Stream #{}] Finished streaming file {} to {}, bytesTransferred = {}, totalSize = {}",
+                        session.planId(), sstable.getFilename(), session.peer, progress, totalSize);
         }
     }
 

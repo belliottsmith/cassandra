@@ -20,9 +20,12 @@ package org.apache.cassandra.repair;
 import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +36,10 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.net.*;
+import org.apache.cassandra.repair.asymmetric.DifferenceHolder;
+import org.apache.cassandra.repair.asymmetric.HostDifferences;
+import org.apache.cassandra.repair.asymmetric.PreferedNodeFilter;
+import org.apache.cassandra.repair.asymmetric.ReduceHelper;
 import org.apache.cassandra.service.*;
 import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.service.paxos.cleanup.PaxosCleanup;
@@ -56,6 +63,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
     private volatile long repairJobStartTime;
     private final PreviewKind previewKind;
     private final boolean skippedReplicas;
+    private final boolean optimiseStreams;
 
     /**
      * Create repair job to run on specific columnfamily
@@ -63,7 +71,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
      * @param columnFamily name of the ColumnFamily to repair
      * @param skippedReplicas
      */
-    public RepairJob(RepairSession session, String columnFamily, boolean isIncremental, PreviewKind previewKind, boolean skippedReplicas)
+    public RepairJob(RepairSession session, String columnFamily, boolean isIncremental, PreviewKind previewKind, boolean skippedReplicas, boolean optimiseStreams)
     {
         this.session = session;
         this.skippedReplicas = skippedReplicas;
@@ -72,6 +80,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         this.parallelismDegree = session.parallelismDegree;
         this.isIncremental = isIncremental;
         this.previewKind = previewKind;
+        this.optimiseStreams = optimiseStreams;
     }
 
     public int getNowInSeconds()
@@ -174,8 +183,9 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         }
 
         // When all validations complete, submit sync tasks
-        AsyncFunction<List<TreeResponse>, List<SyncStat>> createSyncTasks = trees -> Futures.allAsList(createSyncTasks(trees, FBUtilities.getLocalAddress()));
-        ListenableFuture<List<SyncStat>> syncResults = Futures.transform(validations, createSyncTasks, taskExecutor);
+        ListenableFuture<List<SyncStat>> syncResults = Futures.transform(validations,
+                                                                         session.optimiseStreams && !session.pullRepair ? this::optimisedSyncing : this::standardSyncing,
+                                                                         taskExecutor);
 
         // When all sync complete, set the final result
         Futures.addCallback(syncResults, new FutureCallback<List<SyncStat>>()
@@ -206,8 +216,24 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         }, taskExecutor);
     }
 
-    @VisibleForTesting
-    List<SyncTask> createSyncTasks(List<TreeResponse> trees, InetAddress local)
+    private ListenableFuture<List<SyncStat>> standardSyncing(List<TreeResponse> trees)
+    {
+        List<SyncTask> syncTasks = createStandardSyncTasks(desc,
+                                                           trees,
+                                                           FBUtilities.getLocalAddress(),
+                                                           session.isIncremental,
+                                                           session.pullRepair,
+                                                           session.previewKind);
+        return executeTasks(syncTasks);
+    }
+
+
+    static List<SyncTask> createStandardSyncTasks(RepairJobDesc desc,
+                                                  List<TreeResponse> trees,
+                                                  InetAddress local,
+                                                  boolean isIncremental,
+                                                  boolean pullRepair,
+                                                  PreviewKind previewKind)
     {
         long startedAt = System.currentTimeMillis();
         List<SyncTask> syncTasks = new ArrayList<>();
@@ -230,23 +256,111 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
 
                 if (r1.endpoint.equals(local) || r2.endpoint.equals(local))
                 {
-                    task = new LocalSyncTask(desc, r1.endpoint, r2.endpoint, differences, isIncremental ? desc.parentSessionId : null, session.pullRepair, session.previewKind);
+                    task = new LocalSyncTask(desc, r1.endpoint, r2.endpoint, differences, isIncremental ? desc.parentSessionId : null, true, !pullRepair, previewKind);
                 }
                 else
                 {
-                    task = new RemoteSyncTask(desc, r1.endpoint, r2.endpoint, differences, session.previewKind);
-                    // RemoteSyncTask expects SyncComplete message sent back.
-                    // Register task to RepairSession to receive response.
-                    session.waitForSync(Pair.create(desc, new NodePair(r1.endpoint, r2.endpoint)), (RemoteSyncTask) task);
+                    task = new RemoteSyncTask(desc, r1.endpoint, r2.endpoint, differences, previewKind);
                 }
                 syncTasks.add(task);
-                taskExecutor.submit(task);
             }
             trees.get(i).trees.release();
         }
         trees.get(trees.size() - 1).trees.release();
-        logger.info("Created {} sync tasks based on {} merkle tree responses for {} (took: {}ms)", syncTasks.size(), trees.size(), session.getId(), System.currentTimeMillis() - startedAt);
+        logger.info("Created {} sync tasks based on {} merkle tree responses for {} (took: {}ms)", syncTasks.size(), trees.size(), desc.parentSessionId, System.currentTimeMillis() - startedAt);
         return syncTasks;
+    }
+
+    private ListenableFuture<List<SyncStat>> optimisedSyncing(List<TreeResponse> trees)
+    {
+        List<SyncTask> syncTasks = createOptimisedSyncingSyncTasks(desc,
+                                                                   trees,
+                                                                   FBUtilities.getLocalAddress(),
+                                                                   this::getDC,
+                                                                   session.isIncremental,
+                                                                   session.previewKind);
+
+        return executeTasks(syncTasks);
+    }
+
+
+    @VisibleForTesting
+    ListenableFuture<List<SyncStat>> executeTasks(List<SyncTask> syncTasks)
+    {
+        // this throws if the parent session has failed
+        ActiveRepairService.instance.getParentRepairSession(desc.parentSessionId);
+        for (SyncTask task : syncTasks)
+        {
+            if (!task.isLocal())
+                session.waitForSync(Pair.create(desc, task.nodePair()), (CompletableRemoteSyncTask) task);
+            taskExecutor.submit(task);
+        }
+
+        return Futures.allAsList(syncTasks);
+    }
+
+    static List<SyncTask> createOptimisedSyncingSyncTasks(RepairJobDesc desc,
+                                                          List<TreeResponse> trees,
+                                                          InetAddress local,
+                                                          java.util.function.Function<InetAddress, String> getDC,
+                                                          boolean isIncremental,
+                                                          PreviewKind previewKind)
+    {
+        long startedAt = System.currentTimeMillis();
+        List<SyncTask> syncTasks = new ArrayList<>();
+        // We need to difference all trees one against another
+        DifferenceHolder diffHolder = new DifferenceHolder(trees);
+
+        logger.debug("diffs = {}", diffHolder);
+        PreferedNodeFilter preferSameDCFilter = (streaming, candidates) ->
+                                                candidates.stream()
+                                                          .filter(node -> getDC.apply(streaming)
+                                                                               .equals(getDC.apply(node)))
+                                                          .collect(Collectors.toSet());
+        ImmutableMap<InetAddress, HostDifferences> reducedDifferences = ReduceHelper.reduce(diffHolder, preferSameDCFilter);
+
+        for (int i = 0; i < trees.size(); i++)
+        {
+            InetAddress address = trees.get(i).endpoint;
+
+            HostDifferences streamsFor = reducedDifferences.get(address);
+            if (streamsFor != null)
+            {
+                Preconditions.checkArgument(streamsFor.get(address).isEmpty(), "We should not fetch ranges from ourselves");
+                for (InetAddress fetchFrom : streamsFor.hosts())
+                {
+                    List<Range<Token>> toFetch = new ArrayList<>(streamsFor.get(fetchFrom));
+                    assert !toFetch.isEmpty();
+
+                    logger.debug("{} is about to fetch {} from {}", address, toFetch, fetchFrom);
+                    SyncTask task;
+                    if (address.equals(local))
+                    {
+                        task = new LocalSyncTask(desc, address, fetchFrom, toFetch, isIncremental ? desc.parentSessionId : null,
+                                                 true, false, previewKind);
+                    }
+                    else
+                    {
+                        task = new AsymmetricRemoteSyncTask(desc, address, fetchFrom, toFetch, previewKind);
+                    }
+                    syncTasks.add(task);
+
+                }
+            }
+            else
+            {
+                logger.debug("Node {} has nothing to stream", address);
+            }
+        }
+        logger.info("Created {} optimised sync tasks based on {} merkle tree responses for {} (took: {}ms)",
+                    syncTasks.size(), trees.size(), desc.parentSessionId, System.currentTimeMillis() - startedAt);
+        logger.debug("Optimised sync tasks for {}: {}", desc.parentSessionId, syncTasks);
+        return syncTasks;
+    }
+
+    private String getDC(InetAddress address)
+    {
+        return DatabaseDescriptor.getEndpointSnitch().getDatacenter(address);
     }
 
     /**

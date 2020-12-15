@@ -52,6 +52,7 @@ public class RepairOption
     public static final String IGNORE_UNREPLICATED_KS = "ignoreUnreplicatedKeyspaces";
     public static final String REPAIR_PAXOS = "repairPaxos";
     public static final String PAXOS_ONLY = "paxosOnly";
+    public static final String OPTIMISE_STREAMS_KEY = "optimiseStreams";
 
     // we don't want to push nodes too much for repair
     public static final int MAX_JOB_THREADS = 4;
@@ -133,6 +134,12 @@ public class RepairOption
      *             <td>"true" if the repair should continue, even if one of the replicas involved is down.</td>
      *             <td>false</td>
      *         </tr>
+     *         <tr>
+     *             <td>optimiseStreams</td>
+     *             <td>"true" if we should try to optimise the syncing to avoid transfering identical
+     *             ranges to the same host multiple times</td>
+     *             <td>false</td>
+     *         </tr>
      *     </tbody>
      * </table>
      *
@@ -191,8 +198,9 @@ public class RepairOption
                 ranges.add(new Range<>(parsedBeginToken, parsedEndToken));
             }
         }
+        boolean asymmetricSyncing = Boolean.parseBoolean(options.get(OPTIMISE_STREAMS_KEY));
 
-        RepairOption option = new RepairOption(parallelism, primaryRange, incremental, trace, jobThreads, ranges, !ranges.isEmpty(), pullRepair, force, previewKind, ignoreUnreplicatedKeyspaces, repairPaxos, paxosOnly);
+        RepairOption option = new RepairOption(parallelism, primaryRange, incremental, trace, jobThreads, ranges, !ranges.isEmpty(), pullRepair, force, previewKind, ignoreUnreplicatedKeyspaces, repairPaxos, paxosOnly, asymmetricSyncing);
 
         // data centers
         String dataCentersStr = options.get(DATACENTERS_KEY);
@@ -276,13 +284,14 @@ public class RepairOption
     private final boolean ignoreUnreplicatedKeyspaces;
     private final boolean repairPaxos;
     private final boolean paxosOnly;
+    private final boolean optimiseStreams;
 
     private final Collection<String> columnFamilies = new HashSet<>();
     private final Collection<String> dataCenters = new HashSet<>();
     private final Collection<String> hosts = new HashSet<>();
     private final Collection<Range<Token>> ranges = new HashSet<>();
 
-    public RepairOption(RepairParallelism parallelism, boolean primaryRange, boolean incremental, boolean trace, int jobThreads, Collection<Range<Token>> ranges, boolean isSubrangeRepair, boolean pullRepair, boolean forceRepair, PreviewKind previewKind, boolean ignoreUnreplicatedKeyspaces, boolean repairPaxos, boolean paxosOnly)
+    public RepairOption(RepairParallelism parallelism, boolean primaryRange, boolean incremental, boolean trace, int jobThreads, Collection<Range<Token>> ranges, boolean isSubrangeRepair, boolean pullRepair, boolean forceRepair, PreviewKind previewKind, boolean ignoreUnreplicatedKeyspaces, boolean repairPaxos, boolean paxosOnly, boolean optimiseStreams)
     {
         if (FBUtilities.isWindows() &&
             (DatabaseDescriptor.getDiskAccessMode() != Config.DiskAccessMode.standard || DatabaseDescriptor.getIndexAccessMode() != Config.DiskAccessMode.standard) &&
@@ -306,6 +315,7 @@ public class RepairOption
         this.ignoreUnreplicatedKeyspaces = ignoreUnreplicatedKeyspaces;
         this.repairPaxos = repairPaxos;
         this.paxosOnly = paxosOnly;
+        this.optimiseStreams = optimiseStreams;
     }
 
     public RepairParallelism getParallelism()
@@ -383,7 +393,8 @@ public class RepairOption
         return previewKind.isPreview();
     }
 
-    public boolean isInLocalDCOnly() {
+    public boolean isInLocalDCOnly()
+    {
         return dataCenters.size() == 1 && dataCenters.contains(DatabaseDescriptor.getLocalDataCenter());
     }
 
@@ -401,6 +412,25 @@ public class RepairOption
     {
         return paxosOnly;
     }
+    public boolean optimiseStreams()
+    {
+        if (optimiseStreams)
+            return true;
+
+        if (isPullRepair() || isForcedRepair() || paxosOnly())
+            return false;
+
+        if (isIncremental() && DatabaseDescriptor.autoOptimiseIncRepairStreams())
+            return true;
+
+        if (isPreview() && DatabaseDescriptor.autoOptimisePreviewRepairStreams())
+            return true;
+
+        if (!isIncremental() && DatabaseDescriptor.autoOptimiseFullRepairStreams())
+            return true;
+
+        return false;
+    }
 
     @Override
     public String toString()
@@ -417,6 +447,7 @@ public class RepairOption
                        ", # of ranges: " + ranges.size() +
                        ", pull repair: " + pullRepair +
                        ", force repair: " + forceRepair +
+                       ", optimise streams: "+ optimiseStreams() +
                        ", ignore unreplicated: " + ignoreUnreplicatedKeyspaces +
                        ", repairPaxos: " + repairPaxos +
                        ", paxosOnly: " + paxosOnly +

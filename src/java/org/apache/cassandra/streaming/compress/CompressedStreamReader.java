@@ -37,6 +37,7 @@ import org.apache.cassandra.streaming.StreamReader;
 import org.apache.cassandra.streaming.StreamSession;
 import org.apache.cassandra.streaming.messages.FileMessageHeader;
 import org.apache.cassandra.io.util.TrackedInputStream;
+import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 
 import static org.apache.cassandra.utils.Throwables.extractIOExceptionCause;
@@ -107,8 +108,8 @@ public class CompressedStreamReader extends StreamReader
                     session.progress(desc, ProgressInfo.Direction.IN, cis.getTotalCompressedBytesRead(), totalSize);
                 }
             }
-            logger.debug("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}", session.planId(), fileSeqNum,
-                         session.peer, cis.getTotalCompressedBytesRead(), totalSize);
+            logger.info("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}", session.planId(), fileSeqNum,
+                        session.peer, cis.getTotalCompressedBytesRead(), totalSize);
             return writer;
         }
         catch (Throwable e)

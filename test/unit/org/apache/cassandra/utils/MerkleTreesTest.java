@@ -507,7 +507,7 @@ public class MerkleTreesTest
         return hstack.pop();
     }
 
-    static class HIterator extends AbstractIterator<RowHash>
+    public static class HIterator extends AbstractIterator<RowHash>
     {
         private final Random random;
         private final Iterator<Token> tokens;

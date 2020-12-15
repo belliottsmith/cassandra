@@ -54,7 +54,7 @@
         </Async>
     </Appenders>
     <Loggers>
-        <Root level="DEBUG">
+        <Root level="INFO">
             <AppenderRef ref="INSTANCEASYNC" />
         </Root>
     </Loggers>

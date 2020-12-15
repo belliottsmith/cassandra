@@ -121,13 +121,14 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
     public final PreviewKind previewKind;
     public final boolean repairPaxos;
     public final boolean paxosOnly;
+    public final boolean optimiseStreams;
 
     private final AtomicBoolean isFailed = new AtomicBoolean(false);
 
     // Each validation task waits response from replica in validating ConcurrentMap (keyed by CF name and endpoint address)
     private final ConcurrentMap<Pair<RepairJobDesc, InetAddress>, ValidationTask> validating = new ConcurrentHashMap<>();
     // Remote syncing jobs wait response in syncingTasks map
-    private final ConcurrentMap<Pair<RepairJobDesc, NodePair>, RemoteSyncTask> syncingTasks = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Pair<RepairJobDesc, NodePair>, CompletableRemoteSyncTask> syncingTasks = new ConcurrentHashMap<>();
 
     // Tasks(snapshot, validate request, differencing, ...) are run on taskExecutor
     public final ListeningExecutorService taskExecutor;
@@ -146,6 +147,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
      * @param force true if the repair should ignore dead endpoints (instead of failing)
      * @param repairPaxos true if incomplete paxos operations should be completed as part of repair
      * @param paxosOnly true if we should only complete paxos operations, not run a normal repair
+     * @param optimiseStreams true if we should try to optimise streams
      * @param cfnames names of columnfamilies
      */
     public RepairSession(UUID parentRepairSession,
@@ -161,6 +163,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
                          PreviewKind previewKind,
                          boolean repairPaxos,
                          boolean paxosOnly,
+                         boolean optimiseStreams,
                          String... cfnames)
     {
         this.repairPaxos = repairPaxos;
@@ -204,6 +207,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         this.pullRepair = pullRepair;
         this.skippedReplicas = forceSkippedReplicas;
         this.allReplicas = allReplicas && !forceSkippedReplicas;
+        this.optimiseStreams = optimiseStreams;
         this.taskExecutor = MoreExecutors.listeningDecorator(createExecutor());
     }
 
@@ -228,7 +232,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         validating.put(key, task);
     }
 
-    public void waitForSync(Pair<RepairJobDesc, NodePair> key, RemoteSyncTask task)
+    public void waitForSync(Pair<RepairJobDesc, NodePair> key, CompletableRemoteSyncTask task)
     {
         syncingTasks.put(key, task);
     }
@@ -306,7 +310,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
      */
     public void syncComplete(RepairJobDesc desc, NodePair nodes, boolean success, List<SessionSummary> summaries)
     {
-        RemoteSyncTask task = syncingTasks.get(Pair.create(desc, nodes));
+        CompletableRemoteSyncTask task = syncingTasks.get(Pair.create(desc, nodes));
         if (task == null)
         {
             assert terminated;
@@ -318,7 +322,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
     }
 
     @VisibleForTesting
-    Map<Pair<RepairJobDesc, NodePair>, RemoteSyncTask> getSyncingTasks()
+    Map<Pair<RepairJobDesc, NodePair>, CompletableRemoteSyncTask> getSyncingTasks()
     {
         return Collections.unmodifiableMap(syncingTasks);
     }
@@ -386,7 +390,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         List<ListenableFuture<RepairResult>> jobs = new ArrayList<>(cfnames.length);
         for (String cfname : cfnames)
         {
-            RepairJob job = new RepairJob(this, cfname, isIncremental, previewKind, skippedReplicas);
+            RepairJob job = new RepairJob(this, cfname, isIncremental, previewKind, skippedReplicas, optimiseStreams);
             executor.execute(job);
             jobs.add(job);
         }

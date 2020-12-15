@@ -40,11 +40,11 @@ public abstract class SyncTask extends AbstractFuture<SyncStat> implements Runna
     private static Logger logger = LoggerFactory.getLogger(SyncTask.class);
 
     protected final RepairJobDesc desc;
-    protected final InetAddress firstEndpoint;
-    protected final InetAddress secondEndpoint;
+    public final InetAddress firstEndpoint;
+    public final InetAddress secondEndpoint;
     protected final PreviewKind previewKind;
 
-    private final List<Range<Token>> rangesToSync;
+    public final List<Range<Token>> rangesToSync;
 
     protected volatile SyncStat stat;
     protected long startTime = Long.MIN_VALUE;
@@ -56,15 +56,17 @@ public abstract class SyncTask extends AbstractFuture<SyncStat> implements Runna
         this.secondEndpoint = secondEndpoint;
         this.rangesToSync = rangesToSync;
         this.previewKind = previewKind;
+        this.stat = new SyncStat(new NodePair(firstEndpoint, secondEndpoint), rangesToSync.size());
     }
+
+    protected abstract void startSync();
 
     /**
      * Compares trees, and triggers repairs for any ranges that mismatch.
      */
     public void run()
     {
-        stat = new SyncStat(new NodePair(firstEndpoint, secondEndpoint), rangesToSync.size());
-
+        startTime = System.currentTimeMillis();
         // choose a repair method based on the significance of the difference
         String format = String.format("%s Endpoints %s and %s %%s for %s", previewKind.logPrefix(desc.sessionId), firstEndpoint, secondEndpoint, desc.columnFamily);
         if (rangesToSync.isEmpty())
@@ -78,7 +80,7 @@ public abstract class SyncTask extends AbstractFuture<SyncStat> implements Runna
         // non-0 difference: perform streaming repair
         logger.info(String.format(format, "have " + rangesToSync.size() + " range(s) out of sync"));
         Tracing.traceRepair("Endpoint {} has {} range(s) out of sync with {} for {}", firstEndpoint, rangesToSync.size(), secondEndpoint, desc.columnFamily);
-        startSync(rangesToSync);
+        startSync();
     }
 
     public SyncStat getCurrentStat()
@@ -92,5 +94,24 @@ public abstract class SyncTask extends AbstractFuture<SyncStat> implements Runna
             Keyspace.open(desc.keyspace).getColumnFamilyStore(desc.columnFamily).metric.syncTime.update(System.currentTimeMillis() - startTime, TimeUnit.MILLISECONDS);
     }
 
-    protected abstract void startSync(List<Range<Token>> differences);
+    boolean isLocal()
+    {
+        return false;
+    }
+
+    public NodePair nodePair()
+    {
+        return new NodePair(firstEndpoint, secondEndpoint);
+    }
+
+    public String toString()
+    {
+        return "SyncTask{" +
+               "desc=" + desc +
+               ", firstEndpoint=" + firstEndpoint +
+               ", secondEndpoint=" + secondEndpoint +
+               ", previewKind=" + previewKind +
+               ", rangesToSync=" + rangesToSync +
+               "} ";
+    }
 }
