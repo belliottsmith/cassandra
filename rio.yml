@@ -86,7 +86,7 @@ builds:
           - parallel-output/**/build/test/output/*
       logs:
         paths:
-          - unified-output/**/build/test/logs/*.log
+          - unified-output/**/build/test/logs/**/*
           - parallel-output/**/*
 
   #
@@ -133,7 +133,7 @@ builds:
           - parallel-output/**/build/test/output/*
       logs:
         paths:
-          - unified-output/**/build/test/logs/*.log
+          - unified-output/**/build/test/logs/**/*
           - parallel-output/**/*
     package:
       release: false
@@ -201,7 +201,7 @@ builds:
           - parallel-output/**/build/test/output/*
       logs:
         paths:
-          - unified-output/**/build/test/logs/*.log
+          - unified-output/**/build/test/logs/**/*
           - parallel-output/**/*
     package:
       release: true
