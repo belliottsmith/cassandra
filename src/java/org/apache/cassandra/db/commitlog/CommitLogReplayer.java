@@ -68,6 +68,7 @@ public class CommitLogReplayer
     static final String IGNORE_REPLAY_ERRORS_PROPERTY = "cassandra.commitlog.ignorereplayerrors";
     private static final Logger logger = LoggerFactory.getLogger(CommitLogReplayer.class);
     private static final int MAX_OUTSTANDING_REPLAY_COUNT = Integer.getInteger("cassandra.commitlog_max_outstanding_replay_count", 1024);
+    private static final boolean ALLOW_SKIP_SYNC_MARKER_CRC =  Boolean.getBoolean("cassandra.commitlog.allow_ignore_sync_crc");
     private static final int LEGACY_END_OF_SEGMENT_MARKER = 0;
 
     private final Set<Keyspace> keyspacesRecovered;
@@ -270,6 +271,19 @@ public class CommitLogReplayer
         long filecrc = reader.readInt() & 0xffffffffL;
         if (crc.getValue() != filecrc)
         {
+            // There are unidentified edge cases where we can write an empty CRC to the sync
+            // marker but the mutations following are still valid. When there is no compression,
+            // we can instead defer to the per-mutation CRCs so we ignore the mismatch with the empty
+            // on-disk sync marker CRC. This isn't as safe as relying on all CRCs but its better than
+            // preventing the node from starting when there are only valid mutations in the commit log
+            // see rdar://71547021
+            if (ALLOW_SKIP_SYNC_MARKER_CRC && descriptor.compression == null && filecrc == 0 && end != 0)
+            {
+                logger.warn("Skipping sync marker CRC check at position {} (end={}, calculated crc={}) of commit log {}",
+                            offset, end, crc.getValue(), reader.getPath());
+                return end;
+            }
+
             if (end != 0 || filecrc != 0)
             {
                 handleReplayError(false, null,
