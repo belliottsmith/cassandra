@@ -17,6 +17,7 @@
  */
 package com.apple.cie.db.marshal;
 
+import java.nio.ByteBuffer;
 import javax.management.ObjectName;
 
 import org.slf4j.Logger;
@@ -24,8 +25,12 @@ import org.slf4j.LoggerFactory;
 
 import com.apple.cie.cql3.functions.CappedSortedMap;
 import org.apache.cassandra.db.marshal.TimeUUIDType;
+import org.apache.cassandra.db.marshal.ValueAccessor;
+import org.apache.cassandra.db.rows.AbstractCell;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.rows.Cells;
+import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.utils.MBeanWrapper;
 
 /**
@@ -67,7 +72,6 @@ abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsR
 {
     private static final Logger logger = LoggerFactory.getLogger(AbstractCappedMapCellsResolver.class);
 
-    private static final int CAP_LOCAL_DELETION_TIMESTAMP = Cell.MAX_DELETION_TIME - 1;
     protected volatile int defaultCap;
     protected volatile int minEffectiveCap = 0;
     protected volatile int maxEffectiveCap = CappedSortedMap.CAP_MAX;
@@ -102,7 +106,8 @@ abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsR
 
         protected final int resetCap;
         protected int cap;
-        protected Cell<?> capCell = null;
+        int capCellLocalDeletionTime = 1;
+        protected CapCell<?> capCell = null;
 
         protected final Cells.Builder builder;
         protected WrapperBuilder(Cells.Builder builder, int defaultCap)
@@ -127,6 +132,11 @@ abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsR
                 addCapCell(cell, cap);
         }
 
+        private CapCell<?> capCell(Cell<?> cell)
+        {
+            return new CapCell<>(cell, cell.localDeletionTime());
+        }
+
         protected void addCapCell(Cell<?> cell, int cellCap)
         {
             if (regularsIn != 0)
@@ -138,7 +148,7 @@ abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsR
                 // limit will be written through.  This permits controlling runtime behavior
                 // if there are issues from longer caps, without losing the user intent.
                 cap = effectiveCap(cellCap);
-                capCell = cell;
+                capCell = capCell(cell);
             }
 
             onCapCell(cell, cellCap);
@@ -156,10 +166,12 @@ abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsR
                 // override the local deletion timestamp to prevent the cap (which is a tombstone) from being
                 // compacted out when there may be live cells available in the queue.  If no regular cells
                 // added to the resolver, then this will not be called and the cap cell will be dropped then.
-                if (capCell.localDeletionTime() != CAP_LOCAL_DELETION_TIMESTAMP)
-                    capCell = capCell.withUpdatedTimestampAndLocalDeletionTime(capCell.timestamp(), CAP_LOCAL_DELETION_TIMESTAMP);
+                // Cap cell will be dropped together with the last live cell.
                 builder.addCell(capCell);
             }
+
+            if (cell != capCell && cell.localDeletionTime() >= capCellLocalDeletionTime)
+                capCellLocalDeletionTime = Math.min(cell.localDeletionTime(), Cell.MAX_DELETION_TIME);
 
             onRegularCell(cell);
         }
@@ -177,6 +189,12 @@ abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsR
         @Override
         public void endColumn()
         {
+            if (capCell != null)
+                capCell.localDeletionTime = capCellLocalDeletionTime;
+
+            if (regularsOut == 0)
+                builder.addCell(capCell);
+
             capCell = null;
             regularsIn = 0;
             regularsOut = 0;
@@ -244,5 +262,42 @@ abstract class AbstractCappedMapCellsResolver implements AbstractCappedMapCellsR
     {
         logger.info("Setting {} default cap from {} to {}", typeName(), this.defaultCap, cap);
         this.defaultCap = cap;
+    }
+
+    private static class CapCell<T> extends AbstractCell<T>
+    {
+        private final Cell<T> delegate;
+        private int localDeletionTime;
+
+        private CapCell(Cell<T> delegate, int localDeletionTime)
+        {
+            super(delegate.column());
+            this.delegate = delegate;
+            this.localDeletionTime = localDeletionTime;
+        }
+
+        public T value() { return delegate.value(); }
+        public ValueAccessor<T> accessor() { return delegate.accessor(); }
+        public long timestamp() { return delegate.timestamp(); }
+        public int ttl() { return delegate.ttl(); }
+        public CellPath path() { return delegate.path(); }
+        public long unsharedHeapSizeExcludingData() { return delegate.unsharedHeapSizeExcludingData(); }
+
+        public int localDeletionTime() { return localDeletionTime; }
+
+        public Cell<?> withUpdatedColumn(ColumnMetadata newColumn)
+        {
+            return new CapCell(delegate.withUpdatedColumn(newColumn), localDeletionTime);
+        }
+
+        public Cell<?> withUpdatedValue(ByteBuffer newValue)
+        {
+            return new CapCell(delegate.withUpdatedValue(newValue), localDeletionTime);
+        }
+
+        public Cell<?> withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, int newLocalDeletionTime)
+        {
+            return new CapCell(delegate.withUpdatedTimestampAndLocalDeletionTime(newTimestamp, newLocalDeletionTime), localDeletionTime);
+        }
     }
 }
