@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.lifecycle.SSTableIntervalTree;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.io.IVersionedSerializer;
@@ -30,6 +29,7 @@ import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.Message;
+import org.apache.cassandra.net.MessageFlag;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.concurrent.OpOrder;
@@ -72,7 +72,7 @@ public class PartitionSizeCommand
 
     public Message<PartitionSizeCommand> getMessage()
     {
-        return Message.out(Verb.PARTITION_SIZE_REQ, this);
+        return Message.outWithFlag(Verb.PARTITION_SIZE_REQ, this, MessageFlag.CALL_BACK_ON_FAILURE);
     }
 
     public boolean equals(Object o)

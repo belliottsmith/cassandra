@@ -137,9 +137,9 @@ public enum Verb
     READ_REQ               (3,   P3, readTimeout,     READ,              () -> ReadCommand.serializer,               () -> ReadCommandVerbHandler.instance,     READ_RSP            ),
     RANGE_RSP              (69,  P2, rangeTimeout,    REQUEST_RESPONSE,  () -> ReadResponse.serializer,              () -> ResponseVerbHandler.instance                             ),
     RANGE_REQ              (9,   P3, rangeTimeout,    READ,              () -> ReadCommand.serializer,               () -> ReadCommandVerbHandler.instance,     RANGE_RSP           ),
-    // CIE - reuses Verb.INDEX_SCAN
-    PARTITION_SIZE_RSP     (81,  P2, readTimeout,     REQUEST_RESPONSE,  () -> PartitionSizeResponse.serializer,     () -> ResponseVerbHandler.instance                             ),
-    PARTITION_SIZE_REQ     (21,  P3, readTimeout,     READ,              () -> PartitionSizeCommand.serializer,      () -> PartitionSizeVerbHandler.instance,   PARTITION_SIZE_RSP  ),
+    // CIE - reuses Verb.INDEX_SCAN - remove when there are no more deployed CIE 3.0 clusters.
+    CIE3_PARTITION_SIZE_RSP(81,  P2, readTimeout,     REQUEST_RESPONSE,  () -> PartitionSizeResponse.serializer,     () -> ResponseVerbHandler.instance                             ),
+    CIE3_PARTITION_SIZE_REQ(21,  P3, readTimeout,     READ,              () -> PartitionSizeCommand.serializer,      () -> PartitionSizeVerbHandler.instance,   CIE3_PARTITION_SIZE_RSP),
 
     GOSSIP_DIGEST_SYN      (14,  P0, longTimeout,     GOSSIP,            () -> GossipDigestSyn.serializer,           () -> GossipDigestSynVerbHandler.instance                      ),
     GOSSIP_DIGEST_ACK      (15,  P0, longTimeout,     GOSSIP,            () -> GossipDigestAck.serializer,           () -> GossipDigestAckVerbHandler.instance                      ),
@@ -251,6 +251,16 @@ public enum Verb
                                        22, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
     APPLE_PAXOS_CLEANUP_COMPLETE      (CUSTOM,
                                        23, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
+
+    // SELECT_SIZE patch - original 3.x reused Verb.INDEX_SCAN id, but has been moved out to custom verb for 4.0
+    PARTITION_SIZE_RSP                (CUSTOM,
+                                       24,  P2, readTimeout,                      REQUEST_RESPONSE,  () -> PartitionSizeResponse.serializer,     () -> ResponseVerbHandler.instance                                                               ),
+    PARTITION_SIZE_REQ                (CUSTOM,
+                                       25,  P3, readTimeout,                      READ,              () -> PartitionSizeCommand.serializer,      () -> PartitionSizeVerbHandler.instance, PARTITION_SIZE_RSP) {
+        Verb toPre40Verb() {
+            return CIE3_PARTITION_SIZE_REQ;
+        }
+    }
     ;
 
     public static final List<Verb> VERBS = ImmutableList.copyOf(Verb.values());
