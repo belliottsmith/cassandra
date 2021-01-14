@@ -2088,6 +2088,12 @@ public class StorageProxy implements StorageProxyMBean
             partitionSizeMetrics.timeouts.mark();
             throw e;
         }
+        catch (ReadFailureException e)
+        {
+            partitionSizeMetricsMap.get(cl).failures.mark();
+            partitionSizeMetrics.failures.mark();
+            throw e;
+        }
         finally
         {
             long latency = System.nanoTime() - start;
