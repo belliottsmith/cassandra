@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.PartitionSizeResponse;
+import org.apache.cassandra.exceptions.ReadFailureException;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.locator.Endpoints;
@@ -88,10 +89,12 @@ public class PartitionSizeCallback<E extends Endpoints<E>, P extends ReplicaPlan
 
         synchronized (this)
         {
-            if (!signaled)
-                throw new ReadTimeoutException(replicaPlan().consistencyLevel(), sizes.size(), blockFor, !sizes.isEmpty());
+            boolean failed = failures > 0 && blockFor + failures > replicaPlan().contacts().size();
+            if (signaled && !failed)
+                return ImmutableMap.copyOf(sizes);
 
-            return ImmutableMap.copyOf(sizes);
+            throw failed ? new ReadFailureException(replicaPlan().consistencyLevel(), sizes.size(), blockFor, !sizes.isEmpty(), failureReasonByEndpoint)
+                         : new ReadTimeoutException(replicaPlan().consistencyLevel(), sizes.size(), blockFor, !sizes.isEmpty());
         }
     }
 
