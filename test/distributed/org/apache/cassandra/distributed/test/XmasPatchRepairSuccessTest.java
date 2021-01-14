@@ -37,7 +37,6 @@ import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.shared.RepairResult;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
@@ -72,6 +71,9 @@ public class XmasPatchRepairSuccessTest extends TestBaseImpl
                                                                      .with(NETWORK))
                                           .start()))
         {
+            // expect an InterruptedException from the message delaying filter when the instance shuts down
+            cluster.setUncaughtExceptionsFilter(t -> t.getSuppressed()[0] instanceof RuntimeException
+                                                     && t.getSuppressed()[0].getCause() instanceof InterruptedException);
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
             Thread.sleep(2000);
             insert(cluster.coordinator(1), 0, 100);

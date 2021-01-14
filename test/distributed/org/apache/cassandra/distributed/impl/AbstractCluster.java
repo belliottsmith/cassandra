@@ -27,12 +27,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
-import java.util.function.Predicate;
+import java.util.function.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -42,11 +42,11 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.ICluster;
-import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
@@ -56,12 +56,15 @@ import org.apache.cassandra.distributed.api.IListen;
 import org.apache.cassandra.distributed.api.IMessage;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.api.IUpgradeableInstance;
+import org.apache.cassandra.distributed.api.LogAction;
 import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.api.TokenSupplier;
 import org.apache.cassandra.distributed.shared.AbstractBuilder;
 import org.apache.cassandra.distributed.shared.InstanceClassLoader;
 import org.apache.cassandra.distributed.shared.MessageFilters;
+import org.apache.cassandra.distributed.shared.Metrics;
 import org.apache.cassandra.distributed.shared.NetworkTopology;
+import org.apache.cassandra.distributed.shared.ShutdownException;
 import org.apache.cassandra.distributed.shared.Versions;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.net.MessagingService;
@@ -97,7 +100,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
     public static Versions.Version CURRENT_VERSION = new Versions.Version(FBUtilities.getReleaseVersionString(), Versions.getClassPath());;
 
     private static final Predicate<String> CIE_SHARED_PACKAGES = name -> name.startsWith("org.w3c.dom");
-    private static final Predicate<String> COMBINED_SHARED_PACKAGES = InstanceClassLoader .getDefaultLoadSharedFilter().or(CIE_SHARED_PACKAGES);
+    private static final Predicate<String> COMBINED_SHARED_PACKAGES = InstanceClassLoader.getDefaultLoadSharedFilter().or(CIE_SHARED_PACKAGES);
 
     // WARNING: we have this logger not (necessarily) for logging, but
     // to ensure we have instantiated the main classloader's LoggerFactory (and any LogbackStatusListener)
@@ -105,6 +108,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
     private static final Logger logger = LoggerFactory.getLogger(AbstractCluster.class);
     private static final AtomicInteger GENERATION = new AtomicInteger();
 
+    private final UUID clusterId = UUID.randomUUID();
     private final File root;
     private final ClassLoader sharedClassLoader;
     private final int subnet;
@@ -122,6 +126,9 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
     // mutated by user-facing API
     private final MessageFilters filters;
     private final BiConsumer<ClassLoader, Integer> instanceInitializer;
+    private final int datadirCount;
+    private volatile BiPredicate<Integer, Throwable> ignoreUncaughtThrowable = null;
+    private final List<Throwable> uncaughtExceptions = new CopyOnWriteArrayList<>();
 
     private volatile Thread.UncaughtExceptionHandler previousHandler = null;
 
@@ -210,6 +217,14 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
             throw new IllegalStateException("Cannot get live member count on shutdown instance");
         }
 
+        public Metrics metrics()
+        {
+            if (isShutdown)
+                throw new IllegalStateException();
+
+            return delegate.metrics();
+        }
+
         public NodeToolResult nodetoolResult(boolean withNotifications, String... commandAndArgs)
         {
             return delegate().nodetoolResult(withNotifications, commandAndArgs);
@@ -230,6 +245,18 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
             IInvokableInstance delegate = this.delegate;
             if (!isShutdown && delegate != null) // since we sync directly on the other node, we drop messages immediately if we are shutdown
                 delegate.receiveMessage(message);
+        }
+
+        @Override
+        public boolean getLogsEnabled()
+        {
+            return delegate().getLogsEnabled();
+        }
+
+        @Override
+        public LogAction logs()
+        {
+            return delegate().logs();
         }
 
         @Override
@@ -271,6 +298,7 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         this.initialVersion = builder.getVersion();
         this.filters = new MessageFilters();
         this.instanceInitializer = builder.getInstanceInitializer();
+        this.datadirCount = builder.getDatadirCount();
 
         int generation = GENERATION.incrementAndGet();
         for (int i = 0; i < builder.getNodeCount(); ++i)
@@ -301,7 +329,8 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
         NetworkTopology topology = NetworkTopology.build(ipPrefix, broadcastPort, nodeIdTopology);
 
-        InstanceConfig config = InstanceConfig.generate(nodeNum, ipAddress, topology, root, String.valueOf(token), seedIp);
+        InstanceConfig config = InstanceConfig.generate(nodeNum, ipAddress, topology, root, String.valueOf(token), seedIp, datadirCount);
+        config.set("dtest.api.cluster_id", clusterId);
         if (configUpdater != null)
             configUpdater.accept(config);
 
@@ -614,8 +643,20 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
                 handler.uncaughtException(thread, error);
             return;
         }
+
         InstanceClassLoader cl = (InstanceClassLoader) thread.getContextClassLoader();
         get(cl.getInstanceId()).uncaughtException(thread, error);
+
+        BiPredicate<Integer, Throwable> ignore = ignoreUncaughtThrowable;
+        I instance = get(cl.getInstanceId());
+        if ((ignore == null || !ignore.test(cl.getInstanceId(), error)) && instance != null && !instance.isShutdown())
+            uncaughtExceptions.add(error);
+    }
+
+    @Override
+    public void setUncaughtExceptionsFilter(BiPredicate<Integer, Throwable> ignoreUncaughtThrowable)
+    {
+        this.ignoreUncaughtThrowable = ignoreUncaughtThrowable;
     }
 
     @Override
@@ -634,8 +675,21 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
             FileUtils.deleteRecursive(root);
         Thread.setDefaultUncaughtExceptionHandler(previousHandler);
         previousHandler = null;
+        checkAndResetUncaughtExceptions();
 
         //withThreadLeakCheck(futures);
+    }
+
+    @Override
+    public void checkAndResetUncaughtExceptions()
+    {
+        List<Throwable> drain = new ArrayList<>(uncaughtExceptions.size());
+        uncaughtExceptions.removeIf(e -> {
+            drain.add(e);
+            return true;
+        });
+        if (!drain.isEmpty())
+            throw new ShutdownException(drain);
     }
 
     // We do not want this check to run every time until we fix problems with tread stops

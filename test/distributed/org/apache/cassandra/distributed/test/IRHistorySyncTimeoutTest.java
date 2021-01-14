@@ -40,6 +40,8 @@ public class IRHistorySyncTimeoutTest extends TestBaseImpl implements Serializab
                                            )
                                            .start()))
         {
+            cluster.setUncaughtExceptionsFilter(t -> t.getMessage().contains("Timeout waiting for task"));
+
             // alter the keyspace to look like Workflows
             cluster.schemaChange("ALTER KEYSPACE system_auth WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 2}");
 

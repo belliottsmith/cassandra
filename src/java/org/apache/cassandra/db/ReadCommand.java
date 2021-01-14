@@ -20,6 +20,7 @@ package org.apache.cassandra.db;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -135,10 +136,8 @@ public abstract class ReadCommand implements ReadQuery
     private int digestVersion;
     private final boolean isForThrift;
 
-    // for data queries, coordinators may request information on the repaired data used in constructing the response
-    private boolean trackRepairedStatus = false;
     // tracker for repaired data, initialized to singleton null object
-    private RepairedDataInfo repairedDataInfo = RepairedDataInfo.NULL_REPAIRED_DATA_INFO;
+    private final AtomicReference<RepairedDataInfo> repairedDataInfo = new AtomicReference<>(RepairedDataInfo.NO_OP_REPAIRED_DATA_INFO);
 
     int oldestUnrepairedTombstone = Integer.MAX_VALUE;
 
@@ -345,7 +344,14 @@ public abstract class ReadCommand implements ReadQuery
      */
     public void trackRepairedStatus()
     {
-        trackRepairedStatus = true;
+        if (repairedDataInfo.get() != RepairedDataInfo.NO_OP_REPAIRED_DATA_INFO)
+            return;
+
+        final DataLimits.Counter repairedReadCount = limits().newCounter(nowInSec(),
+                                                                         false,
+                                                                         selectsFullPartition(),
+                                                                         metadata().enforceStrictLiveness()).onlyCount();
+        repairedDataInfo.compareAndSet(RepairedDataInfo.NO_OP_REPAIRED_DATA_INFO, new RepairedDataInfo(repairedReadCount));
     }
 
     /**
@@ -355,7 +361,7 @@ public abstract class ReadCommand implements ReadQuery
      */
     public boolean isTrackingRepairedStatus()
     {
-        return trackRepairedStatus;
+        return repairedDataInfo.get() != RepairedDataInfo.NO_OP_REPAIRED_DATA_INFO;
     }
 
     /**
@@ -369,7 +375,7 @@ public abstract class ReadCommand implements ReadQuery
      */
     public ByteBuffer getRepairedDataDigest()
     {
-        return repairedDataInfo.getDigest();
+        return repairedDataInfo.get().getDigest();
     }
 
     /**
@@ -390,7 +396,7 @@ public abstract class ReadCommand implements ReadQuery
      */
     public boolean isRepairedDataDigestConclusive()
     {
-        return repairedDataInfo.isConclusive();
+        return repairedDataInfo.get().isConclusive();
     }
 
     /**
@@ -513,7 +519,6 @@ public abstract class ReadCommand implements ReadQuery
         // 1) makes diff larger
         // 2) worst case we leak when a search fails; assumption is that reads are frequent, so another command will release
         COMMAND.set(this);
-
         ColumnFamilyStore cfs = Keyspace.openAndGetStore(metadata());
         Index index = getIndex(cfs);
 
@@ -525,15 +530,6 @@ public abstract class ReadCommand implements ReadQuery
 
             searcher = index.searcherFor(this);
             Tracing.trace("Executing read on {}.{} using index {}", cfs.metadata.ksName, cfs.metadata.cfName, index.getIndexMetadata().name);
-        }
-
-        if (isTrackingRepairedStatus())
-        {
-            final DataLimits.Counter repairedReadCount = limits().newCounter(nowInSec(),
-                                                                             false,
-                                                                             selectsFullPartition(),
-                                                                             metadata().enforceStrictLiveness()).onlyCount();
-            repairedDataInfo = new RepairedDataInfo(repairedReadCount);
         }
 
         UnfilteredPartitionIterator iterator = (null == searcher) ? queryStorage(cfs, orderGroup) : searcher.search(orderGroup);
@@ -570,7 +566,7 @@ public abstract class ReadCommand implements ReadQuery
                 // ensure that a consistent amount of repaired data is read on each replica. This causes silent
                 // overreading from the repaired data set, up to limits(). The extra data is not visible to
                 // the caller, only iterated to produce the repaired data digest.
-                iterator = repairedDataInfo.extend(iterator, limit);
+                iterator = repairedDataInfo.get().extend(iterator, limit);
             }
             else
             {
@@ -793,7 +789,7 @@ public abstract class ReadCommand implements ReadQuery
         // required (as this is a single partition read), so here we supply an null iterator which RepairedDataInfo
         // handles safely.
         final Function<UnfilteredRowIterator, UnfilteredPartitionIterator> postLimitPartitions = (rows) -> null;
-        return new InputCollector<>(view, repairedDataInfo, merge, postLimitPartitions, isTrackingRepairedStatus());
+        return new InputCollector<>(view, repairedDataInfo.get(), merge, postLimitPartitions, isTrackingRepairedStatus());
     }
 
     @SuppressWarnings("resource") // resultant iterators are closed by their callers
@@ -810,7 +806,7 @@ public abstract class ReadCommand implements ReadQuery
         // Uses identity function to provide additional partitions to be consumed after the command's
         // DataLimits are satisfied. The input to the function will be the iterator of merged, repaired partitions
         // which we'll keep reading until the RepairedDataInfo's internal counter is satisfied.
-        return new InputCollector<>(view, repairedDataInfo, merge, Function.identity(), isTrackingRepairedStatus());
+        return new InputCollector<>(view, repairedDataInfo.get(), merge, Function.identity(), isTrackingRepairedStatus());
     }
 
     /**

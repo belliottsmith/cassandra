@@ -18,28 +18,28 @@
 
 package org.apache.cassandra.distributed.impl;
 
+import java.util.Objects;
+
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.config.plugins.Plugin;
 import org.apache.logging.log4j.core.lookup.StrLookup;
-import org.apache.cassandra.concurrent.NamedThreadFactory;
 
 /**
  * Used by logback to find/define property value, see logback-dtest.xml
  */
-@Plugin(name="instance", category = StrLookup.CATEGORY)
-public class InstanceIDDefiner implements StrLookup
+@Plugin(name="cluster", category = StrLookup.CATEGORY)
+public class ClusterIDDefiner implements StrLookup
 {
-    // Instantiated per classloader, set by Instance
-    private static volatile String instanceId = "<main>";
-    public static void setInstanceId(int id)
+    private static volatile String ID = "<main>";
+
+    public static void setId(String id)
     {
-        instanceId = "node" + id;
-        NamedThreadFactory.setGlobalPrefix("node" + id + "_");
+        ID = Objects.requireNonNull(id);
     }
 
-    public static String getInstanceId()
+    public static String getId()
     {
-        return instanceId;
+        return ID;
     }
 
     public String lookup(String s)
@@ -54,6 +54,6 @@ public class InstanceIDDefiner implements StrLookup
 
     private String lookup()
     {
-        return instanceId;
+        return ID;
     }
 }

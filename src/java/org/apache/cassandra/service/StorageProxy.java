@@ -25,6 +25,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -2080,7 +2081,6 @@ public class StorageProxy implements StorageProxyMBean
                 // if enabled, request additional info about repaired data from replicas
                 if (DatabaseDescriptor.getRepairedDataTrackingForPartitionReadsEnabled())
                     command.trackRepairedStatus();
-
                 Keyspace keyspace = Keyspace.open(command.metadata().ksName);
                 dataResolver = new DataResolver(keyspace, command, consistency, executor.handler.endpoints.size());
                 repairHandler = new ReadCallback(dataResolver,

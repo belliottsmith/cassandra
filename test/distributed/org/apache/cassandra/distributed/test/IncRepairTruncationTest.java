@@ -86,6 +86,7 @@ public class IncRepairTruncationTest extends TestBaseImpl
                                           .withInstanceInitializer(BBHelper::install)
                                           .start()))
         {
+            cluster.setUncaughtExceptionsFilter(t -> t.getMessage().matches("Parent repair session with id = .* has failed\\."));
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
             Thread.sleep(1000);
             insert(cluster.coordinator(1), 0, 100);

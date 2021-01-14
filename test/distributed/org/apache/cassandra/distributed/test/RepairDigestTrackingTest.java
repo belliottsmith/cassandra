@@ -20,21 +20,29 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.EnumSet;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Assert;
 import org.junit.Test;
 
-import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.distributed.api.ConsistencyLevel;
-import org.apache.cassandra.db.Keyspace;
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
+import net.bytebuddy.implementation.MethodDelegation;
+import net.bytebuddy.implementation.bind.annotation.SuperCall;
+import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
+import org.apache.cassandra.dht.RingPosition;
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
@@ -46,6 +54,10 @@ import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.utils.DiagnosticSnapshotService;
 
 import static junit.framework.TestCase.fail;
+import static net.bytebuddy.matcher.ElementMatchers.named;
+import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
+import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
+import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 
 public class RepairDigestTrackingTest extends TestBaseImpl implements Serializable
@@ -404,6 +416,170 @@ public class RepairDigestTrackingTest extends TestBaseImpl implements Serializab
             cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl", ConsistencyLevel.ALL);
             ccAfter = getConfirmedInconsistencies(cluster.get(1), "tbl");
             Assert.assertEquals("confirmed count should not increase when exlcusions are enabled", ccBefore + 2, ccAfter);
+        }
+    }
+
+    // tl;dr if responses from remote replicas come back while the local runnable is still executing
+    // the fact that ReadCommands are mutable means that the trackRepairedStatus flag on the read command instance
+    // can go from false to true in ReadCommand.executeLocally, between setting the RepairedDataInfo/gathering the
+    // sstables and calling RDI.extend. If this happens, the RDI is still the stand-in object
+    // RDI.NULL_REPAIRED_DATA_INFO which has a null repairedDataCounter and we hit the NPE.
+
+    // There are a number of hoops to jump through to repro this, probably not exactly what's happening
+    // in real clusters, but at least this proves the theory.
+
+    // The exclusions are required so that we don't NPE earlier in the read. Without them,
+    // the RDI.repairedCounter is null in RDI.withRepairedDataInfo, and the NPE happens there instead.
+    // To trigger the NPE in RDI.extend, we some repaired sstables to be present in the InputCollector
+    // (otherwise we'll short circuit out of InputCollector.finalizeIterators so repairedDataInfo.metrics is never
+    // set, which prevents the NPE in RDI.extend). If there are actual partitions in those sstables though, we'll
+    // hit the NPE in withRepairedDataInfo. There's probably some other way to repro these conditions, but I
+    // couldn't think of it atm so this was the easy way to do it.
+
+    // There are 2 variations tested here; where the local read is either a data or digest read.
+
+    @Test
+    public void testLocalDataAndRemoteRequestConcurrency() throws Exception
+    {
+        try(Cluster cluster = init(Cluster.build(3)
+                                          .withInstanceInitializer(BBHelper::installQueryOnly)
+                                          .withConfig(config -> config.set("repaired_data_tracking_for_partition_reads_enabled", true)
+                                                                      .set("repaired_data_tracking_exclusions_enabled", true)
+                                                                      .set("repaired_data_tracking_exclusions", KEYSPACE)
+                                                                      .with(GOSSIP)
+                                                                      .with(NETWORK))
+                                          .start()))
+        {
+            queryLocalAndRemote(cluster);
+        }
+    }
+
+    @Test
+    public void testLocalDigestAndRemoteRequestConcurrency() throws Exception
+    {
+        try(Cluster cluster = init(Cluster.build(3)
+                                          .withInstanceInitializer(BBHelper::installBoth)
+                                          .withConfig(config -> config.set("repaired_data_tracking_for_partition_reads_enabled", true)
+                                                                      .set("repaired_data_tracking_exclusions_enabled", true)
+                                                                      .set("repaired_data_tracking_exclusions", KEYSPACE)
+                                                                      .with(GOSSIP)
+                                                                      .with(NETWORK))
+                                          .start()))
+        {
+            queryLocalAndRemote(cluster);
+        }
+    }
+
+    private void queryLocalAndRemote(Cluster cluster) throws InterruptedException
+    {
+        cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int) WITH speculative_retry = 'ALWAYS'");
+
+        cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (id, t) values (0, 0)");
+        cluster.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (id, t) values (0, 0)");
+        cluster.get(3).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (id, t) values (0, 1)");
+        cluster.forEach(c -> c.flush(KEYSPACE));
+        cluster.forEach(i -> i.runOnInstance(() -> markAllRepaired("tbl")));
+        cluster.forEach(i -> i.runOnInstance(() -> assertRepaired("tbl")));
+
+        cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE id=0", ConsistencyLevel.QUORUM);
+
+        // TODO figure out why the instance log still appears to be async
+        TimeUnit.SECONDS.sleep(1);
+        List<String> result = cluster.get(1).logs().grep(".*NullPointerException.*").getResult();
+        Assert.assertTrue("Did not expect to encounter any NPE", result.isEmpty());
+    }
+
+    public static class BBHelper
+    {
+        public static void installQueryOnly(ClassLoader classLoader, Integer num)
+        {
+            if (num == 1)
+            {
+                new ByteBuddy().rebase(SinglePartitionReadCommand.class)
+                               .method(named("queryStorage"))
+                               .intercept(MethodDelegation.to(BBHelper.class))
+                               .make()
+                               .load(classLoader, ClassLoadingStrategy.Default.INJECTION);
+            }
+        }
+
+        public static void installBoth(ClassLoader classLoader, Integer num)
+        {
+            if (num == 1)
+            {
+                new ByteBuddy().rebase(SinglePartitionReadCommand.class)
+                               .method(named("queryStorage"))
+                               .intercept(MethodDelegation.to(BBHelper.class))
+                               .make()
+                               .load(classLoader, ClassLoadingStrategy.Default.INJECTION);
+
+                new ByteBuddy().rebase(StorageProxy.class)
+                               .method(named("getLiveSortedEndpoints").and(takesArguments(Keyspace.class, RingPosition.class)))
+                               .intercept(MethodDelegation.to(BBHelper.class))
+                               .make()
+                               .load(classLoader, ClassLoadingStrategy.Default.INJECTION);
+            }
+        }
+
+
+        public static UnfilteredPartitionIterator queryStorage(ColumnFamilyStore cfs,
+                                                               ReadOrderGroup orderGroup,
+                                                               @SuperCall Callable<UnfilteredPartitionIterator> zuperCall)
+        {
+            try
+            {
+                if (cfs.metadata.cfName.equals("tbl"))
+                {
+                    // using sleep here rather than a more deterministic coordination mechanism as
+                    // the interactions are across multiple nodes. We want node1 (which has this
+                    // helper installed) to execute its local data read only after it's received
+                    // responses from the other nodes and initiated a full data read, with repaired
+                    // data tracking
+                    Uninterruptibles.sleepUninterruptibly(2, TimeUnit.SECONDS);
+                }
+                return zuperCall.call();
+            }
+            catch (Exception e)
+            {
+                throw new RuntimeException("ERROR", e);
+            }
+        }
+
+
+        private static List<InetAddress> staticList()
+        {
+            List<InetAddress> list = new ArrayList<>();
+            for (int i=3; i > 0; i--)
+            {
+                try
+                {
+                    list.add(InetAddress.getByName("127.0.0." + i));
+                }
+                catch (UnknownHostException e)
+                {
+                    throw new RuntimeException(e);
+                }
+            }
+            return list;
+        }
+
+        public static List<InetAddress> getLiveSortedEndpoints(Keyspace keyspace,
+                                                               RingPosition pos,
+                                                               @SuperCall Callable<List<InetAddress>> zuperCall)
+        {
+            // This is necessary so that the local node sorts last, making it perform a digest request
+            // This ensures that node3 get the data request and 2 & 1 the digest requests
+            if(keyspace.getName().equals(KEYSPACE))
+                return staticList();
+
+            try
+            {
+                return zuperCall.call();
+            }
+            catch (Exception e)
+            {
+                throw new RuntimeException(e);
+            }
         }
     }
 

@@ -22,6 +22,7 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,15 +39,12 @@ import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-class RepairedDataInfo
+@VisibleForTesting
+public class RepairedDataInfo
 {
     private static final Logger logger = LoggerFactory.getLogger(RepairedDataInfo.class);
 
-    public static final RepairedDataInfo NULL_REPAIRED_DATA_INFO = new RepairedDataInfo(null)
-    {
-        boolean isConclusive(){ return true; }
-        ByteBuffer getDigest(){ return ByteBufferUtil.EMPTY_BYTE_BUFFER; }
-    };
+    public static final RepairedDataInfo NO_OP_REPAIRED_DATA_INFO = new RepairedDataInfo(null);
 
     private static final ThreadLocal<Digest> PER_PARTITION_DIGEST = ThreadLocal.withInitial(Digest::forRepairedDataTracking);
     private static final ThreadLocal<Digest> PER_COMMAND_DIGEST = ThreadLocal.withInitial(Digest::forRepairedDataTracking);
