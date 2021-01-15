@@ -200,6 +200,7 @@ public class Config
     public Integer rpc_recv_buff_size_in_bytes;
     public Integer internode_send_buff_size_in_bytes;
     public Integer internode_recv_buff_size_in_bytes;
+    public int internode_socket_timeout_ms = 0;
 
     public Boolean start_native_transport = false;
     public Integer native_transport_port = 9042;

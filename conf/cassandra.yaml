@@ -1157,3 +1157,11 @@ report_unconfirmed_repaired_data_mismatches: false
 #
 # This can be enabled or disabled at runtime via the StorageProxy MBean.
 allow_drop_compact_storage: false
+
+# Timeout for blocking operations on internode sockets in milliseconds. (Default: 0/infinite)
+#
+# In practice, this functions as a substitute for socket keep-alive in cases where the latter is 
+# not being strictly enforced by the operating system, avoiding the need to bounce nodes. It 
+# should be set to at least the length of time that we would reasonably expect internode sockets
+# to be idle across the cluster.
+internode_socket_timeout_ms: 0

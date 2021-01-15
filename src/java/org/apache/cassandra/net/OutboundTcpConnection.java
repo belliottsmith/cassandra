@@ -495,6 +495,8 @@ public class OutboundTcpConnection extends FastThreadLocalThread
             {
                 socket = poolReference.newSocket();
                 socket.setKeepAlive(true);
+                socket.setSoTimeout(DatabaseDescriptor.getInternodeSocketTimeoutMillis());
+
                 if (isLocalDC(endpoint))
                 {
                     socket.setTcpNoDelay(INTRADC_TCP_NODELAY);
