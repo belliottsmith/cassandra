@@ -241,7 +241,16 @@ public enum Verb
                                        17, P2, writeTimeout,                      REQUEST_RESPONSE,  () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
     APPLE_PAXOS_REPAIR_REQ            (CUSTOM,
                                        18, P2, writeTimeout,                      MUTATION,          () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance,                          APPLE_PAXOS_REPAIR_RSP            ),
-
+    APPLE_PAXOS_CLEANUP_START_PREPARE (CUSTOM,
+                                       19, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
+    APPLE_PAXOS_CLEANUP_REQ           (CUSTOM,
+                                       20, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
+    APPLE_PAXOS_CLEANUP_RSP           (CUSTOM,
+                                       21, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
+    APPLE_PAXOS_CLEANUP_FINISH_PREPARE(CUSTOM,
+                                       22, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
+    APPLE_PAXOS_CLEANUP_COMPLETE      (CUSTOM,
+                                       23, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
     ;
 
     public static final List<Verb> VERBS = ImmutableList.copyOf(Verb.values());
