@@ -35,6 +35,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.io.IVersionedAsymmetricSerializer;
 import org.apache.cassandra.io.IVersionedSerializer;
@@ -42,6 +43,7 @@ import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.locator.ReplicaPlan;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.tracing.Tracing.TraceType;
 import org.apache.cassandra.utils.FBUtilities;
@@ -237,6 +239,8 @@ public class Message<T>
         long createdAtNanos = approxTime.now();
         if (expiresAtNanos == 0)
             expiresAtNanos = verb.expiresAtNanos(createdAtNanos);
+        if (ArtificialLatency.isEligibleForArtificialLatency())
+            flags = MessageFlag.ARTIFICIAL_LATENCY.addTo(flags);
 
         return new Message<>(new Header(id, verb, from, createdAtNanos, expiresAtNanos, flags, buildParams(paramType, paramValue)), payload);
     }
@@ -250,7 +254,8 @@ public class Message<T>
     /** Builds a response Message with provided payload, and all the right fields inferred from request Message */
     public <T> Message<T> responseWith(T payload)
     {
-        return outWithParam(id(), verb().responseVerb, expiresAtNanos(), payload, null, null);
+        return outWithParam(id(), verb().responseVerb, expiresAtNanos(), payload,
+                            header.permitsArtificialLatency() ? MessageFlag.ARTIFICIAL_LATENCY.addTo(0) : 0, null, null);
     }
 
     /** Builds a response Message with no payload, and all the right fields inferred from request Message */
@@ -301,7 +306,7 @@ public class Message<T>
 
     private static Map<ParamType, Object> buildParams(ParamType type, Object value)
     {
-        Map<ParamType, Object> params = NO_PARAMS;
+        EnumMap<ParamType, Object> params = NO_PARAMS;
         if (Tracing.isTracing())
             params = Tracing.instance.addTraceHeaders(new EnumMap<>(ParamType.class));
 
@@ -313,6 +318,11 @@ public class Message<T>
         }
 
         return params;
+    }
+
+    private static EnumMap<ParamType, Object> toMutable(EnumMap<ParamType, Object> params)
+    {
+        return params.isEmpty() ? new EnumMap<>(ParamType.class) : params;
     }
 
     private static Map<ParamType, Object> addParam(Map<ParamType, Object> params, ParamType type, Object value)
@@ -443,6 +453,11 @@ public class Message<T>
             return MessageFlag.TRACK_WARNINGS.isIn(flags);
         }
 
+        boolean permitsArtificialLatency()
+        {
+            return MessageFlag.ARTIFICIAL_LATENCY.isIn(flags);
+        }
+
         @Nullable
         ForwardingInfo forwardTo()
         {
@@ -480,7 +495,7 @@ public class Message<T>
         private InetAddressAndPort from;
         private T payload;
         private int flags = 0;
-        private final Map<ParamType, Object> params = new EnumMap<>(ParamType.class);
+        private final EnumMap<ParamType, Object> params = new EnumMap<>(ParamType.class);
         private long createdAtNanos;
         private long expiresAtNanos;
         private long id;
@@ -530,6 +545,13 @@ public class Message<T>
         {
             if (Tracing.isTracing())
                 Tracing.instance.addTraceHeaders(params);
+            return this;
+        }
+
+        public Builder<T> maybeWithArtificialLatency()
+        {
+            if (ArtificialLatency.isEligibleForArtificialLatency())
+                flags = MessageFlag.ARTIFICIAL_LATENCY.addTo(flags);
             return this;
         }
 

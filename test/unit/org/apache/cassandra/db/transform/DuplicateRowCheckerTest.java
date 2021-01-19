@@ -52,7 +52,7 @@ public class DuplicateRowCheckerTest extends CQLTester
     public static void setupMessaging()
     {
         sentMessages = new HashMap<>();
-        MessagingService.instance().outboundSink.add((message, to) -> { sentMessages.put(to, message); return false;});
+        MessagingService.instance().outboundSink.push((message, to, type) -> { sentMessages.put(to, message); return false;});
     }
 
     @Before

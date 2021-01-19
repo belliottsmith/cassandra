@@ -44,7 +44,7 @@ public class MatcherResponse
         Multimaps.newListMultimap(new HashMap<>(), ArrayList::new);
     private final MockMessagingSpy spy = new MockMessagingSpy();
     private final AtomicInteger limitCounter = new AtomicInteger(Integer.MAX_VALUE);
-    private BiPredicate<Message<?>, InetAddressAndPort> sink;
+    private OutboundSink.Filter sink;
 
     MatcherResponse(Matcher<?> matcher)
     {
@@ -159,9 +159,10 @@ public class MatcherResponse
 
         assert sink == null: "destroy() must be called first to register new response";
 
-        sink = new BiPredicate<Message<?>, InetAddressAndPort>()
+        sink = new OutboundSink.Filter()
         {
-            public boolean test(Message message, InetAddressAndPort to)
+            @Override
+            public boolean test(Message message, InetAddressAndPort to, ConnectionType type)
             {
                 // prevent outgoing message from being send in case matcher indicates a match
                 // and instead send the mocked response
@@ -202,7 +203,7 @@ public class MatcherResponse
                 return true;
             }
         };
-        MessagingService.instance().outboundSink.add(sink);
+        MessagingService.instance().outboundSink.push(sink);
 
         return spy;
     }

@@ -83,7 +83,7 @@ public class ReadCommandVerbHandlerTest
     {
         MessagingService.instance().inboundSink.clear();
         MessagingService.instance().outboundSink.clear();
-        MessagingService.instance().outboundSink.add((message, to) -> false);
+        MessagingService.instance().outboundSink.push((message, to, type) -> false);
         MessagingService.instance().inboundSink.add((message) -> false);
 
         handler = new ReadCommandVerbHandler();

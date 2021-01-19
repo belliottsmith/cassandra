@@ -47,6 +47,7 @@ import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.service.paxos.*;
+import org.apache.cassandra.net.ArtificialLatency;
 import org.apache.cassandra.utils.concurrent.CountDownLatch;
 
 import org.slf4j.Logger;
@@ -299,7 +300,7 @@ public class StorageProxy implements StorageProxyMBean
                 // read the current values and check they validate the conditions
                 Tracing.trace("Reading existing values for CAS precondition");
                 SinglePartitionReadCommand readCommand = (SinglePartitionReadCommand) request.readCommand(nowInSeconds);
-                ConsistencyLevel readConsistency = consistencyForPaxos == ConsistencyLevel.LOCAL_SERIAL ? ConsistencyLevel.LOCAL_QUORUM : ConsistencyLevel.QUORUM;
+                ConsistencyLevel readConsistency = consistencyForPaxos.isDatacenterLocal() ? ConsistencyLevel.LOCAL_QUORUM : ConsistencyLevel.QUORUM;
 
                 FilteredPartition current;
                 try (RowIterator rowIter = readOne(readCommand, readConsistency, queryStartNanoTime))
@@ -416,7 +417,6 @@ public class StorageProxy implements StorageProxyMBean
      *     {@link ConsistencyLevel#LOCAL_SERIAL}).
      * @param consistencyForReplayCommits the consistency for the commit phase of "replayed" in-progress operations.
      * @param consistencyForCommit the consistency for the commit phase of _this_ operation update.
-     * @param state the client state.
      * @param queryStartNanoTime the nano time for the start of the query this is part of. This is the base time for
      *     timeouts.
      * @param casMetrics the metrics to update for this operation.
@@ -608,7 +608,7 @@ public class StorageProxy implements StorageProxyMBean
                 if (Iterables.size(missingMRC) > 0)
                 {
                     Tracing.trace("Repairing replicas that missed the most recent commit");
-                    sendCommit(mostRecent, missingMRC);
+                    sendCommit(mostRecent, consistencyForPaxos, missingMRC);
                     // TODO: provided commits don't invalid the prepare we just did above (which they don't), we could just wait
                     // for all the missingMRC to acknowledge this commit and then move on with proposing our value. But that means
                     // adding the ability to have commitPaxos block, which is exactly CASSANDRA-5442 will do. So once we have that
@@ -631,7 +631,7 @@ public class StorageProxy implements StorageProxyMBean
     /**
      * Unlike commitPaxos, this does not wait for replies
      */
-    private static void sendCommit(Commit commit, Iterable<InetAddressAndPort> replicas)
+    private static void sendCommit(Commit commit, ConsistencyLevel consistencyForPaxos, Iterable<InetAddressAndPort> replicas)
     {
         Message<Commit> message = Message.out(PAXOS_COMMIT_REQ, commit);
         for (InetAddressAndPort target : replicas)
@@ -643,6 +643,7 @@ public class StorageProxy implements StorageProxyMBean
     {
         PrepareCallback callback = new PrepareCallback(toPrepare.update.partitionKey(), toPrepare.update.metadata(), replicaPlan.requiredParticipants(), replicaPlan.consistencyLevel(), queryStartNanoTime);
         Message<Commit> message = Message.out(PAXOS_PREPARE_REQ, toPrepare);
+
         for (Replica replica: replicaPlan.contacts())
         {
             if (replica.isSelf())
@@ -677,6 +678,7 @@ public class StorageProxy implements StorageProxyMBean
     {
         ProposeCallback callback = new ProposeCallback(replicaPlan.contacts().size(), replicaPlan.requiredParticipants(), !backoffIfPartial, replicaPlan.consistencyLevel(), queryStartNanoTime);
         Message<Commit> message = Message.out(PAXOS_PROPOSE_REQ, proposal);
+
         for (Replica replica : replicaPlan.contacts())
         {
             if (replica.isSelf())
@@ -1788,7 +1790,7 @@ public class StorageProxy implements StorageProxyMBean
         PartitionIterator result = null;
         try
         {
-            final ConsistencyLevel consistencyForReplayCommitsOrFetch = consistencyLevel == ConsistencyLevel.LOCAL_SERIAL
+            final ConsistencyLevel consistencyForReplayCommitsOrFetch = consistencyLevel.isDatacenterLocal()
                                                                         ? ConsistencyLevel.LOCAL_QUORUM
                                                                         : ConsistencyLevel.QUORUM;
 
@@ -2600,6 +2602,18 @@ public class StorageProxy implements StorageProxyMBean
 
     public Long getTruncateRpcTimeout() { return DatabaseDescriptor.getTruncateRpcTimeout(MILLISECONDS); }
     public void setTruncateRpcTimeout(Long timeoutInMillis) { DatabaseDescriptor.setTruncateRpcTimeout(timeoutInMillis); }
+
+    public boolean getArtificialLatencyEnabled() { return ArtificialLatency.isEnabled(); }
+    public void setArtificialLatencyEnabled(boolean enabled) { ArtificialLatency.setEnabled(enabled); }
+
+    public String getArtificialLatencyVerbs() { return ArtificialLatency.getArtificialLatencyVerbs(); }
+    public void setArtificialLatencyVerbs(String commaDelimitedVerbs) { ArtificialLatency.setArtificialLatencyVerbs(commaDelimitedVerbs); }
+
+    public int getArtificialLatencyMillis() { return ArtificialLatency.getArtificialLatencyMillis(); }
+    public void setArtificialLatencyMillis(int delayInMillis) { ArtificialLatency.setArtificialLatencyMillis(delayInMillis); }
+
+    public boolean getAllowArtificialLatencyForAllConsistencyLevels() { return ArtificialLatency.getArtificialLatencyOnlyPermittedConsistencyLevels(); }
+    public void setAllowArtificialLatencyForAllConsistencyLevels(boolean onlyPermitted) { ArtificialLatency.setArtificialLatencyOnlyPermittedConsistencyLevels(onlyPermitted); }
 
     public Long getNativeTransportMaxConcurrentConnections() { return DatabaseDescriptor.getNativeTransportMaxConcurrentConnections(); }
     public void setNativeTransportMaxConcurrentConnections(Long nativeTransportMaxConcurrentConnections) { DatabaseDescriptor.setNativeTransportMaxConcurrentConnections(nativeTransportMaxConcurrentConnections); }

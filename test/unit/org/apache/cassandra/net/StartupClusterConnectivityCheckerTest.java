@@ -113,7 +113,7 @@ public class StartupClusterConnectivityCheckerTest
     public void execute_HappyPath()
     {
         Sink sink = new Sink(true, true, peers);
-        MessagingService.instance().outboundSink.add(sink);
+        MessagingService.instance().outboundSink.push(sink);
         Assert.assertTrue(localQuorumConnectivityChecker.execute(peers, this::getDatacenter));
     }
 
@@ -121,7 +121,7 @@ public class StartupClusterConnectivityCheckerTest
     public void execute_NotAlive()
     {
         Sink sink = new Sink(false, true, peers);
-        MessagingService.instance().outboundSink.add(sink);
+        MessagingService.instance().outboundSink.push(sink);
         Assert.assertFalse(localQuorumConnectivityChecker.execute(peers, this::getDatacenter));
     }
 
@@ -129,7 +129,7 @@ public class StartupClusterConnectivityCheckerTest
     public void execute_NoConnectionsAcks()
     {
         Sink sink = new Sink(true, false, peers);
-        MessagingService.instance().outboundSink.add(sink);
+        MessagingService.instance().outboundSink.push(sink);
         Assert.assertFalse(localQuorumConnectivityChecker.execute(peers, this::getDatacenter));
     }
 
@@ -182,7 +182,7 @@ public class StartupClusterConnectivityCheckerTest
     public void execute_ZeroWaitHasConnections() throws InterruptedException
     {
         Sink sink = new Sink(true, true, new HashSet<>());
-        MessagingService.instance().outboundSink.add(sink);
+        MessagingService.instance().outboundSink.push(sink);
         Assert.assertFalse(zeroWaitChecker.execute(peers, this::getDatacenter));
         MessagingService.instance().outboundSink.clear();
     }
@@ -191,7 +191,7 @@ public class StartupClusterConnectivityCheckerTest
                                 boolean shouldPass)
     {
         Sink sink = new Sink(true, true, available);
-        MessagingService.instance().outboundSink.add(sink);
+        MessagingService.instance().outboundSink.push(sink);
         Assert.assertEquals(shouldPass, checker.execute(peers, this::getDatacenter));
         MessagingService.instance().outboundSink.clear();
     }
@@ -208,7 +208,7 @@ public class StartupClusterConnectivityCheckerTest
         }
     }
 
-    private static class Sink implements BiPredicate<Message<?>, InetAddressAndPort>
+    private static class Sink implements OutboundSink.Filter
     {
         private final boolean markAliveInGossip;
         private final boolean processConnectAck;
@@ -224,7 +224,7 @@ public class StartupClusterConnectivityCheckerTest
         }
 
         @Override
-        public boolean test(Message message, InetAddressAndPort to)
+        public boolean test(Message message, InetAddressAndPort to, ConnectionType type)
         {
             ConnectionTypeRecorder recorder = seenConnectionRequests.computeIfAbsent(to, inetAddress ->  new ConnectionTypeRecorder());
 

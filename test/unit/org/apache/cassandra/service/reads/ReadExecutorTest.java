@@ -260,7 +260,7 @@ public class ReadExecutorTest
         }
 
         @Override
-        public Message createMessage(boolean trackRepairedData)
+        public Message createMessage(boolean trackRepairedData, ReplicaPlan<?> replicaPlan)
         {
             return Message.out(Verb.ECHO_REQ, NoPayload.noPayload);
         }

@@ -100,6 +100,7 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.metrics.Sampler;
+import org.apache.cassandra.net.ArtificialLatency;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.NoPayload;
@@ -312,8 +313,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
     private void registerMockMessaging(ICluster<?> cluster)
     {
-        MessagingService.instance().outboundSink.add((message, to) -> {
-            cluster.deliverMessage(to, serializeMessage(message.from(), to, message));
+        MessagingService.instance().outboundSink.push((message, to, type) -> {
+            InetSocketAddress toAddr = fromCassandraInetAddressAndPort(to);
+            IInstance toInstance = cluster.get(toAddr);
+            if (toInstance != null)
+                toInstance.receiveMessage(serializeMessage(message.from(), to, message));
             return false;
         });
     }
@@ -337,7 +341,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
     private void registerOutboundFilter(ICluster cluster)
     {
-        MessagingService.instance().outboundSink.add((message, to) -> {
+        MessagingService.instance().outboundSink.push((message, to, type) -> {
             if (isShutdown())
                 return false;
             IMessage serialzied = serializeMessage(message.from(), to, message);
@@ -605,6 +609,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 //                    -- not sure what that means?  SocketFactory.instance.getClass();
                     registerMockMessaging(cluster);
                 }
+                ArtificialLatency.touch();
                 registerInboundFilter(cluster);
                 registerOutboundFilter(cluster);
 

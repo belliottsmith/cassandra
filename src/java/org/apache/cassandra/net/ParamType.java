@@ -62,7 +62,8 @@ public enum ParamType
     LOCAL_READ_SIZE_ABORT(10, "LRSA", Int64Serializer.serializer),
     LOCAL_READ_SIZE_WARN(11, "LRSW", Int64Serializer.serializer),
     ROW_INDEX_SIZE_ABORT(12, "RISA", Int64Serializer.serializer),
-    ROW_INDEX_SIZE_WARN(13, "RISW", Int64Serializer.serializer);
+    ROW_INDEX_SIZE_WARN(13, "RISW", Int64Serializer.serializer),
+    ARTIFICIAL_LATENCY(14, "DLY",           LegacyFlag.serializer);
 
     final int id;
     @Deprecated final String legacyAlias; // pre-4.0 we used to serialize entire param name string

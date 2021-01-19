@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -230,7 +231,7 @@ public abstract class Tracing extends ExecutorLocals.Impl
     {
         @SuppressWarnings("resource")
         ExecutorLocals current = ExecutorLocals.current();
-        ExecutorLocals.Impl.set(tls, current.clientWarnState);
+        ExecutorLocals.Impl.set(tls, current.clientWarnState, current.eligibleForArtificialLatency);
     }
 
     public TraceState begin(final String request, final Map<String, String> parameters)
@@ -303,7 +304,7 @@ public abstract class Tracing extends ExecutorLocals.Impl
         }
     }
 
-    public Map<ParamType, Object> addTraceHeaders(Map<ParamType, Object> addToMutable)
+    public EnumMap<ParamType, Object> addTraceHeaders(EnumMap<ParamType, Object> addToMutable)
     {
         assert isTracing();
 

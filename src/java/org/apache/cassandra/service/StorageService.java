@@ -929,6 +929,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 throw new RuntimeException("Replace method removed; use cassandra.replace_address instead");
 
             MessagingService.instance().listen();
+            ArtificialLatency.touch();
 
             UUID localHostId = SystemKeyspace.getOrInitializeLocalHostId();
 

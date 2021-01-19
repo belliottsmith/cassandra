@@ -212,7 +212,7 @@ public class RangeCommandIterator extends AbstractIterator<RowIterator> implemen
             {
                 Tracing.trace("Enqueuing request to {}", replica);
                 ReadCommand command = replica.isFull() ? rangeCommand : rangeCommand.copyAsTransientQuery(replica);
-                Message<ReadCommand> message = command.createMessage(trackRepairedStatus && replica.isFull());
+                Message<ReadCommand> message = command.createMessage(trackRepairedStatus && replica.isFull(), replicaPlan);
                 MessagingService.instance().sendWithCallback(message, replica.endpoint(), handler);
             }
         }

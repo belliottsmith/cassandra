@@ -27,9 +27,6 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -39,11 +36,16 @@ import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IMessageFilters;
+import org.apache.cassandra.distributed.impl.Coordinator;
 import org.apache.cassandra.distributed.impl.UnsafeGossipHelper;
+import org.apache.cassandra.net.ArtificialLatency;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.UUIDGen;
 
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static org.apache.cassandra.distributed.api.ConsistencyLevel.QUORUM;
+import static org.apache.cassandra.distributed.api.ConsistencyLevel.SERIAL;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.fail;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
@@ -56,8 +58,6 @@ import static org.junit.Assert.assertTrue;
 
 public class CASTest extends TestBaseImpl
 {
-    private static final Logger logger = LoggerFactory.getLogger(CASTest.class);
-
     /**
      * The {@code cas_contention_timeout_in_ms} used during the tests
      */
@@ -75,15 +75,65 @@ public class CASTest extends TestBaseImpl
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
-            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", ConsistencyLevel.SERIAL),
+            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
+            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL),
                     row(1, 1, 1));
-            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 3 WHERE pk = 1 and ck = 1 IF v = 2", ConsistencyLevel.QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", ConsistencyLevel.SERIAL),
+            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 3 WHERE pk = 1 and ck = 1 IF v = 2", QUORUM);
+            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL),
                     row(1, 1, 1));
-            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", ConsistencyLevel.QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", ConsistencyLevel.SERIAL),
+            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", QUORUM);
+            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL),
                     row(1, 1, 2));
+        }
+    }
+
+    // TODO (now): finish updating from UNSAFE_X consistency levels (toggle verbs perhaps, to mimic including commit or not?)
+    @Test
+    public void simpleArtificialLatencyTest() throws Throwable
+    {
+        System.setProperty("cassandra.artificial_latency_verbs", "PAXOS_PREPARE_REQ,PAXOS_PREPARE_RSP,PAXOS_PROPOSE_REQ,PAXOS_PROPOSE_RSP,PAXOS_COMMIT_REQ,PAXOS_COMMIT_RSP,READ_REQ,READ_RSP");
+        System.setProperty("cassandra.artificial_latency_ms", "100");
+        try (Cluster cluster = init(Cluster.create(3)))
+        {
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
+
+            long start, end;
+            start = System.nanoTime();
+            cluster.get(1).sync(() -> {
+                ArtificialLatency.setEligibleForArtificialLatency(true);
+                return Coordinator.unsafeExecuteInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", SERIAL, QUORUM, new Object[0]);
+            });
+            assertRows(cluster.get(1).callOnInstance(() -> {
+                ArtificialLatency.setEligibleForArtificialLatency(true);
+                return Coordinator.unsafeExecuteInternal("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL, new Object[0]).toObjectArrays();
+            }), row(1, 1, 1));
+            end = System.nanoTime();
+            Assert.assertTrue(NANOSECONDS.toMillis(end - start) >= 800);
+            start = System.nanoTime();
+            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 3 WHERE pk = 1 and ck = 1 IF v = 2", SERIAL, QUORUM);
+            assertRows(cluster.get(1).callOnInstance(() -> {
+                ArtificialLatency.setEligibleForArtificialLatency(true);
+                return Coordinator.unsafeExecuteInternal("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL, new Object[0]).toObjectArrays();
+            }), row(1, 1, 1));
+            end = System.nanoTime();
+            Assert.assertTrue(NANOSECONDS.toMillis(end - start) >= 600);
+            start = System.nanoTime();
+            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", SERIAL, QUORUM);
+            assertRows(cluster.get(1).callOnInstance(() -> {
+                ArtificialLatency.setEligibleForArtificialLatency(true);
+                return Coordinator.unsafeExecuteInternal("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL, new Object[0]).toObjectArrays();
+            }), row(1, 1, 2));
+            end = System.nanoTime();
+            Assert.assertTrue(NANOSECONDS.toMillis(end - start) >= 800);
+            cluster.forEach(i -> i.runOnInstance(() -> ArtificialLatency.setEnabled(false)));
+            start = System.nanoTime();
+            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 3 WHERE pk = 1 and ck = 1 IF v = 2", SERIAL, QUORUM);
+            assertRows(cluster.get(1).callOnInstance(() -> {
+                ArtificialLatency.setEligibleForArtificialLatency(false);
+                return Coordinator.unsafeExecuteInternal("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL, new Object[0]).toObjectArrays();
+            }), row(1, 1, 3));
+            end = System.nanoTime();
+            Assert.assertTrue(NANOSECONDS.toMillis(end - start) < 800);
         }
     }
 
@@ -98,7 +148,7 @@ public class CASTest extends TestBaseImpl
             IMessageFilters.Filter drop = cluster.filters().verbs(PAXOS_PREPARE_REQ.id).from(1).to(2, 3).drop();
             try
             {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
+                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
                 Assert.fail();
             }
             catch (RuntimeException e)
@@ -106,8 +156,8 @@ public class CASTest extends TestBaseImpl
                 Assert.assertEquals("CAS operation timed out - encountered contentions: 0", e.getMessage());
             }
             drop.off();
-            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", ConsistencyLevel.QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", ConsistencyLevel.SERIAL));
+            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", QUORUM);
+            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL));
         }
     }
 
@@ -122,7 +172,7 @@ public class CASTest extends TestBaseImpl
             IMessageFilters.Filter drop1 = cluster.filters().verbs(PAXOS_PROPOSE_REQ.id).from(1).to(2, 3).drop();
             try
             {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
+                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
                 Assert.fail();
             }
             catch (RuntimeException e)
@@ -132,8 +182,8 @@ public class CASTest extends TestBaseImpl
             drop1.off();
             // make sure we encounter one of the in-progress proposals so we complete it
             cluster.filters().verbs(PAXOS_PREPARE_REQ.id).from(1).to(2).drop();
-            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", ConsistencyLevel.QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", ConsistencyLevel.SERIAL),
+            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", QUORUM);
+            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL),
                     row(1, 1, 2));
         }
     }
@@ -149,7 +199,7 @@ public class CASTest extends TestBaseImpl
             IMessageFilters.Filter drop1 = cluster.filters().verbs(PAXOS_COMMIT_REQ.id).from(1).to(2, 3).drop();
             try
             {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
+                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
                 Assert.fail();
             }
             catch (RuntimeException e)
@@ -159,8 +209,8 @@ public class CASTest extends TestBaseImpl
             drop1.off();
             // make sure we see one of the successful commits
             cluster.filters().verbs(PAXOS_PROPOSE_REQ.id).from(1).to(2).drop();
-            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", ConsistencyLevel.QUORUM);
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", ConsistencyLevel.SERIAL),
+            cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", QUORUM);
+            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", SERIAL),
                     row(1, 1, 2));
         }
     }
@@ -287,7 +337,7 @@ public class CASTest extends TestBaseImpl
     {
         BiConsumer<String, ICoordinator> operation =
             (table, coordinator) -> assertRows(coordinator.execute("SELECT * FROM " + table + " WHERE k=0",
-                                                                   ConsistencyLevel.SERIAL));
+                                                                   SERIAL));
 
         consistencyAfterWriteTimeoutTest(operation, operation, false);
         consistencyAfterWriteTimeoutTest(operation, operation, true);
@@ -323,10 +373,10 @@ public class CASTest extends TestBaseImpl
     {
         BiConsumer<String, ICoordinator> operation1 =
             (table, coordinator) -> assertRows(coordinator.execute("SELECT * FROM " + table + " WHERE k=0",
-                                                                   ConsistencyLevel.SERIAL));
+                                                                   SERIAL));
         BiConsumer<String, ICoordinator> operation2 =
             (table, coordinator) -> assertCasNotApplied(coordinator.execute("UPDATE " + table + " SET v = 1 WHERE k = 0 IF v = 0",
-                                                                            ConsistencyLevel.QUORUM));
+                                                                            QUORUM));
         consistencyAfterWriteTimeoutTest(operation1, operation2, false);
         consistencyAfterWriteTimeoutTest(operation1, operation2, true);
     }
@@ -348,7 +398,7 @@ public class CASTest extends TestBaseImpl
                                                                             ConsistencyLevel.ANY));
         BiConsumer<String, ICoordinator> operation2 =
             (table, coordinator) -> assertRows(coordinator.execute("SELECT * FROM " + table + " WHERE k=0",
-                                                                   ConsistencyLevel.SERIAL));
+                                                                   SERIAL));
         consistencyAfterWriteTimeoutTest(operation1, operation2, false);
         consistencyAfterWriteTimeoutTest(operation1, operation2, true);
     }
@@ -484,7 +534,7 @@ public class CASTest extends TestBaseImpl
 
             // {3} reads from !{2} => {3, 4}
             cluster.filters().verbs(PAXOS_PREPARE_REQ.id, READ_REQ.id).from(3).to(2).drop();
-            assertRows(cluster.coordinator(3).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = ?", ConsistencyLevel.SERIAL, pk),
+            assertRows(cluster.coordinator(3).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = ?", SERIAL, pk),
                     row(pk, 1, 1));
         }
     }
@@ -572,7 +622,7 @@ public class CASTest extends TestBaseImpl
             cluster.filters().verbs(PAXOS_PROPOSE_REQ.id).from(4).to(1, 2, 3).drop();
             try
             {
-                cluster.coordinator(4).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM, pk);
+                cluster.coordinator(4).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", QUORUM, pk);
                 Assert.assertTrue(false);
             }
             catch (RuntimeException wrapped)
@@ -594,7 +644,7 @@ public class CASTest extends TestBaseImpl
             // {3} reads from !{2} => {3, 4}
             cluster.filters().verbs(PAXOS_PREPARE_REQ.id, READ_REQ.id).from(3).to(2).drop();
             cluster.filters().verbs(PAXOS_PROPOSE_REQ.id).from(3).to(2).drop();
-            assertRows(cluster.coordinator(3).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = ?", ConsistencyLevel.SERIAL, pk),
+            assertRows(cluster.coordinator(3).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = ?", SERIAL, pk),
                     row(pk, 1, null, 2));
         }
     }
@@ -636,7 +686,7 @@ public class CASTest extends TestBaseImpl
             cluster.filters().verbs(PAXOS_PROPOSE_REQ.id).from(4).to(1, 2, 3).drop();
             try
             {
-                cluster.coordinator(4).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM, pk);
+                cluster.coordinator(4).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", QUORUM, pk);
                 Assert.assertTrue(false);
             }
             catch (RuntimeException wrapped)

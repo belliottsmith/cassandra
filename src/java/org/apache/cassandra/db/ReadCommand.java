@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory;
 import io.netty.util.concurrent.FastThreadLocal;
 import org.apache.cassandra.config.*;
 import org.apache.cassandra.db.filter.*;
+import org.apache.cassandra.locator.ReplicaPlan;
 import org.apache.cassandra.net.MessageFlag;
 import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.net.Verb;
@@ -742,11 +743,12 @@ public abstract class ReadCommand extends AbstractReadQuery
     /**
      * Creates a message for this command.
      */
-    public Message<ReadCommand> createMessage(boolean trackRepairedData)
+    public Message<ReadCommand> createMessage(boolean trackRepairedData, ReplicaPlan<?> replicaPlan)
     {
-        Message<ReadCommand> msg = trackRepairedData
+        Message<ReadCommand> msg = (trackRepairedData
                                    ? Message.outWithFlags(verb(), this, MessageFlag.CALL_BACK_ON_FAILURE, MessageFlag.TRACK_REPAIRED_DATA)
-                                   : Message.outWithFlag(verb(), this, MessageFlag.CALL_BACK_ON_FAILURE);
+                                   : Message.outWithFlag(verb(), this, MessageFlag.CALL_BACK_ON_FAILURE));
+
         if (trackWarnings)
             msg = msg.withFlag(MessageFlag.TRACK_WARNINGS);
         return msg;

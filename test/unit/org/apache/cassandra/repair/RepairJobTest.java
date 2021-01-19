@@ -844,7 +844,7 @@ public class RepairJobTest
                                          List<Message<?>> messageCapture)
     {
         MessagingService.instance().inboundSink.add(message -> message.verb().isResponse());
-        MessagingService.instance().outboundSink.add((message, to) -> {
+        MessagingService.instance().outboundSink.push((message, to, type) -> {
             if (message == null || !(message.payload instanceof RepairMessage))
                 return false;
 
