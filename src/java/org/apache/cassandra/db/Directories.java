@@ -41,6 +41,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
 import com.google.common.collect.Iterables;
+import com.google.common.util.concurrent.RateLimiter;
 
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -885,7 +886,7 @@ public class Directories
         return false;
     }
 
-    public static void clearSnapshot(String snapshotName, List<File> snapshotDirectories)
+    public static void clearSnapshot(String snapshotName, List<File> snapshotDirectories, RateLimiter snapshotRateLimiter)
     {
         // If snapshotName is empty or null, we will delete the entire snapshot directory
         String tag = snapshotName == null ? "" : snapshotName;
@@ -897,7 +898,7 @@ public class Directories
                 logger.trace("Removing snapshot directory {}", snapshotDir);
                 try
                 {
-                    FileUtils.deleteRecursive(snapshotDir);
+                    FileUtils.deleteRecursiveWithThrottle(snapshotDir, snapshotRateLimiter);
                 }
                 catch (FSWriteError e)
                 {

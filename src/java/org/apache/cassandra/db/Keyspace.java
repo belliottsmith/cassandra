@@ -26,6 +26,7 @@ import java.util.concurrent.locks.Lock;
 
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
+import com.google.common.util.concurrent.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -226,7 +227,7 @@ public class Keyspace
      * @param columnFamilyName the column family to snapshot or all on null
      * @throws IOException if the column family doesn't exist
      */
-    public void snapshot(String snapshotName, String columnFamilyName) throws IOException
+    public void snapshot(String snapshotName, String columnFamilyName, RateLimiter rateLimiter) throws IOException
     {
         assert snapshotName != null;
         boolean tookSnapShot = false;
@@ -235,12 +236,25 @@ public class Keyspace
             if (columnFamilyName == null || cfStore.name.equals(columnFamilyName))
             {
                 tookSnapShot = true;
-                cfStore.snapshot(snapshotName);
+                cfStore.snapshot(snapshotName, rateLimiter);
             }
         }
 
         if ((columnFamilyName != null) && !tookSnapShot)
             throw new IOException("Failed taking snapshot. Table " + columnFamilyName + " does not exist.");
+    }
+
+    /**
+     * Take a snapshot of the specific column family, or the entire set of column families
+     * if columnFamily is null with a given timestamp
+     *
+     * @param snapshotName     the tag associated with the name of the snapshot.  This value may not be null
+     * @param columnFamilyName the column family to snapshot or all on null
+     * @throws IOException if the column family doesn't exist
+     */
+    public void snapshot(String snapshotName, String columnFamilyName) throws IOException
+    {
+        snapshot(snapshotName, columnFamilyName, null);
     }
 
     /**
@@ -287,8 +301,11 @@ public class Keyspace
      */
     public static void clearSnapshot(String snapshotName, String keyspace)
     {
+        RateLimiter clearSnapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
+
         List<File> snapshotDirs = Directories.getKSChildDirectories(keyspace, ColumnFamilyStore.getInitialDirectories());
-        Directories.clearSnapshot(snapshotName, snapshotDirs);
+        Directories.clearSnapshot(snapshotName, snapshotDirs, clearSnapshotRateLimiter);
+
     }
 
     /**

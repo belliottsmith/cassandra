@@ -3256,8 +3256,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 throw new IOException("Snapshot " + tag + " already exists.");
 
 
+        RateLimiter snapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
+
         for (Keyspace keyspace : keyspaces)
-            keyspace.snapshot(tag, null);
+            keyspace.snapshot(tag, null, snapshotRateLimiter);
     }
 
     /**
@@ -3346,10 +3348,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             }
         }
 
+        RateLimiter snapshotRateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
+
         for (Entry<Keyspace, List<String>> entry : keyspaceColumnfamily.entrySet())
         {
             for (String table : entry.getValue())
-                entry.getKey().snapshot(tag, table);
+                entry.getKey().snapshot(tag, table, snapshotRateLimiter);
         }
 
     }
@@ -3432,6 +3436,17 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
 
         return total;
+    }
+
+    public void setSnapshotLinksPerSecond(long throttle)
+    {
+        logger.info("Setting snapshot throttle to {}", throttle);
+        DatabaseDescriptor.setSnapshotLinksPerSecond(throttle);
+    }
+
+    public long getSnapshotLinksPerSecond()
+    {
+        return DatabaseDescriptor.getSnapshotLinksPerSecond();
     }
 
     public void refreshSizeEstimates() throws ExecutionException

@@ -32,6 +32,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.Ints;
 import com.google.common.primitives.Longs;
+import com.google.common.util.concurrent.RateLimiter;
 
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.slf4j.Logger;
@@ -721,6 +722,9 @@ public class DatabaseDescriptor
                                              "set the system property cassandra.allow_unlimited_concurrent_validations=true");
 
         }
+
+        if (conf.snapshot_links_per_second < 0)
+            throw new ConfigurationException("snapshot_links_per_second must be >= 0");
 
         if (conf.repair_command_pool_size < 1)
             conf.repair_command_pool_size = conf.concurrent_validations;
@@ -2116,6 +2120,24 @@ public class DatabaseDescriptor
     public static boolean getAutoSnapshot()
     {
         return conf.auto_snapshot;
+    }
+
+    public static long getSnapshotLinksPerSecond()
+    {
+        return conf.snapshot_links_per_second == 0 ? Long.MAX_VALUE : conf.snapshot_links_per_second;
+    }
+
+    public static void setSnapshotLinksPerSecond(long throttle)
+    {
+        if (throttle < 0)
+            throw new IllegalArgumentException("Invalid throttle for snapshot_links_per_second: must be positive");
+
+        conf.snapshot_links_per_second = throttle;
+    }
+
+    public static RateLimiter getSnapshotRateLimiter()
+    {
+        return RateLimiter.create(getSnapshotLinksPerSecond());
     }
 
     public static boolean isAutoBootstrap()

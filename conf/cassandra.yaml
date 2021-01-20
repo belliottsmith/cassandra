@@ -717,6 +717,13 @@ replica_filtering_protection:
     cached_rows_warn_threshold: 2000
     cached_rows_fail_threshold: 32000
 
+# The act of creating or clearing a snapshot involves creating or removing
+# potentially tens of thousands of links, which can cause significant performance
+# impact, especially on consumer grade SSDs. A non-zero value here can
+# be used to throttle these links to avoid negative performance impact of
+# taking and clearing snapshots
+snapshot_links_per_second: 0
+
 # Granularity of the collation index of rows within a partition.
 # Increase if your rows are large, or if you have a very large
 # number of rows per partition.  The competing goals are these:
