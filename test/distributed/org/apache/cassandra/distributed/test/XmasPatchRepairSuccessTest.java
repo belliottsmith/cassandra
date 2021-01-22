@@ -71,9 +71,6 @@ public class XmasPatchRepairSuccessTest extends TestBaseImpl
                                                                      .with(NETWORK))
                                           .start()))
         {
-            // expect an InterruptedException from the message delaying filter when the instance shuts down
-            cluster.setUncaughtExceptionsFilter(t -> t.getSuppressed()[0] instanceof RuntimeException
-                                                     && t.getSuppressed()[0].getCause() instanceof InterruptedException);
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
             Thread.sleep(2000);
             insert(cluster.coordinator(1), 0, 100);
@@ -90,6 +87,13 @@ public class XmasPatchRepairSuccessTest extends TestBaseImpl
             cluster.filters().outbound().verbs(MessagingService.Verb.REPAIR_MESSAGE.ordinal()).from(1).to(2).messagesMatching(filter).drop();
 
             Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false))));
+
+            cluster.setUncaughtExceptionsFilter(
+            (instanceNum, throwable) -> {
+                return instanceNum == 1 &&
+                throwable.getMessage().contains("Parent repair session ") &&
+                throwable.getMessage().contains("has failed.");
+            });
             previewRepairStarted.await();
             // this needs to finish before the preview repair is unpaused on node2
             cluster.get(1).callOnInstance(repair(options(false, true)));

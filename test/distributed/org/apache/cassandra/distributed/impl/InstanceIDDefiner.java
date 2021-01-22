@@ -30,16 +30,17 @@ import org.apache.cassandra.concurrent.NamedThreadFactory;
 public class InstanceIDDefiner implements StrLookup
 {
     // Instantiated per classloader, set by Instance
-    private static volatile String instanceId = "<main>";
+    private static volatile String INSTANCE_ID = "<main>";
+
     public static void setInstanceId(int id)
     {
-        instanceId = "node" + id;
+        INSTANCE_ID = "node" + id;
         NamedThreadFactory.setGlobalPrefix("node" + id + "_");
     }
 
     public static String getInstanceId()
     {
-        return instanceId;
+        return INSTANCE_ID;
     }
 
     public String lookup(String s)
@@ -54,6 +55,6 @@ public class InstanceIDDefiner implements StrLookup
 
     private String lookup()
     {
-        return instanceId;
+        return INSTANCE_ID;
     }
 }

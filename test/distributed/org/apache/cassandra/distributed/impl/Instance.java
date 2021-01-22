@@ -49,6 +49,7 @@ import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.config.YamlConfigurationLoader;
 import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
@@ -61,6 +62,7 @@ import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.distributed.Constants;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstance;
@@ -109,6 +111,7 @@ import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.DiagnosticSnapshotService;
 import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.NanoTimeToCurrentTimeMillis;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.Throwables;
@@ -123,14 +126,6 @@ import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 
 public class Instance extends IsolatedExecutor implements IInvokableInstance
 {
-
-    private static final Map<Class<?>, Function<Object, Object>> mapper = new HashMap<Class<?>, Function<Object, Object>>() {{
-        this.put(IInstanceConfig.ParameterizedClass.class, (obj) -> {
-            IInstanceConfig.ParameterizedClass pc = (IInstanceConfig.ParameterizedClass) obj;
-            return new org.apache.cassandra.config.ParameterizedClass(pc.class_name, pc.parameters);
-        });
-    }};
-
     public final IInstanceConfig config;
 
     // should never be invoked directly, so that it is instantiated on other class loader;
@@ -139,7 +134,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     {
         super("node" + config.num(), classLoader);
         this.config = config;
-        Object clusterId = Objects.requireNonNull(config.get("dtest.api.cluster_id"), "cluster_id is not defined");
+        Object clusterId = Objects.requireNonNull(config.get(Constants.KEY_DTEST_API_CLUSTER_ID), "cluster_id is not defined");
         ClusterIDDefiner.setId("cluster-" + clusterId);
         InstanceIDDefiner.setInstanceId(config.num());
         FBUtilities.setBroadcastInetAddress(config.broadcastAddress().getAddress());
@@ -275,6 +270,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         {
             public boolean allowOutgoingMessage(MessageOut message, int id, InetAddress toAddress)
             {
+                if (isShutdown())
+                    return false;
+
                 // Port is not passed in, so take a best guess at the destination port from this instance
                 IInstance to = cluster.get(NetworkTopology.addressAndPort(toAddress,
                                                                           instance.config().broadcastAddress().getPort()));
@@ -287,6 +285,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
             public boolean allowIncomingMessage(MessageIn message, int id)
             {
+                if (isShutdown())
+                    return false;
+
                 // Port is not passed in, so take a best guess at the destination port from this instance
                 IInstance from = cluster.get(NetworkTopology.addressAndPort(message.from,
                                                                             instance.config().broadcastAddress().getPort()));
@@ -595,6 +596,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 }
 
                 // TODO: this is more than just gossip
+                StorageService.instance.registerDaemon(CassandraDaemon.getInstanceForTesting());
                 if (config.has(GOSSIP))
                 {
                     StorageService.instance.initServer();
@@ -609,6 +611,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 StorageService.instance.setUpDistributedSystemKeyspaces();
 
                 SystemKeyspace.finishStartup();
+
+                CassandraDaemon.getInstanceForTesting().setupCompleted();
 
                 if (config.has(NATIVE_PROTOCOL))
                 {
@@ -642,9 +646,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
     private static Config loadConfig(IInstanceConfig overrides)
     {
-        Config config = new Config();
-        overrides.propagate(config, mapper);
-        return config;
+        Map<String,Object> params = ((InstanceConfig) overrides).getParams();
+        boolean check = true;
+        if (overrides.get(Constants.KEY_DTEST_API_CONFIG_CHECK) != null)
+            check = (boolean) overrides.get(Constants.KEY_DTEST_API_CONFIG_CHECK);
+        return YamlConfigurationLoader.fromMap(params, check, Config.class);
     }
 
     private void initializeRing(ICluster cluster)
@@ -750,7 +756,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             );
             error = parallelRun(error, executor,
                                 () -> ScheduledExecutors.shutdownAndWait(1L, MINUTES),
-                                MessagingService.instance()::shutdown
+                                (IgnoreThrowingRunnable) MessagingService.instance()::shutdown
             );
             error = parallelRun(error, executor,
                                 () -> StageManager.shutdownAndWait(1L, MINUTES),
@@ -892,6 +898,25 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             }
         }
         return accumulate;
+    }
+
+    @FunctionalInterface
+    private interface IgnoreThrowingRunnable extends ThrowingRunnable
+    {
+        void doRun() throws Throwable;
+
+        @Override
+        default void run()
+        {
+            try
+            {
+                doRun();
+            }
+            catch (Throwable e)
+            {
+                JVMStabilityInspector.inspectThrowable(e);
+            }
+        }
     }
 }
 

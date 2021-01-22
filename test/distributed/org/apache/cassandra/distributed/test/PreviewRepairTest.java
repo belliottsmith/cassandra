@@ -505,7 +505,19 @@ public class PreviewRepairTest extends TestBaseImpl
                 if (matchesMessage(repairMessage) && waitForRepair.compareAndSet(true, false))
                 {
                     pause.signalAll();
-                    resume.await();
+                    for (;;)
+                    {
+                        // Prevent InterruptedException from being propagated to the
+                        // in-JVM dtest uncaught exception handler
+                        try
+                        {
+                            resume.await();
+                            break;
+                        }
+                        catch (InterruptedException interruptedException)
+                        {
+                        }
+                    }
                 }
             }
             catch (Exception e)

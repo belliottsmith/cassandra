@@ -86,7 +86,6 @@ public class IncRepairTruncationTest extends TestBaseImpl
                                           .withInstanceInitializer(BBHelper::install)
                                           .start()))
         {
-            cluster.setUncaughtExceptionsFilter(t -> t.getMessage().matches("Parent repair session with id = .* has failed\\."));
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
             Thread.sleep(1000);
             insert(cluster.coordinator(1), 0, 100);
@@ -118,6 +117,11 @@ public class IncRepairTruncationTest extends TestBaseImpl
                 return false;
             }).drop();
             Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(false, false))));
+
+            cluster.setUncaughtExceptionsFilter(
+                (instanceNum, throwable) -> instanceNum == 1 &&
+                                            throwable.getMessage().contains("Parent repair session ") &&
+                                            throwable.getMessage().contains("has failed."));
 
             Future<?> f = es.submit( () -> cluster.coordinator(1).execute("TRUNCATE "+KEYSPACE+".tbl", ConsistencyLevel.ALL));
             blockMerkleTreeResponses.signalAll();

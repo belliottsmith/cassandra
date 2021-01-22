@@ -25,7 +25,7 @@ import org.apache.logging.log4j.core.config.plugins.Plugin;
 import org.apache.logging.log4j.core.lookup.StrLookup;
 
 /**
- * Used by logback to find/define property value, see logback-dtest.xml
+ * Used by log4j to find/define property value, see log4j2-dtest.xml
  */
 @Plugin(name="cluster", category = StrLookup.CATEGORY)
 public class ClusterIDDefiner implements StrLookup

@@ -68,6 +68,8 @@
     <property name="test.microbench.src" value="${test.dir}/microbench"/>
     <property name="test.distributed.src" value="${test.dir}/distributed"/>
     <property name="test.distributed.listfile" value="ant-jvm-dtest-list"/>
+    <property name="test.distributed.upgrade.listfile" value="ant-jvm-dtest-upgrade-list"/>
+    <property name="test.distributed.upgrade.package" value="org.apache.cassandra.distributed.upgrade"/>
     <property name="dist.dir" value="${build.dir}/dist"/>
     <property name="tmp.dir" value="${java.io.tmpdir}"/>
 
@@ -646,6 +648,7 @@
         <dependency groupId="com.apple.pie.cassandra.quicktheories" artifactId="quicktheories" />
         <dependency groupId="com.google.code.java-allocation-instrumenter" artifactId="java-allocation-instrumenter" version="${allocation-instrumenter.version}" />
         <dependency groupId="org.psjava" artifactId="psjava" version="0.1.19" />
+        <dependency groupId="org.reflections" artifactId="reflections" />
         <dependency groupId="org.apache.rat" artifactId="apache-rat"/>
         <dependency groupId="org.apache.hadoop" artifactId="hadoop-core"/>
         <dependency groupId="org.apache.hadoop" artifactId="hadoop-minicluster"/>
@@ -675,6 +678,7 @@
                 version="${version}"/>
         <dependency groupId="junit" artifactId="junit"/>
         <dependency groupId="org.mockito" artifactId="mockito-core" />
+        <dependency groupId="org.reflections" artifactId="reflections" />
         <dependency groupId="com.datastax.cassandra" artifactId="cassandra-driver-core" classifier="shaded"/>
         <dependency groupId="org.eclipse.jdt.core.compiler" artifactId="ecj"/>
         <dependency groupId="org.caffinitas.ohc" artifactId="ohc-core"/>
