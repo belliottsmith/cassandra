@@ -223,12 +223,42 @@ builds:
               value: "${FULL_VERSION}"
           project: pie-cassandra-test-infra-docker
 
+  #
+  # Harry build - PRB
+  #
 
-  - branchName: cie-cassandra-4.0.0
-    name: publish-dtest-cie-4.0.0
+  - group: ghprb-harry
     build:
       steps:
-        - ./rio/release-dtest-jar.sh 4.0-beta3
+        - ./rio/run-harry-prb.sh
+      template: freestyle:v4:prb
+    timeout: 30
+    package:
+      freeform:
+        - publish:
+            - repo: cie-release-local
+    reports:
+      junit: false
+    machine:
+      baseImage: docker.apple.com/cpbuild/applejdk-8:latest
+    finally:
+      radar:
+        annotate: false
+      tag:
+        enabled: false
+    secrets:
+      names:
+        - rio-api-token
+        - rio-test-user-email
+
+  #
+  # Publish in-JVM dtest jar and trigger Harry build using it
+  #
+
+  - group: publish-dtest-jar
+    build:
+      steps:
+        - ./rio/release-dtest-jar.sh
       template: freestyle:v4:publish
     timeout: 30
     package:
@@ -246,7 +276,7 @@ builds:
         enabled: false
       pipelineChain:
         - project: pie-harry
-          pipeline: docker-publish
+          pipeline: run-build
           buildArguments:
             - name: CASSANDRA_VERSION
               value: "$(./rio/cie-version.sh)-${GIT_COMMIT_SHORT}"
@@ -254,3 +284,11 @@ builds:
               value: "$(./rio/dtest-version.sh)"
             - name: CASSANDRA_BRANCH
               value: "${GIT_BRANCH}"
+            - name: HARRY_BRANCH
+              value: "master"
+            - name: DURATION_IN_MINUTES
+              value: "30"
+            - name: PARALLELISM
+              value: "5"
+            - name: COMPLETIONS
+              value: "5"
