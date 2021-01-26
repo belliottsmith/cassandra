@@ -29,7 +29,9 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.TimeoutException;
 
+import org.junit.Ignore;
 import org.junit.Test;
 
 import net.bytebuddy.ByteBuddy;
@@ -84,8 +86,11 @@ public class OptimiseStreamsRepairTest extends TestBaseImpl
             cluster.forEach(c -> c.flush(KEYSPACE));
             cluster.forEach(c -> c.forceCompact(KEYSPACE, "tbl"));
 
+            long [] marks = PreviewRepairTest.logMark(cluster);
             NodeToolResult res = cluster.get(1).nodetoolResult("repair", KEYSPACE, "-os");
             res.asserts().success();
+
+            PreviewRepairTest.waitLogsRepairFullyFinished(cluster, marks);
 
             res = cluster.get(1).nodetoolResult("repair", KEYSPACE, "-vd");
             res.asserts().success();
@@ -159,7 +164,7 @@ public class OptimiseStreamsRepairTest extends TestBaseImpl
     }
 
     @Test
-    public void randomTest() throws IOException
+    public void randomTest() throws IOException, TimeoutException
     {
         try(Cluster cluster = init(Cluster.build(3)
                                           .withConfig(config -> config.set("disable_incremental_repair", false)
@@ -178,9 +183,10 @@ public class OptimiseStreamsRepairTest extends TestBaseImpl
                 for (int j = 1; j <= 3; j++)
                     cluster.get(j).executeInternal("INSERT INTO "+KEYSPACE+".tbl (id, t) values (?,?)", r.nextInt(), i * 2 + 2);
 
+            long [] marks = PreviewRepairTest.logMark(cluster);
             NodeToolResult res = cluster.get(1).nodetoolResult("repair", KEYSPACE, "-os");
             res.asserts().success();
-
+            PreviewRepairTest.waitLogsRepairFullyFinished(cluster, marks);
             res = cluster.get(1).nodetoolResult("repair", KEYSPACE, "-vd");
             res.asserts().success();
             res.asserts().notificationContains("Repaired data is in sync");

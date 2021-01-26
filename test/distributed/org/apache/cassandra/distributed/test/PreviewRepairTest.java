@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -104,6 +105,7 @@ public class PreviewRepairTest extends TestBaseImpl
                 FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(cfs));
                 cfs.disableAutoCompaction();
             }));
+            long[] marks = logMark(cluster);
             cluster.get(1).callOnInstance(repair(options(false, false)));
             // now re-enable autocompaction on node1, this moves the sstables for the new repair to repaired
             cluster.get(1).runOnInstance(() -> {
@@ -111,10 +113,29 @@ public class PreviewRepairTest extends TestBaseImpl
                 cfs.enableAutoCompaction();
                 FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(cfs));
             });
+
+            waitLogsRepairFullyFinished(cluster, marks);
+
             RepairResult rs = cluster.get(1).callOnInstance(repair(options(true, false)));
             assertTrue(rs.success); // preview repair should succeed
             assertFalse(rs.wasInconsistent); // and we should see no mismatches
         }
+    }
+
+    public static void waitLogsRepairFullyFinished(Cluster cluster, long[] marks) throws TimeoutException
+    {
+        for (int i = 0; i < cluster.size(); i++)
+            cluster.get(i + 1).logs().watchFor(marks[i], "Finalized local repair session");
+    }
+
+    public static long[] logMark(Cluster cluster)
+    {
+        long [] marks = new long[cluster.size()];
+        for (int i = 0; i < cluster.size(); i++)
+        {
+            marks[i] = cluster.get(i + 1).logs().mark();
+        }
+        return marks;
     }
 
     /**
