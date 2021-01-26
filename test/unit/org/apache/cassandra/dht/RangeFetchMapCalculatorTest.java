@@ -349,6 +349,17 @@ public class RangeFetchMapCalculatorTest
 
     }
 
+    @Test
+    public void testTrivalRangeLocalHostStreaming() throws UnknownHostException
+    {
+        // trivial ranges ranges should not stream from localhost
+        Multimap<Range<Token>, InetAddress> rangesWithSources = HashMultimap.create();
+        addTrivialRangeAndSources(rangesWithSources, 21, 30, "127.0.0.2", "127.0.0.1");
+        addTrivialRangeAndSources(rangesWithSources, 31, 40, "127.0.0.1", "127.0.0.2");
+        RangeFetchMapCalculator calculator = new RangeFetchMapCalculator(rangesWithSources, Collections.emptyList(), "Test");
+        RangeStreamer.validateRangeFetchMap(rangesWithSources, calculator.getRangeFetchMap(), "Test");
+    }
+
     private void assertArrays(Collection<Range<Token>> expected, Collection<Range<Token>> result)
     {
         Assert.assertEquals(expected.size(), result.size());
