@@ -271,4 +271,7 @@ public interface ColumnFamilyStoreMBean
     public void setNeverPurgeTombstones(boolean value);
 
     public boolean getNeverPurgeTombstones();
+
+    public void setChristmasPatchDisabled(boolean disable);
+    public boolean isChristmasPatchDisabled();
 }

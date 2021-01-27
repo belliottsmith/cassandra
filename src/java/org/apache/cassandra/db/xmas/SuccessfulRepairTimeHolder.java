@@ -239,7 +239,7 @@ public class SuccessfulRepairTimeHolder
 
     public int gcBeforeForKey(ColumnFamilyStore cfs, DecoratedKey key, int fallbackGCBefore)
     {
-        if (!DatabaseDescriptor.enableChristmasPatch() || !cfs.useRepairHistory())
+        if (!cfs.useRepairHistory() || cfs.isChristmasPatchDisabled())
             return fallbackGCBefore;
 
         return Math.min(getLastSuccessfulRepairTimeFor(key.getToken()), fallbackGCBefore);

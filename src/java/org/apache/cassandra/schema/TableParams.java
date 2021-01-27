@@ -23,12 +23,14 @@ import java.util.Map;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import org.apache.cassandra.cql3.Attributes;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.service.reads.PercentileSpeculativeRetryPolicy;
 import org.apache.cassandra.service.reads.SpeculativeRetryPolicy;
 import org.apache.cassandra.utils.BloomCalculations;
+
 import static java.lang.String.format;
 
 public final class TableParams
@@ -49,7 +51,8 @@ public final class TableParams
         MIN_INDEX_INTERVAL,
         READ_REPAIR_CHANCE,
         SPECULATIVE_RETRY,
-        CRC_CHECK_CHANCE;
+        CRC_CHECK_CHANCE,
+        DISABLE_CHRISTMAS_PATCH;
 
         @Override
         public String toString()
@@ -87,6 +90,11 @@ public final class TableParams
     public final CompressionParams compression;
     public final ImmutableMap<String, ByteBuffer> extensions;
 
+    // Used to disable the feature for specific tables where it is enabled at the instance level, in cassandra.yaml.
+    // By default the table level setting is false, i.e. the override is not in place for the table until explicitly
+    // set. See extractXmasPatchParam(Map<String, ByteBuffer>)
+    public final boolean disableChristmasPatch;
+
     private TableParams(Builder builder)
     {
         comment = builder.comment;
@@ -106,6 +114,20 @@ public final class TableParams
         compaction = builder.compaction;
         compression = builder.compression;
         extensions = builder.extensions;
+        disableChristmasPatch = extractXmasPatchParam(builder.extensions);
+    }
+
+    private boolean extractXmasPatchParam(Map<String, ByteBuffer> extensions)
+    {
+        // If enable_christmas_patch is set at the instance level, it can be overridden and
+        // turned off for specific tables. When this is done, the table level flag is
+        // persisted as an entry in the table extensions, which is a map<text, blob>. The
+        // default is for a table _not_ to override the instance setting, so a missing or
+        // empty value in the map indicates the override is not in place for this table.
+        // Conversely, the presence of _any_ value in the map can be read as the override
+        // being turned on (i.e. christmas patch is disabled) for the table.
+        ByteBuffer val = extensions.get(Option.DISABLE_CHRISTMAS_PATCH.name());
+        return null != val && val.hasRemaining();
     }
 
     public static Builder builder()
@@ -209,20 +231,20 @@ public final class TableParams
         TableParams p = (TableParams) o;
 
         return comment.equals(p.comment)
-            && readRepairChance == p.readRepairChance
-            && dcLocalReadRepairChance == p.dcLocalReadRepairChance
-            && bloomFilterFpChance == p.bloomFilterFpChance
-            && crcCheckChance == p.crcCheckChance
-            && gcGraceSeconds == p.gcGraceSeconds
-            && defaultTimeToLive == p.defaultTimeToLive
-            && memtableFlushPeriodInMs == p.memtableFlushPeriodInMs
-            && minIndexInterval == p.minIndexInterval
-            && maxIndexInterval == p.maxIndexInterval
-            && speculativeRetry.equals(p.speculativeRetry)
-            && caching.equals(p.caching)
-            && compaction.equals(p.compaction)
-            && compression.equals(p.compression)
-            && extensions.equals(p.extensions);
+               && readRepairChance == p.readRepairChance
+               && dcLocalReadRepairChance == p.dcLocalReadRepairChance
+               && bloomFilterFpChance == p.bloomFilterFpChance
+               && crcCheckChance == p.crcCheckChance
+               && gcGraceSeconds == p.gcGraceSeconds
+               && defaultTimeToLive == p.defaultTimeToLive
+               && memtableFlushPeriodInMs == p.memtableFlushPeriodInMs
+               && minIndexInterval == p.minIndexInterval
+               && maxIndexInterval == p.maxIndexInterval
+               && speculativeRetry.equals(p.speculativeRetry)
+               && caching.equals(p.caching)
+               && compaction.equals(p.compaction)
+               && compression.equals(p.compression)
+               && extensions.equals(p.extensions);
     }
 
     @Override
@@ -264,6 +286,7 @@ public final class TableParams
                           .add(Option.COMPACTION.toString(), compaction)
                           .add(Option.COMPRESSION.toString(), compression)
                           .add(Option.EXTENSIONS.toString(), extensions)
+                          .add(Option.DISABLE_CHRISTMAS_PATCH.toString(), disableChristmasPatch)
                           .toString();
     }
 
@@ -380,8 +403,48 @@ public final class TableParams
 
         public Builder extensions(Map<String, ByteBuffer> val)
         {
-            extensions = ImmutableMap.copyOf(val);
+            // Before replacing any existing extensions map, extract the
+            // disable_christmas_patch setting, if present, so we can re-apply
+            // it as long as it doesn't conflict with the supplied new map (this
+            // is unlikely as there's no exposed way to actually set extensions).
+            if (val.containsKey(Option.DISABLE_CHRISTMAS_PATCH.name())
+                || !extensions.containsKey(Option.DISABLE_CHRISTMAS_PATCH.name()))
+            {
+                // either the option wasn't set previously, or it is explicitly set in
+                // this new map, so we can just copy the supplied map wholesale
+                extensions = ImmutableMap.copyOf(val);
+            }
+            else
+            {
+                // the entry is present in the existing map, but not the new one. Add it
+                // to the supplied map. The value associated with the key is not important.
+                extensions = ImmutableMap.<String, ByteBuffer>builder()
+                                         .putAll(val)
+                                         .put(Option.DISABLE_CHRISTMAS_PATCH.name(), ByteBuffer.wrap(new byte[]{1}))
+                                         .build();
+            }
             return this;
+        }
+
+        public Builder disableChristmasPatch(boolean val)
+        {
+            // Add/replace a serialized value for the xmas patch option in the
+            // extensions map. We store this like so as we don't have to modify the
+            // system_schema.tables schema to accomodate the xmas patch flag
+            // Note: we only insert an entry into the map if val == true. If
+            // the key is not present in the map when the TableParams are built,
+            // the feature is not disabled at the table level.
+            ImmutableMap.Builder<String, ByteBuffer> builder = ImmutableMap.builder();
+            builder.putAll(Maps.filterKeys(extensions, this::filterKey));
+            if (val)
+               builder.put(Option.DISABLE_CHRISTMAS_PATCH.name(), ByteBuffer.wrap(new byte[]{1}));
+            extensions = builder.build();
+            return this;
+        }
+
+        private boolean filterKey(String key)
+        {
+            return key != null && !key.equals(Option.DISABLE_CHRISTMAS_PATCH.name());
         }
     }
 }

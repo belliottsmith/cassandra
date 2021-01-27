@@ -155,6 +155,9 @@ public final class TableAttributes extends PropertyDefinitions
         if (hasOption(Option.CRC_CHECK_CHANCE))
             builder.crcCheckChance(getDouble(Option.CRC_CHECK_CHANCE));
 
+        if (hasOption(Option.DISABLE_CHRISTMAS_PATCH))
+            builder.disableChristmasPatch(getBoolean(Option.DISABLE_CHRISTMAS_PATCH));
+
         return builder.build();
     }
 
@@ -222,6 +225,12 @@ public final class TableAttributes extends PropertyDefinitions
         if (value == null)
             throw new IllegalStateException(format("Option '%s' is absent", option));
         return value;
+    }
+
+    private Boolean getBoolean(Option option)
+    {
+        String value = getSimple(option.toString());
+        return Boolean.valueOf(value);
     }
 
     private boolean hasOption(Option option)

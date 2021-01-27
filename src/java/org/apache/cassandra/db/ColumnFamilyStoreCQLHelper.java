@@ -22,6 +22,7 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.atomic.*;
 import java.util.function.*;
+import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterables;
@@ -323,14 +324,18 @@ public class ColumnFamilyStoreCQLHelper
         builder.append("\n\tAND caching = ").append(toCQL(tableParams.caching.asMap()));
         builder.append("\n\tAND compaction = ").append(toCQL(tableParams.compaction.asMap()));
         builder.append("\n\tAND compression = ").append(toCQL(tableParams.compression.asMap()));
-
+        // even though the disable christmas patch flag is persisted as an extension, we emit it
+        // here because CQL silently ignores extensions in a CREATE TABLE statement. So if we
+        // want tables restored from a snapshot's schema.cql file to retain the flag, it must
+        // be included here.
+        builder.append("\n\tAND disable_christmas_patch = ").append(tableParams.disableChristmasPatch);
         builder.append("\n\tAND extensions = { ");
-        for (Map.Entry<String, ByteBuffer> entry : tableParams.extensions.entrySet())
-        {
-            builder.append(singleQuote(entry.getKey()));
-            builder.append(": ");
-            builder.append("0x" + ByteBufferUtil.bytesToHex(entry.getValue()));
-        }
+        builder.append(tableParams.extensions.entrySet()
+                                             .stream()
+                                             .map(e -> String.format("%s: 0x%s",
+                                                                     singleQuote(e.getKey()),
+                                                                     ByteBufferUtil.bytesToHex(e.getValue())))
+                                             .collect(Collectors.joining(", ")));
         builder.append(" }");
         return builder.toString();
     }

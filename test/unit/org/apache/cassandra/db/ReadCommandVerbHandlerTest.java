@@ -77,6 +77,7 @@ public class ReadCommandVerbHandlerTest
         SchemaLoader.loadSchema();
         SchemaLoader.schemaDefinition(TEST_NAME);
         StorageService.instance.initServer(0);
+        System.setProperty(ReadCommand.OVERRIDE_DISABLED_XMAS_PATCH_PROP, "true");
     }
 
     @Before

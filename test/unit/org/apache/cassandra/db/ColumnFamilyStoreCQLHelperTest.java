@@ -309,54 +309,61 @@ public class ColumnFamilyStoreCQLHelperTest extends CQLTester
     @Test
     public void testCfmOptionsCQL()
     {
-        String keyspace = "cql_test_keyspace_options";
-        String table = "test_table_options";
+        for (boolean disableChristmasPatch : new boolean[] {false, true})
+        {
+            String keyspace = "cql_test_keyspace_options_" + disableChristmasPatch;
+            String table = "test_table_options";
 
-        CFMetaData cfm = CFMetaData.Builder.create(keyspace, table)
-                                           .addPartitionKey("pk1", IntegerType.instance)
-                                           .addClusteringColumn("cl1", IntegerType.instance)
-                                           .addRegularColumn("reg1", AsciiType.instance)
-                                           .build();
+            CFMetaData cfm = CFMetaData.Builder.create(keyspace, table)
+                                               .addPartitionKey("pk1", IntegerType.instance)
+                                               .addClusteringColumn("cl1", IntegerType.instance)
+                                               .addRegularColumn("reg1", AsciiType.instance)
+                                               .build();
 
-        cfm.recordColumnDrop(cfm.getColumnDefinition(ByteBuffer.wrap("reg1".getBytes())), FBUtilities.timestampMicros());
-        cfm.bloomFilterFpChance(1.0);
-        cfm.comment("comment");
-        cfm.compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1")));
-        cfm.compression(CompressionParams.lz4(1 << 16));
-        cfm.dcLocalReadRepairChance(0.2);
-        cfm.crcCheckChance(0.3);
-        cfm.defaultTimeToLive(4);
-        cfm.gcGraceSeconds(5);
-        cfm.minIndexInterval(6);
-        cfm.maxIndexInterval(7);
-        cfm.memtableFlushPeriod(8);
-        cfm.readRepairChance(0.9);
-        cfm.speculativeRetry(AlwaysSpeculativeRetryPolicy.INSTANCE);
-        cfm.extensions(ImmutableMap.of("ext1",
-                                       ByteBuffer.wrap("val1".getBytes())));
+            cfm.recordColumnDrop(cfm.getColumnDefinition(ByteBuffer.wrap("reg1".getBytes())), FBUtilities.timestampMicros());
+            cfm.bloomFilterFpChance(1.0);
+            cfm.comment("comment");
+            cfm.compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1")));
+            cfm.compression(CompressionParams.lz4(1 << 16));
+            cfm.dcLocalReadRepairChance(0.2);
+            cfm.crcCheckChance(0.3);
+            cfm.defaultTimeToLive(4);
+            cfm.gcGraceSeconds(5);
+            cfm.minIndexInterval(6);
+            cfm.maxIndexInterval(7);
+            cfm.memtableFlushPeriod(8);
+            cfm.readRepairChance(0.9);
+            cfm.speculativeRetry(AlwaysSpeculativeRetryPolicy.INSTANCE);
+            cfm.extensions(ImmutableMap.of("ext1",
+                                           ByteBuffer.wrap("val1".getBytes())));
+            cfm.disableChristmasPatch(disableChristmasPatch);
 
-        SchemaLoader.createKeyspace(keyspace,
-                                    KeyspaceParams.simple(1),
-                                    cfm);
-        ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(table);
+            SchemaLoader.createKeyspace(keyspace,
+                                        KeyspaceParams.simple(1),
+                                        cfm);
+            ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(table);
 
-        assertTrue(ColumnFamilyStoreCQLHelper.getCFMetadataAsCQL(cfs.metadata, true).endsWith(
-        "AND bloom_filter_fp_chance = 1.0\n" +
-        "\tAND dclocal_read_repair_chance = 0.2\n" +
-        "\tAND crc_check_chance = 0.3\n" +
-        "\tAND default_time_to_live = 4\n" +
-        "\tAND gc_grace_seconds = 5\n" +
-        "\tAND min_index_interval = 6\n" +
-        "\tAND max_index_interval = 7\n" +
-        "\tAND memtable_flush_period_in_ms = 8\n" +
-        "\tAND read_repair_chance = 0.9\n" +
-        "\tAND speculative_retry = 'ALWAYS'\n" +
-        "\tAND comment = 'comment'\n" +
-        "\tAND caching = { 'keys': 'ALL', 'rows_per_partition': 'NONE' }\n" +
-        "\tAND compaction = { 'max_threshold': '32', 'min_threshold': '4', 'sstable_size_in_mb': '1', 'class': 'org.apache.cassandra.db.compaction.LeveledCompactionStrategy' }\n" +
-        "\tAND compression = { 'chunk_length_in_kb': '64', 'class': 'org.apache.cassandra.io.compress.LZ4Compressor' }\n" +
-        "\tAND extensions = { 'ext1': 0x76616c31 };"
-        ));
+            String expected = String.format(
+                "AND bloom_filter_fp_chance = 1.0\n" +
+                "\tAND dclocal_read_repair_chance = 0.2\n" +
+                "\tAND crc_check_chance = 0.3\n" +
+                "\tAND default_time_to_live = 4\n" +
+                "\tAND gc_grace_seconds = 5\n" +
+                "\tAND min_index_interval = 6\n" +
+                "\tAND max_index_interval = 7\n" +
+                "\tAND memtable_flush_period_in_ms = 8\n" +
+                "\tAND read_repair_chance = 0.9\n" +
+                "\tAND speculative_retry = 'ALWAYS'\n" +
+                "\tAND comment = 'comment'\n" +
+                "\tAND caching = { 'keys': 'ALL', 'rows_per_partition': 'NONE' }\n" +
+                "\tAND compaction = { 'max_threshold': '32', 'min_threshold': '4', 'sstable_size_in_mb': '1', 'class': 'org.apache.cassandra.db.compaction.LeveledCompactionStrategy' }\n" +
+                "\tAND compression = { 'chunk_length_in_kb': '64', 'class': 'org.apache.cassandra.io.compress.LZ4Compressor' }\n" +
+                "\tAND disable_christmas_patch = %b\n" +
+                "\tAND extensions = { %s'ext1': 0x76616c31 };" ,
+                disableChristmasPatch,
+                disableChristmasPatch ? "'DISABLE_CHRISTMAS_PATCH': 0x01, " : "");
+            assertTrue(ColumnFamilyStoreCQLHelper.getCFMetadataAsCQL(cfs.metadata, true).endsWith(expected));
+        }
     }
 
     @Test

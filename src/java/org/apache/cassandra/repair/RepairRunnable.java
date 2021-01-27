@@ -578,7 +578,10 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                     }
                     else
                     {
-                        message = (previewKind == PreviewKind.REPAIRED ? "Repaired data is inconsistent" : "Preview complete") + " for " + parentSession + '\n' + summary.toString();
+                        boolean isRepaired = previewKind == PreviewKind.REPAIRED;
+                        String christmasPatchWarning = isRepaired ? summary.getChristmasPatchDisabledWarning() : "";
+                        message = (isRepaired ? "Repaired data is inconsistent" : "Preview complete")
+                                  + " for " + parentSession + christmasPatchWarning + '\n' + summary.toString(isRepaired);
                         logger.info(message);
                         if (previewKind == PreviewKind.REPAIRED)
                             maybeSnapshotReplicas(parentSession, keyspace, results);

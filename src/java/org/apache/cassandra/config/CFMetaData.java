@@ -261,6 +261,12 @@ public final class CFMetaData
         return this;
     }
 
+    public CFMetaData disableChristmasPatch(boolean disable)
+    {
+        params = TableParams.builder(params).disableChristmasPatch(disable).build();
+        return this;
+    }
+
     public CFMetaData droppedColumns(Map<ByteBuffer, DroppedColumn> cols)
     {
         droppedColumns = cols;

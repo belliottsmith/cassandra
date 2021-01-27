@@ -215,7 +215,7 @@ public class CompactionController implements AutoCloseable
             int lastRepairTime = Integer.MIN_VALUE;
 
             //If Christmas patch is not enabled, we set lastRepairTime=gcgrace to disable it.
-            if (!DatabaseDescriptor.enableChristmasPatch())
+            if (cfStore.isChristmasPatchDisabled() || !cfStore.useRepairHistory())
             {
                 lastRepairTime = gcBefore;
             }

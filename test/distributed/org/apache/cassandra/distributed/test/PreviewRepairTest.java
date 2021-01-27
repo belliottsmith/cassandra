@@ -105,6 +105,7 @@ public class PreviewRepairTest extends TestBaseImpl
                 FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(cfs));
                 cfs.disableAutoCompaction();
             }));
+            cluster.get(1).nodetoolResult("repair", KEYSPACE, "tbl").asserts().success();
             long[] marks = logMark(cluster);
             cluster.get(1).callOnInstance(repair(options(false, false)));
             // now re-enable autocompaction on node1, this moves the sstables for the new repair to repaired
@@ -113,7 +114,6 @@ public class PreviewRepairTest extends TestBaseImpl
                 cfs.enableAutoCompaction();
                 FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(cfs));
             });
-
             waitLogsRepairFullyFinished(cluster, marks);
 
             RepairResult rs = cluster.get(1).callOnInstance(repair(options(true, false)));
@@ -438,8 +438,8 @@ public class PreviewRepairTest extends TestBaseImpl
             // overwrite on node1 only to generate digest mismatches then flush and mark everything repaired
             cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (k, c, v) VALUES (0, ?, ?)", "foo6", 66);
             cluster.forEach(c -> c.flush(KEYSPACE));
-            cluster.forEach(i -> i.runOnInstance(() -> markAllRepaired("tbl")));
-            cluster.forEach(i -> i.runOnInstance(() -> assertRepaired("tbl")));
+            cluster.forEach(i -> i.runOnInstance(markAllRepaired()));
+            cluster.forEach(i -> i.runOnInstance(assertRepaired()));
             RepairResult res = cluster.get(1).callOnInstance(repair(options(true, true)));
             assertTrue(res.wasInconsistent); // this should mismatch
             cluster.forEach(i -> i.runOnInstance(() -> StorageProxy.instance.enableRepairedDataTrackingExclusions()));

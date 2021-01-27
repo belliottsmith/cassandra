@@ -191,4 +191,24 @@ public class PreviewFalsePositiveTest extends AbstractRepairTest
         SyncStatSummary.maybeWarnOfCounter(KEYSPACE, COUNTER_TABLE, 1, sb);
         Assert.assertTrue(sb.toString().contains("COUNTER"));
     }
+
+    @Test
+    public void disabledChristmasPatchWarning()
+    {
+        DatabaseDescriptor.setChristmasPatchEnabled();
+        for (boolean disabled : new boolean[]{ false, true })
+        {
+            ColumnFamilyStore.getIfExists(KEYSPACE, TABLE).setChristmasPatchDisabled(disabled);
+            SyncStatSummary summary = new SyncStatSummary(false);
+            summary.consumeRepairResult(
+                new RepairResult(new RepairJobDesc(UUID.randomUUID(),
+                                                   UUID.randomUUID(),
+                                                   KEYSPACE,
+                                                   TABLE,
+                                                   Collections.singleton(RANGE1)),
+                                 Collections.singletonList(new SyncStat(new NodePair(PARTICIPANT1, PARTICIPANT2), 1L))));
+            Assert.assertEquals(disabled, summary.toString(true).contains("CHRISTMAS PATCH DISABLED"));
+            Assert.assertFalse(summary.toString(false).contains("CHRISTMAS PATCH DISABLED"));
+        }
+    }
 }

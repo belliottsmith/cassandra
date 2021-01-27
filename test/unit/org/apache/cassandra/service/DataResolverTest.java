@@ -120,6 +120,8 @@ public class DataResolverTest
         SchemaLoader.createKeyspace(KEYSPACE3,
                                     KeyspaceParams.simple(4),
                                     cfMetadata3);
+
+        System.setProperty(ReadCommand.OVERRIDE_DISABLED_XMAS_PATCH_PROP, "true");
     }
 
     @Before

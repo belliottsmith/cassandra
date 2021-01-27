@@ -255,6 +255,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      */
     private final AtomicReference<SuccessfulRepairTimeHolder> lastSuccessfulRepair = new AtomicReference<>(SuccessfulRepairTimeHolder.EMPTY);
 
+    // Transient property to disable christmas patch, overriding it if enabled in Config.
+    private volatile boolean disableChristmasPatch = false;
+
     private class PaxosRepairHistoryLoader
     {
         private TablePaxosRepairHistory history;
@@ -3036,5 +3039,30 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     public boolean getNeverPurgeTombstones()
     {
         return neverPurgeTombstones;
+    }
+
+    @Override
+    public void setChristmasPatchDisabled(boolean value)
+    {
+        if (disableChristmasPatch != value)
+            logger.info("Changing transient christmas patch override for {}.{} from {} to {}",
+                        keyspace.getName(), getTableName(), disableChristmasPatch, value);
+        else
+            logger.info("Not changing transient christmas patch override for {}.{}, it is {}",
+                        keyspace.getName(), getTableName(), disableChristmasPatch);
+
+        disableChristmasPatch = value;
+    }
+
+    /**
+     * Looks at the cluster wide, table level, and jmx overide to determine
+     * if the christmas patch should be disabled
+     */
+    @Override
+    public boolean isChristmasPatchDisabled()
+    {
+        return !DatabaseDescriptor.enableChristmasPatch()
+               || metadata.params.disableChristmasPatch
+               || disableChristmasPatch;
     }
 }

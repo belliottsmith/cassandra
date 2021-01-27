@@ -33,14 +33,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.config.Config;
-import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.RangeTombstone;
@@ -275,7 +272,7 @@ public class CompactionsCQLTest extends CQLTester
     @Test
     public void dropTombstoneEarlyRepairXmas() throws Throwable
     {
-        delayCompactionStartHelper(true);
+        delayCompactionStartHelper(true, false);
     }
 
     /**
@@ -286,16 +283,42 @@ public class CompactionsCQLTest extends CQLTester
     @Test
     public void dontDropTombstoneLateRepairXmas() throws Throwable
     {
-        delayCompactionStartHelper(false);
+        delayCompactionStartHelper(false, false);
     }
 
-    public void delayCompactionStartHelper(boolean earlyRepair) throws Throwable
+    /**
+     * Christmaspatch test
+     *
+     * Makes sure we don't purge tombstones which got 'repaired' before the compaction started
+     * with christmaspatch disabled through the cfs
+     */
+    @Test
+    public void dropTombstoneEarlyRepairXmasTableLevel() throws Throwable
+    {
+        delayCompactionStartHelper(true, true);
+    }
+
+    /**
+     * Christmaspatch test
+     *
+     * Makes sure we don't purge tombstones which got 'repaired' after the compaction started
+     * with christmaspatch disabled through the cfs
+     */
+    @Test
+    public void dontDropTombstoneLateRepairXmasTableLevel() throws Throwable
+    {
+        delayCompactionStartHelper(false, true);
+    }
+
+    public void delayCompactionStartHelper(boolean earlyRepair, boolean tableLevelPatchDisable) throws Throwable
     {
         DatabaseDescriptor.setChristmasPatchEnabled(true);
         execute("alter keyspace "+keyspace()+" with replication =  {'class': 'NetworkTopologyStrategy', 'datacenter1': '2'}");
         createTable("CREATE TABLE %s (id int PRIMARY KEY, b text) with gc_grace_seconds=0");
 
         ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        if (tableLevelPatchDisable) cfs.setChristmasPatchDisabled(true);
+
         Range<Token> fullRange = new Range<>(cfs.getPartitioner().getMinimumToken(), cfs.getPartitioner().getMinimumToken());
 
         cfs.disableAutoCompaction();
@@ -340,8 +363,9 @@ public class CompactionsCQLTest extends CQLTester
                 }
             }
         }
-        assertEquals(!earlyRepair, foundDeletedCell);
+        assertEquals(!(earlyRepair || tableLevelPatchDisable), foundDeletedCell);
         DatabaseDescriptor.setChristmasPatchEnabled(false);
+        if (tableLevelPatchDisable) cfs.setChristmasPatchDisabled(false);
     }
 
     @Test

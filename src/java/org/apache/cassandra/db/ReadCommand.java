@@ -20,6 +20,7 @@ package org.apache.cassandra.db;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -59,10 +60,8 @@ import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.UnknownIndexException;
 import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.tracing.Tracing;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.*;
 import org.apache.cassandra.service.ActiveRepairService;
-import org.apache.cassandra.utils.FBUtilities;
 
 import static org.apache.cassandra.db.partitions.UnfilteredPartitionIterators.MergeListener.NOOP;
 
@@ -75,6 +74,9 @@ import static org.apache.cassandra.db.partitions.UnfilteredPartitionIterators.Me
 public abstract class ReadCommand implements ReadQuery
 {
     protected static final Logger logger = LoggerFactory.getLogger(ReadCommand.class);
+
+    // for testing
+    public static final String OVERRIDE_DISABLED_XMAS_PATCH_PROP = "cassandra.repaired_data_tracking_without_xmas_patch";
 
     // Expose the active command running so transitive calls can lookup this command.
     // This is useful for a few reasons, but mainly because the CQL query is here.
@@ -347,11 +349,29 @@ public abstract class ReadCommand implements ReadQuery
         if (repairedDataInfo.get() != RepairedDataInfo.NO_OP_REPAIRED_DATA_INFO)
             return;
 
-        final DataLimits.Counter repairedReadCount = limits().newCounter(nowInSec(),
-                                                                         false,
-                                                                         selectsFullPartition(),
-                                                                         metadata().enforceStrictLiveness()).onlyCount();
-        repairedDataInfo.compareAndSet(RepairedDataInfo.NO_OP_REPAIRED_DATA_INFO, new RepairedDataInfo(repairedReadCount));
+        if (Boolean.getBoolean(OVERRIDE_DISABLED_XMAS_PATCH_PROP) || !isChristmasPatchDisabled())
+        {
+            final DataLimits.Counter repairedReadCount = limits().newCounter(nowInSec(),
+                                                                             false,
+                                                                             selectsFullPartition(),
+                                                                             metadata().enforceStrictLiveness()).onlyCount();
+            repairedDataInfo.compareAndSet(RepairedDataInfo.NO_OP_REPAIRED_DATA_INFO, new RepairedDataInfo(repairedReadCount));
+        }
+    }
+
+    private boolean isChristmasPatchDisabled()
+    {
+        ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(metadata.cfId);
+        if (cfs != null && cfs.isChristmasPatchDisabled())
+        {
+            NoSpamLogger.log(logger, NoSpamLogger.Level.INFO, "RDT XMAS DISABLED",
+                             1, TimeUnit.MINUTES,
+                             "Repaired data tracking was requested for read command, but is disabled for table {}.{}",
+                             cfs.keyspace, cfs.name);
+            return true;
+        }
+
+        return false;
     }
 
     /**
