@@ -50,10 +50,7 @@ public class CasCriticalSectionTest extends TestBaseImpl
     @Test
     public void criticalSectionTest() throws IOException, InterruptedException
     {
-        try (Cluster cluster = init(Cluster.create(5, c -> c.set("paxos_variant", "apple_rrl")
-                                                            .set("write_request_timeout_in_ms", 200L)
-                                                            .set("cas_contention_timeout_in_ms", 200L)
-                                                            .set("request_timeout_in_ms", 200L))))
+        try (Cluster cluster = init(Cluster.create(5, c -> c.set("paxos_variant", "apple_rrl"))))
         {
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (pk int, ck int, thread_id int, PRIMARY KEY(pk, ck))");
 
