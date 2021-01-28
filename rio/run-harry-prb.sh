@@ -6,10 +6,9 @@ set -o pipefail
 set -o nounset
 
 request() {
-  local readonly url="$1"; shift
-  local request_id
-  readonly request_id="$(uuidgen)"
-  local readonly output_file="/tmp/requests/$request_id"
+  local -r url="$1"; shift
+  local -r request_id="$(uuidgen)"
+  local -r output_file="/tmp/requests/$request_id"
 
   mkdir -p "$(dirname "$output_file")"
 
@@ -32,12 +31,12 @@ request() {
 }
 
 trigger_rio_pipeline() {
-  local _repo_id="$1"
-  local _spec_id="$2"
-  local _build_parameters="$3"
+  local -r _repo_id="$1"
+  local -r _spec_id="$2"
+  local -r _build_parameters="$3"
 
-	read rio_api_token < ${BUILD_SECRETS_PATH}/rio-api-token || :
-	read rio_email < ${BUILD_SECRETS_PATH}/rio-test-user-email || :
+  read rio_api_token < ${BUILD_SECRETS_PATH}/rio-api-token || :
+  read rio_email < ${BUILD_SECRETS_PATH}/rio-test-user-email || :
 
   local response
   response=$(request https://rio-api.pie.apple.com/v1/projects/${_repo_id}/pipeline_specs/${_spec_id}/trigger \
@@ -86,7 +85,9 @@ info() {
   echo "$*"
 }
 _main() {
-    yum install -y jq
+    if ! type jq &> /dev/null; then
+      yum install -y jq
+    fi
 
     # trigger harry build
     build_params=(
@@ -94,11 +95,11 @@ _main() {
       "\"CASSANDRA_PR\":\"$GIT_PR_ID\"" ,
       "\"CASSANDRA_BRANCH\":\"$GIT_BRANCH\"" ,
       "\"HARRY_BRANCH\":\"master\"" ,
-      "\"DURATION_IN_MINUTES\":\"2\"" ,
+      "\"DURATION_IN_MINUTES\":\"15\"" ,
       "\"PARALLELISM\":\"2\"" ,
       "\"COMPLETIONS\":\"2\""
     )
-    echo "Triggering rio build pie-oss-cassandra-deploy-remote-build-docker-publish with build params ${build_params[*]}"
+    echo "Triggering rio build pie-harry-build-cassandra-and-run-build with build params ${build_params[*]}"
     trigger_rio_pipeline pie-harry pie-harry-build-cassandra-and-run-build "${build_params[*]}"
 }
 
