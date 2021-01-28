@@ -28,7 +28,6 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.paxos.Ballot;
 import org.apache.cassandra.service.paxos.PaxosState;
@@ -87,7 +86,7 @@ public class PaxosUncommittedTrackerIntegrationTest
 
         try (PaxosState state = PaxosState.get(key, cfm, proposal.ballot))
         {
-            state.promiseIfNewer(proposal.ballot);
+            state.promiseIfNewer(proposal.ballot, true);
         }
 
         try (CloseableIterator<UncommittedPaxosKey> iterator = tracker.uncommittedKeyIterator(cfm.cfId, ALL_RANGES))
@@ -123,7 +122,7 @@ public class PaxosUncommittedTrackerIntegrationTest
 
         try (PaxosState state = PaxosState.get(key, cfm, proposal.ballot))
         {
-            state.promiseIfNewer(proposal.ballot);
+            state.promiseIfNewer(proposal.ballot, true);
             state.acceptIfLatest(proposal);
         }
         try (CloseableIterator<UncommittedPaxosKey> iterator = tracker.uncommittedKeyIterator(cfm.cfId, ALL_RANGES))

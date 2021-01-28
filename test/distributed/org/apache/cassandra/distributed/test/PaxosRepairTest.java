@@ -281,7 +281,7 @@ public class PaxosRepairTest extends TestBaseImpl
             IMessageFilters.Filter filter2 = cluster.verbs(PAXOS_COMMIT, APPLE_PAXOS_COMMIT_AND_PREPARE_REQ).drop();
             try
             {
-                cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + '.' + TABLE + " WHERE pk = 1", ConsistencyLevel.SERIAL);
+                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.SERIAL);
                 Assert.fail("expected write timeout");
             }
             catch (RuntimeException e)

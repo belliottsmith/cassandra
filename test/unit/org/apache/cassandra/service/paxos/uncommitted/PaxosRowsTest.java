@@ -109,12 +109,12 @@ public class PaxosRowsTest
         DecoratedKey key = dk(5);
         UUID[] ballots = createBallots(3);
 
-        SystemKeyspace.savePaxosPromise(key, cfm, ballots[0]);
+        SystemKeyspace.savePaxosWritePromise(key, cfm, ballots[0]);
         Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[0], false), PaxosRows.getCommitState(key, paxosRowFor(key), null));
         SystemKeyspace.savePaxosProposal(emptyCommitFor(ballots[0], key));
         Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[0], true), PaxosRows.getCommitState(key, paxosRowFor(key), null));
 
-        SystemKeyspace.savePaxosPromise(key, cfm, ballots[1]);
+        SystemKeyspace.savePaxosWritePromise(key, cfm, ballots[1]);
         Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[1], false), PaxosRows.getCommitState(key, paxosRowFor(key), null));
         SystemKeyspace.savePaxosProposal(nonEmptyCommitFor(ballots[1], key));
         Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[1], false), PaxosRows.getCommitState(key, paxosRowFor(key), null));

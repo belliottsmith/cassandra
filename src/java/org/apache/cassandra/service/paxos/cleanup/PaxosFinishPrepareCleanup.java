@@ -69,7 +69,7 @@ public class PaxosFinishPrepareCleanup extends AbstractFuture<Void> implements I
     }
 
     public static final IVerbHandler<PaxosCleanupHistory> verbHandler = (message, id) -> {
-        PaxosState.ballotTracker().updateLowerBound(message.payload.highBound);
+        PaxosState.ballotTracker().updateLowBound(message.payload.highBound);
         Schema.instance.getColumnFamilyStoreInstance(message.payload.cfId).syncPaxosRepairHistory(message.payload.history);
         MessageOut<Void> msg = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, null, VoidSerializer.serializer);
         MessagingService.instance().sendReply(msg, id, message.from);

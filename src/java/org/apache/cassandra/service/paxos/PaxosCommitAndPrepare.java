@@ -24,7 +24,6 @@ import java.util.UUID;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -45,11 +44,11 @@ public class PaxosCommitAndPrepare
 {
     public static final RequestSerializer requestSerializer = new RequestSerializer();
 
-    static PaxosPrepare commitAndPrepare(Agreed commit, Paxos.Participants participants, SinglePartitionReadCommand readCommand, boolean tryOptimisticRead)
+    static PaxosPrepare commitAndPrepare(Agreed commit, Paxos.Participants participants, SinglePartitionReadCommand readCommand, boolean isWrite, boolean acceptEarlyReadSuccess)
     {
         UUID ballot = newBallot(commit.ballot, participants.consistencyForConsensus);
-        Request request = new Request(commit, ballot, participants.electorate, readCommand, tryOptimisticRead);
-        PaxosPrepare prepare = new PaxosPrepare(participants, request, null);
+        Request request = new Request(commit, ballot, participants.electorate, readCommand, isWrite);
+        PaxosPrepare prepare = new PaxosPrepare(participants, request, acceptEarlyReadSuccess, null);
 
         Tracing.trace("Committing {}; Preparing {}", commit.ballot, ballot);
         MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, request, requestSerializer)
@@ -62,21 +61,21 @@ public class PaxosCommitAndPrepare
     {
         final Agreed commit;
 
-        Request(Agreed commit, UUID ballot, Paxos.Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability)
+        Request(Agreed commit, UUID ballot, Paxos.Electorate electorate, SinglePartitionReadCommand read, boolean isWrite)
         {
-            super(ballot, electorate, read, checkProposalStability);
+            super(ballot, electorate, read, isWrite);
             this.commit = commit;
         }
 
-        private Request(Agreed commit, UUID ballot, Paxos.Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability)
+        private Request(Agreed commit, UUID ballot, Paxos.Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean isWrite)
         {
-            super(ballot, electorate, partitionKey, metadata, checkProposalStability);
+            super(ballot, electorate, partitionKey, metadata, isWrite);
             this.commit = commit;
         }
 
         Request withoutRead()
         {
-            return new Request(commit, ballot, electorate, partitionKey, metadata, checkProposalStability);
+            return new Request(commit, ballot, electorate, partitionKey, metadata, isForWrite);
         }
 
         public String toString()
@@ -87,14 +86,14 @@ public class PaxosCommitAndPrepare
 
     public static class RequestSerializer extends PaxosPrepare.AbstractRequestSerializer<Request, Agreed>
     {
-        Request construct(Agreed param, UUID ballot, Paxos.Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability)
+        Request construct(Agreed param, UUID ballot, Paxos.Electorate electorate, SinglePartitionReadCommand read, boolean isWrite)
         {
-            return new Request(param, ballot, electorate, read, checkProposalStability);
+            return new Request(param, ballot, electorate, read, isWrite);
         }
 
-        Request construct(Agreed param, UUID ballot, Paxos.Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability)
+        Request construct(Agreed param, UUID ballot, Paxos.Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean isWrite)
         {
-            return new Request(param, ballot, electorate, partitionKey, metadata, checkProposalStability);
+            return new Request(param, ballot, electorate, partitionKey, metadata, isWrite);
         }
 
         @Override
@@ -145,5 +144,4 @@ public class PaxosCommitAndPrepare
             }
         }
     }
-
 }

@@ -99,9 +99,11 @@ import static com.google.common.collect.Iterators.filter;
 import static com.google.common.collect.Iterators.size;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.apache.cassandra.config.Config.PaxosVariant.apple_norrl;
 import static org.apache.cassandra.db.WriteType.CAS;
+import static org.apache.cassandra.config.Config.PaxosVariant.apple_norrfwl;
+import static org.apache.cassandra.config.Config.PaxosVariant.apple_norrl;
 import static org.apache.cassandra.net.CompactEndpointSerializationHelper.*;
-import static org.apache.cassandra.config.Config.PaxosVariant.*;
 import static org.apache.cassandra.config.DatabaseDescriptor.*;
 import static org.apache.cassandra.db.ConsistencyLevel.*;
 import static org.apache.cassandra.gms.FailureDetector.isAlivePredicate;
@@ -118,7 +120,6 @@ import static org.apache.cassandra.service.paxos.PaxosCommit.commit;
 import static org.apache.cassandra.service.paxos.PaxosCommitAndPrepare.commitAndPrepare;
 import static org.apache.cassandra.service.paxos.PaxosPrepare.prepare;
 import static org.apache.cassandra.service.paxos.PaxosPropose.propose;
-import static org.apache.cassandra.service.paxos.PaxosState.*;
 import static org.apache.cassandra.utils.CollectionSerializer.newHashSet;
 import static org.apache.cassandra.utils.NoSpamLogger.Level.WARN;
 import static org.apache.cassandra.utils.FBUtilities.getBroadcastAddress;
@@ -510,7 +511,7 @@ public class Paxos
         consistencyForCommit.validateForCasCommit(metadata.ksName);
         verifyAgainstBlacklist(metadata.ksName, metadata.cfName, partitionKey);
 
-        UUID minimumBallot = ballotTracker().getLowBound();
+        UUID minimumBallot = null;
         int failedAttemptsDueToContention = 0;
         try (PaxosOperationLock lock = PaxosState.lock(partitionKey, metadata, proposeDeadline, consistencyForConsensus, true))
         {
@@ -553,10 +554,16 @@ public class Paxos
                     // assured a conditional write that !conditionMet.
                     // So our evaluation is only serialized if we invalidate any in progress operations by proposing an empty update
                     // See also CASSANDRA-12126
+                    if (begin.isLinearizableRead)
+                    {
+                        Tracing.trace("CAS precondition does not match current values {}; read is already linearizable; aborting", current);
+                        return conditionNotMet(current);
+                    }
+
                     Tracing.trace("CAS precondition does not match current values {}; proposing empty update", current);
                     proposal = Proposal.empty(ballot, partitionKey, metadata);
                 }
-                else
+                else if (begin.isPromised)
                 {
                     // finish the paxos round w/ the desired updates
                     // TODO "turn null updates into delete?" - what does this TODO even mean?
@@ -574,8 +581,14 @@ public class Paxos
                     proposal = Proposal.from(ballot, updates);
                     Tracing.trace("CAS precondition is met; proposing client-requested updates for {}", ballot);
                 }
+                else
+                {
+                    // must retry, as only achieved read success in begin
+                    Tracing.trace("CAS precondition is met, but ballot stale for proposal; retrying", current);
+                    continue;
+                }
 
-                PaxosPropose.Status propose = propose(proposal, participants, true).awaitUntil(proposeDeadline);
+                PaxosPropose.Status propose = propose(proposal, participants, conditionMet).awaitUntil(proposeDeadline);
                 switch (propose.outcome)
                 {
                     default: throw new IllegalStateException();
@@ -585,22 +598,16 @@ public class Paxos
 
                     case SUCCESS:
                     {
-                        if (conditionMet)
-                        {
-                            // no need to commit a no-op; either it
-                            //   1) reached a majority, in which case it was agreed, had no effect and we can do nothing; or
-                            //   2) did not reach a majority, was not agreed, and was not user visible as a result so we can ignore it
-                            if (!proposal.update.isEmpty())
-                                commit = commit(proposal.agreed(), participants, consistencyForCommit, true);
+                        if (!conditionMet)
+                            return conditionNotMet(current);
 
-                            break done;
-                        }
-                        else
-                        {
-                            Tracing.trace("CAS precondition rejected", current);
-                            casWriteMetrics.conditionNotMet.inc();
-                            return current.rowIterator();
-                        }
+                        // no need to commit a no-op; either it
+                        //   1) reached a majority, in which case it was agreed, had no effect and we can do nothing; or
+                        //   2) did not reach a majority, was not agreed, and was not user visible as a result so we can ignore it
+                        if (!proposal.update.isEmpty())
+                            commit = commit(proposal.agreed(), participants, consistencyForCommit, true);
+
+                        break done;
                     }
 
                     case SUPERSEDED:
@@ -653,6 +660,13 @@ public class Paxos
         }
     }
 
+    private static RowIterator conditionNotMet(FilteredPartition read)
+    {
+        Tracing.trace("CAS precondition rejected", read);
+        casWriteMetrics.conditionNotMet.inc();
+        return read.rowIterator();
+    }
+
     public static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyForConsensus)
             throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
     {
@@ -674,7 +688,7 @@ public class Paxos
             throw new InvalidRequestException("SERIAL/LOCAL_SERIAL consistency may only be requested for one partition at a time");
 
         int failedAttemptsDueToContention = 0;
-        UUID minimumBallot = ballotTracker().getLowBound();
+        UUID minimumBallot = null;
         SinglePartitionReadCommand read = group.commands.get(0);
         try (PaxosOperationLock lock = PaxosState.lock(read.partitionKey(), read.metadata(), deadline, consistencyForConsensus, false))
         {
@@ -686,13 +700,19 @@ public class Paxos
                 if (PAXOS_VARIANT == apple_norrl || PAXOS_VARIANT == apple_norrfwl)
                     return begin.readResponse;
 
-                Proposal proposal = Proposal.empty(begin.ballot, read.partitionKey(), read.metadata());
-                if (begin.isOptimisticReadSafe && PAXOS_VARIANT == apple_rrl)
+                switch (PAXOS_VARIANT)
                 {
-                    propose(proposal, begin.participants, false, null);
-                    return begin.readResponse;
+                    case apple_norrfwl:
+                    case apple_norrl:
+                        return begin.readResponse;
+
+                    case apple_rrl:
+                        // no need to submit an empty proposal, as the promise will be treated as complete for future optimistic reads
+                        if (begin.isLinearizableRead)
+                            return begin.readResponse;
                 }
 
+                Proposal proposal = Proposal.empty(begin.ballot, read.partitionKey(), read.metadata());
                 PaxosPropose.Status propose = propose(proposal, begin.participants, false).awaitUntil(deadline);
                 switch (propose.outcome)
                 {
@@ -704,12 +724,12 @@ public class Paxos
                     case SUCCESS:
                         return begin.readResponse;
 
-                        case SUPERSEDED:
-                            minimumBallot = propose.superseded().by;
-                            // We have been superseded without our proposal being accepted by anyone, so we can safely retry
-                            Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
-                            if (!waitForContention(deadline, ++failedAttemptsDueToContention, group.metadata(), group.commands.get(0).partitionKey(), consistencyForConsensus, false))
-                                throw new MaybeFailure(begin.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
+                    case SUPERSEDED:
+                        minimumBallot = propose.superseded().by;
+                        // We have been superseded without our proposal being accepted by anyone, so we can safely retry
+                        Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
+                        if (!waitForContention(deadline, ++failedAttemptsDueToContention, group.metadata(), group.commands.get(0).partitionKey(), consistencyForConsensus, false))
+                            throw new MaybeFailure(begin.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
                 }
             }
         }
@@ -735,15 +755,20 @@ public class Paxos
         final Participants participants;
         final int failedAttemptsDueToContention;
         final PartitionIterator readResponse;
-        final boolean isOptimisticReadSafe;
+        final boolean isLinearizableRead;
+        final boolean isPromised;
+        final UUID retryWithAtLeast;
 
-        public BeginResult(UUID ballot, Participants participants, int failedAttemptsDueToContention, PartitionIterator readResponse, boolean isOptimisticReadSafe)
+        public BeginResult(UUID ballot, Participants participants, int failedAttemptsDueToContention, PartitionIterator readResponse, boolean isLinearizableRead, boolean isPromised, UUID retryWithAtLeast)
         {
+            assert isPromised || isLinearizableRead;
             this.ballot = ballot;
             this.participants = participants;
             this.failedAttemptsDueToContention = failedAttemptsDueToContention;
             this.readResponse = readResponse;
-            this.isOptimisticReadSafe = isOptimisticReadSafe;
+            this.isLinearizableRead = isLinearizableRead;
+            this.isPromised = isPromised;
+            this.retryWithAtLeast = retryWithAtLeast;
         }
     }
 
@@ -777,14 +802,16 @@ public class Paxos
                                      int failedAttemptsDueToContention)
             throws WriteTimeoutException, WriteFailureException, ReadTimeoutException, ReadFailureException
     {
+        boolean acceptEarlyReadPermission = !isWrite; // if we're reading, begin by assuming a read permission is sufficient
         Participants initialParticipants = Participants.get(readCommand.metadata(), readCommand.partitionKey(), consistencyForConsensus);
         initialParticipants.assureSufficientLiveNodes(isWrite);
-        PaxosPrepare preparing = prepare(minimumBallot, initialParticipants, readCommand, !isWrite);
+        PaxosPrepare preparing = prepare(minimumBallot, initialParticipants, readCommand, isWrite, acceptEarlyReadPermission);
         while (true)
         {
             // prepare
-            PaxosPrepare retry;
+            PaxosPrepare retry = null;
             PaxosPrepare.Status prepare = preparing.awaitUntil(deadline);
+            boolean isPromised = false;
             retry: switch (prepare.outcome)
             {
                 default: throw new IllegalStateException();
@@ -793,7 +820,7 @@ public class Paxos
                 {
                     FoundIncompleteCommitted incomplete = prepare.incompleteCommitted();
                     Tracing.trace("Repairing replicas that missed the most recent commit");
-                    retry = commitAndPrepare(incomplete.committed, incomplete.participants, readCommand, !isWrite);
+                    retry = commitAndPrepare(incomplete.committed, incomplete.participants, readCommand, isWrite, acceptEarlyReadPermission);
                     break;
                 }
                 case FOUND_INCOMPLETE_ACCEPTED:
@@ -811,7 +838,7 @@ public class Paxos
                     // is equal to the latest commit (even if the ballots aren't) we're done and can abort earlier,
                     // and in fact it's possible for a CAS to sometimes determine if side effects occurred by reading
                     // the underlying data and not witnessing the timestamp of its ballot (or any newer for the relevant data).
-                    Proposal repropose = new Proposal(inProgress.promisedBallot, inProgress.accepted.update);
+                    Proposal repropose = new Proposal(inProgress.ballot, inProgress.accepted.update);
                     PaxosPropose.Status proposeResult = propose(repropose, inProgress.participants, false).awaitUntil(deadline);
                     switch (proposeResult.outcome)
                     {
@@ -821,7 +848,7 @@ public class Paxos
                             throw proposeResult.maybeFailure().markAndThrowAsTimeoutOrFailure(isWrite, consistencyForConsensus);
 
                         case SUCCESS:
-                            retry = commitAndPrepare(repropose.agreed(), inProgress.participants, readCommand, !isWrite);
+                            retry = commitAndPrepare(repropose.agreed(), inProgress.participants, readCommand, isWrite, acceptEarlyReadPermission);
                             break retry;
 
                         case SUPERSEDED:
@@ -834,18 +861,12 @@ public class Paxos
                 }
 
                 case SUPERSEDED:
-                {
-                    Tracing.trace("Some replicas have already promised a higher ballot than ours; aborting");
-                    // sleep a random amount to give the other proposer a chance to finish
-                    if (!waitForContention(deadline, ++failedAttemptsDueToContention, readCommand.metadata(), readCommand.partitionKey(), consistencyForConsensus, isWrite))
-                        throw new MaybeFailure(prepare.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
-                    retry = prepare(prepare.supersededBy(), prepare.participants, readCommand, !isWrite);
                     break;
-                }
 
-                case SUCCESS:
+                case PROMISED: isPromised = true;
+                case READ_PERMITTED:
                 {
-                    // We have received a quorum of promises that have all witnessed the commit of the prior paxos
+                    // We have received a quorum of promises (or read permissions) that have all witnessed the commit of the prior paxos
                     // round's proposal (if any).
                     PaxosPrepare.Success success = prepare.success();
 
@@ -856,7 +877,17 @@ public class Paxos
                     WasRun hadShortRead = new WasRun();
                     PartitionIterator result = resolver.resolve(hadShortRead);
 
-                    return new BeginResult(success.ballot, success.participants, failedAttemptsDueToContention, result, !hadShortRead.v && success.isReadConsistent);
+                    if (!isPromised && hadShortRead.v)
+                    {
+                        // we need to propose an empty update to linearize our short read, but only had read success
+                        // since we may continue to perform short reads, we ask our prepare not to accept an early
+                        // read permission, when a promise may yet be obtained
+                        // TODO: increase read size each time this happens?
+                        acceptEarlyReadPermission = false;
+                        break;
+                    }
+
+                    return new BeginResult(success.ballot, success.participants, failedAttemptsDueToContention, result, !hadShortRead.v && success.isReadSafe, isPromised, success.supersededBy);
                 }
 
                 case MAYBE_FAILURE:
@@ -865,9 +896,18 @@ public class Paxos
                 case ELECTORATE_MISMATCH:
                     Participants participants = Participants.get(readCommand.metadata(), readCommand.partitionKey(), consistencyForConsensus);
                     participants.assureSufficientLiveNodes(isWrite);
-                    retry = prepare(prepare.previousBallot(), participants, readCommand, !isWrite);
+                    retry = prepare(participants, readCommand, isWrite, acceptEarlyReadPermission);
                     break;
 
+            }
+
+            if (retry == null)
+            {
+                Tracing.trace("Some replicas have already promised a higher ballot than ours; retrying");
+                // sleep a random amount to give the other proposer a chance to finish
+                if (!waitForContention(deadline, ++failedAttemptsDueToContention, readCommand.metadata(), readCommand.partitionKey(), consistencyForConsensus, isWrite))
+                    throw new MaybeFailure(prepare.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
+                retry = prepare(prepare.retryWithAtLeast(), prepare.participants, readCommand, isWrite, acceptEarlyReadPermission);
             }
 
             preparing = retry;
