@@ -224,7 +224,7 @@ builds:
   - group: ghprb-harry
     build:
       steps:
-        - echo "Trigger Harry Build"
+        - ./rio/run-harry-prb.sh
       template: freestyle:v4:prb
     timeout: 30
     package:
@@ -240,24 +240,10 @@ builds:
         annotate: false
       tag:
         enabled: false
-      pipelineChain:
-        - project: pie-harry
-          pipeline: build-cassandra-and-run-build
-          buildArguments:
-            - name: CASSANDRA_REPOSITORY
-              value: "aci-cassandra/aci-cassandra"
-            - name: CASSANDRA_PR
-              value: ${GIT_PR_ID}
-            - name: CASSANDRA_BRANCH
-              value: "${GIT_BRANCH}"
-            - name: HARRY_BRANCH
-              value: "master"
-            - name: DURATION_IN_MINUTES
-              value: "15"
-            - name: PARALLELISM
-              value: "2"
-            - name: COMPLETIONS
-              value: "2"
+    secrets:
+      names:
+        - rio-api-token
+        - rio-test-user-email
 
   #
   # Publish in-JVM dtest jar and trigger Harry build using it
