@@ -20,6 +20,7 @@ shared:
       runtime:
         java:
           - 8
+          - 11
       environment:
         - LANG: en_US.UTF-8
         # some tests can't run properly in circle ci, so they get skipped if this environment variable is set

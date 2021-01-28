@@ -183,8 +183,9 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         }
 
         // When all validations complete, submit sync tasks
+        AsyncFunction<List<TreeResponse>, List<SyncStat>> syncFunction = session.optimiseStreams && !session.pullRepair ? this::optimisedSyncing : this::standardSyncing;
         ListenableFuture<List<SyncStat>> syncResults = Futures.transform(validations,
-                                                                         session.optimiseStreams && !session.pullRepair ? this::optimisedSyncing : this::standardSyncing,
+                                                                         syncFunction,
                                                                          taskExecutor);
 
         // When all sync complete, set the final result
