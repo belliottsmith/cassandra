@@ -28,27 +28,80 @@ import java.util.Set;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.HeartBeatState;
+import org.apache.cassandra.utils.FBUtilities;
 
 import static org.apache.cassandra.net.OutboundTcpConnectionPool.ConnectionType.SMALL_MESSAGE;
 
 public class StartupClusterConnectivityCheckerTest
 {
-    private StartupClusterConnectivityChecker connectivityChecker;
+    private StartupClusterConnectivityChecker localQuorumConnectivityChecker;
+    private StartupClusterConnectivityChecker globalQuorumConnectivityChecker;
+    private StartupClusterConnectivityChecker noopChecker;
+    private StartupClusterConnectivityChecker zeroWaitChecker;
+
+    private static final long TIMEOUT_NANOS = 100;
+    private static final int NUM_PER_DC = 6;
     private Set<InetAddress> peers;
+    private Set<InetAddress> peersA;
+    private Set<InetAddress> peersAMinusLocal;
+    private Set<InetAddress> peersB;
+    private Set<InetAddress> peersC;
+
+    private String getDatacenter(InetAddress endpoint)
+    {
+        if (peersA.contains(endpoint))
+            return "datacenterA";
+        if (peersB.contains(endpoint))
+            return "datacenterB";
+        else if (peersC.contains(endpoint))
+            return "datacenterC";
+        return null;
+    }
+
+    @BeforeClass
+    public static void before()
+    {
+        DatabaseDescriptor.setDaemonInitialized();
+    }
 
     @Before
     public void setUp() throws UnknownHostException
     {
-        connectivityChecker = new StartupClusterConnectivityChecker(70, 10);
+        localQuorumConnectivityChecker = new StartupClusterConnectivityChecker(TIMEOUT_NANOS, false);
+        globalQuorumConnectivityChecker = new StartupClusterConnectivityChecker(TIMEOUT_NANOS, true);
+        noopChecker = new StartupClusterConnectivityChecker(-1, false);
+        zeroWaitChecker = new StartupClusterConnectivityChecker(0, false);
+
+        peersA = new HashSet<>();
+        peersAMinusLocal = new HashSet<>();
+        peersA.add(FBUtilities.getBroadcastAddress());
+
+        for (int i = 0; i < NUM_PER_DC - 1; i ++)
+        {
+            peersA.add(InetAddress.getByName("127.0.1." + i));
+            peersAMinusLocal.add(InetAddress.getByName("127.0.1." + i));
+        }
+
+        peersB = new HashSet<>();
+        for (int i = 0; i < NUM_PER_DC; i ++)
+            peersB.add(InetAddress.getByName("127.0.2." + i));
+
+
+        peersC = new HashSet<>();
+        for (int i = 0; i < NUM_PER_DC; i ++)
+            peersC.add(InetAddress.getByName("127.0.3." + i));
+
         peers = new HashSet<>();
-        peers.add(InetAddress.getByName("127.0.1.0"));
-        peers.add(InetAddress.getByName("127.0.1.1"));
-        peers.add(InetAddress.getByName("127.0.1.2"));
+        peers.addAll(peersA);
+        peers.addAll(peersB);
+        peers.addAll(peersC);
     }
 
     @After
@@ -60,50 +113,145 @@ public class StartupClusterConnectivityCheckerTest
     @Test
     public void execute_HappyPath()
     {
-        Sink sink = new Sink(true, true);
+        Sink sink = new Sink(true, true, peers);
         MessagingService.instance().addMessageSink(sink);
-        Assert.assertTrue(connectivityChecker.execute(peers));
-        checkAllConnectionTypesSeen(sink);
+        Assert.assertTrue(localQuorumConnectivityChecker.execute(peers, this::getDatacenter));
+        Assert.assertTrue(checkAllConnectionTypesSeen(sink));
     }
 
     @Test
     public void execute_NotAlive()
     {
-        Sink sink = new Sink(false, true);
+        Sink sink = new Sink(false, true, peers);
         MessagingService.instance().addMessageSink(sink);
-        Assert.assertFalse(connectivityChecker.execute(peers));
-        checkAllConnectionTypesSeen(sink);
+        Assert.assertFalse(localQuorumConnectivityChecker.execute(peers, this::getDatacenter));
+        Assert.assertTrue(checkAllConnectionTypesSeen(sink));
     }
 
     @Test
     public void execute_NoConnectionsAcks()
     {
-        Sink sink = new Sink(true, false);
+        Sink sink = new Sink(true, false, peers);
         MessagingService.instance().addMessageSink(sink);
-        Assert.assertFalse(connectivityChecker.execute(peers));
+        Assert.assertFalse(localQuorumConnectivityChecker.execute(peers, this::getDatacenter));
     }
 
-    private void checkAllConnectionTypesSeen(Sink sink)
+    @Test
+    public void execute_LocalQuorum()
     {
+        // local peer plus 3 peers from same dc shouldn't pass (4/6)
+        Set<InetAddress> available = new HashSet<>();
+        copyCount(peersAMinusLocal, available, NUM_PER_DC - 3);
+        checkAvailable(localQuorumConnectivityChecker, available, false, true);
+
+        // local peer plus 4 peers from same dc should pass (5/6)
+        available.clear();
+        copyCount(peersAMinusLocal, available, NUM_PER_DC - 2);
+        checkAvailable(localQuorumConnectivityChecker, available, true, true);
+    }
+
+    @Test
+    public void execute_GlobalQuorum()
+    {
+        // local dc passing shouldn't pass globally with two hosts down in datacenterB
+        Set<InetAddress> available = new HashSet<>();
+        copyCount(peersAMinusLocal, available, NUM_PER_DC - 2);
+        copyCount(peersB, available, NUM_PER_DC - 2);
+        copyCount(peersC, available, NUM_PER_DC - 1);
+        checkAvailable(globalQuorumConnectivityChecker, available, false, true);
+
+        // All three datacenters should be able to have a single node down
+        available.clear();
+        copyCount(peersAMinusLocal, available, NUM_PER_DC - 2);
+        copyCount(peersB, available, NUM_PER_DC - 1);
+        copyCount(peersC, available, NUM_PER_DC - 1);
+        checkAvailable(globalQuorumConnectivityChecker, available, true, true);
+
+        // Everything being up should work of course
+        available.clear();
+        copyCount(peersAMinusLocal, available, NUM_PER_DC - 1);
+        copyCount(peersB, available, NUM_PER_DC);
+        copyCount(peersC, available, NUM_PER_DC);
+        checkAvailable(globalQuorumConnectivityChecker, available, true, true);
+    }
+
+    @Test
+    public void execute_Noop()
+    {
+        checkAvailable(noopChecker, new HashSet<>(), true, false);
+    }
+
+    @Test
+    public void execute_ZeroWaitHasConnections() throws InterruptedException
+    {
+        Sink sink = new Sink(true, true, new HashSet<>());
+        MessagingService.instance().addMessageSink(sink);
+        Assert.assertFalse(zeroWaitChecker.execute(peers, this::getDatacenter));
+        boolean hasConnections = false;
+        for (int i = 0; i < TIMEOUT_NANOS; i+= 10)
+        {
+            hasConnections = checkAllConnectionTypesSeen(sink);
+            if (hasConnections)
+                break;
+            Thread.sleep(0, 10);
+        }
+        MessagingService.instance().clearMessageSinks();
+        Assert.assertTrue(hasConnections);
+    }
+
+    private void checkAvailable(StartupClusterConnectivityChecker checker, Set<InetAddress> available,
+                                boolean shouldPass, boolean checkConnections)
+    {
+        Sink sink = new Sink(true, true, available);
+        MessagingService.instance().addMessageSink(sink);
+        Assert.assertEquals(shouldPass, checker.execute(peers, this::getDatacenter));
+        if (checkConnections)
+            Assert.assertTrue(checkAllConnectionTypesSeen(sink));
+        MessagingService.instance().clearMessageSinks();
+    }
+
+    private void copyCount(Set<InetAddress> source, Set<InetAddress> dest, int count)
+    {
+        for (InetAddress peer : source)
+        {
+            if (count <= 0)
+                break;
+
+            dest.add(peer);
+            count -= 1;
+        }
+    }
+
+    private boolean checkAllConnectionTypesSeen(Sink sink)
+    {
+        boolean result = true;
         for (InetAddress peer : peers)
         {
+            if (peer.equals(FBUtilities.getBroadcastAddress()))
+                continue;
             ConnectionTypeRecorder recorder = sink.seenConnectionRequests.get(peer);
-            Assert.assertNotNull(recorder);
-            Assert.assertTrue(recorder.seenSmallMessageRequest);
-            Assert.assertTrue(recorder.seenLargeMessageRequest);
+            result = recorder != null;
+            if (!result)
+                break;
+
+            result = recorder.seenSmallMessageRequest;
+            result &= recorder.seenLargeMessageRequest;
         }
+        return result;
     }
 
     private static class Sink implements IMessageSink
     {
         private final boolean markAliveInGossip;
         private final boolean processConnectAck;
+        private final Set<InetAddress> aliveHosts;
         private final Map<InetAddress, ConnectionTypeRecorder> seenConnectionRequests;
 
-        Sink(boolean markAliveInGossip, boolean processConnectAck)
+        Sink(boolean markAliveInGossip, boolean processConnectAck, Set<InetAddress> aliveHosts)
         {
             this.markAliveInGossip = markAliveInGossip;
             this.processConnectAck = processConnectAck;
+            this.aliveHosts = aliveHosts;
             seenConnectionRequests = new HashMap<>();
         }
 
@@ -121,6 +269,9 @@ public class StartupClusterConnectivityCheckerTest
                 Assert.assertFalse(recorder.seenLargeMessageRequest);
                 recorder.seenLargeMessageRequest = true;
             }
+
+            if (!aliveHosts.contains(to))
+                return false;
 
             if (processConnectAck)
             {

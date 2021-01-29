@@ -506,9 +506,31 @@ public class Config
 
     public CorruptedTombstoneStrategy corrupted_tombstone_strategy = CorruptedTombstoneStrategy.disabled;
 
-    // parameters to adjust how much to delay startup until a certain amount of the cluster is connect to and marked alive
-    public int block_for_peers_percentage = 70;
+    /**
+     * When a node first starts up it intially considers all other peers as DOWN and is disconnected from all of them.
+     * To be useful as a coordinator (and not introduce latency penalties on restart) this node must have successfully
+     * opened all three internode TCP connections (gossip, small, and large messages) before advertising to clients.
+     * Due to this, by default, Casssandra will prime these internode TCP connections and wait for all but a single
+     * node to be UP/connected in the local datacenter before offering itself as a coordinator, subject to a
+     * timeout. See CASSANDRA-13993 and CASSANDRA-14297 for more details.
+     *
+     * We provide two tunables to control this behavior as some users may want to block until all datacenters are
+     * available (global QUORUM/EACH_QUORUM), some users may not want to block at all (clients that already work
+     * around the problem), and some users may want to prime the connections but not delay startup.
+     *
+     * block_for_peers_timeout_in_secs: controls how long this node will wait to connect to peers. To completely disable
+     * any startup connectivity checks set this to -1. To trigger the internode connections but immediately continue
+     * startup, set this to to 0. The default is 10 seconds.
+     *
+     * block_for_peers_in_remote_dcs: controls if this node will consider remote datacenters to wait for. The default
+     * is to _not_ wait on remote datacenters.
+     */
     public int block_for_peers_timeout_in_secs = 10;
+    public boolean block_for_peers_in_remote_dcs = false;
+    // NOTE: the config is no longer valid. Keep the config in the 3.0 branch to not error out when starting up.
+    // parameters to adjust how much to delay startup until a certain amount of the cluster is connect to and marked alive
+    @Deprecated
+    public Integer block_for_peers_percentage = null;
 
     /**
      * flags for enabling tracking repaired state of data during reads
