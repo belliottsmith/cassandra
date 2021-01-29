@@ -159,6 +159,11 @@ public class CoordinatorSession extends ConsistentSession
 
     public synchronized void handlePrepareResponse(InetAddress participant, boolean success)
     {
+        if (getState() == State.FAILED)
+        {
+            logger.trace("Incremental repair {} has failed, ignoring prepare response from {}", sessionID, participant);
+            return;
+        }
         if (!success)
         {
             logger.info("{} failed the prepare phase for incremental repair session {}. Aborting session", participant, sessionID);
