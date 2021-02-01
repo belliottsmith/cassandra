@@ -94,7 +94,9 @@ public class PreviewRepairTest extends TestBaseImpl
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
             insert(cluster.coordinator(1), 0, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
-            cluster.get(1).callOnInstance(repair(options(false, false)));
+            runAndWaitForLogs(cluster,
+                              () -> cluster.get(1).nodetoolResult("repair", KEYSPACE, "tbl").asserts().success(),
+                              "Finalized local repair session");
             insert(cluster.coordinator(1), 100, 100);
             cluster.forEach((node) -> node.flush(KEYSPACE));
 
@@ -105,16 +107,15 @@ public class PreviewRepairTest extends TestBaseImpl
                 FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(cfs));
                 cfs.disableAutoCompaction();
             }));
-            cluster.get(1).nodetoolResult("repair", KEYSPACE, "tbl").asserts().success();
-            long[] marks = logMark(cluster);
-            cluster.get(1).callOnInstance(repair(options(false, false)));
+            runAndWaitForLogs(cluster,
+                              () -> cluster.get(1).nodetoolResult("repair", KEYSPACE, "tbl").asserts().success(),
+                              "Finalized local repair session");
             // now re-enable autocompaction on node1, this moves the sstables for the new repair to repaired
             cluster.get(1).runOnInstance(() -> {
                 ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl");
                 cfs.enableAutoCompaction();
                 FBUtilities.waitOnFutures(CompactionManager.instance.submitBackground(cfs));
             });
-            waitLogsRepairFullyFinished(cluster, marks);
 
             RepairResult rs = cluster.get(1).callOnInstance(repair(options(true, false)));
             assertTrue(rs.success); // preview repair should succeed
@@ -122,20 +123,14 @@ public class PreviewRepairTest extends TestBaseImpl
         }
     }
 
-    public static void waitLogsRepairFullyFinished(Cluster cluster, long[] marks) throws TimeoutException
-    {
-        for (int i = 0; i < cluster.size(); i++)
-            cluster.get(i + 1).logs().watchFor(marks[i], "Finalized local repair session");
-    }
-
-    public static long[] logMark(Cluster cluster)
+    public static void runAndWaitForLogs(Cluster cluster, Runnable r, String waitString) throws TimeoutException
     {
         long [] marks = new long[cluster.size()];
         for (int i = 0; i < cluster.size(); i++)
-        {
             marks[i] = cluster.get(i + 1).logs().mark();
-        }
-        return marks;
+        r.run();
+        for (int i = 0; i < cluster.size(); i++)
+            cluster.get(i + 1).logs().watchFor(marks[i], waitString);
     }
 
     /**

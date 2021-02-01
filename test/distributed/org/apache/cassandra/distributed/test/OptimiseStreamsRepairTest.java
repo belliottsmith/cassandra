@@ -86,13 +86,11 @@ public class OptimiseStreamsRepairTest extends TestBaseImpl
             cluster.forEach(c -> c.flush(KEYSPACE));
             cluster.forEach(c -> c.forceCompact(KEYSPACE, "tbl"));
 
-            long [] marks = PreviewRepairTest.logMark(cluster);
-            NodeToolResult res = cluster.get(1).nodetoolResult("repair", KEYSPACE, "-os");
-            res.asserts().success();
+            PreviewRepairTest.runAndWaitForLogs(cluster,
+                                                () -> cluster.get(1).nodetoolResult("repair", KEYSPACE, "-os").asserts().success(),
+                                                "Finalized local repair session");
 
-            PreviewRepairTest.waitLogsRepairFullyFinished(cluster, marks);
-
-            res = cluster.get(1).nodetoolResult("repair", KEYSPACE, "-vd");
+            NodeToolResult res = cluster.get(1).nodetoolResult("repair", KEYSPACE, "-vd");
             res.asserts().success();
             res.asserts().notificationContains("Repaired data is in sync");
 
@@ -183,11 +181,11 @@ public class OptimiseStreamsRepairTest extends TestBaseImpl
                 for (int j = 1; j <= 3; j++)
                     cluster.get(j).executeInternal("INSERT INTO "+KEYSPACE+".tbl (id, t) values (?,?)", r.nextInt(), i * 2 + 2);
 
-            long [] marks = PreviewRepairTest.logMark(cluster);
-            NodeToolResult res = cluster.get(1).nodetoolResult("repair", KEYSPACE, "-os");
-            res.asserts().success();
-            PreviewRepairTest.waitLogsRepairFullyFinished(cluster, marks);
-            res = cluster.get(1).nodetoolResult("repair", KEYSPACE, "-vd");
+            PreviewRepairTest.runAndWaitForLogs(cluster,
+                                                () -> cluster.get(1).nodetoolResult("repair", KEYSPACE, "-os").asserts().success(),
+                                                "Finalized local repair session");
+
+            NodeToolResult res = cluster.get(1).nodetoolResult("repair", KEYSPACE, "-vd");
             res.asserts().success();
             res.asserts().notificationContains("Repaired data is in sync");
 
