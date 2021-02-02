@@ -1529,6 +1529,11 @@ public class DatabaseDescriptor
             return conf.memtable_flush_writers;
     }
 
+    public static void setFlushWriters(int value)
+    {
+        conf.memtable_flush_writers = value;
+    }
+
     public static int getMemtableClockShift()
     {
         return conf.memtable_clock_shift;
@@ -1542,6 +1547,11 @@ public class DatabaseDescriptor
     public static int getConcurrentCompactors()
     {
         return conf.concurrent_compactors;
+    }
+
+    public static void setConcurrentCompactors(int value)
+    {
+        conf.concurrent_compactors = value;
     }
 
     public static int getCompactionThroughputMbPerSec()

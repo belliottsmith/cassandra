@@ -31,6 +31,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import javax.management.remote.JMXConnectorServer;
+
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -93,6 +95,9 @@ public abstract class CQLTester
     protected static final ByteBuffer TOO_BIG = ByteBuffer.allocate(FBUtilities.MAX_UNSIGNED_SHORT + 1024);
 
     private static org.apache.cassandra.transport.Server server;
+    private static JMXConnectorServer jmxServer;
+    protected static String jmxHost;
+    protected static int jmxPort;
     protected static final int nativePort;
     protected static final InetAddress nativeAddr;
     private static final Map<Integer, Cluster> clusters = new HashMap<>();
@@ -354,6 +359,42 @@ public abstract class CQLTester
                 }
             }
         });
+    }
+
+    public static List<String> buildNodetoolArgs(List<String> args)
+    {
+        List<String> allArgs = new ArrayList<>();
+        allArgs.add("bin/nodetool");
+        allArgs.add("-p");
+        allArgs.add(Integer.toString(jmxPort));
+        allArgs.add("-h");
+        allArgs.add(jmxHost == null ? "127.0.0.1" : jmxHost);
+        allArgs.addAll(args);
+        return allArgs;
+    }
+
+    public static List<String> buildCqlshArgs(List<String> args)
+    {
+        List<String> allArgs = new ArrayList<>();
+        allArgs.add("bin/cqlsh");
+        allArgs.add(nativeAddr.getHostAddress());
+        allArgs.add(Integer.toString(nativePort));
+        allArgs.add("-e");
+        allArgs.addAll(args);
+        return allArgs;
+    }
+
+    public static List<String> buildCassandraStressArgs(List<String> args)
+    {
+        List<String> allArgs = new ArrayList<>();
+        allArgs.add("tools/bin/cassandra-stress");
+        allArgs.addAll(args);
+        if (args.indexOf("-port") == -1)
+        {
+            allArgs.add("-port");
+            allArgs.add("native=" + Integer.toString(nativePort));
+        }
+        return allArgs;
     }
 
     // lazy initialization for all tests that require Java Driver

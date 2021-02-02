@@ -17,17 +17,43 @@
  */
 package org.apache.cassandra.db.compaction;
 
+import java.io.BufferedInputStream;
+import java.io.Closeable;
+import java.io.DataInputStream;
+import java.io.File;
+import java.io.IOError;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.function.Predicate;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableSet;
 
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.db.*;
+import org.apache.cassandra.config.ColumnDefinition;
+import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.RowIndexEntry;
+import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
-
+import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.Component;
@@ -43,6 +69,7 @@ import org.apache.cassandra.io.util.DataIntegrityMetadata;
 import org.apache.cassandra.io.util.DataIntegrityMetadata.FileDigestValidator;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.io.util.RandomAccessReader;
+import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -51,21 +78,6 @@ import org.apache.cassandra.utils.FilterFactory;
 import org.apache.cassandra.utils.IFilter;
 import org.apache.cassandra.utils.OutputHandler;
 import org.apache.cassandra.utils.UUIDGen;
-
-import java.io.BufferedInputStream;
-import java.io.Closeable;
-import java.io.DataInputStream;
-import java.io.File;
-import java.io.IOError;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.time.Instant;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
-import java.util.function.Predicate;
 
 public class Verifier implements Closeable
 {
@@ -119,7 +131,7 @@ public class Verifier implements Closeable
 
     public void verify()
     {
-        boolean extended = options.extendedVerification;
+        boolean extended = options.extendedVerification || options.validateData;
         long rowStart = 0;
 
         outputHandler.output(String.format("Verifying %s (%s)", sstable, FBUtilities.prettyPrintMemory(dataFile.length())));
@@ -142,7 +154,7 @@ public class Verifier implements Closeable
         catch (Throwable t)
         {
             outputHandler.warn(t.getMessage());
-            markAndThrow(false);
+            markAndThrow(t, false);
         }
 
         try
@@ -153,19 +165,22 @@ public class Verifier implements Closeable
         catch (Throwable t)
         {
             outputHandler.warn(t.getMessage());
-            markAndThrow();
+            markAndThrow(t);
         }
 
-        try
+        if (sstable.descriptor.version.storeRows())
         {
-            outputHandler.debug("Deserializing index summary for "+sstable);
-            deserializeIndexSummary(sstable);
-        }
-        catch (Throwable t)
-        {
-            outputHandler.output("Index summary is corrupt - if it is removed it will get rebuilt on startup "+sstable.descriptor.filenameFor(Component.SUMMARY));
-            outputHandler.warn(t.getMessage());
-            markAndThrow(false);
+            try
+            {
+                outputHandler.debug("Deserializing index summary for " + sstable);
+                deserializeIndexSummary(sstable);
+            }
+            catch (Throwable t)
+            {
+                outputHandler.output("Index summary is corrupt - if it is removed it will get rebuilt on startup "+sstable.descriptor.filenameFor(Component.SUMMARY));
+                outputHandler.warn(t.getMessage());
+                markAndThrow(t, false);
+            }
         }
 
         try
@@ -177,7 +192,7 @@ public class Verifier implements Closeable
         catch (Throwable t)
         {
             outputHandler.warn(t.getMessage());
-            markAndThrow();
+            markAndThrow(t);
         }
 
         if (options.checkOwnsTokens && !isOffline)
@@ -198,7 +213,7 @@ public class Verifier implements Closeable
             catch (Throwable t)
             {
                 outputHandler.warn(t.getMessage());
-                markAndThrow();
+                markAndThrow(t);
             }
         }
 
@@ -226,7 +241,7 @@ public class Verifier implements Closeable
         catch (IOException e)
         {
             outputHandler.warn(e.getMessage());
-            markAndThrow();
+            markAndThrow(e);
         }
         finally
         {
@@ -244,13 +259,13 @@ public class Verifier implements Closeable
             {
                 long firstRowPositionFromIndex = rowIndexEntrySerializer.deserialize(indexFile, nextIndexKey).position;
                 if (firstRowPositionFromIndex != 0)
-                    markAndThrow();
+                    markAndThrow(new RuntimeException("firstRowPositionFromIndex != 0: "+firstRowPositionFromIndex));
             }
 
             List<Range<Token>> ownedRanges = isOffline ? Collections.emptyList() : Range.normalize(tokenLookup.apply(cfs.metadata.ksName));
             RangeOwnHelper rangeOwnHelper = new RangeOwnHelper(ownedRanges);
             DecoratedKey prevKey = null;
-
+            long numPartitions = 0;
             while (!dataFile.isEOF())
             {
 
@@ -270,6 +285,7 @@ public class Verifier implements Closeable
                     throwIfFatal(th);
                     // check for null key below
                 }
+                numPartitions++;
 
                 if (options.checkOwnsTokens && ownedRanges.size() > 0)
                 {
@@ -280,7 +296,20 @@ public class Verifier implements Closeable
                     catch (Throwable t)
                     {
                         outputHandler.warn(String.format("Key %s in sstable %s not owned by local ranges %s", key, sstable, ownedRanges), t);
-                        markAndThrow();
+                        markAndThrow(t);
+                    }
+                }
+
+                if (options.validateData)
+                {
+                    try
+                    {
+                        validatePartition(cfs.metadata, key.getKey());
+                    }
+                    catch (Throwable t)
+                    {
+                        outputHandler.warn(String.format("Key %s in sstable %s failed validation: %s", key, sstable, t.getMessage()), t);
+                        markAndThrow(t);
                     }
                 }
 
@@ -295,7 +324,8 @@ public class Verifier implements Closeable
                 }
                 catch (Throwable th)
                 {
-                    markAndThrow();
+                    outputHandler.warn("Failure reading next row position from index");
+                    markAndThrow(th);
                 }
 
                 long dataStart = dataFile.getFilePointer();
@@ -313,9 +343,11 @@ public class Verifier implements Closeable
                 try
                 {
                     if (key == null || dataSize > dataFile.length())
-                        markAndThrow();
+                        markAndThrow(new RuntimeException(String.format("key = %s, dataSize=%d, dataFile.length() = %d", key, dataSize, dataFile.length())));
 
-                    try (UnfilteredRowIterator iterator = new SSTableIdentityIterator(sstable, dataFile, key))
+                    try (UnfilteredRowIterator iterator = options.validateData ?
+                                                          UnfilteredRowIterators.withValidation(new SSTableIdentityIterator(sstable, dataFile, key), sstable.descriptor.baseFilename()) :
+                                                          new SSTableIdentityIterator(sstable, dataFile, key))
                     {
                         Row first = null;
                         int duplicateRows = 0;
@@ -352,7 +384,7 @@ public class Verifier implements Closeable
                     }
 
                     if ( (prevKey != null && prevKey.compareTo(key) > 0) || !key.getKey().equals(currentIndexKey) || dataStart != dataStartFromIndex )
-                        markAndThrow();
+                        markAndThrow(new RuntimeException("Key out of order: previous = "+prevKey + " : current = " + key));
 
                     goodRows++;
                     prevKey = key;
@@ -363,9 +395,12 @@ public class Verifier implements Closeable
                 }
                 catch (Throwable th)
                 {
-                    markAndThrow();
+                    if (options.validateData)
+                        outputHandler.warn("Failure reading partition " + partitionValues(cfs.metadata, key.getKey()) + "; " + th.getMessage(), th);
+                    markAndThrow(th);
                 }
             }
+            outputHandler.debug("Processed " + numPartitions + " partitions");
         }
         catch (Throwable t)
         {
@@ -377,6 +412,44 @@ public class Verifier implements Closeable
         }
 
         outputHandler.output("Verify of " + sstable + " succeeded. All " + goodRows + " rows read successfully");
+    }
+
+    private void validatePartition(CFMetaData schema, ByteBuffer key)
+    {
+        List<ColumnDefinition> partitionColumns = schema.partitionKeyColumns();
+        List<ByteBuffer> split = partitionColumns.size() == 1 ? Arrays.asList(key) : CompositeType.splitName(key);
+        for (int i = 0; i < split.size(); i++)
+        {
+            ColumnDefinition def = partitionColumns.get(i);
+            try
+            {
+                def.type.validate(split.get(i));
+            }
+            catch (MarshalException e)
+            {
+                throw new RuntimeException("Failure reading partition column " + def + "; " + e.getMessage(), e);
+            }
+        }
+    }
+
+    private static List<ColumnWithValue> partitionValues(CFMetaData schema, ByteBuffer key)
+    {
+        List<ColumnDefinition> partitionColumns = schema.partitionKeyColumns();
+
+        if (partitionColumns.size() == 1)
+        {
+            ColumnDefinition def = partitionColumns.get(0);
+            return Arrays.asList(new ColumnWithValue(def, def.type.compose(key)));
+        }
+
+        List<ByteBuffer> split = CompositeType.splitName(key);
+        List<ColumnWithValue> values = new ArrayList<>(partitionColumns.size());
+        for (int i = 0; i < split.size(); i++)
+        {
+            ColumnDefinition def = partitionColumns.get(i);
+            values.add(new ColumnWithValue(def, def.type.compose(split.get(i))));
+        }
+        return values;
     }
 
     private void logDuplicates(DecoratedKey key, Row first, int duplicateRows, long minTimestamp, long maxTimestamp)
@@ -500,12 +573,12 @@ public class Verifier implements Closeable
             throw (Error) th;
     }
 
-    private void markAndThrow()
+    private void markAndThrow(Throwable cause)
     {
-        markAndThrow(true);
+        markAndThrow(cause, true);
     }
 
-    private void markAndThrow(boolean mutateRepaired)
+    private void markAndThrow(Throwable cause, boolean mutateRepaired)
     {
         if (mutateRepaired && options.mutateRepairStatus) // if we are able to mutate repaired flag, an incremental repair should be enough
         {
@@ -520,7 +593,7 @@ public class Verifier implements Closeable
                 outputHandler.output("Error mutating repairedAt for SSTable " +  sstable.getFilename() + ", as part of markAndThrow");
             }
         }
-        Exception e = new Exception(String.format("Invalid SSTable %s, please force %srepair", sstable.getFilename(), (mutateRepaired && options.mutateRepairStatus) ? "" : "a full "));
+        Exception e = new Exception(String.format("Invalid SSTable %s, please force %srepair", sstable.getFilename(), (mutateRepaired && options.mutateRepairStatus) ? "" : "a full "), cause);
         if (options.invokeDiskFailurePolicy)
             throw new CorruptSSTableException(e, sstable.getFilename());
         else
@@ -595,9 +668,17 @@ public class Verifier implements Closeable
         public final boolean mutateRepairStatus;
         public final boolean checkOwnsTokens;
         public final boolean quick;
+        public final boolean validateData;
         public final Function<String, ? extends Collection<Range<Token>>> tokenLookup;
 
-        private Options(boolean invokeDiskFailurePolicy, boolean extendedVerification, boolean checkVersion, boolean mutateRepairStatus, boolean checkOwnsTokens, boolean quick, Function<String, ? extends Collection<Range<Token>>> tokenLookup)
+        private Options(boolean invokeDiskFailurePolicy,
+                        boolean extendedVerification,
+                        boolean checkVersion,
+                        boolean mutateRepairStatus,
+                        boolean checkOwnsTokens,
+                        boolean quick,
+                        boolean validateData,
+                        Function<String, ? extends Collection<Range<Token>>> tokenLookup)
         {
             this.invokeDiskFailurePolicy = invokeDiskFailurePolicy;
             this.extendedVerification = extendedVerification;
@@ -605,6 +686,7 @@ public class Verifier implements Closeable
             this.mutateRepairStatus = mutateRepairStatus;
             this.checkOwnsTokens = checkOwnsTokens;
             this.quick = quick;
+            this.validateData = validateData;
             this.tokenLookup = tokenLookup;
         }
 
@@ -618,6 +700,7 @@ public class Verifier implements Closeable
                    ", mutateRepairStatus=" + mutateRepairStatus +
                    ", checkOwnsTokens=" + checkOwnsTokens +
                    ", quick=" + quick +
+                   ", validateData=" + validateData +
                    '}';
         }
 
@@ -630,6 +713,7 @@ public class Verifier implements Closeable
             private boolean checkOwnsTokens = false;
             private boolean quick = false;
             private Function<String, ? extends Collection<Range<Token>>> tokenLookup = StorageService.instance::getLocalAndPendingRanges;
+            private boolean validateData = false;
 
             public Builder invokeDiskFailurePolicy(boolean param)
             {
@@ -673,11 +757,34 @@ public class Verifier implements Closeable
                 return this;
             }
 
-            public Options build()
+            public Builder validateData(boolean param)
             {
-                return new Options(invokeDiskFailurePolicy, extendedVerification, checkVersion, mutateRepairStatus, checkOwnsTokens, quick, tokenLookup);
+                this.validateData = param;
+                return this;
             }
 
+            public Options build()
+            {
+                return new Options(invokeDiskFailurePolicy, extendedVerification, checkVersion, mutateRepairStatus, checkOwnsTokens, quick, validateData, tokenLookup);
+            }
+
+        }
+    }
+
+    private static final class ColumnWithValue
+    {
+        private final ColumnDefinition definition;
+        private final Object value;
+
+        private ColumnWithValue(ColumnDefinition definition, Object value)
+        {
+            this.definition = definition;
+            this.value = value;
+        }
+
+        public String toString()
+        {
+            return definition.name + "=" + value;
         }
     }
 }

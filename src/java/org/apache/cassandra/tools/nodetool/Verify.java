@@ -68,6 +68,11 @@ public class Verify extends NodeToolCmd
     description = "Do a quick check - avoid reading all data to verify checksums")
     private boolean quick = false;
 
+    @Option(title = "validate_data",
+            name = {"-vd", "--validate-data"},
+            description = "Validates the contents of the data")
+    private boolean validateData = false;
+
     @Override
     public void execute(NodeProbe probe)
     {
@@ -90,7 +95,7 @@ public class Verify extends NodeToolCmd
         {
             try
             {
-                probe.verify(System.out, extendedVerify, checkVersion, diskFailurePolicy, mutateRepairStatus, checkOwnsTokens, quick, keyspace, tableNames);
+                probe.verify(System.out, extendedVerify, checkVersion, diskFailurePolicy, mutateRepairStatus, checkOwnsTokens, quick, validateData, keyspace, tableNames);
             } catch (Exception e)
             {
                 throw new RuntimeException("Error occurred during verifying", e);

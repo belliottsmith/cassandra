@@ -3169,7 +3169,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return verify(extendedVerify, false, false, false, false, false, keyspaceName, tableNames);
     }
 
-    public int verify(boolean extendedVerify, boolean checkVersion, boolean diskFailurePolicy, boolean mutateRepairStatus, boolean checkOwnsTokens, boolean quick, String keyspaceName, String... tableNames) throws IOException, ExecutionException, InterruptedException
+    public int verify(boolean extendedVerify,
+                      boolean checkVersion,
+                      boolean diskFailurePolicy,
+                      boolean mutateRepairStatus,
+                      boolean checkOwnsTokens,
+                      boolean quick,
+                      boolean validateData,
+                      String keyspaceName,
+                      String... tableNames) throws IOException, ExecutionException, InterruptedException
     {
         CompactionManager.AllSSTableOpStatus status = CompactionManager.AllSSTableOpStatus.SUCCESSFUL;
         Verifier.Options options = Verifier.options().invokeDiskFailurePolicy(diskFailurePolicy)
@@ -3177,7 +3185,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                                                      .checkVersion(checkVersion)
                                                      .mutateRepairStatus(mutateRepairStatus)
                                                      .checkOwnsTokens(checkOwnsTokens)
-                                                     .quick(quick).build();
+                                                     .quick(quick)
+                                                     .validateData(validateData).build();
         logger.info("Verifying {}.{} with options = {}", keyspaceName, Arrays.toString(tableNames), options);
         for (ColumnFamilyStore cfStore : getValidColumnFamilies(false, false, keyspaceName, tableNames))
         {

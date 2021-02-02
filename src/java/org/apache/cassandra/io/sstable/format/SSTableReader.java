@@ -440,6 +440,14 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
         }
     }
 
+    public static SSTableReader open(Descriptor desc,
+                                     CFMetaData metadata,
+                                     boolean validate,
+                                     boolean isOffline) throws IOException
+    {
+        return open(desc, componentsFor(desc), metadata, validate, isOffline);
+    }
+
     /**
      * Open an SSTable for reading
      * @param descriptor SSTable to open

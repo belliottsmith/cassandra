@@ -127,7 +127,6 @@ public class InstanceConfig implements IInstanceConfig
         this.broadcastAddressAndPort = copy.broadcastAddressAndPort;
     }
 
-
     @Override
     public InetSocketAddress broadcastAddress()
     {
