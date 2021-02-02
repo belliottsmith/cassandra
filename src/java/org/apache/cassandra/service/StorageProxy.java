@@ -112,6 +112,8 @@ public class StorageProxy implements StorageProxyMBean
 
     private static final double CONCURRENT_SUBREQUESTS_MARGIN = 0.10;
 
+    private static final String REQUEST_FAIL_MESSAGE = "\"{}\" while executing {}";
+
     private static final PartitionBlacklist partitionBlacklist = new PartitionBlacklist();
 
     private volatile long logBlockingReadRepairAttemptsUntil = Long.MIN_VALUE;
@@ -1725,7 +1727,9 @@ public class StorageProxy implements StorageProxyMBean
         {
             readMetrics.unavailables.mark();
             readMetricsMap.get(consistencyLevel).unavailables.mark();
-            throw new IsBootstrappingException();
+            IsBootstrappingException exception = new IsBootstrappingException();
+            logRequestException(exception, group.commands);
+            throw exception;
         }
 
         if (DatabaseDescriptor.enablePartitionBlacklist() && DatabaseDescriptor.enableBlacklistReads())
@@ -1819,6 +1823,7 @@ public class StorageProxy implements StorageProxyMBean
             readMetrics.unavailables.mark();
             casReadMetrics.unavailables.mark();
             readMetricsMap.get(consistencyLevel).unavailables.mark();
+            logRequestException(e, group.commands);
             throw e;
         }
         catch (ReadTimeoutException e)
@@ -1826,6 +1831,7 @@ public class StorageProxy implements StorageProxyMBean
             readMetrics.timeouts.mark();
             casReadMetrics.timeouts.mark();
             readMetricsMap.get(consistencyLevel).timeouts.mark();
+            logRequestException(e, group.commands);
             throw e;
         }
         catch (ReadFailureException e)
@@ -1868,12 +1874,14 @@ public class StorageProxy implements StorageProxyMBean
         {
             readMetrics.unavailables.mark();
             readMetricsMap.get(consistencyLevel).unavailables.mark();
+            logRequestException(e, group.commands);
             throw e;
         }
         catch (ReadTimeoutException e)
         {
             readMetrics.timeouts.mark();
             readMetricsMap.get(consistencyLevel).timeouts.mark();
+            logRequestException(e, group.commands);
             throw e;
         }
         catch (ReadFailureException e)
@@ -2985,6 +2993,19 @@ public class StorageProxy implements StorageProxyMBean
 
         abstract protected MessagingService.Verb verb();
         abstract protected void runMayThrow() throws Exception;
+    }
+
+    private static void logRequestException(final Exception exception, final Collection<? extends ReadCommand> commands)
+    {
+        NoSpamLogger.log(logger, NoSpamLogger.Level.INFO, 1, TimeUnit.MINUTES,
+                         REQUEST_FAIL_MESSAGE,
+                         () -> new Object[]
+                         {
+                             exception.getMessage(),
+                             commands.stream()
+                                    .map(ReadCommand::toCQLString)
+                                    .collect(Collectors.joining("; "))
+                         });
     }
 
     /**
