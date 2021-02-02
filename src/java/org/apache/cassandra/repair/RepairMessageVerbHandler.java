@@ -77,13 +77,9 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                     PrepareMessage prepareMessage = (PrepareMessage) message.payload;
                     logger.debug("Preparing, {}", prepareMessage);
 
-                    // Snapshot values so failure message is consistent with decision
-                    int pendingCompactions = CompactionManager.instance.getPendingTasks();
-                    int pendingThreshold = ActiveRepairService.instance.getRepairPendingCompactionRejectThreshold();
-                    if (pendingCompactions > pendingThreshold)
+                    if (!ActiveRepairService.verifyCompactionsPendingThreshold(prepareMessage.parentRepairSession, prepareMessage.previewKind))
                     {
-                        logErrorAndSendFailureResponse(String.format("Rejecting incoming repair, pending compactions (%d) above threshold (%d)",
-                                                                     pendingCompactions, pendingThreshold), message.from, id);
+                        sendFailureResponse(message.from, id);
                         return;
                     }
 
@@ -240,9 +236,7 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
     private static void logErrorAndSendFailureResponse(String errorMessage, InetAddress to, int id)
     {
         logger.error(errorMessage);
-        MessageOut reply = new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE)
-                           .withParameter(MessagingService.FAILURE_RESPONSE_PARAM, MessagingService.ONE_BYTE);
-        MessagingService.instance().sendReply(reply, id, to);
+        sendFailureResponse(to, id);
     }
 
     private static boolean acceptMessage(ValidationRequest validationRequest, InetAddress from)
@@ -259,5 +253,12 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                                                    "RepairSession #" + validationRequest.desc.parentSessionId,
                                                    "validation request",
                                                    from);
+    }
+
+    private static void sendFailureResponse(InetAddress to, int id)
+    {
+        MessageOut reply = new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE)
+                           .withParameter(MessagingService.FAILURE_RESPONSE_PARAM, MessagingService.ONE_BYTE);
+        MessagingService.instance().sendReply(reply, id, to);
     }
 }
