@@ -25,6 +25,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import org.apache.cassandra.utils.NoSpamLogger.Level;
 import org.apache.cassandra.utils.NoSpamLogger.NoSpamLogStatement;
@@ -283,5 +285,35 @@ public class NoSpamLoggerTest
 
        assertTrue(nospamStatement.error(param));
        checkMock(Level.ERROR);
+   }
+
+   @Test
+   public void testSupplierLogging()
+   {
+       AtomicInteger evaluationTimes = new AtomicInteger();
+       Object [] params = new Object[] {"hello"};
+       Supplier<Object[]> paramSupplier = () -> {
+           evaluationTimes.incrementAndGet();
+           return params;
+       };
+
+       now = 5;
+
+       NoSpamLogger.log(mock, Level.INFO, 5, TimeUnit.NANOSECONDS, "TESTING {}", paramSupplier);
+       assertEquals(1, evaluationTimes.get());
+       Pair<String, Object[]> loggedMsg = logged.get(Level.INFO).remove();
+       assertEquals("TESTING {}", loggedMsg.left);
+       assertArrayEquals(params, loggedMsg.right);
+
+       NoSpamLogger.log(mock, Level.INFO, 5, TimeUnit.NANOSECONDS, "TESTING {}", paramSupplier);
+       assertEquals(1, evaluationTimes.get());
+       assertTrue(logged.get(Level.INFO).isEmpty());
+
+       now = 10;
+       NoSpamLogger.log(mock, Level.INFO, 5, TimeUnit.NANOSECONDS, "TESTING {}", paramSupplier);
+       assertEquals(2, evaluationTimes.get());
+       loggedMsg = logged.get(Level.INFO).remove();
+       assertEquals("TESTING {}", loggedMsg.left);
+       assertArrayEquals(params, loggedMsg.right);
    }
 }

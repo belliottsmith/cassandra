@@ -40,6 +40,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -150,6 +151,7 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Hex;
 import org.apache.cassandra.utils.MBeanWrapper;
 import org.apache.cassandra.utils.MonotonicClock;
+import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
 
@@ -206,6 +208,8 @@ public class StorageProxy implements StorageProxyMBean
     public static final String DISABLE_SERIAL_READ_LINEARIZABILITY_KEY = "cassandra.unsafe.disable-serial-reads-linearizability";
     private static final boolean disableSerialReadLinearizability =
         Boolean.parseBoolean(System.getProperty(DISABLE_SERIAL_READ_LINEARIZABILITY_KEY, "true"));
+
+    private static final String REQUEST_FAIL_MESSAGE = "\"{}\" while executing {}";
 
     public static final PartitionBlacklist partitionBlacklist = new PartitionBlacklist();
 
@@ -1862,7 +1866,9 @@ public class StorageProxy implements StorageProxyMBean
         {
             readMetrics.unavailables.mark();
             readMetricsMap.get(consistencyLevel).unavailables.mark();
-            throw new IsBootstrappingException();
+            IsBootstrappingException exception = new IsBootstrappingException();
+            logRequestException(exception, group.queries);
+            throw exception;
         }
 
         if (DatabaseDescriptor.enablePartitionBlacklist() && DatabaseDescriptor.enableBlacklistReads())
@@ -1945,6 +1951,7 @@ public class StorageProxy implements StorageProxyMBean
             readMetrics.unavailables.mark();
             casReadMetrics.unavailables.mark();
             readMetricsMap.get(consistencyLevel).unavailables.mark();
+            logRequestException(e, group.queries);
             throw e;
         }
         catch (ReadTimeoutException e)
@@ -1952,6 +1959,7 @@ public class StorageProxy implements StorageProxyMBean
             readMetrics.timeouts.mark();
             casReadMetrics.timeouts.mark();
             readMetricsMap.get(consistencyLevel).timeouts.mark();
+            logRequestException(e, group.queries);
             throw e;
         }
         catch (ReadAbortException e)
@@ -2001,12 +2009,14 @@ public class StorageProxy implements StorageProxyMBean
         {
             readMetrics.unavailables.mark();
             readMetricsMap.get(consistencyLevel).unavailables.mark();
+            logRequestException(e, group.queries);
             throw e;
         }
         catch (ReadTimeoutException e)
         {
             readMetrics.timeouts.mark();
             readMetricsMap.get(consistencyLevel).timeouts.mark();
+            logRequestException(e, group.queries);
             throw e;
         }
         catch (ReadAbortException e)
@@ -2606,6 +2616,19 @@ public class StorageProxy implements StorageProxyMBean
 
         abstract protected Verb verb();
         abstract protected void runMayThrow() throws Exception;
+    }
+
+    private static void logRequestException(final Exception exception, final Collection<? extends ReadCommand> commands)
+    {
+        NoSpamLogger.log(logger, NoSpamLogger.Level.INFO, 1, TimeUnit.MINUTES,
+                         REQUEST_FAIL_MESSAGE,
+                         () -> new Object[]
+                         {
+                             exception.getMessage(),
+                             commands.stream()
+                                    .map(ReadCommand::toCQLString)
+                                    .collect(Collectors.joining("; "))
+                         });
     }
 
     /**
