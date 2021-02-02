@@ -106,7 +106,7 @@ public class ByteBuddyExamples extends TestBaseImpl
         {
             if (nodeNumber != 1)
                 return;
-            new ByteBuddy().rebase(SelectStatement.class)
+            new ByteBuddy().rebase(SelectStatement.class) // note that we need to `rebase` when we use @SuperCall
                            .method(named("execute").and(takesArguments(3)))
                            .intercept(MethodDelegation.to(BBCountHelper.class))
                            .make()
