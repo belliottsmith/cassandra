@@ -83,6 +83,8 @@ public class Config
 
     public boolean auth_cache_warming_enabled = true;
 
+    public boolean auth_hash_cache = true;
+
     /* Hashing strategy Random or OPHF */
     public String partitioner;
 
@@ -207,7 +209,7 @@ public class Config
     public Integer native_transport_port_ssl = null;
     public volatile Integer native_transport_max_threads = 128;
     /** do bcrypt hashing in a limited pool to prevent cpu load spikes **/
-    public volatile Integer native_transport_max_auth_threads = 2;
+    public volatile Integer native_transport_max_auth_threads = 4;
     public Integer native_transport_max_frame_size_in_mb = 256;
     public volatile Long native_transport_max_concurrent_connections = -1L;
     public volatile Long native_transport_max_concurrent_connections_per_ip = -1L;

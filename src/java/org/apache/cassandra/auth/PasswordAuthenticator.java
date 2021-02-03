@@ -58,7 +58,6 @@ import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.mindrot.jbcrypt.BCrypt;
 
 import static org.apache.cassandra.auth.CassandraRoleManager.consistencyForRoleForRead;
 
@@ -96,6 +95,7 @@ public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, 
     // sentinel value indicating that the password hash has been deleted
     private static final String DELETED_HASH_SENTINEL = "";
 
+    protected static final HashTranslationCache hashCache = new HashTranslationCache();
 
     public void warmCache()
     {
@@ -175,16 +175,8 @@ public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, 
 
     protected static boolean checkpw(String password, String hash)
     {
-        try
-        {
-            return BCrypt.checkpw(password, hash);
-        }
-        catch (Exception e)
-        {
-            // Improperly formatted hashes may cause BCrypt.checkpw to throw, so trap any other exception as a failure
-            logger.warn("Error: invalid password hash encountered, rejecting user", e);
-            return false;
-        }
+        String bcrypted = hashCache.getHash(password, hash);
+        return bcrypted != null && hash.compareTo(bcrypted) == 0;
     }
 
     private AuthenticatedUser authenticate(String username, String password) throws AuthenticationException
