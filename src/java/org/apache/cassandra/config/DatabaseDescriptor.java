@@ -1593,6 +1593,16 @@ public class DatabaseDescriptor
         conf.credentials_cache_active_update = update;
     }
 
+    public static boolean getAuthHashCacheEnabled()
+    {
+        return conf.auth_hash_cache;
+    }
+
+    public static void setAuthHashCacheEnabled(boolean authHashCacheEnabled)
+    {
+        conf.auth_hash_cache = authHashCacheEnabled;
+    }
+
     public static int getMaxValueSize()
     {
         return conf.max_value_size.toBytesAsInt();
