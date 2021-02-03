@@ -95,6 +95,8 @@ public class Config
     public volatile SmallestDurationMilliseconds credentials_update_interval= new SmallestDurationMilliseconds("0ms");
     public volatile boolean credentials_cache_active_update = true;
 
+    public boolean auth_hash_cache = true;
+
     /* Hashing strategy Random or OPHF */
     public String partitioner;
 

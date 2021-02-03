@@ -45,7 +45,6 @@ import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.mindrot.jbcrypt.BCrypt;
 
 import static org.apache.cassandra.auth.CassandraRoleManager.consistencyForRoleRead;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
@@ -84,6 +83,8 @@ public class PasswordAuthenticator implements IAuthenticator, AuthCache.BulkLoad
         AuthCacheService.instance.register(cache);
     }
 
+    protected static final HashTranslationCache hashCache = new HashTranslationCache();
+
     // No anonymous access.
     public boolean requireAuthentication()
     {
@@ -116,16 +117,8 @@ public class PasswordAuthenticator implements IAuthenticator, AuthCache.BulkLoad
 
     protected static boolean checkpw(String password, String hash)
     {
-        try
-        {
-            return BCrypt.checkpw(password, hash);
-        }
-        catch (Exception e)
-        {
-            // Improperly formatted hashes may cause BCrypt.checkpw to throw, so trap any other exception as a failure
-            logger.warn("Error: invalid password hash encountered, rejecting user", e);
-            return false;
-        }
+        String bcrypted = hashCache.getHash(password, hash);
+        return bcrypted != null && hash.compareTo(bcrypted) == 0;
     }
 
     /**
