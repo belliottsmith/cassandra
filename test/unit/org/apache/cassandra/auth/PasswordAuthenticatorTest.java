@@ -82,6 +82,8 @@ public class PasswordAuthenticatorTest extends CQLTester
 
         // Valid but incorrect hashes
         assertFalse(checkpw(DEFAULT_SUPERUSER_PASSWORD, hashpw("incorrect0", gensalt(4))));
+        assertFalse(checkpw(null, hashpw("incorrect0", gensalt(4))));
+        assertFalse(checkpw("", hashpw("incorrect0", gensalt(4))));
         assertFalse(checkpw(DEFAULT_SUPERUSER_PASSWORD, hashpw("incorrect1", gensalt(10))));
         assertFalse(checkpw(DEFAULT_SUPERUSER_PASSWORD, hashpw("incorrect2", gensalt(12))));
 
