@@ -70,6 +70,8 @@ public class Config
     public volatile int credentials_update_interval_in_ms = -1;
     public volatile boolean credentials_cache_active_update = false;
 
+    public boolean auth_hash_cache = true;
+
     /* Hashing strategy Random or OPHF */
     public String partitioner;
 
