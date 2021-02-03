@@ -97,6 +97,8 @@ public class Config
     public volatile DurationSpec.IntMillisecondsBound credentials_update_interval = new DurationSpec.IntMillisecondsBound("600s");
     public volatile boolean credentials_cache_active_update = false;
 
+    public boolean auth_hash_cache = true;
+
     /* Hashing strategy Random or OPHF */
     public String partitioner;
 
