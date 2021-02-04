@@ -685,8 +685,11 @@ public class CustomIndexTest extends CQLTester
         assertTrue(index.writeGroups.size() > 1);
         assertFalse(index.readOrderingAtFinish.isBlocking());
         index.writeGroups.forEach(group -> assertFalse(group.isBlocking()));
-        // Write barriers may be blocking on other unrelated modifications, so give them some time to finish
-        Util.spinAssertEquals(true, () -> index.barriers.stream().allMatch(b -> b.getSyncPoint().isFinished()), 5);
+        index.readBarriers.forEach(b -> assertTrue(b.getSyncPoint().isFinished()));
+        index.writeBarriers.forEach(b -> {
+            b.await(); // Keyspace.writeOrder is global, so this might be temporally blocked by other tests
+            assertTrue(b.getSyncPoint().isFinished());
+        });
     }
 
     @Test
@@ -1056,7 +1059,8 @@ public class CustomIndexTest extends CQLTester
         OpOrder.Group readOrderingAtStart = null;
         OpOrder.Group readOrderingAtFinish = null;
         Set<OpOrder.Group> writeGroups = new HashSet<>();
-        List<OpOrder.Barrier> barriers = new ArrayList<>();
+        List<OpOrder.Barrier> readBarriers = new ArrayList<>();
+        List<OpOrder.Barrier> writeBarriers = new ArrayList<>();
 
         static final int ROWS_IN_PARTITION = 1000;
 
@@ -1101,10 +1105,10 @@ public class CustomIndexTest extends CQLTester
                     // indexing of a partition
                     OpOrder.Barrier readBarrier = baseCfs.readOrdering.newBarrier();
                     readBarrier.issue();
-                    barriers.add(readBarrier);
+                    readBarriers.add(readBarrier);
                     OpOrder.Barrier writeBarrier = Keyspace.writeOrder.newBarrier();
                     writeBarrier.issue();
-                    barriers.add(writeBarrier);
+                    writeBarriers.add(writeBarrier);
                 }
 
                 public void insertRow(Row row)
