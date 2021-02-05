@@ -56,10 +56,10 @@ public class StageManager
         stages.put(Stage.REQUEST_RESPONSE, multiThreadedLowSignalStage(Stage.REQUEST_RESPONSE, FBUtilities.getAvailableProcessors(), null));
         stages.put(Stage.INTERNAL_RESPONSE, multiThreadedStage(Stage.INTERNAL_RESPONSE, FBUtilities.getAvailableProcessors()));
         // the rest are all single-threaded
-        stages.put(Stage.GOSSIP, new JMXEnabledThreadPoolExecutor(Stage.GOSSIP));
-        stages.put(Stage.ANTI_ENTROPY, new JMXEnabledThreadPoolExecutor(Stage.ANTI_ENTROPY));
-        stages.put(Stage.MIGRATION, new JMXEnabledThreadPoolExecutor(Stage.MIGRATION));
-        stages.put(Stage.MISC, new JMXEnabledThreadPoolExecutor(Stage.MISC));
+        stages.put(Stage.GOSSIP, new JMXEnabledSingleThreadExecutor(Stage.GOSSIP));
+        stages.put(Stage.ANTI_ENTROPY, new JMXEnabledSingleThreadExecutor(Stage.ANTI_ENTROPY));
+        stages.put(Stage.MIGRATION, new JMXEnabledSingleThreadExecutor(Stage.MIGRATION));
+        stages.put(Stage.MISC, new JMXEnabledSingleThreadExecutor(Stage.MISC));
         stages.put(Stage.READ_REPAIR, multiThreadedStage(Stage.READ_REPAIR, FBUtilities.getAvailableProcessors()));
         stages.put(Stage.TRACING, tracingExecutor());
     }
