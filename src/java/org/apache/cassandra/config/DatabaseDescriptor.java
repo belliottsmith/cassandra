@@ -1079,6 +1079,16 @@ public class DatabaseDescriptor
         return conf.auth_cache_warming_enabled;
     }
 
+    public static boolean getAuthHashCacheEnabled()
+    {
+        return conf.auth_hash_cache;
+    }
+
+    public static void setAuthHashCacheEnabled(boolean authHashCacheEnabled)
+    {
+        conf.auth_hash_cache = authHashCacheEnabled;
+    }
+
     public static boolean getSpeculativeReadRepairEnabled()
     {
         return conf.enable_speculative_read_repair;
