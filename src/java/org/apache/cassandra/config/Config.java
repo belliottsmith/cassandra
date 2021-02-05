@@ -671,6 +671,9 @@ public class Config
 
     public volatile boolean allow_compact_storage = true;
 
+    public volatile int table_count_warn_threshold = 150;
+    public volatile int keyspace_count_warn_threshold = 40;
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;

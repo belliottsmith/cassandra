@@ -17,6 +17,9 @@
  */
 package org.apache.cassandra.cql3.statements;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.auth.*;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
@@ -31,6 +34,8 @@ import org.apache.cassandra.transport.Event;
 /** A <code>CREATE KEYSPACE</code> statement parsed from a CQL query. */
 public class CreateKeyspaceStatement extends SchemaAlteringStatement
 {
+    private static final Logger logger = LoggerFactory.getLogger(CreateKeyspaceStatement.class);
+
     private final String name;
     private final KeyspaceAttributes attrs;
     private final boolean ifNotExists;
@@ -95,6 +100,15 @@ public class CreateKeyspaceStatement extends SchemaAlteringStatement
         params.validate(name);
         if (params.replication.klass.equals(LocalStrategy.class))
             throw new ConfigurationException("Unable to use given strategy class: LocalStrategy is reserved for internal use.");
+
+        int keyspaceCount = Schema.instance.getKeyspaces().size();
+        if (keyspaceCount >= DatabaseDescriptor.keyspaceCountWarnThreshold())
+        {
+            String msg = String.format("Cluster already contains %d keyspaces. Having a large number of keyspaces will significantly slow down schema dependent cluster operations.",
+                                       keyspaceCount);
+            ClientWarn.instance.warn(msg);
+            logger.warn(msg);
+        }
     }
 
     public Event.SchemaChange announceMigration(QueryState queryState, boolean isLocalOnly) throws RequestValidationException

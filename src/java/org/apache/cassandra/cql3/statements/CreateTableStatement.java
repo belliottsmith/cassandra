@@ -24,6 +24,9 @@ import com.google.common.collect.HashMultiset;
 import com.google.common.collect.Multiset;
 import org.apache.commons.lang3.StringUtils;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.auth.*;
 import org.apache.cassandra.config.*;
 import org.apache.cassandra.cql3.*;
@@ -37,6 +40,7 @@ import org.apache.cassandra.schema.Types;
 import org.apache.cassandra.service.CIEInternalKeyspace;
 import org.apache.cassandra.service.CIEInternalLocalKeyspace;
 import org.apache.cassandra.service.ClientState;
+import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.Event;
@@ -44,6 +48,8 @@ import org.apache.cassandra.transport.Event;
 /** A {@code CREATE TABLE} parsed from a CQL query statement. */
 public class CreateTableStatement extends SchemaAlteringStatement
 {
+    private static final Logger logger = LoggerFactory.getLogger(CreateTableStatement.class);
+
     private List<AbstractType<?>> keyTypes;
     private List<AbstractType<?>> clusteringTypes;
 
@@ -80,6 +86,16 @@ public class CreateTableStatement extends SchemaAlteringStatement
 
     public void validate(ClientState state)
     {
+        int tableCount = Schema.instance.getNumberOfTables();
+        if (tableCount >= DatabaseDescriptor.tableCountWarnThreshold())
+        {
+            String msg = String.format("Cluster already contains %d tables in %d keyspaces. Having a large number of tables will significantly slow down schema dependent cluster operations.",
+                                       tableCount,
+                                       Schema.instance.getKeyspaces().size());
+            ClientWarn.instance.warn(msg);
+            logger.warn(msg);
+        }
+
         // validated in announceMigration()
     }
 
