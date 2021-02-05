@@ -17,6 +17,8 @@
  */
 package org.apache.cassandra.tools.nodetool;
 
+import java.io.PrintStream;
+
 import io.airlift.command.Command;
 import org.apache.cassandra.tools.NodeProbe;
 import org.apache.cassandra.tools.NodeTool.NodeToolCmd;
@@ -27,10 +29,11 @@ public class GetSnapshotThrottle extends NodeToolCmd
     @Override
     public void execute(NodeProbe probe)
     {
+        PrintStream out = probe.output().out;
         long throttle = probe.getSnapshotLinksPerSecond();
         if (throttle > 0)
-            System.out.println("Current snapshot throttle: " + throttle + " links/s");
+            out.println("Current snapshot throttle: " + throttle + " links/s");
         else
-            System.out.println("Snapshot throttle is disabled");
+            out.println("Snapshot throttle is disabled");
     }
 }

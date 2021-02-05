@@ -79,7 +79,7 @@ public class Import extends NodeToolCmd
 
         if (quick)
         {
-            System.out.println("Doing a quick import - skipping sstable verification and row cache invalidation");
+            probe.output().out.println("Doing a quick import - skipping sstable verification and row cache invalidation");
             noVerifyTokens = true;
             noInvalidateCaches = true;
             noVerify = true;
@@ -89,9 +89,9 @@ public class Import extends NodeToolCmd
         List<String> failedDirs = probe.importNewSSTables(args.get(0), args.get(1), new HashSet<>(srcPaths), !keepLevel, !keepRepaired, !noVerify, !noVerifyTokens, !noInvalidateCaches, extendedVerify);
         if (!failedDirs.isEmpty())
         {
-            System.err.println("Some directories failed to import, check server logs for details:");
+            probe.output().err.println("Some directories failed to import, check server logs for details:");
             for (String directory : failedDirs)
-                System.err.println(directory);
+                probe.output().err.println(directory);
             System.exit(1);
         }
     }

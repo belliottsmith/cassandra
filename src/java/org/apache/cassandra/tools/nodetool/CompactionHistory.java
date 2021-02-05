@@ -20,6 +20,7 @@ package org.apache.cassandra.tools.nodetool;
 import static com.google.common.collect.Iterables.toArray;
 import io.airlift.command.Command;
 
+import java.io.PrintStream;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -40,12 +41,13 @@ public class CompactionHistory extends NodeToolCmd
     @Override
     public void execute(NodeProbe probe)
     {
-        System.out.println("Compaction History: ");
+        PrintStream out = probe.output().out;
+        out.println("Compaction History: ");
 
         TabularData tabularData = probe.getCompactionHistory();
         if (tabularData.isEmpty())
         {
-            System.out.printf("There is no compaction history");
+            out.printf("There is no compaction history");
             return;
         }
 
@@ -72,7 +74,7 @@ public class CompactionHistory extends NodeToolCmd
         {
             table.add(eachChc.getAllAsArray());
         }
-        table.printTo(System.out);
+        table.printTo(out);
     }
 
     /**

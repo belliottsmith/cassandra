@@ -45,6 +45,7 @@ public class StatusAutoCompaction extends NodeToolCmd
     @Override
     public void execute(NodeProbe probe)
     {
+        PrintStream out = probe.output().out;
         List<String> keyspaces = parseOptionalKeyspace(args, probe);
         String[] tableNames = parseOptionalTables(args);
 
@@ -67,10 +68,10 @@ public class StatusAutoCompaction extends NodeToolCmd
                 }
             }
             if (showAll)
-                table.printTo(System.out);
+                table.printTo(out);
             else
-                System.out.println(allEnabled ? "running" :
-                                   allDisabled ? "not running" : "partially running");
+                out.println(allEnabled ? "running" :
+                            allDisabled ? "not running" : "partially running");
         }
         catch (IOException e)
         {

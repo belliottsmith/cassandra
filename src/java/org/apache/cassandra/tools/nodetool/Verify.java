@@ -21,6 +21,7 @@ import io.airlift.command.Arguments;
 import io.airlift.command.Command;
 import io.airlift.command.Option;
 
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -76,9 +77,10 @@ public class Verify extends NodeToolCmd
     @Override
     public void execute(NodeProbe probe)
     {
+        PrintStream out = probe.output().out;
         if (!overrideDisable)
         {
-            System.out.println("verify is disabled for '<rdar://problem/46635385> block nodetool verify in 3.0 clusters'.");
+            out.println("verify is disabled for '<rdar://problem/46635385> block nodetool verify in 3.0 clusters'.");
             System.exit(1);
         }
 
@@ -87,7 +89,7 @@ public class Verify extends NodeToolCmd
 
         if (checkOwnsTokens && !extendedVerify)
         {
-            System.out.println("Token verification requires --extended-verify");
+            out.println("Token verification requires --extended-verify");
             System.exit(1);
         }
 
@@ -95,7 +97,7 @@ public class Verify extends NodeToolCmd
         {
             try
             {
-                probe.verify(System.out, extendedVerify, checkVersion, diskFailurePolicy, mutateRepairStatus, checkOwnsTokens, quick, validateData, keyspace, tableNames);
+                probe.verify(probe.output().out, extendedVerify, checkVersion, diskFailurePolicy, mutateRepairStatus, checkOwnsTokens, quick, validateData, keyspace, tableNames);
             } catch (Exception e)
             {
                 throw new RuntimeException("Error occurred during verifying", e);

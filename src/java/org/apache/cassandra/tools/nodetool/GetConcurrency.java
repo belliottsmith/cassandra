@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.tools.nodetool;
 
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -36,14 +37,15 @@ public class GetConcurrency extends NodeToolCmd
     @Override
     public void execute(NodeProbe probe)
     {
-        System.out.printf("%-25s%16s%16s%n", "Stage", "CorePoolSize", "MaximumPoolSize");
+        PrintStream out = probe.output().out;
+        out.printf("%-25s%16s%16s%n", "Stage", "CorePoolSize", "MaximumPoolSize");
         probe.getMaximumPoolSizes(args).entrySet().stream()
              .sorted(Map.Entry.comparingByKey())
              .forEach(entry ->
-                System.out.printf("%-25s%16d%16d%n",
-                                  entry.getKey(),
-                                  entry.getValue().get(0),
-                                  entry.getValue().get(1)));
+                out.printf("%-25s%16d%16d%n",
+                           entry.getKey(),
+                           entry.getValue().get(0),
+                           entry.getValue().get(1)));
 
     }
 }

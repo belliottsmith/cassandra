@@ -125,6 +125,7 @@ public class NodeProbe implements AutoCloseable
     protected HintedHandOffManagerMBean hhProxy;
     protected BatchlogManagerMBean bmProxy;
     protected ActiveRepairServiceMBean arsProxy;
+    protected Output output;
     private boolean failed;
 
     /**
@@ -143,6 +144,7 @@ public class NodeProbe implements AutoCloseable
         this.port = port;
         this.username = username;
         this.password = password;
+        this.output = Output.CONSOLE;
         connect();
     }
 
@@ -157,6 +159,7 @@ public class NodeProbe implements AutoCloseable
     {
         this.host = host;
         this.port = port;
+        this.output = Output.CONSOLE;
         connect();
     }
 
@@ -170,6 +173,7 @@ public class NodeProbe implements AutoCloseable
     {
         this.host = host;
         this.port = defaultPort;
+        this.output = Output.CONSOLE;
         connect();
     }
 
@@ -178,6 +182,7 @@ public class NodeProbe implements AutoCloseable
         // this constructor is only used for extensions to rewrite their own connect method
         this.host = "";
         this.port = 0;
+        this.output = Output.CONSOLE;
     }
 
     /**
@@ -259,6 +264,16 @@ public class NodeProbe implements AutoCloseable
             // result of 'stopdaemon' command - i.e. if close() call fails, the daemon is shutdown
             System.out.println("Cassandra has shutdown.");
         }
+    }
+
+    public void setOutput(Output output)
+    {
+        this.output = output;
+    }
+
+    public Output output()
+    {
+        return output;
     }
 
     public int forceKeyspaceCleanup(int jobs, String keyspaceName, String... tables) throws IOException, ExecutionException, InterruptedException

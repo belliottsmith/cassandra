@@ -32,6 +32,7 @@ import org.apache.cassandra.repair.consistent.LocalSessionInfo;
 import org.apache.cassandra.service.ActiveRepairServiceMBean;
 import org.apache.cassandra.tools.NodeProbe;
 import org.apache.cassandra.tools.NodeTool;
+import org.apache.cassandra.tools.Output;
 import org.apache.cassandra.utils.FBUtilities;
 
 /**
@@ -70,14 +71,14 @@ public class RepairAdmin extends NodeTool.NodeToolCmd
                                   session.get(LocalSessionInfo.PARTICIPANTS));
     }
 
-    private void listSessions(ActiveRepairServiceMBean repairServiceProxy)
+    private void listSessions(ActiveRepairServiceMBean repairServiceProxy, Output output)
     {
         Preconditions.checkArgument(cancel == null);
         Preconditions.checkArgument(!force, "-f/--force only valid for session cancel");
         List<Map<String, String>> sessions = repairServiceProxy.getSessions(all);
         if (sessions.isEmpty())
         {
-            System.out.println("no sessions");
+            output.out.println("no sessions");
 
         }
         else
@@ -116,7 +117,7 @@ public class RepairAdmin extends NodeTool.NodeToolCmd
                 {
                     formatted.add(String.format(fmts.get(i), row.get(i)));
                 }
-                System.out.println(Joiner.on(" | ").join(formatted));
+                output.out.println(Joiner.on(" | ").join(formatted));
             }
         }
     }
@@ -141,7 +142,7 @@ public class RepairAdmin extends NodeTool.NodeToolCmd
         else
         {
             // default
-            listSessions(probe.getRepairServiceProxy());
+            listSessions(probe.getRepairServiceProxy(), probe.output());
         }
     }
 }

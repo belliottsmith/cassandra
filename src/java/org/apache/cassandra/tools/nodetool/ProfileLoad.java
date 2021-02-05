@@ -33,6 +33,7 @@ import javax.management.openmbean.OpenDataException;
 import org.apache.cassandra.metrics.Sampler.SamplerType;
 import org.apache.cassandra.tools.NodeProbe;
 import org.apache.cassandra.tools.NodeTool.NodeToolCmd;
+import org.apache.cassandra.tools.Output;
 import org.apache.cassandra.tools.nodetool.formatter.TableBuilder;
 import org.apache.cassandra.utils.Pair;
 
@@ -108,19 +109,19 @@ public class ProfileLoad extends NodeToolCmd
             .addColumn("Partition", "value")
             .addColumn("Count", "count")
             .addColumn("+/-", "error")
-            .print();
+            .print(probe.output());
         }
 
         rb.forType(SamplerType.WRITE_SIZE, "Max mutation size by partition")
             .addColumn("Table", "table")
             .addColumn("Partition", "value")
             .addColumn("Bytes", "count")
-            .print();
+            .print(probe.output());
 
         rb.forType(SamplerType.LOCAL_READ_TIME, "Longest read query times")
             .addColumn("Query", "value")
             .addColumn("Microseconds", "count")
-            .print();
+            .print(probe.output());
     }
 
     private class ResultBuilder
@@ -163,14 +164,14 @@ public class ProfileLoad extends NodeToolCmd
             return key;
         }
 
-        public void print()
+        public void print(Output output)
         {
             if (targets.contains(type.toString()))
             {
                 if (!first.get())
-                    System.out.println();
+                    output.out.println();
                 first.set(false);
-                System.out.println(description + ':');
+                output.out.println(description + ':');
                 TableBuilder out = new TableBuilder();
                 out.add(dataKeys.stream().map(p -> p.left).collect(Collectors.toList()).toArray(new String[] {}));
                 List<CompositeData> topk = results.get(type.toString());
@@ -180,11 +181,11 @@ public class ProfileLoad extends NodeToolCmd
                 }
                 if (topk.size() == 0)
                 {
-                    System.out.println("   Nothing recorded during sampling period...");
+                    output.out.println("   Nothing recorded during sampling period...");
                 }
                 else
                 {
-                    out.printTo(System.out);
+                    out.printTo(output.out);
                 }
             }
         }

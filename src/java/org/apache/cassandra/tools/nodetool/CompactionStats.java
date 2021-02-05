@@ -21,6 +21,7 @@ import static java.lang.String.format;
 import io.airlift.command.Command;
 import io.airlift.command.Option;
 
+import java.io.PrintStream;
 import java.text.DecimalFormat;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +47,7 @@ public class CompactionStats extends NodeToolCmd
     @Override
     public void execute(NodeProbe probe)
     {
+        PrintStream out = probe.output().out;
         CompactionManagerMBean cm = probe.getCompactionManagerProxy();
         Map<String, Map<String, Integer>> pendingTaskNumberByTable =
                 (Map<String, Map<String, Integer>>) probe.getCompactionMetric("PendingTasksByTableName");
@@ -55,7 +57,7 @@ public class CompactionStats extends NodeToolCmd
             for (Entry<String, Integer> tableEntry : ksEntry.getValue().entrySet())
                 numTotalPendingTask += tableEntry.getValue();
         }
-        System.out.println("pending tasks: " + numTotalPendingTask);
+        out.println("pending tasks: " + numTotalPendingTask);
         for (Entry<String, Map<String, Integer>> ksEntry : pendingTaskNumberByTable.entrySet())
         {
             String ksName = ksEntry.getKey();
@@ -64,10 +66,10 @@ public class CompactionStats extends NodeToolCmd
                 String tableName = tableEntry.getKey();
                 int pendingTaskCount = tableEntry.getValue();
 
-                System.out.println("- " + ksName + '.' + tableName + ": " + pendingTaskCount);
+                out.println("- " + ksName + '.' + tableName + ": " + pendingTaskCount);
             }
         }
-        System.out.println();
+        out.println();
         long remainingBytes = 0;
         TableBuilder table = new TableBuilder();
         List<Map<String, String>> compactions = cm.getCompactions();
@@ -92,7 +94,7 @@ public class CompactionStats extends NodeToolCmd
                 if (taskType.equals(OperationType.COMPACTION.toString()))
                     remainingBytes += total - completed;
             }
-            table.printTo(System.out);
+            table.printTo(out);
 
             String remainingTime = "n/a";
             if (compactionThroughput != 0)
@@ -100,7 +102,7 @@ public class CompactionStats extends NodeToolCmd
                 long remainingTimeInSecs = remainingBytes / (1024L * 1024L * compactionThroughput);
                 remainingTime = format("%dh%02dm%02ds", remainingTimeInSecs / 3600, (remainingTimeInSecs % 3600) / 60, (remainingTimeInSecs % 60));
             }
-            System.out.printf("%25s%10s%n", "Active compaction remaining time : ", remainingTime);
+            out.printf("%25s%10s%n", "Active compaction remaining time : ", remainingTime);
         }
     }
 }
