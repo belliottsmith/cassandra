@@ -10,7 +10,7 @@ shared:
       numberOfInstances: 1
       resources:
         cpu: 8
-        cpuRequest: 2
+        cpuRequest: 1
         memory: 16Gi
         priorityClassName: p3
       copyFromLocal:

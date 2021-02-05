@@ -34,6 +34,7 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.common.util.concurrent.ListenableFutureTask;
 
 import io.netty.util.concurrent.FastThreadLocal;
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.MBeanWrapper;
@@ -94,7 +95,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     private volatile ScheduledFuture<?> scheduledGossipTask;
     private static final ReentrantLock taskLock = new ReentrantLock();
     public final static int intervalInMillis = 1000;
-    public final static int QUARANTINE_DELAY = StorageService.RING_DELAY * 2;
+    public final static int QUARANTINE_DELAY = Integer.parseInt(System.getProperty("cassandra.gossip_quarantine_delay_ms", Integer.toString(StorageService.RING_DELAY * 2)));
     private static final Logger logger = LoggerFactory.getLogger(Gossiper.class);
     private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 15L, TimeUnit.MINUTES);
     public static final Gossiper instance = new Gossiper();
@@ -1138,14 +1139,24 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         checkProperThreadForStateMutation();
         if (logger.isTraceEnabled())
             logger.trace("marking as down {}", addr);
-        localState.markDead();
-        liveEndpoints.remove(addr);
-        unreachableEndpoints.put(addr, System.nanoTime());
+        silentlyMarkDead(addr, localState);
         logger.info("InetAddress {} is now DOWN", addr);
         for (IEndpointStateChangeSubscriber subscriber : subscribers)
             subscriber.onDead(addr, localState);
         if (logger.isTraceEnabled())
             logger.trace("Notified {}", subscribers);
+    }
+
+    /**
+     * Used by {@link #markDead(InetAddress, EndpointState)} and {@link #addSavedEndpoint(InetAddress)}
+     * to register a endpoint as dead.  This method is "silent" to avoid triggering listeners, diagnostics, or logs
+     * on startup via addSavedEndpoint.
+     */
+    private void silentlyMarkDead(InetAddress addr, EndpointState localState)
+    {
+        localState.markDead();
+        liveEndpoints.remove(addr);
+        unreachableEndpoints.put(addr, System.nanoTime());
     }
 
     /**
@@ -1352,23 +1363,73 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             deltaEpStateMap.put(gDigest.getEndpoint(), localEpStatePtr);
     }
 
-    /*
-        This method is used to figure the state that the Gossiper has but Gossipee doesn't. The delta digests
-        and the delta state are built up.
-    */
+    /**
+     * Used during a shadow round to collect the current state; this method clones the current state, no filtering
+     * is done.
+     *
+     * During the shadow round its desirable to return gossip state for remote instances that were created by this
+     * process also known as "empty", this is done for host replacement to be able to replace downed hosts that are
+     * in the ring but have no state in gossip (see CASSANDRA-16213).
+     *
+     * This method is different than {@link #examineGossiper(List, List, Map)} with respect to how "empty" states are
+     * dealt with; they are kept.
+     */
+    Map<InetAddress, EndpointState> examineShadowState()
+    {
+        logger.debug("Shadow request received, adding all states");
+        Map<InetAddress, EndpointState> map = new HashMap<>();
+        for (Entry<InetAddress, EndpointState> e : endpointStateMap.entrySet())
+        {
+            InetAddress endpoint = e.getKey();
+            EndpointState state = new EndpointState(e.getValue());
+            if (state.isEmptyWithoutStatus())
+            {
+                // We have no app states loaded for this endpoint, but we may well have
+                // some state persisted in the system keyspace. This can happen in the case
+                // of a full cluster bounce where one or more nodes fail to come up. As
+                // gossip state is transient, the peers which do successfully start will be
+                // aware of the failed nodes thanks to StorageService::initServer calling
+                // Gossiper.instance::addSavedEndpoint with every endpoint in TokenMetadata,
+                // which itself is populated from the system tables at startup.
+                // Here we know that a peer which is starting up and attempting to perform
+                // a shadow round of gossip. This peer is in one of two states:
+                // * it is replacing a down node, in which case it needs to learn the tokens
+                //   of the down node and optionally its host id.
+                // * it needs to check that no other instance is already associated with its
+                //   endpoint address and port.
+                // To support both of these cases, we can add the tokens and host id from
+                // the system table, if they exist. These are only ever persisted to the system
+                // table when the actual node to which they apply enters the UP/NORMAL state.
+                // This invariant will be preserved as nodes never persist or propagate the
+                // results of a shadow round, so this communication will be strictly limited
+                // to this node and the node performing the shadow round.
+                UUID hostId = SystemKeyspace.loadHostIds().get(endpoint);
+                if (null != hostId)
+                {
+                    state.addApplicationState(ApplicationState.HOST_ID,
+                                              StorageService.instance.valueFactory.hostId(hostId));
+                }
+                Set<Token> tokens = SystemKeyspace.loadTokens().get(endpoint);
+                if (null != tokens && !tokens.isEmpty())
+                {
+                    state.addApplicationState(ApplicationState.TOKENS,
+                                              StorageService.instance.valueFactory.tokens(tokens));
+                }
+            }
+            map.put(endpoint, state);
+        }
+        return map;
+    }
+
+    /**
+     * This method is used to figure the state that the Gossiper has but Gossipee doesn't. The delta digests
+     * and the delta state are built up.
+     *
+     * When a {@link EndpointState} is "empty" then it is filtered out and not added to the delta state (see CASSANDRA-16213).
+     */
     void examineGossiper(List<GossipDigest> gDigestList, List<GossipDigest> deltaGossipDigestList, Map<InetAddress, EndpointState> deltaEpStateMap)
     {
-        if (gDigestList.size() == 0)
-        {
-           /* we've been sent a *completely* empty syn, which should normally never happen since an endpoint will at least send a syn with itself.
-              If this is happening then the node is attempting shadow gossip, and we should reply with everything we know.
-            */
-            logger.debug("Shadow request received, adding all states");
-            for (Map.Entry<InetAddress, EndpointState> entry : endpointStateMap.entrySet())
-            {
-                gDigestList.add(new GossipDigest(entry.getKey(), 0, 0));
-            }
-        }
+        assert !gDigestList.isEmpty() : "examineGossiper called with empty digest list";
         for ( GossipDigest gDigest : gDigestList )
         {
             int remoteGeneration = gDigest.getGeneration();
@@ -1395,8 +1456,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
                 }
                 else if (remoteGeneration < localGeneration)
                 {
-                    /* send all data with generation = localgeneration and version > 0 */
-                    sendAll(gDigest, deltaEpStateMap, 0);
+                    /* send all data with generation = localgeneration and version > -1 */
+                    sendAll(gDigest, deltaEpStateMap, HeartBeatState.EMPTY_VERSION);
                 }
                 else if (remoteGeneration == localGeneration)
                 {
@@ -1591,16 +1652,17 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         if (epState != null)
         {
             logger.debug("not replacing a previous epState for {}, but reusing it: {}", ep, epState);
-            epState.setHeartBeatState(new HeartBeatState(0));
+            epState.setHeartBeatState(HeartBeatState.empty());
         }
         else
         {
-            epState = new EndpointState(new HeartBeatState(0));
+            epState = new EndpointState(HeartBeatState.empty());
+            logger.info("Adding {} as there was no previous epState; new state is {}", ep, epState);
         }
 
         epState.markDead();
         endpointStateMap.put(ep, epState);
-        unreachableEndpoints.put(ep, System.nanoTime());
+        silentlyMarkDead(ep, epState);
         if (logger.isTraceEnabled())
             logger.trace("Adding saved endpoint {} {}", ep, epState.getHeartBeatState().getGeneration());
     }
@@ -1708,6 +1770,25 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     public boolean isInShadowRound()
     {
         return inShadowRound;
+    }
+
+    /**
+     * Creates a new dead {@link EndpointState} that is {@link EndpointState#isEmptyWithoutStatus() empty}.  This is used during
+     * host replacement for edge cases where the seed notified that the endpoint was empty, so need to add such state
+     * into gossip explicitly (as empty endpoints are not gossiped outside of the shadow round).
+     *
+     * see CASSANDRA-16213
+     */
+    public void initializeUnreachableNodeUnsafe(InetAddress addr)
+    {
+        EndpointState state = new EndpointState(HeartBeatState.empty());
+        state.markDead();
+        EndpointState oldState = endpointStateMap.putIfAbsent(addr, state);
+        if (null != oldState)
+        {
+            throw new RuntimeException("Attempted to initialize endpoint state for unreachable node, " +
+                                       "but found existing endpoint state for it.");
+        }
     }
 
     @VisibleForTesting

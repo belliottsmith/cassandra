@@ -29,7 +29,6 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -242,28 +241,28 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
     private void registerMockMessaging(ICluster<IInstance> cluster)
     {
-        BiConsumer<InetSocketAddress, IMessage> deliverToInstance = (to, message) -> cluster.get(to).receiveMessage(message);
+        BiConsumer<InetSocketAddress, IMessage> deliverToInstance = (to, message) -> {
+            IInstance toInstance = cluster.get(to);
+            if (toInstance != null)
+                toInstance.receiveMessage(message);
+        };
         BiConsumer<InetSocketAddress, IMessage> deliverToInstanceIfNotFiltered = (to, message) -> {
             int fromNum = config().num();
-            int toNum = cluster.get(to).config().num();
+            IInstance toInstance = cluster.get(to);
+            if (toInstance != null)
+            {
+                int toNum = toInstance.config().num();
 
-            if (cluster.filters().permitOutbound(fromNum, toNum, message)
-                && cluster.filters().permitInbound(fromNum, toNum, message))
-                deliverToInstance.accept(to, message);
+                if (cluster.filters().permitOutbound(fromNum, toNum, message)
+                    && cluster.filters().permitInbound(fromNum, toNum, message))
+                    deliverToInstance.accept(to, message);
+            }
         };
 
-        Map<InetAddress, InetSocketAddress> addressAndPortMap = new HashMap<>();
-        cluster.stream().forEach(instance -> {
-            InetSocketAddress addressAndPort = instance.broadcastAddress();
-            if (!addressAndPort.equals(instance.config().broadcastAddress()))
-                throw new IllegalStateException("addressAndPort mismatch: " + addressAndPort + " vs " + instance.config().broadcastAddress());
-            InetSocketAddress prev = addressAndPortMap.put(addressAndPort.getAddress(),
-                                                                        addressAndPort);
-            if (null != prev)
-                throw new IllegalStateException("This version of Cassandra does not support multiple nodes with the same InetAddress: " + addressAndPort + " vs " + prev);
-        });
-
-        MessagingService.instance().addMessageSink(new MessageDeliverySink(deliverToInstanceIfNotFiltered, addressAndPortMap::get));
+        // in 3.x port isn't allowed to be different cross the cluster, so assume the port based off this instance
+        int port = config.broadcastAddress().getPort();
+        Function<InetAddress, InetSocketAddress> toAddress = a -> new InetSocketAddress(a, port);
+        MessagingService.instance().addMessageSink(new MessageDeliverySink(deliverToInstanceIfNotFiltered, toAddress));
     }
 
     // unnecessary if registerMockMessaging used
@@ -280,6 +279,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 // Port is not passed in, so take a best guess at the destination port from this instance
                 IInstance to = cluster.get(NetworkTopology.addressAndPort(toAddress,
                                                                           instance.config().broadcastAddress().getPort()));
+                if (to == null)
+                    return false;
+
                 int fromNum = config().num();
                 int toNum = to.config().num();
                 return cluster.filters().permitOutbound(fromNum, toNum, serializeMessage(message, id,
@@ -295,6 +297,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 // Port is not passed in, so take a best guess at the destination port from this instance
                 IInstance from = cluster.get(NetworkTopology.addressAndPort(message.from,
                                                                             instance.config().broadcastAddress().getPort()));
+                if (from == null)
+                    return false;
+
                 int fromNum = from.config().num();
                 int toNum = config().num();
 
@@ -420,8 +425,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             }
 
             InetSocketAddress toFull = lookupAddressAndPort.apply(to);
-            deliver.accept(toFull,
-                           serializeMessage(messageOut, id, broadcastAddress(), toFull));
+            if (toFull != null)
+                deliver.accept(toFull,
+                               serializeMessage(messageOut, id, broadcastAddress(), toFull));
 
             return false;
         }
@@ -560,6 +566,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 SystemKeyspace.persistLocalMetadata();
                 LegacySchemaMigrator.migrate();
 
+                // Same order to populate tokenMetadata for the first time,
+                // see org.apache.cassandra.service.CassandraDaemon.setup
+                StorageService.instance.populateTokenMetadata();
+
                 try
                 {
                     // load schema from disk
@@ -585,6 +595,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 {
                     throw new RuntimeException(e);
                 }
+
+                // Re-populate token metadata after commit log recover (new peers might be loaded onto system keyspace #10293)
+                StorageService.instance.populateTokenMetadata();
 
                 if (config.has(NETWORK))
                 {
@@ -777,6 +790,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                 .thenRun(super::shutdown);
     }
 
+    @Override
     public int liveMemberCount()
     {
         return sync(() -> {
@@ -791,6 +805,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         return callOnInstance(() -> new InstanceMetrics(CassandraMetricsRegistry.Metrics));
     }
 
+
+    @Override
     public NodeToolResult nodetoolResult(boolean withNotifications, String... commandAndArgs)
     {
         return sync(() -> {
