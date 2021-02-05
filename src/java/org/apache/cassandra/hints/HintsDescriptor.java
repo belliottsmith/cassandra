@@ -21,6 +21,7 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -148,7 +149,25 @@ final class HintsDescriptor
         }
         catch (IOException e)
         {
-            logger.error("Failed to deserialize hints descriptor {}", path.toString(), e);
+            try
+            {
+                if (Files.size(path) > 0)
+                {
+                    String newFileName = path.getFileName().toString().replace(".hints", ".corrupt.hints");
+                    Path target = path.getParent().resolve(newFileName);
+                    logger.error("Failed to deserialize hints descriptor {} - saving file as {}", path.toString(), target, e);
+                    Files.move(path, target);
+                }
+                else
+                {
+                    logger.warn("Found empty hints file {} on startup, removing", path.toString());
+                    Files.delete(path);
+                }
+            }
+            catch (IOException ex)
+            {
+                logger.error("Error handling corrupt hints file {}", path.toString(), ex);
+            }
             return Optional.empty();
         }
     }
