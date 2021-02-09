@@ -181,7 +181,10 @@ public enum CassandraRelevantProperties
     MBEAN_REGISTRATION_CLASS("org.apache.cassandra.mbean_registration_class"),
 
     // CIE-specific property to enable config.enable_materialzed_views
-    ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews");
+    ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews"),
+
+    // CIE-specific property to enable GROUP BY selection
+    ALLOW_GROUP_BY(Config.PROPERTY_PREFIX + "allow_group_by", "false");
 
     CassandraRelevantProperties(String key, String defaultVal)
     {
