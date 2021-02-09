@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.audit.AuditLogContext;
 import org.apache.cassandra.audit.AuditLogEntryType;
 import org.apache.cassandra.auth.Permission;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.db.guardrails.Guardrails;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.Schema;
@@ -80,6 +81,7 @@ import static org.apache.cassandra.cql3.statements.RequestValidations.checkFalse
 import static org.apache.cassandra.cql3.statements.RequestValidations.checkNotNull;
 import static org.apache.cassandra.cql3.statements.RequestValidations.checkNull;
 import static org.apache.cassandra.cql3.statements.RequestValidations.checkTrue;
+import static org.apache.cassandra.cql3.statements.RequestValidations.invalidRequest;
 import static org.apache.cassandra.utils.ByteBufferUtil.UNSET_BYTE_BUFFER;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
@@ -1128,6 +1130,11 @@ public class SelectStatement implements CQLStatement.SingleKeyspaceCqlStatement
                                            StatementRestrictions restrictions)
         {
             boolean hasGroupBy = !parameters.groups.isEmpty();
+
+            if (hasGroupBy && !CassandraRelevantProperties.ALLOW_GROUP_BY.getBoolean())
+            {
+                throw invalidRequest("GROUP BY is disabled for ACI Cassandra 4.0. Please contact aci-cassandra@group.apple.com to discuss.");
+            }
 
             if (selectables.isEmpty()) // wildcard query
             {

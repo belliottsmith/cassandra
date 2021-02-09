@@ -265,6 +265,9 @@ public enum CassandraRelevantProperties
     ORG_APACHE_CASSANDRA_CONF_CASSANDRA_RELEVANT_PROPERTIES_TEST("org.apache.cassandra.conf.CassandraRelevantPropertiesTest"),
     ORG_APACHE_CASSANDRA_DB_VIRTUAL_SYSTEM_PROPERTIES_TABLE_TEST("org.apache.cassandra.db.virtual.SystemPropertiesTableTest"),
 
+    // CIE-specific property to enable GROUP BY selection
+    ALLOW_GROUP_BY(Config.PROPERTY_PREFIX + "allow_group_by", "false"),
+
     // CIE-specific property to enable config.enable_materialzed_views
     ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews", "false"),
 
