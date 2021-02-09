@@ -33,11 +33,11 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableSet;
 
-import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.cql3.Duration;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.distributed.Cluster;
@@ -72,6 +72,7 @@ public class TestBaseImpl extends DistributedTestBase
         // makes easier to share OSS tests without replication strategy limits
         CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
         CassandraRelevantProperties.ALLOW_DISABLED_COMPRESSION.setBoolean(true);
+        CassandraRelevantProperties.ALLOW_GROUP_BY.setBoolean(true);
         ICluster.setup();
     }
 
