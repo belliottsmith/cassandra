@@ -313,6 +313,9 @@ public enum CassandraRelevantProperties
      * can be also done manually for that particular case: {@code flush(SchemaConstants.SCHEMA_KEYSPACE_NAME);}. */
     FLUSH_LOCAL_SCHEMA_CHANGES("cassandra.test.flush_local_schema_changes", "true"),
 
+    // CIE-specific property to enable GROUP BY selection
+    ALLOW_GROUP_BY(Config.PROPERTY_PREFIX + "allow_group_by", "false"),
+
     // CIE-specific property to enable config.enable_materialzed_views
     ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews", "false"),
     ENABLE_SECONDARY_INDEX(Config.PROPERTY_PREFIX + "enable_secondary_index", "false"),

@@ -916,7 +916,8 @@ public class Config
     public volatile Set<ConsistencyLevel> write_consistency_levels_warned = Collections.emptySet();
     public volatile Set<ConsistencyLevel> write_consistency_levels_disallowed = Collections.emptySet();
     public volatile boolean user_timestamps_enabled = true;
-    public volatile boolean group_by_enabled = true;
+    public volatile boolean group_by_enabled = CassandraRelevantProperties.ALLOW_GROUP_BY.getBoolean();
+    @Replaces(oldName="truncate_drop_enabled", deprecated =true)
     public volatile boolean drop_truncate_table_enabled = true;
 
     @Replaces(oldName = "enable_secondary_index", converter = Converters.IDENTITY, deprecated = true)
