@@ -58,6 +58,7 @@ import com.datastax.driver.core.ResultSet;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.ServerTestUtils;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.cql3.statements.schema.AlterSchemaStatement;
 import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
 import org.apache.cassandra.db.virtual.VirtualSchemaKeyspace;
@@ -161,6 +162,7 @@ public abstract class CQLTester
         System.setProperty("cassandra.allow_materializedviews", "true");
         System.setProperty(AlterSchemaStatement.SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION, "true");
         System.setProperty(AbstractReplicationStrategy.SYSTEM_PROPERTY_MINIMUM_ALLOWED_REPLICATION_FACTOR, "1");
+        CassandraRelevantProperties.ALLOW_GROUP_BY.setBoolean(true);
 
         nativeAddr = InetAddress.getLoopbackAddress();
         nativePort = getAutomaticallyAllocatedPort(nativeAddr);
