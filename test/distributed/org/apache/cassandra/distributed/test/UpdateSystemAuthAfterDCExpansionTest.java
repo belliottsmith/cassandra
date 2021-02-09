@@ -32,7 +32,6 @@ import org.apache.cassandra.auth.RoleOptions;
 import org.apache.cassandra.auth.RoleResource;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.distributed.Cluster;
-import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.TokenSupplier;
@@ -112,7 +111,8 @@ public class UpdateSystemAuthAfterDCExpansionTest extends TestBaseImpl
         System.setProperty("cassandra.superuser_setup_delay_ms", "0");
         TestBaseImpl.beforeClass();
     }
-    public void test(String initialDatacenters, String expandedDatacenters, String decommissionedDatacenters) throws Throwable
+    public void validateExpandAndContract(String initialDatacenters, String expandedDatacenters,
+                                          String beforeDecommissionedDatacenters, String afterDecommissionedDatacenters) throws Throwable
     {
         try (Cluster cluster = Cluster.build(1)
                                       .withConfig(config -> config.set("auto_bootstrap", true)
@@ -183,6 +183,9 @@ public class UpdateSystemAuthAfterDCExpansionTest extends TestBaseImpl
             assertQueryThrowsConfigurationException(cluster, alterKeyspaceStatement("'dc1': '1'"));
             assertQueryThrowsConfigurationException(cluster, alterKeyspaceStatement("'dc2': '1'"));
 
+            logger.info("Starting to decomission dc2");
+            cluster.schemaChangeIgnoringStoppedInstances(alterKeyspaceStatement(beforeDecommissionedDatacenters));
+
             // Get rid of node2 - the in-JVM dtest API does not directly support decomissioning nodes
             // and calling decomission/shutdown fails (at least a problem with the MessagingService double-shutdown calls).
             // Instead shut the node down, force the failure detector to convict it and then removeNode.
@@ -199,7 +202,7 @@ public class UpdateSystemAuthAfterDCExpansionTest extends TestBaseImpl
             });
 
             logger.info("Remove replication to decomissioned dc2");
-            cluster.schemaChangeIgnoringStoppedInstances(alterKeyspaceStatement(decommissionedDatacenters));
+            cluster.schemaChangeIgnoringStoppedInstances(alterKeyspaceStatement(afterDecommissionedDatacenters));
         }
     }
 
@@ -208,8 +211,9 @@ public class UpdateSystemAuthAfterDCExpansionTest extends TestBaseImpl
     {
         String initialDatacenters = "'dc1': '1'";
         String expandedDatacenters = "'dc1': '1', 'dc2': '1'";
-        String decommissionedDatacenters = "'dc1': '1'";
-        test(initialDatacenters, expandedDatacenters, decommissionedDatacenters);
+        String beforeDecommissionedDatacenters = "'dc1': '1', 'dc2': '0'";
+        String afterDecommissionedDatacenters = "'dc1': '1'";
+        validateExpandAndContract(initialDatacenters, expandedDatacenters, beforeDecommissionedDatacenters, afterDecommissionedDatacenters);
     }
 
     @Test
@@ -217,7 +221,11 @@ public class UpdateSystemAuthAfterDCExpansionTest extends TestBaseImpl
     {
         String initialDatacenters = "'replication_factor': '1'";
         String expandedDatacenters = "'replication_factor': '1'";
-        String decommissionedDatacenters = "'replication_factor': '1', 'dc2': '0'";
-        test(initialDatacenters, expandedDatacenters, decommissionedDatacenters);
+        String beforeDecommissionedDatacenters = "'replication_factor': '1', 'dc2': '0'";
+        // Must be explicit with dc2 RF after decommissioning all nodes in a datacenter as
+        // using replication_factor will preserve it from the previous "0" setting and it is
+        // no longer present in the list of valid datacenters.
+        String afterDecommissionedDatacenters =  "'dc1': '1'";
+        validateExpandAndContract(initialDatacenters, expandedDatacenters, beforeDecommissionedDatacenters, afterDecommissionedDatacenters);
     }
 }
