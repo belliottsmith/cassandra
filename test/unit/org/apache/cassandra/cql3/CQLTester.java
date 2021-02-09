@@ -177,6 +177,7 @@ public abstract class CQLTester
 
         CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
         CassandraRelevantProperties.ALLOW_DISABLED_COMPRESSION.setBoolean(true);
+        CassandraRelevantProperties.ALLOW_GROUP_BY.setBoolean(true);
         System.setProperty("cassandra.allow_materializedviews", "true");
 
         nativeAddr = InetAddress.getLoopbackAddress();
