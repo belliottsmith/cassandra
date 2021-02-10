@@ -84,12 +84,7 @@ class ReservedKeywords
                                                      "NOT",
                                                      "NAN",
                                                      "INFINITY",
-                                                     "OR",
-                                                     "REPLACE",
-                                                     "DEFAULT",
-                                                     "UNSET",
-                                                     "MBEAN",
-                                                     "MBEANS"};
+                                                     "OR"};
 
     private static final Set<String> reservedSet = ImmutableSet.copyOf(reservedKeywords);
 
