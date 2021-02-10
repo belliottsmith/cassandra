@@ -65,9 +65,9 @@ public class CASTest extends CASCommonTestCases
         TestBaseImpl.beforeClass();
         Consumer<IInstanceConfig> conf = config -> config
                                                    .set("paxos_variant", "apple_rrl")
-                                                   .set("write_request_timeout_in_ms", 200L)
-                                                   .set("cas_contention_timeout_in_ms", 200L)
-                                                   .set("request_timeout_in_ms", 200L);
+                                                   .set("write_request_timeout_in_ms", 300L)
+                                                   .set("cas_contention_timeout_in_ms", 300L)
+                                                   .set("request_timeout_in_ms", 300L);
         THREE_NODES = init(Cluster.create(3, conf));
         FOUR_NODES = init(Cluster.create(4, conf), 3);
     }
