@@ -1913,5 +1913,6 @@ basic_unreserved_keyword returns [String str]
         | K_MBEANS
         | K_REPLACE
         | K_UNSET
+        | K_SELECT_SIZE
         ) { $str = $k.text; }
     ;
