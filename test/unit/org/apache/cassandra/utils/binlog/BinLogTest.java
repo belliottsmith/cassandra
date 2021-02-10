@@ -33,9 +33,11 @@ import org.junit.Test;
 import net.openhft.chronicle.queue.ChronicleQueue;
 import net.openhft.chronicle.queue.ChronicleQueueBuilder;
 import net.openhft.chronicle.queue.ExcerptTailer;
+import net.openhft.chronicle.queue.RollCycle;
 import net.openhft.chronicle.queue.RollCycles;
 import net.openhft.chronicle.wire.WireOut;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -58,11 +60,33 @@ public class BinLogTest
     private BinLog binLog;
     private Path path;
 
+    // doesn't exit start until the bin thread has started up
+    private static class BlockingStartBinLog extends BinLog
+    {
+        private final SimpleCondition onStart = new SimpleCondition();
+        public BlockingStartBinLog(Path path, RollCycle rollCycle, int maxQueueWeight, long maxLogSize)
+        {
+            super(path, rollCycle, maxQueueWeight, maxLogSize);
+        }
+
+        public void start()
+        {
+            super.start();
+            onStart.awaitUninterruptibly();
+        }
+
+        public void run()
+        {
+            onStart.signalAll();
+            super.run();
+        }
+    }
+
     @Before
     public void setUp() throws Exception
     {
         path = tempDir();
-        binLog = new BinLog(path, RollCycles.TEST_SECONDLY, 10, 1024 * 1024 * 128);
+        binLog = new BlockingStartBinLog(path, RollCycles.TEST_SECONDLY, 10, 1024 * 1024 * 128);
         binLog.start();
     }
 
