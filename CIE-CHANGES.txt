@@ -1,4 +1,18 @@
 4.0.0.9
+*  <rdar://73933391> (Apple Internal) fixup rdar://60088229 p27898173 PRO/RST Disallow removal of a DC from system_auth replication settings
+*  <rdar://73933391> (Early merge CASSANDRA-16422) Forward port CASSANDRA-16422 Filter decomissioned/assassinated nodes when checking if safe to alter keyspace
+*  <rdar://74207044> (Early merge CASSANDRA-16439) Minimize number of new reserved keywords introduced in 4.0
+*  <rdar://73250643> (Apple Internal) Put GROUP BY under a feature flag (#2172)
+*  <no radar> (Apple Internal) log level on "Flushing largest ... to free up room" should be info still
+*  fixup rdar://60087619 p24418276 ENV/INF Replace logback with log4j22 - auditlogviewer log4j config
+*  rdar://72042385 (Apple Internal) Empty partition is written to SSTable when APNS capped collection is used with TTL
+*  <no radar> (Apple Internal, rebase feedback) Revert "Upgrade JNA to 5.6.0"
+
+* Accidentally merged rdar://60088281 p46635385 PRO/RST Prevent nodetool verify without an override flag into
+  4a145f7488433f4156a2a757183d86d04b37db61 rdar://60087087 p21020076 ENV/BLD cie-cassandra on Rio.
+  Patch is still present, will separate again on the next branch simplification.
+* Dropped patch rdar://70046246 (CIE4 SSLEngine closed already exception on failed outbound connection), superceded by CASSANDRA-16277.
+* Dropped patch rdar://68081965 (Messaging Service / Drain Exception thrown during minor upgrade), superceded by CASSANDRA-16276
 
 4.0.0.8
 * Rebased on OSS 4.0-beta4, commit e4fac3582e0a9dda182313a3aa784be35d965f4e
