@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.util.Collections;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.ImmutableList;
 
@@ -292,6 +293,25 @@ public class HintTest
         {
             DatabaseDescriptor.setHintedHandoffEnabled(true);
         }
+    }
+
+    @Test
+    public void testCalculateHintExpiration()
+    {
+        // create a hint with gcgs
+        long now = FBUtilities.timestampMicros();
+        long nowInMillis = TimeUnit.MICROSECONDS.toMillis(now);
+        int gcgs = 10; // < the default mutation gcgs
+        String key = "testExpiration";
+        Mutation mutation = createMutation(key, now);
+        Hint hint = Hint.create(mutation, nowInMillis, gcgs);
+        assertEquals(nowInMillis + TimeUnit.SECONDS.toMillis(gcgs),
+                     hint.expirationInMillis());
+
+        // create a hint with default gcgs. Mutation default gcgs > maxHintTTL
+        hint = Hint.create(mutation, nowInMillis);
+        assertEquals(nowInMillis + TimeUnit.SECONDS.toMillis(Hint.maxHintTTL),
+                     hint.expirationInMillis());
     }
 
     private static Mutation createMutation(String key, long now)

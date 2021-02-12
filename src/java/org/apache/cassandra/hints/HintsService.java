@@ -69,6 +69,7 @@ public final class HintsService implements HintsServiceMBean
 
     private final HintsCatalog catalog;
     private final HintsWriteExecutor writeExecutor;
+    private final HintsCleanupExecutor cleanupExecutor;
     private final HintsBufferPool bufferPool;
     private final HintsDispatchExecutor dispatchExecutor;
     private final AtomicBoolean isDispatchPaused;
@@ -77,6 +78,7 @@ public final class HintsService implements HintsServiceMBean
 
     private final ScheduledFuture triggerFlushingFuture;
     private volatile ScheduledFuture triggerDispatchFuture;
+    private final ScheduledFuture triggerCleanupFuture;
 
     public final HintedHandoffMetrics metrics;
 
@@ -106,6 +108,12 @@ public final class HintsService implements HintsServiceMBean
                                                                                         flushPeriod,
                                                                                         flushPeriod,
                                                                                         TimeUnit.MILLISECONDS);
+
+        // periodically cleanup the expired hints
+        cleanupExecutor = new HintsCleanupExecutor();
+        HintsCleanupTrigger cleanupTrigger = new HintsCleanupTrigger(catalog, cleanupExecutor, dispatchExecutor);
+        triggerCleanupFuture = ScheduledExecutors.optionalTasks.scheduleWithFixedDelay(cleanupTrigger, 1, 1, TimeUnit.HOURS);
+
         metrics = new HintedHandoffMetrics();
     }
 
@@ -234,12 +242,15 @@ public final class HintsService implements HintsServiceMBean
         pauseDispatch();
 
         triggerFlushingFuture.cancel(false);
+        triggerCleanupFuture.cancel(false);
 
         writeExecutor.flushBufferPool(bufferPool).get();
         writeExecutor.closeAllWriters().get();
 
         dispatchExecutor.shutdownBlocking();
         writeExecutor.shutdownBlocking();
+        cleanupExecutor.shutdownBlocking();
+
         bufferPool.close();
     }
 

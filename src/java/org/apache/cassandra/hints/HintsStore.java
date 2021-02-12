@@ -24,9 +24,12 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,6 +56,7 @@ final class HintsStore
     private final Map<HintsDescriptor, InputPosition> dispatchPositions;
     private final Deque<HintsDescriptor> dispatchDequeue;
     private final Queue<HintsDescriptor> blacklistedFiles;
+    private final Map<HintsDescriptor, Long> hintsExpirations;
 
     // last timestamp used in a descriptor; make sure to not reuse the same timestamp for new descriptors.
     private volatile long lastUsedTimestamp;
@@ -67,6 +71,7 @@ final class HintsStore
         dispatchPositions = new ConcurrentHashMap<>();
         dispatchDequeue = new ConcurrentLinkedDeque<>(descriptors);
         blacklistedFiles = new ConcurrentLinkedQueue<>();
+        hintsExpirations = new ConcurrentHashMap<>();
 
         //noinspection resource
         lastUsedTimestamp = descriptors.stream().mapToLong(d -> d.timestamp).max().orElse(0L);
@@ -82,6 +87,12 @@ final class HintsStore
     int getDispatchQueueSize()
     {
         return dispatchDequeue.size();
+    }
+
+    @VisibleForTesting
+    int getHintsExpirationsMapSize()
+    {
+        return hintsExpirations.size();
     }
 
     InetAddress address()
@@ -112,17 +123,52 @@ final class HintsStore
 
     void deleteAllHints()
     {
-        HintsDescriptor descriptor;
-        while ((descriptor = poll()) != null)
-        {
-            cleanUp(descriptor);
-            delete(descriptor);
-        }
+        deleteHints(it -> true);
+    }
 
-        while ((descriptor = blacklistedFiles.poll()) != null)
+    void deleteExpiredHints(long now)
+    {
+        deleteHints(it -> hasExpired(it, now));
+    }
+
+    private boolean hasExpired(HintsDescriptor descriptor, long now)
+    {
+        Long cachedExpiresAt = hintsExpirations.get(descriptor);
+        if (null != cachedExpiresAt)
+            return cachedExpiresAt <= now;
+
+        File hintFile = new File(hintsDirectory, descriptor.fileName());
+        // the file does not exist or if an I/O error occurs
+        if (!hintFile.exists() || hintFile.lastModified() == 0)
+            return false;
+
+        // 'lastModified' can be considered as the upper bound of the hint creation time.
+        // So the TTL upper bound of all hints in the file can be estimated by lastModified + maxHintTTL
+        // Add 1 second to avoid miscounting in some OS that only provids precision at seconds (e.g. MacOS)
+        long latest = hintFile.lastModified() + TimeUnit.SECONDS.toMillis(Hint.maxHintTTL + 1);
+        hintsExpirations.put(descriptor, latest);
+        return latest <= now;
+    }
+
+    private void deleteHints(Predicate<HintsDescriptor> predicate)
+    {
+        Set<HintsDescriptor> removeSet = new HashSet<>();
+        try
         {
-            cleanUp(descriptor);
-            delete(descriptor);
+            for (HintsDescriptor descriptor : Iterables.concat(dispatchDequeue, blacklistedFiles))
+            {
+                if (predicate.test(descriptor))
+                {
+                    cleanUp(descriptor);
+                    delete(descriptor);
+                    removeSet.add(descriptor);
+                }
+            }
+        }
+        finally // remove the already deleted hints from internal queues in case of exception
+        {
+            dispatchDequeue.removeAll(removeSet);
+            blacklistedFiles.removeAll(removeSet);
         }
     }
 
@@ -132,7 +178,12 @@ final class HintsStore
         if (hintsFile.delete())
             logger.info("Deleted hint file {}", descriptor.fileName());
         else
-            logger.error("Failed to delete hint file {}", descriptor.fileName());
+        {
+            if (hintsFile.exists())
+                logger.error("Failed to delete hint file {}", descriptor.fileName());
+            else
+                logger.info("Already deleted hint file {}", descriptor.fileName());
+        }
 
         //noinspection ResultOfMethodCallIgnored
         new File(hintsDirectory, descriptor.checksumFileName()).delete();
@@ -156,6 +207,7 @@ final class HintsStore
     void cleanUp(HintsDescriptor descriptor)
     {
         dispatchPositions.remove(descriptor);
+        hintsExpirations.remove(descriptor);
     }
 
     void blacklist(HintsDescriptor descriptor)

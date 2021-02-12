@@ -124,10 +124,20 @@ public final class Hint
         return isLive(System.currentTimeMillis(), creationTime, maxHintTTL, smallestGCGS);
     }
 
-    static boolean isLive(long now, long creationTime, int maxTTL, int gcgs)
+    long expirationInMillis()
     {
-        long expirationTime = creationTime + TimeUnit.SECONDS.toMillis(Math.min(gcgs, maxTTL));
-        return expirationTime > now;
+        int smallestGCGS = Math.min(gcgs, mutation.smallestGCGS());
+        return expirationInMillis(creationTime, maxHintTTL, smallestGCGS);
+    }
+
+    private static long expirationInMillis(long creationTime, int maxTTL, int gcgs)
+    {
+        return creationTime + TimeUnit.SECONDS.toMillis(Math.min(gcgs, maxTTL));
+    }
+
+    static boolean isLive(long nowInMillis, long creationTime, int maxTTL, int gcgs)
+    {
+        return expirationInMillis(creationTime, maxTTL, gcgs) > nowInMillis;
     }
 
     static final class Serializer implements IVersionedSerializer<Hint>
