@@ -1,3 +1,5 @@
+4.0.0.10
+
 4.0.0.9
 *  <rdar://73933391> (Apple Internal) fixup rdar://60088229 p27898173 PRO/RST Disallow removal of a DC from system_auth replication settings
 *  <rdar://73933391> (Early merge CASSANDRA-16422) Forward port CASSANDRA-16422 Filter decomissioned/assassinated nodes when checking if safe to alter keyspace
