@@ -586,11 +586,16 @@ public class PreviewRepairTest extends TestBaseImpl
      */
     static IIsolatedExecutor.SerializableCallable<RepairResult> repair(Map<String, String> options)
     {
+        return repair(options, KEYSPACE);
+    }
+
+    static IIsolatedExecutor.SerializableCallable<RepairResult> repair(Map<String, String> options, String keyspace)
+    {
         return () -> {
             SimpleCondition await = new SimpleCondition();
             AtomicBoolean success = new AtomicBoolean(true);
             AtomicBoolean wasInconsistent = new AtomicBoolean(false);
-            StorageService.instance.repairAsync(KEYSPACE, options, ImmutableList.of((tag, event) -> {
+            StorageService.instance.repairAsync(keyspace, options, ImmutableList.of((tag, event) -> {
                 if (event.getType() == ProgressEventType.ERROR)
                 {
                     success.set(false);

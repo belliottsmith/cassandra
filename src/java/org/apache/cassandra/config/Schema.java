@@ -707,6 +707,9 @@ public class Schema
         // make sure all the indexes are dropped, or else.
         cfs.indexManager.markAllIndexesRemoved();
 
+        // clear out old repair history
+        cfs.clearRepairedRangeUnsafes();
+
         // reinitialize the keyspace.
         CFMetaData cfm = oldKsm.tables.get(tableName).get();
         KeyspaceMetadata newKsm = oldKsm.withSwapped(oldKsm.tables.without(tableName));
