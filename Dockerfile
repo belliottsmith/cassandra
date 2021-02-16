@@ -1,5 +1,5 @@
 # Image defined here: https://github.pie.apple.com/pie/cassandra-automation/blob/develop/dockerimages/jdkbaseimage/Dockerfile-JDKBase
-FROM docker.apple.com/piedb/applejdk-8:alpha
+FROM docker.apple.com/piedb/applejdk-8:latest
 
 MAINTAINER  ACI-Cassandra <aci-cassandra@group.apple.com>
 
