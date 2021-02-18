@@ -148,8 +148,8 @@ public class CassandraDaemon
 
     private static final CassandraDaemon instance = new CassandraDaemon();
 
-    public Server thriftServer;
-    private NativeTransportService nativeTransportService;
+    private volatile Server thriftServer;
+    private volatile NativeTransportService nativeTransportService;
 
     private final boolean runManaged;
     protected final StartupChecks startupChecks;
@@ -441,7 +441,7 @@ public class CassandraDaemon
             TimeUnit.MILLISECONDS
         );
 
-        initializeNativeTransport();
+        initializeClientTransports();
 
         KeyspaceQuota.scheduleQuotaCheck();
 
@@ -461,7 +461,7 @@ public class CassandraDaemon
         completeSetup();
     }
 
-    public void initializeNativeTransport()
+    public synchronized void initializeClientTransports()
     {
         // Thrift
         InetAddress rpcAddr = DatabaseDescriptor.getRpcAddress();
@@ -549,34 +549,28 @@ public class CassandraDaemon
      */
     public void start()
     {
-        // We only start transports if bootstrap has completed and we're not in survey mode, OR if we are in
-        // survey mode and streaming has completed but we're not using auth.
-        // OR if we have not joined the ring yet.
-        if (StorageService.instance.hasJoined())
-        {
-            if (StorageService.instance.isSurveyMode())
-            {
-                if (StorageService.instance.isBootstrapMode() || DatabaseDescriptor.getAuthenticator().requireAuthentication())
-                {
-                    logger.info("Not starting client transports in write_survey mode as it's bootstrapping or " +
-                                "auth is enabled");
-                    return;
-                }
-            }
-            else
-            {
-                if (!SystemKeyspace.bootstrapComplete())
-                {
-                    logger.info("Not starting client transports as bootstrap has not completed");
-                    return;
-                }
-            }
-        }
-
         StartupClusterConnectivityChecker connectivityChecker = StartupClusterConnectivityChecker.create(DatabaseDescriptor.getBlockForPeersTimeoutInSeconds(),
                                                                                                          DatabaseDescriptor.getBlockForPeersInRemoteDatacenters());
         connectivityChecker.execute(Gossiper.instance.getEndpoints(), DatabaseDescriptor.getEndpointSnitch()::getDatacenter);
 
+        // check to see if transports may start else return without starting.  This is needed when in survey mode or
+        // when bootstrap has not completed.
+        try
+        {
+            validateTransportsCanStart();
+        }
+        catch (IllegalStateException isx)
+        {
+            // If there are any errors, we just log and return in this case
+            logger.warn(isx.getMessage());
+            return;
+        }
+
+        startClientTransports();
+    }
+
+    private void startClientTransports()
+    {
         String nativeFlag = System.getProperty("cassandra.start_native_transport");
         if ((nativeFlag != null && Boolean.parseBoolean(nativeFlag)) || (nativeFlag == null && DatabaseDescriptor.startNativeTransport()))
         {
@@ -588,7 +582,7 @@ public class CassandraDaemon
 
         String rpcFlag = System.getProperty("cassandra.start_rpc");
         if ((rpcFlag != null && Boolean.parseBoolean(rpcFlag)) || (rpcFlag == null && DatabaseDescriptor.startRpc()))
-            thriftServer.start();
+            startThriftServer();
         else
             logger.info("Not starting RPC server as requested. Use JMX (StorageService->startRPCServer()) or nodetool (enablethrift) to start it");
     }
@@ -603,10 +597,7 @@ public class CassandraDaemon
         // On linux, this doesn't entirely shut down Cassandra, just the RPC server.
         // jsvc takes care of taking the rest down
         logger.info("Cassandra shutting down...");
-        if (thriftServer != null)
-            thriftServer.stop();
-        if (nativeTransportService != null)
-            nativeTransportService.destroy();
+        destroyClientTransports();
         StorageService.instance.setRpcReady(false);
 
         // On windows, we need to stop the entire system as prunsrv doesn't have the jsvc hooks
@@ -628,19 +619,12 @@ public class CassandraDaemon
     }
 
     @VisibleForTesting
-    public void destroyNativeTransport() throws InterruptedException
+    public void destroyClientTransports()
     {
+        stopThriftServer();
+        stopNativeTransport();
         if (nativeTransportService != null)
-        {
             nativeTransportService.destroy();
-            nativeTransportService = null;
-        }
-
-        if (thriftServer != null)
-        {
-            thriftServer.stop();
-            thriftServer = null;
-        }
     }
 
     /**
@@ -693,6 +677,7 @@ public class CassandraDaemon
             }
 
             start();
+            logger.info("Startup complete");
         }
         catch (Throwable e)
         {
@@ -720,7 +705,7 @@ public class CassandraDaemon
         }
     }
 
-    private void validateTransportsCanStart()
+    public void validateTransportsCanStart()
     {
         // We only start transports if bootstrap has completed and we're not in survey mode, OR if we are in
         // survey mode and streaming has completed but we're not using auth.
@@ -754,10 +739,6 @@ public class CassandraDaemon
             throw new IllegalStateException("setup() must be called first for CassandraDaemon");
 
         nativeTransportService.start();
-
-        if (thriftServer == null)
-            throw new IllegalStateException("thrift transport should be set up before it can be started");
-        thriftServer.start();
     }
 
     public void stopNativeTransport()
@@ -765,19 +746,34 @@ public class CassandraDaemon
         if (nativeTransportService != null)
         {
             nativeTransportService.stop();
-            nativeTransportService = null;
-        }
-
-        if (thriftServer != null)
-        {
-            thriftServer.stop();
-            thriftServer = null;
         }
     }
 
     public boolean isNativeTransportRunning()
     {
-        return nativeTransportService != null ? nativeTransportService.isRunning() : false;
+        return nativeTransportService != null && nativeTransportService.isRunning();
+    }
+
+    public void startThriftServer()
+    {
+        validateTransportsCanStart();
+
+        if (thriftServer == null)
+            throw new IllegalStateException("setup() must be called first for CassandraDaemon");
+        thriftServer.start();
+    }
+
+    public void stopThriftServer()
+    {
+        if (thriftServer != null)
+        {
+            thriftServer.stop();
+        }
+    }
+
+    public boolean isThriftServerRunning()
+    {
+        return thriftServer != null && thriftServer.isRunning();
     }
 
 

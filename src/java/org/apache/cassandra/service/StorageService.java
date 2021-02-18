@@ -530,7 +530,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 if (StorageService.instance.isBootstrapMode() || DatabaseDescriptor.getAuthenticator().requireAuthentication())
                 {
                     throw new IllegalStateException("Not starting RPC server in write_survey mode as it's bootstrapping or " +
-                            "auth is enabled");
+                                                    "auth is enabled");
                 }
             }
             else
@@ -542,7 +542,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             }
         }
 
-        daemon.thriftServer.start();
+        daemon.startThriftServer();
     }
 
     public void stopRPCServer()
@@ -551,17 +551,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         {
             throw new IllegalStateException("No configured daemon");
         }
-        if (daemon.thriftServer != null)
-            daemon.thriftServer.stop();
+        daemon.stopThriftServer();
     }
 
     public boolean isRPCServerRunning()
     {
-        if ((daemon == null) || (daemon.thriftServer == null))
+        if (daemon == null)
         {
             return false;
         }
-        return daemon.thriftServer.isRunning();
+        return daemon.isThriftServerRunning();
     }
 
     public synchronized void startNativeTransport()
