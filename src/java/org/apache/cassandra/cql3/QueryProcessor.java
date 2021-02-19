@@ -401,7 +401,21 @@ public class QueryProcessor implements QueryHandler
             throw new InvalidRequestException(String.format("Too many markers(?). %d markers exceed the allowed maximum of %d", boundTerms, FBUtilities.MAX_UNSIGNED_SHORT));
         assert boundTerms == prepared.boundNames.size();
 
-        return storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared, forThrift);
+        if (prepared.keyspace != null)
+        {
+            // Edge-case of CASSANDRA-15252 in mixed-mode cluster. We accept that 15252 itself can manifest in a
+            // cluster that has both old and new nodes, but we would like to avoid a situation when the fix adds
+            // a new behaviour that can break which, in addition, can get triggered more frequently.
+            // If statement ID was generated on the old node _with_ use, when attempting to execute on the new node,
+            // we may fall into infinite loop. To break out of this loop, we put a prepared statement that client
+            // expects into cache, so that it could get PREPARED response on the second try.
+            storePreparedStatement(queryString, prepared.keyspace, prepared, forThrift);
+            return storePreparedStatement(queryString, null, prepared, forThrift);
+        }
+        else
+        {
+            return storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared, forThrift);
+        }
     }
 
     private static MD5Digest computeId(String queryString, String keyspace)
@@ -416,24 +430,26 @@ public class QueryProcessor implements QueryHandler
         return toHash.hashCode();
     }
 
-    private static ResultMessage.Prepared getStoredPreparedStatement(String queryString, String keyspace, boolean forThrift)
+    @VisibleForTesting
+    public static ResultMessage.Prepared getStoredPreparedStatement(String queryString, String clientKeyspace, boolean forThrift)
     throws InvalidRequestException
     {
         if (forThrift)
         {
-            Integer thriftStatementId = computeThriftId(queryString, keyspace);
+            Integer thriftStatementId = computeThriftId(queryString, clientKeyspace);
             ParsedStatement.Prepared existing = thriftPreparedStatements.get(thriftStatementId);
             return existing == null ? null : ResultMessage.Prepared.forThrift(thriftStatementId, existing.boundNames);
         }
         else
         {
-            MD5Digest statementId = computeId(queryString, keyspace);
+            MD5Digest statementId = computeId(queryString, clientKeyspace);
             ParsedStatement.Prepared existing = preparedStatements.get(statementId);
             return existing == null ? null : new ResultMessage.Prepared(statementId, existing);
         }
     }
 
-    private static ResultMessage.Prepared storePreparedStatement(String queryString, String keyspace, ParsedStatement.Prepared prepared, boolean forThrift)
+    @VisibleForTesting
+    public static ResultMessage.Prepared storePreparedStatement(String queryString, String keyspace, ParsedStatement.Prepared prepared, boolean forThrift)
     throws InvalidRequestException
     {
         // Concatenate the current keyspace so we don't mix prepared statements between keyspace (#5352).
@@ -517,7 +533,7 @@ public class QueryProcessor implements QueryHandler
 
         // Set keyspace for statement that require login
         if (statement instanceof CFStatement)
-            ((CFStatement)statement).prepareKeyspace(clientState);
+            ((CFStatement) statement).prepareKeyspace(clientState);
 
         Tracing.trace("Preparing statement");
         return statement.prepare(clientState);
@@ -559,6 +575,13 @@ public class QueryProcessor implements QueryHandler
     public static void clearInternalStatementsCache()
     {
         internalStatements.clear();
+    }
+
+    @VisibleForTesting
+    public static void clearPreparedStatementsCache()
+    {
+        preparedStatements.clear();
+        thriftPreparedStatements.clear();
     }
 
     private static class MigrationSubscriber extends MigrationListener
