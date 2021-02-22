@@ -107,6 +107,7 @@ public final class CFMetaData
     private volatile Map<ByteBuffer, DroppedColumn> droppedColumns = new HashMap<>();
     private volatile Triggers triggers = Triggers.none();
     private volatile Indexes indexes = Indexes.none();
+    private volatile CompressionParams localCompressionParams;
 
     /*
      * All CQL3 columns definition are stored in the columnMetadata map.
@@ -161,6 +162,18 @@ public final class CFMetaData
 
     //For hot path serialization it's often easier to store this info here
     private volatile ColumnFilter allColumnFilter;
+
+    public void setLocalCompressionParams(CompressionParams params)
+    {
+        this.localCompressionParams = params;
+    }
+
+    public CompressionParams compressionParams()
+    {
+        if (localCompressionParams == null)
+            return params.compression;
+        return localCompressionParams;
+    }
 
     /*
      * All of these methods will go away once CFMetaData becomes completely immutable.
