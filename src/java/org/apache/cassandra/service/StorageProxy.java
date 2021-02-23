@@ -55,6 +55,7 @@ import org.apache.cassandra.batchlog.Batch;
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.service.reads.PartitionSizeCallback;
 import org.apache.cassandra.db.PartitionSizeCommand;
 import org.apache.cassandra.metrics.BlacklistMetrics;
@@ -191,7 +192,7 @@ public class StorageProxy implements StorageProxyMBean
     private static final EnumMap<ConsistencyLevel, ClientRequestMetrics> partitionSizeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     private static final Map<ConsistencyLevel, ClientRequestMetrics> readMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     private static final Map<ConsistencyLevel, ClientWriteRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
-    public static final BlacklistMetrics blacklistMetrics = new BlacklistMetrics();
+    private static final BlacklistMetrics blacklistMetrics = new BlacklistMetrics();
 
     private static final String DISABLE_SERIAL_READ_LINEARIZABILITY_KEY = "cassandra.unsafe.disable-serial-reads-linearizability";
     private static final boolean disableSerialReadLinearizability =
@@ -2211,6 +2212,21 @@ public class StorageProxy implements StorageProxyMBean
                                                   ConsistencyLevel consistencyLevel,
                                                   long queryStartNanoTime)
     {
+        if (DatabaseDescriptor.enablePartitionBlacklist() && DatabaseDescriptor.enableBlacklistRangeReads())
+        {
+            final int blacklisted = partitionBlacklist.validateRange(command.metadata().id, command.dataRange().keyRange());
+            if (blacklisted > 0)
+            {
+                blacklistMetrics.incrementRangeReadsRejected();
+                blacklistMetrics.incrementTotalRejected();
+                throw new InvalidRequestException(String.format("Unable to read range %c%s, %s%c containing %d blacklisted keys in %s/%s",
+                                                                PartitionPosition.Kind.MIN_BOUND.equals(command.dataRange().keyRange().left.kind()) ? '[' : '(',
+                                                                StorageService.instance.getTokenMetadata().partitioner.getTokenFactory().toString(command.dataRange().keyRange().left.getToken()),
+                                                                StorageService.instance.getTokenMetadata().partitioner.getTokenFactory().toString(command.dataRange().keyRange().right.getToken()),
+                                                                PartitionPosition.Kind.MAX_BOUND.equals(command.dataRange().keyRange().right.kind()) ? ']' : ')',
+                                                                blacklisted, command.metadata().keyspace, command.metadata().name));
+            }
+        }
         return RangeCommands.partitions(command, consistencyLevel, queryStartNanoTime);
     }
 
