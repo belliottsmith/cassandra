@@ -194,9 +194,21 @@ public class StorageProxy implements StorageProxyMBean
     private static final Map<ConsistencyLevel, ClientWriteRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     private static final BlacklistMetrics blacklistMetrics = new BlacklistMetrics();
 
-    private static final String DISABLE_SERIAL_READ_LINEARIZABILITY_KEY = "cassandra.unsafe.disable-serial-reads-linearizability";
+    private static final double CONCURRENT_SUBREQUESTS_MARGIN = 0.10;
+
+    /**
+     * Introduce a maximum number of sub-ranges that the coordinator can request in parallel for range queries. Previously
+     * we would request up to the maximum number of ranges but this causes problems if the number of vnodes is large.
+     * By default we pick 10 requests per core, assuming all replicas have the same number of cores. The idea is that we
+     * don't want a burst of range requests that will back up, hurting all other queries. At the same time,
+     * we want to give range queries a chance to run if resources are available.
+     */
+    private static final int MAX_CONCURRENT_RANGE_REQUESTS = Math.max(1, Integer.getInteger("cassandra.max_concurrent_range_requests", FBUtilities.getAvailableProcessors() * 10));
+
+    @VisibleForTesting
+    public static final String DISABLE_SERIAL_READ_LINEARIZABILITY_KEY = "cassandra.unsafe.disable-serial-reads-linearizability";
     private static final boolean disableSerialReadLinearizability =
-        Boolean.parseBoolean(System.getProperty(DISABLE_SERIAL_READ_LINEARIZABILITY_KEY, "false"));
+        Boolean.parseBoolean(System.getProperty(DISABLE_SERIAL_READ_LINEARIZABILITY_KEY, "true"));
 
     public static final PartitionBlacklist partitionBlacklist = new PartitionBlacklist();
 
