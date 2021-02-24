@@ -411,7 +411,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 if (config.has(GOSSIP))
                 {
                     // TODO: hacky
-                    System.setProperty("cassandra.ring_delay_ms", "5000");
+                    System.setProperty("cassandra.ring_delay_ms", "15000");
                     System.setProperty("cassandra.consistent.rangemovement", "false");
                     System.setProperty("cassandra.consistent.simultaneousmoves.allow", "true");
                 }
