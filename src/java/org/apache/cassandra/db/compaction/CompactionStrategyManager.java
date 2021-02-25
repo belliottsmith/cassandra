@@ -27,6 +27,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterables;
@@ -402,6 +403,32 @@ public class CompactionStrategyManager implements INotificationConsumer
         {
             readLock.unlock();
         }
+    }
+
+    public int[] getSSTableCountPerTWCSBucket()
+    {
+        readLock.lock();
+        try
+        {
+            if (repaired instanceof TimeWindowCompactionStrategy && unrepaired instanceof TimeWindowCompactionStrategy)
+            {
+                Map<Long, Integer> countRepaired = ((TimeWindowCompactionStrategy) repaired).getSSTableCountByBuckets();
+                Map<Long, Integer> countUnrepaired = ((TimeWindowCompactionStrategy) unrepaired).getSSTableCountByBuckets();
+                return sumCountsByBucket(countRepaired, countUnrepaired, 30);
+            }
+            return null;
+        }
+        finally
+        {
+            readLock.unlock();
+        }
+    }
+
+    static int[] sumCountsByBucket(Map<Long, Integer> a, Map<Long, Integer> b, int max)
+    {
+        TreeMap<Long, Integer> merged = new TreeMap<>(Comparator.reverseOrder());
+        Stream.concat(a.entrySet().stream(), b.entrySet().stream()).forEach(e -> merged.merge(e.getKey(), e.getValue(), Integer::sum));
+        return merged.values().stream().limit(max).mapToInt(i -> i).toArray();
     }
 
     static int[] sumArrays(int[] a, int[] b)

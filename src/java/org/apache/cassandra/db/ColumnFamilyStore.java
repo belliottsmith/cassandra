@@ -2770,6 +2770,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return compactionStrategyManager.getSSTableCountPerLevel();
     }
 
+    public int[] getSSTableCountPerTWCSBucket()
+    {
+        return compactionStrategyManager.getSSTableCountPerTWCSBucket();
+    }
+
     private volatile long gcBeforeSeconds;
     private volatile long lastCalculatedTime = 0;
     private static long REFRESH_TIME_MILLIS = 300L * 1000L;

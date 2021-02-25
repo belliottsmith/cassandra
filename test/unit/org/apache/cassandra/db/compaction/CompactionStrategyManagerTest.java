@@ -22,7 +22,9 @@ import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -144,6 +146,30 @@ public class CompactionStrategyManagerTest
         DatabaseDescriptor.setAutomaticSSTableUpgradeEnabled(false);
     }
 
+    @Test
+    public void testCountsByBuckets()
+    {
+        Assert.assertArrayEquals(
+            new int[] {2, 2, 4},
+            CompactionStrategyManager.sumCountsByBucket(
+                ImmutableMap.of(60000L, 1, 0L, 2, 180000L, 1),
+                ImmutableMap.of(60000L, 1, 0L, 2, 180000L, 1), 30));
+        Assert.assertArrayEquals(
+            new int[] {1, 1, 3},
+            CompactionStrategyManager.sumCountsByBucket(
+                ImmutableMap.of(60000L, 1, 0L, 1),
+                ImmutableMap.of(0L, 2, 180000L, 1), 30));
+        Assert.assertArrayEquals(
+            new int[] {1, 1},
+            CompactionStrategyManager.sumCountsByBucket(
+                ImmutableMap.of(60000L, 1, 0L, 1),
+                ImmutableMap.of(), 30));
+        Assert.assertArrayEquals(
+            new int[] {8, 4},
+            CompactionStrategyManager.sumCountsByBucket(
+                ImmutableMap.of(60000L, 2, 0L, 1, 180000L, 4),
+                ImmutableMap.of(60000L, 2, 0L, 1, 180000L, 4), 2));
+    }
 
     private static class MockCFSForCSM extends ColumnFamilyStore
     {

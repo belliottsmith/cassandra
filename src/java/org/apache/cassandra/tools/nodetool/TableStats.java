@@ -163,6 +163,20 @@ public class TableStats extends NodeToolCmd
                     }
                 }
 
+                int[] sstablesByBucket = table.getSSTableCountPerTWCSBucket();
+                if (sstablesByBucket != null)
+                {
+                    out.print("\t\tSSTables in most recent TWCS buckets: [");
+                    for (int bucket = 0; bucket < sstablesByBucket.length; bucket++)
+                    {
+                        out.print(sstablesByBucket[bucket]);
+                        if (bucket < sstablesByBucket.length - 1)
+                            out.print(", ");
+                        else
+                            out.println("]");
+                    }
+                }
+
                 Long memtableOffHeapSize = null;
                 Long bloomFilterOffHeapSize = null;
                 Long indexSummaryOffHeapSize = null;

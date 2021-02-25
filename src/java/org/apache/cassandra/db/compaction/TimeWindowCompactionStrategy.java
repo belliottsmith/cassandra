@@ -21,6 +21,7 @@ package org.apache.cassandra.db.compaction;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
@@ -56,6 +57,7 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
     private final Set<SSTableReader> sstables = new HashSet<>();
     private long lastExpiredCheck;
     private long highestWindowSeen;
+    private Map<Long, Integer> sstableCountByBuckets;
 
     public TimeWindowCompactionStrategy(ColumnFamilyStore cfs, Map<String, String> options)
     {
@@ -173,6 +175,7 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
         if(buckets.right > this.highestWindowSeen)
             this.highestWindowSeen = buckets.right;
 
+
         updateEstimatedCompactionsByTasks(buckets.left);
         List<SSTableReader> mostInteresting = newestBucket(buckets.left,
                                                            cfs.getMinimumCompactionThreshold(),
@@ -272,7 +275,7 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
     {
         int n = 0;
         long now = this.highestWindowSeen;
-
+        Map<Long, Integer> countByBucket = new HashMap<>(tasks.size());
         for(Long key : tasks.keySet())
         {
             // For current window, make sure it's compactable
@@ -282,8 +285,11 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
             {
                 n += Math.ceil((double) size / cfs.getMaximumCompactionThreshold());
             }
+            // update number of candidates per bucket
+            countByBucket.put(key, size);
         }
         this.estimatedRemainingTasks = n;
+        this.sstableCountByBuckets = countByBucket;
     }
 
 
@@ -386,6 +392,11 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
     public long getMaxSSTableBytes()
     {
         return Long.MAX_VALUE;
+    }
+
+    public Map<Long, Integer> getSSTableCountByBuckets()
+    {
+        return sstableCountByBuckets;
     }
 
 

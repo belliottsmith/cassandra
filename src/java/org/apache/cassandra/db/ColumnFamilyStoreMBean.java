@@ -172,6 +172,12 @@ public interface ColumnFamilyStoreMBean
     public int[] getSSTableCountPerLevel();
 
     /**
+     * @return sstable count for each bucket in TWCS. null unless time window compaction is used.
+     *         array index corresponds to bucket(int[0] is for most recent, ...).
+     */
+    public int[] getSSTableCountPerTWCSBucket();
+
+    /**
      * Get the ratio of droppable tombstones to real columns (and non-droppable tombstones)
      * @return ratio
      */
