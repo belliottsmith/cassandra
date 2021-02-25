@@ -276,10 +276,12 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
         for(Long key : tasks.keySet())
         {
             // For current window, make sure it's compactable
-            if (key.compareTo(now) >= 0 && tasks.get(key).size() >= cfs.getMinimumCompactionThreshold())
-                n++;
-            else if (key.compareTo(now) < 0 && tasks.get(key).size() >= 2)
-                n++;
+            int size = tasks.get(key).size();
+            if ((key.compareTo(now) >= 0 && size >= cfs.getMinimumCompactionThreshold())
+                || (key.compareTo(now) < 0 && size >= 2))
+            {
+                n += Math.ceil((double) size / cfs.getMaximumCompactionThreshold());
+            }
         }
         this.estimatedRemainingTasks = n;
     }
