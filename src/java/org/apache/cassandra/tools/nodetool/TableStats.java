@@ -22,11 +22,15 @@ import io.airlift.command.Command;
 import io.airlift.command.Option;
 
 import java.io.PrintStream;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 
 import javax.management.InstanceNotFoundException;
 
@@ -253,6 +257,25 @@ public class TableStats extends NodeToolCmd
                 histogram = (CassandraMetricsRegistry.JmxHistogramMBean) probe.getColumnFamilyMetric(keyspaceName, tableName, "TombstoneScannedHistogram");
                 out.println("\t\tAverage tombstones per slice (last five minutes): " + histogram.getMean());
                 out.println("\t\tMaximum tombstones per slice (last five minutes): " + histogram.getMax());
+                Map<String, Long> sizes = table.getTopSizePartitions();
+                if (!sizes.isEmpty())
+                {
+                    int maxWidth = Math.max(sizes.keySet().stream().map(String::length).max(Integer::compareTo).get(), 5);
+                    out.printf("\t\tTop partitions by size (last update: %s):%n", millisToDateString(table.getTopSizePartitionsLastUpdate()));
+                    out.printf("\t\t\t%-" + maxWidth + "s %s%n", "Key", "Size");
+                    for (Map.Entry<String, Long> size : sizes.entrySet())
+                        out.printf("\t\t\t%-" + maxWidth + "s %s%n", size.getKey(), format(size.getValue(), humanReadable));
+                }
+
+                Map<String, Long> tombstones = table.getTopTombstonePartitions();
+                if (!tombstones.isEmpty())
+                {
+                    int maxWidth = Math.max(tombstones.keySet().stream().map(String::length).max(Integer::compareTo).get(), 5);
+                    out.printf("\t\tTop partitions by tombstone count (last update: %s):%n", millisToDateString(table.getTopTombstonePartitionsLastUpdate()));
+                    out.printf("\t\t\t%-" + maxWidth + "s %s%n", "Key", "Count");
+                    for (Map.Entry<String, Long> tombstonecnt : tombstones.entrySet())
+                        out.printf("\t\t\t%-" + maxWidth + "s %s%n", tombstonecnt.getKey(), tombstonecnt.getValue());
+                }
 
                 out.println("");
             }
@@ -260,8 +283,17 @@ public class TableStats extends NodeToolCmd
         }
     }
 
-    private String format(long bytes, boolean humanReadable) {
+    private String format(long bytes, boolean humanReadable)
+    {
         return humanReadable ? FileUtils.stringifyFileSize(bytes) : Long.toString(bytes);
+    }
+
+    private String millisToDateString(long millis)
+    {
+        TimeZone tz = TimeZone.getTimeZone("UTC");
+        DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'");
+        df.setTimeZone(tz);
+        return df.format(new Date(millis));
     }
 
     /**

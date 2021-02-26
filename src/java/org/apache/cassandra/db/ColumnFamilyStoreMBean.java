@@ -282,4 +282,9 @@ public interface ColumnFamilyStoreMBean
 
     public void setChristmasPatchDisabled(boolean disable);
     public boolean isChristmasPatchDisabled();
+
+    public Map<String, Long> getTopSizePartitions();
+    public Long getTopSizePartitionsLastUpdate();
+    public Map<String, Long> getTopTombstonePartitions();
+    public Long getTopTombstonePartitionsLastUpdate();
 }

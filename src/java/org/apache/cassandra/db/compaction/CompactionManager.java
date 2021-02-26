@@ -71,9 +71,9 @@ import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.metrics.CompactionMetrics;
 import org.apache.cassandra.metrics.TableMetrics;
+import org.apache.cassandra.metrics.TopPartitionTracker;
 import org.apache.cassandra.repair.PreviewRepairConflictWithIncrementalRepairException;
 import org.apache.cassandra.repair.Validator;
-import org.apache.cassandra.repair.consistent.ConsistentSession;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.PreviewKind;
@@ -1119,7 +1119,7 @@ public class CompactionManager implements CompactionManagerMBean
              ISSTableScanner scanner = cleanupStrategy.getScanner(sstable, getRateLimiter());
              CompactionController controller = new CompactionController(cfs, txn.originals(), getDefaultGcBefore(cfs, nowInSec));
              Refs<SSTableReader> refs = Refs.ref(Collections.singleton(sstable));
-             CompactionIterator ci = new CompactionIterator(OperationType.CLEANUP, Collections.singletonList(scanner), controller, nowInSec, UUIDGen.getTimeUUID(), active))
+             CompactionIterator ci = new CompactionIterator(OperationType.CLEANUP, Collections.singletonList(scanner), controller, nowInSec, UUIDGen.getTimeUUID(), active, null))
         {
             StatsMetadata metadata = sstable.getSSTableMetadata();
             writer.switchWriter(createWriter(cfs, compactionFileLocation, expectedBloomFilterSize, metadata.repairedAt, metadata.pendingRepair, sstable, txn));
@@ -1357,16 +1357,21 @@ public class CompactionManager implements CompactionManagerMBean
             MerkleTrees tree = createMerkleTrees(sstables, validator.desc.ranges, cfs);
             long start = System.nanoTime();
             long partitionCount = 0;
+
+            TopPartitionTracker.Collector topPartitionCollector = null;
+            if (cfs.topPartitions != null && DatabaseDescriptor.topPartitionsEnabled() && (validator.getPreviewKind() == PreviewKind.REPAIRED || !validator.isIncremental))
+                topPartitionCollector = new TopPartitionTracker.Collector(validator.desc.ranges);
+
             try (AbstractCompactionStrategy.ScannerList scanners = cfs.getCompactionStrategyManager().getScanners(sstables, validator.desc.ranges);
                  ValidationCompactionController controller = new ValidationCompactionController(cfs, getDefaultGcBefore(cfs, validator.nowInSec), validator.getPreviewKind());
-                 CompactionIterator ci = new ValidationCompactionIterator(scanners.scanners, controller, validator.nowInSec, active))
+                 CompactionIterator ci = new ValidationCompactionIterator(scanners.scanners, controller, validator.nowInSec, active, topPartitionCollector))
             {
                 SessionData sessionData = new SessionData(validator.desc.parentSessionId, validator.desc.ranges, validator.getPreviewKind(), ci);
                 markValidationActive(cfs.metadata.cfId, sessionData);
                 try
                 {
                     // validate the CF as we iterate over it
-                    validator.prepare(cfs, tree);
+                    validator.prepare(cfs, tree, topPartitionCollector);
                     while (ci.hasNext())
                     {
                         if (ci.isStopRequested())
@@ -1390,6 +1395,7 @@ public class CompactionManager implements CompactionManagerMBean
             }
             finally
             {
+
                 if (isSnapshotValidation && !isGlobalSnapshotValidation)
                 {
                     // we can only clear the snapshot if we are not doing a global snapshot validation (we then clear it once anticompaction
@@ -1398,6 +1404,10 @@ public class CompactionManager implements CompactionManagerMBean
                 }
                 cfs.metric.partitionsValidated.update(partitionCount);
             }
+
+            if (topPartitionCollector != null)
+                cfs.topPartitions.merge(topPartitionCollector);
+
             long estimatedTotalBytes = 0;
             for (SSTableReader sstable : sstables)
             {
@@ -1687,8 +1697,8 @@ public class CompactionManager implements CompactionManagerMBean
     @VisibleForTesting
     public static CompactionIterator getAntiCompactionIterator(List<ISSTableScanner> scanners, CompactionController controller, int nowInSec, UUID timeUUID, ActiveCompactionsTracker activeCompactions, BooleanSupplier isCancelled)
     {
-        return new CompactionIterator(OperationType.ANTICOMPACTION, scanners, controller, nowInSec, timeUUID, activeCompactions) {
-
+        return new CompactionIterator(OperationType.ANTICOMPACTION, scanners, controller, nowInSec, timeUUID, activeCompactions, null)
+        {
             public boolean isStopRequested()
             {
                 return super.isStopRequested() || isCancelled.getAsBoolean();
@@ -1792,9 +1802,13 @@ public class CompactionManager implements CompactionManagerMBean
 
     private static class ValidationCompactionIterator extends CompactionIterator
     {
-        public ValidationCompactionIterator(List<ISSTableScanner> scanners, ValidationCompactionController controller, int nowInSec, ActiveCompactionsTracker activeCompactions)
+        public ValidationCompactionIterator(List<ISSTableScanner> scanners,
+                                            ValidationCompactionController controller,
+                                            int nowInSec,
+                                            ActiveCompactionsTracker activeCompactions,
+                                            TopPartitionTracker.Collector topPartitionCollector)
         {
-            super(OperationType.VALIDATION, scanners, controller, nowInSec, UUIDGen.getTimeUUID(), activeCompactions);
+            super(OperationType.VALIDATION, scanners, controller, nowInSec, UUIDGen.getTimeUUID(), activeCompactions, topPartitionCollector);
         }
     }
 

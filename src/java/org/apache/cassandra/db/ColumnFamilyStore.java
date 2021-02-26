@@ -77,6 +77,7 @@ import org.apache.cassandra.metrics.Sampler;
 import org.apache.cassandra.metrics.Sampler.Sample;
 import org.apache.cassandra.metrics.Sampler.SamplerType;
 import org.apache.cassandra.metrics.TableMetrics;
+import org.apache.cassandra.metrics.TopPartitionTracker;
 import org.apache.cassandra.schema.*;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.CacheService;
@@ -249,6 +250,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     private volatile boolean compactionSpaceCheck = true;
 
     private volatile boolean neverPurgeTombstones = false;
+
+    public final TopPartitionTracker topPartitions;
+
     /**
      * A list to store ranges and the time they were last repaired. The list is
      * reverse-sorted based on the timestamp (see {@link ColumnFamilyStore#lastRepairTimeComparator}).
@@ -528,6 +532,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             oldMBeanName= null;
         }
         sstableImporter = new SSTableImporter(this);
+
+        if (keyspace.getName().equals(SystemKeyspace.NAME))
+            topPartitions = null;
+        else
+            topPartitions = new TopPartitionTracker(metadata);
     }
 
     public void updateSpeculationThreshold()
@@ -599,6 +608,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         indexManager.invalidateAllIndexesBlocking();
 
         invalidateCaches();
+        if (topPartitions != null)
+            topPartitions.shutdown();
     }
 
     /**
@@ -3080,5 +3091,33 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return !DatabaseDescriptor.enableChristmasPatch()
                || metadata.params.disableChristmasPatch
                || disableChristmasPatch;
+    }
+
+    public Map<String, Long> getTopSizePartitions()
+    {
+        if (topPartitions == null)
+            return Collections.emptyMap();
+        return topPartitions.getTopSizePartitionMap();
+    }
+
+    public Long getTopSizePartitionsLastUpdate()
+    {
+        if (topPartitions == null)
+            return null;
+        return topPartitions.topSizes().lastUpdate;
+    }
+
+    public Map<String, Long> getTopTombstonePartitions()
+    {
+        if (topPartitions == null)
+            return Collections.emptyMap();
+        return topPartitions.getTopTombstonePartitionMap();
+    }
+
+    public Long getTopTombstonePartitionsLastUpdate()
+    {
+        if (topPartitions == null)
+            return null;
+        return topPartitions.topTombstones().lastUpdate;
     }
 }

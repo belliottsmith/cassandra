@@ -3323,7 +3323,6 @@ public class DatabaseDescriptor
         return conf.autocompaction_on_startup_enabled;
     }
 
-
     public static void setAllowDropCompactStorage(boolean allow)
     {
         logger.info("Setting allow_drop_compact_storage to {}", allow);
@@ -3411,5 +3410,50 @@ public class DatabaseDescriptor
     public static void setKeyspaceCountWarnThreshold(int value)
     {
         conf.keyspace_count_warn_threshold = value;
+    }
+
+    public static boolean topPartitionsEnabled()
+    {
+        return conf.top_partitions_enabled;
+    }
+
+    public static int getMaxTopSizePartitionCount()
+    {
+        return conf.max_top_size_partition_count;
+    }
+
+    public static void setMaxTopSizePartitionCount(int value)
+    {
+        conf.max_top_size_partition_count = value;
+    }
+
+    public static int getMaxTopTombstonePartitionCount()
+    {
+        return conf.max_top_tombstone_partition_count;
+    }
+
+    public static void setMaxTopTombstonePartitionCount(int value)
+    {
+        conf.max_top_tombstone_partition_count = value;
+    }
+
+    public static long getMinTrackedPartitionSize()
+    {
+        return conf.min_tracked_partition_size_bytes;
+    }
+
+    public static void setMinTrackedPartitionSize(long value)
+    {
+        conf.min_tracked_partition_size_bytes = value;
+    }
+
+    public static long getMinTrackedPartitionTombstoneCount()
+    {
+        return conf.min_tracked_partition_tombstone_count;
+    }
+
+    public static void setMinTrackedPartitionTombstoneCount(long value)
+    {
+        conf.min_tracked_partition_tombstone_count = value;
     }
 }

@@ -22,6 +22,7 @@ import java.io.IOError;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -33,7 +34,6 @@ import java.util.concurrent.Future;
 
 import com.google.common.collect.*;
 import com.google.common.io.ByteStreams;
-import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +56,7 @@ import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.util.*;
 import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.metrics.RestorableMeter;
+import org.apache.cassandra.metrics.TopPartitionTracker;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.*;
 import org.apache.cassandra.schema.Tables;
@@ -112,6 +113,7 @@ public final class SystemKeyspace
     public static final String REPAIR_HISTORY_CF = "repair_history";
     public static final String REPAIR_HISTORY_INVALIDATION_CF = "repair_history_invalidations";
     public static final String SCHEDULED_COMPACTIONS_CF = "scheduled_compactions";
+    public static final String TOP_PARTITIONS = "top_partitions";
     @Deprecated public static final String LEGACY_HINTS = "hints";
     @Deprecated public static final String LEGACY_BATCHLOG = "batchlog";
     @Deprecated public static final String LEGACY_KEYSPACES = "schema_keyspaces";
@@ -125,7 +127,7 @@ public final class SystemKeyspace
     @Deprecated public static final String LEGACY_SIZE_ESTIMATES = "size_estimates";
 
     public static final List<String> ALL = ImmutableList.of(AVAILABLE_RANGES, BATCHES, BUILT_INDEXES, BUILT_VIEWS, COMPACTION_HISTORY, LOCAL,
-            PAXOS, PEERS, PEER_EVENTS, RANGE_XFERS, TABLE_ESTIMATES, REPAIRS, REPAIR_HISTORY_CF, REPAIR_HISTORY_INVALIDATION_CF, SSTABLE_ACTIVITY, VIEWS_BUILDS_IN_PROGRESS, SCHEDULED_COMPACTIONS_CF,
+            PAXOS, PEERS, PEER_EVENTS, RANGE_XFERS, TABLE_ESTIMATES, REPAIRS, REPAIR_HISTORY_CF, REPAIR_HISTORY_INVALIDATION_CF, SSTABLE_ACTIVITY, VIEWS_BUILDS_IN_PROGRESS, SCHEDULED_COMPACTIONS_CF, TOP_PARTITIONS,
             LEGACY_AGGREGATES, LEGACY_BATCHLOG, LEGACY_COLUMNFAMILIES, LEGACY_COLUMNS, LEGACY_FUNCTIONS, LEGACY_HINTS, LEGACY_KEYSPACES, LEGACY_TRIGGERS, LEGACY_USERTYPES, LEGACY_COMPACTION_LOG, LEGACY_SIZE_ESTIMATES);
 
     public static final CFMetaData Batches =
@@ -359,6 +361,17 @@ public final class SystemKeyspace
                 + "start_time bigint,"
                 + "PRIMARY KEY (keyspace_name, columnfamily_name, repaired))");
 
+    private static final CFMetaData TopPartitionsCf =
+        compile(TOP_PARTITIONS,
+                "Stores the top partitions",
+                "CREATE TABLE  %s ("
+                + "keyspace_name text,"
+                + "table_name text,"
+                + "top_type text,"
+                + "top frozen<list<tuple<text, bigint>>>,"
+                + "last_update timestamp,"
+                + "PRIMARY KEY (keyspace_name, table_name, top_type))");
+
     @Deprecated
     public static final CFMetaData LegacyHints =
         compile(LEGACY_HINTS,
@@ -543,6 +556,7 @@ public final class SystemKeyspace
                          RepairHistoryCf,
                          RepairHistoryInvalidationCf,
                          ScheduledCompactionsCf,
+                         TopPartitionsCf,
                          LegacyHints,
                          LegacyBatchlog,
                          LegacyKeyspaces,
@@ -1839,5 +1853,49 @@ public final class SystemKeyspace
     public static void resetScheduledCompactions(String keyspaceName, String columnFamilyName)
     {
         executeInternal(String.format("DELETE FROM %s.%s WHERE keyspace_name = ? and columnfamily_name = ?", SystemKeyspace.NAME, SCHEDULED_COMPACTIONS_CF), keyspaceName, columnFamilyName);
+    }
+
+    public static void saveTopPartitions(CFMetaData metadata, String topType, Collection<TopPartitionTracker.TopPartition> topPartitions, long lastUpdate)
+    {
+        String cql = String.format("INSERT INTO %s.%s (keyspace_name, table_name, top_type, top, last_update) values (?, ?, ?, ?, ?)", SystemKeyspace.NAME, TOP_PARTITIONS);
+        List<ByteBuffer> tupleList = new ArrayList<>(topPartitions.size());
+        topPartitions.forEach(tp -> {
+            String key = metadata.getKeyValidator().getString(tp.key.getKey());
+            tupleList.add(TupleType.buildValue(new ByteBuffer[] {UTF8Type.instance.decompose(key),
+                                                                 LongType.instance.decompose(tp.value)}));
+        });
+        executeInternal(cql, metadata.ksName, metadata.cfName, topType, tupleList, Date.from(Instant.ofEpochMilli(lastUpdate)));
+    }
+
+    public static TopPartitionTracker.StoredTopPartitions getTopPartitions(CFMetaData metadata, String topType)
+    {
+        try
+        {
+            String cql = String.format("SELECT top, last_update FROM %s.%s WHERE keyspace_name = ? and table_name = ? and top_type = ?", SystemKeyspace.NAME, TOP_PARTITIONS);
+            UntypedResultSet res = executeInternal(cql, metadata.ksName, metadata.cfName, topType);
+            if (res == null || res.isEmpty())
+                return TopPartitionTracker.StoredTopPartitions.EMPTY;
+            UntypedResultSet.Row row = res.one();
+            long lastUpdated = row.getLong("last_update");
+            List<ByteBuffer> top = row.getList("top", BytesType.instance);
+            if (top == null || top.isEmpty())
+                return TopPartitionTracker.StoredTopPartitions.EMPTY;
+
+            List<TopPartitionTracker.TopPartition> topPartitions = new ArrayList<>(top.size());
+            for (ByteBuffer bb : top)
+            {
+                ByteBuffer[] components = TupleType.split(bb, 2);
+                String keyStr = UTF8Type.instance.compose(components[0]);
+                long value = LongType.instance.compose(components[1]);
+                topPartitions.add(new TopPartitionTracker.TopPartition(metadata.decorateKey(metadata.getKeyValidator().fromString(keyStr)), value));
+            }
+
+            return new TopPartitionTracker.StoredTopPartitions(topPartitions, lastUpdated);
+        }
+        catch (Exception e)
+        {
+            logger.warn("Could not load stored top {} partitions for {}.{}", topType, metadata.ksName, metadata.cfName, e);
+            return TopPartitionTracker.StoredTopPartitions.EMPTY;
+        }
     }
 }

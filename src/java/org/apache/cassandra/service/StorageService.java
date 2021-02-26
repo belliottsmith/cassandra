@@ -6134,4 +6134,49 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         logger.info("Changing keyspace count warn threshold from {} to {}", getKeyspaceCountWarnThreshold(), value);
         DatabaseDescriptor.setKeyspaceCountWarnThreshold(value);
     }
+
+    public boolean topPartitionsEnabled()
+    {
+        return DatabaseDescriptor.topPartitionsEnabled();
+    }
+
+    public int getMaxTopSizePartitionCount()
+    {
+        return DatabaseDescriptor.getMaxTopSizePartitionCount();
+    }
+
+    public void setMaxTopSizePartitionCount(int value)
+    {
+        DatabaseDescriptor.setMaxTopSizePartitionCount(value);
+    }
+
+    public int getMaxTopTombstonePartitionCount()
+    {
+        return DatabaseDescriptor.getMaxTopTombstonePartitionCount();
+    }
+
+    public void setMaxTopTombstonePartitionCount(int value)
+    {
+        DatabaseDescriptor.setMaxTopTombstonePartitionCount(value);
+    }
+
+    public long getMinTrackedPartitionSize()
+    {
+        return DatabaseDescriptor.getMinTrackedPartitionSize();
+    }
+
+    public void setMinTrackedPartitionSize(long value)
+    {
+        DatabaseDescriptor.setMinTrackedPartitionSize(value);
+    }
+
+    public long getMinTrackedPartitionTombstoneCount()
+    {
+        return DatabaseDescriptor.getMinTrackedPartitionTombstoneCount();
+    }
+
+    public void setMinTrackedPartitionTombstoneCount(long value)
+    {
+        DatabaseDescriptor.setMinTrackedPartitionTombstoneCount(value);
+    }
 }

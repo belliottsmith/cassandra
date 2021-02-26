@@ -876,4 +876,14 @@ public interface StorageServiceMBean extends NotificationEmitter
     void setTableCountWarnThreshold(int value);
     int getKeyspaceCountWarnThreshold();
     void setKeyspaceCountWarnThreshold(int value);
+
+    public boolean topPartitionsEnabled();
+    public int getMaxTopSizePartitionCount();
+    public void setMaxTopSizePartitionCount(int value);
+    public int getMaxTopTombstonePartitionCount();
+    public void setMaxTopTombstonePartitionCount(int value);
+    public long getMinTrackedPartitionSize();
+    public void setMinTrackedPartitionSize(long value);
+    public long getMinTrackedPartitionTombstoneCount();
+    public void setMinTrackedPartitionTombstoneCount(long value);
 }
