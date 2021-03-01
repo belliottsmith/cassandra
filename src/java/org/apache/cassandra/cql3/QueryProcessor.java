@@ -47,6 +47,7 @@ import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionIterators;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.exceptions.*;
+import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.metrics.CQLMetrics;
 import org.apache.cassandra.service.*;
 import org.apache.cassandra.service.pager.QueryPager;
@@ -60,6 +61,14 @@ import org.github.jamm.MemoryMeter;
 public class QueryProcessor implements QueryHandler
 {
     public static final CassandraVersion CQL_VERSION = new CassandraVersion("3.4.0");
+
+    /**
+     * If a query is prepared with a fully qualified name, but the user also uses USE (specifically when USE keyspace
+     * is different) then the IDs generated could change over time; invalidating the assumption that IDs won't ever
+     * change.  In the version defined below, the USE keyspace is ignored when a fully-qualified name is used as an
+     * attempt to make IDs stable.
+     */
+    private static final CassandraVersion PREPARE_ID_BEHAVIOR_CHANGE = new CassandraVersion("3.0.19.63");
 
     public static final QueryProcessor instance = new QueryProcessor();
 
@@ -409,8 +418,13 @@ public class QueryProcessor implements QueryHandler
             // If statement ID was generated on the old node _with_ use, when attempting to execute on the new node,
             // we may fall into infinite loop. To break out of this loop, we put a prepared statement that client
             // expects into cache, so that it could get PREPARED response on the second try.
-            storePreparedStatement(queryString, prepared.keyspace, prepared, forThrift);
-            return storePreparedStatement(queryString, null, prepared, forThrift);
+            ResultMessage.Prepared newBehavior = storePreparedStatement(queryString, null, prepared, forThrift);
+            ResultMessage.Prepared oldBehavior = clientState.getRawKeyspace() != null ? storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared, forThrift) : newBehavior;
+            CassandraVersion minVersion = Gossiper.instance.getMinVersion(5, TimeUnit.MILLISECONDS);
+
+            // Default to old behaviour in case we're not sure about the version. Even if we ever flip back to the old
+            // behaviour due to the gossip bug or incorrect version string, we'll end up with two re-prepare round-trips.
+            return minVersion != null && minVersion.compareTo(PREPARE_ID_BEHAVIOR_CHANGE) >= 0 ? newBehavior : oldBehavior;
         }
         else
         {
@@ -533,7 +547,7 @@ public class QueryProcessor implements QueryHandler
 
         // Set keyspace for statement that require login
         if (statement instanceof CFStatement)
-            ((CFStatement) statement).prepareKeyspace(clientState);
+            ((CFStatement)statement).prepareKeyspace(clientState);
 
         Tracing.trace("Preparing statement");
         return statement.prepare(clientState);

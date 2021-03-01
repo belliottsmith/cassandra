@@ -184,30 +184,6 @@ public class PaxosCleanupSession extends AbstractFuture<Void> implements Runnabl
     }
 
     @Override
-    public void onJoin(InetAddress endpoint, EndpointState epState)
-    {
-
-    }
-
-    @Override
-    public void beforeChange(InetAddress endpoint, EndpointState currentState, ApplicationState newStateKey, VersionedValue newValue)
-    {
-
-    }
-
-    @Override
-    public void onChange(InetAddress endpoint, ApplicationState state, VersionedValue value)
-    {
-
-    }
-
-    @Override
-    public void onAlive(InetAddress endpoint, EndpointState state)
-    {
-
-    }
-
-    @Override
     public void onDead(InetAddress endpoint, EndpointState state)
     {
         maybeKillSession(endpoint, "marked dead");
