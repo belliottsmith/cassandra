@@ -44,9 +44,11 @@ import org.apache.cassandra.dht.ExcludingBounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
+import org.apache.cassandra.index.Index;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.locator.NetworkTopologyStrategy;
 import org.apache.cassandra.net.*;
+import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.service.reads.RepairedDataTracker;
 import org.apache.cassandra.service.reads.RepairedDataVerifier;
 import org.apache.cassandra.tracing.Tracing;
@@ -151,7 +153,25 @@ public class DataResolver extends ResponseResolver
 
     private boolean needsReplicaFilteringProtection()
     {
-        return !command.rowFilter().isEmpty() && DatabaseDescriptor.isReplicaFilteringProtectionEnabled();
+        if (command.rowFilter().isEmpty() || !DatabaseDescriptor.isReplicaFilteringProtectionEnabled())
+            return false;
+
+        IndexMetadata indexMetadata = command.indexMetadata();
+
+        if (indexMetadata == null || !indexMetadata.isCustom())
+        {
+            return true;
+        }
+
+        ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(command.metadata().cfId);
+
+        assert cfs != null;
+
+        Index index = command.getIndex(cfs);
+
+        assert index != null;
+
+        return index.supportsReplicaFilteringProtection(command.rowFilter());
     }
 
     private class ResolveContext
