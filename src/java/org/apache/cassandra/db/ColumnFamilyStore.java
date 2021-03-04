@@ -2006,9 +2006,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             rateLimiter = DatabaseDescriptor.getSnapshotRateLimiter();
 
         Set<SSTableReader> snapshottedSSTables = new HashSet<>();
+        final JSONArray filesJSONArr = new JSONArray();
         for (ColumnFamilyStore cfs : concatWithIndexes())
         {
-            final JSONArray filesJSONArr = new JSONArray();
             try (RefViewFragment currentView = cfs.selectAndReference(View.select(SSTableSet.CANONICAL, (x) -> predicate == null || predicate.apply(x))))
             {
                 for (SSTableReader ssTable : currentView.sstables)
@@ -2023,12 +2023,12 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                     snapshottedSSTables.add(ssTable);
                 }
 
-                writeSnapshotManifest(filesJSONArr, snapshotName);
-
-                if (!Schema.isLocalSystemKeyspace(metadata.ksName) && !Schema.isReplicatedSystemKeyspace(metadata.ksName))
-                    writeSnapshotSchema(snapshotName);
             }
         }
+        writeSnapshotManifest(filesJSONArr, snapshotName);
+        if (!Schema.isLocalSystemKeyspace(metadata.ksName) && !Schema.isReplicatedSystemKeyspace(metadata.ksName))
+            writeSnapshotSchema(snapshotName);
+
         if (ephemeral)
             createEphemeralSnapshotMarkerFile(snapshotName);
         return snapshottedSSTables;
