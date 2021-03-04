@@ -3174,6 +3174,38 @@ public class DatabaseDescriptor
         }
     }
 
+    public static long getBiggestBucketMaxSizeBytes()
+    {
+        return conf.biggest_bucket_max_size_bytes;
+    }
+
+    public static int getBiggestBucketMaxSSTableCount()
+    {
+        return conf.biggest_bucket_max_sstable_count;
+    }
+
+    public static void setBiggestBucketMaxSizeBytes(long maxSizeBytes)
+    {
+        if (maxSizeBytes <= 0)
+            throw new ConfigurationException("Invalid biggest_bucket_max_size_bytes: "+maxSizeBytes);
+        if (maxSizeBytes != conf.biggest_bucket_max_size_bytes)
+        {
+            logger.info("Setting biggest_bucket_max_size_bytes to {}", maxSizeBytes);
+            conf.biggest_bucket_max_size_bytes = maxSizeBytes;
+        }
+    }
+
+    public static void setBiggestBucketMaxSSTableCount(int maxSSTableCount)
+    {
+        if (maxSSTableCount <= 0)
+            throw new ConfigurationException("Invalid biggest_bucket_max_sstable_count " + maxSSTableCount);
+        if (maxSSTableCount != conf.biggest_bucket_max_sstable_count)
+        {
+            logger.info("Setting biggest_bucket_max_sstable_count to {}", maxSSTableCount);
+            conf.biggest_bucket_max_sstable_count = maxSSTableCount;
+        }
+    }
+
     public static boolean strictRuntimeChecks()
     {
         return strictRuntimeChecks;

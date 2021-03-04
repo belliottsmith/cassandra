@@ -2303,6 +2303,26 @@ public class CompactionManager implements CompactionManagerMBean
         DatabaseDescriptor.setCompactBiggestSTCSBucketInL0(value);
     }
 
+    public long getBiggestBucketMaxSizeBytes()
+    {
+        return DatabaseDescriptor.getBiggestBucketMaxSizeBytes();
+    }
+
+    public int getBiggestBucketMaxSSTableCount()
+    {
+        return DatabaseDescriptor.getBiggestBucketMaxSSTableCount();
+    }
+
+    public void setBiggestBucketMaxSizeBytes(long maxSizeBytes)
+    {
+        DatabaseDescriptor.setBiggestBucketMaxSizeBytes(maxSizeBytes);
+    }
+
+    public void setBiggestBucketMaxSSTableCount(int maxSSTableCount)
+    {
+        DatabaseDescriptor.setBiggestBucketMaxSSTableCount(maxSSTableCount);
+    }
+
     public void setAllowUnsafeAggressiveSSTableExpiration(boolean allow)
     {
         DatabaseDescriptor.setAllowUnsafeAggressiveSSTableExpiration(allow);

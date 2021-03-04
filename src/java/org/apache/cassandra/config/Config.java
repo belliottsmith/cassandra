@@ -620,7 +620,9 @@ public class Config
 
     public String full_query_log_dir = null;
 
-    public volatile boolean compact_biggest_stcs_bucket_l0 = false;
+    public volatile boolean compact_biggest_stcs_bucket_l0 = true;
+    public volatile int biggest_bucket_max_sstable_count = 1024;
+    public volatile long biggest_bucket_max_size_bytes = 1 << 30;
 
     public boolean autocompaction_on_startup_enabled = Boolean.parseBoolean(System.getProperty("cassandra.autocompaction_on_startup_enabled", "true"));
 

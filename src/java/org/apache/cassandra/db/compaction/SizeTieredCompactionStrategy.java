@@ -20,12 +20,15 @@ package org.apache.cassandra.db.compaction;
 import java.util.*;
 import java.util.Map.Entry;
 
+import javax.annotation.Nullable;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.compaction.writers.CompactionAwareWriter;
@@ -172,6 +175,117 @@ public class SizeTieredCompactionStrategy extends AbstractCompactionStrategy
     {
         // system tables don't have read meters, just use 0.0 for the hotness
         return sstr.getReadMeter() == null ? 0.0 : sstr.getReadMeter().twoHourRate() / sstr.estimatedKeys();
+    }
+
+    /**
+     * We first prune the bucket under consideration by maxSSTableCount and maxSizeBytes - no pruned bucket contains
+     * more than maxSSTableCount sstables or more than maxSizeBytes. Then among those we grab the "best bucket by count and size"
+     * - that is the biggest bucket (by count), or if count is equal, the smallest on disk.
+     *
+     * Also, for TWCS we track the smallest (by size) unpruned bucket as we should always do a compaction if we can there.
+     *
+     */
+    @VisibleForTesting
+    static List<SSTableReader> bestBucket(List<List<SSTableReader>> buckets,
+                                          int minThreshold,
+                                          int maxThreshold,
+                                          long maxSizeBytes,
+                                          int maxSSTableCount,
+                                          boolean trackSmallest)
+    {
+        List<SSTableReader> candidate = null;
+        List<SSTableReader> smallest = null;
+        for (List<SSTableReader> bucket : buckets)
+        {
+            bucket.sort(SSTableReader.sizeComparator); // smallest sstables first in the list
+            List<SSTableReader> prunedBucket = pruneByCountAndSize(bucket,
+                                                                   maxSSTableCount,
+                                                                   maxSizeBytes);
+            candidate = bestBucketByCountOrSize(candidate, prunedBucket, minThreshold);
+
+            if (trackSmallest && bucket.size() >= minThreshold)
+            {
+                // in this case we don't care about sstable count at all - just
+                // make sure we create the smallest possible sstable
+                if (smallest == null || bucketSize(bucket) < bucketSize(smallest))
+                    smallest = bucket;
+            }
+        }
+
+        if (candidate == null || candidate.size() < minThreshold)
+        {
+            // we use maxThreshold on purpose here - if there is no "bestbucket" candidate we need to do a regular
+            // STCS compaction over the smallest (on-disk) bucket for TWCS to avoid creating huge sstables too quickly.
+            candidate = smallest == null ? Collections.emptyList() : smallest.subList(0, Math.min(maxThreshold, smallest.size()));
+        }
+
+        if (candidate.size() < minThreshold)
+            return Collections.emptyList();
+
+        long candidateSizeBytes = bucketSize(candidate);
+        logger.info("Got {} sstables ({} bytes) for biggest bucket STCS, max_threshold = {}, avg sstable size = {} bytes, maxSizeBytes = {}, maxSSTableCount = {}",
+                    candidate.size(),
+                    candidateSizeBytes,
+                    maxThreshold,
+                    candidateSizeBytes / candidate.size(),
+                    maxSizeBytes,
+                    maxSSTableCount);
+        return candidate;
+    }
+
+    /**
+     * we consider the best bucket to be the largest one (by sstable count).
+     *
+     * If current candidate and prunedBucket have the same count the smallest by on-disk size is better.
+     */
+    private static List<SSTableReader> bestBucketByCountOrSize(@Nullable List<SSTableReader> candidate,
+                                                               List<SSTableReader> prunedBucket,
+                                                               int minThreshold)
+    {
+        int curSize = candidate == null ? 0 : candidate.size();
+        int newSize = prunedBucket.size();
+
+        // best bucket is the one with the biggest count of sstables
+        if (newSize > curSize && newSize >= minThreshold)
+            return prunedBucket;
+
+        // if the count is the same, the best bucket is the smallest (by size on disk) one;
+        if (candidate != null && newSize == curSize && bucketSize(prunedBucket) < bucketSize(candidate))
+            return prunedBucket;
+
+        return candidate;
+    }
+
+    /**
+     * Prunes the bucket by count and size
+     *
+     * Limits the number of sstable in the compaction to maxSSTableCount and the maximum size of the compaction to
+     * maxSizeBytes.
+     *
+     * @param bucket a bucket to prune, sorted by sstable size ascending
+     * @param maxSSTableCount max number of sstables in the resulting bucket
+     * @param maxSizeBytes max total size of the pruned bucket
+     *
+     */
+    private static List<SSTableReader> pruneByCountAndSize(List<SSTableReader> bucket,
+                                                           int maxSSTableCount,
+                                                           long maxSizeBytes)
+    {
+        List<SSTableReader> pruned = new ArrayList<>(bucket.size());
+        long accumulatedSize = 0;
+        for (SSTableReader sstable : bucket)
+        {
+            accumulatedSize += sstable.onDiskLength();
+            if (accumulatedSize > maxSizeBytes || pruned.size() >= maxSSTableCount)
+                return pruned;
+            pruned.add(sstable);
+        }
+        return pruned;
+    }
+
+    private static long bucketSize(List<SSTableReader> sstables)
+    {
+        return sstables.stream().mapToLong(SSTableReader::onDiskLength).sum();
     }
 
     @SuppressWarnings("resource")

@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import javax.management.openmbean.TabularData;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+
 public interface CompactionManagerMBean
 {
     /** List of running compaction objects. */
@@ -174,6 +176,19 @@ public interface CompactionManagerMBean
      */
     public void setCompactBiggestSTCSBucketInL0(boolean value);
 
+    /**
+     * If we are doing biggest STCS bucket compactions, this is the maximum total amount of bytes allowed in a compaction
+     */
+    public long getBiggestBucketMaxSizeBytes();
+
+    /**
+     * If we are doing biggest STCS bucket compactions, this is the maximum total number of sstables allowed in a compaction
+     */
+    public int getBiggestBucketMaxSSTableCount();
+
+    public void setBiggestBucketMaxSizeBytes(long maxSizeBytes);
+
+    public void setBiggestBucketMaxSSTableCount(int maxSSTableCount);
     /**
      * Set whether we allow TWCS to drop sstables without checking for overlaps
      * @param allow

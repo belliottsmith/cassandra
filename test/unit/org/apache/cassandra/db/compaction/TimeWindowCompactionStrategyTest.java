@@ -41,6 +41,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import org.apache.cassandra.MockSchema;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -50,6 +51,7 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.metrics.RestorableMeter;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.utils.Pair;
 
@@ -237,9 +239,9 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
             Pair<Long,Long> bounds = getWindowBoundsInMillis(TimeUnit.HOURS, 1, sstrs.get(i).getMaxTimestamp());
             buckets.put(bounds.left, sstrs.get(i));
         }
-
+        DatabaseDescriptor.setBiggestBucketMaxSSTableCount(34);
         newBucket = newestBucket(buckets, 4, 32, TimeUnit.DAYS, 1, new SizeTieredCompactionStrategyOptions(), getWindowBoundsInMillis(TimeUnit.HOURS, 1, System.currentTimeMillis()).left);
-        assertEquals("new bucket should be trimmed to max threshold of 32", newBucket.size(),  32);
+        assertEquals("new bucket should be trimmed to max sstable count of 34", newBucket.size(),  34);
     }
 
 
@@ -363,22 +365,22 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
 
         // create some sstables
         DecoratedKey key = Util.dk("nonexpired");
-        new RowUpdateBuilder(cfs.metadata, 1000*1, key.getKey())
+        new RowUpdateBuilder(cfs.metadata, 1000 * 1, key.getKey())
         .clustering("column").add("val", value).build().applyUnsafe();
         cfs.forceBlockingFlush();
 
         key = Util.dk("nonexpired");
-        new RowUpdateBuilder(cfs.metadata, 1000*10, key.getKey())
+        new RowUpdateBuilder(cfs.metadata, 1000 * 10, key.getKey())
         .clustering("column").add("val", value).build().applyUnsafe();
         cfs.forceBlockingFlush();
 
         key = Util.dk("nonexpired");
-        new RowUpdateBuilder(cfs.metadata, 1000*90, key.getKey())
+        new RowUpdateBuilder(cfs.metadata, 1000 * 90, key.getKey())
         .clustering("column").add("val", value).build().applyUnsafe();
         cfs.forceBlockingFlush();
 
         key = Util.dk("nonexpired");
-        new RowUpdateBuilder(cfs.metadata, 1000*180, key.getKey())
+        new RowUpdateBuilder(cfs.metadata, 1000 * 180, key.getKey())
         .clustering("column").add("val", value).build().applyUnsafe();
         cfs.forceBlockingFlush();
 
@@ -400,5 +402,45 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
         assertEquals(ImmutableMap.of(60000L, 1, 0L, 2, 180000L, 1), twcs.getSSTableCountByBuckets());
         twcs.shutdown();
         t.transaction.abort();
+    }
+
+    @Test
+    public void testBiggestBucket()
+    {
+        DatabaseDescriptor.setCompactBiggestSTCSBucketInL0(false);
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        long now = System.currentTimeMillis();
+        List<SSTableReader> sstables = new ArrayList<>();
+        int generation = 0;
+        for (int i = 0; i < 100; i++)
+            sstables.add(MockSchema.sstableWithTimestamp(generation++, 10, now * 1000, cfs));
+
+        RestorableMeter meter = new RestorableMeter(1000, 1000);
+        for (int i = 0; i < 40; i++)
+        {
+            SSTableReader sstable = MockSchema.sstableWithTimestamp(generation++, 400, now * 1000, cfs);
+            sstables.add(sstable);
+            sstable.overrideReadMeter(meter); // make sure these larger sstables are "hot"
+        }
+
+        Pair<HashMultimap<Long, SSTableReader>, Long> buckets = TimeWindowCompactionStrategy.getBuckets(sstables, TimeUnit.HOURS, 1, TimeUnit.MICROSECONDS);
+        Map<String, String> optionsMap = new HashMap<>();
+        optionsMap.put("min_sstable_size","200"); // make sure the small sstables get put in the same bucket
+        SizeTieredCompactionStrategyOptions options = new SizeTieredCompactionStrategyOptions(optionsMap);
+        List<SSTableReader> newestBucket = TimeWindowCompactionStrategy.newestBucket(buckets.left, 4, 32, TimeUnit.HOURS, 1, options, 0);
+        assertEquals(cfs.getMaximumCompactionThreshold(), newestBucket.size());
+        for (SSTableReader sstable : newestBucket)
+            assertEquals(400, sstable.onDiskLength());
+
+        DatabaseDescriptor.setCompactBiggestSTCSBucketInL0(true);
+        int oldVal = DatabaseDescriptor.getBiggestBucketMaxSSTableCount();
+        DatabaseDescriptor.setBiggestBucketMaxSSTableCount(35);
+        newestBucket = TimeWindowCompactionStrategy.newestBucket(buckets.left, 4, 32, TimeUnit.HOURS, 1, options, 0);
+        assertEquals(35, newestBucket.size());
+        for (SSTableReader sstable : newestBucket)
+            assertEquals(10, sstable.onDiskLength());
+
+        DatabaseDescriptor.setBiggestBucketMaxSSTableCount(oldVal);
+
     }
 }

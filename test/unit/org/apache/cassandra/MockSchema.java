@@ -59,7 +59,7 @@ public class MockSchema
     {
         Memory offsets = Memory.allocate(4);
         offsets.setInt(0, 0);
-        indexSummary = new IndexSummary(Murmur3Partitioner.instance, offsets, 0, Memory.allocate(4), 0, 0, 0, 1);
+        indexSummary = new IndexSummary(Murmur3Partitioner.instance, offsets, 0, Memory.allocate(4), 0, 0, 1, 1);
     }
 
     private static final AtomicInteger id = new AtomicInteger();
@@ -108,7 +108,17 @@ public class MockSchema
         return sstable(generation, size, keepRef, cfs, first, last, Integer.MAX_VALUE);
     }
 
+    public static SSTableReader sstableWithTimestamp(int generation, int size, long timestamp, ColumnFamilyStore cfs)
+    {
+        return sstable(generation, size, false, cfs, readerBounds(generation), readerBounds(generation), Integer.MAX_VALUE, timestamp);
+    }
+
     public static SSTableReader sstable(int generation, int size, boolean keepRef, ColumnFamilyStore cfs, DecoratedKey first, DecoratedKey last, int minLocalDeletionTime)
+    {
+        return sstable(generation, size, keepRef, cfs, first, last, minLocalDeletionTime, System.currentTimeMillis() * 1000);
+    }
+
+    public static SSTableReader sstable(int generation, int size, boolean keepRef, ColumnFamilyStore cfs, DecoratedKey first, DecoratedKey last, int minLocalDeletionTime, long timestamp)
     {
         Descriptor descriptor = new Descriptor(cfs.getDirectories().getDirectoryForNewSSTables(),
                                                cfs.keyspace.getName(),
@@ -145,7 +155,7 @@ public class MockSchema
         }
         SerializationHeader header = SerializationHeader.make(cfs.metadata, Collections.emptyList());
         MetadataCollector collector = new MetadataCollector(cfs.metadata.comparator);
-        collector.update(new DeletionTime(System.currentTimeMillis() * 1000, minLocalDeletionTime));
+        collector.update(new DeletionTime(timestamp, minLocalDeletionTime));
         StatsMetadata metadata = (StatsMetadata) collector.finalizeMetadata(cfs.metadata.partitioner.getClass().getCanonicalName(), 0.01f, ActiveRepairService.UNREPAIRED_SSTABLE, null, header)
                                                           .get(MetadataType.STATS);
         SSTableReader reader = SSTableReader.internalOpen(descriptor, components, cfs.metadata,
