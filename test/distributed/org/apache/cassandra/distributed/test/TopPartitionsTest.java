@@ -62,7 +62,7 @@ public class TopPartitionsTest extends TestBaseImpl
                 assertEquals(10, tombstones.size());
                 assertTrue(tombstones.values().stream().allMatch(l -> l == 0));
             }));
-
+            long mark = cluster.get(1).logs().mark();
             // make sure incremental repair doesn't change anything;
             cluster.get(1).nodetool("repair", KEYSPACE);
             cluster.forEach(inst -> inst.runOnInstance(() -> {
@@ -70,6 +70,8 @@ public class TopPartitionsTest extends TestBaseImpl
                 for (int i = 99; i >= 90; i--)
                     assertTrue(sizes.containsKey(String.valueOf(i)));
             }));
+            // we need to wait for the local repair session to be marked finalized - otherwise we might cancel the -vd repair below
+            cluster.get(1).logs().watchFor(mark, "Finalized local repair session");
 
             // make sure we can change the number of tracked partitions (and that -vd actually tracks);
             cluster.get(1).runOnInstance(() -> DatabaseDescriptor.setMaxTopSizePartitionCount(5));
