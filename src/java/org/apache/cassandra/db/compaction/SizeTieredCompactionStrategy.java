@@ -437,12 +437,6 @@ public class SizeTieredCompactionStrategy extends AbstractCompactionStrategy
     }
 
     @Override
-    public boolean shouldDefragment()
-    {
-        return true;
-    }
-
-    @Override
     public synchronized void addSSTable(SSTableReader added)
     {
         sstables.add(added);
