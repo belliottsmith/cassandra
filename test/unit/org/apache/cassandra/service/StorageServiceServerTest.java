@@ -24,10 +24,12 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.*;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -35,6 +37,8 @@ import org.junit.runner.RunWith;
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.Keyspace;
@@ -668,5 +672,35 @@ public class StorageServiceServerTest
 
         repairRangeFrom = StorageService.instance.createRepairRangeFrom("2000", "2000");
         assert repairRangeFrom.size() == 0;
+    }
+
+    @Test
+    public void isReplacingSameHostAddressAndHostIdTest() throws UnknownHostException
+    {
+        try
+        {
+            UUID differentHostId = UUID.randomUUID();
+            Assert.assertFalse(StorageService.instance.isReplacingSameHostAddressAndHostId(differentHostId));
+
+            final String hostAddress = FBUtilities.getBroadcastAddress().getHostAddress();
+            UUID localHostId = SystemKeyspace.getLocalHostId();
+            Gossiper.instance.initializeNodeUnsafe(FBUtilities.getBroadcastAddress(), localHostId, 1);
+
+            // Check detects replacing the same host address with the same hostid
+            System.setProperty("cassandra.replace_address", hostAddress);
+            Assert.assertTrue(StorageService.instance.isReplacingSameHostAddressAndHostId(localHostId));
+
+            // Check detects replacing the same host address with a different host id
+            System.setProperty("cassandra.replace_address", hostAddress);
+            Assert.assertFalse(StorageService.instance.isReplacingSameHostAddressAndHostId(differentHostId));
+
+            // Check tolerates the DNS entry going away for the replace_address
+            System.setProperty("cassandra.replace_address", "unresolvable.host.local.");
+            Assert.assertFalse(StorageService.instance.isReplacingSameHostAddressAndHostId(differentHostId));
+        }
+        finally
+        {
+            System.clearProperty("cassandra.replace_address");
+        }
     }
 }
