@@ -26,6 +26,8 @@ import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
 import com.datastax.driver.core.Statement;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
+
 import static org.junit.Assert.assertEquals;
 
 public class IndexQueryPagingTest extends CQLTester
@@ -92,7 +94,38 @@ public class IndexQueryPagingTest extends CQLTester
     }
 
     @Test
-    public void testPagingOnPartitionsWithoutClusteringColumns() throws Throwable
+    public void testPagingWithSingleRowPartitionsModernPaging() throws Throwable
+    {
+        boolean forceLegacyPaging = DatabaseDescriptor.forcePagingStateLegacySerialization();
+        
+        try
+        {
+            DatabaseDescriptor.setForceLegacyPagingStateSerialization(false);
+            testPagingWithSingleRowPartitions();
+        }
+        finally
+        {
+            DatabaseDescriptor.setForceLegacyPagingStateSerialization(forceLegacyPaging);
+        }
+    }
+
+    @Test
+    public void testPagingWithSingleRowPartitionsLegacyPaging() throws Throwable
+    {
+        boolean forceLegacyPaging = DatabaseDescriptor.forcePagingStateLegacySerialization();
+
+        try
+        {
+            DatabaseDescriptor.setForceLegacyPagingStateSerialization(true);
+            testPagingWithSingleRowPartitions();
+        }
+        finally
+        {
+            DatabaseDescriptor.setForceLegacyPagingStateSerialization(forceLegacyPaging);
+        }
+    }
+
+    private void testPagingWithSingleRowPartitions() throws Throwable
     {
         createTable("CREATE TABLE %s (pk int PRIMARY KEY, v int)");
         createIndex("CREATE INDEX on %s(v)");
@@ -102,7 +135,7 @@ public class IndexQueryPagingTest extends CQLTester
         execute("INSERT INTO %s (pk, v) VALUES (203, 200);");
         execute("INSERT INTO %s (pk, v) VALUES (100, 100);");
 
-        for (int pageSize = 1; pageSize < 10; pageSize++)
+        for (int pageSize = 1; pageSize < 6; pageSize++)
         {
             assertRowsNet(executeNetWithPaging("select * from %s where v = 200 and pk = 201;", pageSize),
                           row(201, 200));
@@ -114,6 +147,61 @@ public class IndexQueryPagingTest extends CQLTester
 
             assertRowsNet(executeNetWithPaging("select * from %s where v = 100;", pageSize),
                           row(100, 100));
+        }
+    }
+
+    @Test
+    public void testPagingWithMultiRowPartitionsModernPaging() throws Throwable
+    {
+        boolean forceLegacyPaging = DatabaseDescriptor.forcePagingStateLegacySerialization();
+
+        try
+        {
+            DatabaseDescriptor.setForceLegacyPagingStateSerialization(false);
+            testPagingWithMultiRowPartitions();
+        }
+        finally
+        {
+            DatabaseDescriptor.setForceLegacyPagingStateSerialization(forceLegacyPaging);
+        }
+    }
+
+    @Test
+    public void testPagingWithMultiRowPartitionsLegacyPaging() throws Throwable
+    {
+        boolean forceLegacyPaging = DatabaseDescriptor.forcePagingStateLegacySerialization();
+
+        try
+        {
+            DatabaseDescriptor.setForceLegacyPagingStateSerialization(true);
+            testPagingWithMultiRowPartitions();
+        }
+        finally
+        {
+            DatabaseDescriptor.setForceLegacyPagingStateSerialization(forceLegacyPaging);
+        }
+    }
+
+    private void testPagingWithMultiRowPartitions() throws Throwable
+    {
+        createTable("CREATE TABLE %s (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
+        createIndex("CREATE INDEX on %s(v)");
+
+        execute("INSERT INTO %s (pk, ck, v) VALUES (1, 1, 200);");
+        execute("INSERT INTO %s (pk, ck, v) VALUES (1, 2, 200);");
+        execute("INSERT INTO %s (pk, ck, v) VALUES (1, 3, 200);");
+        execute("INSERT INTO %s (pk, ck, v) VALUES (2, 1, 100);");
+
+        for (int pageSize = 1; pageSize < 6; pageSize++)
+        {
+            assertRowsNet(executeNetWithPaging("select * from %s where v = 200 and pk = 1;", pageSize),
+                          row(1, 1, 200), row(1, 2, 200), row(1, 3, 200));
+
+            assertRowsNet(executeNetWithPaging("select * from %s where v = 200;", pageSize),
+                          row(1, 1, 200), row(1, 2, 200), row(1, 3, 200));
+
+            assertRowsNet(executeNetWithPaging("select * from %s where v = 100;", pageSize),
+                          row(2, 1, 100));
         }
     }
 
