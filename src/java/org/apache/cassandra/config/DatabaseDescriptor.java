@@ -920,6 +920,13 @@ public class DatabaseDescriptor
                         "column_index_max_target_index_objects have been deprecated in 4.0 " +
                         "and should be removed from cie-db-conf as it has no longer has any effect.");
         }
+
+        if (conf.start_rpc != null) // ACI Cassandra - warn about start_rpc configuration, see rdar://74580514
+        {
+            logger.info("start_rpc is set {} in configuration. Thrift has been removed from ACI Cassandra 4.0 and " +
+                        "cannot be started. Please remove from configuration.",
+                        conf.start_rpc);
+        }
     }
 
     @VisibleForTesting
