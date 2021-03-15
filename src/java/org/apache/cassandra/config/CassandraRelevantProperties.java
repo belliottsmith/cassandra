@@ -159,6 +159,8 @@ public enum CassandraRelevantProperties
      */
     REPLACEMENT_ALLOW_EMPTY("cassandra.allow_empty_replace_address", "true"),
 
+    DATA_OUTPUT_BUFFER_ALLOCATE_TYPE("cassandra.dob.allocate_type"),
+
     /**
      * Directory where Cassandra puts its logs, defaults to "." which is current directory.
      */
@@ -326,6 +328,40 @@ public enum CassandraRelevantProperties
     public void setInt(int value)
     {
         System.setProperty(key, Integer.toString(value));
+    }
+
+    /**
+     * Gets the value of a system property as a enum, calling {@link String#toUpperCase()} first.
+     *
+     * @param defaultValue to return when not defined
+     * @param <T> type
+     * @return enum value
+     */
+    public <T extends Enum<T>> T getEnum(T defaultValue) {
+        return getEnum(true, defaultValue);
+    }
+
+    /**
+     * Gets the value of a system property as a enum, optionally calling {@link String#toUpperCase()} first.
+     *
+     * @param toUppercase before converting to enum
+     * @param defaultValue to return when not defined
+     * @param <T> type
+     * @return enum value
+     */
+    public <T extends Enum<T>> T getEnum(boolean toUppercase, T defaultValue) {
+        String value = System.getProperty(key);
+        if (value == null)
+            return defaultValue;
+        return Enum.valueOf(defaultValue.getDeclaringClass(), toUppercase ? value.toUpperCase() : value);
+    }
+
+    /**
+     * Sets the value into system properties.
+     * @param value to set
+     */
+    public void setEnum(Enum<?> value) {
+        System.setProperty(key, value.name());
     }
 
     private interface PropertyConverter<T>
