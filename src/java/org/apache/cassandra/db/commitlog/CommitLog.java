@@ -44,7 +44,6 @@ import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.security.EncryptionContext;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.MBeanWrapper;
 
@@ -280,7 +279,7 @@ public class CommitLog implements CommitLogMBean
                 buffer.putInt((int) checksum.getValue());
 
                 // checksummed mutation
-                dos.write(dob.getData(), 0, size);
+                dos.write(dob.unsafeGetBufferAndFlip());
                 updateChecksum(checksum, buffer, buffer.position() - size, size);
                 buffer.putInt((int) checksum.getValue());
             }
