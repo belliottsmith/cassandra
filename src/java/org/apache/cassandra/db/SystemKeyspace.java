@@ -797,7 +797,7 @@ public final class SystemKeyspace
         {
             CommitLogPosition.serializer.serialize(position, out);
             out.writeLong(truncatedAt);
-            return singletonMap(cfs.metadata.id.asUUID(), out.asNewBuffer());
+            return singletonMap(cfs.metadata.id.asUUID(), out.unsafeGetBufferAndFlip());
         }
         catch (IOException e)
         {
