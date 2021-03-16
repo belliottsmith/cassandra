@@ -20,6 +20,8 @@ package org.apache.cassandra.cql3.statements;
 import java.util.Collections;
 import java.util.List;
 
+import javax.annotation.Nullable;
+
 import org.apache.cassandra.cql3.*;
 import org.apache.cassandra.cql3.functions.Function;
 import org.apache.cassandra.exceptions.RequestValidationException;
@@ -59,24 +61,28 @@ public abstract class ParsedStatement
 
         public final CQLStatement statement;
         public final List<ColumnSpecification> boundNames;
+        @Nullable
         public final Short[] partitionKeyBindIndexes;
+        @Nullable
+        public final String keyspace;
 
-        protected Prepared(CQLStatement statement, List<ColumnSpecification> boundNames, Short[] partitionKeyBindIndexes)
+        protected Prepared(CQLStatement statement, List<ColumnSpecification> boundNames, Short[] partitionKeyBindIndexes, String keyspace)
         {
             this.statement = statement;
             this.boundNames = boundNames;
             this.partitionKeyBindIndexes = partitionKeyBindIndexes;
             this.rawCQLStatement = "";
+            this.keyspace = keyspace;
         }
 
-        public Prepared(CQLStatement statement, VariableSpecifications names, Short[] partitionKeyBindIndexes)
+        public Prepared(CQLStatement statement, VariableSpecifications names, Short[] partitionKeyBindIndexes, String keyspace)
         {
-            this(statement, names.getSpecifications(), partitionKeyBindIndexes);
+            this(statement, names.getSpecifications(), partitionKeyBindIndexes, keyspace);
         }
 
         public Prepared(CQLStatement statement)
         {
-            this(statement, Collections.<ColumnSpecification>emptyList(), null);
+            this(statement, Collections.<ColumnSpecification>emptyList(), null, null);
         }
     }
 

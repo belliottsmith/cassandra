@@ -171,7 +171,7 @@ public class SelectSizeStatement implements CQLStatement
             VariableSpecifications boundNames = getBoundVariables();
             StatementRestrictions restrictions = parseAndValidateRestrictions(cfm, boundNames);
             SelectSizeStatement statement = new SelectSizeStatement(cfm, restrictions, boundNames.size());
-            return new ParsedStatement.Prepared(statement, boundNames, boundNames.getPartitionKeyBindIndexes(cfm));
+            return new ParsedStatement.Prepared(statement, boundNames, boundNames.getPartitionKeyBindIndexes(cfm), cfm.ksName);
         }
 
         private StatementRestrictions parseAndValidateRestrictions(CFMetaData cfm, VariableSpecifications boundNames)
