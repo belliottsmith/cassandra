@@ -673,7 +673,9 @@ public class LeveledManifest
         if (start.compareTo(end) <= 0)
             return overlapping(start, end, sstables);
 
-        assert end.equals(partitioner.getMinimumToken()) : "If start > end, end must be equal to partitioner min token";
+        assert end.equals(partitioner.getMinimumToken()) : "If start > end, end must be equal to partitioner min token. partitioner:" +
+                                                           partitioner.getClass().getCanonicalName() + " end:" +
+                                                           end + " minToken:" + partitioner.getMinimumToken();
         Set<SSTableReader> overlapped = new HashSet<>();
         for (SSTableReader candidate : sstables)
         {
