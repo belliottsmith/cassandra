@@ -242,9 +242,15 @@ public class IndexSummaryManager implements IndexSummaryManagerMBean
         }
         catch (Exception e)
         {
-            if (!(e instanceof CompactionInterruptedException))
+            if (e instanceof CompactionInterruptedException)
+            {
+                logger.info("Index summary interrupted: {}", e.getMessage());
+            }
+            else
+            {
                 logger.error("Got exception during index summary redistribution", e);
-            throw e;
+                throw e;
+            }
         }
         finally
         {
