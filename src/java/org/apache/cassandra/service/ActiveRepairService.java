@@ -70,6 +70,7 @@ import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.CommonRange;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.repair.RepairJobDesc;
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.RepairSession;
@@ -706,13 +707,11 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         }
     }
 
-    public ParentRepairSession getParentRepairSession(UUID parentSessionId)
+    public ParentRepairSession getParentRepairSession(UUID parentSessionId) throws NoSuchRepairSessionException
     {
         ParentRepairSession session = parentRepairSessions.get(parentSessionId);
-        // this can happen if a node thinks that the coordinator was down, but that coordinator got back before noticing
-        // that it was down itself.
         if (session == null)
-            throw new RuntimeException("Parent repair session with id = " + parentSessionId + " has failed.");
+            throw new NoSuchRepairSessionException(parentSessionId);
 
         return session;
     }

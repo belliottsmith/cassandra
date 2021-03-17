@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.compaction.CompactionInfo;
+import org.apache.cassandra.db.compaction.CompactionInterruptedException;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.dht.Range;
@@ -85,7 +86,7 @@ public class ValidationManager
         return tree;
     }
 
-    private static ValidationPartitionIterator getValidationIterator(TableRepairManager repairManager, Validator validator) throws IOException
+    private static ValidationPartitionIterator getValidationIterator(TableRepairManager repairManager, Validator validator) throws IOException, NoSuchRepairSessionException
     {
         RepairJobDesc desc = validator.desc;
         return repairManager.getValidationIterator(desc.ranges, desc.parentSessionId, desc.sessionId, validator.isIncremental, validator.nowInSec, validator.getPreviewKind());
@@ -96,7 +97,7 @@ public class ValidationManager
      * but without writing the merge result
      */
     @SuppressWarnings("resource")
-    private void doValidation(ColumnFamilyStore cfs, Validator validator) throws IOException
+    private void doValidation(ColumnFamilyStore cfs, Validator validator) throws IOException, NoSuchRepairSessionException
     {
         // this isn't meant to be race-proof, because it's not -- it won't cause bugs for a CFS to be dropped
         // mid-validation, or to attempt to validate a droped CFS.  this is just a best effort to avoid useless work,
@@ -166,7 +167,7 @@ public class ValidationManager
                 {
                     doValidation(cfs, validator);
                 }
-                catch (PreviewRepairConflictWithIncrementalRepairException e)
+                catch (PreviewRepairConflictWithIncrementalRepairException | NoSuchRepairSessionException | CompactionInterruptedException e)
                 {
                     validator.fail();
                     logger.warn(e.getMessage());

@@ -30,7 +30,6 @@ import java.util.function.LongPredicate;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.Maps;
 
 import org.slf4j.Logger;
@@ -42,7 +41,6 @@ import org.apache.cassandra.db.compaction.AbstractCompactionStrategy;
 import org.apache.cassandra.db.compaction.ActiveCompactionsTracker;
 import org.apache.cassandra.db.compaction.CompactionController;
 import org.apache.cassandra.db.compaction.CompactionInfo;
-import org.apache.cassandra.db.compaction.CompactionInterruptedException;
 import org.apache.cassandra.db.compaction.CompactionIterator;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.OperationType;
@@ -56,10 +54,9 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.repair.ValidationPartitionIterator;
-import org.apache.cassandra.repair.Validator;
-import org.apache.cassandra.repair.consistent.ConsistentSession;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ActiveRepairService;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.utils.UUIDGen;
@@ -132,16 +129,11 @@ public class CassandraValidationIterator extends ValidationPartitionIterator
     }
 
     @VisibleForTesting
-    public static synchronized Refs<SSTableReader> getSSTablesToValidate(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, UUID parentId, boolean isIncremental)
+    public static synchronized Refs<SSTableReader> getSSTablesToValidate(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, UUID parentId, boolean isIncremental) throws NoSuchRepairSessionException
     {
         Refs<SSTableReader> sstables;
 
         ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(parentId);
-        if (prs == null)
-        {
-            // this means the parent repair session was removed - the repair session failed on another node and we removed it
-            return new Refs<>();
-        }
 
         Set<SSTableReader> sstablesToValidate = new HashSet<>();
 
@@ -149,7 +141,6 @@ public class CassandraValidationIterator extends ValidationPartitionIterator
         if (prs.isPreview())
         {
             predicate = prs.previewKind.predicate();
-
         }
         else if (isIncremental)
         {
@@ -198,7 +189,7 @@ public class CassandraValidationIterator extends ValidationPartitionIterator
     private final long estimatedPartitions;
     private final Map<Range<Token>, Long> rangePartitionCounts;
 
-    public CassandraValidationIterator(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, UUID parentId, UUID sessionID, boolean isIncremental, int nowInSec, PreviewKind previewKind) throws IOException
+    public CassandraValidationIterator(ColumnFamilyStore cfs, Collection<Range<Token>> ranges, UUID parentId, UUID sessionID, boolean isIncremental, int nowInSec, PreviewKind previewKind) throws IOException, NoSuchRepairSessionException
     {
         this.cfs = cfs;
 
@@ -228,15 +219,12 @@ public class CassandraValidationIterator extends ValidationPartitionIterator
 
         Preconditions.checkArgument(sstables != null);
         ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(parentId);
-        if (prs != null)
-        {
-            logger.info("{}, parentSessionId={}: Performing validation compaction on {} sstables in {}.{}",
-                        prs.previewKind.logPrefix(sessionID),
-                        parentId,
-                        sstables.size(),
-                        cfs.keyspace.getName(),
-                        cfs.getTableName());
-        }
+        logger.info("{}, parentSessionId={}: Performing validation compaction on {} sstables in {}.{}",
+                    prs.previewKind.logPrefix(sessionID),
+                    parentId,
+                    sstables.size(),
+                    cfs.keyspace.getName(),
+                    cfs.getTableName());
 
         controller = new ValidationCompactionController(cfs, getDefaultGcBefore(cfs, nowInSec), previewKind);
         scanners = cfs.getCompactionStrategyManager().getScanners(sstables, ranges);
