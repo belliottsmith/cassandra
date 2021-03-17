@@ -419,7 +419,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
                 }
                 else
                 {
-                    throw new RuntimeException(String.format("Nothing to repair for %s in %s - aborting", range, state.keyspace));
+                    throw RepairException.warn(String.format("Nothing to repair for %s in %s - aborting since it has no neighbors", range, state.keyspace));
                 }
             }
 
@@ -438,7 +438,8 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
                 }
                 else
                 {
-                    throw RepairException.warn(String.format("Nothing to repair for %s in %s - aborting", range, state.keyspace));
+                    throw RepairException.warn(String.format("Nothing to repair for %s in %s - aborting (unfilteredNeighbors=%s, dcs=%s, hosts=%s)",
+                                                             range, state.keyspace, unfilteredNeighbors, state.options.getDataCenters(), state.options.getHosts()));
                 }
             }
             boolean allReplicas = Iterables.elementsEqual(unfilteredNeighbors, neighbors);
