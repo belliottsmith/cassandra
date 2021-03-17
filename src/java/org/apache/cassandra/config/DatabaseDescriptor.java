@@ -920,6 +920,9 @@ public class DatabaseDescriptor
 
         repairedDataTrackingExclusions =
             RepairedDataTrackingExclusions.fromConfig(conf.repaired_data_tracking_exclusions);
+
+        if (conf.max_space_usable_for_compactions_in_percentage < 0 || conf.max_space_usable_for_compactions_in_percentage > 1)
+            throw new ConfigurationException("max_space_usable_for_compactions_in_percentage must be between 0 and 1", false);
     }
 
     public static IEndpointSnitch createEndpointSnitch(boolean dynamic, String snitchClassName) throws ConfigurationException
@@ -1609,6 +1612,16 @@ public class DatabaseDescriptor
     public static long getMinFreeSpacePerDriveInBytes()
     {
         return conf.min_free_space_per_drive_in_mb * 1024L * 1024L;
+    }
+
+    public static double getMaxSpaceForCompactionsPerDrive()
+    {
+        return conf.max_space_usable_for_compactions_in_percentage;
+    }
+
+    public static void setMaxSpaceForCompactionsPerDrive(double percentage)
+    {
+        conf.max_space_usable_for_compactions_in_percentage = percentage;
     }
 
     public static boolean getDisableSTCSInL0()
