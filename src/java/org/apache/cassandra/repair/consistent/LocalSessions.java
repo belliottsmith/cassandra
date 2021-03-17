@@ -125,10 +125,17 @@ public class LocalSessions
     private volatile boolean started = false;
     private volatile ImmutableMap<UUID, LocalSession> sessions = ImmutableMap.of();
 
+
     @VisibleForTesting
     int getNumSessions()
     {
         checkStarted();
+        return sessions.size();
+    }
+
+    @VisibleForTesting
+    int getNumSessionsUnsafe()
+    {
         return sessions.size();
     }
 
@@ -200,11 +207,42 @@ public class LocalSessions
             }
             catch (IllegalArgumentException | NullPointerException e)
             {
-                logger.warn("Unable to load malformed repair session {}, ignoring", row.has("parent_id") ? row.getUUID("parent_id") : null);
+                logger.warn("Unable to load malformed repair session {}, removing", row.has("parent_id") ? row.getUUID("parent_id") : null);
+                if (row.has("parent_id"))
+                    deleteRow(row.getUUID("parent_id"));
             }
         }
         sessions = ImmutableMap.copyOf(loadedSessions);
+        failOngoingRepairs();
         started = true;
+    }
+
+    public synchronized void stop()
+    {
+        if (!started)
+            return;
+        started = false;
+        failOngoingRepairs();
+    }
+
+    private void failOngoingRepairs()
+    {
+        for (LocalSession session : sessions.values())
+        {
+            synchronized (session)
+            {
+                switch (session.getState())
+                {
+                    case FAILED:
+                    case FINALIZED:
+                    case FINALIZE_PROMISED:
+                        continue;
+                    default:
+                        logger.info("Found repair session {} with state = {} - failing the repair", session.sessionID, session.getState());
+                        failSession(session, true);
+                }
+            }
+        }
     }
 
     public boolean isStarted()
@@ -467,7 +505,8 @@ public class LocalSessions
         MessagingService.instance().sendOneWay(messageOut, destination);
     }
 
-    private void setStateAndSave(LocalSession session, ConsistentSession.State state)
+    @VisibleForTesting
+    void setStateAndSave(LocalSession session, ConsistentSession.State state)
     {
         synchronized (session)
         {
@@ -496,21 +535,23 @@ public class LocalSessions
 
     public void failSession(UUID sessionID, boolean sendMessage)
     {
-        LocalSession session = getSession(sessionID);
+        failSession(getSession(sessionID), sendMessage);
+    }
+
+    public void failSession(LocalSession session, boolean sendMessage)
+    {
         if (session != null)
         {
             synchronized (session)
             {
                 if (session.getState() != FAILED)
                 {
-                    logger.info("Failing local repair session {}", sessionID);
+                    logger.info("Failing local repair session {}", session.sessionID);
                     setStateAndSave(session, FAILED);
                 }
             }
             if (sendMessage)
-            {
-                sendMessage(session.coordinator, new FailSession(sessionID));
-            }
+                sendMessage(session.coordinator, new FailSession(session.sessionID));
         }
     }
 
