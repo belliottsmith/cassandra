@@ -38,7 +38,7 @@ public interface TableRepairManager
      * data previously isolated for repair with the given parentId. nowInSec should determine whether tombstones shouldn
      * be purged or not.
      */
-    ValidationPartitionIterator getValidationIterator(Collection<Range<Token>> ranges, UUID parentId, UUID sessionID, boolean isIncremental, int nowInSec, PreviewKind previewKind) throws IOException;
+    ValidationPartitionIterator getValidationIterator(Collection<Range<Token>> ranges, UUID parentId, UUID sessionID, boolean isIncremental, int nowInSec, PreviewKind previewKind) throws IOException, NoSuchRepairSessionException;
 
     /**
      * Begin execution of the given validation callable. Which thread pool a validation should run in is an implementation detail.

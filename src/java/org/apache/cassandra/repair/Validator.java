@@ -239,7 +239,6 @@ public class Validator implements Runnable
      */
     public void fail()
     {
-        logger.error("Failed creating a merkle tree for {}, {} (see log for details)", desc, initiator);
         respond(new ValidationResponse(desc));
     }
 

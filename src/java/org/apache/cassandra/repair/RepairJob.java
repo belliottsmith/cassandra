@@ -191,7 +191,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         return session.commonRange.transEndpoints.contains(ep);
     }
 
-    private ListenableFuture<List<SyncStat>> standardSyncing(List<TreeResponse> trees)
+    private ListenableFuture<List<SyncStat>> standardSyncing(List<TreeResponse> trees) throws NoSuchRepairSessionException
     {
         List<SyncTask> syncTasks = createStandardSyncTasks(desc,
                                                            trees,
@@ -270,7 +270,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         return syncTasks;
     }
 
-    private ListenableFuture<List<SyncStat>> optimisedSyncing(List<TreeResponse> trees)
+    private ListenableFuture<List<SyncStat>> optimisedSyncing(List<TreeResponse> trees) throws NoSuchRepairSessionException
     {
         List<SyncTask> syncTasks = createOptimisedSyncingSyncTasks(desc,
                                                                    trees,
@@ -284,9 +284,8 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
     }
 
     @VisibleForTesting
-    ListenableFuture<List<SyncStat>> executeTasks(List<SyncTask> syncTasks)
+    ListenableFuture<List<SyncStat>> executeTasks(List<SyncTask> syncTasks) throws NoSuchRepairSessionException
     {
-        // this throws if the parent session has failed
         ActiveRepairService.instance.getParentRepairSession(desc.parentSessionId);
         for (SyncTask task : syncTasks)
         {
