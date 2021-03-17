@@ -453,8 +453,7 @@ public class RepairSession extends AsyncFuture<RepairSessionResult> implements I
             {
                 if (range.intersects(ranges()))
                 {
-                    logger.warn(message);
-                    forceShutdown(new Exception(message));
+                    forceShutdown(RepairException.warn(message));
                     return;
                 }
             }
