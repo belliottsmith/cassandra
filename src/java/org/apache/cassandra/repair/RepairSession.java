@@ -430,8 +430,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
             {
                 if (range.intersects(ranges()))
                 {
-                    logger.warn(message);
-                    forceShutdown(new Exception(message));
+                    forceShutdown(RepairException.warn(message));
                     return;
                 }
             }
