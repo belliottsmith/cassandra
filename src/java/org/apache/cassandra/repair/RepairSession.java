@@ -35,6 +35,7 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.RepairException;
 import org.apache.cassandra.gms.*;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.repair.consistent.ConsistentSession;
@@ -49,6 +50,7 @@ import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTrees;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.Throwables;
 
 /**
  * Coordinates the (active) repair of a list of non overlapping token ranges.
@@ -323,7 +325,11 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
 
             public void onFailure(Throwable t)
             {
-                logger.error("{} Session completed with the following error", previewKind.logPrefix(getId()), t);
+                String msg = "{} Session completed with the following error";
+                if (Throwables.anyCauseMatches(t, RepairException::shouldWarn))
+                    logger.warn(msg+ ": {}", previewKind.logPrefix(getId()), t.getMessage());
+                else
+                    logger.error(msg, previewKind.logPrefix(getId()), t);
                 Tracing.traceRepair("Session completed with the following error: {}", t);
                 forceShutdown(t);
             }
@@ -412,8 +418,7 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
             {
                 if (range.intersects(ranges()))
                 {
-                    logger.warn(message);
-                    forceShutdown(new Exception(message));
+                    forceShutdown(RepairException.warn(message));
                     return;
                 }
             }
