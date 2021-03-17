@@ -18,21 +18,17 @@
 package org.apache.cassandra.repair;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.*;
-import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.PreviewKind;
@@ -56,7 +52,7 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
         return ActiveRepairService.instance.consistent.local.isSessionInProgress(sessionID);
     }
 
-    private PreviewKind previewKind(UUID sessionID)
+    private PreviewKind previewKind(UUID sessionID) throws NoSuchRepairSessionException
     {
         ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(sessionID);
         return prs != null ? prs.previewKind : PreviewKind.NONE;
@@ -142,14 +138,26 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                     }
 
                     ActiveRepairService.instance.consistent.local.maybeSetRepairing(desc.parentSessionId);
+                    PreviewKind previewKind;
+                    try
+                    {
+                        previewKind = previewKind(desc.parentSessionId);
+                    }
+                    catch (NoSuchRepairSessionException e)
+                    {
+                        logger.warn("Parent repair session {} has been removed, failing repair", desc.parentSessionId);
+                        MessagingService.instance().send(Message.out(VALIDATION_RSP, new ValidationResponse(desc)), message.from());
+                        return;
+                    }
                     Validator validator = new Validator(desc, message.from(), validationRequest.nowInSec,
-                                                        isIncremental(desc.parentSessionId), previewKind(desc.parentSessionId));
+                                                        isIncremental(desc.parentSessionId), previewKind);
                     if (acceptMessage(validationRequest, message.from()))
                     {
                         ValidationManager.instance.submitValidation(store, validator);
                     }
                     else
                     {
+                        logger.error("Failed creating a merkle tree for {}, {} (see log for details)", desc, message.from());
                         validator.fail();
                     }
                     break;
