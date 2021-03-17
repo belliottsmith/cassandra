@@ -44,7 +44,7 @@ import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.repair.consistent.ConsistentSession;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -59,7 +59,6 @@ import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.lifecycle.WrappedLifecycleTransaction;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.view.ViewBuilderTask;
-import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -818,7 +817,15 @@ public class CompactionManager implements CompactionManagerMBean
     {
         try
         {
-            ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(sessionID);
+            ActiveRepairService.ParentRepairSession prs;
+            try
+            {
+                prs = ActiveRepairService.instance.getParentRepairSession(sessionID);
+            }
+            catch (NoSuchRepairSessionException e)
+            {
+                throw new CompactionInterruptedException(e.getMessage());
+            }
             Preconditions.checkArgument(!prs.isPreview(), "Cannot anticompact for previews");
             Preconditions.checkArgument(!replicas.isEmpty(), "No ranges to anti-compact");
 
