@@ -163,6 +163,7 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                     }
                     else
                     {
+                        logger.error("Failed creating a merkle tree for {}, {} (see log for details)", desc, message.from());
                         validator.fail();
                     }
                     break;
