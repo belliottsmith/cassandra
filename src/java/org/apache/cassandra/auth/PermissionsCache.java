@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.auth;
 
-import java.lang.management.ManagementFactory;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
@@ -26,12 +25,14 @@ import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
 import com.google.common.util.concurrent.Uninterruptibles;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +47,15 @@ public class PermissionsCache implements PermissionsCacheMBean, WarmableCache<Pa
     private final static String MBEAN_NAME = "org.apache.cassandra.auth:type=PermissionsCache";
 
     private final ThreadPoolExecutor cacheRefreshExecutor = new DebuggableThreadPoolExecutor("PermissionsCacheRefresh",
-                                                                                             Thread.NORM_PRIORITY);
+                                                                                             Thread.NORM_PRIORITY)
+    {
+        protected void afterExecute(Runnable r, Throwable t)
+        {
+            // overridden to avoid logging exceptions on background updates
+            maybeResetTraceSessionWrapper(r);
+        }
+    };
+
     private final IAuthorizer authorizer;
     private volatile LoadingCache<Pair<AuthenticatedUser, IResource>, Set<Permission>> cache;
 
@@ -75,8 +84,9 @@ public class PermissionsCache implements PermissionsCacheMBean, WarmableCache<Pa
         {
             return cache.get(Pair.create(user, resource));
         }
-        catch (ExecutionException e)
+        catch (ExecutionException | UncheckedExecutionException e)
         {
+            Throwables.propagateIfInstanceOf(e.getCause(), RuntimeException.class);
             throw new RuntimeException(e);
         }
     }

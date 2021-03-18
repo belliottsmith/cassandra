@@ -23,6 +23,8 @@ import java.util.Set;
 import java.util.concurrent.*;
 
 import com.google.common.annotations.VisibleForTesting;
+
+import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -33,6 +35,7 @@ import com.google.common.util.concurrent.ListenableFutureTask;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.concurrent.ScheduledExecutors;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,7 +52,15 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
 
     private final static String MBEAN_NAME = "org.apache.cassandra.auth:type=RolesCache";
     private final ThreadPoolExecutor cacheRefreshExecutor = new DebuggableThreadPoolExecutor("RolesCacheRefresh",
-                                                                                             Thread.NORM_PRIORITY);
+                                                                                             Thread.NORM_PRIORITY)
+    {
+        protected void afterExecute(Runnable r, Throwable t)
+        {
+            // overridden to empty to avoid logging on background updates
+            maybeResetTraceSessionWrapper(r);
+        }
+    };
+
     private final IRoleManager roleManager;
     private volatile LoadingCache<RoleResource, Set<Role>> cache;
 
@@ -132,8 +143,9 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
         {
             return Sets.newHashSet(Iterables.transform(cache.get(primaryRole), r -> r.resource));
         }
-        catch (ExecutionException e)
+        catch (ExecutionException | UncheckedExecutionException e)
         {
+            Throwables.propagateIfInstanceOf(e.getCause(), RuntimeException.class);
             throw new RuntimeException(e);
         }
     }
@@ -154,8 +166,9 @@ public class RolesCache implements RolesCacheMBean, WarmableCache<RoleResource, 
         {
             return cache.get(primaryRole);
         }
-        catch (ExecutionException e)
+        catch (ExecutionException | UncheckedExecutionException e)
         {
+            Throwables.propagateIfInstanceOf(e.getCause(), RuntimeException.class);
             throw new RuntimeException(e);
         }
     }

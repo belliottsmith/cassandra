@@ -30,11 +30,13 @@ import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,7 +53,15 @@ public class NetworkAuthCache implements WarmableCache<RoleResource, DCPermissio
     private final static String MBEAN_NAME = "org.apache.cassandra.auth:type=NetworkAuthCache";
 
     private final ThreadPoolExecutor cacheRefreshExecutor = new DebuggableThreadPoolExecutor("NetworkAuthCacheRefresh",
-                                                                                             Thread.NORM_PRIORITY);
+                                                                                             Thread.NORM_PRIORITY)
+    {
+        protected void afterExecute(Runnable r, Throwable t)
+        {
+            // overridden to avoid logging exceptions on background updates
+            maybeResetTraceSessionWrapper(r);
+        }
+    };
+
     private final INetworkAuthorizer authorizer;
     private volatile LoadingCache<RoleResource, DCPermissions> cache;
 
@@ -87,8 +97,9 @@ public class NetworkAuthCache implements WarmableCache<RoleResource, DCPermissio
         {
             return cache.get(role);
         }
-        catch (ExecutionException e)
+        catch (ExecutionException | UncheckedExecutionException e)
         {
+            Throwables.propagateIfInstanceOf(e.getCause(), RuntimeException.class);
             throw new RuntimeException(e);
         }
     }

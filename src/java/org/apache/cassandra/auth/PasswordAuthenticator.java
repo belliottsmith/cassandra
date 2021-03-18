@@ -29,6 +29,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -88,7 +89,14 @@ public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, 
     private SelectStatement legacyAuthenticateStatement;
 
     private final ThreadPoolExecutor cacheRefreshExecutor = new DebuggableThreadPoolExecutor("AuthenticatorCacheRefresh",
-            Thread.NORM_PRIORITY);
+                                                                                             Thread.NORM_PRIORITY)
+    {
+        protected void afterExecute(Runnable r, Throwable t)
+        {
+            // overridden to avoid logging exceptions on background updates
+            maybeResetTraceSessionWrapper(r);
+        }
+    };
 
     private final CredentialsCache cache = new CredentialsCache();
 
@@ -195,14 +203,8 @@ public class PasswordAuthenticator implements IAuthenticator, Cacheable<String, 
         }
         catch (UncheckedExecutionException | ExecutionException e)
         {
-            if (e.getCause() != null && e.getCause() instanceof AuthenticationException)
-            {
-                throw (AuthenticationException) e.getCause();
-            }
-            else
-            {
-                throw new RuntimeException(e);
-            }
+            Throwables.propagateIfInstanceOf(e.getCause(), AuthenticationException.class);
+            throw new AuthenticationException("Unable to perform authentication: " + e.getMessage(), e);
         }
     }
 
