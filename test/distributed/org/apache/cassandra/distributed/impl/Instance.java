@@ -82,6 +82,7 @@ import org.apache.cassandra.distributed.shared.Metrics;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
+import org.apache.cassandra.hints.DTestSerializer;
 import org.apache.cassandra.hints.HintsService;
 import org.apache.cassandra.index.SecondaryIndexManager;
 import org.apache.cassandra.io.IVersionedSerializer;
@@ -571,6 +572,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 // see org.apache.cassandra.service.CassandraDaemon.setup
                 StorageService.instance.populateTokenMetadata();
 
+                MessagingService.instance().verbSerializers.put(MessagingService.Verb.HINT,
+                                                                new DTestSerializer());
                 try
                 {
                     // load schema from disk
