@@ -216,6 +216,12 @@ builds:
       tag:
         enabled: true
         expression: 'cie-cassandra-${FULL_VERSION}'
+      pipelineChain:
+        - pipeline: cassinfra40-publish
+          buildArguments:
+            - name: "CASSANDRA_VERSION"
+              value: "${FULL_VERSION}"
+          project: pie-cassandra-test-infra-docker
 
   #
   # Harry build - PRB
