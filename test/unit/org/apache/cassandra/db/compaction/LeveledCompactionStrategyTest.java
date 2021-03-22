@@ -19,6 +19,7 @@ package org.apache.cassandra.db.compaction;
 
 import java.io.File;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -71,6 +72,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.dht.Murmur3Partitioner.LongToken;
+import org.apache.cassandra.dht.RandomPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -1032,28 +1034,33 @@ public class LeveledCompactionStrategyTest
     @Test
     public void testGetScheduledCompactionFewSplits() throws Exception
     {
-        testGetScheduledCompaction(2);
+        testGetScheduledCompactionOP(2);
     }
     @Test
     public void testGetScheduledCompactionNormalSplits() throws Exception
     {
-        testGetScheduledCompaction(100);
+        testGetScheduledCompactionOP(100);
     }
 
     @Test
     public void testGetScheduledCompactionManySplits() throws Exception
     {
-        testGetScheduledCompaction(1000);
+        testGetScheduledCompactionOP(1000);
     }
 
-    public void testGetScheduledCompaction(int splits) throws Exception
+    private void testGetScheduledCompactionOP(int splits) throws Exception
+    {
+        Token t = cfsScheduled.getPartitioner().getRandomToken();
+        StorageService.instance.getTokenMetadata().updateNormalTokens(Collections.singleton(t), FBUtilities.getBroadcastAddressAndPort());
+        testGetScheduledCompaction(splits, cfsScheduled);
+    }
+
+    public static void testGetScheduledCompaction(int splits, ColumnFamilyStore cfsScheduled) throws Exception
     {
         DatabaseDescriptor.setEnableScheduledCompactions(true);
         // hard to create leveling where there are non-single-sstable compactions to do after the first round
         DatabaseDescriptor.setSkipSingleSSTableScheduledCompactions(false);
         DatabaseDescriptor.setScheduledCompactionRangeSplits(splits);
-        Token t = cfsScheduled.getPartitioner().getRandomToken();
-        StorageService.instance.getTokenMetadata().updateNormalTokens(Collections.singleton(t), FBUtilities.getBroadcastAddressAndPort());
 
         populateCfsScheduled(cfsScheduled);
 
@@ -1175,7 +1182,7 @@ public class LeveledCompactionStrategyTest
     public void testStoreSuccessfulScheduledCompaction() throws Exception
     {
         long beforeFirst = System.currentTimeMillis();
-        testGetScheduledCompaction(100);
+        testGetScheduledCompactionOP(100);
         Pair<Token, Long> lastSuccessPair = SystemKeyspace.getLastSuccessfulScheduledCompaction(KEYSPACE1, CF_STANDARDDLEVELED_SCHEDULED, false, "/tmp/something");
 
         long lastSuccessTime = lastSuccessPair.right;
@@ -1326,6 +1333,23 @@ public class LeveledCompactionStrategyTest
 
 
     @Test
+    public void testRPSplit()
+    {
+        // RandomPartitioner has a weird behaviour where midpoint for (min token, 0) gives the midpoint for the
+        // full token range
+        Range<Token> wrapRP = new Range<>(new RandomPartitioner.BigIntegerToken(new BigInteger("10000")),
+                                          new RandomPartitioner.BigIntegerToken(BigInteger.ONE));
+        List<Range<Token>> normalized = Range.normalize(Collections.singleton(wrapRP));
+        List<Range<Token>> splitRanges = LeveledCompactionStrategy.splitRanges(RandomPartitioner.instance, normalized, 100);
+        Token prev = null;
+        for (Range<Token> r : splitRanges)
+        {
+            assertTrue(prev == null || r.right.compareTo(prev) > 0 || r.right.equals(RandomPartitioner.instance.getMinimumToken()));
+            prev = r.right;
+        }
+    }
+
+    @Test
     public void testGetBestBucket()
     {
         ColumnFamilyStore cfs = MockSchema.newCFS();
@@ -1420,7 +1444,7 @@ public class LeveledCompactionStrategyTest
         return new LongToken(t);
     }
 
-    private void populateCfsScheduled(ColumnFamilyStore cfs) throws InterruptedException
+    static void populateCfsScheduled(ColumnFamilyStore cfs) throws InterruptedException
     {
         byte [] b = new byte[100 * 1024];
         new Random().nextBytes(b);
