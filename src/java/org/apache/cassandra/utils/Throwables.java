@@ -77,12 +77,13 @@ public final class Throwables
     @SafeVarargs
     public static <E extends Exception> void perform(DiscreteAction<? extends E> ... actions) throws E
     {
-        perform(Stream.of(actions));
+        Throwables.<E>perform(Stream.of(actions));
     }
 
+    @SafeVarargs
     public static <E extends Exception> void perform(Stream<? extends DiscreteAction<? extends E>> stream, DiscreteAction<? extends E> ... extra) throws E
     {
-        perform(Stream.concat(stream, Stream.of(extra)));
+        Throwables.<E>perform(Stream.concat(stream, Stream.of(extra)));
     }
 
     @SuppressWarnings("unchecked")
