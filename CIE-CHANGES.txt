@@ -1,14 +1,31 @@
 4.0.0.10
 
+* Rebased on OSS 4.0-beta5, commit dfdb6e3d8ebd797bbda8bbe5e47b5228a9281839
+* <no radar> increase default in-jvm dtest ring delay to 15s as failing to contact seeds
+* <rdar://75549715> (Early port) Avoid executing commands that have guaranteed empty bounds in slices filter
+* <rdar://75549715> (Early port) NPE in Slice#make on RT + partition deletion reconciliation on timestamp tie
+* <rdar://75434523> (Applie Internal) Publish cassinfra images for each aci-cassandra release (#2297)
+* <rdar://75445947> (Apple Internal) Investigate java.lang.AssertionError: If start > end, end must be equal to partitioner min token (#2292)
+* <rdar://75617400> (Apple Internal) Prevent PrepareMessage#serializedSize() from throwing an assertion in mixed-mode
+* <rdar://73351912> (Apple Internal) Reduce the log level on "expected" repair exceptions (#2153)
+* <rdar://73403369> (Apple Internal) Avoid logging full stack trace when index summary redistribution is cancelled (#2154)
+* <rdar://74764816> (CASSANDRA-16471 pending) DataOutputBuffer#scratchBuffer is around 50% of all memory allocations (#2280)
+* <rdar://74580514> (Apple Internal) Ignore start_rpc in Configuration rather than fail to start (#2221)
+* <rdar://75271999> (Apple Internal) C* 4.0 Backwards Compatibility for writer data types
+* <rdar://74705920> (Apple Internal) disable serial read linearizability to ensure 4.0 performance is similar to 3.0-hotfix until Apple Paxos is ported to 4.0
+* <rdar://74366952> (Apple Internal) Update docker image to use latest since it got renamed from Alpha to Latest (#2210)
+* <no radar> (Apple Internal, Rebase fixup) rdar://60088255 p25991887 PRO/FTR Blacklist CQL partitions - move some back to StorageProxy
+* <no radar> (Apple Internal, Rebase fixup) fixup rdar://60087087 p21020076 ENV/BLD cie-cassandra on Rio - revert to cassandra-2.2 fro dtest-api 0.0.7
+
 4.0.0.9
-*  <rdar://73933391> (Apple Internal) fixup rdar://60088229 p27898173 PRO/RST Disallow removal of a DC from system_auth replication settings
-*  <rdar://73933391> (Early merge CASSANDRA-16422) Forward port CASSANDRA-16422 Filter decomissioned/assassinated nodes when checking if safe to alter keyspace
-*  <rdar://74207044> (Early merge CASSANDRA-16439) Minimize number of new reserved keywords introduced in 4.0
-*  <rdar://73250643> (Apple Internal) Put GROUP BY under a feature flag (#2172)
-*  <no radar> (Apple Internal) log level on "Flushing largest ... to free up room" should be info still
-*  fixup rdar://60087619 p24418276 ENV/INF Replace logback with log4j22 - auditlogviewer log4j config
-*  rdar://72042385 (Apple Internal) Empty partition is written to SSTable when APNS capped collection is used with TTL
-*  <no radar> (Apple Internal, rebase feedback) Revert "Upgrade JNA to 5.6.0"
+* <rdar://73933391> (Apple Internal) fixup rdar://60088229 p27898173 PRO/RST Disallow removal of a DC from system_auth replication settings
+* <rdar://73933391> (Early merge CASSANDRA-16422) Forward port CASSANDRA-16422 Filter decomissioned/assassinated nodes when checking if safe to alter keyspace
+* <rdar://74207044> (Early merge CASSANDRA-16439) Minimize number of new reserved keywords introduced in 4.0
+* <rdar://73250643> (Apple Internal) Put GROUP BY under a feature flag (#2172)
+* <no radar> (Apple Internal) log level on "Flushing largest ... to free up room" should be info still
+* fixup rdar://60087619 p24418276 ENV/INF Replace logback with log4j22 - auditlogviewer log4j config
+* rdar://72042385 (Apple Internal) Empty partition is written to SSTable when APNS capped collection is used with TTL
+* <no radar> (Apple Internal, rebase feedback) Revert "Upgrade JNA to 5.6.0"
 
 * Accidentally merged rdar://60088281 p46635385 PRO/RST Prevent nodetool verify without an override flag into
   4a145f7488433f4156a2a757183d86d04b37db61 rdar://60087087 p21020076 ENV/BLD cie-cassandra on Rio.
