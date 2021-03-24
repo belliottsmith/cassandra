@@ -21,7 +21,10 @@ package org.apache.cassandra.distributed.test;
 import java.util.Arrays;
 
 import org.junit.After;
+import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Rule;
+import org.junit.rules.TestName;
 
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ICluster;
@@ -31,6 +34,17 @@ import static org.apache.cassandra.cql3.statements.SchemaAlteringStatement.SYSTE
 
 public class TestBaseImpl extends DistributedTestBase
 {
+    @Rule
+    public TestName testName = new TestName();
+
+    @Before
+    public void beforeEachBase()
+    {
+        System.setProperty("cassandra.testtag", getClass().getName());
+        System.setProperty("suitename", testName.getMethodName());
+    }
+
+
     @After
     public void afterEach() {
         super.afterEach();
