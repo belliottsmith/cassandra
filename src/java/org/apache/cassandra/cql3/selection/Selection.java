@@ -28,6 +28,7 @@ import com.google.common.collect.Lists;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.*;
 import org.apache.cassandra.cql3.functions.Function;
 import org.apache.cassandra.db.rows.Cell;
@@ -321,6 +322,9 @@ public abstract class Selection
 
         private final boolean isJson;
 
+        private long size = 0;
+        private boolean sizeWarningEmitted = false;
+
         private ResultSetBuilder(boolean isJson) throws InvalidRequestException
         {
             this.resultSet = new ResultSet(getResultMetadata(isJson).copy(), new ArrayList<List<ByteBuffer>>());
@@ -334,6 +338,30 @@ public abstract class Selection
                 Arrays.fill(timestamps, Long.MIN_VALUE);
             if (ttls != null)
                 Arrays.fill(ttls, -1);
+        }
+
+        private void addSize(List<ByteBuffer> row)
+        {
+            for (int i=0, isize=row.size(); i<isize; i++)
+            {
+                ByteBuffer value = row.get(i);
+                size += value != null ? value.remaining() : 0;
+            }
+        }
+
+        public boolean shouldWarn(long thresholdKB)
+        {
+            if (thresholdKB > 0 && !sizeWarningEmitted && size > thresholdKB << 10)
+            {
+                sizeWarningEmitted = true;
+                return true;
+            }
+            return false;
+        }
+
+        public boolean shouldReject(long thresholdKB)
+        {
+            return thresholdKB > 0 && size > thresholdKB << 10;
         }
 
         public void add(ByteBuffer v)
@@ -424,6 +452,7 @@ public abstract class Selection
                 }
                 outputRow = jsonRow;
             }
+            addSize(outputRow);
             return outputRow;
         }
 

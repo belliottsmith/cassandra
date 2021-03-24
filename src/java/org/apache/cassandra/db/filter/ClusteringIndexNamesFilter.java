@@ -39,6 +39,7 @@ import org.apache.cassandra.utils.btree.BTreeSet;
 public class ClusteringIndexNamesFilter extends AbstractClusteringIndexFilter
 {
     static final InternalDeserializer deserializer = new NamesDeserializer();
+    private static final Collection<Clustering> EMPTY_CLUSTERING = Collections.singleton(new Clustering());
 
     // This could be empty if selectedColumns only has static columns (in which case the filter still
     // selects the static row)
@@ -231,7 +232,7 @@ public class ClusteringIndexNamesFilter extends AbstractClusteringIndexFilter
 
     public String toCQLString(CFMetaData metadata)
     {
-        if (clusterings.isEmpty())
+        if (clusterings.isEmpty() || EMPTY_CLUSTERING.equals(clusterings))
             return "";
 
         StringBuilder sb = new StringBuilder();

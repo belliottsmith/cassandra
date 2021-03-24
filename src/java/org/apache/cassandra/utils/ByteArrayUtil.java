@@ -195,6 +195,13 @@ public class ByteArrayUtil
         b[off    ] = (byte) (val >>> 56);
     }
 
+    public static byte[] bytes(long v)
+    {
+        byte[] b = new byte[Long.BYTES];
+        putLong(b, 0, v);
+        return b;
+    }
+
     /**
      * Store a signed double at the given offset encoded as big endian
      */

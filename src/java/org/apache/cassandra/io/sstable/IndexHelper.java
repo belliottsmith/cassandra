@@ -89,7 +89,7 @@ public final class IndexHelper
 
     public static class IndexInfo
     {
-        private static final long EMPTY_SIZE = ObjectSizes.measure(new IndexInfo(null, 0, 0, null));
+        public static final long EMPTY_SIZE = ObjectSizes.measure(new IndexInfo(null, 0, 0, null));
 
         // see <rdar://problem/27205556> Cass: Composite abstraction in 2.1 creates significant GC pressure (especially on wide rows)
         // for details on why we're doing all this ClusteringPrefix -> ByteBuffer -> ByteBuffer[] -> ClusteringPrefix stuff

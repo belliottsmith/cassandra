@@ -150,6 +150,15 @@ public class MessageOut<T>
         return new MessageOut<>(verb, payload, serializer, builder.build(), connectionType, permitsArtificialDelay);
     }
 
+    public MessageOut<T> withParameters(Map<String, byte[]> toAdd)
+    {
+        if (toAdd.isEmpty())
+            return this;
+        ImmutableMap.Builder<String, byte[]> builder = ImmutableMap.builder();
+        builder.putAll(parameters).putAll(toAdd);
+        return new MessageOut<>(verb, payload, serializer, builder.build(), connectionType, permitsArtificialDelay);
+    }
+
     public MessageOut<T> withPayload(T payload)
     {
         assert payload.getClass() == this.payload.getClass();

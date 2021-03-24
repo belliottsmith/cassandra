@@ -246,6 +246,9 @@ public class TableMetrics
     public final TableMeter clientTombstoneWarnings;
     public final TableMeter clientTombstoneAborts;
 
+    public final TableMeter clientIndexSizeWarnings;
+    public final TableMeter clientIndexSizeAborts;
+
     private static Pair<Long, Long> totalNonSystemTablesSize(Predicate<SSTableReader> predicate)
     {
         long total = 0;
@@ -979,6 +982,8 @@ public class TableMetrics
 
         clientTombstoneWarnings = createTableMeter("ClientTombstoneWarnings", cfs.keyspace.metric.clientTombstoneWarnings);
         clientTombstoneAborts = createTableMeter("ClientTombstoneAborts", cfs.keyspace.metric.clientTombstoneAborts);
+        clientIndexSizeWarnings = createTableMeter("ClientIndexSizeWarnings", cfs.keyspace.metric.clientIndexSizeWarnings);
+        clientIndexSizeAborts = createTableMeter("ClientIndexSizeAborts", cfs.keyspace.metric.clientIndexSizeAborts);
     }
 
     public void updateSSTableIterated(int count)

@@ -86,9 +86,12 @@ public abstract class ReadCommand implements ReadQuery
     public static final String CONCLUSIVE_REPAIRED_DATA_DIGEST = "CRD";
     public static final String INCONCLUSIVE_REPAIRED_DATA_DIGEST = "IRD";
 
-    public static final String TRACK_EXCESS_TOMBSTONES = "TrackTombstones";
+    public static final String TRACK_WARNINGS = "TrackWarnings";
     public static final String TOMBSTONE_WARNING = "TSW";
     public static final String TOMBSTONE_ABORT = "TSA";
+
+    public static final String INDEX_SIZE_WARNING = "ISW";
+    public static final String INDEX_SIZE_ABORT = "ISA";
 
     public static final IVersionedSerializer<ReadCommand> serializer = new Serializer();
 
@@ -147,8 +150,7 @@ public abstract class ReadCommand implements ReadQuery
 
     int oldestUnrepairedTombstone = Integer.MAX_VALUE;
 
-    private boolean trackExcessTombstones;
-    private int tombstoneWarning;
+    private boolean trackWarnings;
 
     @Nullable
     private final IndexMetadata index;
@@ -426,24 +428,14 @@ public abstract class ReadCommand implements ReadQuery
         return repairedDataInfo.get().isConclusive();
     }
 
-    public void trackExcessTombstones()
+    public void trackWarnings()
     {
-        trackExcessTombstones = true;
+        trackWarnings = true;
     }
 
-    public boolean trackingExcessTombstones()
+    public boolean isTrackingWarnings()
     {
-        return trackExcessTombstones;
-    }
-
-    public boolean hasTombstoneWarning()
-    {
-        return tombstoneWarning > 0;
-    }
-
-    public int tombstoneWarning()
-    {
-        return tombstoneWarning;
+        return trackWarnings;
     }
 
     /**
@@ -719,10 +711,10 @@ public abstract class ReadCommand implements ReadQuery
                 if (tombstones > failureThreshold && respectTombstoneThresholds)
                 {
                     String query = ReadCommand.this.toCQLString();
-                    if (trackExcessTombstones)
-                        tombstoneWarning = tombstones;
                     Tracing.trace("Scanned over {} tombstones for query {}; query aborted (see tombstone_failure_threshold)", failureThreshold, query);
                     metric.tombstoneFailures.inc();
+                    MessageParams.remove(TOMBSTONE_WARNING);
+                    MessageParams.add(TOMBSTONE_ABORT, tombstones);
                     throw new TombstoneOverwhelmingException(tombstones, query, ReadCommand.this.metadata(), currentKey, clustering);
                 }
             }
@@ -743,8 +735,8 @@ public abstract class ReadCommand implements ReadQuery
                             "Read %d live rows and %d tombstone cells for query %1.512s (see tombstone_warn_threshold)",
                             liveRows, tombstones, ReadCommand.this.toCQLString());
 
-                    if (trackExcessTombstones)
-                        tombstoneWarning = tombstones;
+                    if (trackWarnings)
+                        MessageParams.add(TOMBSTONE_WARNING, tombstones);
                     else
                         ClientWarn.instance.warn(msg);
 

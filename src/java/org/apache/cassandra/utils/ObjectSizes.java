@@ -38,7 +38,7 @@ public class ObjectSizes
                                              .withGuessing(MemoryMeter.Guess.FALLBACK_UNSAFE)
                                              .ignoreKnownSingletons();
 
-    private static final long BUFFER_EMPTY_SIZE = measure(ByteBufferUtil.EMPTY_BYTE_BUFFER);
+    public static final long BUFFER_EMPTY_SIZE = measure(ByteBufferUtil.EMPTY_BYTE_BUFFER);
     private static final long STRING_EMPTY_SIZE = measure("");
 
     /**

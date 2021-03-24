@@ -26,7 +26,7 @@ public abstract class AbstractClusteringPrefix implements ClusteringPrefix
 {
     protected static final ByteBuffer[] EMPTY_VALUES_ARRAY = new ByteBuffer[0];
 
-    private static final long EMPTY_SIZE = ObjectSizes.measure(new Clustering(EMPTY_VALUES_ARRAY));
+    public static final long EMPTY_SIZE = ObjectSizes.measure(new Clustering(EMPTY_VALUES_ARRAY));
 
     protected final Kind kind;
     protected final ByteBuffer[] values;

@@ -739,6 +739,15 @@ public interface StorageServiceMBean extends NotificationEmitter
     /** Sets whether gcable tombstones should be counted towards TombstoneOverwhelming */
     public void setTombstoneCountGCable(boolean countGCable);
 
+
+    public long getClientLargeReadWarnThresholdKB();
+
+    public void setClientLargeReadWarnThresholdKB(long threshold);
+
+    public long getClientLargeReadBlockThresholdKB();
+
+    public void setClientLargeReadBlockThresholdKB(long threshold);
+
     public void enableReplicaFilteringProtection();
     public void disableReplicaFilteringProtection();
     public boolean isReplicaFilteringProtectionEnabled();

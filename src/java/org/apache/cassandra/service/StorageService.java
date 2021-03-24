@@ -5823,6 +5823,32 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         logger.info("updated tombstone_failure_threshold to {}", threshold);
     }
 
+    @Override
+    public long getClientLargeReadWarnThresholdKB()
+    {
+        return DatabaseDescriptor.getClientLargeReadWarnThresholdKB();
+    }
+
+    @Override
+    public void setClientLargeReadWarnThresholdKB(long threshold)
+    {
+        DatabaseDescriptor.setClientLargeReadWarnThresholdKB(threshold);
+        logger.info("updated client_large_read_warn_threshold_kb to {}", threshold);
+    }
+
+    @Override
+    public long getClientLargeReadBlockThresholdKB()
+    {
+        return DatabaseDescriptor.getClientLargeReadBlockThresholdKB();
+    }
+
+    @Override
+    public void setClientLargeReadBlockThresholdKB(long threshold)
+    {
+        DatabaseDescriptor.setClientLargeReadBlockThresholdKB(threshold);
+        logger.info("updated client_large_read_block_threshold_kb to {}", threshold);
+    }
+
     public void enableReplicaFilteringProtection()
     {
         DatabaseDescriptor.setReplicaFilteringProtectionEnabled(true);

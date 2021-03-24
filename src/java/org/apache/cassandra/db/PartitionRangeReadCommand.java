@@ -39,7 +39,6 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.net.MessageOut;
-import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.StorageProxy;
@@ -349,8 +348,8 @@ public class PartitionRangeReadCommand extends ReadCommand
     public MessageOut<ReadCommand> createMessage(int version)
     {
         return dataRange().isPaging()
-             ? new MessageOut<>(PAGED_RANGE, this, pagedRangeSerializer).withParameter(TRACK_EXCESS_TOMBSTONES, ONE_BYTE)
-             : new MessageOut<>(RANGE_SLICE, this, rangeSliceSerializer).withParameter(TRACK_EXCESS_TOMBSTONES, ONE_BYTE);
+             ? new MessageOut<>(PAGED_RANGE, this, pagedRangeSerializer).withParameter(TRACK_WARNINGS, ONE_BYTE)
+             : new MessageOut<>(RANGE_SLICE, this, rangeSliceSerializer).withParameter(TRACK_WARNINGS, ONE_BYTE);
     }
 
     protected void appendCQLWhereClause(StringBuilder sb)

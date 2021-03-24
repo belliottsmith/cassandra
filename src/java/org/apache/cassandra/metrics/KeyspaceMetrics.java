@@ -164,6 +164,8 @@ public class KeyspaceMetrics
 
     public final Meter clientTombstoneWarnings;
     public final Meter clientTombstoneAborts;
+    public final Meter clientIndexSizeWarnings;
+    public final Meter clientIndexSizeAborts;
 
     /**
      * Creates metrics for given {@link ColumnFamilyStore}.
@@ -350,6 +352,8 @@ public class KeyspaceMetrics
 
         clientTombstoneWarnings = Metrics.meter(factory.createMetricName("ClientTombstoneWarnings"));
         clientTombstoneAborts = Metrics.meter(factory.createMetricName("ClientTombstoneAborts"));
+        clientIndexSizeWarnings = Metrics.meter(factory.createMetricName("ClientIndexSizeWarnings"));
+        clientIndexSizeAborts = Metrics.meter(factory.createMetricName("ClientIndexSizeAborts"));
     }
 
     /**

@@ -18,12 +18,12 @@
 package org.apache.cassandra.service;
 
 import java.net.InetAddress;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang3.StringUtils;
@@ -37,6 +37,7 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.transform.DuplicateRowChecker;
+import org.apache.cassandra.exceptions.IndexSizeAbortException;
 import org.apache.cassandra.exceptions.ReadFailureException;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.exceptions.TombstoneAbortException;
@@ -53,12 +54,60 @@ import org.apache.cassandra.utils.ByteArrayUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
+import static org.apache.cassandra.db.ReadCommand.INDEX_SIZE_ABORT;
+import static org.apache.cassandra.db.ReadCommand.INDEX_SIZE_WARNING;
 import static org.apache.cassandra.db.ReadCommand.TOMBSTONE_ABORT;
 import static org.apache.cassandra.db.ReadCommand.TOMBSTONE_WARNING;
 
 public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
 {
     protected static final Logger logger = LoggerFactory.getLogger( ReadCallback.class );
+    private class WarningCounter
+    {
+        // the highest number of tombstones reported by a node's warning
+        final AtomicInteger tombstoneWarnings = new AtomicInteger();
+        final AtomicInteger maxTombstoneWarningCount = new AtomicInteger();
+        // the highest number of tombstones reported by a node's rejection. This should be the same as
+        // our configured limit, but including to aid in diagnosing misconfigurations
+        final AtomicInteger tombstoneAborts = new AtomicInteger();
+        final AtomicInteger maxTombstoneAbortsCount = new AtomicInteger();
+
+        // the largest size index we've seen a warning for
+        final AtomicInteger indexSizeWarnings = new AtomicInteger();
+        final AtomicLong maxIndexWarningSize = new AtomicLong();
+        // the largest size index a read has been aborted over
+        final AtomicInteger indexSizeAborts = new AtomicInteger();
+        final AtomicLong maxIndexAbortSize = new AtomicLong();
+
+        // TODO: take message as arg and return boolean for 'had warning' etc
+        void addTombstoneWarning(InetAddress from, byte[] bytes)
+        {
+            if (!waitingFor(from)) return;
+            tombstoneWarnings.incrementAndGet();
+            maxTombstoneWarningCount.accumulateAndGet(ByteArrayUtil.getInt(bytes), Math::max);
+        }
+
+        void addTombstoneAbort(InetAddress from, byte[] bytes)
+        {
+            if (!waitingFor(from)) return;
+            tombstoneAborts.incrementAndGet();
+            maxTombstoneAbortsCount.accumulateAndGet(ByteArrayUtil.getInt(bytes), Math::max);
+        }
+
+        void addIndexSizeWarning(InetAddress from, byte[] bytes)
+        {
+            if (!waitingFor(from)) return;
+            indexSizeWarnings.incrementAndGet();
+            maxIndexWarningSize.accumulateAndGet(ByteArrayUtil.getLong(bytes), Math::max);
+        }
+
+        void addIndexSizeAbort(InetAddress from, byte[] bytes)
+        {
+            if (!waitingFor(from)) return;
+            indexSizeAborts.incrementAndGet();
+            maxIndexAbortSize.accumulateAndGet(ByteArrayUtil.getLong(bytes), Math::max);
+        }
+    }
 
     public final ResponseResolver resolver;
     final SimpleCondition condition = new SimpleCondition();
@@ -74,23 +123,9 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
             = AtomicIntegerFieldUpdater.newUpdater(ReadCallback.class, "failures");
     private volatile int failures = 0;
 
-    private volatile int tombstoneWarnings = 0;
-    private static final AtomicIntegerFieldUpdater<ReadCallback> tombstoneWarningsUpdater
-            = AtomicIntegerFieldUpdater.newUpdater(ReadCallback.class, "tombstoneWarnings");
-    // the highest number of tombstones reported by a node's warning
-    private volatile int maxTombstoneWarningCount = 0;
-    private static final AtomicIntegerFieldUpdater<ReadCallback> maxTombstoneWarningCountUpdater
-            = AtomicIntegerFieldUpdater.newUpdater(ReadCallback.class, "maxTombstoneWarningCount");
-
-    private volatile int tombstoneAborts = 0;
-    private static final AtomicIntegerFieldUpdater<ReadCallback> tombstoneAbortsUpdater
-            = AtomicIntegerFieldUpdater.newUpdater(ReadCallback.class, "tombstoneAborts");
-    // the highest number of tombstones reported by a node's rejection. This should be the same as
-    // our configured limit, but including to aid in diagnosing misconfigurations
-    private volatile int maxTombstoneAbortCount = 0;
-    private static final AtomicIntegerFieldUpdater<ReadCallback> maxTombstoneAbortCountUpdater
-            = AtomicIntegerFieldUpdater.newUpdater(ReadCallback.class, "maxTombstoneAbortCount");
-
+    private volatile WarningCounter warningCounter;
+    private static final AtomicReferenceFieldUpdater<ReadCallback, WarningCounter> warningsUpdater
+    = AtomicReferenceFieldUpdater.newUpdater(ReadCallback.class, WarningCounter.class, "warningCounter");
     private final Keyspace keyspace; // TODO push this into ConsistencyLevel?
 
     /**
@@ -146,6 +181,17 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
     {
         return String.format("%s nodes scanned up to %s tombstones and issued tombstone warnings", nodes, tombstones);
     }
+    @VisibleForTesting
+    public static String indexSizeAbortMessage(int nodes, long maxIndexSize)
+    {
+        return String.format("%s nodes encountered estimated materialized row index sizes of up to %sb and aborted the query", nodes, maxIndexSize);
+    }
+
+    @VisibleForTesting
+    public static String indexSizeWarnMessage(int nodes, long maxIndexSize)
+    {
+        return String.format("%s nodes encountered materialized row index sizes of up to %sb and issued index size warnings", nodes, maxIndexSize);
+    }
 
     private ColumnFamilyStore cfs()
     {
@@ -157,20 +203,40 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
         boolean signaled = await(command.getTimeout(), TimeUnit.MILLISECONDS);
         boolean failed = blockfor + failures > endpoints.size();
 
-        if (tombstoneAborts > 0)
+        WarningCounter warnings = warningCounter;
+        if (warnings != null)
         {
-            String msg = tombstoneAbortMessage(tombstoneAborts, maxTombstoneAbortCount);
-            ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
-            logger.warn("{} with query {}", msg, command.toCQLString());
-            cfs().metric.clientTombstoneAborts.mark();
-        }
+            if (warnings.tombstoneAborts.get() > 0)
+            {
+                String msg = tombstoneAbortMessage(warnings.tombstoneAborts.get(), warnings.maxTombstoneAbortsCount.get());
+                ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
+                logger.warn("{} with query {}", msg, command.toCQLString());
+                cfs().metric.clientTombstoneAborts.mark();
+            }
 
-        if (tombstoneWarnings > 0)
-        {
-            String msg = tombstoneWarnMessage(tombstoneWarnings, maxTombstoneWarningCount);
-            ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
-            logger.warn("{} with query {}", msg, command.toCQLString());
-            cfs().metric.clientTombstoneWarnings.mark();
+            if (warnings.tombstoneWarnings.get() > 0)
+            {
+                String msg = tombstoneWarnMessage(warnings.tombstoneWarnings.get(), warnings.maxTombstoneWarningCount.get());
+                ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
+                logger.warn("{} with query {}", msg, command.toCQLString());
+                cfs().metric.clientTombstoneWarnings.mark();
+            }
+
+            if (warnings.indexSizeAborts.get() > 0)
+            {
+                String msg = indexSizeAbortMessage(warnings.indexSizeAborts.get(), warnings.maxIndexAbortSize.get());
+                ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
+                logger.warn("{} with query {}", msg, command.toCQLString());
+                cfs().metric.clientIndexSizeAborts.mark();
+            }
+
+            if (warnings.indexSizeWarnings.get() > 0)
+            {
+                String msg = indexSizeWarnMessage(warnings.indexSizeWarnings.get(), warnings.maxIndexWarningSize.get());
+                ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
+                logger.warn("{} with query {}", msg, command.toCQLString());
+                cfs().metric.clientIndexSizeWarnings.mark();
+            }
         }
 
         if (signaled && !failed)
@@ -179,16 +245,19 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
         if (Tracing.isTracing())
         {
             String gotData = received > 0 ? (resolver.isDataPresent() ? " (including data)" : " (only digests)") : "";
-            Tracing.trace("{}; received {} of {} responses{}", new Object[]{ (failed ? "Failed" : "Timed out"), received, blockfor, gotData });
+            Tracing.trace("{}; received {} of {} responses{}", (failed ? "Failed" : "Timed out"), received, blockfor, gotData);
         }
         else if (logger.isDebugEnabled())
         {
             String gotData = received > 0 ? (resolver.isDataPresent() ? " (including data)" : " (only digests)") : "";
-            logger.debug("{}; received {} of {} responses{}", new Object[]{ (failed ? "Failed" : "Timed out"), received, blockfor, gotData });
+            logger.debug("{}; received {} of {} responses{}", (failed ? "Failed" : "Timed out"), received, blockfor, gotData);
         }
 
-        if (tombstoneAborts > 0)
-            throw new TombstoneAbortException(tombstoneAborts, maxTombstoneAbortCount);
+        if (warnings != null && warnings.tombstoneAborts.get() > 0)
+            throw new TombstoneAbortException(warnings.tombstoneAborts.get(), warnings.maxTombstoneAbortsCount.get());
+
+        if (warnings != null && warnings.indexSizeAborts.get() > 0)
+            throw new IndexSizeAbortException(warnings.indexSizeAborts.get(), warnings.maxIndexAbortSize.get());
 
         // Same as for writes, see AbstractWriteResponseHandler
         throw failed
@@ -211,34 +280,42 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
         return blockfor;
     }
 
-    private void updateTombstoneStats(InetAddress from, byte[] tombstoneBytes, AtomicIntegerFieldUpdater<ReadCallback> updater, AtomicIntegerFieldUpdater<ReadCallback> maxUpdater)
+    private WarningCounter getWarningCounter()
     {
-        if (!waitingFor(from))
-            return;
+        WarningCounter current;
+        do {
 
-        int tombstones = ByteArrayUtil.getInt(tombstoneBytes);
-        updater.incrementAndGet(this);
+            current = warningCounter;
+            if (current != null)
+                return current;
 
-        int currentMax;
-        do
-        {
-            currentMax = maxUpdater.get(this);
-        } while (tombstones > currentMax && !maxUpdater.compareAndSet(this, currentMax, tombstones));
+            current = new WarningCounter();
+        } while (!warningsUpdater.compareAndSet(this, null, current));
+        return current;
     }
 
     public void response(MessageIn<ReadResponse> message)
     {
         if (message.parameters.containsKey(TOMBSTONE_ABORT))
         {
-            updateTombstoneStats(message.from, message.parameters.get(TOMBSTONE_ABORT),
-                                 tombstoneAbortsUpdater, maxTombstoneAbortCountUpdater);
+            getWarningCounter().addTombstoneAbort(message.from, message.parameters.get(TOMBSTONE_ABORT));
             onFailure(message.from);
             return;
         }
         else if (message.parameters.containsKey(TOMBSTONE_WARNING))
         {
-            updateTombstoneStats(message.from, message.parameters.get(TOMBSTONE_WARNING),
-                                 tombstoneWarningsUpdater, maxTombstoneWarningCountUpdater);
+            getWarningCounter().addTombstoneWarning(message.from, message.parameters.get(TOMBSTONE_WARNING));
+        }
+
+        if (message.parameters.containsKey(INDEX_SIZE_ABORT))
+        {
+            getWarningCounter().addIndexSizeAbort(message.from, message.parameters.get(INDEX_SIZE_ABORT));
+            onFailure(message.from);
+            return;
+        }
+        else if (message.parameters.containsKey(INDEX_SIZE_WARNING))
+        {
+            getWarningCounter().addIndexSizeWarning(message.from, message.parameters.get(INDEX_SIZE_WARNING));
         }
 
         resolver.preprocess(message);
@@ -278,15 +355,11 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
         return received;
     }
 
-    public void response(ReadResponse result, boolean tombstoneAbort, boolean tombstoneWarning, int tombstones)
+    public void response(ReadResponse result)
     {
-        Map<String, byte[]> params = tombstoneAbort || tombstoneWarning ? new HashMap<>() : Collections.emptyMap();
-        if (tombstoneAbort || tombstoneWarning)
-            params.put(tombstoneAbort ? TOMBSTONE_ABORT : TOMBSTONE_WARNING, ByteArrayUtil.bytes(tombstones));
-
         MessageIn<ReadResponse> message = MessageIn.create(FBUtilities.getBroadcastAddress(),
                                                            result,
-                                                           params,
+                                                           MessageParams.getParams(),
                                                            MessagingService.Verb.INTERNAL_RESPONSE,
                                                            MessagingService.current_version);
         response(message);

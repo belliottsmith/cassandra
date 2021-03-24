@@ -1140,7 +1140,7 @@ public class SinglePartitionReadCommand extends ReadCommand
 
     public MessageOut<ReadCommand> createMessage(int version)
     {
-        return new MessageOut<>(READ, this, readSerializer).withParameter(TRACK_EXCESS_TOMBSTONES, ONE_BYTE);
+        return new MessageOut<>(READ, this, readSerializer).withParameter(TRACK_WARNINGS, ONE_BYTE);
     }
 
     protected void appendCQLWhereClause(StringBuilder sb)

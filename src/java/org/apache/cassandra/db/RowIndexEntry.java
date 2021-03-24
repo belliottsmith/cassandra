@@ -25,6 +25,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.primitives.Ints;
 
 import org.slf4j.LoggerFactory;
@@ -32,11 +33,13 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cache.IMeasurableMemory;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.IndexHelper;
 import org.apache.cassandra.io.sstable.format.Version;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.utils.ByteArrayUtil;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.LazyToString;
 import org.apache.cassandra.utils.NoSpamLogger;
@@ -200,6 +203,17 @@ public class RowIndexEntry<T> implements IMeasurableMemory
             }
         }
 
+
+        @VisibleForTesting
+        public static long estimateMaterializedIndexSize(int entries, int bytes)
+        {
+            long overhead = IndexHelper.IndexInfo.EMPTY_SIZE
+                            + AbstractClusteringPrefix.EMPTY_SIZE
+                            + DeletionTime.EMPTY_SIZE;
+
+            return (overhead * entries) + bytes;
+        }
+
         public RowIndexEntry<IndexHelper.IndexInfo> deserialize(DataInputPlus in, ByteBuffer key) throws IOException
         {
             if (!descriptor.version.storeRows())
@@ -212,6 +226,8 @@ public class RowIndexEntry<T> implements IMeasurableMemory
                     DeletionTime deletionTime = DeletionTime.serializer.deserialize(in);
 
                     int entries = in.readInt();
+                    maybeAbortLargeIndexRead(key, entries, size);
+
                     List<IndexHelper.IndexInfo> columnsIndex = new ArrayList<>(entries);
 
                     long headerLength = 0L;
@@ -240,7 +256,10 @@ public class RowIndexEntry<T> implements IMeasurableMemory
             {
                 long headerLength = in.readUnsignedVInt();
                 DeletionTime deletionTime = DeletionTime.serializer.deserialize(in);
+
                 int entries = (int)in.readUnsignedVInt();
+                maybeAbortLargeIndexRead(key, entries, size);
+
                 List<IndexHelper.IndexInfo> columnsIndex = new ArrayList<>(entries);
                 for (int i = 0; i < entries; i++)
                     columnsIndex.add(idxSerializer.deserialize(in));
@@ -257,6 +276,46 @@ public class RowIndexEntry<T> implements IMeasurableMemory
             }
         }
 
+        private void maybeAbortLargeIndexRead(ByteBuffer key, int entries, int bytes)
+        {
+            long estimatedMemory = estimateMaterializedIndexSize(entries, bytes);
+            long failureThreshold = DatabaseDescriptor.getLargePartitionIndexFailureThreshold();
+            if (failureThreshold <= 0 || estimatedMemory <= failureThreshold)
+                return;
+            // only check when command is present that way only reads are captured
+            ReadCommand command = ReadCommand.getCommand();
+            if (command == null || Schema.isInternalKeyspace(command.metadata().ksName))
+                return;
+
+            // only dedup on the ks/cf/key triplet
+            String keyStr;
+            try
+            {
+                keyStr = command.metadata().getKeyValidator().getString(key);
+            }
+            catch (Exception e)
+            {
+                // if parsing the key fails, fall back to normal .toString()
+                // This isn't expected to happen, but trying to be defensive so the behavior isn't changed for large
+                // partition queries.
+                LARGE_PARTITION_LOGGER.error("Partition key failed to parse with {}", command.metadata().getKeyValidator(), e);
+                keyStr = ByteBufferUtil.bytesToHex(key);
+            }
+
+            LARGE_PARTITION_LOGGER.warn("Aborting large partition index read "
+                                        + descriptor.ksname + "/" + descriptor.cfname + ":" + keyStr
+                                        + " (estimated index memory {}) from sstable {} with {} index info entries; query: {}",
+                                        estimatedMemory, descriptor.generation, entries,
+                                        LazyToString.of(() -> extractQuery(command)));
+
+            byte[] currentParam = MessageParams.get(ReadCommand.INDEX_SIZE_ABORT);
+            if (currentParam == null || ByteArrayUtil.getLong(currentParam) < estimatedMemory)
+                MessageParams.add(ReadCommand.INDEX_SIZE_ABORT, estimatedMemory);
+
+            throw new RowIndexOversizeException(estimatedMemory);
+        }
+
+        // TODO: warnings are emitted here
         private void maybeLogLargePartitionIndexWarning(ByteBuffer key, List<IndexHelper.IndexInfo> columnsIndex)
         {
             int entries = columnsIndex.size();
@@ -271,6 +330,10 @@ public class RowIndexEntry<T> implements IMeasurableMemory
             long memoryEstimate = columnsIndex.stream().mapToLong(IndexHelper.IndexInfo::unsharedHeapSize).sum();
             if (memoryEstimate < DatabaseDescriptor.getLargePartitionIndexWarningThreshold())
                 return;
+
+            byte[] currentParam = MessageParams.get(ReadCommand.INDEX_SIZE_WARNING);
+            if (currentParam == null || ByteArrayUtil.getLong(currentParam) < memoryEstimate)
+                MessageParams.add(ReadCommand.INDEX_SIZE_WARNING, memoryEstimate);
 
             Keyspace.open(descriptor.ksname)
                     .getColumnFamilyStore(descriptor.cfname)

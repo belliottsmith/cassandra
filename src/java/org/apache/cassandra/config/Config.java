@@ -364,6 +364,9 @@ public class Config
     public volatile int tombstone_failure_threshold = 100000;
     public volatile boolean tombstone_count_gcable = false;
 
+    public volatile long client_large_read_warn_threshold_kb = 0;
+    public volatile long client_large_read_block_threshold_kb = 0;
+
     public volatile boolean generate_sstable_digest_components = true;
 
     public final ReplicaFilteringProtectionOptions replica_filtering_protection = new ReplicaFilteringProtectionOptions();
@@ -486,6 +489,7 @@ public class Config
     public volatile boolean incremental_updates_last_repaired = false;
 
     public volatile long large_partition_index_warning_threshold_kb = 4096L;
+    public volatile long large_partition_index_failure_threshold_kb = 0;
 
     /**
      * Class names to look for custom functions in.  They must define a static @code{Collection<Function> all()}

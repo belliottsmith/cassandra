@@ -2206,19 +2206,20 @@ public class StorageProxy implements StorageProxyMBean
         {
             try
             {
-                command.trackExcessTombstones();
+                MessageParams.reset();
+                command.trackWarnings();
                 boolean readRejected = false;
                 ReadResponse response;
                 try (ReadOrderGroup orderGroup = command.startOrderGroup(); UnfilteredPartitionIterator iterator = command.executeLocally(orderGroup))
                 {
                     response = command.createResponse(iterator);
                 }
-                catch (TombstoneOverwhelmingException e)
+                catch (TombstoneOverwhelmingException | RowIndexOversizeException e)
                 {
                     response = command.createResponse(EmptyIterators.unfilteredPartition(command.metadata(), command.isForThrift()));
                     readRejected = true;
                 }
-                handler.response(response, readRejected, command.hasTombstoneWarning(), command.tombstoneWarning());
+                handler.response(response);
 
                 if (!readRejected)
                     MessagingService.instance().addLatency(FBUtilities.getBroadcastAddress(), TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));

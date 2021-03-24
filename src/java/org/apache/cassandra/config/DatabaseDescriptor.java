@@ -923,6 +923,9 @@ public class DatabaseDescriptor
 
         if (conf.max_space_usable_for_compactions_in_percentage < 0 || conf.max_space_usable_for_compactions_in_percentage > 1)
             throw new ConfigurationException("max_space_usable_for_compactions_in_percentage must be between 0 and 1", false);
+
+        conf.client_large_read_warn_threshold_kb = Math.max(conf.client_large_read_warn_threshold_kb, 0);
+        conf.client_large_read_block_threshold_kb = Math.max(conf.client_large_read_block_threshold_kb, 0);
     }
 
     public static IEndpointSnitch createEndpointSnitch(boolean dynamic, String snitchClassName) throws ConfigurationException
@@ -1712,6 +1715,26 @@ public class DatabaseDescriptor
     public static void setTombstoneCountGCable(boolean countGCable)
     {
         conf.tombstone_count_gcable = countGCable;
+    }
+
+    public static long getClientLargeReadWarnThresholdKB()
+    {
+        return conf.client_large_read_warn_threshold_kb;
+    }
+
+    public static void setClientLargeReadWarnThresholdKB(long threshold)
+    {
+        conf.client_large_read_warn_threshold_kb = Math.max(threshold, 0);
+    }
+
+    public static long getClientLargeReadBlockThresholdKB()
+    {
+        return conf.client_large_read_block_threshold_kb;
+    }
+
+    public static void setClientLargeReadBlockThresholdKB(long threshold)
+    {
+        conf.client_large_read_block_threshold_kb = Math.max(threshold, 0);
     }
 
     public static void setReplicaFilteringProtectionEnabled(boolean enabled)
@@ -3336,15 +3359,31 @@ public class DatabaseDescriptor
         return conf.large_partition_index_warning_threshold_kb * 1024L;
     }
 
+    public static long getLargePartitionIndexFailureThreshold()
+    {
+        return conf.large_partition_index_failure_threshold_kb * 1024L;
+    }
+
     public static long getLargePartitionIndexWarningThresholdKb()
     {
         return conf.large_partition_index_warning_threshold_kb;
+    }
+
+    public static long getLargePartitionIndexFailureThresholdKb()
+    {
+        return conf.large_partition_index_failure_threshold_kb;
     }
 
     public static void setLargePartitionIndexWarningThresholdKb(long value)
     {
         logger.info("Setting large_partition_index_warning_threshold_kb to {}", value);
         conf.large_partition_index_warning_threshold_kb = value;
+    }
+
+    public static void setLargePartitionIndexFailureThresholdKb(long value)
+    {
+        logger.info("Setting large_partition_index_failure_threshold_kb to {}", value);
+        conf.large_partition_index_failure_threshold_kb = value;
     }
 
     public static boolean enableSecondaryIndex()
