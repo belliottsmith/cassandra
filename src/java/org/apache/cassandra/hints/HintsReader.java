@@ -224,13 +224,16 @@ class HintsReader implements AutoCloseable, Iterable<HintsReader.Page>
                 throw new IOException("Digest mismatch exception");
 
             Hint hint = readHint(size);
-            return hintIsLive(hint) ? hint : null;
+            boolean live = hintIsLive(hint);
+
+            if (live && rateLimiter != null)
+                rateLimiter.acquire(size);
+
+            return live ? hint : null;
         }
 
         private Hint readHint(int size) throws IOException
         {
-            if (rateLimiter != null)
-                rateLimiter.acquire(size);
             input.limit(size);
 
             Hint hint;
