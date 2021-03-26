@@ -67,16 +67,16 @@ public class Config
     public String authorizer;
     public String role_manager;
     public String network_authorizer;
-    public volatile int permissions_validity_in_ms = 2000;
+    public volatile int permissions_validity_in_ms = 43200000;
     public int permissions_cache_max_entries = 1000;
-    public volatile int permissions_update_interval_in_ms = -1;
-    public volatile boolean permissions_cache_active_update = false;
-    public volatile int roles_validity_in_ms = 2000;
+    public volatile int permissions_update_interval_in_ms = 600000;
+    public volatile boolean permissions_cache_active_update = true;
+    public volatile int roles_validity_in_ms = 86400000;
     public int roles_cache_max_entries = 1000;
-    public volatile int roles_update_interval_in_ms = -1;
-    public volatile boolean roles_cache_active_update = false;
+    public volatile int roles_update_interval_in_ms = 600000;
+    public volatile boolean roles_cache_active_update = true;
 
-    public int authenticator_validity_in_ms = 2000;
+    public int authenticator_validity_in_ms = 86400000;
     public int authenticator_cache_max_entries = 1000;
     public int authenticator_update_interval_in_ms = -1;
     public volatile boolean authenticator_cache_active_update = false;
@@ -95,13 +95,13 @@ public class Config
     public String hints_directory;
 
     public ParameterizedClass seed_provider;
-    public DiskAccessMode disk_access_mode = DiskAccessMode.auto;
+    public DiskAccessMode disk_access_mode = DiskAccessMode.mmap_index_only;
 
     public DiskFailurePolicy disk_failure_policy = DiskFailurePolicy.ignore;
     public CommitFailurePolicy commit_failure_policy = CommitFailurePolicy.stop;
 
     public volatile boolean disable_schema_drop_check = false;
-    public volatile boolean use_deterministic_table_id = false;
+    public volatile boolean use_deterministic_table_id = true;
 
     public volatile Boolean enable_partition_blacklist = false;
 
@@ -291,8 +291,8 @@ public class Config
     public Boolean dynamic_snitch = true;
     public volatile Integer dynamic_snitch_update_interval_in_ms = 100;
     public volatile Integer dynamic_snitch_reset_interval_in_ms = 600000;
-    public volatile Double dynamic_snitch_badness_threshold = 0.1;
-    public volatile Boolean dynamic_snitch_manual_severity_only = false;
+    public volatile Double dynamic_snitch_badness_threshold = 1.0;
+    public volatile Boolean dynamic_snitch_manual_severity_only = true;
 
     public String request_scheduler;
     public RequestSchedulerId request_scheduler_id;
@@ -319,9 +319,9 @@ public class Config
     public boolean trickle_fsync = false;
     public int trickle_fsync_interval_in_kb = 10240;
 
-    public volatile int sstable_preemptive_open_interval_in_mb = 50;
+    public volatile int sstable_preemptive_open_interval_in_mb = -1;
 
-    public volatile boolean key_cache_migrate_during_compaction = true;
+    public volatile boolean key_cache_migrate_during_compaction = false;
     public Long key_cache_size_in_mb = null;
     public volatile int key_cache_save_period = 14400;
     public volatile int key_cache_keys_to_save = Integer.MAX_VALUE;
@@ -377,7 +377,7 @@ public class Config
     public int gc_log_threshold_in_ms = 200;
     public int gc_warn_threshold_in_ms = 0;
 
-    public Boolean disable_incremental_repair = Boolean.parseBoolean(System.getProperty("cassandra.disable_incremental_repair", "true"));
+    public Boolean disable_incremental_repair = Boolean.parseBoolean(System.getProperty("cassandra.disable_incremental_repair", "false"));
 
     /**
      * number of seconds to set nowInSec into the future when performing validation previews against repaired data
@@ -426,7 +426,7 @@ public class Config
      */
     public static final int otc_backlog_expiration_interval_ms_default = 200;
     public volatile int otc_backlog_expiration_interval_ms = otc_backlog_expiration_interval_ms_default;
- 
+
     public int windows_timer_interval = 0;
 
     public boolean enable_user_defined_functions = false;
@@ -486,7 +486,7 @@ public class Config
     public volatile boolean skip_single_sstable_scheduled_compactions = true;
     public volatile long max_scheduled_compaction_sstable_size_bytes = 10240 * 1024L * 1024L;
     public volatile int max_scheduled_compaction_sstable_count = 40;
-    public volatile boolean incremental_updates_last_repaired = false;
+    public volatile boolean incremental_updates_last_repaired = true;
 
     public volatile long large_partition_index_warning_threshold_kb = 4096L;
     public volatile long large_partition_index_failure_threshold_kb = 0;
@@ -533,7 +533,7 @@ public class Config
      * block_for_peers_in_remote_dcs: controls if this node will consider remote datacenters to wait for. The default
      * is to _not_ wait on remote datacenters.
      */
-    public int block_for_peers_timeout_in_secs = 10;
+    public int block_for_peers_timeout_in_secs = 60;
     public boolean block_for_peers_in_remote_dcs = false;
     // NOTE: the config is no longer valid. Keep the config in the 3.0 branch to not error out when starting up.
     // parameters to adjust how much to delay startup until a certain amount of the cluster is connect to and marked alive

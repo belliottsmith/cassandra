@@ -22,8 +22,11 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.util.*;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
@@ -32,6 +35,20 @@ import static org.junit.Assert.assertEquals;
 
 public class DynamicEndpointSnitchTest
 {
+    private double oldBadness;
+    @Before
+    public void before()
+    {
+        oldBadness = DatabaseDescriptor.getDynamicBadnessThreshold();
+        DatabaseDescriptor.setDynamicBadnessThreshold(0.1);
+    }
+
+    @After
+    public void after()
+    {
+        DatabaseDescriptor.setDynamicBadnessThreshold(oldBadness);
+    }
+
     private static void setScores(DynamicEndpointSnitch dsnitch,  int rounds, List<InetAddress> hosts, Integer... scores) throws InterruptedException
     {
         for (int round = 0; round < rounds; round++)
