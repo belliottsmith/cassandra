@@ -224,13 +224,16 @@ class HintsReader implements AutoCloseable, Iterable<HintsReader.Page>
                 throw new IOException("Digest mismatch exception");
 
             Hint hint = readHint(size);
-            return hintIsLive(hint) ? hint : null;
+            boolean live = hintIsLive(hint);
+
+            if (live && rateLimiter != null)
+                rateLimiter.acquire(size);
+
+            return live ? hint : null;
         }
 
         private Hint readHint(int size) throws IOException
         {
-            if (rateLimiter != null)
-                rateLimiter.acquire(size);
             input.limit(size);
 
             Hint hint;
@@ -330,13 +333,16 @@ class HintsReader implements AutoCloseable, Iterable<HintsReader.Page>
                 throw new IOException("Digest mismatch exception");
 
             ByteBuffer buffer = readBuffer(size);
-            return hintIsLive(buffer) ? buffer : null;
+            boolean live = hintIsLive(buffer);
+
+            if (live && rateLimiter != null)
+                rateLimiter.acquire(size);
+
+            return live ? buffer : null;
         }
 
         private ByteBuffer readBuffer(int size) throws IOException
         {
-            if (rateLimiter != null)
-                rateLimiter.acquire(size);
             input.limit(size);
 
             ByteBuffer buffer = ByteBufferUtil.read(input, size);
