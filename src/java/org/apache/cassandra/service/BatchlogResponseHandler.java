@@ -21,6 +21,7 @@ package org.apache.cassandra.service;
 import java.net.InetAddress;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
+import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.exceptions.WriteFailureException;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.net.MessageIn;
@@ -35,7 +36,8 @@ public class BatchlogResponseHandler<T> extends AbstractWriteResponseHandler<T>
 
     public BatchlogResponseHandler(AbstractWriteResponseHandler<T> wrapped, int requiredBeforeFinish, BatchlogCleanup cleanup)
     {
-        super(wrapped.keyspace, wrapped.naturalEndpoints, wrapped.pendingEndpoints, wrapped.consistencyLevel, wrapped.callback, wrapped.writeType, wrapped.isAlive);
+        super(wrapped.keyspaceMetrics, wrapped.replicationStrategySnapshot, wrapped.naturalEndpoints, wrapped.pendingEndpoints,
+              wrapped.consistencyLevel, wrapped.callback, wrapped.writeType, wrapped.isAlive);
         this.wrapped = wrapped;
         this.requiredBeforeFinish = requiredBeforeFinish;
         this.cleanup = cleanup;
@@ -63,7 +65,7 @@ public class BatchlogResponseHandler<T> extends AbstractWriteResponseHandler<T>
         wrapped.onFailure(from);
     }
 
-    public void assureSufficientLiveNodes()
+    public void assureSufficientLiveNodes() throws UnavailableException
     {
         wrapped.assureSufficientLiveNodes();
     }

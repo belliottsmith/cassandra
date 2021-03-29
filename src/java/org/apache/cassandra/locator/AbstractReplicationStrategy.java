@@ -40,6 +40,7 @@ import org.apache.cassandra.dht.RingPosition;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.metrics.KeyspaceMetrics;
 import org.apache.cassandra.service.AbstractWriteResponseHandler;
 import org.apache.cassandra.service.DatacenterSyncWriteResponseHandler;
 import org.apache.cassandra.service.DatacenterWriteResponseHandler;
@@ -188,15 +189,15 @@ public abstract class AbstractReplicationStrategy
         if (consistency_level.isDatacenterLocal())
         {
             // block for in this context will be localnodes block.
-            resultResponseHandler = new DatacenterWriteResponseHandler<T>(naturalEndpoints, pendingEndpoints, consistency_level, getKeyspace(), callback, writeType, isAlive);
+            resultResponseHandler = new DatacenterWriteResponseHandler<T>(naturalEndpoints, pendingEndpoints, consistency_level, getKeyspaceMetrics(), this, callback, writeType, isAlive);
         }
         else if (consistency_level == ConsistencyLevel.EACH_QUORUM && (this instanceof NetworkTopologyStrategy))
         {
-            resultResponseHandler = new DatacenterSyncWriteResponseHandler<T>(naturalEndpoints, pendingEndpoints, consistency_level, getKeyspace(), callback, writeType, isAlive);
+            resultResponseHandler = new DatacenterSyncWriteResponseHandler<T>(naturalEndpoints, pendingEndpoints, consistency_level, getKeyspaceMetrics(), this, callback, writeType, isAlive);
         }
         else
         {
-            resultResponseHandler = new WriteResponseHandler<T>(naturalEndpoints, pendingEndpoints, consistency_level, getKeyspace(), callback, writeType, isAlive);
+            resultResponseHandler = new WriteResponseHandler<T>(naturalEndpoints, pendingEndpoints, consistency_level, getKeyspaceMetrics(), this, callback, writeType, isAlive);
         }
 
         //Check if tracking the ideal consistency level is configured
@@ -225,11 +226,11 @@ public abstract class AbstractReplicationStrategy
         return resultResponseHandler;
     }
 
-    private Keyspace getKeyspace()
+    private KeyspaceMetrics getKeyspaceMetrics()
     {
         if (keyspace == null)
             keyspace = Keyspace.open(keyspaceName);
-        return keyspace;
+        return keyspace.metric;
     }
 
     /**

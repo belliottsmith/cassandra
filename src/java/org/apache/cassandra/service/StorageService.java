@@ -4183,15 +4183,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * @param key key for which we need to find the endpoint
      * @return the endpoint responsible for this key
      */
-    public List<InetAddress> getLiveNaturalEndpoints(Keyspace keyspace, ByteBuffer key)
+    public List<InetAddress> getLiveNaturalEndpoints(AbstractReplicationStrategy replicationStrategy, ByteBuffer key)
     {
-        return getLiveNaturalEndpoints(keyspace, tokenMetadata.decorateKey(key));
+        return getLiveNaturalEndpoints(replicationStrategy, tokenMetadata.decorateKey(key));
     }
 
-    public List<InetAddress> getLiveNaturalEndpoints(Keyspace keyspace, RingPosition pos)
+    public List<InetAddress> getLiveNaturalEndpoints(AbstractReplicationStrategy replicationStrategy, RingPosition pos)
     {
         List<InetAddress> liveEps = new ArrayList<>();
-        getLiveNaturalEndpoints(keyspace, pos, liveEps);
+        getLiveNaturalEndpoints(replicationStrategy, pos, liveEps);
         return liveEps;
     }
 
@@ -4203,9 +4203,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * @param pos position for which we need to find the endpoint
      * @param liveEps the list of endpoints to mutate
      */
-    public void getLiveNaturalEndpoints(Keyspace keyspace, RingPosition pos, List<InetAddress> liveEps)
+    public void getLiveNaturalEndpoints(AbstractReplicationStrategy replicationStrategy, RingPosition pos, List<InetAddress> liveEps)
     {
-        List<InetAddress> endpoints = keyspace.getReplicationStrategy().getNaturalEndpoints(pos);
+        List<InetAddress> endpoints = replicationStrategy.getNaturalEndpoints(pos);
 
         for (InetAddress endpoint : endpoints)
         {

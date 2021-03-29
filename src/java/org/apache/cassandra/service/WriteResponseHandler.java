@@ -29,6 +29,8 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.metrics.KeyspaceMetrics;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.WriteType;
@@ -47,19 +49,20 @@ public class WriteResponseHandler<T> extends AbstractWriteResponseHandler<T>
     public WriteResponseHandler(Collection<InetAddress> writeEndpoints,
                                 Collection<InetAddress> pendingEndpoints,
                                 ConsistencyLevel consistencyLevel,
-                                Keyspace keyspace,
+                                KeyspaceMetrics keyspaceMetrics,
+                                AbstractReplicationStrategy replicationStrategySnapshot,
                                 Runnable callback,
                                 WriteType writeType,
                                 Predicate<InetAddress> isAlive)
     {
-        super(keyspace, writeEndpoints, pendingEndpoints, consistencyLevel, callback, writeType, isAlive);
+        super(keyspaceMetrics, replicationStrategySnapshot, writeEndpoints, pendingEndpoints, consistencyLevel, callback, writeType, isAlive);
         responses = totalBlockFor();
     }
 
 
     public WriteResponseHandler(InetAddress endpoint, WriteType writeType)
     {
-        this(Arrays.asList(endpoint), Collections.emptyList(), ConsistencyLevel.ONE, null, null, writeType, FailureDetector.isAlivePredicate);
+        this(Arrays.asList(endpoint), Collections.emptyList(), ConsistencyLevel.ONE, null, null, null, writeType, FailureDetector.isAlivePredicate);
     }
 
     public void response(MessageIn<T> m)

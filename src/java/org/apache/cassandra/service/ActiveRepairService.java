@@ -943,7 +943,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         {
             for (CFMetaData cfm : cfms)
             {
-                Set<InetAddress> endpoints = Sets.newHashSet(StorageService.instance.getLiveNaturalEndpoints(keyspace, range.right));
+                Set<InetAddress> endpoints = Sets.newHashSet(StorageService.instance.getLiveNaturalEndpoints(keyspace.getReplicationStrategy(), range.right));
                 if (!PaxosRepair.hasSufficientLiveNodesForTopologyChange(keyspace, range, endpoints))
                 {
                     Set<InetAddress> downEndpoints = Sets.newHashSet(StorageService.instance.getNaturalEndpoints(ksName, range.right));

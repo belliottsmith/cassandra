@@ -36,6 +36,8 @@ import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.metrics.KeyspaceMetrics;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.AbstractWriteResponseHandler;
@@ -141,10 +143,12 @@ public final class LegacyBatchlogMigrator
 
     public static void asyncRemoveFromBatchlog(Collection<InetAddress> endpoints, UUID uuid)
     {
+        Keyspace keyspace = Keyspace.open(SystemKeyspace.NAME);
         AbstractWriteResponseHandler<IMutation> handler = new WriteResponseHandler<>(endpoints,
                                                                                      Collections.<InetAddress>emptyList(),
                                                                                      ConsistencyLevel.ANY,
-                                                                                     Keyspace.open(SystemKeyspace.NAME),
+                                                                                     keyspace.metric,
+                                                                                     keyspace.getReplicationStrategy(),
                                                                                      null,
                                                                                      WriteType.SIMPLE,
                                                                                      FailureDetector.isAlivePredicate);

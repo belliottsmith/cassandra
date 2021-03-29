@@ -42,6 +42,7 @@ import org.apache.cassandra.exceptions.ReadFailureException;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.exceptions.TombstoneAbortException;
 import org.apache.cassandra.exceptions.UnavailableException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.metrics.ReadRepairMetrics;
 import org.apache.cassandra.net.IAsyncCallbackWithFailure;
 import org.apache.cassandra.net.MessageIn;
@@ -365,9 +366,9 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
         response(message);
     }
 
-    public void assureSufficientLiveNodes() throws UnavailableException
+    public void assureSufficientLiveNodes(AbstractReplicationStrategy replicationStrategy) throws UnavailableException
     {
-        consistencyLevel.assureSufficientLiveNodes(keyspace, endpoints);
+        consistencyLevel.assureSufficientLiveNodes(replicationStrategy, endpoints);
     }
 
     public boolean isLatencyForSnitch()

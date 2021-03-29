@@ -41,6 +41,7 @@ import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.exceptions.ReadFailureException;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.exceptions.UnavailableException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.metrics.ReadRepairMetrics;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
@@ -191,15 +192,16 @@ public abstract class AbstractReadExecutor
     public static AbstractReadExecutor getReadExecutor(SinglePartitionReadCommand command, ConsistencyLevel consistencyLevel) throws UnavailableException
     {
         Keyspace keyspace = Keyspace.open(command.metadata().ksName);
-        List<InetAddress> allReplicas = StorageProxy.getLiveSortedEndpoints(keyspace, command.partitionKey());
+        AbstractReplicationStrategy rs = keyspace.getReplicationStrategy();
+        List<InetAddress> allReplicas = StorageProxy.getLiveSortedEndpoints(rs, command.partitionKey());
         // 11980: Excluding EACH_QUORUM reads from potential RR, so that we do not miscount DC responses
         ReadRepairDecision repairDecision = consistencyLevel == ConsistencyLevel.EACH_QUORUM
                                             ? ReadRepairDecision.NONE
                                             : command.metadata().newReadRepairDecision();
-        List<InetAddress> targetReplicas = consistencyLevel.filterForQuery(keyspace, allReplicas, repairDecision);
+        List<InetAddress> targetReplicas = consistencyLevel.filterForQuery(rs, allReplicas, repairDecision);
 
         // Throw UAE early if we don't have enough replicas.
-        consistencyLevel.assureSufficientLiveNodes(keyspace, targetReplicas);
+        consistencyLevel.assureSufficientLiveNodes(rs, targetReplicas);
 
         if (repairDecision != ReadRepairDecision.NONE)
         {

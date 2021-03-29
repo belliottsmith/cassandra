@@ -33,6 +33,8 @@ import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.WriteType;
 import org.apache.cassandra.exceptions.*;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.metrics.KeyspaceMetrics;
 import org.apache.cassandra.net.IAsyncCallbackWithFailure;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
@@ -41,21 +43,22 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
 {
     protected static final Logger logger = LoggerFactory.getLogger( AbstractWriteResponseHandler.class );
 
-    //Count down until all responses and expirations have occured before deciding whether the ideal CL was reached.
-    private AtomicInteger responsesAndExpirations;
-    private final SimpleCondition condition = new SimpleCondition();
-    protected final Keyspace keyspace;
+    public final ConsistencyLevel consistencyLevel;
+    protected final KeyspaceMetrics keyspaceMetrics;
     protected final long start;
     protected final Collection<InetAddress> naturalEndpoints;
-    public final ConsistencyLevel consistencyLevel;
     protected final Runnable callback;
     protected final Collection<InetAddress> pendingEndpoints;
     protected final WriteType writeType;
+    protected final Predicate<InetAddress> isAlive;
+    protected final AbstractReplicationStrategy replicationStrategySnapshot;
+    //Count down until all responses and expirations have occured before deciding whether the ideal CL was reached.
+    private AtomicInteger responsesAndExpirations;
+    private final SimpleCondition condition = new SimpleCondition();
     private static final AtomicIntegerFieldUpdater<AbstractWriteResponseHandler> failuresUpdater
         = AtomicIntegerFieldUpdater.newUpdater(AbstractWriteResponseHandler.class, "failures");
     private volatile int failures = 0;
 
-    protected final Predicate<InetAddress> isAlive;
 
     /**
       * Delegate to another WriteReponseHandler or possibly this one to track if the ideal consistency level was reached.
@@ -69,7 +72,8 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
     /**
      * @param callback A callback to be called when the write is successful.
      */
-    protected AbstractWriteResponseHandler(Keyspace keyspace,
+    protected AbstractWriteResponseHandler(KeyspaceMetrics keyspaceMetrics,
+                                           AbstractReplicationStrategy replicationStrategySnapshot,
                                            Collection<InetAddress> naturalEndpoints,
                                            Collection<InetAddress> pendingEndpoints,
                                            ConsistencyLevel consistencyLevel,
@@ -77,7 +81,11 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
                                            WriteType writeType,
                                            Predicate<InetAddress> isAlive)
     {
-        this.keyspace = keyspace;
+        // It is not necessary to have the reference to keyspace.
+        // Therefore, simply assign the metric and remove the keypsace reference as a class member.
+        // The benifit of the removal is that compiler make sure there is no other usage of keyspace in the class and the derives.
+        this.keyspaceMetrics = keyspaceMetrics;
+        this.replicationStrategySnapshot = replicationStrategySnapshot;
         this.pendingEndpoints = pendingEndpoints;
         this.start = System.nanoTime();
         this.consistencyLevel = consistencyLevel;
@@ -189,7 +197,7 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
     {
         // During bootstrap, we have to include the pending endpoints or we may fail the consistency level
         // guarantees (see #833)
-        return consistencyLevel.blockFor(keyspace) + pendingEndpoints.size();
+        return consistencyLevel.blockFor(replicationStrategySnapshot) + pendingEndpoints.size();
     }
 
     /** 
@@ -221,7 +229,7 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
         // For writes we use totalBlockFor as any pending endpoints should also be considered
         // The exception is for EACH_QUORUM where the calculation has to be per-dc. See the
         // override in DatacenterSyncWriteResponseHandler for that.
-        consistencyLevel.assureSufficientLiveNodes(keyspace,
+        consistencyLevel.assureSufficientLiveNodes(replicationStrategySnapshot,
                                                    Iterables.filter(Iterables.concat(naturalEndpoints, pendingEndpoints), isAlive),
                                                    totalBlockFor());
     }
@@ -269,11 +277,11 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
             //Only mark it as failed if the requested CL was achieved.
             if (!condition.isSignaled() & requestedCLAchieved)
             {
-                keyspace.metric.writeFailedIdealCL.inc();
+                keyspaceMetrics.writeFailedIdealCL.inc();
             }
             else
             {
-                keyspace.metric.idealCLWriteLatency.addNano(System.nanoTime() - start);
+                keyspaceMetrics.idealCLWriteLatency.addNano(System.nanoTime() - start);
             }
 
         }

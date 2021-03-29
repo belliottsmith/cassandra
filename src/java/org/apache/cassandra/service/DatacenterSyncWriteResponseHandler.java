@@ -29,8 +29,10 @@ import com.google.common.collect.Iterables;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.exceptions.UnavailableException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.locator.NetworkTopologyStrategy;
+import org.apache.cassandra.metrics.KeyspaceMetrics;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.WriteType;
@@ -48,16 +50,17 @@ public class DatacenterSyncWriteResponseHandler<T> extends AbstractWriteResponse
     public DatacenterSyncWriteResponseHandler(Collection<InetAddress> naturalEndpoints,
                                               Collection<InetAddress> pendingEndpoints,
                                               ConsistencyLevel consistencyLevel,
-                                              Keyspace keyspace,
+                                              KeyspaceMetrics keyspaceMetrics,
+                                              AbstractReplicationStrategy replicationStrategySnapshot,
                                               Runnable callback,
                                               WriteType writeType,
                                               Predicate<InetAddress> isAlive)
     {
         // Response is been managed by the map so make it 1 for the superclass.
-        super(keyspace, naturalEndpoints, pendingEndpoints, consistencyLevel, callback, writeType, isAlive);
+        super(keyspaceMetrics, replicationStrategySnapshot, naturalEndpoints, pendingEndpoints, consistencyLevel, callback, writeType, isAlive);
         assert consistencyLevel == ConsistencyLevel.EACH_QUORUM;
 
-        NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) keyspace.getReplicationStrategy();
+        NetworkTopologyStrategy strategy = (NetworkTopologyStrategy) replicationStrategySnapshot;
 
         for (String dc : strategy.getDatacenters())
         {
@@ -107,7 +110,7 @@ public class DatacenterSyncWriteResponseHandler<T> extends AbstractWriteResponse
         // as they won't yet have been decremented by any received responses.
         assert ackCount() == 0;
         Map<String, Integer> endpointsByDc =
-            ConsistencyLevel.countPerDCEndpoints(keyspace,
+            ConsistencyLevel.countPerDCEndpoints(replicationStrategySnapshot,
                                                  Iterables.filter(Iterables.concat(naturalEndpoints, pendingEndpoints),
                                                  isAlive));
 

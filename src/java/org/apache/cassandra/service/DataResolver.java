@@ -46,6 +46,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.NetworkTopologyStrategy;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.schema.IndexMetadata;
@@ -475,16 +476,17 @@ public class DataResolver extends ResponseResolver
                     sourceIdxLookup.put(sources[i], i);
 
                 Token token = partitionKey.getToken();
+                AbstractReplicationStrategy rs = keyspace.getReplicationStrategy();
 
                 // grab the natural endpoints, since they could have changed
                 // (we ignore the possibility they changed during the read portion of read-repair)
-                List<InetAddress> candidates = StorageProxy.getLiveSortedEndpoints(keyspace, token);
+                List<InetAddress> candidates = StorageProxy.getLiveSortedEndpoints(rs, token);
                 Collection<InetAddress> pending = StorageService.instance.getTokenMetadata().pendingEndpointsFor(token, keyspace.getName());
                 for (InetAddress endpoint : pending)
                     if (FailureDetector.instance.isAlive(endpoint))
                         candidates.add(endpoint);
 
-                blockFor = consistency.trackWrite(keyspace, candidates, pending);
+                blockFor = consistency.trackWrite(rs, candidates, pending);
                 int blockForCount = blockFor.blockFor();
 
                 // sort the nodes we contacted originally to the front
