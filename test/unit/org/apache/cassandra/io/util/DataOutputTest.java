@@ -29,6 +29,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.util.ArrayDeque;
@@ -173,7 +174,7 @@ public class DataOutputTest
                     write.publicFlush();
             }
             catch (RuntimeException e) {
-                if (e.getClass() == RuntimeException.class)
+                if (e.getClass() == BufferOverflowException.class)
                     threw = true;
             }
             Assert.assertTrue(threw);
@@ -197,16 +198,16 @@ public class DataOutputTest
             write.write(new byte[7]);
 
             //Should fail due to validation
-            checkThrowsRuntimeException(validateReallocationCallable( write, DataOutputBuffer.MAX_ARRAY_SIZE + 1));
+            checkThrowsException(validateReallocationCallable(write, DataOutputBuffer.MAX_ARRAY_SIZE + 1), BufferOverflowException.class);
             //Check that it does throw
-            checkThrowsRuntimeException(new Callable<Object>()
+            checkThrowsException(new Callable<Object>()
             {
                 public Object call() throws Exception
                 {
                     write.write(42);
                     return null;
                 }
-            });
+            }, BufferOverflowException.class);
         }
     }
 
@@ -237,8 +238,8 @@ public class DataOutputTest
             Assert.assertEquals(DataOutputBuffer.MAX_ARRAY_SIZE, write.validateReallocation(DataOutputBuffer.MAX_ARRAY_SIZE + 1L));
             Assert.assertEquals(DataOutputBuffer.MAX_ARRAY_SIZE, write.validateReallocation(DataOutputBuffer.MAX_ARRAY_SIZE));
             Assert.assertEquals(DataOutputBuffer.MAX_ARRAY_SIZE - 1, write.validateReallocation(DataOutputBuffer.MAX_ARRAY_SIZE - 1));
-            checkThrowsRuntimeException(validateReallocationCallable( write, 0));
-            checkThrowsRuntimeException(validateReallocationCallable( write, 1));
+            checkThrowsException(validateReallocationCallable( write, 0), BufferOverflowException.class);
+            checkThrowsException(validateReallocationCallable( write, 1), BufferOverflowException.class);
             checkThrowsIAE(validateReallocationCallable( write, -1));
         }
     }

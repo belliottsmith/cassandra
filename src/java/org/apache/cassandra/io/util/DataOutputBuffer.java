@@ -18,6 +18,7 @@
 package org.apache.cassandra.io.util;
 
 import java.io.IOException;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
 
@@ -144,7 +145,7 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
     {
         int saturatedSize = saturatedArraySizeCast(newSize);
         if (saturatedSize <= capacity())
-            throw new RuntimeException();
+            throw new BufferOverflowException();
         return saturatedSize;
     }
 
