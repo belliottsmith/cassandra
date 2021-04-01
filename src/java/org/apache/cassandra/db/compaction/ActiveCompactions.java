@@ -37,6 +37,17 @@ public class ActiveCompactions implements ActiveCompactionsTracker
         return new ArrayList<>(compactions);
     }
 
+    public long estimatedRemainingWriteBytes()
+    {
+        synchronized (compactions)
+        {
+            long totalRemainingWriteBytes = 0;
+            for (CompactionInfo.Holder holder : compactions)
+                totalRemainingWriteBytes += holder.getCompactionInfo().estimatedRemainingWriteBytes();
+            return totalRemainingWriteBytes;
+        }
+    }
+
     public void beginCompaction(CompactionInfo.Holder ci)
     {
         ci.started();

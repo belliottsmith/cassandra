@@ -33,7 +33,6 @@ import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
-import java.util.function.Consumer;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
@@ -464,22 +463,55 @@ public class Directories
         Collections.sort(candidates);
     }
 
-    public boolean hasAvailableDiskSpaceForCompactions(long estimatedSSTables, long expectedTotalWriteSize)
+    public boolean hasAvailableDiskSpaceForCompactions(long estimatedSSTables, long expectedTotalWriteSize, long estimatedInFlightBytesRemaining)
     {
-        long writeSize = expectedTotalWriteSize / estimatedSSTables;
-        long totalAvailable = 0L;
+        long writeSizePerSSTable = expectedTotalWriteSize / estimatedSSTables;
 
+        List<DataDirectoryCandidate> candidates = new ArrayList<>(paths.length);
         for (DataDirectory dataDir : paths)
         {
             if (BlacklistedDirectories.isUnwritable(getLocationForDisk(dataDir)))
-                  continue;
-            DataDirectoryCandidate candidate = new DataDirectoryCandidate(dataDir);
-            // exclude directory if its total writeSize does not fit to data directory
-            if (candidate.availableSpaceForCompactions < writeSize)
+                continue;
+            candidates.add(new DataDirectoryCandidate(dataDir));
+        }
+
+        // if we have unwritable directories we can't assume that reducing the
+        // disk space for all candidates will make sense - some compactions might only
+        // be writing to a single data directory
+        if (!BlacklistedDirectories.hasUnwritableDirectories())
+            candidates = reduceAvailableSpace(candidates, estimatedInFlightBytesRemaining);
+        long totalAvailable = 0L;
+        for (DataDirectoryCandidate candidate : candidates)
+        {
+            // exclude directory if the writeSizePerSSTable does not fit to data directory
+            if (candidate.availableSpaceForCompactions < writeSizePerSSTable)
                 continue;
             totalAvailable += candidate.availableSpaceForCompactions;
         }
         return totalAvailable > expectedTotalWriteSize;
+    }
+
+    /**
+     * Reduces the available space for new compactions by inFlightRemainingBytes.
+     *
+     * Assumes that the ongoing compactions are distributed over the available data directories -
+     *
+     * If we have 2 data directories A, B - A has 10 bytes available, B has 20 - and we are currently compacting
+     * 9 bytes, we will reduce the available space on A to 7 and B to 14
+     */
+    @VisibleForTesting
+    static List<DataDirectoryCandidate> reduceAvailableSpace(List<DataDirectoryCandidate> candidates, long inFlightRemainingBytes)
+    {
+        long totalAvailableBefore = candidates.stream().map(c -> c.availableSpace).reduce(Long::sum).orElse(0L);
+        List<DataDirectoryCandidate> reducedCandidates = new ArrayList<>(candidates.size());
+        for (DataDirectoryCandidate candidate : candidates)
+        {
+            double perc = ((double)candidate.availableSpace) / totalAvailableBefore;
+            reducedCandidates.add(new DataDirectoryCandidate(candidate.dataDirectory,
+                                                             candidate.availableSpace,
+                                                             candidate.availableSpaceForCompactions - Math.round(perc * inFlightRemainingBytes)));
+        }
+        return reducedCandidates;
     }
 
     public static File getSnapshotDirectory(Descriptor desc, String snapshotName)
@@ -597,9 +629,14 @@ public class Directories
 
         public DataDirectoryCandidate(DataDirectory dataDirectory)
         {
+            this(dataDirectory, dataDirectory.getAvailableSpace(), dataDirectory.getAvailableSpaceForCompactions());
+        }
+
+        public DataDirectoryCandidate(DataDirectory dataDirectory, long availableSpace, long availableSpaceForCompactions)
+        {
             this.dataDirectory = dataDirectory;
-            this.availableSpace = dataDirectory.getAvailableSpace();
-            this.availableSpaceForCompactions = dataDirectory.getAvailableSpaceForCompactions();
+            this.availableSpaceForCompactions = availableSpaceForCompactions;
+            this.availableSpace = availableSpace;
         }
 
         void calcFreePerc(long totalAvailableSpace)

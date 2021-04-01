@@ -119,6 +119,18 @@ public final class CompactionInfo
         return sstables;
     }
 
+    /**
+     * Note that this estimate is based on the amount of data we have left to read - it assumes input
+     * size = output size for a compaction, which is not really true, but should most often provide a worst case
+     * remaining write size.
+     */
+    public long estimatedRemainingWriteBytes()
+    {
+        if (unit == Unit.BYTES && tasktype.writesData)
+            return getTotal() - getCompleted();
+        return 0;
+    }
+
     public String toString()
     {
         StringBuilder buff = new StringBuilder();

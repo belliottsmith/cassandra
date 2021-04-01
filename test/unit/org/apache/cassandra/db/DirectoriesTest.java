@@ -495,6 +495,19 @@ public class DirectoriesTest
         }
     }
 
+    @Test
+    public void testReduceAvailableSpace()
+    {
+        List<Directories.DataDirectoryCandidate> candidates = new ArrayList<>();
+        candidates.add(new Directories.DataDirectoryCandidate(new DataDirectory(new File("/tmp/A")), 10, 10));
+        candidates.add(new Directories.DataDirectoryCandidate(new DataDirectory(new File("/tmp/B")), 20, 20));
+
+        List<Directories.DataDirectoryCandidate> reduced = Directories.reduceAvailableSpace(candidates, 9);
+
+        assertEquals(7, reduced.get(0).availableSpaceForCompactions);
+        assertEquals(14, reduced.get(1).availableSpaceForCompactions);
+    }
+
     private List<Directories.DataDirectoryCandidate> getWriteableDirectories(DataDirectory[] dataDirectories, long writeSize)
     {
         // copied from Directories.getWriteableLocation(long)

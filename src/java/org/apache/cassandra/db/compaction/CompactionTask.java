@@ -130,7 +130,6 @@ public class CompactionTask extends AbstractCompactionTask
 
         // note that we need to do a rough estimate early if we can fit the compaction on disk - this is pessimistic, but
         // since we might remove sstables from the compaction in checkAvailableDiskSpace it needs to be done here
-
         checkAvailableDiskSpace();
 
         // sanity check: all sstables must belong to the same cfs
@@ -300,8 +299,7 @@ public class CompactionTask extends AbstractCompactionTask
 
     /*
     Checks if we have enough disk space to execute the compaction.  Drops the largest sstable out of the Task until
-    there's enough space (in theory) to handle the compaction.  Does not take into account space that will be taken by
-    other compactions.
+    there's enough space (in theory) to handle the compaction.
      */
     protected void checkAvailableDiskSpace()
     {
@@ -318,14 +316,14 @@ public class CompactionTask extends AbstractCompactionTask
             long expectedWriteSize = cfs.getExpectedCompactedFileSize(transaction.originals(), compactionType);
             long estimatedSSTables = Math.max(1, expectedWriteSize / strategy.getMaxSSTableBytes());
 
-            if(cfs.getDirectories().hasAvailableDiskSpaceForCompactions(estimatedSSTables, expectedWriteSize))
+            if(cfs.getDirectories().hasAvailableDiskSpaceForCompactions(estimatedSSTables, expectedWriteSize, CompactionManager.instance.active.estimatedRemainingWriteBytes()))
                 break;
 
             if (!reduceScopeForLimitedSpace(expectedWriteSize))
             {
                 // we end up here if we can't take any more sstables out of the compaction.
                 // usually means we've run out of disk space
-                String msg = String.format("Not enough space for compaction, estimated sstables = %d, expected write size = %d", estimatedSSTables, expectedWriteSize);
+                String msg = String.format("Not enough space for compaction of %s.%s, estimated sstables = %d, expected write size = %d", cfs.keyspace.getName(), cfs.getTableName(), estimatedSSTables, expectedWriteSize);
                 logger.warn(msg);
                 throw new RuntimeException(msg);
             }

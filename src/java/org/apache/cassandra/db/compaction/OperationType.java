@@ -19,33 +19,35 @@ package org.apache.cassandra.db.compaction;
 
 public enum OperationType
 {
-    COMPACTION("Compaction"),
-    VALIDATION("Validation"),
-    KEY_CACHE_SAVE("Key cache save"),
-    ROW_CACHE_SAVE("Row cache save"),
-    COUNTER_CACHE_SAVE("Counter cache save"),
-    CLEANUP("Cleanup"),
-    SCRUB("Scrub"),
-    UPGRADE_SSTABLES("Upgrade sstables"),
-    INDEX_BUILD("Secondary index build"),
+    COMPACTION("Compaction", true),
+    VALIDATION("Validation", false),
+    KEY_CACHE_SAVE("Key cache save", false),
+    ROW_CACHE_SAVE("Row cache save", false),
+    COUNTER_CACHE_SAVE("Counter cache save", false),
+    CLEANUP("Cleanup", true),
+    SCRUB("Scrub", true),
+    UPGRADE_SSTABLES("Upgrade sstables", true),
+    INDEX_BUILD("Secondary index build", false),
     /** Compaction for tombstone removal */
-    TOMBSTONE_COMPACTION("Tombstone Compaction"),
-    UNKNOWN("Unknown compaction type"),
-    ANTICOMPACTION("Anticompaction after repair"),
-    VERIFY("Verify"),
-    FLUSH("Flush"),
-    STREAM("Stream"),
-    WRITE("Write"),
-    VIEW_BUILD("View build"),
-    INDEX_SUMMARY("Index summary redistribution");
+    TOMBSTONE_COMPACTION("Tombstone Compaction", true),
+    UNKNOWN("Unknown compaction type", false),
+    ANTICOMPACTION("Anticompaction after repair", true),
+    VERIFY("Verify", false),
+    FLUSH("Flush", true),
+    STREAM("Stream", true),
+    WRITE("Write", true),
+    VIEW_BUILD("View build", false),
+    INDEX_SUMMARY("Index summary redistribution", false);
 
     public final String type;
     public final String fileName;
+    public final boolean writesData;
 
-    OperationType(String type)
+    OperationType(String type, boolean writesData)
     {
         this.type = type;
         this.fileName = type.toLowerCase().replace(" ", "");
+        this.writesData = writesData;
     }
 
     public static OperationType fromFileName(String fileName)

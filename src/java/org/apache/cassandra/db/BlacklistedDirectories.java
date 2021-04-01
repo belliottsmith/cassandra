@@ -45,6 +45,11 @@ public class BlacklistedDirectories implements BlacklistedDirectoriesMBean
         MBeanWrapper.instance.registerMBean(this, MBEAN_NAME, MBeanWrapper.OnException.LOG);
     }
 
+    public static boolean hasUnwritableDirectories()
+    {
+        return !instance.unwritableDirectories.isEmpty();
+    }
+
     public Set<File> getUnreadableDirectories()
     {
         return Collections.unmodifiableSet(unreadableDirectories);
