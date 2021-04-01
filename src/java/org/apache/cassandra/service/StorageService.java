@@ -1305,6 +1305,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             try
             {
                 joinTokenRing(0);
+                doAuthSetup(false);
             }
             catch (ConfigurationException e)
             {
@@ -1320,6 +1321,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 isSurveyMode = false;
                 logger.info("Leaving write survey mode and joining ring at operator request");
                 finishJoiningRing(SystemKeyspace.getSavedTokens());
+                doAuthSetup(false);
                 daemon.start();
             }
             else
@@ -1341,10 +1343,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         setTokens(tokens);
 
         assert tokenMetadata.sortedTokens().size() > 0;
-        doAuthSetup(false);
     }
 
-    private void doAuthSetup(boolean setUpSchema)
+    @VisibleForTesting
+    public void doAuthSetup(boolean setUpSchema)
     {
         if (!authSetupCalled.getAndSet(true))
         {
@@ -1361,6 +1363,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
             MigrationManager.instance.register(new AuthMigrationListener());
         }
+    }
+
+    @VisibleForTesting
+    public boolean authSetupCalled()
+    {
+        return authSetupCalled.get();
     }
 
     @VisibleForTesting
@@ -1754,6 +1762,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         isSurveyMode = false;
                         progressSupport.progress("bootstrap", ProgressEvent.createNotification("Joining ring..."));
                         finishJoiningRing(bootstrapTokens);
+                        doAuthSetup(false);
                     }
                     progressSupport.progress("bootstrap", new ProgressEvent(ProgressEventType.COMPLETE, 1, 1, "Resume bootstrap complete"));
                     daemon.start();
