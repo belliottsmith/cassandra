@@ -50,6 +50,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.Pair;
 
@@ -133,6 +134,9 @@ public class PaxosUncommittedTracker
 
     synchronized void flushUpdates() throws IOException
     {
+        if (Paxos.DISABLE_TRACKERS)
+            return;
+
         Map<UUID, UncommittedKeyFileContainer.FlushWriter> flushWriters = new HashMap<>();
         try (CloseableIterator<PaxosKeyState> iterator = updateSupplier.flushIterator())
         {
@@ -197,6 +201,8 @@ public class PaxosUncommittedTracker
 
     synchronized void schedulePaxosRepairs()
     {
+        if (Paxos.DISABLE_AUTO_REPAIRS)
+            return;
 
         List<UUID> paxosTables = new ArrayList<>();
         for (KeyspaceMetadata ksm : Schema.instance.getReplicatedKeyspaces())

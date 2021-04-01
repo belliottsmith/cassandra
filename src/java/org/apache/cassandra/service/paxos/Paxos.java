@@ -127,6 +127,8 @@ import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
 
 public class Paxos
 {
+    public static final boolean DISABLE_TRACKERS = Boolean.parseBoolean(System.getProperty("cassandra.paxos.disable_trackers", "true"));
+    public static final boolean DISABLE_AUTO_REPAIRS = Boolean.parseBoolean(System.getProperty("cassandra.paxos.disable_auto_repair", "true"));
     private static volatile Config.PaxosVariant PAXOS_VARIANT = DatabaseDescriptor.getPaxosVariant();
     private static final boolean USE_SELF_EXECUTION = Boolean.parseBoolean(System.getProperty("cassandra.paxos.use_apple_paxos_self_execution", "true"));
     private static BallotGenerator BALLOT_GENERATOR = new BallotGenerator.Default();
