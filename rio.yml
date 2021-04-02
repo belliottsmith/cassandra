@@ -62,8 +62,8 @@ builds:
   #
   # Pull request builder
   #
-  - name: ghprb-3.0.19
-    branchName: cie-cassandra-3.0.19
+  - name: ghprb-3.0.24
+    branchName: cie-cassandra-3.0.24
     jenkins:
       concurrentBuild: true
       throttlingEnabled: true
@@ -92,8 +92,8 @@ builds:
   #
   # Snapshot build - runs automatically on commit
   #
-  - name: build-3.0.19
-    branchName: cie-cassandra-3.0.19
+  - name: build-3.0.24
+    branchName: cie-cassandra-3.0.24
     jenkins:
       concurrentBuild: true
       throttlingEnabled: true
@@ -161,8 +161,8 @@ builds:
   #
   # Release Build - must be started manually
   #
-  - name: release-3.0.19
-    branchName: cie-cassandra-3.0.19
+  - name: release-3.0.24
+    branchName: cie-cassandra-3.0.24
     trigger:
       gitPush: false
     machine:
@@ -227,8 +227,8 @@ builds:
         expression: 'cie-cassandra-${FULL_VERSION}'
 
   # Publish in-jvm dtest jar for CIE Cassandra
-  - branchName: cie-cassandra-3.0.19
-    name: publish-dtest-cie-3.0.19
+  - branchName: cie-cassandra-3.0.24
+    name: publish-dtest-cie-3.0.24
     build:
       steps:
       - ./rio/release-dtest.sh
