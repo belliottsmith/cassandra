@@ -1,3 +1,5 @@
+3.0.24.1
+
 3.0.24.0
 rdar://75044535 (Apple Internal) DESCRIBE for PaxosUncommittedIndex is unparsable by 3.0/4.0 #2257
 rdar://75885500 (Apple Internal) Avoid generating unavailables during auth setup (#2311)
