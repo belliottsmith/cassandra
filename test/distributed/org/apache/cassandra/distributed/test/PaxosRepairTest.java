@@ -184,6 +184,7 @@ public class PaxosRepairTest extends TestBaseImpl
         cfg.set("initial_token", ByteBufferUtil.bytesToHex(ByteBufferUtil.bytes(cfg.num() * 100)));
     };
 
+    @Ignore
     @Test
     public void paxosRepairTest() throws Throwable
     {
@@ -312,6 +313,7 @@ public class PaxosRepairTest extends TestBaseImpl
         }
     }
 
+    @Ignore
     @Test
     public void paxosCleanupWithDelayedProposal() throws Throwable
     {
@@ -362,6 +364,7 @@ public class PaxosRepairTest extends TestBaseImpl
         }
     }
 
+    @Ignore
     @Test
     public void paxosRepairPreventsStaleReproposal() throws Throwable
     {
@@ -409,6 +412,7 @@ public class PaxosRepairTest extends TestBaseImpl
         }
     }
 
+    @Ignore
     @Test
     public void paxosRepairHistoryIsntUpdatedInForcedRepair() throws Throwable
     {
