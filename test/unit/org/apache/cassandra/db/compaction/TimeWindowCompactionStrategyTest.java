@@ -397,7 +397,8 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
             twcs.addSSTable(sstable);
         twcs.startup();
         Thread.sleep(100);
-        assertNull(twcs.getSSTableCountByBuckets());
+        assertNotNull(twcs.getSSTableCountByBuckets());
+        assertTrue(twcs.getSSTableCountByBuckets().isEmpty());
         AbstractCompactionTask t = twcs.getNextBackgroundTask(0);
         assertEquals(ImmutableMap.of(60000L, 1, 0L, 2, 180000L, 1), twcs.getSSTableCountByBuckets());
         twcs.shutdown();

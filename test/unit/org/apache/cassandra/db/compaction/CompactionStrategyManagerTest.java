@@ -169,6 +169,16 @@ public class CompactionStrategyManagerTest
             CompactionStrategyManager.sumCountsByBucket(
                 ImmutableMap.of(60000L, 2, 0L, 1, 180000L, 4),
                 ImmutableMap.of(60000L, 2, 0L, 1, 180000L, 4), 2));
+        Assert.assertArrayEquals(
+            new int[] {1, 1, 2},
+            CompactionStrategyManager.sumCountsByBucket(
+                Collections.emptyMap(),
+                ImmutableMap.of(60000L, 1, 0L, 2, 180000L, 1), 30));
+        Assert.assertArrayEquals(
+            new int[] {},
+            CompactionStrategyManager.sumCountsByBucket(
+                Collections.emptyMap(),
+                Collections.emptyMap(), 30));
     }
 
     private static class MockCFSForCSM extends ColumnFamilyStore

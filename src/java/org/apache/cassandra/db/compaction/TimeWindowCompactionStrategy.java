@@ -58,7 +58,7 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
     private final Set<SSTableReader> sstables = new HashSet<>();
     private long lastExpiredCheck;
     private long highestWindowSeen;
-    private Map<Long, Integer> sstableCountByBuckets;
+    private Map<Long, Integer> sstableCountByBuckets = Collections.emptyMap();
 
     public TimeWindowCompactionStrategy(ColumnFamilyStore cfs, Map<String, String> options)
     {
