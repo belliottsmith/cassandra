@@ -1,7 +1,9 @@
 4.0.0.11
+* Simplified from commit 7c2b70f490ac19f88f67b886c48ecf2e12dcc6e9
+* <rdar://62542912> (Apple Internal) Update SELECT_SIZE message ids once Xmas patch is merged
+* <rdar://75581816> (CASSANDRA-16554 early port) fix race between secondary index building and active compactions tracking
 
 4.0.0.10
-
 * Rebased on OSS 4.0-beta5, commit dfdb6e3d8ebd797bbda8bbe5e47b5228a9281839
 * <no radar> increase default in-jvm dtest ring delay to 15s as failing to contact seeds
 * <rdar://75549715> (Early port) Avoid executing commands that have guaranteed empty bounds in slices filter
