@@ -316,7 +316,9 @@ public class CompactionTask extends AbstractCompactionTask
             long expectedWriteSize = cfs.getExpectedCompactedFileSize(transaction.originals(), compactionType);
             long estimatedSSTables = Math.max(1, expectedWriteSize / strategy.getMaxSSTableBytes());
 
-            if(cfs.getDirectories().hasAvailableDiskSpaceForCompactions(estimatedSSTables, expectedWriteSize, CompactionManager.instance.active.estimatedRemainingWriteBytes()))
+            if (cfs.getDirectories().hasDiskSpaceForCompactionsAndStreams(estimatedSSTables,
+                                                                          expectedWriteSize,
+                                                                          CompactionManager.instance.active.estimatedRemainingWriteBytes()))
                 break;
 
             if (!reduceScopeForLimitedSpace(expectedWriteSize))

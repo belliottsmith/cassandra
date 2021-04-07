@@ -463,7 +463,9 @@ public class Directories
         Collections.sort(candidates);
     }
 
-    public boolean hasAvailableDiskSpaceForCompactions(long estimatedSSTables, long expectedTotalWriteSize, long estimatedInFlightBytesRemaining)
+    public boolean hasDiskSpaceForCompactionsAndStreams(long estimatedSSTables,
+                                                        long expectedTotalWriteSize,
+                                                        long estimatedInFlightBytesRemaining)
     {
         long writeSizePerSSTable = expectedTotalWriteSize / estimatedSSTables;
 

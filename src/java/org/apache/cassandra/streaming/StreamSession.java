@@ -36,6 +36,7 @@ import com.google.common.collect.*;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.Directories;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.lifecycle.SSTableIntervalTree;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
@@ -66,6 +67,8 @@ import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.concurrent.Ref;
 import org.apache.cassandra.utils.concurrent.Refs;
+
+import static org.apache.cassandra.repair.StreamingRepairTask.REPAIR_STREAM_PLAN_NAME;
 
 /**
  * Handles the streaming a one or more section of one of more sstables to and from a specific
@@ -628,6 +631,9 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
         processStreamRequests(requests);
 
+        if (REPAIR_STREAM_PLAN_NAME.equals(description()))
+            checkAvailableDiskSpace(summaries);
+
         for (StreamSummary summary : summaries)
             prepareReceiving(summary);
 
@@ -649,6 +655,44 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         // if there are files to stream
         if (!maybeCompleted())
             startStreamingFiles();
+    }
+
+    private void checkAvailableDiskSpace(Collection<StreamSummary> summaries)
+    {
+        Map<UUID, Long> perCFIdIncomingBytes = new HashMap<>();
+        Map<UUID, Integer> perCFIdIncomingFiles = new HashMap<>();
+        long newStreamTotal = 0;
+        for (StreamSummary summary : summaries)
+        {
+            perCFIdIncomingFiles.merge(summary.cfId, summary.files, Integer::sum);
+            perCFIdIncomingBytes.merge(summary.cfId, summary.totalSize, Long::sum);
+            newStreamTotal += summary.totalSize;
+        }
+
+        long totalStreamRemaining = StreamManager.instance.getTotalRemainingOngoingBytes();
+        long totalCompactionWriteRemaining = CompactionManager.instance.active.estimatedRemainingWriteBytes();
+        long thisStreamTotalBytes = 0;
+        for (Map.Entry<UUID, Long> entry : perCFIdIncomingBytes.entrySet())
+        {
+            ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(entry.getKey());
+            if (cfs == null || perCFIdIncomingFiles.get(entry.getKey()) == 0)
+                continue;
+            // note that the per-file size here is most often wrong;
+            // if we have 2 data directories with 100 bytes available in each and get
+            // 2 incoming files with a total of 150 bytes - these files can be 1 and 149
+            // bytes respectively and we can't stream but here we assume they are 75 bytes each.
+            if (!cfs.getDirectories().hasDiskSpaceForCompactionsAndStreams(perCFIdIncomingFiles.get(entry.getKey()), entry.getValue(),
+                                                            totalStreamRemaining + totalCompactionWriteRemaining + thisStreamTotalBytes))
+            {
+                throw new RuntimeException(String.format("Not enough disk space to stream %d bytes to %s.%s (stream ongoing remaining=%d, compaction ongoing remaining=%d)",
+                                                         newStreamTotal,
+                                                         cfs.keyspace.getName(),
+                                                         cfs.getTableName(),
+                                                         totalStreamRemaining,
+                                                         totalCompactionWriteRemaining));
+            }
+            thisStreamTotalBytes += entry.getValue();
+        }
     }
 
     private void processStreamRequests(Collection<StreamRequest> requests)

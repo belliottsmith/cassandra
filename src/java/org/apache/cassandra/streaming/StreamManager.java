@@ -179,4 +179,15 @@ public class StreamManager implements StreamManagerMBean
     {
         return notifier.getNotificationInfo();
     }
+
+    public long getTotalRemainingOngoingBytes()
+    {
+        long total = 0;
+        for (StreamResultFuture fut : Iterables.concat(initiatedStreams.values(), receivingStreams.values()))
+        {
+            for (SessionInfo sessionInfo : fut.getCurrentState().sessions)
+                total += sessionInfo.getTotalSizeToReceive() - sessionInfo.getTotalSizeReceived();
+        }
+        return total;
+    }
 }
