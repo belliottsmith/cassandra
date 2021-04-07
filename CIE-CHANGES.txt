@@ -1,3 +1,5 @@
+4.0.0.12
+
 4.0.0.11
 * Simplified from commit 7c2b70f490ac19f88f67b886c48ecf2e12dcc6e9
 * <rdar://62542912> (Apple Internal) Update SELECT_SIZE message ids once Xmas patch is merged
