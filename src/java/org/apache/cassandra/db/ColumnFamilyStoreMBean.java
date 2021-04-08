@@ -318,6 +318,11 @@ public interface ColumnFamilyStoreMBean
      */
     public long[] getCoordinatorScanLatencyHistogram();
 
+    public Map<String, Long> getTopSizePartitions();
+    public Long getTopSizePartitionsLastUpdate();
+    public Map<String, Long> getTopTombstonePartitions();
+    public Long getTopTombstonePartitionsLastUpdate();
+
     public void setChristmasPatchDisabled(boolean disable);
     public boolean isChristmasPatchDisabled();
 }
