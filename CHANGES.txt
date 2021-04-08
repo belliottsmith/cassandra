@@ -1,3 +1,5 @@
+3.0.24.2
+
 3.0.24.1
 rdar://76412632 (CASSANDRA-16578) Backport CASSANDRA-16578 for NativeLibrary fix (#2326)
 rdar://61888615 (Apply Internal) If streaming from repair uses all the disk, fail the repair (#2285)
