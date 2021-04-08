@@ -1,3 +1,5 @@
+4.0.0.13
+
 4.0.0.12
 * <rdar://71529224> (Apple Internal) Track top partition tombstone count and size for each table (#2228)
 * <rdar://76412632> (Apple Internal) Backport CASSANDRA-16578 for NativeLibrary fix
