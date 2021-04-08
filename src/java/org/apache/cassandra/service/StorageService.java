@@ -6477,4 +6477,58 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         DatabaseDescriptor.setClientTrackWarningsEnabled(value);
         logger.info("updated client_track_warnings_enabled to {}", value);
     }
+
+    @Override
+    public boolean topPartitionsEnabled()
+    {
+        return DatabaseDescriptor.topPartitionsEnabled();
+    }
+
+    @Override
+    public int getMaxTopSizePartitionCount()
+    {
+        return DatabaseDescriptor.getMaxTopSizePartitionCount();
+    }
+
+    @Override
+    public void setMaxTopSizePartitionCount(int value)
+    {
+        DatabaseDescriptor.setMaxTopSizePartitionCount(value);
+    }
+
+    @Override
+    public int getMaxTopTombstonePartitionCount()
+    {
+        return DatabaseDescriptor.getMaxTopTombstonePartitionCount();
+    }
+
+    @Override
+    public void setMaxTopTombstonePartitionCount(int value)
+    {
+        DatabaseDescriptor.setMaxTopTombstonePartitionCount(value);
+    }
+
+    @Override
+    public long getMinTrackedPartitionSize()
+    {
+        return DatabaseDescriptor.getMinTrackedPartitionSize();
+    }
+
+    @Override
+    public void setMinTrackedPartitionSize(long value)
+    {
+        DatabaseDescriptor.setMinTrackedPartitionSize(value);
+    }
+
+    @Override
+    public long getMinTrackedPartitionTombstoneCount()
+    {
+        return DatabaseDescriptor.getMinTrackedPartitionTombstoneCount();
+    }
+
+    @Override
+    public void setMinTrackedPartitionTombstoneCount(long value)
+    {
+        DatabaseDescriptor.setMinTrackedPartitionTombstoneCount(value);
+    }
 }
