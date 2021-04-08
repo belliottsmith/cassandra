@@ -34,6 +34,7 @@ import org.apache.cassandra.db.rows.UnfilteredRowIterators;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.metrics.TopPartitionTracker;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.messages.ValidationResponse;
@@ -78,6 +79,7 @@ public class Validator implements Runnable
 
     private final PreviewKind previewKind;
     public final ValidationState state;
+    public TopPartitionTracker.Collector topPartitionCollector;
 
     public Validator(ValidationState state, int nowInSec, PreviewKind previewKind)
     {
@@ -108,9 +110,10 @@ public class Validator implements Runnable
         return previewKind;
     }
 
-    public void prepare(ColumnFamilyStore cfs, MerkleTrees trees)
+    public void prepare(ColumnFamilyStore cfs, MerkleTrees trees, TopPartitionTracker.Collector topPartitionCollector)
     {
         this.trees = trees;
+        this.topPartitionCollector = topPartitionCollector;
 
         if (!trees.partitioner().preservesOrder() || evenTreeDistribution)
         {
@@ -182,6 +185,8 @@ public class Validator implements Runnable
         RowHash rowHash = rowHash(partition);
         if (rowHash != null)
         {
+            if(topPartitionCollector != null)
+                topPartitionCollector.trackPartitionSize(partition.partitionKey(), rowHash.size);
             range.addHash(rowHash);
         }
     }

@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.tools.nodetool.stats;
 
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -166,6 +168,8 @@ public class TableStatsHolder implements StatsHolder
                     String.format("%01.5f", table.droppableTombstoneRatio));
         if (locationCheck)
             mpTable.put("sstables_in_correct_location", table.isInCorrectLocation);
+        mpTable.put("top_size_partitions", table.topSizePartitions);
+        mpTable.put("top_tombstone_partitions", table.topTombstonePartitions);
         return mpTable;
     }
 
@@ -360,6 +364,14 @@ public class TableStatsHolder implements StatsHolder
                 statsTable.maximumTombstonesPerSliceLastFiveMinutes = histogram.getMax();
                 statsTable.droppedMutations = format((Long) probe.getColumnFamilyMetric(keyspaceName, tableName, "DroppedMutations"), humanReadable);
                 statsTable.droppableTombstoneRatio = probe.getDroppableTombstoneRatio(keyspaceName, tableName);
+
+                statsTable.topSizePartitions = format(table.getTopSizePartitions(), humanReadable);
+                if (table.getTopSizePartitionsLastUpdate() != null)
+                    statsTable.topSizePartitionsLastUpdate = millisToDateString(table.getTopSizePartitionsLastUpdate());
+                statsTable.topTombstonePartitions = table.getTopTombstonePartitions();
+                if (table.getTopTombstonePartitionsLastUpdate() != null)
+                    statsTable.topTombstonePartitionsLastUpdate = millisToDateString(table.getTopTombstonePartitionsLastUpdate());
+
                 statsKeyspace.tables.add(statsTable);
             }
             keyspaces.add(statsKeyspace);
@@ -370,6 +382,23 @@ public class TableStatsHolder implements StatsHolder
     {
         return humanReadable ? FileUtils.stringifyFileSize(bytes) : Long.toString(bytes);
     }
+
+    private Map<String, String> format(Map<String, Long> map, boolean humanReadable)
+    {
+        LinkedHashMap<String, String> retMap = new LinkedHashMap<>();
+        for (Map.Entry<String, Long> entry : map.entrySet())
+            retMap.put(entry.getKey(), format(entry.getValue(), humanReadable));
+        return retMap;
+    }
+
+    private String millisToDateString(long millis)
+    {
+        TimeZone tz = TimeZone.getTimeZone("UTC");
+        DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'");
+        df.setTimeZone(tz);
+        return df.format(new Date(millis));
+    }
+
 
     /**
      * Sort and filter this TableStatHolder's tables as specified by its sortKey and top attributes.

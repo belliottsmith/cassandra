@@ -857,6 +857,11 @@ public class Config
     public volatile int table_count_warn_threshold = 150;
     @Deprecated // this warning threshold will be replaced by an equivalent guardrail
     public volatile int keyspace_count_warn_threshold = 40;
+    public volatile int max_top_size_partition_count = 10;
+    public volatile int max_top_tombstone_partition_count = 10;
+    public volatile long min_tracked_partition_size_bytes = 1 << 20;
+    public volatile long min_tracked_partition_tombstone_count = 5000;
+    public volatile boolean top_partitions_enabled = true;
 
     public volatile int consecutive_message_errors_threshold = 1;
 
