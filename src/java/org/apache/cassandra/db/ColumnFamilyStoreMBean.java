@@ -285,4 +285,9 @@ public interface ColumnFamilyStoreMBean
      * @see org.apache.cassandra.metrics.TableMetrics#coordinatorScanLatency
      */
     public long[] getCoordinatorScanLatencyHistogram();
+
+    public Map<String, Long> getTopSizePartitions();
+    public Long getTopSizePartitionsLastUpdate();
+    public Map<String, Long> getTopTombstonePartitions();
+    public Long getTopTombstonePartitionsLastUpdate();
 }
