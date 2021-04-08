@@ -218,6 +218,11 @@ public class MessagePayloadTest extends CQLTester
                 {
                     Assert.assertTrue(e.getCause() instanceof ProtocolException);
                 }
+                // when a protocol exception is thrown by the server the connection is closed, so need to re-connect
+                // see rdar://51713271 (Failure to execute queries should emit a KPI other than read timeout/unavailable so it can be alerted/tracked)
+                client.close();
+                client.connect(false);
+
                 queryMessage.setCustomPayload(null);
                 client.execute(queryMessage);
 
@@ -233,6 +238,11 @@ public class MessagePayloadTest extends CQLTester
                 {
                     Assert.assertTrue(e.getCause() instanceof ProtocolException);
                 }
+                // when a protocol exception is thrown by the server the connection is closed, so need to re-connect
+                // see rdar://51713271 (Failure to execute queries should emit a KPI other than read timeout/unavailable so it can be alerted/tracked)
+                client.close();
+                client.connect(false);
+
                 prepareMessage.setCustomPayload(null);
                 ResultMessage.Prepared prepareResponse = (ResultMessage.Prepared) client.execute(prepareMessage);
 
@@ -249,6 +259,10 @@ public class MessagePayloadTest extends CQLTester
                 {
                     Assert.assertTrue(e.getCause() instanceof ProtocolException);
                 }
+                // when a protocol exception is thrown by the server the connection is closed, so need to re-connect
+                // see rdar://51713271 (Failure to execute queries should emit a KPI other than read timeout/unavailable so it can be alerted/tracked)
+                client.close();
+                client.connect(false);
 
                 BatchMessage batchMessage = new BatchMessage(BatchStatement.Type.UNLOGGED,
                                                              Collections.<Object>singletonList("INSERT INTO " + KEYSPACE + ".atable (pk,v) VALUES (1, 'foo')"),

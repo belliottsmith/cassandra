@@ -55,6 +55,9 @@ public final class ClientMetrics
 
     private Timer messageQueueLatency;
 
+    private Meter protocolException;
+    private Meter unknownException;
+
     private ClientMetrics()
     {
     }
@@ -79,6 +82,16 @@ public final class ClientMetrics
         messageQueueLatency.update(latency, timeUnit);
     }
 
+    public void markProtocolException()
+    {
+        protocolException.mark();
+    }
+
+    public void markUnknownException()
+    {
+        unknownException.mark();
+    }
+
     public synchronized void init(Collection<Server> servers)
     {
         if (initialized)
@@ -99,6 +112,9 @@ public final class ClientMetrics
         requestDiscarded = registerMeter("RequestDiscarded");
 
         messageQueueLatency = registerTimer("MessageQueueLatency");
+
+        protocolException = registerMeter("ProtocolException");
+        unknownException = registerMeter("UnknownException");
 
         initialized = true;
     }
