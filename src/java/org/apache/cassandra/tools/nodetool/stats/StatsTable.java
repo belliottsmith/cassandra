@@ -20,6 +20,7 @@ package org.apache.cassandra.tools.nodetool.stats;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class StatsTable
 {
@@ -70,4 +71,8 @@ public class StatsTable
     public String droppedMutations;
     public List<String> sstablesInEachLevel = new ArrayList<>();
     public Boolean isInCorrectLocation = null; // null: option not active
+    public Map<String, String> topSizePartitions;
+    public Map<String, Long> topTombstonePartitions;
+    public String topSizePartitionsLastUpdate;
+    public String topTombstonePartitionsLastUpdate;
 }

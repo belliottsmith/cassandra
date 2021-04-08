@@ -37,6 +37,8 @@ import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.metrics.TableMetrics;
+import org.apache.cassandra.metrics.TopPartitionTracker;
+import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTree;
 import org.apache.cassandra.utils.MerkleTrees;
@@ -86,10 +88,10 @@ public class ValidationManager
         return tree;
     }
 
-    private static ValidationPartitionIterator getValidationIterator(TableRepairManager repairManager, Validator validator) throws IOException, NoSuchRepairSessionException
+    private static ValidationPartitionIterator getValidationIterator(TableRepairManager repairManager, Validator validator, TopPartitionTracker.Collector topPartitionCollector) throws IOException, NoSuchRepairSessionException
     {
         RepairJobDesc desc = validator.desc;
-        return repairManager.getValidationIterator(desc.ranges, desc.parentSessionId, desc.sessionId, validator.isIncremental, validator.nowInSec, validator.getPreviewKind());
+        return repairManager.getValidationIterator(desc.ranges, desc.parentSessionId, desc.sessionId, validator.isIncremental, validator.nowInSec, validator.getPreviewKind(), topPartitionCollector);
     }
 
     /**
@@ -107,12 +109,16 @@ public class ValidationManager
         if (!cfs.isValid())
             return;
 
+        TopPartitionTracker.Collector topPartitionCollector = null;
+        if (cfs.topPartitions != null && DatabaseDescriptor.topPartitionsEnabled() && (validator.getPreviewKind() == PreviewKind.REPAIRED || !validator.isIncremental))
+            topPartitionCollector = new TopPartitionTracker.Collector(validator.desc.ranges);
+
         // Create Merkle trees suitable to hold estimated partitions for the given ranges.
         // We blindly assume that a partition is evenly distributed on all sstables for now.
         long start = System.nanoTime();
         long partitionCount = 0;
         long estimatedTotalBytes = 0;
-        try (ValidationPartitionIterator vi = getValidationIterator(cfs.getRepairManager(), validator))
+        try (ValidationPartitionIterator vi = getValidationIterator(cfs.getRepairManager(), validator, topPartitionCollector))
         {
             CompactionManager.SessionData sessionData = new CompactionManager.SessionData(validator.desc.parentSessionId, validator.desc.ranges, validator.getPreviewKind(), (CompactionInfo.Holder) vi.getCompactionInfoHolder());
             CompactionManager.instance.markValidationActive(cfs.metadata().id, sessionData);
@@ -120,7 +126,7 @@ public class ValidationManager
             try
             {
                 // validate the CF as we iterate over it
-                validator.prepare(cfs, tree);
+                validator.prepare(cfs, tree, topPartitionCollector);
                 while (vi.hasNext())
                 {
                     try (UnfilteredRowIterator partition = vi.next())
@@ -142,6 +148,9 @@ public class ValidationManager
         {
             cfs.metric.bytesValidated.update(estimatedTotalBytes);
             cfs.metric.partitionsValidated.update(partitionCount);
+
+            if (topPartitionCollector != null)
+                cfs.topPartitions.merge(topPartitionCollector);
         }
         if (logger.isDebugEnabled())
         {
