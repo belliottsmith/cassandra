@@ -1,4 +1,7 @@
 3.0.24.1
+rdar://76412632 (CASSANDRA-16578) Backport CASSANDRA-16578 for NativeLibrary fix (#2326)
+rdar://61888615 (Apply Internal) If streaming from repair uses all the disk, fail the repair (#2285)
+rdar://76239849 (Apply Internal) Fix compaction_test.TestCompaction (#2318)
 
 3.0.24.0
 rdar://75044535 (Apple Internal) DESCRIBE for PaxosUncommittedIndex is unparsable by 3.0/4.0 #2257
