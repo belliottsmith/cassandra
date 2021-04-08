@@ -1,6 +1,8 @@
 4.0.0.12
+* <rdar://71529224> (Apple Internal) Track top partition tombstone count and size for each table (#2228)
+* <rdar://76412632> (Apple Internal) Backport CASSANDRA-16578 for NativeLibrary fix
 
-4.0.0.11
+4.0.0.11 (not widely released)
 * Simplified from commit 7c2b70f490ac19f88f67b886c48ecf2e12dcc6e9
 * <rdar://62542912> (Apple Internal) Update SELECT_SIZE message ids once Xmas patch is merged
 * <rdar://75581816> (CASSANDRA-16554 early port) fix race between secondary index building and active compactions tracking
@@ -10,7 +12,7 @@
 * <no radar> increase default in-jvm dtest ring delay to 15s as failing to contact seeds
 * <rdar://75549715> (Early port) Avoid executing commands that have guaranteed empty bounds in slices filter
 * <rdar://75549715> (Early port) NPE in Slice#make on RT + partition deletion reconciliation on timestamp tie
-* <rdar://75434523> (Applie Internal) Publish cassinfra images for each aci-cassandra release (#2297)
+* <rdar://75434523> (Apple Internal) Publish cassinfra images for each aci-cassandra release (#2297)
 * <rdar://75445947> (Apple Internal) Investigate java.lang.AssertionError: If start > end, end must be equal to partitioner min token (#2292)
 * <rdar://75617400> (Apple Internal) Prevent PrepareMessage#serializedSize() from throwing an assertion in mixed-mode
 * <rdar://73351912> (Apple Internal) Reduce the log level on "expected" repair exceptions (#2153)
