@@ -1,3 +1,5 @@
+3.0.24.3
+
 3.0.24.2
 rdar://76421751 (Apple Internal) (set incremental_updates_last_repaired=false) (#2335)
 rdar://51713271 (CASSANDRA-16581) Failure to execute queries should emit a KPI other than read timeout/unavailable so it can be alerted/tracked (#2324) (#2334)
