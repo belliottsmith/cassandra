@@ -32,9 +32,14 @@ public class WrappedSimpleClient extends SimpleClient
 
     public Message.Response write(ByteBuf buffer) throws InterruptedException
     {
+        return write(buffer, true);
+    }
+
+    public Message.Response write(ByteBuf buffer, boolean awaitCloseOnProtocolError) throws InterruptedException
+    {
         lastWriteFuture = channel.writeAndFlush(buffer);
         Message.Response response = responseHandler.responses.take();
-        if (response instanceof ErrorMessage && ((ErrorMessage) response).error.code() == ExceptionCode.PROTOCOL_ERROR)
+        if (awaitCloseOnProtocolError && response instanceof ErrorMessage && ((ErrorMessage) response).error.code() == ExceptionCode.PROTOCOL_ERROR)
         {
             // protocol errors shutdown the connection, wait for it to close
             connection.channel().closeFuture().awaitUninterruptibly();

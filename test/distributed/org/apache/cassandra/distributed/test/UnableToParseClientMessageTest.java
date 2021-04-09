@@ -49,7 +49,10 @@ public class UnableToParseClientMessageTest extends TestBaseImpl
                 client.connect(false, true);
 
                 // this should return a failed response
-                Assertions.assertThat(client.write(Unpooled.wrappedBuffer("This is just a test".getBytes(StandardCharsets.UTF_8))).toString())
+                // disable waiting on procol errors as that logic was reverted until we can figure out its 100% safe
+                // right now ProtocolException is thrown for fatal and non-fatal issues, so closing the channel
+                // on non-fatal issues could cause other issues for the cluster
+                Assertions.assertThat(client.write(Unpooled.wrappedBuffer("This is just a test".getBytes(StandardCharsets.UTF_8)), false).toString())
                           .contains("Invalid or unsupported protocol version (84); the lowest supported version is 3 and the greatest is 4");
 
                 node.runOnInstance(() -> {
@@ -57,7 +60,7 @@ public class UnableToParseClientMessageTest extends TestBaseImpl
                     Assertions.assertThat(CassandraMetricsRegistry.Metrics.getMeters()
                                                                           .get("org.apache.cassandra.metrics.Client.ProtocolException")
                                                                           .getCount())
-                              .isEqualTo(2);
+                              .isEqualTo(1); // since we reverted the change to close the socket, the channelInactive case doesn't happen
                     Assertions.assertThat(CassandraMetricsRegistry.Metrics.getMeters()
                                                                           .get("org.apache.cassandra.metrics.Client.UnknownException")
                                                                           .getCount())

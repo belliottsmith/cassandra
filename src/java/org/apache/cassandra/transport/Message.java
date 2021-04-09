@@ -792,15 +792,17 @@ public abstract class Message
         @Override
         public void exceptionCaught(final ChannelHandlerContext ctx, Throwable cause)
         {
-            boolean isProtocolException = Throwables.anyCauseMatches(cause, t -> t instanceof ProtocolException);
             if (ctx.channel().isOpen())
             {
                 // Provide error message to client in case channel is still open
                 UnexpectedChannelExceptionHandler handler = new UnexpectedChannelExceptionHandler(ctx.channel(), false);
                 ErrorMessage errorMessage = ErrorMessage.fromException(cause, handler);
                 ChannelFuture future = ctx.writeAndFlush(errorMessage);
-                // On protocol exception, close the channel as soon as the message have been sent
-                if (isProtocolException)
+                // On protocol exception, close the channel as soon as the message have been sent.
+                // Why type check rather than the anyCauseMatches done later?  There is concern that not all protocol
+                // exceptions are fatal (such as bad consistency level) and that reconnections are costly, so rolled
+                // back to previous logic for now.
+                if (cause instanceof ProtocolException)
                 {
                     future.addListener(new ChannelFutureListener()
                     {
@@ -811,7 +813,7 @@ public abstract class Message
                     });
                 }
             }
-            if (isProtocolException)
+            if (Throwables.anyCauseMatches(cause, t -> t instanceof ProtocolException))
             {
                 ClientMetrics.instance.markProtocolException();
                 // since protocol exceptions are expected to be client issues, not logging stack trace
