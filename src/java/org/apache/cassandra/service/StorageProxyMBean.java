@@ -134,6 +134,8 @@ public interface StorageProxyMBean
     public long[] getRecentClientRequestReadConsistencyLevelLocalSerialMicrosV3();
     public long[] getRecentClientRequestWriteConsistencyLevelLocalSerialMicrosV3();
     public long[] getRecentClientRequestWriteConsistencyLevelAnyMicrosV3();
+    public long[] getBytesReadPerQueryEstimatedHistogram();
+    public long[] getBytesWrittenPerQueryEstimatedHistogram();
 
     void enableSecondaryIndex();
     void disableSecondaryIndex();

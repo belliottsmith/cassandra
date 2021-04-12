@@ -56,6 +56,8 @@ import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.PartitionPosition;
+import org.apache.cassandra.metrics.CassandraMetricsRegistry;
+import org.apache.cassandra.metrics.ClientMessageSizeMetrics;
 import org.apache.cassandra.db.PartitionSizeCommand;
 import org.apache.cassandra.metrics.BlacklistMetrics;
 import org.apache.cassandra.schema.PartitionBlacklist;
@@ -193,6 +195,8 @@ public class StorageProxy implements StorageProxyMBean
     private static final Map<ConsistencyLevel, ClientRequestMetrics> readMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     private static final Map<ConsistencyLevel, ClientWriteRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
     private static final BlacklistMetrics blacklistMetrics = new BlacklistMetrics();
+    private static final CassandraMetricsRegistry.JmxHistogram bytesReceivedPerRequest = new CassandraMetricsRegistry.JmxHistogram(ClientMessageSizeMetrics.bytesReceivedPerRequest, null);
+    private static final CassandraMetricsRegistry.JmxHistogram bytesSentPerResponse = new CassandraMetricsRegistry.JmxHistogram(ClientMessageSizeMetrics.bytesSentPerResponse, null);
 
     @VisibleForTesting
     public static final String DISABLE_SERIAL_READ_LINEARIZABILITY_KEY = "cassandra.unsafe.disable-serial-reads-linearizability";
@@ -3026,6 +3030,16 @@ public class StorageProxy implements StorageProxyMBean
     public long[] getRecentClientRequestWriteConsistencyLevelAnyMicrosV3()
     {
         return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.ANY);
+    }
+
+    @Override
+    public long[] getBytesReadPerQueryEstimatedHistogram() {
+        return bytesReceivedPerRequest.getRecentValues();
+    }
+
+    @Override
+    public long[] getBytesWrittenPerQueryEstimatedHistogram() {
+        return bytesSentPerResponse.getRecentValues();
     }
 
     @Override
