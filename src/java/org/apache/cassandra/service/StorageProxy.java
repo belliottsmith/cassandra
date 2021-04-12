@@ -46,6 +46,8 @@ import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.config.Config;
+import org.apache.cassandra.metrics.CassandraMetricsRegistry;
+import org.apache.cassandra.metrics.ClientMessageSizeMetrics;
 import org.apache.cassandra.service.paxos.*;
 import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.utils.TimeUUID;
@@ -196,6 +198,9 @@ public class StorageProxy implements StorageProxyMBean
             return new AtomicInteger(0);
         }
     };
+
+    private static final CassandraMetricsRegistry.JmxHistogram bytesReceivedPerRequest = new CassandraMetricsRegistry.JmxHistogram(ClientMessageSizeMetrics.bytesReceivedPerRequest, null);
+    private static final CassandraMetricsRegistry.JmxHistogram bytesSentPerResponse = new CassandraMetricsRegistry.JmxHistogram(ClientMessageSizeMetrics.bytesSentPerResponse, null);
 
     private static final DenylistMetrics denylistMetrics = new DenylistMetrics();
 
@@ -3101,6 +3106,16 @@ public class StorageProxy implements StorageProxyMBean
     public long[] getRecentClientRequestWriteConsistencyLevelAnyMicrosV3()
     {
         return clientRequestWriteConsistencyLevelMicros(ConsistencyLevel.ANY);
+    }
+
+    @Override
+    public long[] getBytesReadPerQueryEstimatedHistogram() {
+        return bytesReceivedPerRequest.getRecentValues();
+    }
+
+    @Override
+    public long[] getBytesWrittenPerQueryEstimatedHistogram() {
+        return bytesSentPerResponse.getRecentValues();
     }
 
     @Override
