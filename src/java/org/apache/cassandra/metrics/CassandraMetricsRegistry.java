@@ -336,12 +336,12 @@ public class CassandraMetricsRegistry extends MetricRegistry
         long[] getRecentValues();
     }
 
-    private static class JmxHistogram extends AbstractBean implements JmxHistogramMBean
+    public static class JmxHistogram extends AbstractBean implements JmxHistogramMBean
     {
         private final Histogram metric;
         private long[] last = null;
 
-        private JmxHistogram(Histogram metric, ObjectName objectName)
+        public JmxHistogram(Histogram metric, ObjectName objectName)
         {
             super(objectName);
             this.metric = metric;
