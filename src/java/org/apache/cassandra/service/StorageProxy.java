@@ -2242,7 +2242,7 @@ public class StorageProxy implements StorageProxyMBean
 
     public static List<InetAddress> getLiveSortedEndpoints(AbstractReplicationStrategy replicationStrategy, RingPosition pos)
     {
-        List<InetAddress> liveEndpoints = replicationStrategy.getNaturalEndpoints(pos);
+        List<InetAddress> liveEndpoints = StorageService.instance.getLiveNaturalEndpoints(replicationStrategy, pos);
         DatabaseDescriptor.getEndpointSnitch().sortByProximity(FBUtilities.getBroadcastAddress(), liveEndpoints);
         return liveEndpoints;
     }

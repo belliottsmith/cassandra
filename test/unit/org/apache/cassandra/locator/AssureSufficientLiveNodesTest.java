@@ -20,6 +20,7 @@ package org.apache.cassandra.locator;
 
 import java.net.InetAddress;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -39,6 +40,9 @@ import org.apache.cassandra.db.WriteType;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.UnavailableException;
+import org.apache.cassandra.gms.ApplicationState;
+import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.Tables;
@@ -112,11 +116,19 @@ public class AssureSufficientLiveNodesTest
             // datacenter 3
             InetAddress.getByName("127.3.0.255"), InetAddress.getByName("127.3.0.254"), InetAddress.getByName("127.3.0.253"));
 
+        VersionedValue.VersionedValueFactory valueFactory = new VersionedValue.VersionedValueFactory(Murmur3Partitioner.instance);
         for (int i = 0; i < instances.size(); i++)
         {
             InetAddress ip = instances.get(i);
-            metadata.updateHostId(UUID.randomUUID(), ip);
-            metadata.updateNormalToken(new Murmur3Partitioner.LongToken(i), ip);
+            Token token = new Murmur3Partitioner.LongToken(i);
+            UUID hostId = UUID.randomUUID();
+            Gossiper.runInGossipStageBlocking(() -> {
+                                                  Gossiper.instance.initializeNodeUnsafe(ip, hostId, 1);
+                                                  Gossiper.instance.injectApplicationState(ip, ApplicationState.STATUS, valueFactory.normal(Collections.singleton(token)));
+                                                  Gossiper.instance.realMarkAlive(ip, Gossiper.instance.getEndpointStateForEndpoint(ip));
+                                              });
+            metadata.updateHostId(hostId, ip);
+            metadata.updateNormalToken(token, ip);
         }
     }
 
