@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.service;
 
+import java.util.Arrays;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -27,6 +28,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.UniformReservoir;
 import org.apache.cassandra.ServerTestUtils;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.gms.EndpointState;
@@ -34,11 +37,13 @@ import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.HeartBeatState;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
+import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
 
 import static org.apache.cassandra.locator.ReplicaUtils.full;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
 
 @RunWith(BMUnitRunner.class)
 public class StorageProxyTest
@@ -117,5 +122,19 @@ public class StorageProxyTest
         {
             StorageService.instance.getTokenMetadata().removeEndpoint(testEp);
         }
+    }
+
+    @Test
+    public void testGetRecentValues()
+    {
+        final Histogram histogram = new Histogram(new UniformReservoir());
+        histogram.update(5L);
+
+        final CassandraMetricsRegistry.JmxHistogram jmxHistogram = new CassandraMetricsRegistry.JmxHistogram(histogram, null);
+        assertEquals(1, Arrays.stream(jmxHistogram.getRecentValues()).filter(val -> val != 0).count());
+
+        histogram.update(10L);
+        histogram.update(20L);
+        assertEquals(2, Arrays.stream(jmxHistogram.getRecentValues()).filter(val -> val != 0).count());
     }
 }
