@@ -27,6 +27,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.io.FSError;
 import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.util.FileUtils;
@@ -55,8 +56,19 @@ final class LogReplica implements AutoCloseable
     {
         int folderFD = NativeLibrary.tryOpenDirectory(directory.getPath());
         if (folderFD == -1)
-            throw new FSReadError(new IOException(String.format("Invalid folder descriptor trying to create log replica %s", directory.getPath())), directory.getPath());
-
+        {
+            if (Config.isClientMode())
+            {
+                logger.warn("Invalid folder descriptor trying to create log replica {}. Continuing without Native I/O support.",
+                    directory.getPath());
+            }
+            else
+            {
+                throw new FSReadError(
+                    new IOException(String.format("Invalid folder descriptor trying to create log replica %s", directory.getPath())),
+                    directory.getPath());
+            }
+        }
         return new LogReplica(new File(fileName), folderFD);
     }
 
@@ -64,7 +76,18 @@ final class LogReplica implements AutoCloseable
     {
         int folderFD = NativeLibrary.tryOpenDirectory(file.getParentFile().getPath());
         if (folderFD == -1)
-            throw new FSReadError(new IOException(String.format("Invalid folder descriptor trying to create log replica %s", file.getParentFile().getPath())), file.getParentFile().getPath());
+        {
+            if (Config.isClientMode())
+            {
+                logger.warn("Invalid folder descriptor trying to create log replica {}. Continuing without Native I/O support.", file.getParentFile().getPath());
+            }
+            else
+            {
+                throw new FSReadError(new IOException(
+                    String.format("Invalid folder descriptor trying to create log replica %s", file.getParentFile().getPath())),
+                    file.getParentFile().getPath());
+            }
+        }
 
         return new LogReplica(file, folderFD);
     }

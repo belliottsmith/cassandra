@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.io.FSError;
 import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.FSWriteError;
@@ -163,8 +164,17 @@ final class HintsCatalog
         }
         else
         {
-            logger.error("Unable to open directory {}", hintsDirectory.getAbsolutePath());
-            FileUtils.handleFSErrorAndPropagate(new FSWriteError(new IOException(String.format("Unable to open hint directory %s", hintsDirectory.getAbsolutePath())), hintsDirectory.getAbsolutePath()));
+            if (Config.isClientMode())
+            {
+                logger.warn("Unable to open hint directory using Native library. Skipping sync.");
+            }
+            else
+            {
+                logger.error("Unable to open directory {}", hintsDirectory.getAbsolutePath());
+                FileUtils.handleFSErrorAndPropagate(
+                    new FSWriteError(new IOException(String.format("Unable to open hint directory %s", hintsDirectory.getAbsolutePath())),
+                        hintsDirectory.getAbsolutePath()));
+            }
         }
     }
 
