@@ -31,15 +31,12 @@ public class CASClientRequestMetrics extends ClientRequestMetrics
     public final EstimatedHistogram contentionEstimatedHistogram;
     public final Counter unfinishedCommit;
     public final Meter unknownResult;
-    /* Used only for write  */
-    public final Counter conditionNotMet;
     public CASClientRequestMetrics(String scope)
     {
         super(scope);
         contention = Metrics.histogram(factory.createMetricName("ContentionHistogram"), false);
         contentionEstimatedHistogram = new EstimatedHistogram();
         unknownResult = Metrics.meter(factory.createMetricName("UnknownResult"));
-        conditionNotMet = Metrics.counter(factory.createMetricName("ConditionNotMet"));
         unfinishedCommit = Metrics.counter(factory.createMetricName("UnfinishedCommit"));
     }
 
