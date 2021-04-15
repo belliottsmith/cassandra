@@ -39,6 +39,26 @@ import junit.framework.Assert;
  */
 public class SelectTest extends CQLTester
 {
+    @Test
+    public void staticTimestampTie() throws Throwable
+    {
+        createTable("CREATE TABLE %s (pk int, ck int, s1 tinyint static, s2 bigint static, s3 text static, v int, PRIMARY KEY (pk, ck))");
+        execute("insert into %s (pk, ck, s1, s2, s3, v) values (1, 1, 58, -451423013235755060, 'aaa', 1) using timestamp 1");
+        execute("insert into %s (pk, ck, s1, s2, s3, v) values (1, 2, -17, 6765226893719788015, 'bbb', 2) using timestamp 1");
+        assertRows(execute("select pk,ck,s1,s2,s3,v from %s where pk=1"),
+                   row(1, 1, (byte) -17, -451423013235755060L, "bbb", 1),
+                   row(1, 2, (byte) -17, -451423013235755060L, "bbb", 2));
+    }
+
+    @Test
+    public void regularTimestampTie() throws Throwable
+    {
+        createTable("CREATE TABLE %s (pk int, ck int, v1 tinyint, v2 bigint, v3 text, v4 int, PRIMARY KEY (pk, ck))");
+        execute("insert into %s (pk, ck, v1, v2, v3, v4) values (1, 1, 58, -451423013235755060, 'aaa', 1) using timestamp 1");
+        execute("insert into %s (pk, ck, v1, v2, v3, v4) values (1, 1, -17, 6765226893719788015, 'bbb', 2) using timestamp 1");
+        assertRows(execute("select pk,ck,v1,v2,v3,v4 from %s where pk=1"),
+                   row(1, 1, (byte) -17, -451423013235755060L, "bbb", 2));
+    }
 
     @Test
     public void testSingleClustering() throws Throwable
