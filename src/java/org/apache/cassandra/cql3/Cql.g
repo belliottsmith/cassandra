@@ -1659,6 +1659,9 @@ basic_unreserved_keyword returns [String str]
         | K_CALLED
         | K_INPUT
         | K_REPLACE
+        | K_DATACENTERS
+        | K_ACCESS
+        | K_SELECT_SIZE
         ) { $str = $k.text; }
     ;
 
