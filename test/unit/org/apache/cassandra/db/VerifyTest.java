@@ -24,6 +24,8 @@ import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.UpdateBuilder;
+import org.apache.cassandra.batchlog.Batch;
+import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.db.compaction.AbstractCompactionStrategy;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.Verifier;
@@ -57,10 +59,12 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.zip.CRC32;
 import java.util.zip.CheckedInputStream;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -81,6 +85,7 @@ public class VerifyTest
     public static final String CORRUPT_CF2 = "Corrupt2";
     public static final String CORRUPTCOUNTER_CF = "CounterCorrupt1";
     public static final String CORRUPTCOUNTER_CF2 = "CounterCorrupt2";
+    public static final String BF_ALWAYS_PRESENT = "BfAlwaysPresent";
 
     public static final String CF_UUID = "UUIDKeys";
 
@@ -104,7 +109,9 @@ public class VerifyTest
                                     SchemaLoader.counterCFMD(KEYSPACE, COUNTER_CF4),
                                     SchemaLoader.counterCFMD(KEYSPACE, CORRUPTCOUNTER_CF),
                                     SchemaLoader.counterCFMD(KEYSPACE, CORRUPTCOUNTER_CF2),
-                                    SchemaLoader.standardCFMD(KEYSPACE, CF_UUID, 0, UUIDType.instance));
+                                    SchemaLoader.standardCFMD(KEYSPACE, CF_UUID, 0, UUIDType.instance),
+                                    SchemaLoader.standardCFMD(KEYSPACE, BF_ALWAYS_PRESENT)
+                                                .bloomFilterFpChance(1.0));
     }
 
 
@@ -669,6 +676,49 @@ public class VerifyTest
     public void testEmptyRanges()
     {
         new Verifier.RangeOwnHelper(Collections.emptyList()).check(dk(1));
+    }
+
+    @Test
+    public void testNoFilterFile()
+    {
+        CompactionManager.instance.disableAutoCompaction();
+        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(BF_ALWAYS_PRESENT);
+        fillCF(cfs, 100);
+        assertEquals(1.0, cfs.metadata.params.bloomFilterFpChance, 0.0);
+        for (SSTableReader sstable : cfs.getLiveSSTables())
+        {
+            File f = new File(sstable.descriptor.filenameFor(Component.FILTER));
+            assertFalse(f.exists());
+            try (Verifier verifier = new Verifier(cfs, sstable, false, Verifier.options().build()))
+            {
+                verifier.verify();
+            }
+        }
+    }
+
+    @Test
+    public void testVerifyLocalPartitioner() throws UnknownHostException
+    {
+        TokenMetadata tmd = StorageService.instance.getTokenMetadata();
+        byte[] tk1 = new byte[1], tk2 = new byte[1];
+        tk1[0] = 2;
+        tk2[0] = 1;
+        tmd.updateNormalToken(new ByteOrderedPartitioner.BytesToken(tk1), InetAddress.getByName("127.0.0.1"));
+        tmd.updateNormalToken(new ByteOrderedPartitioner.BytesToken(tk2), InetAddress.getByName("127.0.0.2"));
+        // write some bogus to a localpartitioner table
+        Batch bogus = Batch.createLocal(UUID.randomUUID(), 0, Collections.emptyList());
+        BatchlogManager.store(bogus);
+        ColumnFamilyStore cfs = Keyspace.open("system").getColumnFamilyStore("batches");
+        cfs.forceBlockingFlush();
+        for (SSTableReader sstable : cfs.getLiveSSTables())
+        {
+
+            try (Verifier verifier = new Verifier(cfs, sstable, false, Verifier.options().checkOwnsTokens(true).build()))
+            {
+                verifier.verify();
+            }
+        }
     }
 
     private DecoratedKey dk(long l)

@@ -25,6 +25,7 @@ import java.io.IOError;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -54,6 +55,7 @@ import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterators;
+import org.apache.cassandra.dht.LocalPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.Component;
@@ -195,7 +197,7 @@ public class Verifier implements Closeable
             markAndThrow(t);
         }
 
-        if (options.checkOwnsTokens && !isOffline)
+        if (options.checkOwnsTokens && !isOffline && !(cfs.getPartitioner() instanceof LocalPartitioner))
         {
             outputHandler.debug("Checking that all tokens are owned by the current node");
             try (KeyIterator iter = new KeyIterator(sstable.descriptor, sstable.metadata))
@@ -287,7 +289,7 @@ public class Verifier implements Closeable
                 }
                 numPartitions++;
 
-                if (options.checkOwnsTokens && ownedRanges.size() > 0)
+                if (options.checkOwnsTokens && ownedRanges.size() > 0 && !(cfs.getPartitioner() instanceof LocalPartitioner))
                 {
                     try
                     {
@@ -556,9 +558,14 @@ public class Verifier implements Closeable
 
     private void deserializeBloomFilter(SSTableReader sstable) throws IOException
     {
-        try (DataInputStream stream = new DataInputStream(new BufferedInputStream(Files.newInputStream(Paths.get(sstable.descriptor.filenameFor(Component.FILTER)))));
-             IFilter bf = FilterFactory.deserialize(stream, true, sstable.descriptor.version.hasOldBfHashOrder()))
-        {}
+        Path bfPath = Paths.get(sstable.descriptor.filenameFor(Component.FILTER));
+        if (Files.exists(bfPath))
+        {
+            try (DataInputStream stream = new DataInputStream(new BufferedInputStream(Files.newInputStream(bfPath)));
+                 IFilter bf = FilterFactory.deserialize(stream, true, sstable.descriptor.version.hasOldBfHashOrder()))
+            {
+            }
+        }
     }
 
     public void close()
