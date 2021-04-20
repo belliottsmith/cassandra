@@ -182,9 +182,6 @@ public class PaxosBallotTracker
         return highBound.get();
     }
 
-    /**
-     * @return a unique ballot that has never been proposed, below which we will reject all proposals
-     */
     public UUID getLowBound()
     {
         return lowBound;

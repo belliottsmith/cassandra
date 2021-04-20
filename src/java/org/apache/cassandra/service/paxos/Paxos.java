@@ -118,7 +118,6 @@ import static org.apache.cassandra.service.paxos.PaxosCommit.commit;
 import static org.apache.cassandra.service.paxos.PaxosCommitAndPrepare.commitAndPrepare;
 import static org.apache.cassandra.service.paxos.PaxosPrepare.prepare;
 import static org.apache.cassandra.service.paxos.PaxosPropose.propose;
-import static org.apache.cassandra.service.paxos.PaxosState.*;
 import static org.apache.cassandra.utils.CollectionSerializer.newHashSet;
 import static org.apache.cassandra.utils.NoSpamLogger.Level.WARN;
 import static org.apache.cassandra.utils.FBUtilities.getBroadcastAddress;
@@ -510,7 +509,7 @@ public class Paxos
         consistencyForCommit.validateForCasCommit(metadata.ksName);
         verifyAgainstBlacklist(metadata.ksName, metadata.cfName, key);
 
-        UUID minimumBallot = ballotTracker().getLowBound();
+        UUID minimumBallot = PaxosState.ballotTracker().getLowBound();
         int failedAttemptsDueToContention = 0;
         try
         {
@@ -663,7 +662,7 @@ public class Paxos
             throw new InvalidRequestException("SERIAL/LOCAL_SERIAL consistency may only be requested for one partition at a time");
 
         int failedAttemptsDueToContention = 0;
-        UUID minimumBallot = ballotTracker().getLowBound();
+        UUID minimumBallot = PaxosState.ballotTracker().getLowBound();
         SinglePartitionReadCommand read = group.commands.get(0);
         try
         {
@@ -1064,8 +1063,6 @@ public class Paxos
             case apple_rrl2rt:
                 return true;
             case legacy:
-            case legacy_cached:
-            case legacy_fixed:
                 return false;
             default:
                 throw new AssertionError();

@@ -26,7 +26,6 @@ import java.net.InetAddress;
 import java.util.UUID;
 import java.util.function.Consumer;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.slf4j.Logger;
@@ -217,7 +216,7 @@ public class PaxosRepair
                     if (state != this)
                         return;
 
-                    latestWitnessed = latest(latestWitnessed, msg.payload.latestWitnessedOrLowBound);
+                    latestWitnessed = latest(latestWitnessed, msg.payload.latestWitnessed);
                     latestAccepted = latest(latestAccepted, msg.payload.acceptedButNotCommitted);
                     latestCommitted = latest(latestCommitted, msg.payload.committed);
                     if (oldestCommitted == null || isAfter(oldestCommitted, msg.payload.committed))
@@ -512,20 +511,20 @@ public class PaxosRepair
      */
     static class Response
     {
-        @Nonnull final UUID latestWitnessedOrLowBound;
+        final UUID latestWitnessed;
         @Nullable final Accepted acceptedButNotCommitted;
-        @Nonnull final Committed committed;
+        final Committed committed;
 
-        Response(UUID latestWitnessedOrLowBound, @Nullable Accepted acceptedButNotCommitted, Committed committed)
+        Response(UUID latestWitnessed, @Nullable Accepted acceptedButNotCommitted, Committed committed)
         {
-            this.latestWitnessedOrLowBound = latestWitnessedOrLowBound;
+            this.latestWitnessed = latestWitnessed;
             this.acceptedButNotCommitted = acceptedButNotCommitted;
             this.committed = committed;
         }
 
         public String toString()
         {
-            return String.format("Response(%s, %s, %s", latestWitnessedOrLowBound, acceptedButNotCommitted, committed);
+            return String.format("Response(%s, %s, %s", latestWitnessed, acceptedButNotCommitted, committed);
         }
     }
 
@@ -551,7 +550,7 @@ public class PaxosRepair
             try (PaxosState state = PaxosState.get(request.partitionKey, request.metadata, nowInSec))
             {
                 PaxosState.Snapshot snapshot = state.current();
-                latestWitnessed = snapshot.latestWitnessedOrLowBound();
+                latestWitnessed = snapshot.latestWitnessed();
                 acceptedButNotCommited = snapshot.accepted;
                 committed = snapshot.committed;
             }
@@ -592,7 +591,7 @@ public class PaxosRepair
     {
         public void serialize(Response response, DataOutputPlus out, int version) throws IOException
         {
-            UUIDSerializer.serializer.serialize(response.latestWitnessedOrLowBound, out, version);
+            UUIDSerializer.serializer.serialize(response.latestWitnessed, out, version);
             serializeNullable(Accepted.serializer, response.acceptedButNotCommitted, out, version);
             Committed.serializer.serialize(response.committed, out, version);
         }
@@ -607,7 +606,7 @@ public class PaxosRepair
 
         public long serializedSize(Response response, int version)
         {
-            return UUIDSerializer.serializer.serializedSize(response.latestWitnessedOrLowBound, version)
+            return UUIDSerializer.serializer.serializedSize(response.latestWitnessed, version)
                     + serializedSizeNullable(Accepted.serializer, response.acceptedButNotCommitted, version)
                     + Committed.serializer.serializedSize(response.committed, version);
         }

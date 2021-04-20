@@ -193,7 +193,7 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
             try (PaxosState state = PaxosState.get(commit))
             {
                 state.commit(commit);
-                UUID latest = state.current().latestWitnessedOrLowBound();
+                UUID latest = state.current().latestWitnessed();
                 if (isAfter(latest, request.promised))
                 {
                     Tracing.trace("Promise {} rescinded; latest is now {}", request.promised, latest);

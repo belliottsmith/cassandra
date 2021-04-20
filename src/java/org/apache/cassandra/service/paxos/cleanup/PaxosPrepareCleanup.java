@@ -22,6 +22,7 @@ import java.net.InetAddress;
 import java.util.*;
 
 import com.google.common.util.concurrent.AbstractFuture;
+import com.google.common.util.concurrent.ListenableFuture;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,11 +33,11 @@ import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.paxos.Commit;
+import org.apache.cassandra.service.paxos.Paxos;
+import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.utils.UUIDSerializer;
 
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_CLEANUP_PREPARE;
-import static org.apache.cassandra.service.paxos.Paxos.newBallot;
-import static org.apache.cassandra.service.paxos.PaxosState.ballotTracker;
 
 /**
  * Determines the highest ballot we should attempt to repair
@@ -113,7 +114,9 @@ public class PaxosPrepareCleanup extends AbstractFuture<UUID> implements IAsyncC
 
     public static final IVerbHandler<EndpointState> verbHandler = (message, id) -> {
         maybeUpdateTopology(message.from, message.payload);
-        UUID highBound = newBallot(ballotTracker().getHighBound(), ConsistencyLevel.SERIAL);
+        UUID highBound = PaxosState.ballotTracker().getHighBound();
+        if (highBound == null)
+            highBound = Paxos.newBallot(null, ConsistencyLevel.SERIAL);
         MessageOut<UUID> msg = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, highBound, UUIDSerializer.serializer);
         MessagingService.instance().sendReply(msg, id, message.from);
     };

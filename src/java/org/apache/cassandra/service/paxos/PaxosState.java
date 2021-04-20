@@ -149,15 +149,13 @@ public class PaxosState implements AutoCloseable
             this.committed = committed;
         }
 
-        public @Nonnull UUID latestWitnessedOrLowBound()
+        public @Nonnull UUID latestWitnessed()
         {
-            // warn: if proposal has same timestamp as promised, we should prefer accepted
-            // since (if different) it reached a quorum of promises; this means providing it as first argument
-            UUID latest;
-            latest = latest(accepted, committed).ballot;
-            latest = latest(latest, promised);
-            latest = latest(latest, ballotTracker().getLowBound());
-            return latest;
+            Commit proposal = accepted == null ? committed : accepted;
+            // if proposal has same timestamp as promised, we should prefer accepted since (if different) it reached a quorum of promises
+            UUID latest = proposal.isBefore(promised) ? promised : proposal.ballot;
+            UUID lowerBound = ballotTracker().getLowBound();
+            return isAfter(lowerBound, latest) ? lowerBound : latest;
         }
 
         public static Snapshot merge(Snapshot a, Snapshot b)
@@ -165,7 +163,7 @@ public class PaxosState implements AutoCloseable
             if (a == null || b == null)
                 return a == null ? b : a;
 
-            Committed committed = latest(a.committed, b.committed);
+            Committed committed = isAfter(a.committed, b.committed) ? a.committed : b.committed;
             if (a instanceof UnsafeSnapshot && b instanceof UnsafeSnapshot)
                 return new UnsafeSnapshot(committed);
 
@@ -184,9 +182,9 @@ public class PaxosState implements AutoCloseable
             }
             else
             {
-                accepted = latest(a.accepted, b.accepted);
+                accepted = isAfter(a.accepted, b.accepted) ? a.accepted : b.accepted;
                 accepted = isAfter(accepted, committed) ? accepted : null;
-                promised = latest(a.promised, b.promised);
+                promised = isAfter(a.promised, b.promised) ? a.promised : b.promised;
             }
 
             return new Snapshot(promised, accepted, committed);
@@ -388,7 +386,7 @@ public class PaxosState implements AutoCloseable
         while (true)
         {
             before = current;
-            UUID latest = before.latestWitnessedOrLowBound();
+            UUID latest = before.latestWitnessed();
             if (!isAfter(ballot, latest))
             {
                 Tracing.trace("Promise rejected; {} is not sufficiently newer than {}", ballot, latest);
@@ -421,7 +419,7 @@ public class PaxosState implements AutoCloseable
         while (true)
         {
             before = current;
-            UUID latest = before.latestWitnessedOrLowBound();
+            UUID latest = before.latestWitnessed();
             if (!proposal.isSameOrAfter(latest))
             {
                 Tracing.trace("Rejecting proposal for {} because latest is now {}", proposal, latest);
@@ -473,7 +471,6 @@ public class PaxosState implements AutoCloseable
         long start = System.nanoTime();
         try
         {
-            // TODO: run Paxos Repair before truncate so we can excise this
             // The table may have been truncated since the proposal was initiated. In that case, we
             // don't want to perform the mutation and potentially resurrect truncated data
             if (UUIDGen.unixTimestamp(commit.ballot) >= SystemKeyspace.getTruncatedAt(commit.update.metadata().cfId))
@@ -527,7 +524,7 @@ public class PaxosState implements AutoCloseable
                     // ignore nowInSec when merging as this can only be an issue during the transition period, so the unbounded
                     // problem of CASSANDRA-12043 is not an issue
                     Snapshot before = unsafeState.current;
-                    UUID latest = variant == legacy_fixed ? before.latestWitnessedOrLowBound() : before.promised;
+                    UUID latest = variant == legacy_fixed ? before.latestWitnessed() : before.promised;
                     if (toPrepare.isAfter(latest))
                     {
                         Snapshot after = new Snapshot(toPrepare.ballot, before.accepted, before.committed);
@@ -574,8 +571,9 @@ public class PaxosState implements AutoCloseable
                     // problem of CASSANDRA-12043 is not an issue
                     Snapshot before = unsafeState.current;
                     boolean accept = variant == legacy_fixed
-                            ? proposal.isSameOrAfter(before.latestWitnessedOrLowBound())
+                            ? proposal.isSameOrAfter(before.latestWitnessed())
                             : proposal.hasBallot(before.promised) || proposal.isAfter(before.promised);
+
                     if (accept)
                     {
                         // maintain legacy (broken) semantics of accepting proposal older than committed without breaking contract for Apple Paxos

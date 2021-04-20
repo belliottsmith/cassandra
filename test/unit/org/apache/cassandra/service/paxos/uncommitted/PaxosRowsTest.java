@@ -78,8 +78,10 @@ public class PaxosRowsTest
         UUID[] ballots = createBallots(3);
 
         SystemKeyspace.savePaxosPromise(key, cfm, ballots[0]);
-        Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[0], false), PaxosRows.getCommitState(key, paxosRowFor(key), null));
+        Assert.assertNull(PaxosRows.getCommitState(key, paxosRowFor(key), null));
+
         SystemKeyspace.savePaxosProposal(commitFor(ballots[1], key));
+        Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[1], false), PaxosRows.getCommitState(key, paxosRowFor(key), null));
         Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[1], false), PaxosRows.getCommitState(key, paxosRowFor(key), null));
 
         // test cfid filter mismatch

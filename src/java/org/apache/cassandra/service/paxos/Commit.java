@@ -367,6 +367,14 @@ public class Commit
         return a != null && b != null && !a.equals(b) && a.timestamp() == b.timestamp();
     }
 
+    /**
+     * unequal ballots with same timestamp
+     */
+    public static boolean isSameOrTimestampClash(@Nullable UUID a, @Nullable UUID b)
+    {
+        return a != null && b != null && (a.equals(b) || a.timestamp() == b.timestamp());
+    }
+
     public static class CommitSerializer<T extends Commit> implements IVersionedSerializer<T>
     {
         final BiFunction<UUID, PartitionUpdate, T> constructor;
