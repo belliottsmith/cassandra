@@ -55,6 +55,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.WriteResponse;
+import org.apache.cassandra.db.WriteType;
 import org.apache.cassandra.db.partitions.FilteredPartition;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionIterators;
@@ -99,7 +100,6 @@ import static com.google.common.collect.Iterators.filter;
 import static com.google.common.collect.Iterators.size;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.apache.cassandra.db.WriteType.CAS;
 import static org.apache.cassandra.net.CompactEndpointSerializationHelper.*;
 import static org.apache.cassandra.config.Config.PaxosVariant.*;
 import static org.apache.cassandra.config.DatabaseDescriptor.*;
@@ -395,14 +395,14 @@ public class Paxos
             {
                 mark(isWrite, m -> m.failures, consistency);
                 throw isWrite
-                        ? new WriteFailureException(consistency, successes, failures, required, CAS)
+                        ? new WriteFailureException(consistency, successes, failures, required, WriteType.CAS)
                         : new ReadFailureException(consistency, successes, failures, required, false);
             }
             else
             {
                 mark(isWrite, m -> m.timeouts, consistency);
                 throw isWrite
-                        ? new WriteTimeoutException(CAS, consistency, successes, required)
+                        ? new WriteTimeoutException(WriteType.CAS, consistency, successes, required)
                         : new ReadTimeoutException(consistency, successes, required, false);
             }
         }
@@ -465,7 +465,7 @@ public class Paxos
      *
      * @param key the row key for the row to CAS
      * @param request the conditions for the CAS to apply as well as the update to perform if the conditions hold.
-     * @param consistencyForConsensus the consistency for the paxos prepare and propose round. This can only be either SERIAL or LOCAL_SERIAL.
+     * @param consistencyForPaxos the consistency for the paxos prepare and propose round. This can only be either SERIAL or LOCAL_SERIAL.
      * @param consistencyForCommit the consistency for write done during the commit phase. This can be anything, except SERIAL or LOCAL_SERIAL.
      *
      * @return null if the operation succeeds in updating the row, or the current values corresponding to conditions.
@@ -473,29 +473,29 @@ public class Paxos
      */
     public static RowIterator cas(DecoratedKey key,
                                   CASRequest request,
-                                  ConsistencyLevel consistencyForConsensus,
+                                  ConsistencyLevel consistencyForPaxos,
                                   ConsistencyLevel consistencyForCommit)
             throws UnavailableException, IsBootstrappingException, RequestFailureException, RequestTimeoutException, InvalidRequestException
     {
         final long start = System.nanoTime();
         final long proposeDeadline = start + MILLISECONDS.toNanos(getCasContentionTimeout());
         final long commitDeadline = Math.max(proposeDeadline, start + MILLISECONDS.toNanos(getWriteRpcTimeout()));
-        return cas(key, request, consistencyForConsensus, consistencyForCommit, start, proposeDeadline, commitDeadline);
+        return cas(key, request, consistencyForPaxos, consistencyForCommit, start, proposeDeadline, commitDeadline);
     }
     public static RowIterator cas(DecoratedKey key,
                                   CASRequest request,
-                                  ConsistencyLevel consistencyForConsensus,
+                                  ConsistencyLevel consistencyForPaxos,
                                   ConsistencyLevel consistencyForCommit,
                                   long proposeDeadline,
                                   long commitDeadline
                                   )
             throws UnavailableException, IsBootstrappingException, RequestFailureException, RequestTimeoutException, InvalidRequestException
     {
-        return cas(key, request, consistencyForConsensus, consistencyForCommit, System.nanoTime(), proposeDeadline, commitDeadline);
+        return cas(key, request, consistencyForPaxos, consistencyForCommit, System.nanoTime(), proposeDeadline, commitDeadline);
     }
     private static RowIterator cas(DecoratedKey partitionKey,
                                   CASRequest request,
-                                  ConsistencyLevel consistencyForConsensus,
+                                  ConsistencyLevel consistencyForPaxos,
                                   ConsistencyLevel consistencyForCommit,
                                   long start,
                                   long proposeDeadline,
@@ -506,126 +506,129 @@ public class Paxos
         SinglePartitionReadCommand readCommand = request.readCommand(FBUtilities.nowInSeconds());
         CFMetaData metadata = readCommand.metadata();
 
-        consistencyForConsensus.validateForCas();
+        consistencyForPaxos.validateForCas();
         consistencyForCommit.validateForCasCommit(metadata.ksName);
         verifyAgainstBlacklist(metadata.ksName, metadata.cfName, partitionKey);
 
         UUID minimumBallot = ballotTracker().getLowBound();
         int failedAttemptsDueToContention = 0;
-        try (PaxosOperationLock lock = PaxosState.lock(partitionKey, metadata, proposeDeadline, consistencyForConsensus, true))
+        try (PaxosOperationLock lock = PaxosState.getLock(partitionKey, metadata))
         {
             Paxos.Async<PaxosCommit.Status> commit = null;
-            done: while (true)
+            synchronized (lock)
             {
-                // read the current values and check they validate the conditions
-                Tracing.trace("Reading existing values for CAS precondition");
-
-                BeginResult begin = begin(proposeDeadline, readCommand, consistencyForConsensus,
-                        true, minimumBallot, failedAttemptsDueToContention);
-                UUID ballot = begin.ballot;
-                Participants participants = begin.participants;
-                failedAttemptsDueToContention = begin.failedAttemptsDueToContention;
-
-                FilteredPartition current;
-                try (RowIterator iter = PartitionIterators.getOnlyElement(begin.readResponse, readCommand))
+                done: while (true)
                 {
-                    current = FilteredPartition.create(iter);
-                }
+                    // read the current values and check they validate the conditions
+                    Tracing.trace("Reading existing values for CAS precondition");
 
-                Proposal proposal;
-                boolean conditionMet = request.appliesTo(current);
-                if (!conditionMet)
-                {
-                    if (getPaxosVariant() == apple_norrfwl)
+                    BeginResult begin = begin(proposeDeadline, readCommand, consistencyForPaxos,
+                            true, minimumBallot, failedAttemptsDueToContention);
+                    UUID ballot = begin.ballot;
+                    Participants participants = begin.participants;
+                    failedAttemptsDueToContention = begin.failedAttemptsDueToContention;
+
+                    FilteredPartition current;
+                    try (RowIterator iter = PartitionIterators.getOnlyElement(begin.readResponse, readCommand))
                     {
-                        Tracing.trace("CAS precondition rejected", current);
-                        casWriteMetrics.conditionNotMet.inc();
-                        return current.rowIterator();
+                        current = FilteredPartition.create(iter);
                     }
 
-                    // If we failed to meet our condition, it does not mean we can do nothing: if we do not propose
-                    // anything that is accepted by a quorum, it is possible for our !conditionMet state
-                    // to not be serialized wrt other operations.
-                    // If a later read encounters an "in progress" write that did not reach a majority,
-                    // but that would have permitted conditionMet had it done so (and hence we evidently did not witness),
-                    // that operation will complete the in-progress proposal before continuing, so that this and future
-                    // reads will perceive conditionMet without any intervening modification from the time at which we
-                    // assured a conditional write that !conditionMet.
-                    // So our evaluation is only serialized if we invalidate any in progress operations by proposing an empty update
-                    // See also CASSANDRA-12126
-                    Tracing.trace("CAS precondition does not match current values {}; proposing empty update", current);
-                    proposal = Proposal.empty(ballot, partitionKey, metadata);
-                }
-                else
-                {
-                    // finish the paxos round w/ the desired updates
-                    // TODO "turn null updates into delete?" - what does this TODO even mean?
-                    PartitionUpdate updates = request.makeUpdates(current);
-
-                    // Apply triggers to cas updates. A consideration here is that
-                    // triggers emit Mutations, and so a given trigger implementation
-                    // may generate mutations for partitions other than the one this
-                    // paxos round is scoped for. In this case, TriggerExecutor will
-                    // validate that the generated mutations are targetted at the same
-                    // partition as the initial updates and reject (via an
-                    // InvalidRequestException) any which aren't.
-                    updates = TriggerExecutor.instance.execute(updates);
-
-                    proposal = Proposal.from(ballot, updates);
-                    Tracing.trace("CAS precondition is met; proposing client-requested updates for {}", ballot);
-                }
-
-                PaxosPropose.Status propose = propose(proposal, participants, true).awaitUntil(proposeDeadline);
-                switch (propose.outcome)
-                {
-                    default: throw new IllegalStateException();
-
-                    case MAYBE_FAILURE:
-                        throw propose.maybeFailure().markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
-
-                    case SUCCESS:
+                    Proposal proposal;
+                    boolean conditionMet = request.appliesTo(current);
+                    if (!conditionMet)
                     {
-                        if (conditionMet)
-                        {
-                            // no need to commit a no-op; either it
-                            //   1) reached a majority, in which case it was agreed, had no effect and we can do nothing; or
-                            //   2) did not reach a majority, was not agreed, and was not user visible as a result so we can ignore it
-                            if (!proposal.update.isEmpty())
-                                commit = commit(proposal.agreed(), participants, consistencyForCommit, true);
-
-                            break done;
-                        }
-                        else
+                        if (getPaxosVariant() == apple_norrfwl)
                         {
                             Tracing.trace("CAS precondition rejected", current);
                             casWriteMetrics.conditionNotMet.inc();
                             return current.rowIterator();
                         }
+
+                        // If we failed to meet our condition, it does not mean we can do nothing: if we do not propose
+                        // anything that is accepted by a quorum, it is possible for our !conditionMet state
+                        // to not be serialized wrt other operations.
+                        // If a later read encounters an "in progress" write that did not reach a majority,
+                        // but that would have permitted conditionMet had it done so (and hence we evidently did not witness),
+                        // that operation will complete the in-progress proposal before continuing, so that this and future
+                        // reads will perceive conditionMet without any intervening modification from the time at which we
+                        // assured a conditional write that !conditionMet.
+                        // So our evaluation is only serialized if we invalidate any in progress operations by proposing an empty update
+                        // See also CASSANDRA-12126
+                        Tracing.trace("CAS precondition does not match current values {}; proposing empty update", current);
+                        proposal = Proposal.empty(ballot, partitionKey, metadata);
+                    }
+                    else
+                    {
+                        // finish the paxos round w/ the desired updates
+                        // TODO "turn null updates into delete?" - what does this TODO even mean?
+                        PartitionUpdate updates = request.makeUpdates(current);
+
+                        // Apply triggers to cas updates. A consideration here is that
+                        // triggers emit Mutations, and so a given trigger implementation
+                        // may generate mutations for partitions other than the one this
+                        // paxos round is scoped for. In this case, TriggerExecutor will
+                        // validate that the generated mutations are targetted at the same
+                        // partition as the initial updates and reject (via an
+                        // InvalidRequestException) any which aren't.
+                        updates = TriggerExecutor.instance.execute(updates);
+
+                        proposal = Proposal.from(ballot, updates);
+                        Tracing.trace("CAS precondition is met; proposing client-requested updates for {}", ballot);
                     }
 
-                    case SUPERSEDED:
+                    PaxosPropose.Status propose = propose(proposal, participants, true).awaitUntil(proposeDeadline);
+                    switch (propose.outcome)
                     {
-                        switch (propose.superseded().hadSideEffects)
+                        default: throw new IllegalStateException();
+
+                        case MAYBE_FAILURE:
+                            throw propose.maybeFailure().markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
+
+                        case SUCCESS:
                         {
-                            default: throw new IllegalStateException();
+                            if (conditionMet)
+                            {
+                                // no need to commit a no-op; either it
+                                //   1) reached a majority, in which case it was agreed, had no effect and we can do nothing; or
+                                //   2) did not reach a majority, was not agreed, and was not user visible as a result so we can ignore it
+                                if (!proposal.update.isEmpty())
+                                    commit = commit(proposal.agreed(), participants, consistencyForCommit, true);
 
-                            case MAYBE:
-                                // We don't know if our update has been applied, as the competing ballot may have completed
-                                // our proposal.  We yield our uncertainty to the caller via timeout exception.
-                                // TODO: should return more useful result to client, and should also avoid this situation where possible
-                                throw new MaybeFailure(false, participants.sizeOfPoll(), participants.requiredForConsensus, 0, 0)
-                                        .markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
+                                break done;
+                            }
+                            else
+                            {
+                                Tracing.trace("CAS precondition rejected", current);
+                                casWriteMetrics.conditionNotMet.inc();
+                                return current.rowIterator();
+                            }
+                        }
 
-                            case NO:
-                                minimumBallot = propose.superseded().by;
-                                // We have been superseded without our proposal being accepted by anyone, so we can safely retry
-                                Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
-                                if (!waitForContention(proposeDeadline, ++failedAttemptsDueToContention, metadata, partitionKey, consistencyForConsensus, true))
-                                    throw new MaybeFailure(participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
+                        case SUPERSEDED:
+                        {
+                            switch (propose.superseded().hadSideEffects)
+                            {
+                                default: throw new IllegalStateException();
+
+                                case MAYBE:
+                                    // We don't know if our update has been applied, as the competing ballot may have completed
+                                    // our proposal.  We yield our uncertainty to the caller via timeout exception.
+                                    // TODO: should return more useful result to client, and should also avoid this situation where possible
+                                    throw new MaybeFailure(false, participants.sizeOfPoll(), participants.requiredForConsensus, 0, 0)
+                                            .markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
+
+                                case NO:
+                                    minimumBallot = propose.superseded().by;
+                                    // We have been superseded without our proposal being accepted by anyone, so we can safely retry
+                                    Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
+                                    if (!waitForContention(proposeDeadline, ++failedAttemptsDueToContention, metadata, partitionKey, consistencyForPaxos, true))
+                                        throw new MaybeFailure(participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
+                            }
                         }
                     }
+                    // continue to retry
                 }
-                // continue to retry
             }
 
             if (commit != null)
@@ -649,25 +652,25 @@ public class Paxos
             Keyspace.open(metadata.ksName).getColumnFamilyStore(metadata.cfName).metric.topCasPartitionContention.addSample(partitionKey.getKey(), failedAttemptsDueToContention);
 
             casWriteMetrics.addNano(latency);
-            writeMetricsMap.get(consistencyForConsensus).addNano(latency);
+            writeMetricsMap.get(consistencyForPaxos).addNano(latency);
         }
     }
 
-    public static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyForConsensus)
+    public static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyForPaxos)
             throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
     {
         long start = System.nanoTime();
         long deadline = start + MILLISECONDS.toNanos(DatabaseDescriptor.getReadRpcTimeout());
-        return read(group, consistencyForConsensus, start, deadline);
+        return read(group, consistencyForPaxos, start, deadline);
     }
 
-    public static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyForConsensus, long deadline)
+    public static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyForPaxos, long deadline)
             throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
     {
-        return read(group, consistencyForConsensus, System.nanoTime(), deadline);
+        return read(group, consistencyForPaxos, System.nanoTime(), deadline);
     }
 
-    private static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyForConsensus, long start, long deadline)
+    private static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyForPaxos, long start, long deadline)
             throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
     {
         if (group.commands.size() > 1)
@@ -676,40 +679,43 @@ public class Paxos
         int failedAttemptsDueToContention = 0;
         UUID minimumBallot = ballotTracker().getLowBound();
         SinglePartitionReadCommand read = group.commands.get(0);
-        try (PaxosOperationLock lock = PaxosState.lock(read.partitionKey(), read.metadata(), deadline, consistencyForConsensus, false))
+        try (PaxosOperationLock lock = PaxosState.getLock(read.partitionKey(), read.metadata()))
         {
-            while (true)
+            synchronized (lock)
             {
-                // does the work of applying in-progress writes; throws UAE or timeout if it can't
-                final BeginResult begin = begin(deadline, read, consistencyForConsensus, false, minimumBallot, failedAttemptsDueToContention);
-                failedAttemptsDueToContention = begin.failedAttemptsDueToContention;
-                if (PAXOS_VARIANT == apple_norrl || PAXOS_VARIANT == apple_norrfwl)
-                    return begin.readResponse;
-
-                Proposal proposal = Proposal.empty(begin.ballot, read.partitionKey(), read.metadata());
-                if (begin.isOptimisticReadSafe && PAXOS_VARIANT == apple_rrl)
+                while (true)
                 {
-                    propose(proposal, begin.participants, false, null);
-                    return begin.readResponse;
-                }
-
-                PaxosPropose.Status propose = propose(proposal, begin.participants, false).awaitUntil(deadline);
-                switch (propose.outcome)
-                {
-                    default: throw new IllegalStateException();
-
-                    case MAYBE_FAILURE:
-                        throw propose.maybeFailure().markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
-
-                    case SUCCESS:
+                    // does the work of applying in-progress writes; throws UAE or timeout if it can't
+                    final BeginResult begin = begin(deadline, read, consistencyForPaxos, false, minimumBallot, failedAttemptsDueToContention);
+                    failedAttemptsDueToContention = begin.failedAttemptsDueToContention;
+                    if (PAXOS_VARIANT == apple_norrl || PAXOS_VARIANT == apple_norrfwl)
                         return begin.readResponse;
+
+                    Proposal proposal = Proposal.empty(begin.ballot, read.partitionKey(), read.metadata());
+                    if (begin.isOptimisticReadSafe && PAXOS_VARIANT == apple_rrl)
+                    {
+                        propose(proposal, begin.participants, false, null);
+                        return begin.readResponse;
+                    }
+
+                    PaxosPropose.Status propose = propose(proposal, begin.participants, false).awaitUntil(deadline);
+                    switch (propose.outcome)
+                    {
+                        default: throw new IllegalStateException();
+
+                        case MAYBE_FAILURE:
+                            throw propose.maybeFailure().markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
+
+                        case SUCCESS:
+                            return begin.readResponse;
 
                         case SUPERSEDED:
                             minimumBallot = propose.superseded().by;
                             // We have been superseded without our proposal being accepted by anyone, so we can safely retry
                             Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
-                            if (!waitForContention(deadline, ++failedAttemptsDueToContention, group.metadata(), group.commands.get(0).partitionKey(), consistencyForConsensus, false))
-                                throw new MaybeFailure(begin.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
+                            if (!waitForContention(deadline, ++failedAttemptsDueToContention, group.metadata(), group.commands.get(0).partitionKey(), consistencyForPaxos, false))
+                                throw new MaybeFailure(begin.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
+                    }
                 }
             }
         }
@@ -718,7 +724,7 @@ public class Paxos
             long latency = System.nanoTime() - start;
             readMetrics.addNano(latency);
             casReadMetrics.addNano(latency);
-            readMetricsMap.get(consistencyForConsensus).addNano(latency);
+            readMetricsMap.get(consistencyForPaxos).addNano(latency);
             CFMetaData metadata = read.metadata();
             Keyspace.open(metadata.ksName).getColumnFamilyStore(metadata.cfName).metric.coordinatorReadLatency.update(latency, TimeUnit.NANOSECONDS);
             if (failedAttemptsDueToContention > 0)

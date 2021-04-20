@@ -39,9 +39,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.exceptions.ReadTimeoutException;
-import org.apache.cassandra.exceptions.RequestTimeoutException;
-import org.apache.cassandra.exceptions.WriteTimeoutException;
+import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.service.paxos.Commit.Accepted;
 import org.apache.cassandra.service.paxos.Commit.Committed;
 import org.apache.cassandra.io.util.FileUtils;
@@ -258,12 +256,9 @@ public class PaxosState implements PaxosOperationLock
     private static final AtomicReferenceFieldUpdater<PaxosState, Snapshot> currentUpdater = AtomicReferenceFieldUpdater.newUpdater(PaxosState.class, Snapshot.class, "current");
 
     final Key key;
-    private int active; // current number of active referents (once drops to zero, we remove the global entry)
+    private int active;
+    private int total;
     private volatile Snapshot current;
-    private volatile Thread lockedBy;
-    private volatile int waiting;
-
-    private static final AtomicReferenceFieldUpdater<PaxosState, Thread> lockedByUpdater = AtomicReferenceFieldUpdater.newUpdater(PaxosState.class, Thread.class, "lockedBy");
 
     private PaxosState(Key key, Snapshot current)
     {
@@ -320,18 +315,18 @@ public class PaxosState implements PaxosOperationLock
                 cur = new PaxosState(key, RECENT.remove(key));
             }
             ++cur.active;
+            ++cur.total;
             return cur;
         });
     }
 
     // don't increment the total count, as we are only using this for locking purposes when coordinating
-    @VisibleForTesting
-    public static PaxosOperationLock lock(DecoratedKey partitionKey, CFMetaData metadata, long deadline, ConsistencyLevel consistencyForConsensus, boolean isWrite) throws RequestTimeoutException
+    static PaxosOperationLock getLock(DecoratedKey partitionKey, CFMetaData metadata)
     {
         if (DISABLE_COORDINATOR_LOCKING)
             return PaxosOperationLock.noOp();
 
-        PaxosState lock = ACTIVE.compute(new Key(partitionKey, metadata), (key, cur) -> {
+        return ACTIVE.compute(new Key(partitionKey, metadata), (key, cur) -> {
             if (cur == null)
             {
                 //noinspection resource
@@ -340,26 +335,6 @@ public class PaxosState implements PaxosOperationLock
             ++cur.active;
             return cur;
         });
-
-        try
-        {
-            if (!lock.lock(deadline))
-                throw throwTimeout(metadata, consistencyForConsensus, isWrite);
-            return lock;
-        }
-        catch (Throwable t)
-        {
-            lock.close();
-            throw t;
-        }
-    }
-    
-    private static RequestTimeoutException throwTimeout(CFMetaData metadata, ConsistencyLevel consistencyForConsensus, boolean isWrite)
-    {
-        int blockFor = consistencyForConsensus.blockFor(Keyspace.open(metadata.ksName));
-        throw isWrite
-                ? new WriteTimeoutException(WriteType.CAS, consistencyForConsensus, 0, blockFor)
-                : new ReadTimeoutException(consistencyForConsensus, 0, blockFor, false);
     }
 
     private PaxosState maybeLoad(UUID ballot, int nowInSec)
@@ -377,7 +352,7 @@ public class PaxosState implements PaxosOperationLock
             Snapshot current = this.current;
             if (current == null || current instanceof UnsafeSnapshot)
             {
-                synchronized (this)
+                synchronized (key)
                 {
                     current = this.current;
                     if (current == null || current instanceof UnsafeSnapshot)
@@ -400,79 +375,15 @@ public class PaxosState implements PaxosOperationLock
     private void load(UUID ballot)
     {
         int nowInSec = UUIDGen.unixTimestampInSec(ballot);
-        synchronized (this)
+        synchronized (key)
         {
             Snapshot snapshot = SystemKeyspace.loadPaxosState(key.partitionKey, key.metadata, nowInSec);
             currentUpdater.accumulateAndGet(this, snapshot, Snapshot::merge);
         }
     }
 
-    private boolean lock(long deadline)
-    {
-        try
-        {
-            Thread thread = Thread.currentThread();
-            if (lockedByUpdater.compareAndSet(this, null, thread))
-                return true;
-
-            synchronized (this)
-            {
-                waiting++;
-
-                try
-                {
-                    while (true)
-                    {
-                        if (lockedByUpdater.compareAndSet(this, null, thread))
-                            return true;
-
-                        while (lockedBy != null)
-                        {
-                            long now = System.nanoTime();
-                            if (now >= deadline)
-                                return false;
-
-                            wait(1 + ((deadline - now) - 1) / 1000000);
-                        }
-                    }
-                }
-                finally
-                {
-                    waiting--;
-                }
-            }
-        }
-        catch (InterruptedException e)
-        {
-            Thread.currentThread().interrupt();
-            return false;
-        }
-    }
-
-    private void maybeUnlock()
-    {
-        // no visibility requirements, as if we hold the lock it was last updated by us
-        if (lockedBy == null)
-            return;
-
-        Thread thread = Thread.currentThread();
-
-        if (lockedBy == thread)
-        {
-            lockedBy = null;
-            if (waiting > 0)
-            {
-                synchronized (this)
-                {
-                    notify();
-                }
-            }
-        }
-    }
-
     public void close()
     {
-        maybeUnlock();
         ACTIVE.compute(key, (key, cur) ->
         {
             assert cur != null;
@@ -484,6 +395,13 @@ public class PaxosState implements PaxosOperationLock
                 RECENT.put(key, stash);
             return null;
         });
+        int active = 1 + this.active, total = this.total;
+        if (active > 1 && total > 1)
+        {
+            TableMetrics metrics = Keyspace.openAndGetStore(key.metadata).metric;
+            metrics.casLocalConcurrency.update(active);
+            metrics.casLocalRecentOverlaps.update(total);
+        }
     }
 
     Snapshot current()

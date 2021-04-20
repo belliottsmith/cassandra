@@ -26,6 +26,7 @@ public interface PaxosOperationLock extends AutoCloseable
 
     static PaxosOperationLock noOp()
     {
-        return () -> {};
+        // must NOT be a lambda, as we require a unique object allocation
+        return new PaxosOperationLock() { @Override public void close() {} };
     }
 }
