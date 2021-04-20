@@ -2064,11 +2064,6 @@ public class DatabaseDescriptor
         return conf.paxos_auto_repair_threshold_mb;
     }
 
-    public static void setPaxosAutoRepairThresholdMB(int threshold)
-    {
-        conf.paxos_auto_repair_threshold_mb = threshold;
-    }
-
     public static boolean getNativeTransportAllowOlderProtocols()
     {
         return conf.native_transport_allow_older_protocols;

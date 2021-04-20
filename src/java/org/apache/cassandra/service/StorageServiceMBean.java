@@ -877,9 +877,6 @@ public interface StorageServiceMBean extends NotificationEmitter
     String getSkipPaxosRepairOnTopologyChangeKeyspaces();
     void setSkipPaxosRepairOnTopologyChangeKeyspaces(String v);
 
-    int getPaxosAutoRepairThresholdMb();
-    void setPaxosAutoRepairThresholdMb(int threshold);
-
     // see CASSANDRA-3200
     public boolean autoOptimiseIncRepairStreams();
     public void setAutoOptimiseIncRepairStreams(boolean enabled);

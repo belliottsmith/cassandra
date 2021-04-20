@@ -6148,28 +6148,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         DatabaseDescriptor.setSkipPaxosRepairOnTopologyChangeKeyspaces(v);
     }
 
-    public int getPaxosAutoRepairThresholdMb()
-    {
-        return DatabaseDescriptor.getPaxosAutoRepairThresholdMB();
-    }
-
-    public void setPaxosAutoRepairThresholdMb(int threshold)
-    {
-        if (threshold < 0)
-            throw new RuntimeException("Paxos auto repair threshold must not be negative");
-
-        int oldThreshold = getPaxosAutoRepairThresholdMb();
-        if (oldThreshold == threshold)
-        {
-            logger.info("Supplied paxos auto repair threshold is the same as current value");
-        }
-        else
-        {
-            logger.info("Changing paxos auto repair threshold (MiB) from {} to {}", getPaxosAutoRepairThresholdMb(), threshold);
-            DatabaseDescriptor.setPaxosAutoRepairThresholdMB(threshold);
-        }
-    }
-
     public boolean autoOptimiseIncRepairStreams()
     {
         return DatabaseDescriptor.autoOptimiseIncRepairStreams();
