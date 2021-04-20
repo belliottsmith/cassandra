@@ -25,7 +25,6 @@ import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.Consumer;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -117,11 +116,11 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
     private static final AtomicLongFieldUpdater<PaxosPropose> responsesUpdater = AtomicLongFieldUpdater.newUpdater(PaxosPropose.class, "responses");
     private static final AtomicReferenceFieldUpdater<PaxosPropose, UUID> supersededByUpdater = AtomicReferenceFieldUpdater.newUpdater(PaxosPropose.class, UUID.class, "supersededBy");
 
-    @VisibleForTesting public static final long ACCEPT_INCREMENT = 1;
+    private static final long ACCEPT_INCREMENT = 1;
     private static final int  REFUSAL_SHIFT = 21;
-    @VisibleForTesting public static final long REFUSAL_INCREMENT = 1L << REFUSAL_SHIFT;
-    private static final int  FAILURE_SHIFT = 42;
-    @VisibleForTesting public static final long FAILURE_INCREMENT = 1L << FAILURE_SHIFT;
+    private static final long REFUSAL_INCREMENT = 1L << REFUSAL_SHIFT;
+    private static final int  TIMEOUT_SHIFT = 42;
+    private static final long TIMEOUT_INCREMENT = 1L << TIMEOUT_SHIFT;
     private static final long MASK = (1L << REFUSAL_SHIFT) - 1L;
 
     private final Proposal proposal;
@@ -142,8 +141,8 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
      *
      * {@link #accepts}
      * {@link #refusals}
-     * {@link #failures}
-     * {@link #notAccepts} (timeouts/errors+refusals)
+     * {@link #timeouts}
+     * {@link #failures} (timeouts+refusals/errors)
      */
     private volatile long responses;
 
@@ -238,13 +237,13 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
         if (isSuccessful(responses))
             return success;
 
-        if (!canSucceed(responses) && supersededBy != null)
+        if (cannotSucceed(responses) && supersededBy != null)
         {
-            Superseded.SideEffects sideEffects = hasNoSideEffects(responses) ? NO : MAYBE;
+            Superseded.SideEffects sideEffects = isFullyRefused(responses) ? NO : MAYBE;
             return new Superseded(supersededBy, sideEffects);
         }
 
-        return new MaybeFailure(new Paxos.MaybeFailure(participants, required, accepts(responses), notAccepts(responses)));
+        return new MaybeFailure(new Paxos.MaybeFailure(participants, required, accepts(responses), failures(responses)));
     }
 
     @Override
@@ -291,14 +290,14 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
     public void onFailure(InetAddress from)
     {
         logger.trace("{} Failure from {}", proposal, from);
-        update(FAILURE_INCREMENT);
+        update(REFUSAL_INCREMENT);
     }
 
     @Override
     public void onExpired(InetAddress from)
     {
         logger.trace("{} Timeout from {}", proposal, from);
-        update(FAILURE_INCREMENT);
+        update(TIMEOUT_INCREMENT);
     }
 
     @Override
@@ -317,25 +316,26 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
     // returns true at most once for a given PaxosPropose, so we do not propagate a signal more than once
     private boolean shouldSignal(long responses)
     {
-        return shouldSignal(responses, required, participants, waitForNoSideEffect, responsesUpdater, this);
-    }
-
-    @VisibleForTesting
-    public static <T> boolean shouldSignal(long responses, int required, int participants, boolean waitForNoSideEffect, AtomicLongFieldUpdater<T> responsesUpdater, T update)
-    {
         if (responses <= 0L) // already signalled via ambiguous signal bit
             return false;
 
-        if (!isSuccessful(responses, required))
-        {
-            if (canSucceed(responses, required, participants))
-                return false;
+        if (accepts(responses) == required) // first success state
+            return true;
 
-            if (waitForNoSideEffect && !hasPossibleSideEffects(responses))
-                return hasNoSideEffects(responses, participants);
-        }
+        if (participants - failures(responses) >= required) // not yet failed, not yet succeeded
+            return false;
 
-        return responsesUpdater.getAndUpdate(update, x -> x | Long.MIN_VALUE) >= 0L;
+        if (!waitForNoSideEffect)
+            return participants - failures(responses) == required - 1; // failed, and no need to wait to know if maybe had side effects
+
+        if (refusals(responses) == participants) // we had no side effects
+            return true;
+
+        if (accepts(responses) >= 1) // we know we have had side effects; ambiguous state so flip signalling bit
+            return responsesUpdater.getAndUpdate(this, x -> x | Long.MIN_VALUE) > 0L;
+
+        // we haven't yet knowingly produced any side effects, but also do not know we haven't
+        return false;
     }
 
     private void signalDone()
@@ -346,38 +346,18 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
 
     private boolean isSuccessful(long responses)
     {
-        return isSuccessful(responses, required);
-    }
-
-    private static boolean isSuccessful(long responses, int required)
-    {
         return accepts(responses) >= required;
     }
 
-    private boolean canSucceed(long responses)
+    private boolean cannotSucceed(long responses)
     {
-        return canSucceed(responses, required, participants);
-    }
-
-    private static boolean canSucceed(long responses, int required, int participants)
-    {
-        return refusals(responses) == 0 && required <= participants - failures(responses);
+        return participants - failures(responses) < required;
     }
 
     // Note: this is only reliable if !failFast
-    private boolean hasNoSideEffects(long responses)
-    {
-        return hasNoSideEffects(responses, participants);
-    }
-
-    private static boolean hasNoSideEffects(long responses, int participants)
+    private boolean isFullyRefused(long responses)
     {
         return refusals(responses) == participants;
-    }
-
-    private static boolean hasPossibleSideEffects(long responses)
-    {
-        return accepts(responses) + failures(responses) > 0;
     }
 
     /** {@link #responses} */
@@ -387,9 +367,9 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
     }
 
     /** {@link #responses} */
-    private static int notAccepts(long responses)
+    private static int failures(long responses)
     {
-        return failures(responses) + refusals(responses);
+        return timeouts(responses) + refusals(responses);
     }
 
     /** {@link #responses} */
@@ -399,9 +379,9 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
     }
 
     /** {@link #responses} */
-    private static int failures(long responses)
+    private static int timeouts(long responses)
     {
-        return (int) ((responses >>> FAILURE_SHIFT) & MASK);
+        return (int) ((responses >>> TIMEOUT_SHIFT) & MASK);
     }
 
     /**

@@ -148,7 +148,6 @@ public class PaxosRepair
     private Participants participants;
 
     private UUID successCriteria;
-    private UUID prevSupersededBy;
     private State state;
     private int retries = 0;
 
@@ -188,7 +187,7 @@ public class PaxosRepair
         private int failures;
 
         private UUID latestWitnessed;
-        private @Nullable Accepted latestAccepted;
+        private Accepted latestAccepted;
         private Committed latestCommitted;
         private UUID oldestCommitted;
 
@@ -216,9 +215,12 @@ public class PaxosRepair
                     if (state != this)
                         return;
 
-                    latestWitnessed = latest(latestWitnessed, msg.payload.latestWitnessed);
-                    latestAccepted = latest(latestAccepted, msg.payload.acceptedButNotCommitted);
-                    latestCommitted = latest(latestCommitted, msg.payload.committed);
+                    if (isAfter(msg.payload.latestWitnessed, latestWitnessed))
+                        latestWitnessed = msg.payload.latestWitnessed;
+                    if (isAfter(msg.payload.acceptedButNotCommitted, latestAccepted))
+                        latestAccepted = msg.payload.acceptedButNotCommitted;
+                    if (isAfter(msg.payload.committed, latestCommitted))
+                        latestCommitted = msg.payload.committed;
                     if (oldestCommitted == null || isAfter(oldestCommitted, msg.payload.committed))
                         oldestCommitted = msg.payload.committed.ballot;
 
@@ -235,6 +237,13 @@ public class PaxosRepair
 
         private State execute()
         {
+            // if accepted is equal to promised, we should prefer accepted because two ballots with same
+            // timestamp could have been proposed, but only one will have reached a quorum
+            if (latestAccepted != null && latestAccepted.ballot.timestamp() == latestWitnessed.timestamp())
+                latestWitnessed = latestAccepted.ballot;
+            else if (latestWitnessed != null && latestCommitted.ballot.timestamp() == latestWitnessed.timestamp())
+                latestWitnessed = latestCommitted.ballot;
+
             // Save as success criteria the latest promise seen by our first round; if we ever see anything
             // newer committed, we know at least one paxos round has been completed since we started, which is all we need
             // or newer than this committed we know we're done, so to avoid looping indefinitely in competition
@@ -248,12 +257,8 @@ public class PaxosRepair
             }
 
             boolean hasCommittedSuccessCriteria = isAfter(latestCommitted, successCriteria) || latestCommitted.hasBallot(successCriteria);
-            boolean isPromisedButNotAccepted    = isAfter(latestWitnessed, latestAccepted); // not necessarily promised - may be lowBound
+            boolean isPromisedButNotAccepted    = isAfter(latestWitnessed, latestAccepted);
             boolean isAcceptedButNotCommitted   = isAfter(latestAccepted, latestCommitted);
-            boolean reproposalMayBeRejected     = timestampsClash(latestCommitted, latestWitnessed)
-                                               || timestampsClash(latestAccepted, latestWitnessed)
-                                               || !isAfter(latestWitnessed, prevSupersededBy);
-
 
             if (hasCommittedSuccessCriteria)
             {
@@ -267,7 +272,7 @@ public class PaxosRepair
                         : PaxosCommit.commit(latestCommitted, participants, consistency, true,
                             new CommittingRepair());
             }
-            else if (isAcceptedButNotCommitted && !isPromisedButNotAccepted && !reproposalMayBeRejected)
+            else if (isAcceptedButNotCommitted && !isPromisedButNotAccepted)
             {
                 if (logger.isTraceEnabled())
                     logger.trace("PaxosRepair of {} completing {}", partitionKey, latestAccepted);
@@ -275,10 +280,6 @@ public class PaxosRepair
                 // However, since we have not sought any promises, we can simply complete the existing proposal
                 // since this is an idempotent operation - both us and the original proposer (and others) can
                 // all do it at the same time without incident
-
-                // If ballots with same timestamp have been both accepted and rejected by different nodes,
-                // to avoid a livelock we simply try to poison, knowing we will fail but use a new ballot
-                // (note there are alternative approaches but this is conservative)
 
                 return PaxosPropose.propose(latestAccepted, participants, false,
                         new ProposingRepair(latestAccepted));
@@ -323,8 +324,6 @@ public class PaxosRepair
                 case MAYBE_FAILURE:
                     return maybeRetry();
                 case SUPERSEDED:
-                    if (isAfter(input.supersededBy(), prevSupersededBy))
-                        prevSupersededBy = input.supersededBy();
                     return restart();
 
                 case FOUND_INCOMPLETE_ACCEPTED:
@@ -380,10 +379,7 @@ public class PaxosRepair
             {
                 case MAYBE_FAILURE:
                     return maybeRetry();
-
                 case SUPERSEDED:
-                    if (isAfter(input.superseded().by, prevSupersededBy))
-                        prevSupersededBy = input.superseded().by;
                     return restart();
 
                 case SUCCESS:
@@ -476,7 +472,7 @@ public class PaxosRepair
         MessageOut<Request> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_REPAIR_REQ, new Request(partitionKey, metadata), requestSerializer)
                 .permitsArtificialDelay(participants.consistencyForConsensus);
         for (int i = 0, size = participants.sizeOfPoll(); i < size ; ++i)
-            MessagingService.instance().sendRRWithFailure(message, participants.electorateToPoll.get(i), querying);
+            MessagingService.instance().sendRR(message, participants.electorateToPoll.get(i), querying);
         return querying;
     }
 

@@ -327,54 +327,6 @@ public class Commit
         return testIsAfter != null && (testIsBefore == null || testIsAfter.timestamp() > testIsBefore.timestamp());
     }
 
-    /**
-     * the latest of two ballots, or the first ballot if equal timestamps
-     */
-    public static <C extends Commit> C latest(@Nullable C a, @Nullable C b)
-    {
-        return (a == null | b == null) ? (a == null ? b : a) : a.ballot.timestamp() >= b.ballot.timestamp() ? a : b;
-    }
-
-    /**
-     * the latest of two ballots, or the first ballot if equal timestamps
-     */
-    public static UUID latest(@Nullable Commit a, @Nullable UUID b)
-    {
-        return (a == null | b == null) ? (a == null ? b : a.ballot) : a.ballot.timestamp() >= b.timestamp() ? a.ballot : b;
-    }
-
-    /**
-     * the latest of two ballots, or the first ballot if equal timestamps
-     */
-    public static UUID latest(@Nullable UUID a, @Nullable UUID b)
-    {
-        return (a == null | b == null) ? (a == null ? b : a) : a.timestamp() >= b.timestamp() ? a : b;
-    }
-
-    /**
-     * unequal ballots with same timestamp
-     */
-    public static boolean timestampsClash(@Nullable Commit a, @Nullable UUID b)
-    {
-        return a != null && b != null && !a.ballot.equals(b) && a.ballot.timestamp() == b.timestamp();
-    }
-
-    /**
-     * unequal ballots with same timestamp
-     */
-    public static boolean timestampsClash(@Nullable UUID a, @Nullable UUID b)
-    {
-        return a != null && b != null && !a.equals(b) && a.timestamp() == b.timestamp();
-    }
-
-    /**
-     * unequal ballots with same timestamp
-     */
-    public static boolean isSameOrTimestampClash(@Nullable UUID a, @Nullable UUID b)
-    {
-        return a != null && b != null && (a.equals(b) || a.timestamp() == b.timestamp());
-    }
-
     public static class CommitSerializer<T extends Commit> implements IVersionedSerializer<T>
     {
         final BiFunction<UUID, PartitionUpdate, T> constructor;
