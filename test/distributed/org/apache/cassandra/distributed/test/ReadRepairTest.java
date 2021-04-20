@@ -18,22 +18,36 @@
 
 package org.apache.cassandra.distributed.test;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Callable;
 
+import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
+import net.bytebuddy.implementation.MethodDelegation;
+import net.bytebuddy.implementation.bind.annotation.SuperCall;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.service.DataResolver;
 import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.StorageService;
 
+import static net.bytebuddy.matcher.ElementMatchers.named;
+import static org.apache.cassandra.distributed.api.ConsistencyLevel.ALL;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 import static org.apache.cassandra.net.MessagingService.Verb.READ;
@@ -41,6 +55,21 @@ import static org.apache.cassandra.net.MessagingService.Verb.READ_REPAIR;
 
 public class ReadRepairTest extends TestBaseImpl
 {
+    @Test
+    public void testBlockingReadRepair() throws Throwable
+    {
+        try (Cluster cluster = init(builder().withNodes(3).start()))
+        {
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".table0 (pk int,ck0 int, v int, PRIMARY KEY (pk, ck0)) WITH  CLUSTERING ORDER BY (ck0 ASC);");
+            cluster.get(1).executeInternal(withKeyspace("DELETE FROM %s.table0 USING TIMESTAMP 1 WHERE pk=? AND ck0>? AND ck0<?;"),1, -25854, -2183);
+            cluster.get(1).executeInternal(withKeyspace("DELETE FROM %s.table0 USING TIMESTAMP 1 WHERE pk=?"),1);
+            cluster.coordinator(1).execute(withKeyspace("DELETE FROM %s.table0 USING TIMESTAMP 1 WHERE pk=? AND ck0<=?;"), ALL, 1, -6195);
+            cluster.coordinator(1).execute( withKeyspace("DELETE FROM %s.table0 USING TIMESTAMP 1 WHERE pk=? AND ck0>=?;"), ALL, 1, -6015);
+            assertRows(cluster.coordinator(2).execute("SELECT * FROM " + KEYSPACE + ".table0 WHERE pk=1 AND ck0<-5217 ORDER BY ck0 DESC;",
+                                                      ALL));
+        }
+    }
+
     @Test
     public void readRepairTest() throws Throwable
     {
@@ -211,6 +240,57 @@ public class ReadRepairTest extends TestBaseImpl
             cluster.get(3).executeInternal("DELETE FROM distributed_test_keyspace.tbl USING TIMESTAMP 1598415280715000 WHERE key=?;", "test");
             cluster.get(3).flush(KEYSPACE);
             cluster.coordinator(3).execute("SELECT * FROM distributed_test_keyspace.tbl WHERE key=? and column1 >= ? and column1 <= ?", ConsistencyLevel.QUORUM, "test", 20, 40);
+        }
+    }
+
+
+    @Test
+    public void partitionDeletionRTTimestampTieTest() throws Throwable
+    {
+        try (Cluster cluster = init(builder()
+                                    .withNodes(3)
+                                    .withInstanceInitializer(RRHelper::install)
+                                    .start()))
+        {
+            cluster.schemaChange(withKeyspace("CREATE TABLE distributed_test_keyspace.tbl0 (pk bigint,ck bigint,value bigint, PRIMARY KEY (pk, ck)) WITH  CLUSTERING ORDER BY (ck ASC);"));
+            long pk = 0L;
+            cluster.coordinator(1).execute("INSERT INTO distributed_test_keyspace.tbl0 (pk, ck, value) VALUES (?,?,?) USING TIMESTAMP 1", ConsistencyLevel.ALL, pk, 1L, 1L);
+            cluster.coordinator(1).execute("DELETE FROM distributed_test_keyspace.tbl0 USING TIMESTAMP 2 WHERE pk=? AND ck>?;", ConsistencyLevel.ALL, pk, 2L);
+            cluster.get(3).executeInternal("DELETE FROM distributed_test_keyspace.tbl0 USING TIMESTAMP 2 WHERE pk=?;", pk);
+            assertRows(cluster.coordinator(1).execute("SELECT * FROM distributed_test_keyspace.tbl0 WHERE pk=? AND ck>=? AND ck<?;",
+                                                      ConsistencyLevel.ALL, pk, 1L, 3L));
+        }
+    }
+
+    public static class RRHelper
+    {
+        static void install(ClassLoader cl, int nodeNumber)
+        {
+            // Only on coordinating node
+            if (nodeNumber == 1)
+            {
+                new ByteBuddy().rebase(DataResolver.class)
+                               .method(named("repairPartition"))
+                               .intercept(MethodDelegation.to(RRHelper.class))
+                               .make()
+                               .load(cl, ClassLoadingStrategy.Default.INJECTION);
+            }
+        }
+
+        // On timestamp tie of RT and partition deletion, we should not generate RT bounds, since monotonicity is
+        // already ensured by the partition deletion, and RT is unnecessary there. For details, see CASSANDRA-16453.
+        public static Object repairPartition(Map<InetAddress, Mutation> mutations, org.apache.cassandra.db.ConsistencyLevel.ResponseTracker blockFor, List<InetAddress> initial, List<InetAddress> additional, @SuperCall Callable<Void> r) throws Exception
+        {
+            Assert.assertEquals(2, mutations.size());
+            for (Mutation value : mutations.values())
+            {
+                for (PartitionUpdate update : value.getPartitionUpdates())
+                {
+                    Assert.assertFalse(update.hasRows());
+                    Assert.assertFalse(update.partitionLevelDeletion().isLive());
+                }
+            }
+            return r.call();
         }
     }
 

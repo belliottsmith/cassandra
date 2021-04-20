@@ -102,7 +102,8 @@ public class Slice
     public static Slice make(Clustering start, Clustering end)
     {
         // This doesn't give us what we want with the clustering prefix
-        assert start != Clustering.STATIC_CLUSTERING && end != Clustering.STATIC_CLUSTERING;
+        assert (start != null && end != null) &&
+               (start != Clustering.STATIC_CLUSTERING && end != Clustering.STATIC_CLUSTERING);
 
         ByteBuffer[] startValues = extractValues(start);
         ByteBuffer[] endValues = extractValues(end);
