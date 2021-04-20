@@ -192,12 +192,11 @@ public final class MessagingService implements MessagingServiceMBean
         APPLE_UPDATE_REPAIRED_RANGES(-1001),
         APPLE_REPAIR_SUCCESS(-1002),
         APPLE_QUERY_REPAIR_HISTORY(-1003),
-        // the ids here are based on the custom ids in cie-4.0.0
-        APPLE_PAXOS_PREPARE_REQ(16373),
-        APPLE_PAXOS_PREPARE_REFRESH_REQ(16371),
-        APPLE_PAXOS_PROPOSE_REQ(16369),
-        APPLE_PAXOS_COMMIT_AND_PREPARE_REQ(16367),
-        APPLE_PAXOS_REPAIR_REQ(16365),
+        APPLE_PAXOS_PREPARE(-1004),
+        APPLE_PAXOS_PREPARE_REFRESH(-1005),
+        APPLE_PAXOS_PROPOSE(-1006),
+        APPLE_PAXOS_COMMIT_AND_PREPARE(-1007),
+        APPLE_PAXOS_REPAIR(-1008),
         ;
         private final int id;
         Verb()
@@ -252,13 +251,13 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.HINT, Stage.MUTATION);
         put(Verb.TRUNCATE, Stage.MUTATION);
         put(Verb.PAXOS_PREPARE, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_PREPARE_REQ, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ, Stage.MUTATION);
+        put(Verb.APPLE_PAXOS_PREPARE, Stage.MUTATION);
+        put(Verb.APPLE_PAXOS_PREPARE_REFRESH, Stage.MUTATION);
         put(Verb.PAXOS_PROPOSE, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_PROPOSE_REQ, Stage.MUTATION);
+        put(Verb.APPLE_PAXOS_PROPOSE, Stage.MUTATION);
         put(Verb.PAXOS_COMMIT, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_REPAIR_REQ, Stage.MUTATION);
+        put(Verb.APPLE_PAXOS_COMMIT_AND_PREPARE, Stage.MUTATION);
+        put(Verb.APPLE_PAXOS_REPAIR, Stage.MUTATION);
         put(Verb.BATCH_STORE, Stage.MUTATION);
         put(Verb.BATCH_REMOVE, Stage.MUTATION);
 
@@ -339,13 +338,13 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.APPLE_UPDATE_REPAIRED_RANGES, BootStrapper.UpdateRepairedRanges.serializer);
         put(Verb.ECHO, EchoMessage.serializer);
         put(Verb.PAXOS_PREPARE, Commit.serializer);
-        put(Verb.APPLE_PAXOS_PREPARE_REQ, PaxosPrepare.requestSerializer);
-        put(Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ, PaxosPrepareRefresh.requestSerializer);
+        put(Verb.APPLE_PAXOS_PREPARE, PaxosPrepare.requestSerializer);
+        put(Verb.APPLE_PAXOS_PREPARE_REFRESH, PaxosPrepareRefresh.requestSerializer);
         put(Verb.PAXOS_PROPOSE, Commit.serializer);
-        put(Verb.APPLE_PAXOS_PROPOSE_REQ, PaxosPropose.requestSerializer);
-        put(Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, PaxosCommitAndPrepare.requestSerializer);
+        put(Verb.APPLE_PAXOS_PROPOSE, PaxosPropose.requestSerializer);
+        put(Verb.APPLE_PAXOS_COMMIT_AND_PREPARE, PaxosCommitAndPrepare.requestSerializer);
         put(Verb.PAXOS_COMMIT, Commit.serializer);
-        put(Verb.APPLE_PAXOS_REPAIR_REQ, PaxosRepair.requestSerializer);
+        put(Verb.APPLE_PAXOS_REPAIR, PaxosRepair.requestSerializer);
         put(Verb.HINT, HintMessage.serializer);
         put(Verb.BATCH_STORE, Batch.serializer);
         put(Verb.BATCH_REMOVE, UUIDSerializer.serializer);
@@ -378,12 +377,12 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.APPLE_UPDATE_REPAIRED_RANGES, StorageService.UpdateRepairedRangesResponse.serializer);
 
         put(Verb.PAXOS_PREPARE, PrepareResponse.serializer);
-        put(Verb.APPLE_PAXOS_PREPARE_REQ, PaxosPrepare.responseSerializer);
-        put(Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ, PaxosPrepareRefresh.responseSerializer);
+        put(Verb.APPLE_PAXOS_PREPARE, PaxosPrepare.responseSerializer);
+        put(Verb.APPLE_PAXOS_PREPARE_REFRESH, PaxosPrepareRefresh.responseSerializer);
         put(Verb.PAXOS_PROPOSE, BooleanSerializer.serializer);
-        put(Verb.APPLE_PAXOS_PROPOSE_REQ, PaxosPropose.responseSerializer);
-        put(Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, PaxosPrepare.responseSerializer);
-        put(Verb.APPLE_PAXOS_REPAIR_REQ, PaxosRepair.responseSerializer);
+        put(Verb.APPLE_PAXOS_PROPOSE, PaxosPropose.responseSerializer);
+        put(Verb.APPLE_PAXOS_COMMIT_AND_PREPARE, PaxosPrepare.responseSerializer);
+        put(Verb.APPLE_PAXOS_REPAIR, PaxosRepair.responseSerializer);
 
         put(Verb.BATCH_STORE, WriteResponse.serializer);
         put(Verb.BATCH_REMOVE, WriteResponse.serializer);

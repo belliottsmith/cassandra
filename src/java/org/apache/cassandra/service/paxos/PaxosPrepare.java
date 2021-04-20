@@ -59,7 +59,7 @@ import org.apache.cassandra.utils.UUIDSerializer;
 
 import static org.apache.cassandra.concurrent.StageManager.getStage;
 import static org.apache.cassandra.net.CompactEndpointSerializationHelper.*;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE;
 import static org.apache.cassandra.net.MessagingService.current_version;
 import static org.apache.cassandra.net.MessagingService.verbStages;
 import static org.apache.cassandra.service.paxos.Commit.emptyBallot;
@@ -276,7 +276,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
     private static PaxosPrepare prepareWithBallotInternal(Participants participants, Request request, Consumer<Status> onDone)
     {
         PaxosPrepare prepare = new PaxosPrepare(participants, request, onDone);
-        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_PREPARE_REQ, request, requestSerializer);
+        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_PREPARE, request, requestSerializer);
 
         start(prepare, participants, message, RequestHandler::execute);
         return prepare;

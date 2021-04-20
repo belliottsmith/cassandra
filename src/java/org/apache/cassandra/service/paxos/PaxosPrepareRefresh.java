@@ -44,7 +44,7 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDGen;
 import org.apache.cassandra.utils.UUIDSerializer;
 
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH;
 import static org.apache.cassandra.net.MessagingService.Verb.REQUEST_RESPONSE;
 import static org.apache.cassandra.net.MessagingService.verbStages;
 import static org.apache.cassandra.service.paxos.Commit.isAfter;
@@ -78,7 +78,7 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
     public PaxosPrepareRefresh(UUID prepared, Commit latestCommitted, Callbacks callbacks)
     {
         this.callbacks = callbacks;
-        this.send = new MessageOut<>(APPLE_PAXOS_PREPARE_REFRESH_REQ, new Request(prepared, latestCommitted), requestSerializer);
+        this.send = new MessageOut<>(APPLE_PAXOS_PREPARE_REFRESH, new Request(prepared, latestCommitted), requestSerializer);
     }
 
     void refresh(List<InetAddress> refresh)
@@ -96,7 +96,7 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
         }
 
         if (executeOnSelf)
-            StageManager.getStage(verbStages.get(APPLE_PAXOS_PREPARE_REFRESH_REQ))
+            StageManager.getStage(verbStages.get(APPLE_PAXOS_PREPARE_REFRESH))
                     .execute(this::executeOnSelf);
     }
 

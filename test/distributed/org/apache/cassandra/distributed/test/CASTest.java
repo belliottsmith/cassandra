@@ -48,6 +48,12 @@ import static org.apache.cassandra.distributed.api.ConsistencyLevel.SERIAL;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 import static org.apache.cassandra.net.MessagingService.Verb.*;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE;
+import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_COMMIT;
+import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PREPARE;
+import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_PROPOSE;
+import static org.apache.cassandra.net.MessagingService.Verb.READ;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -95,82 +101,15 @@ public class CASTest extends CASCommonTestCases
         }
     }
 
-    /**
-     * A write and a read that are able to witness different (i.e. non-linearizable) histories
-     * See CASSANDRA-12126
-     *
-     *  - A Promised by {1, 2, 3}
-     *  - A Acccepted by {1}
-     *  - B (=>!A) Promised and Proposed to {2, 3}
-     *  - Read from (or attempt C (=>!B)) to {1, 2} -> witness either A or B, not both
-     */
-    @Test
-    public void testIncompleteWriteSupersededByConflictingRejectedCondition() throws Throwable
-    {
-        String tableName = tableName("tbl");
-        THREE_NODES.schemaChange("CREATE TABLE " + KEYSPACE + "." + tableName + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-        IMessageFilters.Filter drop1 = THREE_NODES.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
-        try
-        {
-            THREE_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
-            fail();
-        }
-        catch (RuntimeException wrapped)
-        {
-            Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-        }
-        drop(THREE_NODES, 2, to(1), to(1), to());
-        assertRows(THREE_NODES.coordinator(2).execute("UPDATE " + KEYSPACE + "." + tableName + " SET v = 2 WHERE pk = 1 and ck = 1 IF v = 1", QUORUM),
-                   row(false));
-        drop1.off();
-        drop(THREE_NODES, 1, to(2), to(), to());
-        assertRows(THREE_NODES.coordinator(1).execute("SELECT * FROM " + KEYSPACE + "." + tableName + " WHERE pk = 1", SERIAL));
-    }
-
-    /**
-     * Two reads that are able to witness different (i.e. non-linearizable) histories
-     *  - A Promised by {1, 2, 3}
-     *  - A Accepted by {1}
-     *  - Read from {2, 3} -> do not witness A?
-     *  - Read from {1, 2} -> witnesses A?
-     * See CASSANDRA-12126
-     */
-    @Ignore
-    @Test
-    public void testIncompleteWriteSupersededByRead() throws Throwable
-    {
-        String tableName = tableName();
-        String fullTableName = KEYSPACE + "." + tableName;
-        THREE_NODES.schemaChange("CREATE TABLE " + fullTableName + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-        IMessageFilters.Filter drop1 = THREE_NODES.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(1).to(2, 3).drop();
-        try
-        {
-            THREE_NODES.coordinator(1).execute("INSERT INTO " + fullTableName + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", QUORUM);
-            fail();
-        }
-        catch (RuntimeException wrapped)
-        {
-            Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-        }
-        drop(THREE_NODES, 2, to(1), to(), to());
-        assertRows(THREE_NODES.coordinator(2).execute("SELECT * FROM " + fullTableName + " WHERE pk = 1", SERIAL));
-        drop1.off();
-
-        drop(THREE_NODES, 1, to(2), to(), to());
-        assertRows(THREE_NODES.coordinator(1).execute("SELECT * FROM " + fullTableName + " WHERE pk = 1", SERIAL));
-    }
-
     private static int[] paxosAndReadVerbs()
     {
         return new int[] {
             MessagingService.Verb.PAXOS_PREPARE.ordinal(),
-            MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ.ordinal(),
-            MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ.ordinal(),
-            MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_PREPARE.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE.ordinal(),
             MessagingService.Verb.PAXOS_PROPOSE.ordinal(),
-            MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ.ordinal(),
+            MessagingService.Verb.APPLE_PAXOS_PROPOSE.ordinal(),
             MessagingService.Verb.PAXOS_COMMIT.ordinal(),
             MessagingService.Verb.READ.ordinal()
         };
@@ -465,73 +404,6 @@ public class CASTest extends CASCommonTestCases
                    expectRow);
     }
 
-    /**
-     * During a range movement, a CAS may fail leaving side effects that are not witnessed by another operation
-     * being performed with stale ring information.
-     * This is a particular special case of stale ring information sequencing, which probably would be resolved
-     * by fixing each of the more isolated cases (but is unique, so deserving of its own test case).
-     * See CASSANDRA-15745
-     *
-     *  - Range moves from {1, 2, 3} to {2, 3, 4}; witnessed by X (not by !X)
-     *  -   X: Promised by {2, 3, 4}
-     *  -   X: Accepted by {4}
-     *  -  !X: Promised and Accepted by {1, 2}
-     *  - Range move visible by !X
-     *  - Any: Promised and Propose to {3, 4}
-     */
-    @Test
-    public void testIncompleteWriteFollowedBySuccessfulWriteWithStaleRingDuringRangeMovementFollowedByWrite() throws Throwable
-    {
-        String tableName = tableName("tbl");
-        FOUR_NODES.schemaChange("CREATE TABLE " + KEYSPACE + "." + tableName + " (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
-
-        // make it so {4} is bootstrapping, and this has propagated to only a quorum of other nodes
-        for (int i = 1; i <= 4; ++i)
-            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::removeFromRing).accept(FOUR_NODES.get(4));
-        for (int i = 2; i <= 4; ++i)
-            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingBootstrapping).accept(FOUR_NODES.get(4));
-
-        int pk = pk(FOUR_NODES, 1, 2);
-
-        // {4} promises and accepts on !{1} => {2, 3, 4}; commits on !{1, 2, 3} => {4}
-        drop(FOUR_NODES, 4, to(1), to(1, 2, 3), to());
-        try
-        {
-            FOUR_NODES.coordinator(4).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", QUORUM, pk);
-            Assert.assertTrue(false);
-        }
-        catch (RuntimeException wrapped)
-        {
-            Assert.assertEquals("Operation timed out - received only 1 responses.", wrapped.getCause().getMessage());
-        }
-
-        // {1} promises and accepts on !{3} => {1, 2}; commits on !{2, 3} => {1}
-        drop(FOUR_NODES, 1, to(3), to(3), to(2, 3));
-        // two options: either we can invalidate the previous operation and succeed, or we can complete the previous operation
-        Object[][] result = FOUR_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk);
-        Object[] expectRow;
-        if (result[0].length == 1)
-        {
-            assertRows(result, row(true));
-            expectRow = row(false, pk, 1, null, 2);
-        }
-        else
-        {
-            assertRows(result, row(false, pk, 1, 1, null));
-            expectRow = row(false, pk, 1, 1, null);
-        }
-
-        // finish topology change
-        for (int i = 1; i <= 4; ++i)
-            FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingNormal).accept(FOUR_NODES.get(4));
-
-        // {3} reads from !{2} => {3, 4}
-        FOUR_NODES.filters().verbs(APPLE_PAXOS_PREPARE_REQ.ordinal(), PAXOS_PREPARE.ordinal(), READ.ordinal()).from(3).to(2).drop();
-        FOUR_NODES.filters().verbs(APPLE_PAXOS_PROPOSE_REQ.ordinal(), PAXOS_PROPOSE.ordinal()).from(3).to(2).drop();
-        assertRows(FOUR_NODES.coordinator(3).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk),
-                   expectRow);
-    }
-
     // TODO: RF changes
     // TODO: Leaving ring
 
@@ -544,7 +416,7 @@ public class CASTest extends CASCommonTestCases
         // We do a CAS insertion, but have with the PROPOSE message dropped on node 1 and 2. The CAS will not get
         // through and should timeout. Importantly, node 3 does receive and answer the PROPOSE.
         IMessageFilters.Filter dropProposeFilter = cluster.filters()
-                                                          .verbs(PAXOS_PROPOSE.ordinal(), APPLE_PAXOS_PROPOSE_REQ.ordinal())
+                                                          .verbs(PAXOS_PROPOSE.ordinal(), APPLE_PAXOS_PROPOSE.ordinal())
                                                           .to(1, 2)
                                                           .drop();
 

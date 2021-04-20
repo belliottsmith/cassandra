@@ -33,7 +33,7 @@ import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.tracing.Tracing;
 
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE;
 import static org.apache.cassandra.net.MessagingService.Verb.REQUEST_RESPONSE;
 import static org.apache.cassandra.service.paxos.Paxos.newBallot;
 import static org.apache.cassandra.service.paxos.PaxosPrepare.responseSerializer;
@@ -50,7 +50,7 @@ public class PaxosCommitAndPrepare
         PaxosPrepare prepare = new PaxosPrepare(participants, request, null);
 
         Tracing.trace("Committing {}; Preparing {}", commit.ballot, ballot);
-        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, request, requestSerializer);
+        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_COMMIT_AND_PREPARE, request, requestSerializer);
         start(prepare, participants, message, RequestHandler::execute);
         return prepare;
     }

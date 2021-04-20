@@ -43,7 +43,7 @@ import org.apache.cassandra.service.paxos.Paxos.ConditionAsConsumer;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDSerializer;
 
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE;
 import static org.apache.cassandra.net.MessagingService.Verb.REQUEST_RESPONSE;
 import static org.apache.cassandra.service.paxos.Paxos.WAIT;
 import static org.apache.cassandra.service.paxos.Paxos.canExecuteOnSelf;
@@ -209,7 +209,7 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
 
     void start(Paxos.Participants participants, Commit proposal)
     {
-        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_PROPOSE_REQ, new Request(proposal), requestSerializer);
+        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_PROPOSE, new Request(proposal), requestSerializer);
         boolean executeOnSelf = false;
         for (int i = 0, size = participants.poll.size(); i < size ; ++i)
         {
@@ -220,7 +220,7 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
         }
 
         if (executeOnSelf)
-            StageManager.getStage(verbStages.get(APPLE_PAXOS_PROPOSE_REQ)).execute(() -> executeOnSelf(proposal));
+            StageManager.getStage(verbStages.get(APPLE_PAXOS_PROPOSE)).execute(() -> executeOnSelf(proposal));
     }
 
     /**

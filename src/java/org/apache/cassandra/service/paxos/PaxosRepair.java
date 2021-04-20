@@ -386,7 +386,7 @@ public class PaxosRepair
             return state;
 
         Querying querying = new Querying();
-        MessageOut<Request> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_REPAIR_REQ, new Request(partitionKey, metadata), requestSerializer);
+        MessageOut<Request> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_REPAIR, new Request(partitionKey, metadata), requestSerializer);
         for (int i = 0, size = participants.poll.size(); i < size ; ++i)
             MessagingService.instance().sendRR(message, participants.poll.get(i), querying);
         return querying;

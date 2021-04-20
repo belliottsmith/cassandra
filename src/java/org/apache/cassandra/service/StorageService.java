@@ -391,13 +391,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.COUNTER_MUTATION, new CounterMutationVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.TRUNCATE, new TruncateVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PAXOS_PREPARE, new PrepareVerbHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ, new PaxosPrepare.RequestHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ, new PaxosPrepareRefresh.RequestHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, new PaxosCommitAndPrepare.RequestHandler());
+        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PREPARE, new PaxosPrepare.RequestHandler());
+        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH, new PaxosPrepareRefresh.RequestHandler());
+        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE, new PaxosCommitAndPrepare.RequestHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PAXOS_PROPOSE, new ProposeVerbHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ, new PaxosPropose.RequestHandler());
+        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PROPOSE, new PaxosPropose.RequestHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PAXOS_COMMIT, new PaxosCommit.RequestHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_REPAIR_REQ, new PaxosRepair.RequestHandler());
+        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_REPAIR, new PaxosRepair.RequestHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.HINT, new HintVerbHandler());
 
         // see BootStrapper for a summary of how the bootstrap verbs interact
