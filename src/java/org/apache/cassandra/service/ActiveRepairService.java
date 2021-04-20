@@ -942,14 +942,14 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         {
             for (CFMetaData cfm : cfms)
             {
-                Set<InetAddress> endpoints = Sets.newHashSet(StorageService.instance.getLiveNaturalEndpoints(keyspace.getReplicationStrategy(), range.right));
+                Set<InetAddress> endpoints = Sets.newHashSet(StorageService.instance.getLiveNaturalEndpoints(keyspace.getReplicationStrategy(), range.left));
                 try
                 {
                     ConsistencyLevel.EACH_QUORUM.assureSufficientLiveNodes(keyspace.getReplicationStrategy(), endpoints);
                 }
                 catch (UnavailableException e)
                 {
-                    Set<InetAddress> downEndpoints = Sets.newHashSet(StorageService.instance.getNaturalEndpoints(ksName, range.right));
+                    Set<InetAddress> downEndpoints = Sets.newHashSet(StorageService.instance.getNaturalEndpoints(ksName, range.left));
                     downEndpoints.removeAll(endpoints);
 
                     throw new RuntimeException(String.format("Insufficient live nodes to repair paxos for %s in %s for %s.\n" +
@@ -964,7 +964,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                                              "Skipping this check can lead to paxos correctness issues",
                                                              range, ksName, reason, downEndpoints));
                 }
-                endpoints.addAll(StorageService.instance.getTokenMetadata().pendingEndpointsFor(range.right, ksName));
+                endpoints.addAll(StorageService.instance.getTokenMetadata().pendingEndpointsFor(range.left, ksName));
                 ListenableFuture<Void> future = PaxosCleanup.cleanup(endpoints, cfm.cfId, Collections.singleton(range), repairCommandExecutor());
                 futures.add(future);
             }

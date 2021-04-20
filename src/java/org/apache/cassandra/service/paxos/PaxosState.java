@@ -50,6 +50,7 @@ import org.apache.cassandra.utils.UUIDGen;
 
 import static org.apache.cassandra.config.Config.PaxosVariant.legacy;
 import static org.apache.cassandra.config.Config.PaxosVariant.legacy_fixed;
+import static org.apache.cassandra.db.SystemKeyspace.loadPaxosState;
 import static org.apache.cassandra.service.paxos.Commit.*;
 import static org.apache.cassandra.service.paxos.Commit.isAfter;
 import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
