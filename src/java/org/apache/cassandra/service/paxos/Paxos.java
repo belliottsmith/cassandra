@@ -678,7 +678,7 @@ public class Paxos
                 // does the work of applying in-progress writes; throws UAE or timeout if it can't
                 final BeginResult begin = begin(deadline, read, consistencyForPaxos, false, minimumBallot, failedAttemptsDueToContention);
                 failedAttemptsDueToContention = begin.failedAttemptsDueToContention;
-                if (PAXOS_VARIANT == apple_norrl || PAXOS_VARIANT == apple_norrfwl)
+                if (PAXOS_VARIANT == apple_norrl)
                     return begin.readResponse;
 
                 Proposal proposal = Proposal.empty(begin.ballot, read.partitionKey(), read.metadata());
