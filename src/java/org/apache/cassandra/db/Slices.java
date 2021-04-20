@@ -63,7 +63,7 @@ public abstract class Slices implements Iterable<Slice>
         if (slice.start() == Slice.Bound.BOTTOM && slice.end() == Slice.Bound.TOP)
             return Slices.ALL;
 
-        Preconditions.checkArgument(!slice.isEmpty(comparator));
+        Preconditions.checkArgument(!slice.isEmpty(comparator), slice.toString(comparator));
         return new ArrayBackedSlices(comparator, new Slice[]{ slice });
     }
 
