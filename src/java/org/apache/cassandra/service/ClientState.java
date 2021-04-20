@@ -238,11 +238,6 @@ public class ClientState
         }
     }
 
-    public static long getLastTimestampMicros()
-    {
-        return lastTimestampMicros.get();
-    }
-
     public static QueryHandler getCQLQueryHandler()
     {
         return cqlQueryHandler;

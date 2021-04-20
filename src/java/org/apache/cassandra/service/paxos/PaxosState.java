@@ -31,26 +31,24 @@ import org.apache.cassandra.db.*;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.UUIDGen;
 
-import static org.apache.cassandra.service.paxos.Commit.isAfter;
-
 public class PaxosState
 {
     private static final Striped<Lock> LOCKS = Striped.lazyWeakLock(DatabaseDescriptor.getConcurrentWriters() * 1024);
 
-    final UUID promised;
+    final Commit promised;
     final Commit accepted;
     final Commit committed;
 
     public static PaxosState empty(DecoratedKey key, CFMetaData metadata)
     {
         Commit empty = Commit.emptyCommit(key, metadata);
-        return new PaxosState(empty.ballot, empty, empty);
+        return new PaxosState(empty, empty, empty);
     }
 
-    public PaxosState(UUID promised, Commit accepted, Commit committed)
+    public PaxosState(Commit promised, Commit accepted, Commit committed)
     {
-        assert accepted.update.partitionKey().equals(committed.update.partitionKey());
-        assert accepted.update.metadata().equals(committed.update.metadata());
+        assert promised.update.partitionKey().equals(accepted.update.partitionKey()) && accepted.update.partitionKey().equals(committed.update.partitionKey());
+        assert promised.update.metadata() == accepted.update.metadata() && accepted.update.metadata() == committed.update.metadata();
 
         this.promised = promised;
         this.accepted = accepted;
@@ -59,23 +57,23 @@ public class PaxosState
 
     public static PrepareResponse legacyPrepare(Commit toPrepare)
     {
-        PaxosState state = promiseIfNewer(toPrepare.update.partitionKey(), toPrepare.update.metadata(), toPrepare.ballot);
-        if (toPrepare.ballot == state.promised)
+        PaxosState state = promiseIfNewer(toPrepare);
+        if (toPrepare == state.promised)
             return new PrepareResponse(true, state.accepted, state.committed);
         else
-            return new PrepareResponse(false, Commit.newPrepare(toPrepare.update.partitionKey(), toPrepare.update.metadata(), state.promised), state.committed);
+            return new PrepareResponse(false, state.promised, state.committed);
     }
 
     /**
      * Record the requested ballot as promised if it is newer than our current promise; otherwise do nothing.
      * @return a PaxosState object representing the state after this operation completes
      */
-    public static PaxosState promiseIfNewer(DecoratedKey key, CFMetaData metadata, UUID ballot)
+    public static PaxosState promiseIfNewer(Commit toPromise)
     {
         long start = System.nanoTime();
         try
         {
-            Lock lock = LOCKS.get(key);
+            Lock lock = LOCKS.get(toPromise.update.partitionKey());
             lock.lock();
             try
             {
@@ -84,17 +82,17 @@ public class PaxosState
                 // on some replica and not others during a new proposal (in StorageProxy.beginAndRepairPaxos()), and no
                 // amount of re-submit will fix this (because the node on which the commit has expired will have a
                 // tombstone that hides any re-submit). See CASSANDRA-12043 for details.
-                int nowInSec = UUIDGen.unixTimestampInSec(ballot);
-                PaxosState state = SystemKeyspace.loadPaxosState(key, metadata, nowInSec);
-                if (isAfter(ballot, state.promised))
+                int nowInSec = UUIDGen.unixTimestampInSec(toPromise.ballot);
+                PaxosState state = SystemKeyspace.loadPaxosState(toPromise.update.partitionKey(), toPromise.update.metadata(), nowInSec);
+                if (toPromise.isAfter(state.promised))
                 {
-                    Tracing.trace("Promising ballot {}", ballot);
-                    SystemKeyspace.savePaxosPromise(key, metadata, ballot);
-                    return new PaxosState(ballot, state.accepted, state.committed);
+                    Tracing.trace("Promising ballot {}", toPromise.ballot);
+                    SystemKeyspace.savePaxosPromise(toPromise);
+                    return new PaxosState(toPromise, state.accepted, state.committed);
                 }
                 else
                 {
-                    Tracing.trace("Promise rejected; {} is not sufficiently newer than {}", ballot, state.promised);
+                    Tracing.trace("Promise rejected; {} is not sufficiently newer than {}", toPromise, state.promised);
                     // return the currently promised ballot (not the last accepted one) so the coordinator can make sure it uses newer ballot next time (#5667)
                     return state;
                 }
@@ -106,13 +104,8 @@ public class PaxosState
         }
         finally
         {
-            Keyspace.open(metadata.ksName).getColumnFamilyStore(metadata.cfId).metric.casPrepare.addNano(System.nanoTime() - start);
+            Keyspace.open(toPromise.update.metadata().ksName).getColumnFamilyStore(toPromise.update.metadata().cfId).metric.casPrepare.addNano(System.nanoTime() - start);
         }
-    }
-
-    static PaxosState read(DecoratedKey partitionKey, CFMetaData metadata, int nowInSec)
-    {
-        return SystemKeyspace.loadPaxosState(partitionKey, metadata, nowInSec);
     }
 
     /**
@@ -129,7 +122,7 @@ public class PaxosState
             {
                 int nowInSec = UUIDGen.unixTimestampInSec(proposal.ballot);
                 PaxosState state = SystemKeyspace.loadPaxosState(proposal.update.partitionKey(), proposal.update.metadata(), nowInSec);
-                if (proposal.hasBallot(state.promised) || proposal.isAfter(state.promised))
+                if (proposal.hasBallot(state.promised.ballot) || proposal.isAfter(state.promised))
                 {
                     Tracing.trace("Accepting proposal {}", proposal);
                     SystemKeyspace.savePaxosProposal(proposal);
@@ -138,7 +131,7 @@ public class PaxosState
                 else
                 {
                     Tracing.trace("Rejecting proposal for {} because inProgress is now {}", proposal, state.promised);
-                    return state.promised;
+                    return state.promised.ballot;
                 }
             }
             finally

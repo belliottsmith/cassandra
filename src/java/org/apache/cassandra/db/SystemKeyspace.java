@@ -1312,17 +1312,16 @@ public final class SystemKeyspace
         UntypedResultSet results = QueryProcessor.executeInternalWithNow(nowInSec, String.format(req, PAXOS), key.getKey(), metadata.cfId);
         if (results.isEmpty())
             return PaxosState.empty(key, metadata);
-
         Commit empty = null;
         UntypedResultSet.Row row = results.one();
-        UUID promised = row.has("in_progress_ballot")
-                        ? row.getUUID("in_progress_ballot")
-                        : Commit.emptyBallot();
+        Commit promised = row.has("in_progress_ballot")
+                        ? new Commit(row.getUUID("in_progress_ballot"), new PartitionUpdate(metadata, key, metadata.partitionColumns(), 1))
+                        : (empty = Commit.emptyCommit(key, metadata));
         // either we have both a recently accepted ballot and update or we have neither
         int proposalVersion = row.has("proposal_version") ? row.getInt("proposal_version") : MessagingService.VERSION_21;
         Commit accepted = row.has("proposal")
                         ? new Commit(row.getUUID("proposal_ballot"), PartitionUpdate.fromBytes(row.getBytes("proposal"), proposalVersion, key))
-                        : (empty = Commit.emptyCommit(key, metadata));
+                        : (empty == null ? empty = Commit.emptyCommit(key, metadata) : empty);
         // either most_recent_commit and most_recent_commit_at will both be set, or neither
         int mostRecentVersion = row.has("most_recent_commit_version") ? row.getInt("most_recent_commit_version") : MessagingService.VERSION_21;
         Commit committed = row.has("most_recent_commit")
@@ -1331,15 +1330,15 @@ public final class SystemKeyspace
         return new PaxosState(promised, accepted, committed);
     }
 
-    public static void savePaxosPromise(DecoratedKey key, CFMetaData metadata, UUID ballot)
+    public static void savePaxosPromise(Commit promise)
     {
         String req = "UPDATE system.%s USING TIMESTAMP ? AND TTL ? SET in_progress_ballot = ? WHERE row_key = ? AND cf_id = ?";
         executeInternal(String.format(req, PAXOS),
-                        UUIDGen.microsTimestamp(ballot),
-                        paxosTtlSec(metadata),
-                        ballot,
-                        key.getKey(),
-                        metadata.cfId);
+                        UUIDGen.microsTimestamp(promise.ballot),
+                        paxosTtlSec(promise.update.metadata()),
+                        promise.ballot,
+                        promise.update.partitionKey().getKey(),
+                        promise.update.metadata().cfId);
     }
 
     public static void savePaxosProposal(Commit proposal)

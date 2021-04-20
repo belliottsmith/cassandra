@@ -26,8 +26,6 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
-import javax.annotation.Nullable;
-
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
@@ -43,6 +41,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.WriteResponse;
 import org.apache.cassandra.db.WriteType;
@@ -75,8 +74,6 @@ import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.UUIDGen;
 
-import static com.google.common.collect.Iterators.size;
-import static java.util.concurrent.TimeUnit.MICROSECONDS;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.net.MessagingService.FAILURE_RESPONSE_PARAM;
@@ -89,7 +86,6 @@ import static org.apache.cassandra.service.StorageProxy.readMetricsMap;
 import static org.apache.cassandra.service.StorageProxy.sameDCPredicateFor;
 import static org.apache.cassandra.service.StorageProxy.verifyAgainstBlacklist;
 import static org.apache.cassandra.service.StorageProxy.writeMetricsMap;
-import static org.apache.cassandra.service.paxos.PaxosCommitAndPrepare.commitAndPrepare;
 import static org.apache.cassandra.service.paxos.PaxosPrepare.prepare;
 import static org.apache.cassandra.utils.NoSpamLogger.Level.WARN;
 
@@ -107,8 +103,6 @@ public class Paxos
      */
     static class Participants
     {
-        final ConsistencyLevel consistencyForConsensus;
-
         /**
          * All natural endpoints for the token, regardless of status and location
          */
@@ -127,18 +121,17 @@ public class Paxos
          *
          * The number of responses we require to reach desired consistency from members of {@code contact}
          */
-        final int requiredForConsensus;
+        final int required;
 
-        private Participants(ConsistencyLevel consistencyForConsensus, List<InetAddress> allNatural, Collection<InetAddress> allPending, List<InetAddress> contact, int requiredForConsensus)
+        private Participants(List<InetAddress> allNatural, Collection<InetAddress> allPending, List<InetAddress> contact, int required)
         {
-            this.consistencyForConsensus = consistencyForConsensus;
             this.allNatural = allNatural;
             this.allPending = allPending;
             this.contact = contact;
-            this.requiredForConsensus = requiredForConsensus;
+            this.required = required;
         }
 
-        static Participants get(boolean isWrite, CFMetaData cfm, DecoratedKey key, ConsistencyLevel consistency) throws UnavailableException
+        static Participants get(boolean isWrite, CFMetaData cfm, DecoratedKey key, ConsistencyLevel consistencyForPaxos) throws UnavailableException
         {
             Token tk = key.getToken();
             List<InetAddress> natural = StorageService.instance.getNaturalEndpoints(cfm.ksName, tk);
@@ -146,7 +139,7 @@ public class Paxos
 
             Predicate<InetAddress> filter = FailureDetector.isAlivePredicate;
             int countNatural = natural.size(), countPending = pending.size();
-            if (consistency == ConsistencyLevel.LOCAL_SERIAL)
+            if (consistencyForPaxos == ConsistencyLevel.LOCAL_SERIAL)
             {
                 // Restrict naturalEndpoints and pendingEndpoints to node in the local DC only
                 String localDc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddress());
@@ -176,7 +169,7 @@ public class Paxos
 
             if (countPending > 1 || required > contact.size())
             {
-                mark(isWrite, m -> m.unavailables, consistency);
+                mark(isWrite, m -> m.unavailables, consistencyForPaxos);
 
                 if (countPending > 1)
                 {
@@ -184,32 +177,17 @@ public class Paxos
                     // Note that we fake an impossible number of required nodes in the unavailable exception
                     // to nail home the point that it's an impossible operation no matter how many nodes are live.
                     throw new UnavailableException(String.format("Cannot perform LWT operation as there is more than one (%d) relevant pending range movement", countPending),
-                            consistency,
+                            consistencyForPaxos,
                             participants + 1,
                             contact.size());
                 }
                 else
                 {
-                    throw new UnavailableException(consistency, required, contact.size());
+                    throw new UnavailableException(consistencyForPaxos, required, contact.size());
                 }
             }
 
-            return new Participants(consistency, natural, pending, contact, required);
-        }
-
-        int requiredFor(ConsistencyLevel consistency, CFMetaData metadata)
-        {
-            if (consistency == Paxos.nonSerial(consistencyForConsensus))
-                return requiredForConsensus;
-
-            int requiredPending = allPending.size();
-            if (requiredPending > 0 && consistency.isDatacenterLocal())
-            {
-                String localDc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddress());
-                Predicate<InetAddress> isLocalDc = sameDCPredicateFor(localDc);
-                requiredPending = Iterators.size(Iterators.filter(allPending.iterator(), isLocalDc));
-            }
-            return consistency.blockFor(Keyspace.open(metadata.ksName)) + requiredPending;
+            return new Participants(natural, pending, contact, required);
         }
     }
 
@@ -227,8 +205,8 @@ public class Paxos
 
         MaybeFailure(Participants participants, int successes, int failures)
         {
-            this(participants.contact.size() - failures < participants.requiredForConsensus,
-                    participants.contact.size(), participants.requiredForConsensus, successes, failures);
+            this(participants.contact.size() - failures < participants.required,
+                    participants.contact.size(), participants.required, successes, failures);
         }
 
         MaybeFailure(int participants, int required, int successes, int failures)
@@ -328,7 +306,6 @@ public class Paxos
         consistencyForCommit.validateForCasCommit(metadata.ksName);
         verifyAgainstBlacklist(metadata.ksName, metadata.cfName, key);
 
-        UUID minimumBallot = null;
         int failedAttemptsDueToContention = 0;
         try
         {
@@ -338,13 +315,9 @@ public class Paxos
                 // for simplicity, we'll do a single liveness check at the start of each attempt
                 Participants participants = Participants.get(true, metadata, key, consistencyForPaxos);
 
-                // read the current values and check they validate the conditions
-                Tracing.trace("Reading existing values for CAS precondition");
-
-                BeginResult begin = begin(proposeDeadline, participants, readCommand, consistencyForPaxos,
-                        true, minimumBallot, failedAttemptsDueToContention);
+                BeginResult begin = begin(proposeDeadline, key, metadata, participants, consistencyForPaxos, consistencyForCommit, true, readCommand);
                 UUID ballot = begin.ballot;
-                failedAttemptsDueToContention = begin.failedAttemptsDueToContention;
+                failedAttemptsDueToContention += begin.failedAttemptsDueToContention;
 
                 FilteredPartition current;
                 try (RowIterator iter = PartitionIterators.getOnlyElement(begin.readResponse, readCommand))
@@ -352,42 +325,28 @@ public class Paxos
                     current = FilteredPartition.create(iter);
                 }
 
-                Commit proposal;
-                boolean conditionMet = request.appliesTo(current);
-                if (!conditionMet)
+                if (!request.appliesTo(current))
                 {
-                    // If we failed to meet our condition, it does not mean we can do nothing: if we do not propose
-                    // anything that is accepted by a quorum, it is possible for our !conditionMet state
-                    // to not be serialized wrt other operations.
-                    // If a later read encounters an "in progress" write that did not reach a majority,
-                    // but that would have permitted conditionMet had it done so (and hence we evidently did not witness),
-                    // that operation will complete the in-progress proposal before continuing, so that this and future
-                    // reads will perceive conditionMet without any intervening modification from the time at which we
-                    // assured a conditional write that !conditionMet.
-                    // So our evaluation is only serialized if we invalidate any in progress operations by proposing an empty update
-                    // See also CASSANDRA-12126
-                    Tracing.trace("CAS precondition does not match current values {}; proposing empty update", current);
-                    proposal = Commit.newProposal(ballot, PartitionUpdate.emptyUpdate(metadata, key));
-                }
-                else
-                {
-                    // finish the paxos round w/ the desired updates
-                    // TODO "turn null updates into delete?" - what does this TODO even mean?
-                    PartitionUpdate updates = request.makeUpdates(current);
-
-                    // Apply triggers to cas updates. A consideration here is that
-                    // triggers emit Mutations, and so a given trigger implementation
-                    // may generate mutations for partitions other than the one this
-                    // paxos round is scoped for. In this case, TriggerExecutor will
-                    // validate that the generated mutations are targetted at the same
-                    // partition as the initial updates and reject (via an
-                    // InvalidRequestException) any which aren't.
-                    updates = TriggerExecutor.instance.execute(updates);
-
-                    proposal = Commit.newProposal(ballot, updates);
-                    Tracing.trace("CAS precondition is met; proposing client-requested updates for {}", ballot);
+                    Tracing.trace("CAS precondition does not match current values {}", current);
+                    casWriteMetrics.conditionNotMet.inc();
+                    return current.rowIterator();
                 }
 
+                // finish the paxos round w/ the desired updates
+                // TODO turn null updates into delete?
+                PartitionUpdate updates = request.makeUpdates(current);
+
+                // Apply triggers to cas updates. A consideration here is that
+                // triggers emit Mutations, and so a given trigger implementation
+                // may generate mutations for partitions other than the one this
+                // paxos round is scoped for. In this case, TriggerExecutor will
+                // validate that the generated mutations are targetted at the same
+                // partition as the initial updates and reject (via an
+                // InvalidRequestException) any which aren't.
+                updates = TriggerExecutor.instance.execute(updates);
+
+                Commit proposal = Commit.newProposal(ballot, updates);
+                Tracing.trace("CAS precondition is met; proposing client-requested updates for {}", ballot);
                 PaxosPropose.Status propose = PaxosPropose.sync(proposeDeadline, proposal, participants, true);
                 switch (propose.outcome)
                 {
@@ -398,24 +357,12 @@ public class Paxos
 
                     case SUCCESS:
                     {
-                        // no need to commit a no-op; either it
-                        //   1) reached a majority, in which case it was agreed, had no effect and we can do nothing; or
-                        //   2) did not reach a majority, was not agreed, and was not user visible as a result
-                        if (conditionMet)
-                        {
-                            PaxosCommit.Status commit = PaxosCommit.sync(commitDeadline, proposal, participants, consistencyForCommit, true);
-                            if (!commit.isSuccess())
-                                throw commit.maybeFailure().markAndThrowAsTimeoutOrFailure(true, consistencyForCommit);
+                        PaxosCommit.Status commit = PaxosCommit.sync(commitDeadline, proposal, participants, consistencyForCommit, true);
+                        if (!commit.isSuccess())
+                            throw commit.maybeFailure().markAndThrowAsTimeoutOrFailure(true, consistencyForCommit);
 
-                            Tracing.trace("CAS successful");
-                            return null;
-                        }
-                        else
-                        {
-                            Tracing.trace("CAS precondition rejected", current);
-                            casWriteMetrics.conditionNotMet.inc();
-                            return current.rowIterator();
-                        }
+                        Tracing.trace("CAS successful");
+                        return null;
                     }
 
                     case SUPERSEDED:
@@ -428,16 +375,14 @@ public class Paxos
                                 // We don't know if our update has been applied, as the competing ballot may have completed
                                 // our proposal.  We yield our uncertainty to the caller via timeout exception.
                                 // TODO: should return more useful result to client, and should also avoid this situation where possible
-                                throw new MaybeFailure(false, participants.contact.size(), participants.requiredForConsensus, 0, 0)
+                                throw new MaybeFailure(false, participants.contact.size(), participants.required, 0, 0)
                                         .markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
 
                             case NO:
-                                minimumBallot = propose.superseded().by;
                                 // We have been superseded without our proposal being accepted by anyone, so we can safely retry
                                 Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
                                 failedAttemptsDueToContention++;
-                                if (!waitForContention(proposeDeadline, ++failedAttemptsDueToContention))
-                                    throw new MaybeFailure(participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
+                                Uninterruptibles.sleepUninterruptibly(ThreadLocalRandom.current().nextInt(100), TimeUnit.MILLISECONDS);
                         }
                     }
                 }
@@ -477,7 +422,7 @@ public class Paxos
             Participants participants = Participants.get(false, metadata, key, consistencyLevel);
 
             // does the work of applying in-progress writes; throws UAE or timeout if it can't
-            final BeginResult begin = begin(deadline, participants, group.commands.get(0), consistencyLevel, false, null, 0);
+            final BeginResult begin = begin(deadline, key, metadata, participants, consistencyLevel, nonSerial(consistencyLevel), false, group.commands.get(0));
             if (begin.failedAttemptsDueToContention > 0)
             {
                 casReadMetrics.contention.update(begin.failedAttemptsDueToContention);
@@ -517,26 +462,46 @@ public class Paxos
      * nodes have seen the mostRecentCommit.  Otherwise, return null.
      */
     private static BeginResult begin(long deadline,
+                                     DecoratedKey key,
+                                     CFMetaData metadata,
                                      Participants participants,
-                                     SinglePartitionReadCommand readCommand,
                                      ConsistencyLevel consistencyForPaxos,
+                                     ConsistencyLevel consistencyForCommit,
                                      final boolean isWrite,
-                                     UUID minimumBallot,
-                                     int failedAttemptsDueToContention)
+                                     ReadCommand readCommand)
             throws WriteTimeoutException, WriteFailureException, ReadTimeoutException, ReadFailureException
     {
-        // TODO: should we re-query participants whenever we prepare, and return them in BeginResult?
-        //       probably, since this would make it easier to verify participants as part of prepare,
-        //       and restart if another participant is aware of a change
-        PaxosPrepare preparing = prepare(participants, minimumBallot, readCommand);
+        UUID minimumBallot = null;
+        int failedAttemptsDueToContention = 0;
         while (true)
         {
+            // We want a timestamp that is guaranteed to be unique for that node (so that the ballot is globally unique), but if we've got a prepare rejected
+            // already we also want to make sure we pick a timestamp that has a chance to be promised, i.e. one that is greater that the most recently known
+            // in progress (#5667). Lastly, we don't want to use a timestamp that is older than the last one assigned by ClientState or operations may appear
+            // out-of-order (#7801).
+            long minTimestampMicrosToUse = minimumBallot == null ? Long.MIN_VALUE : 1 + UUIDGen.microsTimestamp(minimumBallot);
+            long ballotMicros = ClientState.getTimestampForPaxos(minTimestampMicrosToUse);
+            // Note that ballotMicros is not guaranteed to be unique if two proposal are being handled concurrently by the same coordinator. But we still
+            // need ballots to be unique for each proposal so we have to use getRandomTimeUUIDFromMicros.
+            UUID ballot = UUIDGen.getRandomTimeUUIDFromMicros(ballotMicros);
+
             // prepare
-            PaxosPrepare retry;
-            PaxosPrepare.Status prepare = preparing.awaitUntil(deadline);
-            retry: switch (prepare.outcome)
+            Tracing.trace("Preparing {} with read", ballot);
+            Commit toPrepare = Commit.newPrepare(key, metadata, ballot);
+            PaxosPrepare.Status prepare = prepare(deadline, toPrepare, participants, readCommand);
+            switch (prepare.outcome)
             {
                 default: throw new IllegalStateException();
+
+                case SUPERSEDED:
+                {
+                    Tracing.trace("Some replicas have already promised a higher ballot than ours; aborting");
+                    minimumBallot = prepare.supersededBy();
+                    failedAttemptsDueToContention++;
+                    // sleep a random amount to give the other proposer a chance to finish
+                    Uninterruptibles.sleepUninterruptibly(ThreadLocalRandom.current().nextInt(100), TimeUnit.MILLISECONDS);
+                    continue;
+                }
 
                 case FOUND_IN_PROGRESS:
                 {
@@ -546,8 +511,7 @@ public class Paxos
                         casWriteMetrics.unfinishedCommit.inc();
                     else
                         casReadMetrics.unfinishedCommit.inc();
-
-                    Commit refreshedInProgress = Commit.newProposal(prepare.foundInProgress().promisedBallot, inProgress.update);
+                    Commit refreshedInProgress = Commit.newProposal(ballot, inProgress.update);
                     PaxosPropose.Status proposeResult = PaxosPropose.sync(deadline, refreshedInProgress, participants, false);
                     switch (proposeResult.outcome)
                     {
@@ -556,27 +520,37 @@ public class Paxos
                         case MAYBE_FAILURE:
                             throw proposeResult.maybeFailure().markAndThrowAsTimeoutOrFailure(isWrite, consistencyForPaxos);
 
-                        case SUCCESS:
-                            retry = commitAndPrepare(refreshedInProgress, participants, readCommand);
-                            break retry;
-
                         case SUPERSEDED:
-                            // since we are proposing a previous value that was maybe superseded by us before completion
-                            // we don't need to test the side effects, as we just want to start again, and fall through
-                            // to the superseded section below
-                            prepare = new PaxosPrepare.Superseded(proposeResult.superseded().by);
+                            minimumBallot = proposeResult.superseded().by;
+                            Tracing.trace("Some replicas have already promised a higher ballot than ours; aborting");
+                            // sleep a random amount to give the other proposer a chance to finish
+                            failedAttemptsDueToContention++;
+                            Uninterruptibles.sleepUninterruptibly(ThreadLocalRandom.current().nextInt(100), TimeUnit.MILLISECONDS);
+                            continue;
 
+                        case SUCCESS:
+                            // TODO: this commit consistency is wrong, as we must reach consistencyForPaxos in next prepare round
+                            PaxosCommit.Status commitResult = PaxosCommit.sync(deadline, refreshedInProgress, participants, consistencyForCommit, false);
+                            if (!commitResult.isSuccess())
+                                throw commitResult.maybeFailure().markAndThrowAsTimeoutOrFailure(isWrite, consistencyForCommit);
+                            continue;
                     }
                 }
 
-                case SUPERSEDED:
+                case INCOMPLETE_COMMIT:
                 {
-                    Tracing.trace("Some replicas have already promised a higher ballot than ours; aborting");
-                    // sleep a random amount to give the other proposer a chance to finish
-                    if (!waitForContention(deadline, ++failedAttemptsDueToContention))
-                        throw new MaybeFailure(participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
-                    retry = prepare(participants, prepare.supersededBy(), readCommand);
-                    break;
+                    // To be able to propose our value on a new round, we need a quorum of replica to have learn the previous one. Why is explained at:
+                    // https://issues.apache.org/jira/browse/CASSANDRA-5062?focusedCommentId=13619810&page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#comment-13619810)
+                    // Since we waited for quorum nodes, if some of them haven't seen the last commit (which may just be a timing issue, but may also
+                    // mean we lost messages), we pro-actively "repair" those nodes, and retry.
+                    PaxosPrepare.IncompleteCommit incompleteCommit = prepare.incompleteCommit();
+                    Tracing.trace("Repairing replicas that missed the most recent commit");
+                    PaxosCommit.async(incompleteCommit.incompleteCommit, incompleteCommit.missingFrom);
+                    // TODO: provided commits don't invalid the prepare we just did above (which they don't), we could just wait
+                    // for all the missingMRC to acknowledge this commit and then move on with proposing our value. But that means
+                    // adding the ability to have commitPaxos block, which is exactly CASSANDRA-5442 will do. So once we have that
+                    // latter ticket, we can pass CL.ALL to the commit above and remove the 'continue'.
+                    continue;
                 }
 
                 case SUCCESS:
@@ -585,38 +559,17 @@ public class Paxos
                     // round's proposal (if any).
                     PaxosPrepare.Success success = prepare.success();
 
-                    DataResolver resolver = new DataResolver(Keyspace.open(readCommand.metadata().ksName), readCommand, nonSerial(consistencyForPaxos), success.responses.size());
+                    DataResolver resolver = new DataResolver(Keyspace.open(metadata.ksName), readCommand, nonSerial(consistencyForPaxos), success.responses.size());
                     for (int i = 0 ; i < success.responses.size() ; ++i)
                         resolver.preprocess(success.responses.get(i));
 
-                    return new BeginResult(success.ballot, failedAttemptsDueToContention, resolver.resolve());
+                    return new BeginResult(ballot, failedAttemptsDueToContention, resolver.resolve());
                 }
 
                 case MAYBE_FAILURE:
                     throw prepare.maybeFailure().markAndThrowAsTimeoutOrFailure(isWrite, consistencyForPaxos);
             }
-
-            preparing = retry;
         }
-    }
-
-    static boolean waitForContention(long deadline, int failedAttemptsDueToContention)
-    {
-        // should have at most 2 of 3 messages to complete, and our latency counts retries and this is just a lower bound
-        long minimumWait = (casWriteMetrics.recentLatencyHistogram.percentile(50) * 2)/3;
-        long maximumWait = failedAttemptsDueToContention * casWriteMetrics.recentLatencyHistogram.percentile(95);
-        if (maximumWait <= 0 || maximumWait > 100000)
-            maximumWait = 100000;
-        if (minimumWait > maximumWait)
-            minimumWait = maximumWait - 1;
-
-        long wait = MICROSECONDS.toNanos(ThreadLocalRandom.current().nextLong(minimumWait, maximumWait));
-        long until = System.nanoTime() + wait;
-        if (until >= deadline)
-            return false;
-
-        Uninterruptibles.sleepUninterruptibly(wait, MICROSECONDS);
-        return true;
     }
 
     static void sendFailureResponse(String action, InetAddress to, UUID ballot, int messageId)
@@ -654,9 +607,9 @@ public class Paxos
     {
         switch (serial)
         {
-            default: throw new IllegalStateException();
             case SERIAL: return ConsistencyLevel.QUORUM;
             case LOCAL_SERIAL: return ConsistencyLevel.LOCAL_QUORUM;
+            default: throw new IllegalStateException();
         }
     }
 
@@ -675,30 +628,4 @@ public class Paxos
         }
     }
 
-    static UUID newBallot(@Nullable UUID minimumBallot)
-    {
-        // We want a timestamp that is guaranteed to be unique for that node (so that the ballot is globally unique), but if we've got a prepare rejected
-        // already we also want to make sure we pick a timestamp that has a chance to be promised, i.e. one that is greater that the most recently known
-        // in progress (#5667). Lastly, we don't want to use a timestamp that is older than the last one assigned by ClientState or operations may appear
-        // out-of-order (#7801).
-        long minTimestampMicros = minimumBallot == null ? Long.MIN_VALUE : 1 + UUIDGen.microsTimestamp(minimumBallot);
-        long timestampMicros = ClientState.getTimestampForPaxos(minTimestampMicros);
-        // Note that ballotMicros is not guaranteed to be unique if two proposal are being handled concurrently by the same coordinator. But we still
-        // need ballots to be unique for each proposal so we have to use getRandomTimeUUIDFromMicros.
-        return UUIDGen.getRandomTimeUUIDFromMicros(timestampMicros);
-    }
-
-    static UUID staleBallotNewerThan(UUID than)
-    {
-        long minTimestampMicros = 1 + UUIDGen.microsTimestamp(than);
-        long maxTimestampMicros = ClientState.getLastTimestampMicros();
-        maxTimestampMicros -= Math.min((maxTimestampMicros - minTimestampMicros) / 2, SECONDS.toMicros(5L));
-        if (maxTimestampMicros == minTimestampMicros)
-            ++maxTimestampMicros;
-
-        long timestampMicros = ThreadLocalRandom.current().nextLong(minTimestampMicros, maxTimestampMicros);
-        // Note that ballotMicros is not guaranteed to be unique if two proposal are being handled concurrently by the same coordinator. But we still
-        // need ballots to be unique for each proposal so we have to use getRandomTimeUUIDFromMicros.
-        return UUIDGen.getRandomTimeUUIDFromMicros(timestampMicros);
-    }
 }

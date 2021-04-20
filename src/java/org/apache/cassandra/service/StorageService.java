@@ -62,9 +62,6 @@ import org.apache.cassandra.db.ReadCommandVerbHandler;
 import org.apache.cassandra.db.partitions.AtomicBTreePartition;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.net.PingVerbHandler;
-import org.apache.cassandra.service.paxos.PaxosCommitAndPrepare;
-import org.apache.cassandra.service.paxos.PaxosPrepareRefresh;
-import org.apache.cassandra.service.paxos.PaxosRepair;
 import org.apache.cassandra.utils.progress.ProgressListener;
 import org.apache.cassandra.service.paxos.PaxosCommit;
 import org.apache.cassandra.service.paxos.PaxosPrepare;
@@ -392,12 +389,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.TRUNCATE, new TruncateVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PAXOS_PREPARE, new PrepareVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PREPARE, new PaxosPrepare.RequestHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH, new PaxosPrepareRefresh.RequestHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE, new PaxosCommitAndPrepare.RequestHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PAXOS_PROPOSE, new ProposeVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PROPOSE, new PaxosPropose.RequestHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PAXOS_COMMIT, new PaxosCommit.RequestHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_REPAIR, new PaxosRepair.RequestHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.HINT, new HintVerbHandler());
 
         // see BootStrapper for a summary of how the bootstrap verbs interact

@@ -23,7 +23,6 @@ import java.net.InetAddress;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -127,7 +126,7 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
     /** Number of accepts required */
     private final int required;
     /** Invoke on reaching a terminal status */
-    private final Consumer<Status> onDone;
+    private final Runnable onDone;
 
     /**
      * bit 0-20:  accepts
@@ -145,9 +144,8 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
     /** The newest superseding ballot from a refusal; only returned to the caller if we fail to reach a quorum */
     private volatile UUID supersededBy;
 
-    private PaxosPropose(int participants, int required, boolean waitForNoSideEffect, Consumer<Status> onDone)
+    private PaxosPropose(int participants, int required, boolean waitForNoSideEffect, Runnable onDone)
     {
-        assert required > 0;
         this.waitForNoSideEffect = waitForNoSideEffect;
         this.participants = participants;
         this.required = required;
@@ -162,7 +160,7 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
     static Status sync(long deadline, Commit proposal, Paxos.Participants participants, boolean waitForNoSideEffect)
     {
         SimpleCondition done = new SimpleCondition();
-        PaxosPropose propose = new PaxosPropose(participants.contact.size(), participants.requiredForConsensus, waitForNoSideEffect, ignore -> done.signalAll());
+        PaxosPropose propose = new PaxosPropose(participants.contact.size(), participants.required, waitForNoSideEffect, done::signalAll);
         propose.start(participants, proposal);
 
         try
@@ -171,17 +169,10 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
         }
         catch (InterruptedException e)
         {
-            return new MaybeFailure(new Paxos.MaybeFailure(true, participants.contact.size(), participants.requiredForConsensus, 0, 0));
+            return new MaybeFailure(new Paxos.MaybeFailure(true, participants.contact.size(), participants.required, 0, 0));
         }
 
         return propose.status();
-    }
-
-    static <T extends Consumer<Status>> T async(Commit proposal, Paxos.Participants participants, boolean waitForNoSideEffect, T onDone)
-    {
-        PaxosPropose propose = new PaxosPropose(participants.contact.size(), participants.requiredForConsensus, waitForNoSideEffect, onDone);
-        propose.start(participants, proposal);
-        return onDone;
     }
 
     private void start(Paxos.Participants participants, Commit proposal)
@@ -309,7 +300,7 @@ public class PaxosPropose implements IAsyncCallbackWithFailure<PaxosPropose.Resp
 
     private void signalDone()
     {
-        onDone.accept(status());
+        onDone.run();
     }
 
     private boolean isSuccessful(long responses)
