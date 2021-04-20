@@ -26,13 +26,11 @@ import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
-import org.apache.cassandra.config.Config;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.service.paxos.Commit;
-import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
@@ -86,26 +84,9 @@ public class PaxosStateTest
         assertDataPresent(cfs, Util.dk(key), "val", value);
     }
 
-    // WARNING: this test verifies that old broken behaviour works without error
-    // i.e. this behaviour is wrong, the test only confirms it works WITHOUT ERROR
-    // while we maintain the incorrect behaviour.
-    @Test
-    public void testBrokenLegacyAcceptPrecedingCommit()
-    {
-        assertNotSame(Paxos.getPaxosVariant(), Config.PaxosVariant.legacy_fixed);
-        String key = "key" + System.nanoTime();
-        PaxosState.commitDirect(newProposal(2, key));
-        PaxosState.legacyPropose(newProposal(1, key));
-    }
-
     private Commit newProposal(long ballotMillis, PartitionUpdate update)
     {
         return Commit.newProposal(UUIDGen.getTimeUUID(ballotMillis), update);
-    }
-
-    private Commit newProposal(long ballotMillis, String k)
-    {
-        return Commit.newPrepare(Util.dk(k), Keyspace.open("PaxosStateTestKeyspace1").getColumnFamilyStore("Standard1").metadata, UUIDGen.getTimeUUID(ballotMillis));
     }
 
     private void assertDataPresent(ColumnFamilyStore cfs, DecoratedKey key, String name, ByteBuffer value)
