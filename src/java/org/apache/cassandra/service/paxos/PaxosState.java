@@ -573,17 +573,14 @@ public class PaxosState implements AutoCloseable
                     // ignore nowInSec when merging as this can only be an issue during the transition period, so the unbounded
                     // problem of CASSANDRA-12043 is not an issue
                     Snapshot before = unsafeState.current;
-                    boolean accept = variant == legacy
-                            ? proposal.hasBallot(before.promised) || proposal.isAfter(before.promised)
-                            : proposal.isSameOrAfter(before.latestWitnessedOrLowBound());
+                    boolean accept = variant == legacy_fixed
+                            ? proposal.isSameOrAfter(before.latestWitnessedOrLowBound())
+                            : proposal.hasBallot(before.promised) || proposal.isAfter(before.promised);
                     if (accept)
                     {
                         // maintain legacy (broken) semantics of accepting proposal older than committed without breaking contract for Apple Paxos
-                        boolean acceptWithLegacyBug = variant == legacy && proposal.isBefore(before.committed.ballot);
-                        if (acceptWithLegacyBug
-                                || proposal.hasSameBallot(before.committed)
-                                || currentUpdater.compareAndSet(unsafeState, before,
-                                    new Snapshot(before.promised, new Accepted(proposal), before.committed)))
+                        boolean acceptWithLegacyBug = variant != legacy_fixed && !proposal.isAfter(before.committed);
+                        if (acceptWithLegacyBug || currentUpdater.compareAndSet(unsafeState, before, new Snapshot(before.promised, new Accepted(proposal), before.committed)))
                         {
                             Tracing.trace("Accepting proposal {}", proposal);
                             SystemKeyspace.savePaxosProposal(proposal);
