@@ -536,13 +536,6 @@ public class Paxos
                 boolean conditionMet = request.appliesTo(current);
                 if (!conditionMet)
                 {
-                    if (getPaxosVariant() == apple_norrfwl)
-                    {
-                        Tracing.trace("CAS precondition rejected", current);
-                        casWriteMetrics.conditionNotMet.inc();
-                        return current.rowIterator();
-                    }
-
                     // If we failed to meet our condition, it does not mean we can do nothing: if we do not propose
                     // anything that is accepted by a quorum, it is possible for our !conditionMet state
                     // to not be serialized wrt other operations.
@@ -1030,7 +1023,6 @@ public class Paxos
         switch (PAXOS_VARIANT)
         {
             case apple_norrl:
-            case apple_norrfwl:
             case apple_rrl:
             case apple_rrl2rt:
                 return true;

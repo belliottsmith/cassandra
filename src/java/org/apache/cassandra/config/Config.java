@@ -641,7 +641,6 @@ public class Config
         legacy_cached,
         legacy_fixed,  // fixes bugs in legacy impl to support validating transition from legacy to apple paxos. Not intended for production
         apple_norrl, // with legacy semantics for read/read linearizability (i.e. not guaranteed)
-        apple_norrfwl, // with legacy semantics for read/read and failed write linearizability (i.e. not guaranteed)
         apple_rrl2rt, // with read/read linearizability guaranteed but requiring an extra read round-trip
         apple_rrl // provides read/read linearizability, doesn't incur an extra round-trip if no contending paxos operation is detected
     }
