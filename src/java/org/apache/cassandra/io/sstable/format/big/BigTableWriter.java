@@ -155,6 +155,7 @@ public class BigTableWriter extends SSTableWriter
             long endPosition = dataFile.position();
             long rowSize = endPosition - startPosition;
             maybeLogLargePartitionWarning(key, rowSize);
+            maybeLogManyTombstonesWarning(key, metadataCollector.totalTombstones);
             metadataCollector.addPartitionSizeInBytes(rowSize);
             afterAppend(key, endPosition, entry);
             return entry;
@@ -171,6 +172,15 @@ public class BigTableWriter extends SSTableWriter
         {
             String keyString = metadata.getKeyValidator().getString(key.getKey());
             logger.warn("Writing large partition {}/{}:{} ({}) to sstable {}", metadata.ksName, metadata.cfName, keyString, FBUtilities.prettyPrintMemory(rowSize), getFilename());
+        }
+    }
+
+    private void maybeLogManyTombstonesWarning(DecoratedKey key, int tombstoneCount)
+    {
+        if (tombstoneCount > DatabaseDescriptor.getTombstoneWarnThreshold())
+        {
+            String keyString = metadata.getKeyValidator().getString(key.getKey());
+            logger.warn("Writing {} tombstones to {}/{}:{} in sstable {}", tombstoneCount, metadata.ksName, metadata.cfName, keyString, getFilename());
         }
     }
 

@@ -102,6 +102,7 @@ public class MetadataCollector implements PartitionStatisticsCollector
     protected boolean hasLegacyCounterShards = false;
     protected long totalColumnsSet;
     protected long totalRows;
+    public int totalTombstones;
 
     /**
      * Default cardinality estimation method is to use HyperLogLog++.
@@ -136,6 +137,7 @@ public class MetadataCollector implements PartitionStatisticsCollector
     {
         long hashed = MurmurHash.hash2_64(key, key.position(), key.remaining(), 0);
         cardinality.offerHashed(hashed);
+        totalTombstones = 0;
         return this;
     }
 
@@ -208,7 +210,10 @@ public class MetadataCollector implements PartitionStatisticsCollector
     {
         localDeletionTimeTracker.update(newLocalDeletionTime);
         if (newLocalDeletionTime != Cell.NO_DELETION_TIME)
+        {
             estimatedTombstoneDropTime.update(newLocalDeletionTime);
+            totalTombstones++;
+        }
     }
 
     private void updateTTL(int newTTL)

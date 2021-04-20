@@ -21,6 +21,8 @@ package org.apache.cassandra.distributed.test;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -35,6 +37,7 @@ import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
+import org.apache.cassandra.distributed.api.LogResult;
 import org.apache.cassandra.distributed.api.SimpleQueryResult;
 import org.apache.cassandra.exceptions.TombstoneAbortException;
 import org.apache.cassandra.service.ClientWarn;
@@ -42,6 +45,8 @@ import org.apache.cassandra.service.QueryState;
 
 import static org.apache.cassandra.service.ReadCallback.tombstoneAbortMessage;
 import static org.apache.cassandra.service.ReadCallback.tombstoneWarnMessage;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class TombstoneWarningTest extends TestBaseImpl
 {
@@ -127,5 +132,59 @@ public class TombstoneWarningTest extends TestBaseImpl
         }).call();
         List<String> expected = IntStream.of(1, 2, 3).mapToObj(i -> tombstoneAbortMessage(i, TOMBSTONE_FAIL + 1)).collect(Collectors.toList());
         Assert.assertTrue(warnings + " not contained in " + expected, Iterables.any(expected, Iterables.getOnlyElement(warnings)::startsWith));
+    }
+
+    @Test
+    public void regularTombstonesLogTest()
+    {
+        for (int i = 0; i < 100; i++)
+            for (int j = 0; j < i; j++)
+                cluster.coordinator(1).execute(withKeyspace("update %s.tbl set v = null where pk = ? and ck = ?"), ConsistencyLevel.ALL, i, j);
+        assertTombstoneLogs(TOMBSTONE_WARN - 1, false);
+    }
+
+    @Test
+    public void rowTombstonesLogTest()
+    {
+        for (int i = 0; i < 100; i++)
+            for (int j = 0; j < i; j++)
+                cluster.coordinator(1).execute(withKeyspace("delete from %s.tbl where pk = ? and ck = ?"), ConsistencyLevel.ALL, i, j);
+        assertTombstoneLogs(TOMBSTONE_WARN - 1, false);
+    }
+
+    @Test
+    public void rangeTombstonesLogTest()
+    {
+        for (int i = 0; i < 100; i++)
+            for (int j = 0; j < i; j++)
+                cluster.coordinator(1).execute(withKeyspace("delete from %s.tbl where pk = ? and ck >= ? and ck <= ?"), ConsistencyLevel.ALL, i, j, j);
+        assertTombstoneLogs((TOMBSTONE_WARN - 1) + TOMBSTONE_WARN / 2, true);
+    }
+
+    @Test
+    public void noTombstonesLogTest()
+    {
+        for (int i = 0; i < 100; i++)
+            for (int j = 0; j < i; j++)
+                cluster.coordinator(1).execute(withKeyspace("insert into %s.tbl (pk, ck, v) values (?, ?, ?)"), ConsistencyLevel.ALL, i, j, j);
+        assertTombstoneLogs(0, false);
+    }
+
+    private void assertTombstoneLogs(long expectedCount, boolean isRangeTombstones)
+    {
+        long mark = cluster.get(1).logs().mark();
+        cluster.get(1).flush(KEYSPACE);
+        String pattern = ".*Writing (?<tscount>\\d+) tombstones to distributed_test_keyspace/tbl:(?<key>\\d+).*";
+        LogResult<List<String>> res = cluster.get(1).logs().grep(mark, pattern);
+        assertEquals(expectedCount, res.getResult().size());
+        Pattern p = Pattern.compile(pattern);
+        for (String r : res.getResult())
+        {
+            Matcher m = p.matcher(r);
+            assertTrue(m.matches());
+            long tombstoneCount = Integer.parseInt(m.group("tscount"));
+            assertTrue(tombstoneCount > TOMBSTONE_WARN);
+            assertEquals(r, Integer.parseInt(m.group("key")) * (isRangeTombstones ? 2 : 1), tombstoneCount);
+        }
     }
 }

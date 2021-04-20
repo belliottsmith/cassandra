@@ -168,7 +168,7 @@
       <option name="MAIN_CLASS_NAME" value="" />
       <option name="METHOD_NAME" value="" />
       <option name="TEST_OBJECT" value="class" />
-      <option name="VM_PARAMETERS" value="-Dcassandra.config=file://$PROJECT_DIR$/test/conf/cassandra.yaml -Dlog4j.configurationFile=file://$PROJECT_DIR$/test/conf/log4j2-test.xml -Dcassandra.logdir=$PROJECT_DIR$/build/test/logs -Dcassandra.allow_simplestrategy=true -Dcassandra.minimum_replication_factor=0 -Dcie-cassandra.disable_schema_drop_log=true -Dcie-cassandra.sizeTieredDefault=true -ea -XX:MaxMetaspaceSize=256M -XX:SoftRefLRUPolicyMSPerMB=0 -Dcassandra.strict.runtime.checks=true -Dcassandra.feature_secondary_index_enabled=true" />
+      <option name="VM_PARAMETERS" value="-Dcassandra.config=file://$PROJECT_DIR$/test/conf/cassandra.yaml -Dlog4j.configurationFile=file://$PROJECT_DIR$/test/conf/log4j2-test.xml -Dcassandra.logdir=$PROJECT_DIR$/build/test/logs -Dcassandra.allow_simplestrategy=true -Dcassandra.minimum_replication_factor=0 -Dcie-cassandra.disable_schema_drop_log=true -Dcie-cassandra.sizeTieredDefault=true -ea -XX:MaxMetaspaceSize=256M -XX:SoftRefLRUPolicyMSPerMB=0 -Dcassandra.strict.runtime.checks=true -Dcassandra.feature_secondary_index_enabled=true -Dcassandra.testtag=$FileClass$ -Dsuitename=" />
       <option name="PARAMETERS" value="" />
       <option name="WORKING_DIRECTORY" value="" />
       <option name="ENV_VARIABLES" />
