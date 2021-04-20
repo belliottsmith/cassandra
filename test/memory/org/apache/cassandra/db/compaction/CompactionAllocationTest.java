@@ -23,15 +23,19 @@ import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.primitives.Ints;
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -57,8 +61,13 @@ import org.apache.cassandra.db.ReadOrderGroup;
 import org.apache.cassandra.db.ReadQuery;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.lifecycle.SSTableSet;
+import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterators;
+import org.apache.cassandra.index.Index;
+import org.apache.cassandra.index.SecondaryIndexBuilder;
+import org.apache.cassandra.io.sstable.ReducingKeyIterator;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.io.util.UnbufferedDataOutputStreamPlus;
@@ -67,6 +76,7 @@ import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.ObjectSizes;
+import org.apache.cassandra.utils.concurrent.Refs;
 
 @RunWith(OrderedJUnit4ClassRunner.class)
 public class CompactionAllocationTest
@@ -190,6 +200,8 @@ public class CompactionAllocationTest
                                       "wideOverlappingPartitions9",
                                       "widePartitionsOverlappingRows9",
                                       "widePartitionsOverlappingRows3"));
+        groups.add(Lists.newArrayList("widePartitionsSingleIndexedColumn",
+                                      "widePartitionsMultipleIndexedColumns"));
 
         Map<String, List<String>> fullRows = new HashMap<>();
         for (String workload : Iterables.concat(groups))
@@ -226,6 +238,37 @@ public class CompactionAllocationTest
         ColumnFamilyStore getCfs();
         String name();
         List<Runnable> getReads();
+
+        default int executeReads()
+        {
+            List<Runnable> reads = getReads();
+            for (int i=0; i<reads.size(); i++)
+                reads.get(i).run();
+            return reads.size();
+        }
+
+        default void executeCompactions()
+        {
+            ColumnFamilyStore cfs = getCfs();
+            ActiveCompactions active = new ActiveCompactions();
+            Set<SSTableReader> sstables = cfs.getLiveSSTables();
+
+            List<AbstractCompactionTask> tasks = cfs.getCompactionStrategyManager()
+                                                    .getUserDefinedTasks(sstables, FBUtilities.nowInSeconds());
+            Assert.assertFalse(tasks.isEmpty());
+
+            for (AbstractCompactionTask task : tasks)
+                task.execute(active);
+
+            Assert.assertEquals(1, cfs.getLiveSSTables().size());
+        }
+
+        default int[] getSSTableStats()
+        {
+            int numPartitions = Ints.checkedCast(Iterables.getOnlyElement(getCfs().getLiveSSTables()).getSSTableMetadata().estimatedPartitionSize.count());
+            int numRows = Ints.checkedCast(Iterables.getOnlyElement(getCfs().getLiveSSTables()).getSSTableMetadata().totalRows);
+            return new int[] {numPartitions, numRows};
+        }
     }
 
     private static Measurement createMeasurement()
@@ -256,13 +299,13 @@ public class CompactionAllocationTest
     {
         long objectsAllocated = 0;
         long bytesAllocated = 0;
-
         private final long threadID = Thread.currentThread().getId();
 
         public void sampleAllocation(int count, String desc, Object newObj, long bytes)
         {
             if (Thread.currentThread().getId() != threadID)
                 return;
+
             objectsAllocated++;
             bytesAllocated += bytes;
         }
@@ -373,8 +416,7 @@ public class CompactionAllocationTest
                 logger.info(">>> Start profiling");
                 Thread.sleep(10000);
             }
-            for (int i=0; i<reads.size(); i++)
-                reads.get(i).run();
+            int readCount = workload.executeReads();
             Thread.sleep(1000);
             if (PROFILING_READS && !workload.name().equals("warmup"))
             {
@@ -382,20 +424,12 @@ public class CompactionAllocationTest
                 Thread.sleep(10000);
             }
             readSampler.stop();
-
-            readSummary = String.format("%s bytes, %s /read, %s cpu", readSampler.bytes(), readSampler.bytes()/reads.size(), readSampler.cpu());
-            readSummaries.put(workload.name(), new ReadSummary(readSampler, reads.size()));
+            readSummary = String.format("%s bytes, %s /read, %s cpu", readSampler.bytes(), readSampler.bytes()/readCount, readSampler.cpu());
+            readSummaries.put(workload.name(), new ReadSummary(readSampler, readCount));
         }
 
-        ColumnFamilyStore cfs = workload.getCfs();
-        ActiveCompactions active = new ActiveCompactions();
-        Set<SSTableReader> sstables = cfs.getLiveSSTables();
-
-        List<AbstractCompactionTask> tasks = cfs.getCompactionStrategyManager()
-                                   .getUserDefinedTasks(sstables, FBUtilities.nowInSeconds());
-        Assert.assertFalse(tasks.isEmpty());
-
         String compactionSummary = "SKIPPED";
+        ColumnFamilyStore cfs = workload.getCfs();
         if (!PROFILING_READS)
         {
             compactionSampler.start();
@@ -404,8 +438,8 @@ public class CompactionAllocationTest
                 logger.info(">>> Start profiling");
                 Thread.sleep(10000);
             }
-            for (AbstractCompactionTask task : tasks)
-                task.execute(active);
+
+            workload.executeCompactions();
             Thread.sleep(1000);
             if (PROFILING_COMPACTION && !workload.name().equals("warmup"))
             {
@@ -414,11 +448,11 @@ public class CompactionAllocationTest
             }
             compactionSampler.stop();
 
-            Assert.assertEquals(1, cfs.getLiveSSTables().size());
-            int numPartitions = Ints.checkedCast(Iterables.getOnlyElement(cfs.getLiveSSTables()).getSSTableMetadata().estimatedPartitionSize.count());
-            int numRows = Ints.checkedCast(Iterables.getOnlyElement(cfs.getLiveSSTables()).getSSTableMetadata().totalRows);
+            int[] tableStats = workload.getSSTableStats();
+            int numPartitions = tableStats[0];
+            int numRows = tableStats[1];
 
-            compactionSummary = String.format("%s bytes, %s /partition, %s /row, %s cpu", compactionSampler.bytes(), compactionSampler.bytes()/numPartitions, compactionSampler.bytes()/numRows, compactionSampler.cpu());
+            compactionSummary = String.format("%s bytes, %s objects, %s /partition, %s /row, %s cpu", compactionSampler.bytes(), compactionSampler.objects(), compactionSampler.bytes()/numPartitions, compactionSampler.bytes()/numRows, compactionSampler.cpu());
             compactionSummaries.put(workload.name(), new CompactionSummary(compactionSampler, numPartitions, numRows));
         }
 
@@ -767,5 +801,135 @@ public class CompactionAllocationTest
     public void widePartitionsOverlappingRows3() throws Throwable
     {
         testWidePartitions("widePartitionsOverlappingRows3", 3, maybeInflate(24), true, true);
+    }
+
+
+    private static void testIndexingWidePartitions(String name,
+                                                   int numSSTable,
+                                                   int sstablePartitions,
+                                                   IndexDef...indexes) throws Throwable
+    {
+        String ksname = "ks_" + name.toLowerCase();
+        SchemaLoader.createKeyspace(ksname, KeyspaceParams.simple(1),
+                                    CFMetaData.compile("CREATE TABLE tbl (k text, c text, v1 text, v2 text, v3 text, v4 text, PRIMARY KEY (k, c))", ksname));
+
+        ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreInstance(Schema.instance.getId(ksname, "tbl"));
+        Assert.assertNotNull(cfs);
+        cfs.disableAutoCompaction();
+        int rowWidth = 100;
+        int rowsPerPartition = 1000;
+
+        measure(new Workload()
+        {
+            public void setup()
+            {
+                cfs.disableAutoCompaction();
+                String insert = String.format("INSERT INTO %s.%s (k, c, v1, v2, v3, v4) VALUES (?, ?, ?, ?, ?, ?)", ksname, "tbl");
+                for (int f=0; f<numSSTable; f++)
+                {
+                    for (int p = 0; p < sstablePartitions; p++)
+                    {
+                        String key = String.format("%08d", (f * sstablePartitions) + p);
+                        for (int r=0; r<rowsPerPartition; r++)
+                        {
+                            QueryProcessor.executeInternal(insert , key, makeRandomString(6, -1),
+                                                           makeRandomString(rowWidth>>2), makeRandomString(rowWidth>>2),
+                                                           makeRandomString(rowWidth>>2), makeRandomString(rowWidth>>2));
+                        }
+                    }
+                    cfs.forceBlockingFlush();
+                }
+
+                for (IndexDef index : indexes)
+                {
+                    QueryProcessor.executeInternal(String.format(index.cql, index.name, ksname, "tbl"));
+                    while (!cfs.indexManager.getBuiltIndexNames().contains(index.name))
+                        Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
+                }
+
+                Assert.assertEquals(numSSTable, cfs.getLiveSSTables().size());
+            }
+
+            public ColumnFamilyStore getCfs()
+            {
+                return cfs;
+            }
+
+            public List<Runnable> getReads()
+            {
+                return new ArrayList<>();
+            }
+
+            public String name()
+            {
+                return name;
+            }
+
+            public int executeReads()
+            {
+                // return 1 to avoid divide by zero error
+                return 1;
+            }
+
+            public void executeCompactions()
+            {
+                logger.info("Starting index re-build");
+                try (ColumnFamilyStore.RefViewFragment viewFragment = cfs.selectAndReference(View.selectFunction(SSTableSet.CANONICAL));
+                     Refs<SSTableReader> sstables = viewFragment.refs)
+                {
+
+                    Set<Index> indexes = new HashSet<>(cfs.indexManager.listIndexes());
+                    SecondaryIndexBuilder builder = new SecondaryIndexBuilder(cfs,
+                                                                              indexes,
+                                                                              new ReducingKeyIterator(sstables),
+                                                                              ImmutableSet.copyOf(sstables));
+                    builder.build();
+                }
+                logger.info("Index re-build complete");
+            }
+
+            public int[] getSSTableStats()
+            {
+                int numPartitions = cfs.getLiveSSTables()
+                                       .stream()
+                                       .mapToInt(sstable -> Ints.checkedCast(sstable.getSSTableMetadata().estimatedPartitionSize.count()))
+                                       .sum();
+                int numRows = cfs.getLiveSSTables()
+                                 .stream()
+                                 .mapToInt(sstable -> Ints.checkedCast(sstable.getSSTableMetadata().totalRows))
+                                 .sum();
+
+                return new int[] {numPartitions, numRows};
+            }
+        });
+    }
+
+    @Test
+    public void widePartitionsSingleIndexedColumn() throws Throwable
+    {
+        testIndexingWidePartitions("widePartitionsSingleIndexedColumn", 3, maybeInflate(24),
+                                   new IndexDef("wide_partition_index_0", "CREATE INDEX %s on %s.%s(v1)"));
+    }
+
+    @Test
+    public void widePartitionsMultipleIndexedColumns() throws Throwable
+    {
+        testIndexingWidePartitions("widePartitionsMultipleIndexedColumns", 3, maybeInflate(24),
+                                   new IndexDef("wide_partition_index_0", "CREATE INDEX %s on %s.%s(v1)"),
+                                   new IndexDef("wide_partition_index_1", "CREATE INDEX %s on %s.%s(v2)"),
+                                   new IndexDef("wide_partition_index_2", "CREATE INDEX %s on %s.%s(v3)"),
+                                   new IndexDef("wide_partition_index_3", "CREATE INDEX %s on %s.%s(v4)"));
+    }
+
+    class IndexDef
+    {
+        final String name;
+        final String cql;
+
+        IndexDef(String name, String cql)
+        {
+            this.name = name;
+            this.cql = cql;
+        }
     }
 }
