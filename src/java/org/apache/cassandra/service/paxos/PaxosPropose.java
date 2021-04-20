@@ -240,7 +240,7 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
 
         if (!canSucceed(responses) && supersededBy != null)
         {
-            Superseded.SideEffects sideEffects = hasNoSideEffects(responses) || proposal.update.isEmpty() ? NO : MAYBE;
+            Superseded.SideEffects sideEffects = hasNoSideEffects(responses) ? NO : MAYBE;
             return new Superseded(supersededBy, sideEffects);
         }
 

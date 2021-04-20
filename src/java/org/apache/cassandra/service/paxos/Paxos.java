@@ -710,11 +710,26 @@ public class Paxos
                             return begin.readResponse;
 
                         case SUPERSEDED:
-                            minimumBallot = propose.superseded().by;
-                            // We have been superseded without our proposal being accepted by anyone, so we can safely retry
-                            Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
-                            if (!waitForContention(deadline, ++failedAttemptsDueToContention, group.metadata(), group.commands.get(0).partitionKey(), consistencyForPaxos, false))
-                                throw new MaybeFailure(begin.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
+                        {
+                            switch (propose.superseded().hadSideEffects)
+                            {
+                                default: throw new IllegalStateException();
+
+                                case MAYBE:
+                                    // We don't know if our update has been applied, as the competing ballot may have completed
+                                    // our proposal.  We yield our uncertainty to the caller via timeout exception.
+                                    // TODO: should return more useful result to client, and should also avoid this situation where possible
+                                    throw new MaybeFailure(false, begin.participants.sizeOfPoll(), begin.participants.requiredForConsensus, 0, 0)
+                                            .markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
+
+                                case NO:
+                                    minimumBallot = propose.superseded().by;
+                                    // We have been superseded without our proposal being accepted by anyone, so we can safely retry
+                                    Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
+                                    if (!waitForContention(deadline, ++failedAttemptsDueToContention, group.metadata(), group.commands.get(0).partitionKey(), consistencyForPaxos, false))
+                                        throw new MaybeFailure(begin.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
+                            }
+                        }
                     }
                 }
             }
