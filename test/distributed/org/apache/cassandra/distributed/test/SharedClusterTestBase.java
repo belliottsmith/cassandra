@@ -29,7 +29,13 @@ import org.apache.cassandra.distributed.api.ICluster;
 
 public class SharedClusterTestBase extends TestBaseImpl
 {
-    protected static Cluster cluster;
+    protected static ICluster<?> cluster;
+
+    @BeforeClass
+    public static void before() throws IOException
+    {
+        cluster = init(Cluster.build().withNodes(3).start());
+    }
 
     @AfterClass
     public static void after() throws Exception

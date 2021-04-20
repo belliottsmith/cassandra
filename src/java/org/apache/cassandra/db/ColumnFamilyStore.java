@@ -82,6 +82,7 @@ import org.apache.cassandra.schema.*;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.service.paxos.Commit;
 import org.apache.cassandra.service.paxos.PaxosRepairHistory;
 import org.apache.cassandra.service.paxos.TablePaxosRepairHistory;
 import org.apache.cassandra.utils.DefaultValue;
@@ -262,28 +263,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
     // Transient property to disable christmas patch, overriding it if enabled in Config.
     private volatile boolean disableChristmasPatch = false;
 
-    private class PaxosRepairHistoryLoader
-    {
-        private TablePaxosRepairHistory history;
-
-        TablePaxosRepairHistory get()
-        {
-            if (history != null)
-                return history;
-
-            synchronized (this)
-            {
-                if (history != null)
-                    return history;
-
-                history = TablePaxosRepairHistory.load(keyspace.getName(), name);
-                return history;
-            }
-        }
-
-    }
-
-    private final PaxosRepairHistoryLoader paxosRepairHistory = new PaxosRepairHistoryLoader();
+    private final TablePaxosRepairHistory paxosRepairHistory;
 
     public static void shutdownFlushExecutor() throws InterruptedException
     {
@@ -544,6 +524,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             topPartitions = null;
         else
             topPartitions = new TopPartitionTracker(metadata);
+
+        paxosRepairHistory = TablePaxosRepairHistory.load(keyspace.getName(), columnFamilyName);
     }
 
     public void updateSpeculationThreshold()
@@ -1912,22 +1894,22 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public PaxosRepairHistory getHistoryForRanges(Collection<Range<Token>> ranges)
     {
-        return paxosRepairHistory.get().getHistoryForRanges(ranges);
+        return paxosRepairHistory.getHistoryForRanges(ranges);
     }
 
     public void syncPaxosRepairHistory(PaxosRepairHistory sync)
     {
-        paxosRepairHistory.get().merge(sync);
+        paxosRepairHistory.merge(sync);
     }
 
     public void onPaxosRepairComplete(Collection<Range<Token>> ranges, UUID highBallot)
     {
-        paxosRepairHistory.get().add(ranges, highBallot);
+        paxosRepairHistory.add(ranges, highBallot);
     }
 
     public UUID getPaxosRepairLowBound(DecoratedKey key)
     {
-        return paxosRepairHistory.get().getBallotForToken(key.getToken());
+        return paxosRepairHistory.getBallotForToken(key.getToken());
     }
 
     public int gcBefore(int nowInSec)
