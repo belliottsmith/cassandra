@@ -310,7 +310,7 @@ public class PaxosRepair implements PaxosTableRepairs.QueueableRepair
                 if (logger.isTraceEnabled())
                     logger.trace("PaxosRepair of {} found incomplete promise or proposal; preparing stale ballot {}", partitionKey, Ballot.toString(ballot));
 
-                return prepareWithBallot(ballot, participants, partitionKey, metadata, false, false,
+                return prepareWithBallot(ballot, participants, partitionKey, metadata,
                         new PoisonProposals());
             }
             else
@@ -339,10 +339,9 @@ public class PaxosRepair implements PaxosTableRepairs.QueueableRepair
             {
                 case MAYBE_FAILURE:
                     return maybeRetry();
-
-                case READ_PERMITTED:
                 case SUPERSEDED:
-                    prevSupersededBy = latest(prevSupersededBy, input.retryWithAtLeast());
+                    if (isAfter(input.supersededBy(), prevSupersededBy))
+                        prevSupersededBy = input.supersededBy();
                     return restart();
 
                 case FOUND_INCOMPLETE_ACCEPTED:
@@ -353,7 +352,7 @@ public class PaxosRepair implements PaxosTableRepairs.QueueableRepair
                     // (else an "earlier" operation can sneak in and invalidate us while we're proposing
                     // with a newer ballot)
                     FoundIncompleteAccepted incomplete = input.incompleteAccepted();
-                    Proposal propose = new Proposal(incomplete.ballot, incomplete.accepted.update);
+                    Proposal propose = new Proposal(incomplete.promisedBallot, incomplete.accepted.update);
                     logger.trace("PaxosRepair of {} found incomplete {}", partitionKey, incomplete.accepted);
                     return PaxosPropose.propose(propose, participants, false,
                             new ProposingRepair(propose)); // we don't know if we're done, so we must restart
@@ -368,7 +367,7 @@ public class PaxosRepair implements PaxosTableRepairs.QueueableRepair
                             new CommitAndRestart()); // we don't know if we're done, so we must restart
                 }
 
-                case PROMISED:
+                case SUCCESS:
                 {
                     // propose the empty ballot
                     logger.trace("PaxosRepair of {} submitting empty proposal", partitionKey);

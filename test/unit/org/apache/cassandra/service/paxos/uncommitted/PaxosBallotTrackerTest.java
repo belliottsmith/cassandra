@@ -21,7 +21,6 @@ package org.apache.cassandra.service.paxos.uncommitted;
 import java.io.IOException;
 import java.util.UUID;
 
-import org.apache.cassandra.service.paxos.PaxosState.MaybePromise.Outcome;
 import org.junit.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,7 +38,6 @@ import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-import static org.apache.cassandra.service.paxos.PaxosState.MaybePromise.Outcome.REJECT;
 import static org.apache.cassandra.service.paxos.PaxosState.ballotTracker;
 import static org.apache.cassandra.service.paxos.uncommitted.PaxosUncommittedTests.PAXOS_CFS;
 
@@ -120,7 +118,7 @@ public class PaxosBallotTrackerTest
             case PREPARE:
                 try (PaxosState state = PaxosState.get(commit))
                 {
-                    state.promiseIfNewer(commit.ballot, true);
+                    state.promiseIfNewer(commit.ballot);
                 }
                 break;
             case PROPOSE:
@@ -165,13 +163,13 @@ public class PaxosBallotTrackerTest
 
         Assert.assertEquals(Ballot.none(), ballotTracker.getLowBound());
 
-        ballotTracker.updateLowBound(ballot2);
+        ballotTracker.updateLowerBound(ballot2);
         Assert.assertEquals(ballot2, ballotTracker.getLowBound());
 
-        ballotTracker.updateLowBound(ballot1);
+        ballotTracker.updateLowerBound(ballot1);
         Assert.assertEquals(ballot2, ballotTracker.getLowBound());
 
-        ballotTracker.updateLowBound(ballot3);
+        ballotTracker.updateLowerBound(ballot3);
         Assert.assertEquals(ballot3, ballotTracker.getLowBound());
     }
 
@@ -184,23 +182,23 @@ public class PaxosBallotTrackerTest
         UUID ballot3 = Paxos.ballotForConsistency(1003, ConsistencyLevel.SERIAL);
         UUID ballot4 = Paxos.ballotForConsistency(1004, ConsistencyLevel.SERIAL);
 
-        ballotTracker.updateLowBound(ballot1);
+        ballotTracker.updateLowerBound(ballot1);
         Assert.assertNotNull(ballotTracker.getLowBound());
 
         DecoratedKey key = dk(1);
         try (PaxosState state = PaxosState.get(key, cfm, ballot2))
         {
-            PaxosState.MaybePromise promise = state.promiseIfNewer(ballot2, true);
-            Assert.assertEquals(Outcome.PROMISE, promise.outcome());
+            PaxosState.PromiseResult promise = state.promiseIfNewer(ballot2);
+            Assert.assertTrue(promise.isPromised());
             Assert.assertNull(promise.supersededBy());
         }
 
         // set the lower bound into the 'future', and prepare with an earlier ballot
-        ballotTracker.updateLowBound(ballot4);
+        ballotTracker.updateLowerBound(ballot4);
         try (PaxosState state = PaxosState.get(key, cfm, ballot2))
         {
-            PaxosState.MaybePromise promise = state.promiseIfNewer(ballot3, true);
-            Assert.assertEquals(REJECT, promise.outcome());
+            PaxosState.PromiseResult promise = state.promiseIfNewer(ballot3);
+            Assert.assertFalse(promise.isPromised());
             Assert.assertEquals(ballot4, promise.supersededBy());
         }
     }
@@ -214,7 +212,7 @@ public class PaxosBallotTrackerTest
         UUID ballot3 = Paxos.ballotForConsistency(1003, ConsistencyLevel.SERIAL);
         UUID ballot4 = Paxos.ballotForConsistency(1004, ConsistencyLevel.SERIAL);
 
-        ballotTracker.updateLowBound(ballot1);
+        ballotTracker.updateLowerBound(ballot1);
         Assert.assertNotNull(ballotTracker.getLowBound());
 
         DecoratedKey key = dk(1);
@@ -225,7 +223,7 @@ public class PaxosBallotTrackerTest
         }
 
         // set the lower bound into the 'future', and prepare with an earlier ballot
-        ballotTracker.updateLowBound(ballot4);
+        ballotTracker.updateLowerBound(ballot4);
         try (PaxosState state = PaxosState.get(key, cfm, ballot2))
         {
             UUID result = state.acceptIfLatest(new Commit.Proposal(ballot3, PartitionUpdate.emptyUpdate(cfm, key)));
@@ -248,7 +246,7 @@ public class PaxosBallotTrackerTest
         Assert.assertEquals(Ballot.none(), tracker2.getLowBound());
 
         // updating the lower bound should flush it to disk
-        ballotTracker.updateLowBound(ballot1);
+        ballotTracker.updateLowerBound(ballot1);
         Assert.assertEquals(ballot1, ballotTracker.getLowBound());
 
         // then loading a new tracker should find the lower bound

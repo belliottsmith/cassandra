@@ -54,7 +54,6 @@ import static org.apache.cassandra.config.Config.PaxosVariant.legacy;
 import static org.apache.cassandra.config.Config.PaxosVariant.legacy_fixed;
 import static org.apache.cassandra.service.paxos.Commit.*;
 import static org.apache.cassandra.service.paxos.Commit.isAfter;
-import static org.apache.cassandra.service.paxos.PaxosState.MaybePromise.Outcome.*;
 import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
 
 /**
@@ -148,27 +147,19 @@ public class PaxosState implements PaxosOperationLock
 
     public static class Snapshot
     {
-        public final @Nonnull  UUID      promised;
-        public final @Nonnull  UUID      promisedWrite; // <= promised
+        public final @Nonnull  UUID      promised; // TODO: logically apply delete here too, making it null when < accepted or committed?
         public final @Nullable Accepted  accepted; // if already committed, this will be null
         public final @Nonnull  Committed committed;
 
-        public Snapshot(@Nonnull UUID promised, @Nonnull UUID promisedWrite, @Nullable Accepted accepted, @Nonnull Committed committed)
+        public Snapshot(@Nonnull UUID promised, @Nullable Accepted accepted, @Nonnull Committed committed)
         {
-            assert isAfter(promised, promisedWrite) || promised == promisedWrite;
             assert accepted == null || accepted.update.partitionKey().equals(committed.update.partitionKey());
             assert accepted == null || accepted.update.metadata().cfId.equals(committed.update.metadata().cfId);
             assert accepted == null || committed.isBefore(accepted.ballot);
 
             this.promised = promised;
-            this.promisedWrite = promisedWrite;
             this.accepted = accepted;
             this.committed = committed;
-        }
-
-        public @Nonnull UUID latestWitnessedOrLowBound(UUID latestWriteOrLowBound)
-        {
-            return promised == promisedWrite ? latestWriteOrLowBound : latest(promised, latestWriteOrLowBound);
         }
 
         public @Nonnull UUID latestWitnessedOrLowBound()
@@ -177,17 +168,6 @@ public class PaxosState implements PaxosOperationLock
             // since (if different) it reached a quorum of promises; this means providing it as first argument
             UUID latest;
             latest = latest(accepted, committed).ballot;
-            latest = latest(latest, promised);
-            latest = latest(latest, ballotTracker().getLowBound());
-            return latest;
-        }
-
-        public @Nonnull UUID latestWriteOrLowBound()
-        {
-            // warn: if proposal has same timestamp as promised, we should prefer accepted
-            // since (if different) it reached a quorum of promises; this means providing it as first argument
-            UUID latest = accepted != null && !accepted.update.isEmpty() ? accepted.ballot : null;
-            latest = latest(latest, committed.ballot);
             latest = latest(latest, promised);
             latest = latest(latest, ballotTracker().getLowBound());
             return latest;
@@ -203,7 +183,7 @@ public class PaxosState implements PaxosOperationLock
                 return new UnsafeSnapshot(committed);
 
             Accepted accepted;
-            UUID promised, promisedWrite;
+            UUID promised;
             if (a instanceof UnsafeSnapshot || b instanceof UnsafeSnapshot)
             {
                 if (a instanceof UnsafeSnapshot)
@@ -213,7 +193,6 @@ public class PaxosState implements PaxosOperationLock
                     return a;
 
                 promised = a.promised;
-                promisedWrite = a.promisedWrite;
                 accepted = isAfter(a.accepted, committed) ? a.accepted : null;
             }
             else
@@ -221,10 +200,9 @@ public class PaxosState implements PaxosOperationLock
                 accepted = latest(a.accepted, b.accepted);
                 accepted = isAfter(accepted, committed) ? accepted : null;
                 promised = latest(a.promised, b.promised);
-                promisedWrite = latest(a.promisedWrite, b.promisedWrite);
             }
 
-            return new Snapshot(promised, promisedWrite, accepted, committed);
+            return new Snapshot(promised, accepted, committed);
         }
     }
 
@@ -233,7 +211,7 @@ public class PaxosState implements PaxosOperationLock
     {
         public UnsafeSnapshot(@Nonnull Committed committed)
         {
-            super(Ballot.none(), Ballot.none(), null, committed);
+            super(Ballot.none(), null, committed);
         }
 
         public UnsafeSnapshot(@Nonnull Commit committed)
@@ -243,41 +221,32 @@ public class PaxosState implements PaxosOperationLock
     }
 
     @VisibleForTesting
-    public static class MaybePromise
+    public static class PromiseResult
     {
-        public enum Outcome { REJECT, PERMIT_READ, PROMISE }
-
         final Snapshot before;
         final Snapshot after;
         final UUID supersededBy;
-        final Outcome outcome;
 
-        MaybePromise(Snapshot before, Snapshot after, UUID supersededBy, Outcome outcome)
+        PromiseResult(Snapshot before, Snapshot after, UUID supersededBy)
         {
             this.before = before;
             this.after = after;
             this.supersededBy = supersededBy;
-            this.outcome = outcome;
         }
 
-        static MaybePromise promise(Snapshot before, Snapshot after)
+        static PromiseResult promise(Snapshot before, Snapshot after)
         {
-            return new MaybePromise(before, after, null, PROMISE);
+            return new PromiseResult(before, after, null);
         }
 
-        static MaybePromise permitRead(Snapshot before, UUID supersededBy)
+        static PromiseResult reject(Snapshot snapshot, UUID supersededBy)
         {
-            return new MaybePromise(before, before, supersededBy, PERMIT_READ);
+            return new PromiseResult(snapshot, snapshot, supersededBy);
         }
 
-        static MaybePromise reject(Snapshot snapshot, UUID supersededBy)
+        public boolean isPromised()
         {
-            return new MaybePromise(snapshot, snapshot, supersededBy, REJECT);
-        }
-
-        public Outcome outcome()
-        {
-            return outcome;
+            return supersededBy == null;
         }
 
         public UUID supersededBy()
@@ -529,47 +498,31 @@ public class PaxosState implements PaxosOperationLock
      * Record the requested ballot as promised if it is newer than our current promise; otherwise do nothing.
      * @return a PromiseResult containing the before and after state for this operation
      */
-    public MaybePromise promiseIfNewer(UUID ballot, boolean isWrite)
+    public PromiseResult promiseIfNewer(UUID ballot)
     {
         Snapshot before, after;
         while (true)
         {
             before = current;
-            UUID latestWriteOrLowBound = before.latestWriteOrLowBound();
-            UUID latest = before.latestWitnessedOrLowBound(latestWriteOrLowBound);
-            if (isAfter(ballot, latest))
+            UUID latest = before.latestWitnessedOrLowBound();
+            if (!isAfter(ballot, latest))
             {
-                after = new Snapshot(ballot, isWrite ? ballot : before.promisedWrite, before.accepted, before.committed);
-                if (currentUpdater.compareAndSet(this, before, after))
-                {
-                    waits().nemesis();
-                    // It doesn't matter if a later operation witnesses this before it's persisted,
-                    // as it can only lead to rejecting a promise which leaves no persistent state
-                    // (and it's anyway safe to arbitrarily reject promises)
-                    if (isWrite)
-                    {
-                        Tracing.trace("Promising read/write ballot {}", ballot);
-                        SystemKeyspace.savePaxosWritePromise(key.partitionKey, key.metadata, ballot);
-                    }
-                    else
-                    {
-                        Tracing.trace("Promising read ballot {}", ballot);
-                        SystemKeyspace.savePaxosReadPromise(key.partitionKey, key.metadata, ballot);
-                    }
-                    return MaybePromise.promise(before, after);
-                }
+                Tracing.trace("Promise rejected; {} is not sufficiently newer than {}", ballot, latest);
+                return PromiseResult.reject(before, latest);
             }
-            else if (isAfter(ballot, latestWriteOrLowBound))
-            {
-                Tracing.trace("Permitting only read by ballot {}", ballot);
-                return MaybePromise.permitRead(before, latest);
-            }
-            else
-            {
-                Tracing.trace("Promise rejected; {} older than {}", ballot, latest);
-                return MaybePromise.reject(before, latest);
-            }
+
+            after = new Snapshot(ballot, before.accepted, before.committed);
+            if (currentUpdater.compareAndSet(this, before, after))
+                break;
         }
+
+        waits().nemesis();
+        // It doesn't matter if a later operation witnesses this before it's persisted,
+        // as it can only lead to rejecting a promise which leaves no persistent state
+        // (and it's anyway safe to arbitrarily reject promises)
+        Tracing.trace("Promising ballot {}", ballot);
+        SystemKeyspace.savePaxosPromise(key.partitionKey, key.metadata, ballot);
+        return PromiseResult.promise(before, after);
     }
 
     /**
@@ -594,7 +547,7 @@ public class PaxosState implements PaxosOperationLock
             if (proposal.hasSameBallot(before.committed)) // TODO: consider not answering
                 return null; // no need to save anything, or indeed answer at all
 
-            after = new Snapshot(before.promised, before.promisedWrite, proposal.accepted(), before.committed);
+            after = new Snapshot(before.promised, proposal.accepted(), before.committed);
             if (currentUpdater.compareAndSet(this, before, after))
                 break;
         }
@@ -693,13 +646,13 @@ public class PaxosState implements PaxosOperationLock
                     UUID latest = variant == legacy_fixed ? before.latestWitnessedOrLowBound() : before.promised;
                     if (toPrepare.isAfter(latest))
                     {
-                        Snapshot after = new Snapshot(toPrepare.ballot, toPrepare.ballot, before.accepted, before.committed);
+                        Snapshot after = new Snapshot(toPrepare.ballot, before.accepted, before.committed);
                         if (currentUpdater.compareAndSet(unsafeState, before, after))
                         {
                             Tracing.trace("Promising ballot {}", toPrepare.ballot);
                             DecoratedKey partitionKey = toPrepare.update.partitionKey();
                             CFMetaData metadata = toPrepare.update.metadata();
-                            SystemKeyspace.savePaxosWritePromise(partitionKey, metadata, toPrepare.ballot);
+                            SystemKeyspace.savePaxosPromise(partitionKey, metadata, toPrepare.ballot);
                             return new PrepareResponse(true, before.accepted == null ? Accepted.none(partitionKey, metadata) : before.accepted, before.committed);
                         }
                     }
@@ -746,7 +699,7 @@ public class PaxosState implements PaxosOperationLock
                         if (acceptWithLegacyBug
                                 || proposal.hasSameBallot(before.committed)
                                 || currentUpdater.compareAndSet(unsafeState, before,
-                                    new Snapshot(before.promised, before.promisedWrite, new Accepted(proposal), before.committed)))
+                                    new Snapshot(before.promised, new Accepted(proposal), before.committed)))
                         {
                             Tracing.trace("Accepting proposal {}", proposal);
                             SystemKeyspace.savePaxosProposal(proposal);

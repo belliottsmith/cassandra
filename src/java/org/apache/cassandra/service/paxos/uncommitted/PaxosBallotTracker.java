@@ -27,8 +27,6 @@ import java.util.zip.CRC32;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import org.apache.cassandra.service.ClientState;
-import org.apache.cassandra.utils.UUIDGen;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -166,7 +164,7 @@ public class PaxosBallotTracker
         return directory;
     }
 
-    public synchronized void updateLowBound(UUID update) throws IOException
+    public synchronized void updateLowerBound(UUID update) throws IOException
     {
         if (!Commit.isAfter(update, lowBound))
         {
@@ -175,7 +173,6 @@ public class PaxosBallotTracker
         }
 
         logger.debug("Updating lower bound from {} to {}", lowBound, update);
-        ClientState.getTimestampForPaxos(lowBound.timestamp());
         lowBound = update;
         flush();
     }

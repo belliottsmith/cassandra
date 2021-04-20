@@ -149,7 +149,6 @@ public final class SystemKeyspace
                 + "row_key blob,"
                 + "cf_id UUID,"
                 + "in_progress_ballot timeuuid,"
-                + "in_progress_read_ballot timeuuid,"
                 + "most_recent_commit blob,"
                 + "most_recent_commit_at timeuuid,"
                 + "most_recent_commit_version int,"
@@ -1326,13 +1325,12 @@ public final class SystemKeyspace
         if (results.isEmpty())
         {
             Committed noneCommitted = Committed.none(key, metadata);
-            return new PaxosState.Snapshot(Ballot.none(), Ballot.none(), null, noneCommitted);
+            return new PaxosState.Snapshot(Ballot.none(), null, noneCommitted);
         }
 
         UntypedResultSet.Row row = results.one();
 
         UUID promised = row.getUUID("in_progress_ballot", Ballot.none());
-        UUID promisedWrite = row.getUUID("in_progress_write_ballot", null); // TODO: ideally we would use Ballot.none() here, but this would break linearizability during migration to new algorithm
         // either we have both a recently accepted ballot and update or we have neither
         Accepted accepted = null;
         if (row.has("proposal"))
@@ -1354,24 +1352,13 @@ public final class SystemKeyspace
         {
             committed = Committed.none(key, metadata);
         }
-        return new PaxosState.Snapshot(promised, promisedWrite, accepted, committed);
+        return new PaxosState.Snapshot(promised, accepted, committed);
     }
 
-    public static void savePaxosWritePromise(DecoratedKey key, CFMetaData metadata, UUID ballot)
+    public static void savePaxosPromise(DecoratedKey key, CFMetaData metadata, UUID ballot)
     {
-        String cql = "UPDATE system." + PAXOS + " USING TIMESTAMP ? AND TTL ? SET in_progress_ballot = ? WHERE row_key = ? AND cf_id = ?";
-        executeInternal(cql,
-                        UUIDGen.microsTimestamp(ballot),
-                        paxosTtlSec(metadata),
-                        ballot,
-                        key.getKey(),
-                        metadata.cfId);
-    }
-
-    public static void savePaxosReadPromise(DecoratedKey key, CFMetaData metadata, UUID ballot)
-    {
-        String cql = "UPDATE system." + PAXOS + " USING TIMESTAMP ? AND TTL ? SET in_progress_read_ballot = ? WHERE row_key = ? AND cf_id = ?";
-        executeInternal(cql,
+        String req = "UPDATE system.%s USING TIMESTAMP ? AND TTL ? SET in_progress_ballot = ? WHERE row_key = ? AND cf_id = ?";
+        executeInternal(String.format(req, PAXOS),
                         UUIDGen.microsTimestamp(ballot),
                         paxosTtlSec(metadata),
                         ballot,
@@ -1381,8 +1368,7 @@ public final class SystemKeyspace
 
     public static void savePaxosProposal(Commit proposal)
     {
-        String cql = "UPDATE system." + PAXOS + " USING TIMESTAMP ? AND TTL ? SET proposal_ballot = ?, proposal = ?, proposal_version = ? WHERE row_key = ? AND cf_id = ?";
-        executeInternal(cql,
+        executeInternal(String.format("UPDATE system.%s USING TIMESTAMP ? AND TTL ? SET proposal_ballot = ?, proposal = ?, proposal_version = ? WHERE row_key = ? AND cf_id = ?", PAXOS),
                         UUIDGen.microsTimestamp(proposal.ballot),
                         paxosTtlSec(proposal.update.metadata()),
                         proposal.ballot,

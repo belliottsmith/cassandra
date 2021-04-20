@@ -44,12 +44,9 @@ import org.apache.cassandra.utils.UUIDGen;
 
 import static org.apache.cassandra.db.partitions.PartitionUpdate.PartitionUpdateSerializer.*;
 import static org.apache.cassandra.service.paxos.Commit.isAfter;
-import static org.apache.cassandra.service.paxos.Commit.latest;
 
 class PaxosRows
 {
-    private static final ColumnDefinition WRITE_PROMISE = paxosColumn("in_progress_ballot", TimeUUIDType.instance);
-    private static final ColumnDefinition READ_PROMISE = paxosColumn("in_progress_read_ballot", TimeUUIDType.instance);
     private static final ColumnDefinition PROMISE = paxosColumn("in_progress_ballot", TimeUUIDType.instance);
     private static final ColumnDefinition PROPOSAL = paxosColumn("proposal_ballot", TimeUUIDType.instance);
     private static final ColumnDefinition PROPOSAL_UPDATE = paxosColumn("proposal", BytesType.instance);
@@ -115,7 +112,7 @@ class PaxosRows
         if (targetCfId != null && !targetCfId.equals(cfId))
             return null;
 
-        UUID promise = latest(getBallot(row, WRITE_PROMISE), getBallot(row, READ_PROMISE));
+        UUID promise = getBallot(row, PROMISE);
         UUID proposal = getBallot(row, PROPOSAL);
         UUID commit = getBallot(row, COMMIT);
 
@@ -219,18 +216,11 @@ class PaxosRows
         long maxBallot = current != null ? UUIDGen.microsTimestamp(current) : Long.MIN_VALUE;
         ColumnDefinition maxCDef = null;
 
-        long inProgressRead = getTimestamp(row, READ_PROMISE);
-        if (inProgressRead > maxBallot)
+        long inProgress = getTimestamp(row, PROMISE);
+        if (inProgress > maxBallot)
         {
-            maxBallot = inProgressRead;
-            maxCDef = READ_PROMISE;
-        }
-
-        long inProgressWrite = getTimestamp(row, WRITE_PROMISE);
-        if (inProgressWrite > maxBallot)
-        {
-            maxBallot = inProgressWrite;
-            maxCDef = WRITE_PROMISE;
+            maxBallot = inProgress;
+            maxCDef = PROMISE;
         }
 
         long proposal = getTimestamp(row, PROPOSAL);
