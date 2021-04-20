@@ -375,7 +375,7 @@ public class StorageProxy implements StorageProxyMBean
 
                 // finish the paxos round w/ the desired updates
                 // TODO turn null updates into delete?
-                PartitionUpdate updates = request.makeUpdates(current, ballot.timestamp());
+                PartitionUpdate updates = request.makeUpdates(current);
 
                 // Apply triggers to cas updates. A consideration here is that
                 // triggers emit Mutations, and so a given trigger implementation

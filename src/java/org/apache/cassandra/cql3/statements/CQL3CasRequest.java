@@ -26,7 +26,6 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.cql3.*;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.*;
-import org.apache.cassandra.db.marshal.TimeUUIDType;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.partitions.FilteredPartition;
 import org.apache.cassandra.db.partitions.Partition;
@@ -34,7 +33,6 @@ import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.service.CASRequest;
 import org.apache.cassandra.utils.Pair;
-import org.apache.cassandra.utils.UUIDGen;
 
 /**
  * Processed CAS conditions and update on potentially multiple rows of the same partition.
@@ -229,14 +227,13 @@ public class CQL3CasRequest implements CASRequest
         return builder.build();
     }
 
-    public PartitionUpdate makeUpdates(FilteredPartition current, long ballotTimestamp) throws InvalidRequestException
+    public PartitionUpdate makeUpdates(FilteredPartition current) throws InvalidRequestException
     {
         PartitionUpdate update = new PartitionUpdate(cfm, key, updatedColumns(), conditions.size());
-        long timeUuidLsb = 0;
         for (RowUpdate upd : updates)
-            timeUuidLsb = upd.applyUpdates(current, update, ballotTimestamp, timeUuidLsb);
+            upd.applyUpdates(current, update);
         for (RangeDeletion upd : rangeDeletions)
-            timeUuidLsb = upd.applyUpdates(current, update, ballotTimestamp, timeUuidLsb);
+            upd.applyUpdates(current, update);
 
         Keyspace.openAndGetStore(cfm).indexManager.validate(update);
 
@@ -244,23 +241,6 @@ public class CQL3CasRequest implements CASRequest
             BatchStatement.verifyBatchSize(Collections.singleton(update));
 
         return update;
-    }
-
-    private static class CASUpdateParameters extends UpdateParameters
-    {
-        final long ballotTimestamp;
-        long timeUuidLsb;
-        public CASUpdateParameters(CFMetaData metadata, PartitionColumns updatedColumns, QueryOptions options, long timestamp, int ttl, Map<DecoratedKey, Partition> prefetchedRows, long ballotTimestamp, long timeUuidLsb) throws InvalidRequestException
-        {
-            super(metadata, updatedColumns, options, timestamp, ttl, prefetchedRows);
-            this.ballotTimestamp = ballotTimestamp;
-            this.timeUuidLsb = timeUuidLsb;
-        }
-
-        public byte[] createTimeUUIDBytes()
-        {
-            return UUIDGen.createTimeUUIDBytes(UUIDGen.createTime(ballotTimestamp), TimeUUIDType.signedBytesToNativeLong(timeUuidLsb++));
-        }
     }
 
     /**
@@ -284,12 +264,11 @@ public class CQL3CasRequest implements CASRequest
             this.timestamp = timestamp;
         }
 
-        public long applyUpdates(FilteredPartition current, PartitionUpdate updates, long ballotTimestamp, long nanos) throws InvalidRequestException
+        public void applyUpdates(FilteredPartition current, PartitionUpdate updates) throws InvalidRequestException
         {
             Map<DecoratedKey, Partition> map = stmt.requiresRead() ? Collections.<DecoratedKey, Partition>singletonMap(key, current) : null;
-            CASUpdateParameters params = new CASUpdateParameters(cfm, updates.columns(), options, timestamp, stmt.getTimeToLive(options), map, ballotTimestamp, nanos);
+            UpdateParameters params = new UpdateParameters(cfm, updates.columns(), options, timestamp, stmt.getTimeToLive(options), map);
             stmt.addUpdateForKey(updates, clustering, params);
-            return params.timeUuidLsb;
         }
     }
 
@@ -308,12 +287,11 @@ public class CQL3CasRequest implements CASRequest
             this.timestamp = timestamp;
         }
 
-        public long applyUpdates(FilteredPartition current, PartitionUpdate updates, long ballotTimestamp, long nanos) throws InvalidRequestException
+        public void applyUpdates(FilteredPartition current, PartitionUpdate updates) throws InvalidRequestException
         {
             Map<DecoratedKey, Partition> map = stmt.requiresRead() ? Collections.<DecoratedKey, Partition>singletonMap(key, current) : null;
-            CASUpdateParameters params = new CASUpdateParameters(cfm, updates.columns(), options, timestamp, stmt.getTimeToLive(options), map, ballotTimestamp, nanos);
+            UpdateParameters params = new UpdateParameters(cfm, updates.columns(), options, timestamp, stmt.getTimeToLive(options), map);
             stmt.addUpdateForKey(updates, slice, params);
-            return params.timeUuidLsb;
         }
     }
 

@@ -267,11 +267,7 @@ public class UUIDGen
 
     private static byte[] createTimeUUIDBytes(long msb)
     {
-        return createTimeUUIDBytes(msb, clockSeqAndNode);
-    }
-
-    public static byte[] createTimeUUIDBytes(long msb, long lsb)
-    {
+        long lsb = clockSeqAndNode;
         byte[] uuidBytes = new byte[16];
 
         for (int i = 0; i < 8; i++)

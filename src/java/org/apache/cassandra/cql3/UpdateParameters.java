@@ -19,7 +19,6 @@ package org.apache.cassandra.cql3;
 
 import java.nio.ByteBuffer;
 import java.util.Map;
-import java.util.UUID;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
@@ -30,7 +29,6 @@ import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.UUIDGen;
 
 /**
  * Groups the parameters of an update query, and make building updates easier.
@@ -42,7 +40,7 @@ public class UpdateParameters
     public final QueryOptions options;
 
     private final int nowInSec;
-    protected final long timestamp;
+    private final long timestamp;
     private final int ttl;
 
     private final DeletionTime deletionTime;
@@ -210,11 +208,6 @@ public class UpdateParameters
     public RangeTombstone makeRangeTombstone(Slice slice)
     {
         return new RangeTombstone(slice, deletionTime);
-    }
-
-    public byte[] createTimeUUIDBytes()
-    {
-        return UUIDGen.getTimeUUIDBytes();
     }
 
     /**

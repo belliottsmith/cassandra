@@ -439,7 +439,7 @@ public abstract class Lists
 
                 for (ByteBuffer buffer : ((Value) value).elements)
                 {
-                    ByteBuffer uuid = ByteBuffer.wrap(params.createTimeUUIDBytes());
+                    ByteBuffer uuid = ByteBuffer.wrap(UUIDGen.getTimeUUIDBytes());
                     params.addCell(column, CellPath.create(uuid), buffer);
                 }
             }
