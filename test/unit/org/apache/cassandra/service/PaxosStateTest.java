@@ -20,9 +20,7 @@ package org.apache.cassandra.service;
 import java.nio.ByteBuffer;
 
 import com.google.common.collect.Iterables;
-import org.apache.cassandra.service.paxos.PaxosOperationLock;
 import org.junit.AfterClass;
-import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -120,13 +118,5 @@ public class PaxosStateTest
     private void assertNoDataPresent(ColumnFamilyStore cfs, DecoratedKey key)
     {
         Util.assertEmpty(Util.cmd(cfs, key).build());
-    }
-
-    @Test
-    public void testDisabledLock()
-    {
-        PaxosOperationLock a = PaxosOperationLock.noOp();
-        PaxosOperationLock b = PaxosOperationLock.noOp();
-        Assert.assertNotEquals(a, b);
     }
 }
