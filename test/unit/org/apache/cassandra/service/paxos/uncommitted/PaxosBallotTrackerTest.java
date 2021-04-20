@@ -237,7 +237,6 @@ public class PaxosBallotTrackerTest
      * updating the lower bound should persist it to disk
      */
     @Test
-    @Ignore // until all of 3.0.19.61-hotfix has been merged in to 3.0.24
     public void persistentLowBound() throws IOException
     {
         PaxosBallotTracker ballotTracker = ballotTracker();

@@ -253,7 +253,6 @@ public class PaxosRepairTest extends TestBaseImpl
     }
 
     @Test
-    @Ignore // until all of 3.0.19.61-hotfix has been merged in to 3.0.24
     public void paxosCleanupWithReproposal() throws Throwable
     {
         try (Cluster cluster = init(Cluster.create(3, cfg -> cfg
@@ -444,7 +443,6 @@ public class PaxosRepairTest extends TestBaseImpl
         }
     }
 
-    @Ignore // until all of 3.0.19.61-hotfix has been merged in to 3.0.24
     @Test
     public void paxosAutoRepair() throws Throwable
     {

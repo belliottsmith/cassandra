@@ -355,11 +355,6 @@ public class PaxosState implements PaxosOperationLock
         });
     }
 
-    private static PaxosState getUnsafe(Commit commit)
-    {
-        return getUnsafe(commit.update.partitionKey(), commit.update.metadata());
-    }
-
     // don't increment the total count, as we are only using this for locking purposes when coordinating
     @VisibleForTesting
     public static PaxosOperationLock lock(DecoratedKey partitionKey, CFMetaData metadata, long deadline, ConsistencyLevel consistencyForConsensus, boolean isWrite) throws RequestTimeoutException
@@ -675,7 +670,7 @@ public class PaxosState implements PaxosOperationLock
     public static PrepareResponse legacyPrepare(Commit toPrepare)
     {
         long start = System.nanoTime();
-        try (PaxosState unsafeState = getUnsafe(toPrepare))
+        try (PaxosState unsafeState = get(toPrepare))
         {
             synchronized (unsafeState.key)
             {
@@ -689,7 +684,6 @@ public class PaxosState implements PaxosOperationLock
                     unsafeState.load(toPrepare.ballot);
                 else
                     unsafeState.maybeLoad(toPrepare.ballot, 0);
-                assert unsafeState.current != null;
 
                 while (true)
                 {
@@ -727,7 +721,7 @@ public class PaxosState implements PaxosOperationLock
     public static Boolean legacyPropose(Commit proposal)
     {
         long start = System.nanoTime();
-        try (PaxosState unsafeState = getUnsafe(proposal))
+        try (PaxosState unsafeState = get(proposal))
         {
             synchronized (unsafeState.key)
             {
@@ -736,7 +730,6 @@ public class PaxosState implements PaxosOperationLock
                     unsafeState.load(proposal.ballot);
                 else
                     unsafeState.maybeLoad(proposal.ballot, 0);
-                assert unsafeState.current != null;
 
                 while (true)
                 {
