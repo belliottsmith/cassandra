@@ -75,7 +75,6 @@ import static java.util.Collections.singletonMap;
 import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
 import static org.apache.cassandra.cql3.QueryProcessor.executeOnceInternal;
 import static org.apache.cassandra.io.util.FileUtils.visitDirectory;
-import static org.apache.cassandra.service.paxos.Commit.latest;
 
 public final class SystemKeyspace
 {
@@ -1332,8 +1331,8 @@ public final class SystemKeyspace
 
         UntypedResultSet.Row row = results.one();
 
-        UUID promisedWrite = row.getUUID("in_progress_ballot", null); // TODO: ideally we would use Ballot.none() here, but this would break linearizability during migration to new algorithm
-        UUID promised = latest(promisedWrite, row.getUUID("in_progress_read_ballot", Ballot.none()));
+        UUID promised = row.getUUID("in_progress_ballot", Ballot.none());
+        UUID promisedWrite = row.getUUID("in_progress_write_ballot", null); // TODO: ideally we would use Ballot.none() here, but this would break linearizability during migration to new algorithm
         // either we have both a recently accepted ballot and update or we have neither
         Accepted accepted = null;
         if (row.has("proposal"))
