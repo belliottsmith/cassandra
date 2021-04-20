@@ -109,17 +109,6 @@ public class PaxosRepairTest extends TestBaseImpl
         return cluster.stream().map(instance -> getUncommitted(instance, ks, table)).reduce((a, b) -> a + b).get() > 0;
     }
 
-    private static boolean hasUncommittedQuorum(Cluster cluster, String ks, String table)
-    {
-        int uncommitted = 0;
-        for (int i=0; i<cluster.size(); i++)
-        {
-            if (getUncommitted(cluster.get(i+1), ks, table) > 0)
-                uncommitted++;
-        }
-        return uncommitted >= ((cluster.size() / 2) + 1);
-    }
-
     private static void repair(Cluster cluster, String keyspace, String table)
     {
         Map<String, String> options = new HashMap<>();
@@ -182,7 +171,7 @@ public class PaxosRepairTest extends TestBaseImpl
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
             cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
-            Assert.assertFalse(hasUncommittedQuorum(cluster, KEYSPACE, TABLE));
+            Assert.assertFalse(hasUncommitted(cluster, KEYSPACE, TABLE));
 
             assertAllAlive(cluster);
             cluster.verbs(PAXOS_COMMIT).drop();
@@ -238,7 +227,7 @@ public class PaxosRepairTest extends TestBaseImpl
 
             // node 4 starting should repair paxos and inform the other nodes of its gossip state
             cluster.get(4).startup();
-            Assert.assertFalse(hasUncommittedQuorum(cluster, KEYSPACE, TABLE));
+            Assert.assertFalse(hasUncommitted(cluster, KEYSPACE, TABLE));
         }
     }
 
@@ -298,7 +287,7 @@ public class PaxosRepairTest extends TestBaseImpl
             ExecutorUtils.shutdownNowAndWait(1L, TimeUnit.MINUTES, executor);
             for (int i = 1 ; i <= 3 ; ++i)
                 assertRows(cluster.get(i).executeInternal("SELECT * FROM " + KEYSPACE + '.' + TABLE + " WHERE pk = 1"), row(1, 1, 1));
-            Assert.assertFalse(hasUncommittedQuorum(cluster, KEYSPACE, TABLE));
+            Assert.assertFalse(hasUncommitted(cluster, KEYSPACE, TABLE));
         }
     }
 
@@ -348,7 +337,7 @@ public class PaxosRepairTest extends TestBaseImpl
             {
             }
             ExecutorUtils.shutdownNowAndWait(1L, TimeUnit.MINUTES, executor);
-            Assert.assertFalse(hasUncommittedQuorum(cluster, KEYSPACE, TABLE));
+            Assert.assertFalse(hasUncommitted(cluster, KEYSPACE, TABLE));
         }
     }
 }
