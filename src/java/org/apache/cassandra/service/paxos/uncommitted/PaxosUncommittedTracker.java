@@ -131,7 +131,7 @@ public class PaxosUncommittedTracker
         return state;
     }
 
-    synchronized void flushUpdates() throws IOException
+    void flushUpdates() throws IOException
     {
         Map<UUID, UncommittedKeyFileContainer.FlushWriter> flushWriters = new HashMap<>();
         try (CloseableIterator<PaxosKeyState> iterator = updateSupplier.flushIterator())
