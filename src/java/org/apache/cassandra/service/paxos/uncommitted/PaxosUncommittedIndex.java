@@ -87,7 +87,7 @@ public class PaxosUncommittedIndex implements Index, PaxosUncommittedTracker.Upd
     {
         Map<String, String> options = new HashMap<>();
         options.put("class_name", PaxosUncommittedIndex.class.getName());
-        options.put("target", "");
+        options.put("target", "n/a");
         return IndexMetadata.fromSchemaMetadata("PaxosUncommittedIndex", IndexMetadata.Kind.CUSTOM, options);
     }
 
