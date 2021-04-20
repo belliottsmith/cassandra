@@ -36,7 +36,6 @@ import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.config.ReadRepairDecision;
-import org.apache.cassandra.service.paxos.*;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +67,11 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.locator.*;
 import org.apache.cassandra.metrics.*;
 import org.apache.cassandra.net.*;
+import org.apache.cassandra.service.paxos.Commit;
+import org.apache.cassandra.service.paxos.Paxos;
+import org.apache.cassandra.service.paxos.PaxosState;
+import org.apache.cassandra.service.paxos.PrepareCallback;
+import org.apache.cassandra.service.paxos.ProposeCallback;
 import org.apache.cassandra.net.MessagingService.Verb;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.triggers.TriggerExecutor;
@@ -3606,16 +3610,6 @@ public class StorageProxy implements StorageProxyMBean
     public String getPaxosVariant()
     {
         return Paxos.getPaxosVariant().toString();
-    }
-
-    public void setPaxosContentionStrategy(String spec)
-    {
-        ContentionStrategy.setStrategy(spec);
-    }
-
-    public String getPaxosContentionStrategy()
-    {
-        return ContentionStrategy.getStrategySpec();
     }
 
     public boolean getAllowCompactStorage()

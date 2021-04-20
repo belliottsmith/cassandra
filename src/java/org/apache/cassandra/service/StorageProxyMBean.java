@@ -184,9 +184,6 @@ public interface StorageProxyMBean
     void setPaxosVariant(String variant);
     String getPaxosVariant();
 
-    void setPaxosContentionStrategy(String variant);
-    String getPaxosContentionStrategy();
-
     public void enableDropCompactStorage();
     public void disableDropCompactStorage();
     public boolean allowDropCompactStorage();

@@ -1978,41 +1978,6 @@ public class DatabaseDescriptor
         return conf.paxos_variant;
     }
 
-    public static void setPaxosVariant(Config.PaxosVariant variant)
-    {
-        conf.paxos_variant = variant;
-    }
-
-    public static String getPaxosContentionMinWait()
-    {
-        return conf.paxos_contention_min_wait;
-    }
-
-    public static String getPaxosContentionMaxWait()
-    {
-        return conf.paxos_contention_max_wait;
-    }
-
-    public static String getPaxosContentionMinDelta()
-    {
-        return conf.paxos_contention_min_delta;
-    }
-
-    public static void setPaxosContentionMinWait(String minWait)
-    {
-        conf.paxos_contention_min_wait = minWait;
-    }
-
-    public static void setPaxosContentionMaxWait(String maxWait)
-    {
-        conf.paxos_contention_max_wait = maxWait;
-    }
-
-    public static void setPaxosContentionMinDelta(String minDelta)
-    {
-        conf.paxos_contention_min_delta = minDelta;
-    }
-
     public static boolean skipPaxosRepairOnTopologyChange()
     {
         return conf.skip_paxos_repair_on_topology_change;

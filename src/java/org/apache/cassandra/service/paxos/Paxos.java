@@ -98,6 +98,7 @@ import org.apache.cassandra.service.paxos.PaxosPrepare.FoundIncompleteCommitted;
 
 import static com.google.common.collect.Iterators.filter;
 import static com.google.common.collect.Iterators.size;
+import static java.util.concurrent.TimeUnit.MICROSECONDS;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.net.CompactEndpointSerializationHelper.*;
@@ -113,7 +114,6 @@ import static org.apache.cassandra.service.StorageProxy.readMetrics;
 import static org.apache.cassandra.service.StorageProxy.readMetricsMap;
 import static org.apache.cassandra.service.StorageProxy.writeMetricsMap;
 import static org.apache.cassandra.service.StorageProxy.verifyAgainstBlacklist;
-import static org.apache.cassandra.service.paxos.ContentionStrategy.*;
 import static org.apache.cassandra.service.paxos.PaxosCommit.commit;
 import static org.apache.cassandra.service.paxos.PaxosCommitAndPrepare.commitAndPrepare;
 import static org.apache.cassandra.service.paxos.PaxosPrepare.prepare;
@@ -619,7 +619,7 @@ public class Paxos
                                 // We have been superseded without our proposal being accepted by anyone, so we can safely retry
                                 Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
                                 failedAttemptsDueToContention++;
-                                if (!waitForContention(proposeDeadline, ++failedAttemptsDueToContention, metadata, key, consistencyForPaxos, true))
+                                if (!waitForContention(proposeDeadline, ++failedAttemptsDueToContention))
                                     throw new MaybeFailure(participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
                         }
                     }
@@ -710,7 +710,7 @@ public class Paxos
                                 minimumBallot = propose.superseded().by;
                                 // We have been superseded without our proposal being accepted by anyone, so we can safely retry
                                 Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
-                                if (!waitForContention(deadline, ++failedAttemptsDueToContention, group.metadata(), group.commands.get(0).partitionKey(), consistencyForPaxos, false))
+                                if (!waitForContention(deadline, ++failedAttemptsDueToContention))
                                     throw new MaybeFailure(begin.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
                         }
                     }
@@ -841,7 +841,7 @@ public class Paxos
                 {
                     Tracing.trace("Some replicas have already promised a higher ballot than ours; aborting");
                     // sleep a random amount to give the other proposer a chance to finish
-                    if (!waitForContention(deadline, ++failedAttemptsDueToContention, readCommand.metadata(), readCommand.partitionKey(), consistencyForConsensus, isWrite))
+                    if (!waitForContention(deadline, ++failedAttemptsDueToContention))
                         throw new MaybeFailure(prepare.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
                     retry = prepare(prepare.supersededBy(), prepare.participants, readCommand, !isWrite);
                     break;
@@ -876,6 +876,43 @@ public class Paxos
 
             preparing = retry;
         }
+    }
+
+    static boolean waitForContention(long deadline, int failedAttemptsDueToContention)
+    {
+        // should have at most 2 of 3 messages to complete, and our latency counts retries and this is just a lower bound
+        long minimumWait = 10000;
+        long maximumWait = 100000;
+        try
+        {
+            minimumWait = (casWriteMetrics.recentLatencyHistogram.percentile(0.5) * 2)/3;
+            maximumWait = failedAttemptsDueToContention * casWriteMetrics.recentLatencyHistogram.percentile(0.95);
+        }
+        catch (Throwable t)
+        {
+            NoSpamLogger.getLogger(logger, 1L, TimeUnit.MINUTES).error("", t);
+        }
+
+        if (maximumWait <= 0 || maximumWait > 100000)
+            maximumWait = 100000;
+        if (minimumWait > maximumWait)
+            minimumWait = maximumWait - 1;
+
+        long wait = MICROSECONDS.toNanos(ThreadLocalRandom.current().nextLong(minimumWait, maximumWait));
+        long until = System.nanoTime() + wait;
+        if (until >= deadline)
+            return false;
+
+        try
+        {
+            waits().waitUntil(until);
+        }
+        catch (InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        return true;
     }
 
     static void sendFailureResponse(String action, InetAddress to, UUID ballot, int messageId, MessageIn<?> respondingTo)
@@ -1039,7 +1076,6 @@ public class Paxos
     {
         Preconditions.checkNotNull(paxosVariant);
         PAXOS_VARIANT = paxosVariant;
-        DatabaseDescriptor.setPaxosVariant(paxosVariant);
     }
 
     public static Config.PaxosVariant getPaxosVariant()
