@@ -58,7 +58,6 @@ import org.apache.cassandra.service.paxos.PaxosPrepare.Status.Outcome;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDSerializer;
-import org.apache.cassandra.utils.vint.VIntCoding;
 
 import static org.apache.cassandra.concurrent.StageManager.getStage;
 import static org.apache.cassandra.net.CompactEndpointSerializationHelper.*;
@@ -69,7 +68,6 @@ import static org.apache.cassandra.net.MessagingService.verbStages;
 import static org.apache.cassandra.service.paxos.Commit.*;
 import static org.apache.cassandra.service.paxos.Paxos.*;
 import static org.apache.cassandra.service.paxos.PaxosPrepare.Status.Outcome.*;
-import static org.apache.cassandra.service.paxos.PaxosState.ballotTracker;
 import static org.apache.cassandra.utils.CollectionSerializer.deserializeMap;
 import static org.apache.cassandra.utils.CollectionSerializer.newHashMap;
 import static org.apache.cassandra.utils.CollectionSerializer.serializeMap;
@@ -261,7 +259,6 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
     private List<InetAddress> needLatest; // promised without having witnessed latest commit, nor yet been refreshed by us
     private List<InetAddress> failures; // failed either on initial request or on refresh
     private boolean hadProposalStability = true; // no successful proposal could have raced with us and not been seen
-    private long maxLowBound;
 
     private Outcome outcome;
     private final Consumer<Status> onDone;
@@ -509,9 +506,6 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
     private void promise(Promised promised, InetAddress from)
     {
-        if (promised.lowBound > maxLowBound)
-            maxLowBound = promised.lowBound;
-
         if (!haveQuorumOfPromises)
         {
             CompareResult compareLatest = promised.latestCommitted.compareWith(latestCommitted);
@@ -568,10 +562,24 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
                 case WAS_REPROPOSED_BY:
                     withLatest.add(from);
                     break;
-
                 case AFTER:
-                    maybeLogLinearizabilityViolation(promised, from);
-                    // witnessing future commit doesn't imply have seen prior, so add to refresh list
+                    if (!(promised.latestCommitted.hasSameBallot(latestAccepted)
+                            || (latestAccepted != null && latestAccepted.update.isEmpty() && latestAccepted.isAfter(promised.latestCommitted))))
+                    {
+                        // if we witness a newer commit AND are accepted, something has gone wrong
+                        // except in race with an ongoing commit, having missed all of them initially
+                        // (or in the case that we have an empty proposal accepted, since that will not be committed);
+                        // in theory in the latter case we could now restart refreshStaleParticipants, but this would
+                        // unnecessarily complicate the logic so instead we accept that we will unnecessarily re-propose
+                        logger.error("Linearizability violation: {} witnessed {} of latest {}({}) (withLatest: {}, readResponses: {}); {} promised with latest {}({})",
+                                request.ballot, decodeConsistency(request.ballot), latestCommitted, latestCommitted.ballot.timestamp(),
+                                withLatest, readResponses
+                                        .stream()
+                                        .map(r -> r.from)
+                                        .map(Object::toString)
+                                        .collect(Collectors.joining(", ", "[", "]")),
+                                from, promised.latestCommitted, promised.latestCommitted.ballot.timestamp());
+                    }
 
                 case BEFORE:
                     if (needLatest == null)
@@ -613,38 +621,6 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             else
                 signalDone(FOUND_INCOMPLETE_COMMITTED);
         }
-    }
-
-    private void maybeLogLinearizabilityViolation(Promised promised, InetAddress from)
-    {
-        // if we witness a newer commit AND are accepted something has gone wrong, except:
-
-        // if we have raced with an ongoing commit, having missed all of them initially
-        if (promised.latestCommitted.hasSameBallot(latestAccepted))
-            return;
-
-        // or in the case that we have an empty proposal accepted, since that will not be committed
-        // in theory in this case we could now restart refreshStaleParticipants, but this would
-        // unnecessarily complicate the logic so instead we accept that we will unnecessarily re-propose
-        if (latestAccepted != null && latestAccepted.update.isEmpty() && latestAccepted.isAfter(promised.latestCommitted))
-            return;
-
-        // or in the case that both are older than the most recent repair low bound), in which case a topology change
-        // could have ocurred that means not all paxos state tables know of the accept/commit, though it is persistent
-        // in theory in this case we could ignore this entirely and call ourselves done
-        // TODO: consider this more; is it possible we cause problems by reproposing an old accept?
-        //  shouldn't be, as any newer accept that reaches a quorum will supersede
-        if (promised.latestCommitted.ballot.timestamp() <= maxLowBound)
-            return;
-
-        logger.error("Linearizability violation: {} witnessed {} of latest {}({}) (withLatest: {}, readResponses: {}); {} promised with latest {}({})",
-                request.ballot, decodeConsistency(request.ballot), latestCommitted, latestCommitted.ballot.timestamp(),
-                withLatest, readResponses
-                        .stream()
-                        .map(r -> r.from)
-                        .map(Object::toString)
-                        .collect(Collectors.joining(", ", "[", "]")),
-                from, promised.latestCommitted, promised.latestCommitted.ballot.timestamp());
     }
 
     /**
@@ -821,7 +797,6 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
     static class Promised extends Response
     {
-        final long lowBound;
         // a proposal that has been accepted but not committed, i.e. must be null or > latestCommit
         @Nullable final Accepted latestAcceptedButNotCommitted;
         final Committed latestCommitted;
@@ -830,10 +805,9 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         final boolean hadProposalStability;
         final Map<InetAddress, EndpointState> gossipInfo;
 
-        Promised(long lowBound, @Nullable Accepted latestAcceptedButNotCommitted, Committed latestCommitted, @Nullable ReadResponse readResponse, boolean hadProposalStability, Map<InetAddress, EndpointState> gossipInfo)
+        Promised(@Nullable Accepted latestAcceptedButNotCommitted, Committed latestCommitted, @Nullable ReadResponse readResponse, boolean hadProposalStability, Map<InetAddress, EndpointState> gossipInfo)
         {
             super(true);
-            this.lowBound = lowBound;
             this.latestAcceptedButNotCommitted = latestAcceptedButNotCommitted;
             this.latestCommitted = latestCommitted;
             this.hadProposalStability = hadProposalStability;
@@ -932,8 +906,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
                 Accepted acceptedButNotCommitted = result.after.accepted;
                 Committed committed = result.after.committed;
 
-                return new Promised(ballotTracker().getLowBound().timestamp(),
-                        acceptedButNotCommitted, committed, readResponse, hasProposalStability, gossipInfo);
+                return new Promised(acceptedButNotCommitted, committed, readResponse, hasProposalStability, gossipInfo);
             }
             else
             {
@@ -1022,9 +995,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
                 out.writeByte(1
                         | (promised.latestAcceptedButNotCommitted != null ? 2 : 0)
                         | (promised.readResponse != null                  ? 4 : 0)
-                        | (promised.hadProposalStability                  ? 8 : 0)
-                );
-                out.writeUnsignedVInt(promised.lowBound);
+                        | (promised.hadProposalStability                  ? 8 : 0));
                 if (promised.latestAcceptedButNotCommitted != null)
                     Accepted.serializer.serialize(promised.latestAcceptedButNotCommitted, out, version);
                 Committed.serializer.serialize(promised.latestCommitted, out, version);
@@ -1045,12 +1016,11 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             byte flags = in.readByte();
             if (flags != 0)
             {
-                long lowBound = in.readUnsignedVInt();
                 Accepted acceptedNotCommitted = (flags & 2) != 0 ? Accepted.serializer.deserialize(in, version) : null;
                 Committed committed = Committed.serializer.deserialize(in, version);
                 ReadResponse readResponse = (flags & 4) != 0 ? ReadResponse.serializer.deserialize(in, version) : null;
                 Map<InetAddress, EndpointState> gossipInfo = deserializeMap(endpointSerializer, EndpointState.nullableSerializer, newHashMap(), in, version);
-                return new Promised(lowBound, acceptedNotCommitted, committed, readResponse, (flags & 8) != 0, gossipInfo);
+                return new Promised(acceptedNotCommitted, committed, readResponse, (flags & 8) != 0, gossipInfo);
             }
             else
             {
@@ -1065,7 +1035,6 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             {
                 Promised promised = (Promised) response;
                 return 1
-                        + VIntCoding.computeUnsignedVIntSize(promised.lowBound)
                         + (promised.latestAcceptedButNotCommitted == null ? 0 : Accepted.serializer.serializedSize(promised.latestAcceptedButNotCommitted, version))
                         + Committed.serializer.serializedSize(promised.latestCommitted, version)
                         + (promised.readResponse == null ? 0 : ReadResponse.serializer.serializedSize(promised.readResponse, version))
