@@ -70,7 +70,6 @@ import org.apache.cassandra.service.paxos.Commit;
 import org.apache.cassandra.service.paxos.Commit.Accepted;
 import org.apache.cassandra.service.paxos.Commit.Committed;
 import org.apache.cassandra.service.paxos.PaxosState;
-import org.apache.cassandra.service.paxos.uncommitted.PaxosUncommittedIndex;
 import org.apache.cassandra.thrift.cassandraConstants;
 import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.utils.*;
@@ -161,8 +160,7 @@ public final class SystemKeyspace
                 + "proposal_ballot timeuuid,"
                 + "proposal_version int,"
                 + "PRIMARY KEY ((row_key), cf_id))")
-                .compaction(CompactionParams.lcs(emptyMap()))
-                .indexes(PaxosUncommittedIndex.indexes());
+                .compaction(CompactionParams.lcs(emptyMap()));
 
     private static final CFMetaData BuiltIndexes =
         compile(BUILT_INDEXES,

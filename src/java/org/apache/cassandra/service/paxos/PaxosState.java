@@ -20,16 +20,12 @@
  */
 package org.apache.cassandra.service.paxos;
 
-import java.io.File;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Striped;
 
 import org.apache.cassandra.config.CFMetaData;
@@ -37,10 +33,6 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.service.paxos.Commit.Accepted;
 import org.apache.cassandra.service.paxos.Commit.Committed;
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.service.paxos.uncommitted.PaxosUncommittedTracker;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.UUIDGen;
 
@@ -54,28 +46,6 @@ public class PaxosState
     @Nonnull final UUID promised;
     @Nullable final Accepted accepted; // if already committed, this will be null
     @Nonnull final Committed committed;
-
-    private static PaxosUncommittedTracker loadTracker()
-    {
-        File directory = new File(Directories.dataDirectories[0].location, "paxos");
-        FileUtils.createDirectory(directory);
-        return PaxosUncommittedTracker.load(directory);
-    }
-
-    private static class TrackerHandle
-    {
-        static final PaxosUncommittedTracker instance = loadTracker();
-    }
-
-    public static PaxosUncommittedTracker tracker()
-    {
-        return TrackerHandle.instance;
-    }
-
-    public static void initializeTracker()
-    {
-        Preconditions.checkState(TrackerHandle.instance != null);
-    }
 
     public @Nonnull UUID latestWitnessed()
     {
@@ -324,13 +294,4 @@ public class PaxosState
         }
     }
 
-    public static void completeFor(UUID cfId, Collection<Range<Token>> ranges, int before)
-    {
-        if (ranges == null || ranges.isEmpty())
-        {
-            Token min = DatabaseDescriptor.getPartitioner().getMinimumToken();
-            ranges = Collections.singleton(new Range<>(min, min));
-        }
-
-    }
 }

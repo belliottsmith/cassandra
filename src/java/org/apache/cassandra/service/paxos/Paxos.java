@@ -970,7 +970,7 @@ public class Paxos
         }
     }
 
-    public static UUID newBallot(@Nullable UUID minimumBallot, ConsistencyLevel consistency)
+    static UUID newBallot(@Nullable UUID minimumBallot, ConsistencyLevel consistency)
     {
         // We want a timestamp that is guaranteed to be unique for that node (so that the ballot is globally unique), but if we've got a prepare rejected
         // already we also want to make sure we pick a timestamp that has a chance to be promised, i.e. one that is greater that the most recently known

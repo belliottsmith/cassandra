@@ -87,7 +87,6 @@ import org.apache.cassandra.metrics.DefaultNameFactory;
 import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.schema.LegacySchemaMigrator;
 import org.apache.cassandra.cql3.functions.ThreadAwareSecurityManager;
-import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.thrift.ThriftServer;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.*;
@@ -205,8 +204,6 @@ public class CassandraDaemon
         logSystemInfo();
 
         NativeLibrary.tryMlockall();
-
-        PaxosState.initializeTracker();
 
         try
         {

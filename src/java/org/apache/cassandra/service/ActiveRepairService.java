@@ -18,12 +18,16 @@
 package org.apache.cassandra.service;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
@@ -256,15 +260,10 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                              boolean force,
                                              PreviewKind previewKind,
                                              boolean optimiseStreams,
-                                             boolean repairPaxos,
-                                             boolean paxosOnly,
                                              ListeningExecutorService executor,
                                              String... cfnames)
 
     {
-        if (repairPaxos && previewKind != PreviewKind.NONE)
-            throw new IllegalArgumentException("cannot repair paxos in a preview repair");
-
         if (endpoints.isEmpty())
             return null;
 
@@ -278,7 +277,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         if (cfnames.length == 0)
             return null;
 
-        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, allReplicas, endpoints, isIncremental, pullRepair, force, previewKind, repairPaxos, paxosOnly, optimiseStreams, cfnames);
+        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, allReplicas, endpoints, isIncremental, pullRepair, force, previewKind, optimiseStreams, cfnames);
 
         sessions.put(session.getId(), session);
         // register listeners
@@ -375,8 +374,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
     }
 
 
-    @VisibleForTesting
-    public Pair<ParentRepairStatus, List<String>> getRepairStatus(Integer cmd)
+    Pair<ParentRepairStatus, List<String>> getRepairStatus(Integer cmd)
     {
         return repairStatusByCmd.getIfPresent(cmd);
     }
@@ -928,13 +926,4 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         DatabaseDescriptor.setRepairPendingCompactionRejectThreshold(value);
     }
 
-    public int getPaxosRepairParalellism()
-    {
-        return DatabaseDescriptor.getPaxosRepairParalellism();
-    }
-
-    public void setPaxosRepairParalellism(int v)
-    {
-        DatabaseDescriptor.setPaxosRepairParalellism(v);
-    }
 }

@@ -65,9 +65,6 @@ import org.apache.cassandra.net.PingVerbHandler;
 import org.apache.cassandra.service.paxos.PaxosCommitAndPrepare;
 import org.apache.cassandra.service.paxos.PaxosPrepareRefresh;
 import org.apache.cassandra.service.paxos.PaxosRepair;
-import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupRequest;
-import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupResponse;
-import org.apache.cassandra.service.paxos.cleanup.PaxosPrepareCleanup;
 import org.apache.cassandra.utils.progress.ProgressListener;
 import org.apache.cassandra.service.paxos.PaxosCommit;
 import org.apache.cassandra.service.paxos.PaxosPrepare;
@@ -433,10 +430,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PARTITION_SIZE, new PartitionSizeVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PING, new PingVerbHandler());
-
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_PREPARE, PaxosPrepareCleanup.verbHandler);
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_REQUEST, PaxosCleanupRequest.verbHandler);
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_RESPONSE, PaxosCleanupResponse.verbHandler);
     }
 
     public void registerDaemon(CassandraDaemon daemon)
@@ -3703,7 +3696,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             parallelism = RepairParallelism.PARALLEL;
         }
 
-        RepairOption options = new RepairOption(parallelism, primaryRange, !fullRepair, false, 1, Collections.<Range<Token>>emptyList(), false, false, false, PreviewKind.NONE, false, false, false, false);
+        RepairOption options = new RepairOption(parallelism, primaryRange, !fullRepair, false, 1, Collections.<Range<Token>>emptyList(), false, false, false, PreviewKind.NONE, false, false);
         if (dataCenters != null)
         {
             options.getDataCenters().addAll(dataCenters);
@@ -3795,7 +3788,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         "The repair will occur but without anti-compaction.");
         Collection<Range<Token>> repairingRange = createRepairRangeFrom(beginToken, endToken);
 
-        RepairOption options = new RepairOption(parallelism, false, !fullRepair, false, 1, repairingRange, true, false, false, PreviewKind.NONE, false, false, false, false);
+        RepairOption options = new RepairOption(parallelism, false, !fullRepair, false, 1, repairingRange, true, false, false, PreviewKind.NONE, false, false);
         if (dataCenters != null)
         {
             options.getDataCenters().addAll(dataCenters);

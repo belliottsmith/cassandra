@@ -43,7 +43,6 @@ import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.concurrent.DebuggableThreadPoolExecutor;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
 import org.apache.cassandra.dht.IPartitioner;
@@ -58,10 +57,6 @@ import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.repair.messages.SyncRequest;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.ActiveRepairService;
-import org.apache.cassandra.service.paxos.Paxos;
-import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupRequest;
-import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupResponse;
-import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupSession;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.streaming.SessionSummary;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -72,8 +67,6 @@ import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
 
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_CLEANUP_PREPARE;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_CLEANUP_REQUEST;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -110,11 +103,11 @@ public class RepairJobTest extends SchemaLoader
         public MeasureableRepairSession(UUID parentRepairSession, UUID id, Collection<Range<Token>> ranges,
                                         String keyspace, RepairParallelism parallelismDegree, boolean allReplicas,
                                         Set<InetAddress> endpoints, boolean isIncremental, boolean pullRepair,
-                                        boolean force, PreviewKind previewKind, boolean repairPaxos, boolean paxosOnly, boolean optimiseStreams,
+                                        boolean force, PreviewKind previewKind, boolean optimiseStreams,
                                         String... cfnames)
         {
             super(parentRepairSession, id, ranges, keyspace, parallelismDegree, allReplicas,
-                  endpoints, isIncremental, pullRepair, force, previewKind, repairPaxos, paxosOnly, optimiseStreams, cfnames);
+                  endpoints, isIncremental, pullRepair, force, previewKind, optimiseStreams, cfnames);
         }
 
         protected DebuggableThreadPoolExecutor createExecutor()
@@ -150,7 +143,7 @@ public class RepairJobTest extends SchemaLoader
 
         this.session = new MeasureableRepairSession(parentRepairSession, UUIDGen.getTimeUUID(), fullRange,
                                                     KEYSPACE, RepairParallelism.SEQUENTIAL, true, neighbors,
-                                                    false, false, false, PreviewKind.NONE, true, false, false, CF);
+                                                    false, false, false, PreviewKind.NONE, false, CF);
 
         this.job = new RepairJob(session, CF, false, PreviewKind.NONE, false);
         this.sessionJobDesc = new RepairJobDesc(session.parentRepairSession, session.getId(),
@@ -182,7 +175,6 @@ public class RepairJobTest extends SchemaLoader
 
         job.run();
 
-        Thread.sleep(1000);
         RepairResult result = job.get(TEST_TIMEOUT_S, TimeUnit.SECONDS);
 
         assertEquals(3, result.stats.size());
@@ -299,23 +291,6 @@ public class RepairJobTest extends SchemaLoader
         {
             public boolean allowOutgoingMessage(MessageOut message, int id, InetAddress to)
             {
-                if (message.verb == APPLE_PAXOS_CLEANUP_PREPARE)
-                {
-                    MessageIn<?> messageIn = MessageIn.create(to, Paxos.newBallot(null, ConsistencyLevel.SERIAL),
-                                                              Collections.emptyMap(),
-                                                              MessagingService.Verb.REQUEST_RESPONSE,
-                                                              MessagingService.current_version);
-                    MessagingService.instance().receive(messageIn, id, System.currentTimeMillis(), false);
-                    return false;
-                }
-
-                if (message.verb == APPLE_PAXOS_CLEANUP_REQUEST)
-                {
-                    PaxosCleanupRequest request = (PaxosCleanupRequest) message.payload;
-                    PaxosCleanupSession.finishSession(to, new PaxosCleanupResponse(request.session, true, null));
-                    return false;
-                }
-
                 if (message == null || !(message.payload instanceof RepairMessage))
                     return false;
 

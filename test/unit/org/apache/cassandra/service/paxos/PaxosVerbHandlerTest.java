@@ -36,7 +36,6 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -247,7 +246,7 @@ public class PaxosVerbHandlerTest
     private static Commit commit(int key)
     {
         CFMetaData cfm = Schema.instance.getCFMetaData(KEYSPACE, TABLE);
-        UUID ballot = Paxos.ballotForConsistency(FBUtilities.timestampMicros(), ConsistencyLevel.SERIAL);
+        UUID ballot = UUIDGen.getRandomTimeUUIDFromMicros(FBUtilities.timestampMicros(), 0);
         return Commit.newPrepare(cfm.decorateKey(ByteBufferUtil.bytes(key)), cfm, ballot);
     }
 

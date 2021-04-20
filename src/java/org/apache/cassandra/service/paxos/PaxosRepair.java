@@ -63,9 +63,9 @@ import static org.apache.cassandra.utils.NullableSerializer.serializedSizeNullab
  *   - any proposal that has been accepted by at least one node, but not known to be committed to any, will be proposed again
  *   - any proposal that has been committed to at least one node, but not committed to all, will be committed to a quorum
  *
- * Note that once started, this continues to try to repair any ongoing operations for the partition up to 4 times.
- * In a functioning cluster this should always be possible, but during a network partition this might cause the repair
- * to fail.
+ * Note that once started, this continues to try to repair any ongoing operations for the partition until success is achieved;
+ * in a functioning cluster this should always be possible, but during a network partition this might continue indefinitely.
+ * It is up to the caller to cancel any ongoing repairs if they exceed a reasonable time frame.
  *
  * Requirements for correction:
  * - If performed during a range movement, we depend on a quorum (of the new topology) have been informed of the new
@@ -100,7 +100,6 @@ public class PaxosRepair
 
     public static final RequestSerializer requestSerializer = new RequestSerializer();
     public static final ResponseSerializer responseSerializer = new ResponseSerializer();
-    private static final int MAX_RETRIES = 4;
 
     public static class Result extends State
     {
@@ -111,13 +110,7 @@ public class PaxosRepair
             this.outcome = outcome;
         }
         public String toString() { return outcome.toString(); }
-
-        public boolean wasSuccessful()
-        {
-            return outcome == Outcome.DONE;
-        }
     }
-
     public static final Result DONE = new Result(Outcome.DONE);
     public static final Result CANCELLED = new Result(Outcome.CANCELLED);
     public static final class Failure extends Result
@@ -133,8 +126,7 @@ public class PaxosRepair
         {
             StringWriter sw = new StringWriter();
             PrintWriter pw = new PrintWriter(sw);
-            if (failure != null)
-                failure.printStackTrace(pw);
+            failure.printStackTrace(pw);
             return outcome.toString() + ": " + sw.toString();
         }
     }
@@ -148,7 +140,6 @@ public class PaxosRepair
 
     private UUID successCriteria;
     private State state;
-    private int retries = 0;
 
     private static class State {}
 
@@ -199,7 +190,7 @@ public class PaxosRepair
                     return;
 
                 if (++failures + required > participants.sizeOfPoll())
-                    setState(maybeRetry());
+                    restart();
             }
         }
 
@@ -321,7 +312,6 @@ public class PaxosRepair
             switch (input.outcome)
             {
                 case MAYBE_FAILURE:
-                    return maybeRetry();
                 case SUPERSEDED:
                     return restart();
 
@@ -377,7 +367,6 @@ public class PaxosRepair
             switch (input.outcome)
             {
                 case MAYBE_FAILURE:
-                    return maybeRetry();
                 case SUPERSEDED:
                     return restart();
 
@@ -404,7 +393,7 @@ public class PaxosRepair
         public State execute(PaxosCommit.Status input)
         {
             logger.trace("PaxosRepair of {} {}", partitionKey, input);
-            return input.isSuccess() ? DONE : maybeRetry();
+            return input.isSuccess() ? DONE : restart();
         }
     }
 
@@ -454,17 +443,6 @@ public class PaxosRepair
         while (!(state instanceof Result))
             WAIT.wait(this);
         return (Result) state;
-    }
-
-    private State maybeRetry()
-    {
-        if (state instanceof Result)
-            return state;
-
-        if (++retries >= MAX_RETRIES)
-            return new Failure(null);
-
-        return restart();
     }
 
     private State restart()

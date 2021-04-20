@@ -164,8 +164,6 @@ public class Config
     // default changed in request rdar://63403100 (Enable use_offheap_merkle_trees by default)
     public volatile boolean use_offheap_merkle_trees = true;
 
-    public volatile int paxos_repair_paralellism = -1;
-
     public Integer storage_port = 7000;
     public Integer ssl_storage_port = 7001;
     public String listen_address;
@@ -628,7 +626,7 @@ public class Config
         legacy,
         apple_norrl, // with legacy semantics for read/read linearizability (i.e. not guaranteed)
         apple_rrl2rt, // with read/read linearizability guaranteed but requiring an extra read round-trip
-        apple_rrl // provides read/read linearizability, doesn't incur an extra round-trip if no contending paxos operation is detected
+        apple_rrl // provides read/read linearizability in most cases, doesn't incure an extra round-trip if no contending paxos operation is detected
     }
 
     public volatile PaxosVariant paxos_variant = PaxosVariant.legacy;

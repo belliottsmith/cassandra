@@ -707,8 +707,6 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                                                                                      force,
                                                                                      options.getPreviewKind(),
                                                                                      options.optimiseStreams(),
-                                                                                     options.repairPaxos(),
-                                                                                     options.paxosOnly(),
                                                                                      executor,
                                                                                      cfnames);
             if (session == null)
