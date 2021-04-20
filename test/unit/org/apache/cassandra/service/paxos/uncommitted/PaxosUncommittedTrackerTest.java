@@ -59,7 +59,7 @@ public class PaxosUncommittedTrackerTest
 
     private static List<UncommittedPaxosKey> uncommittedList(PaxosUncommittedTracker tracker, Collection<Range<Token>> ranges)
     {
-        try (CloseableIterator<UncommittedPaxosKey> iterator = tracker.uncommittedKeyIterator(CFID, ranges))
+        try (CloseableIterator<UncommittedPaxosKey> iterator = tracker.uncommittedKeyIterator(CFID, ranges, null))
         {
             return Lists.newArrayList(iterator);
         }

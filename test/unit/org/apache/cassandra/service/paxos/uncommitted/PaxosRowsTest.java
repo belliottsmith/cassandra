@@ -22,29 +22,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import org.junit.*;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.config.ColumnDefinition;
-import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.marshal.UUIDType;
-import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
-import org.apache.cassandra.db.rows.BTreeRow;
-import org.apache.cassandra.db.rows.BufferCell;
-import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.Row;
-import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.service.paxos.Commit;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.UUIDGen;
-import org.apache.cassandra.utils.btree.BTree;
 
 import static org.apache.cassandra.service.paxos.uncommitted.PaxosUncommittedTests.*;
 
@@ -56,34 +44,14 @@ public class PaxosRowsTest
     protected static CFMetaData cfm;
     protected static UUID cfId;
 
-    static Commit emptyCommitFor(UUID ballot, DecoratedKey key)
-    {
-        return new Commit(ballot, PartitionUpdate.emptyUpdate(cfm, key));
-    }
-
-    static Commit nonEmptyCommitFor(UUID ballot, DecoratedKey key)
-    {
-        return new Commit(ballot, nonEmptyUpdate(ballot, cfm, key));
-    }
-
-    static PartitionUpdate nonEmptyUpdate(UUID ballot, CFMetaData cfm, DecoratedKey key)
-    {
-        ColumnDefinition valueColumn = cfm.getColumnDefinition(new ColumnIdentifier("v", false));
-        return PartitionUpdate.singleRowUpdate(cfm, key, BTreeRow.create(Clustering.EMPTY, LivenessInfo.EMPTY, Row.Deletion.LIVE, BTree.singleton(new BufferCell(valueColumn, UUIDGen.microsTimestamp(ballot), Cell.NO_TTL, Cell.NO_DELETION_TIME, ByteBufferUtil.bytes(1), null))));
-    }
-
     static Row paxosRowFor(DecoratedKey key)
     {
-        SinglePartitionReadCommand command = SinglePartitionReadCommand.create(PAXOS_CFM,
-                FBUtilities.nowInSeconds(),
-                key,
-                new Clustering(UUIDType.instance.decompose(cfId)));
-        try (ReadOrderGroup opGroup = command.startOrderGroup();
-             UnfilteredPartitionIterator iterator = command.executeLocally(opGroup);
-             UnfilteredRowIterator partition = Iterators.getOnlyElement(iterator))
-        {
-            return (Row) Iterators.getOnlyElement(partition);
-        }
+        return PaxosUncommittedTests.paxosRowFor(cfm.cfId, key);
+    }
+
+    private static Commit commitFor(UUID ballot, DecoratedKey key)
+    {
+        return PaxosUncommittedTests.commitFor(cfm, ballot, key);
     }
 
     @BeforeClass
@@ -111,20 +79,13 @@ public class PaxosRowsTest
 
         SystemKeyspace.savePaxosPromise(key, cfm, ballots[0]);
         Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[0], false), PaxosRows.getCommitState(key, paxosRowFor(key), null));
-        SystemKeyspace.savePaxosProposal(emptyCommitFor(ballots[0], key));
-        Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[0], true), PaxosRows.getCommitState(key, paxosRowFor(key), null));
-
-        SystemKeyspace.savePaxosPromise(key, cfm, ballots[1]);
+        SystemKeyspace.savePaxosProposal(commitFor(ballots[1], key));
         Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[1], false), PaxosRows.getCommitState(key, paxosRowFor(key), null));
-        SystemKeyspace.savePaxosProposal(nonEmptyCommitFor(ballots[1], key));
-        Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[1], false), PaxosRows.getCommitState(key, paxosRowFor(key), null));
-        SystemKeyspace.savePaxosCommit(nonEmptyCommitFor(ballots[1], key));
-        Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[1], true), PaxosRows.getCommitState(key, paxosRowFor(key), null));
 
         // test cfid filter mismatch
         Assert.assertNull(PaxosRows.getCommitState(key, paxosRowFor(key), UUID.randomUUID()));
 
-        SystemKeyspace.savePaxosCommit(emptyCommitFor(ballots[2], key));
+        SystemKeyspace.savePaxosCommit(commitFor(ballots[2], key));
         Assert.assertEquals(new PaxosKeyState(cfId, key, ballots[2], true), PaxosRows.getCommitState(key, paxosRowFor(key), null));
     }
 
@@ -140,12 +101,12 @@ public class PaxosRowsTest
 
             if (i%2 == 0)
             {
-                SystemKeyspace.savePaxosProposal(nonEmptyCommitFor(ballot, key));
+                SystemKeyspace.savePaxosProposal(commitFor(ballot, key));
                 expected.add(new PaxosKeyState(cfId, key, ballot, false));
             }
             else
             {
-                SystemKeyspace.savePaxosCommit(nonEmptyCommitFor(ballot, key));
+                SystemKeyspace.savePaxosCommit(commitFor(ballot, key));
                 expected.add(new PaxosKeyState(cfId, key, ballot, true));
             }
         }

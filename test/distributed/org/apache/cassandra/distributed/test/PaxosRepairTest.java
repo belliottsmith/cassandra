@@ -23,17 +23,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
-import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -42,32 +36,22 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
-import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.paxos.PaxosState;
-import org.apache.cassandra.service.paxos.cleanup.PaxosCleanup;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.Pair;
-
-import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
-import static org.apache.cassandra.distributed.shared.AssertUtils.row;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ;
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ;
-import static org.apache.cassandra.net.MessagingService.Verb.PAXOS_COMMIT;
 
 public class PaxosRepairTest extends TestBaseImpl
 {
@@ -80,7 +64,7 @@ public class PaxosRepairTest extends TestBaseImpl
             return 0;
         int uncommitted = instance.callsOnInstance(() -> {
             CFMetaData cfm = Schema.instance.getCFMetaData(keyspace, table);
-            return Iterators.size(PaxosState.uncommittedTracker().uncommittedKeyIterator(cfm.cfId, null));
+            return Iterators.size(PaxosState.uncommittedTracker().uncommittedKeyIterator(cfm.cfId, null, null));
         }).call();
         logger.info("{} has {} uncommitted instances", instance, uncommitted);
         return uncommitted;
@@ -159,7 +143,6 @@ public class PaxosRepairTest extends TestBaseImpl
         cfg.with(Feature.NETWORK);
         cfg.with(Feature.GOSSIP);
         cfg.set("paxos_variant", "apple_norrl");
-        cfg.set("truncate_request_timeout_in_ms", 1000L);
         cfg.set("partitioner", "ByteOrderedPartitioner");
         cfg.set("initial_token", ByteBufferUtil.bytesToHex(ByteBufferUtil.bytes(cfg.num() * 100)));
     };
@@ -174,7 +157,7 @@ public class PaxosRepairTest extends TestBaseImpl
             Assert.assertFalse(hasUncommitted(cluster, KEYSPACE, TABLE));
 
             assertAllAlive(cluster);
-            cluster.verbs(PAXOS_COMMIT).drop();
+            cluster.verbs(MessagingService.Verb.PAXOS_COMMIT).drop();
             try
             {
                 cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (400, 2, 2) IF NOT EXISTS", ConsistencyLevel.QUORUM);
@@ -211,7 +194,7 @@ public class PaxosRepairTest extends TestBaseImpl
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
             cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
 
-            cluster.verbs(PAXOS_COMMIT).drop();
+            cluster.verbs(MessagingService.Verb.PAXOS_COMMIT).drop();
             try
             {
                 cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (350, 2, 2) IF NOT EXISTS", ConsistencyLevel.QUORUM);
@@ -227,116 +210,6 @@ public class PaxosRepairTest extends TestBaseImpl
 
             // node 4 starting should repair paxos and inform the other nodes of its gossip state
             cluster.get(4).startup();
-            Assert.assertFalse(hasUncommitted(cluster, KEYSPACE, TABLE));
-        }
-    }
-
-    @Test
-    public void paxosCleanupWithReproposal() throws Throwable
-    {
-        try (Cluster cluster = init(Cluster.create(3, cfg -> cfg
-                .set("paxos_variant", "apple_rrl")
-                .set("truncate_request_timeout_in_ms", 1000L))))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            cluster.verbs(PAXOS_COMMIT).drop();
-            try
-            {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
-                Assert.fail("expected write timeout");
-            }
-            catch (RuntimeException e)
-            {
-                // exception expected
-            }
-            Assert.assertTrue(hasUncommitted(cluster, KEYSPACE, TABLE));
-            cluster.forEach(i -> i.runOnInstance(() -> Keyspace.open("system").getColumnFamilyStore("paxos").forceBlockingFlush()));
-
-            CountDownLatch haveFetchedLowBound = new CountDownLatch(1);
-            CountDownLatch haveReproposed = new CountDownLatch(1);
-            cluster.verbs(APPLE_PAXOS_CLEANUP_FINISH_PREPARE).inbound().messagesMatching((from, to, verb) -> {
-                haveFetchedLowBound.countDown();
-                Uninterruptibles.awaitUninterruptibly(haveReproposed);
-                return false;
-            }).drop();
-
-            ExecutorService executor = Executors.newCachedThreadPool();
-            List<InetAddress> endpoints = cluster.stream().map(i -> i.broadcastAddress().getAddress()).collect(Collectors.toList());
-            Future<?> cleanup = cluster.get(1).appliesOnInstance((List<InetAddress> es, ExecutorService exec)-> {
-                CFMetaData metadata = Keyspace.open(KEYSPACE).getMetadata().getTableOrViewNullable(TABLE);
-                return PaxosCleanup.cleanup(es, metadata.cfId, StorageService.instance.getLocalRanges(KEYSPACE), exec);
-            }).apply(endpoints, executor);
-
-            Uninterruptibles.awaitUninterruptibly(haveFetchedLowBound);
-            IMessageFilters.Filter filter2 = cluster.verbs(PAXOS_COMMIT, APPLE_PAXOS_COMMIT_AND_PREPARE_REQ).drop();
-            try
-            {
-                cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + '.' + TABLE + " WHERE pk = 1", ConsistencyLevel.SERIAL);
-                Assert.fail("expected write timeout");
-            }
-            catch (RuntimeException e)
-            {
-                // exception expected
-            }
-            filter2.off();
-            haveReproposed.countDown();
-            cluster.filters().reset();
-
-            cleanup.get();
-            ExecutorUtils.shutdownNowAndWait(1L, TimeUnit.MINUTES, executor);
-            for (int i = 1 ; i <= 3 ; ++i)
-                assertRows(cluster.get(i).executeInternal("SELECT * FROM " + KEYSPACE + '.' + TABLE + " WHERE pk = 1"), row(1, 1, 1));
-            Assert.assertFalse(hasUncommitted(cluster, KEYSPACE, TABLE));
-        }
-    }
-
-    @Test
-    public void paxosCleanupWithDelayedProposal() throws Throwable
-    {
-        try (Cluster cluster = init(Cluster.create(3, cfg -> cfg
-                .set("paxos_variant", "apple_rrl")
-                .set("truncate_request_timeout_in_ms", 1000L)))
-        )
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            CountDownLatch haveFinishedRepair = new CountDownLatch(1);
-            cluster.verbs(APPLE_PAXOS_PREPARE_REQ).messagesMatching((from, to, verb) -> {
-                Uninterruptibles.awaitUninterruptibly(haveFinishedRepair);
-                return false;
-            }).drop();
-            cluster.verbs(PAXOS_COMMIT).drop();
-            Future<?> insert = cluster.get(1).async(() -> {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
-                Assert.fail("expected write timeout");
-            }).call();
-            cluster.verbs(APPLE_PAXOS_CLEANUP_FINISH_PREPARE).messagesMatching((from, to, verb) -> {
-                haveFinishedRepair.countDown();
-                try { insert.get(); } catch (Throwable t) {}
-                cluster.filters().reset();
-                return false;
-            }).drop();
-
-            ExecutorService executor = Executors.newCachedThreadPool();
-
-            Uninterruptibles.sleepUninterruptibly(10L, TimeUnit.MILLISECONDS);
-
-            List<InetAddress> endpoints = cluster.stream().map(i -> i.broadcastAddress().getAddress()).collect(Collectors.toList());
-            Future<?> cleanup = cluster.get(1).appliesOnInstance((List<InetAddress> es, ExecutorService exec)-> {
-                CFMetaData metadata = Keyspace.open(KEYSPACE).getMetadata().getTableOrViewNullable(TABLE);
-                return PaxosCleanup.cleanup(es, metadata.cfId, StorageService.instance.getLocalRanges(KEYSPACE), exec);
-            }).apply(endpoints, executor);
-
-            cleanup.get();
-            try
-            {
-                insert.get();
-            }
-            catch (Throwable t)
-            {
-            }
-            ExecutorUtils.shutdownNowAndWait(1L, TimeUnit.MINUTES, executor);
             Assert.assertFalse(hasUncommitted(cluster, KEYSPACE, TABLE));
         }
     }

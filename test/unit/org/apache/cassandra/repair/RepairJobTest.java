@@ -72,7 +72,7 @@ import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
 
-import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_CLEANUP_START_PREPARE;
+import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_CLEANUP_PREPARE;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_CLEANUP_REQUEST;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -299,7 +299,7 @@ public class RepairJobTest extends SchemaLoader
         {
             public boolean allowOutgoingMessage(MessageOut message, int id, InetAddress to)
             {
-                if (message.verb == APPLE_PAXOS_CLEANUP_START_PREPARE)
+                if (message.verb == APPLE_PAXOS_CLEANUP_PREPARE)
                 {
                     MessageIn<?> messageIn = MessageIn.create(to, Paxos.newBallot(null, ConsistencyLevel.SERIAL),
                                                               Collections.emptyMap(),

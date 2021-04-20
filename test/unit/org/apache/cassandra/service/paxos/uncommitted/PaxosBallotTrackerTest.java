@@ -111,7 +111,7 @@ public class PaxosBallotTrackerTest
         }
 
         DecoratedKey key = dk(1);
-        Commit.Proposal commit = new Commit.Proposal(opBallot, PaxosRowsTest.nonEmptyUpdate(opBallot, cfm, key));
+        Commit.Proposal commit = new Commit.Proposal(opBallot, PartitionUpdate.emptyUpdate(cfm, key));
 
         switch (stage)
         {

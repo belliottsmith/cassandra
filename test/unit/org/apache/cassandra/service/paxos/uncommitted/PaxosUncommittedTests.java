@@ -86,4 +86,22 @@ class PaxosUncommittedTests
         return r(PARTITIONER.getToken(ByteBufferUtil.bytes(start)), PARTITIONER.getToken(ByteBufferUtil.bytes(stop)));
     }
 
+    static Commit commitFor(CFMetaData cfm, UUID ballot, DecoratedKey key)
+    {
+        return new Commit(ballot, PartitionUpdate.emptyUpdate(cfm, key));
+    }
+
+    static Row paxosRowFor(UUID cfId, DecoratedKey key)
+    {
+        SinglePartitionReadCommand command = SinglePartitionReadCommand.create(PAXOS_CFM,
+                                                                               FBUtilities.nowInSeconds(),
+                                                                               key,
+                                                                               new Clustering(UUIDType.instance.decompose(cfId)));
+        try (ReadOrderGroup opGroup = command.startOrderGroup();
+             UnfilteredPartitionIterator iterator = command.executeLocally(opGroup);
+             UnfilteredRowIterator partition = Iterators.getOnlyElement(iterator))
+        {
+            return (Row) Iterators.getOnlyElement(partition);
+        }
+    };
 }

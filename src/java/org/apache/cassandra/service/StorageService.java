@@ -159,6 +159,7 @@ import org.apache.cassandra.utils.progress.jmx.LegacyJMXProgressSupport;
 import static java.util.Arrays.asList;
 import static java.util.Arrays.stream;
 import static java.util.concurrent.TimeUnit.MINUTES;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static org.apache.cassandra.index.SecondaryIndexManager.getIndexName;
@@ -432,10 +433,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PARTITION_SIZE, new PartitionSizeVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PING, new PingVerbHandler());
 
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_START_PREPARE, PaxosStartPrepareCleanup.verbHandler);
+        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_PREPARE, PaxosPrepareCleanup.verbHandler);
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_REQUEST, PaxosCleanupRequest.verbHandler);
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_RESPONSE, PaxosCleanupResponse.verbHandler);
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, PaxosFinishPrepareCleanup.verbHandler);
+        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_FINISH, PaxosFinishCleanup.verbHandler);
     }
 
     public void registerDaemon(CassandraDaemon daemon)

@@ -48,6 +48,7 @@ public class PaxosCleanupRequest
     public final UUID session;
     public final UUID cfId;
     public final Collection<Range<Token>> ranges;
+    public final UUID before;
 
     static Collection<Range<Token>> rangesOrMin(Collection<Range<Token>> ranges)
     {
@@ -58,11 +59,12 @@ public class PaxosCleanupRequest
         return Collections.singleton(new Range<>(min, min));
     }
 
-    public PaxosCleanupRequest(UUID session, UUID cfId, Collection<Range<Token>> ranges)
+    public PaxosCleanupRequest(UUID session, UUID cfId, Collection<Range<Token>> ranges, UUID before)
     {
         this.session = session;
         this.cfId = cfId;
         this.ranges = rangesOrMin(ranges);
+        this.before = before;
     }
 
     public static final IVerbHandler<PaxosCleanupRequest> verbHandler = (message, id) -> {
@@ -101,6 +103,7 @@ public class PaxosCleanupRequest
             out.writeInt(completer.ranges.size());
             for (Range<Token> range: completer.ranges)
                 AbstractBounds.tokenSerializer.serialize(range, out, version);
+            UUIDSerializer.serializer.serialize(completer.before, out, version);
         }
 
         public PaxosCleanupRequest deserialize(DataInputPlus in, int version) throws IOException
@@ -114,7 +117,8 @@ public class PaxosCleanupRequest
             {
                 ranges.add((Range<Token>) AbstractBounds.tokenSerializer.deserialize(in, DatabaseDescriptor.getPartitioner(), version));
             }
-            return new PaxosCleanupRequest(session, cfId, ranges);
+            UUID before = UUIDSerializer.serializer.deserialize(in, version);
+            return new PaxosCleanupRequest(session, cfId, ranges, before);
         }
 
         public long serializedSize(PaxosCleanupRequest completer, int version)
@@ -124,6 +128,7 @@ public class PaxosCleanupRequest
             size += TypeSizes.sizeof(completer.ranges.size());
             for (Range<Token> range: completer.ranges)
                 size += AbstractBounds.tokenSerializer.serializedSize(range, version);
+            size += UUIDSerializer.serializer.serializedSize(completer.before, version);
             return size;
         }
     };

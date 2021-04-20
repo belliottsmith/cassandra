@@ -22,25 +22,26 @@ import java.net.InetAddress;
 import java.util.*;
 
 import com.google.common.util.concurrent.AbstractFuture;
+import com.google.common.util.concurrent.ListenableFuture;
 
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.utils.UUIDSerializer;
 import org.apache.cassandra.utils.VoidSerializer;
 
-public class PaxosFinishPrepareCleanup extends AbstractFuture<Void> implements IAsyncCallbackWithFailure<Void>
+public class PaxosFinishCleanup extends AbstractFuture<Void> implements IAsyncCallbackWithFailure<Void>
 {
     private final Set<InetAddress> waitingResponse;
 
-    PaxosFinishPrepareCleanup(Collection<InetAddress> endpoints)
+    PaxosFinishCleanup(Collection<InetAddress> endpoints)
     {
         this.waitingResponse = new HashSet<>(endpoints);
     }
 
-    public static PaxosFinishPrepareCleanup finish(Collection<InetAddress> endpoints, UUID lowBound)
+    public static PaxosFinishCleanup finish(Collection<InetAddress> endpoints, UUID lowBound)
     {
-        PaxosFinishPrepareCleanup callback = new PaxosFinishPrepareCleanup(endpoints);
-        MessageOut<UUID> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, lowBound, UUIDSerializer.serializer);
+        PaxosFinishCleanup callback = new PaxosFinishCleanup(endpoints);
+        MessageOut<UUID> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_CLEANUP_FINISH, lowBound, UUIDSerializer.serializer);
         for (InetAddress endpoint : endpoints)
             MessagingService.instance().sendRRWithFailure(message, endpoint, callback);
         return callback;

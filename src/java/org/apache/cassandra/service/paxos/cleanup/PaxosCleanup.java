@@ -22,22 +22,17 @@ import java.net.InetAddress;
 import java.util.Collection;
 import java.util.UUID;
 import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import javax.annotation.Nullable;
 
 import com.google.common.util.concurrent.*;
 
-import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.utils.FBUtilities;
-
-import static org.apache.cassandra.config.DatabaseDescriptor.getCasContentionTimeout;
-import static org.apache.cassandra.config.DatabaseDescriptor.getWriteRpcTimeout;
 
 public class PaxosCleanup extends AbstractFuture<Void> implements Runnable
 {
@@ -47,9 +42,9 @@ public class PaxosCleanup extends AbstractFuture<Void> implements Runnable
     private final Executor executor;
 
     // references kept for debugging
-    private PaxosStartPrepareCleanup startPrepare;
-    private PaxosFinishPrepareCleanup finishPrepare;
+    private PaxosPrepareCleanup prepare;
     private PaxosCleanupSession session;
+    private PaxosFinishCleanup finish;
 
     public PaxosCleanup(Collection<InetAddress> endpoints, UUID cfId, Collection<Range<Token>> ranges, Executor executor)
     {
@@ -85,22 +80,20 @@ public class PaxosCleanup extends AbstractFuture<Void> implements Runnable
     public void run()
     {
         EndpointState localEpState = Gossiper.instance.getEndpointStateForEndpoint(FBUtilities.getBroadcastAddress());
-        startPrepare = PaxosStartPrepareCleanup.prepare(cfId, endpoints, localEpState);
-        addCallback(startPrepare, this::finishPrepare);
+        prepare = PaxosPrepareCleanup.prepare(cfId, endpoints, localEpState);
+        addCallback(prepare, this::startSession);
     }
 
-    private void finishPrepare(UUID highBallot)
+    private void startSession(UUID highBallot)
     {
-        ScheduledExecutors.nonPeriodicTasks.schedule(() -> {
-            finishPrepare = PaxosFinishPrepareCleanup.finish(endpoints, highBallot);
-            addCallback(finishPrepare, this::startSession);
-        }, Math.min(getCasContentionTimeout(), getWriteRpcTimeout()), TimeUnit.MILLISECONDS);
-    }
-
-    private void startSession(Void ignore)
-    {
-        session = new PaxosCleanupSession(endpoints, cfId, ranges);
-        addCallback(session, this::set);
+        session = new PaxosCleanupSession(endpoints, cfId, ranges, highBallot);
+        addCallback(session, this::finish);
         executor.execute(session);
+    }
+
+    private void finish(UUID highBallot)
+    {
+        finish = PaxosFinishCleanup.finish(endpoints, highBallot);
+        addCallback(finish, this::set);
     }
 }

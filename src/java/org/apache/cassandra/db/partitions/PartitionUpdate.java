@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.db.partitions;
 
-import java.io.EOFException;
 import java.io.IOError;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -39,14 +38,10 @@ import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.io.util.*;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.UpdateFunction;
-import org.apache.cassandra.utils.vint.VIntCoding;
-
-import static org.apache.cassandra.db.rows.UnfilteredRowIteratorSerializer.IS_EMPTY;
 
 /**
  * Stores updates made on a partition.
@@ -766,42 +761,6 @@ public class PartitionUpdate extends AbstractBTreePartition
             {
                 assert iterator != null; // This is only used in mutation, and mutation have never allowed "null" column families
                 return PartitionUpdate.fromPre30Iterator(iterator);
-            }
-        }
-
-        public static boolean isEmpty(ByteBuffer in, int version, DeserializationHelper.Flag flag, DecoratedKey key) throws IOException
-        {
-            if (version >= MessagingService.VERSION_30)
-            {
-                return isEmpty30(in);
-            }
-            else
-            {
-                assert key != null;
-                return isEmptyPre30(new DataInputBuffer(in, true), version, flag, key.getKey());
-            }
-        }
-
-        private static boolean isEmpty30(ByteBuffer in) throws IOException
-        {
-            int position = in.position();
-            position += 16; // CFMetaData.serializer.deserialize(in, version);
-            if (position >= in.limit())
-                throw new EOFException();
-            // DecoratedKey key = metadata.decorateKey(ByteBufferUtil.readWithVIntLength(in));
-            int keyLength = (int) VIntCoding.getUnsignedVInt(in, position);
-            position += keyLength + VIntCoding.computeUnsignedVIntSize(keyLength);
-            if (position >= in.limit())
-                throw new EOFException();
-            int flags = in.get(position) & 0xff;
-            return (flags & IS_EMPTY) != 0;
-        }
-
-        private static boolean isEmptyPre30(DataInputPlus in, int version, DeserializationHelper.Flag flag, ByteBuffer key) throws IOException
-        {
-            try (UnfilteredRowIterator iterator = LegacyLayout.deserializeLegacyPartition(in, version, flag, key))
-            {
-                return iterator.isEmpty();
             }
         }
 

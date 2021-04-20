@@ -146,7 +146,7 @@ public class PaxosUncommittedTracker
         return tableStates.get(cfId);
     }
 
-    public CloseableIterator<UncommittedPaxosKey> uncommittedKeyIterator(UUID cfId, Collection<Range<Token>> ranges)
+    public CloseableIterator<UncommittedPaxosKey> uncommittedKeyIterator(UUID cfId, Collection<Range<Token>> ranges, UUID before)
     {
         ranges = (ranges == null || ranges.isEmpty()) ? Collections.singleton(FULL_RANGE) : Range.normalize(ranges);
         CloseableIterator<PaxosKeyState> updates = updateSupplier.getIterator(cfId, ranges);
@@ -156,7 +156,7 @@ public class PaxosUncommittedTracker
             return PaxosKeyState.toUncommittedInfo(updates);
 
         CloseableIterator<PaxosKeyState> fileIter = state.iterator(ranges);
-        CloseableIterator<PaxosKeyState> merged = PaxosKeyState.mergeUncommitted(updates, fileIter);
+        CloseableIterator<PaxosKeyState> merged = PaxosKeyState.mergeUncommitted(before, updates, fileIter);
 
         return PaxosKeyState.toUncommittedInfo(merged);
     }

@@ -77,7 +77,7 @@ public class PaxosCleanupLocalCoordinator extends AbstractFuture<PaxosCleanupRes
 
     public static PaxosCleanupLocalCoordinator create(PaxosCleanupRequest request)
     {
-        CloseableIterator<UncommittedPaxosKey> iterator = PaxosState.uncommittedTracker().uncommittedKeyIterator(request.cfId, request.ranges);
+        CloseableIterator<UncommittedPaxosKey> iterator = PaxosState.uncommittedTracker().uncommittedKeyIterator(request.cfId, request.ranges, request.before);
         return new PaxosCleanupLocalCoordinator(request.session, request.cfId, request.ranges, iterator);
     }
 
