@@ -116,6 +116,7 @@ public class PaxosRepair
         }
     }
 
+
     private final DecoratedKey partitionKey;
     private final CFMetaData metadata;
     private final ConsistencyLevel consistency;
@@ -237,10 +238,10 @@ public class PaxosRepair
                 // that latestPromised had already been accepted (by a minority) and repair it
                 // This means starting a new ballot, but we choose to use one that is likely to lose a contention battle
                 // Since this operation is not urgent, and we can piggy-back on other paxos operations
-                UUID ballot = staleBallotNewerThan(latestWitnessed, consistency);
+                UUID ballot = staleBallotNewerThan(latestWitnessed);
                 PartitionUpdate proposal = PartitionUpdate.emptyUpdate(metadata, partitionKey);
 
-                return prepareWithBallot(ballot, participants, proposal.partitionKey(), proposal.metadata(),
+                return prepareWithBallot(participants, ballot, proposal.partitionKey(), proposal.metadata(),
                         new PoisonProposals(ballot, proposal));
             }
             else if (isAcceptedButNotCommitted)
@@ -377,7 +378,7 @@ public class PaxosRepair
     public synchronized void await() throws InterruptedException
     {
         while (!(state instanceof Result))
-            WAIT.wait(this);
+            wait();
     }
 
     private State restart()
@@ -402,7 +403,7 @@ public class PaxosRepair
         {
             if (onDone != null)
                 onDone.accept((Result) newState);
-            WAIT.notify(this);
+            notifyAll();
         }
     }
 

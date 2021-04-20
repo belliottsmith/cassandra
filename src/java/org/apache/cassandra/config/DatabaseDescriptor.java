@@ -1948,11 +1948,6 @@ public class DatabaseDescriptor
         return conf.force_paging_state_legacy_serialization;
     }
 
-    public static Config.PaxosVariant getPaxosVariant()
-    {
-        return conf.paxos_variant;
-    }
-
     public static boolean getNativeTransportAllowOlderProtocols()
     {
         return conf.native_transport_allow_older_protocols;

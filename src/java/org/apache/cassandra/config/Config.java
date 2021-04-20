@@ -621,16 +621,6 @@ public class Config
     public volatile boolean auto_optimise_full_repair_streams = false;
     public volatile boolean auto_optimise_preview_repair_streams = false;
 
-    public enum PaxosVariant
-    {
-        legacy,
-        apple_norrl, // with legacy semantics for read/read linearizability (i.e. not guaranteed)
-        apple_rrl2rt, // with read/read linearizability guaranteed but requiring an extra read round-trip
-        apple_rrl // provides read/read linearizability in most cases, doesn't incure an extra round-trip if no contending paxos operation is detected
-    }
-
-    public volatile PaxosVariant paxos_variant = PaxosVariant.legacy;
-
     public volatile boolean allow_compact_storage = true;
 
     public volatile int table_count_warn_threshold = 150;

@@ -22,6 +22,7 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
@@ -45,6 +46,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.index.Index;
+import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.NetworkTopologyStrategy;
@@ -129,11 +131,12 @@ public class DataResolver extends ResponseResolver
 
     public PartitionIterator resolve()
     {
-        return resolve(()->{});
-    }
+        // We could get more responses while this method runs, which is ok (we're happy to ignore any response not here
+        // at the beginning of this method), so grab the response count once and use that through the method.
+        int count = responses.size();
+        List<UnfilteredPartitionIterator> iters = new ArrayList<>(count);
+        InetAddress[] sources = new InetAddress[count];
 
-    public PartitionIterator resolve(Runnable onShortRead)
-    {
         // If requested, inspect each response for a digest of the replica's repaired data set
         RepairedDataTracker repairedDataTracker = command.isTrackingRepairedStatus()
                                                   ? new RepairedDataTracker(getRepairedDataVerifier(command))
@@ -144,12 +147,12 @@ public class DataResolver extends ResponseResolver
             ResolveContext context = new ResolveContext(responses.size());
             return resolveWithReadRepair(context,
                                          () -> new RepairMergeListener(context.sources, repairedDataTracker),
-                                         i -> shortReadProtectedResponse(i, context, onShortRead),
+                                         i -> shortReadProtectedResponse(i, context),
                                          UnaryOperator.identity(),
                                          repairedDataTracker);
         }
 
-        return resolveWithReplicaFilteringProtection(repairedDataTracker, onShortRead);
+        return resolveWithReplicaFilteringProtection(repairedDataTracker);
     }
 
     private boolean needsReplicaFilteringProtection()
@@ -214,12 +217,12 @@ public class DataResolver extends ResponseResolver
         UnfilteredPartitionIterator getResponse(int i);
     }
 
-    private UnfilteredPartitionIterator shortReadProtectedResponse(int i, ResolveContext context, Runnable onShortRead)
+    private UnfilteredPartitionIterator shortReadProtectedResponse(int i, ResolveContext context)
     {
         UnfilteredPartitionIterator originalResponse = responses.get(i).payload.makeIterator(command);
 
         return context.needShortReadProtection()
-               ? extendWithShortReadProtection(originalResponse, context, i, onShortRead)
+               ? extendWithShortReadProtection(originalResponse, context, i)
                : originalResponse;
     }
 
@@ -232,7 +235,7 @@ public class DataResolver extends ResponseResolver
         return resolveInternal(context, mergeListenerProvider, responseProvider, preCountFilter, repairedDataTracker);
     }
 
-    private PartitionIterator resolveWithReplicaFilteringProtection(RepairedDataTracker repairedDataTracker, Runnable onShortRead)
+    private PartitionIterator resolveWithReplicaFilteringProtection(RepairedDataTracker repairedDataTracker)
     {
         // Protecting against inconsistent replica filtering (some replica returning a row that is outdated but that
         // wouldn't be removed by normal reconciliation because up-to-date replica have filtered the up-to-date version
@@ -267,7 +270,7 @@ public class DataResolver extends ResponseResolver
 
         PartitionIterator firstPhasePartitions = resolveInternal(firstPhaseContext,
                                                                  rfp::mergeController,
-                                                                 i -> shortReadProtectedResponse(i, firstPhaseContext, onShortRead),
+                                                                 i -> shortReadProtectedResponse(i, firstPhaseContext),
                                                                  UnaryOperator.identity(),
                                                                  repairedDataTracker);
 
@@ -849,8 +852,7 @@ public class DataResolver extends ResponseResolver
     @SuppressWarnings("resource")
     private UnfilteredPartitionIterator extendWithShortReadProtection(UnfilteredPartitionIterator partitions,
                                                                       ResolveContext context,
-                                                                      int i,
-                                                                      Runnable onShortRead)
+                                                                      int i)
     {
         DataLimits.Counter singleResultCounter =
             command.limits().newCounter(command.nowInSec(), false, command.selectsFullPartition(), enforceStrictLiveness).onlyCount();
@@ -859,8 +861,7 @@ public class DataResolver extends ResponseResolver
         ShortReadPartitionsProtection protection = new ShortReadPartitionsProtection(context.sources[i],
                                                                                      () -> responses.clearUnsafe(i),
                                                                                      singleResultCounter,
-                                                                                     context.mergedResultCounter,
-                                                                                     onShortRead);
+                                                                                     context.mergedResultCounter);
 
         /*
          * The order of extention and transformations is important here. Extending with more partitions has to happen
@@ -901,22 +902,20 @@ public class DataResolver extends ResponseResolver
 
         private final DataLimits.Counter singleResultCounter; // unmerged per-source counter
         private final DataLimits.Counter mergedResultCounter; // merged end-result counter
-        private final Runnable onShortRead;
+
         private DecoratedKey lastPartitionKey; // key of the last observed partition
 
         private boolean partitionsFetched; // whether we've seen any new partitions since iteration start or last moreContents() call
 
-        private ShortReadPartitionsProtection(InetAddress source, 
+        private ShortReadPartitionsProtection(InetAddress source,
                                               Runnable preFetchCallback, 
                                               DataLimits.Counter singleResultCounter, 
-                                              DataLimits.Counter mergedResultCounter, 
-                                              Runnable onShortRead)
+                                              DataLimits.Counter mergedResultCounter)
         {
             this.source = source;
             this.preFetchCallback = preFetchCallback;
             this.singleResultCounter = singleResultCounter;
             this.mergedResultCounter = mergedResultCounter;
-            this.onShortRead = onShortRead;
         }
 
         @Override
@@ -1123,7 +1122,6 @@ public class DataResolver extends ResponseResolver
 
                 ColumnFamilyStore.metricsFor(metadata.cfId).shortReadProtectionRequests.mark();
                 Tracing.trace("Requesting {} extra rows from {} for short read protection", lastQueried, source);
-                onShortRead.run();
 
                 SinglePartitionReadCommand cmd = makeFetchAdditionalRowsReadCommand(lastQueried);
                 return UnfilteredPartitionIterators.getOnlyElement(executeReadCommand(cmd), cmd);

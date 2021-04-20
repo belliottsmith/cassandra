@@ -174,9 +174,6 @@ public interface StorageProxyMBean
     void disableSecondaryIndex();
     boolean getSecondaryIndexEnabled();
 
-    void setPaxosVariant(String variant);
-    String getPaxosVariant();
-
     public void enableDropCompactStorage();
     public void disableDropCompactStorage();
     public boolean allowDropCompactStorage();

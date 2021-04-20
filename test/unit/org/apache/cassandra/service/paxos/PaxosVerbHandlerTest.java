@@ -246,7 +246,7 @@ public class PaxosVerbHandlerTest
     private static Commit commit(int key)
     {
         CFMetaData cfm = Schema.instance.getCFMetaData(KEYSPACE, TABLE);
-        UUID ballot = UUIDGen.getRandomTimeUUIDFromMicros(FBUtilities.timestampMicros(), 0);
+        UUID ballot = UUIDGen.getRandomTimeUUIDFromMicros(FBUtilities.timestampMicros());
         return Commit.newPrepare(cfm.decorateKey(ByteBufferUtil.bytes(key)), cfm, ballot);
     }
 

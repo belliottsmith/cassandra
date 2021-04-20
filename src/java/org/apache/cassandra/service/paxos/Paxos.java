@@ -23,6 +23,7 @@ import java.net.InetAddress;
 import java.util.AbstractCollection;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -32,24 +33,21 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
 import java.util.function.Function;
 
 import javax.annotation.Nullable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.codahale.metrics.Meter;
 import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.config.Config;
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
@@ -89,19 +87,13 @@ import org.apache.cassandra.utils.CollectionSerializer;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.UUIDGen;
-import org.apache.cassandra.utils.concurrent.SimpleCondition;
-import org.apache.cassandra.utils.concurrent.WaitMonitor;
 
 import static com.google.common.collect.Iterators.filter;
 import static com.google.common.collect.Iterators.size;
 import static java.util.concurrent.TimeUnit.MICROSECONDS;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.apache.cassandra.config.Config.PaxosVariant.*;
-import static org.apache.cassandra.config.Config.PaxosVariant.apple_rrl;
 import static org.apache.cassandra.config.DatabaseDescriptor.*;
-import static org.apache.cassandra.db.ConsistencyLevel.*;
-import static org.apache.cassandra.db.ConsistencyLevel.SERIAL;
 import static org.apache.cassandra.gms.FailureDetector.isAlivePredicate;
 import static org.apache.cassandra.net.CompactEndpointSerializationHelper.*;
 import static org.apache.cassandra.net.MessagingService.FAILURE_RESPONSE_PARAM;
@@ -121,10 +113,7 @@ import static org.apache.cassandra.utils.FBUtilities.getBroadcastAddress;
 
 public class Paxos
 {
-    private static volatile Config.PaxosVariant PAXOS_VARIANT = DatabaseDescriptor.getPaxosVariant();
-    private static final boolean USE_SELF_EXECUTION = Boolean.getBoolean("cassandra.paxos.use_apple_paxos_self_execution");
-    static WaitMonitor WAIT = WaitMonitor.NONE;
-    private static BallotGenerator BALLOT_GENERATOR = new BallotGenerator.Default();
+    public static final boolean USE_APPLE_PAXOS = Boolean.getBoolean("cassandra.paxos.use_apple_paxos");
 
     private static final MessageOut<?> failureResponse = WriteResponse.createMessage()
             .withParameter(FAILURE_RESPONSE_PARAM, ONE_BYTE);
@@ -161,7 +150,7 @@ public class Paxos
         static Electorate get(ConsistencyLevel consistency, Collection<InetAddress> all, List<InetAddress> allNatural, Collection<InetAddress> allPending)
         {
             Set<InetAddress> electorate, pendingElectorate;
-            if (consistency == LOCAL_SERIAL)
+            if (consistency == ConsistencyLevel.LOCAL_SERIAL)
             {
                 // Restrict naturalEndpoints and pendingEndpoints to node in the local DC only
                 Predicate<InetAddress> isLocalDc = getEndpointSnitch().isSameDcAs(getBroadcastAddress());
@@ -394,19 +383,6 @@ public class Paxos
         }
     }
 
-    public interface Async<Result>
-    {
-        Result awaitUntil(long until);
-    }
-
-    static class ConditionAsConsumer<T> extends SimpleCondition implements Consumer<T>
-    {
-        public void accept(T o)
-        {
-            WAIT.signal(this);
-        }
-    }
-
     /**
      * Apply @param updates if and only if the current values in the row for @param key
      * match the provided @param conditions.  The algorithm is "raw" Paxos: that is, Paxos
@@ -455,29 +431,7 @@ public class Paxos
         final long start = System.nanoTime();
         final long proposeDeadline = start + MILLISECONDS.toNanos(getCasContentionTimeout());
         final long commitDeadline = Math.max(proposeDeadline, start + MILLISECONDS.toNanos(getWriteRpcTimeout()));
-        return cas(key, request, consistencyForPaxos, consistencyForCommit, start, proposeDeadline, commitDeadline);
-    }
-    public static RowIterator cas(DecoratedKey key,
-                                  CASRequest request,
-                                  ConsistencyLevel consistencyForPaxos,
-                                  ConsistencyLevel consistencyForCommit,
-                                  long proposeDeadline,
-                                  long commitDeadline
-                                  )
-            throws UnavailableException, IsBootstrappingException, RequestFailureException, RequestTimeoutException, InvalidRequestException
-    {
-        return cas(key, request, consistencyForPaxos, consistencyForCommit, System.nanoTime(), proposeDeadline, commitDeadline);
-    }
-    private static RowIterator cas(DecoratedKey key,
-                                  CASRequest request,
-                                  ConsistencyLevel consistencyForPaxos,
-                                  ConsistencyLevel consistencyForCommit,
-                                  long start,
-                                  long proposeDeadline,
-                                  long commitDeadline
-                                  )
-            throws UnavailableException, IsBootstrappingException, RequestFailureException, RequestTimeoutException, InvalidRequestException
-    {
+
         SinglePartitionReadCommand readCommand = request.readCommand(FBUtilities.nowInSeconds());
         CFMetaData metadata = readCommand.metadata();
 
@@ -543,7 +497,7 @@ public class Paxos
                     Tracing.trace("CAS precondition is met; proposing client-requested updates for {}", ballot);
                 }
 
-                PaxosPropose.Status propose = PaxosPropose.async(proposal, participants, true).awaitUntil(proposeDeadline);
+                PaxosPropose.Status propose = PaxosPropose.sync(proposeDeadline, proposal, participants, true);
                 switch (propose.outcome)
                 {
                     default: throw new IllegalStateException();
@@ -560,7 +514,7 @@ public class Paxos
                             //   2) did not reach a majority, was not agreed, and was not user visible as a result so we can ignore it
                             if (!proposal.update.isEmpty())
                             {
-                                PaxosCommit.Status commit = PaxosCommit.async(proposal, participants, consistencyForCommit, true).awaitUntil(commitDeadline);
+                                PaxosCommit.Status commit = PaxosCommit.sync(commitDeadline, proposal, participants, consistencyForCommit, true);
                                 if (!commit.isSuccess())
                                     throw commit.maybeFailure().markAndThrowAsTimeoutOrFailure(true, consistencyForCommit);
                             }
@@ -617,94 +571,36 @@ public class Paxos
         }
     }
 
-    public static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyForPaxos)
-            throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
-    {
-        long start = System.nanoTime();
-        long deadline = start + MILLISECONDS.toNanos(DatabaseDescriptor.getReadRpcTimeout());
-        return read(group, consistencyForPaxos, start, deadline);
-    }
-
-    public static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyForPaxos, long deadline)
-            throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
-    {
-        return read(group, consistencyForPaxos, System.nanoTime(), deadline);
-    }
-
-    private static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyForPaxos, long start, long deadline)
+    public static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyLevel)
             throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
     {
         if (group.commands.size() > 1)
             throw new InvalidRequestException("SERIAL/LOCAL_SERIAL consistency may only be requested for one partition at a time");
 
-        int failedAttemptsDueToContention = 0;
-        UUID minimumBallot = null;
+        long start = System.nanoTime();
+        long deadline = start + MILLISECONDS.toNanos(getReadRpcTimeout());
         SinglePartitionReadCommand read = group.commands.get(0);
+
         try
         {
-            while (true)
+            // does the work of applying in-progress writes; throws UAE or timeout if it can't
+            final BeginResult begin = begin(deadline, group.commands.get(0), consistencyLevel, false, null, 0);
+            if (begin.failedAttemptsDueToContention > 0)
             {
-                // does the work of applying in-progress writes; throws UAE or timeout if it can't
-                final BeginResult begin = begin(deadline, read, consistencyForPaxos, false, minimumBallot, failedAttemptsDueToContention);
-                if (PAXOS_VARIANT == apple_norrl)
-                    return begin.readResponse;
-
-                Commit proposal = Commit.newProposal(begin.ballot, PartitionUpdate.emptyUpdate(read.metadata(), read.partitionKey()));
-                if (begin.isOptimisticReadSafe && PAXOS_VARIANT == apple_rrl)
-                {
-                    PaxosPropose.async(proposal, begin.participants, false, null);
-                    return begin.readResponse;
-                }
-
-                PaxosPropose.Status propose = PaxosPropose.async(proposal, begin.participants, false).awaitUntil(deadline);
-                switch (propose.outcome)
-                {
-                    default: throw new IllegalStateException();
-
-                    case MAYBE_FAILURE:
-                        throw propose.maybeFailure().markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
-
-                    case SUCCESS:
-                        return begin.readResponse;
-
-                    case SUPERSEDED:
-                    {
-                        switch (propose.superseded().hadSideEffects)
-                        {
-                            default: throw new IllegalStateException();
-
-                            case MAYBE:
-                                // We don't know if our update has been applied, as the competing ballot may have completed
-                                // our proposal.  We yield our uncertainty to the caller via timeout exception.
-                                // TODO: should return more useful result to client, and should also avoid this situation where possible
-                                throw new MaybeFailure(false, begin.participants.poll.size(), begin.participants.requiredForConsensus, 0, 0)
-                                        .markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
-
-                            case NO:
-                                minimumBallot = propose.superseded().by;
-                                // We have been superseded without our proposal being accepted by anyone, so we can safely retry
-                                Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
-                                failedAttemptsDueToContention++;
-                                if (!waitForContention(deadline, ++failedAttemptsDueToContention))
-                                    throw new MaybeFailure(begin.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
-                        }
-                    }
-                }
+                casReadMetrics.contention.update(begin.failedAttemptsDueToContention);
+                casReadMetrics.contentionEstimatedHistogram.add(begin.failedAttemptsDueToContention);
             }
+
+            return begin.readResponse;
         }
         finally
         {
             long latency = System.nanoTime() - start;
             readMetrics.addNano(latency);
             casReadMetrics.addNano(latency);
-            readMetricsMap.get(consistencyForPaxos).addNano(latency);
+            readMetricsMap.get(consistencyLevel).addNano(latency);
             CFMetaData metadata = read.metadata();
             Keyspace.open(metadata.ksName).getColumnFamilyStore(metadata.cfName).metric.coordinatorReadLatency.update(latency, TimeUnit.NANOSECONDS);
-            if (failedAttemptsDueToContention > 0)
-            {
-                casReadMetrics.contention.update(failedAttemptsDueToContention);
-                casReadMetrics.contentionEstimatedHistogram.add(failedAttemptsDueToContention);
-            }
         }
     }
 
@@ -714,15 +610,13 @@ public class Paxos
         final Participants participants;
         final int failedAttemptsDueToContention;
         final PartitionIterator readResponse;
-        final boolean isOptimisticReadSafe;
 
-        public BeginResult(UUID ballot, Participants participants, int failedAttemptsDueToContention, PartitionIterator readResponse, boolean isOptimisticReadSafe)
+        public BeginResult(UUID ballot, Participants participants, int failedAttemptsDueToContention, PartitionIterator readResponse)
         {
             this.ballot = ballot;
             this.participants = participants;
             this.failedAttemptsDueToContention = failedAttemptsDueToContention;
             this.readResponse = readResponse;
-            this.isOptimisticReadSafe = isOptimisticReadSafe;
         }
     }
 
@@ -742,7 +636,7 @@ public class Paxos
     {
         Participants initialParticipants = Participants.get(readCommand.metadata(), readCommand.partitionKey(), consistencyForConsensus);
         initialParticipants.assureSufficientLiveNodes(isWrite);
-        PaxosPrepare preparing = prepare(minimumBallot, initialParticipants, readCommand, !isWrite);
+        PaxosPrepare preparing = prepare(minimumBallot, initialParticipants, readCommand);
         while (true)
         {
             // prepare
@@ -762,7 +656,7 @@ public class Paxos
                         casReadMetrics.unfinishedCommit.inc();
 
                     Commit refreshedInProgress = Commit.newProposal(inProgress.promisedBallot, inProgress.partiallyAcceptedProposal.update);
-                    PaxosPropose.Status proposeResult = PaxosPropose.async(refreshedInProgress, inProgress.participants, false).awaitUntil(deadline);
+                    PaxosPropose.Status proposeResult = PaxosPropose.sync(deadline, refreshedInProgress, inProgress.participants, false);
                     switch (proposeResult.outcome)
                     {
                         default: throw new IllegalStateException();
@@ -771,7 +665,7 @@ public class Paxos
                             throw proposeResult.maybeFailure().markAndThrowAsTimeoutOrFailure(isWrite, consistencyForConsensus);
 
                         case SUCCESS:
-                            retry = commitAndPrepare(refreshedInProgress, inProgress.participants, readCommand, !isWrite);
+                            retry = commitAndPrepare(refreshedInProgress, inProgress.participants, readCommand);
                             break retry;
 
                         case SUPERSEDED:
@@ -789,7 +683,7 @@ public class Paxos
                     // sleep a random amount to give the other proposer a chance to finish
                     if (!waitForContention(deadline, ++failedAttemptsDueToContention))
                         throw new MaybeFailure(prepare.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
-                    retry = prepare(prepare.supersededBy(), prepare.participants, readCommand, !isWrite);
+                    retry = prepare(prepare.supersededBy(), prepare.participants, readCommand);
                     break;
                 }
 
@@ -802,11 +696,8 @@ public class Paxos
                     DataResolver resolver = new DataResolver(Keyspace.open(readCommand.metadata().ksName), readCommand, nonSerial(consistencyForConsensus), success.responses.size());
                     for (int i = 0 ; i < success.responses.size() ; ++i)
                         resolver.preprocess(success.responses.get(i));
-                    class WasRun implements Runnable { boolean v; public void run() { v = true; } }
-                    WasRun hadShortRead = new WasRun();
-                    PartitionIterator result = resolver.resolve(hadShortRead);
 
-                    return new BeginResult(success.ballot, success.participants, failedAttemptsDueToContention, result, !hadShortRead.v && success.isReadConsistent);
+                    return new BeginResult(success.ballot, success.participants, failedAttemptsDueToContention, resolver.resolve());
                 }
 
                 case MAYBE_FAILURE:
@@ -815,7 +706,7 @@ public class Paxos
                 case ELECTORATE_MISMATCH:
                     Participants participants = Participants.get(readCommand.metadata(), readCommand.partitionKey(), consistencyForConsensus);
                     participants.assureSufficientLiveNodes(isWrite);
-                    retry = prepare(prepare.previousBallot(), participants, readCommand, !isWrite);
+                    retry = prepare(prepare.previousBallot(), participants, readCommand);
                     break;
 
             }
@@ -849,15 +740,7 @@ public class Paxos
         if (until >= deadline)
             return false;
 
-        try
-        {
-            WAIT.waitUntil(until);
-        }
-        catch (InterruptedException e)
-        {
-            Thread.currentThread().interrupt();
-            return false;
-        }
+        Uninterruptibles.sleepUninterruptibly(wait, MICROSECONDS);
         return true;
     }
 
@@ -897,8 +780,8 @@ public class Paxos
         switch (serial)
         {
             default: throw new IllegalStateException();
-            case SERIAL: return QUORUM;
-            case LOCAL_SERIAL: return LOCAL_QUORUM;
+            case SERIAL: return ConsistencyLevel.QUORUM;
+            case LOCAL_SERIAL: return ConsistencyLevel.LOCAL_QUORUM;
         }
     }
 
@@ -917,23 +800,23 @@ public class Paxos
         }
     }
 
-    static UUID newBallot(@Nullable UUID minimumBallot, ConsistencyLevel consistency)
+    static UUID newBallot(@Nullable UUID minimumBallot)
     {
         // We want a timestamp that is guaranteed to be unique for that node (so that the ballot is globally unique), but if we've got a prepare rejected
         // already we also want to make sure we pick a timestamp that has a chance to be promised, i.e. one that is greater that the most recently known
         // in progress (#5667). Lastly, we don't want to use a timestamp that is older than the last one assigned by ClientState or operations may appear
         // out-of-order (#7801).
         long minTimestampMicros = minimumBallot == null ? Long.MIN_VALUE : 1 + UUIDGen.microsTimestamp(minimumBallot);
-        long timestampMicros = BALLOT_GENERATOR.nextTimestamp(minTimestampMicros);
+        long timestampMicros = ClientState.getTimestampForPaxos(minTimestampMicros);
         // Note that ballotMicros is not guaranteed to be unique if two proposal are being handled concurrently by the same coordinator. But we still
         // need ballots to be unique for each proposal so we have to use getRandomTimeUUIDFromMicros.
-        return BALLOT_GENERATOR.generate(timestampMicros, consistency == SERIAL);
+        return UUIDGen.getRandomTimeUUIDFromMicros(timestampMicros);
     }
 
-    static UUID staleBallotNewerThan(UUID than, ConsistencyLevel consistency)
+    static UUID staleBallotNewerThan(UUID than)
     {
         long minTimestampMicros = 1 + UUIDGen.microsTimestamp(than);
-        long maxTimestampMicros = BALLOT_GENERATOR.prevTimestamp();
+        long maxTimestampMicros = ClientState.getLastTimestampMicros();
         maxTimestampMicros -= Math.min((maxTimestampMicros - minTimestampMicros) / 2, SECONDS.toMicros(5L));
         if (maxTimestampMicros == minTimestampMicros)
             ++maxTimestampMicros;
@@ -941,31 +824,7 @@ public class Paxos
         long timestampMicros = ThreadLocalRandom.current().nextLong(minTimestampMicros, maxTimestampMicros);
         // Note that ballotMicros is not guaranteed to be unique if two proposal are being handled concurrently by the same coordinator. But we still
         // need ballots to be unique for each proposal so we have to use getRandomTimeUUIDFromMicros.
-        return ballotForConsistency(timestampMicros, consistency);
-    }
-
-    /**
-     * Create a ballot uuid with the consistency level encoded in the timestamp.
-     *
-     * UUIDGen.getRandomTimeUUIDFromMicros timestamps are always a multiple of 10, so we add a 1 or 2 to indicate
-     * the consistency level of the operation. This should have no effect in practice (except preferring a serial
-     * operation over a local serial if there's a timestamp collision), but lets us avoid adding CL to the paxos
-     * table and messages, which should make backcompat easier if a different solution is committed upstream.
-     */
-    public static UUID ballotForConsistency(long whenInMicros, ConsistencyLevel consistency)
-    {
-        Preconditions.checkArgument(consistency.isSerialConsistency());
-        return BALLOT_GENERATOR.generate(whenInMicros, consistency == SERIAL);
-    }
-
-    public static ConsistencyLevel decodeConsistency(UUID ballot)
-    {
-        switch ((int) (ballot.timestamp() % 10))
-        {
-            case 1: return LOCAL_SERIAL;
-            case 2: return SERIAL;
-            default: return null;
-        }
+        return UUIDGen.getRandomTimeUUIDFromMicros(timestampMicros);
     }
 
     static Map<InetAddress, EndpointState> verifyElectorate(Electorate remoteElectorate, Electorate localElectorate)
@@ -988,6 +847,11 @@ public class Paxos
         return endpoints;
     }
 
+    static boolean canExecuteOnSelf(InetAddress replica)
+    {
+        return replica.equals(getBroadcastAddress());
+    }
+
     private static <V> Set<V> copyAsSet(Collection<V> collection)
     {
         return collection.isEmpty() ? Collections.emptySet() : new HashSet<>(collection);
@@ -1003,71 +867,4 @@ public class Paxos
             public int size() { return count; }
         });
     }
-
-    public static boolean useApplePaxos()
-    {
-        switch (PAXOS_VARIANT)
-        {
-            case apple_norrl:
-            case apple_rrl:
-            case apple_rrl2rt:
-                return true;
-            case legacy:
-                return false;
-            default:
-                throw new AssertionError();
-        }
-    }
-
-    public static void setPaxosVariant(Config.PaxosVariant paxosVariant)
-    {
-        Preconditions.checkNotNull(paxosVariant);
-        PAXOS_VARIANT = paxosVariant;
-    }
-
-    public static String getPaxosVariant()
-    {
-        return PAXOS_VARIANT.toString();
-    }
-
-    static boolean canExecuteOnSelf(InetAddress replica)
-    {
-        return USE_SELF_EXECUTION && replica.equals(FBUtilities.getBroadcastAddress());
-    }
-
-    public static interface BallotGenerator
-    {
-        static class Default implements BallotGenerator
-        {
-            public UUID generate(long whenInMicros, boolean isSerial)
-            {
-                return UUIDGen.getRandomTimeUUIDFromMicros(whenInMicros, isSerial ? 2 : 1);
-            }
-
-            public long nextTimestamp(long minTimestamp)
-            {
-                return ClientState.getTimestampForPaxos(minTimestamp);
-            }
-
-            public long prevTimestamp()
-            {
-                return ClientState.getLastTimestampMicros();
-            }
-        }
-
-        UUID generate(long whenInMicros, boolean isSerial);
-        long nextTimestamp(long minWhenInMicros);
-        long prevTimestamp();
-    }
-
-    public static void unsafeSetWaitMonitor(WaitMonitor wait)
-    {
-        WAIT = wait;
-    }
-
-    public static void unsafeSetBallotGenerator(BallotGenerator ballotGenerator)
-    {
-        BALLOT_GENERATOR = ballotGenerator;
-    }
-
 }
