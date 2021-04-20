@@ -19,21 +19,13 @@
 package org.apache.cassandra.service.paxos;
 
 import java.util.List;
-import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiFunction;
 import java.util.function.Consumer;
-import java.util.function.DoubleSupplier;
 import java.util.function.DoubleToLongFunction;
-import java.util.function.LongBinaryOperator;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.Assert;
 import org.junit.Test;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import net.nicoulaj.compilecommand.annotations.Inline;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -43,18 +35,15 @@ import org.apache.cassandra.service.paxos.ContentionStrategy.LatencySelector;
 import org.apache.cassandra.service.paxos.ContentionStrategy.ParsedStrategy;
 
 import static org.apache.cassandra.service.paxos.ContentionStrategy.*;
-import static org.apache.cassandra.service.paxos.ContentionStrategy.WaitRandomizerFactory.*;
 import static org.apache.cassandra.service.paxos.ContentionStrategy.defaultMaxWait;
 import static org.apache.cassandra.service.paxos.ContentionStrategy.defaultMinDelta;
 import static org.apache.cassandra.service.paxos.ContentionStrategy.defaultMinWait;
 import static org.apache.cassandra.service.paxos.ContentionStrategy.maxQueryTimeout;
 import static org.apache.cassandra.service.paxos.ContentionStrategy.parseBound;
 import static org.apache.cassandra.service.paxos.ContentionStrategy.parseStrategy;
-import static org.apache.cassandra.service.paxos.ContentionStrategyTest.WaitRandomizerType.*;
 
 public class ContentionStrategyTest
 {
-    private static final Logger logger = LoggerFactory.getLogger(ContentionStrategyTest.class);
 
     static
     {
@@ -63,7 +52,6 @@ public class ContentionStrategyTest
 
     private static final long MAX = maxQueryTimeout()/2;
 
-    private static final WaitParseValidator DEFAULT_WAIT_RANDOMIZER_VALIDATOR = new WaitParseValidator(defaultWaitRandomizer(), QEXP, 1.5);
     private static final BoundParseValidator DEFAULT_MIN_VALIDATOR = new BoundParseValidator(defaultMinWait(), true, assertBound(0, MAX, 0, selectors.maxReadWrite(0f).getClass(), 0.50, 0, modifiers.multiply(0f).getClass(), 0.66));
     private static final BoundParseValidator DEFAULT_MAX_VALIDATOR = new BoundParseValidator(defaultMaxWait(), false, assertBound(10000, 100000, 100000, selectors.maxReadWrite(0f).getClass(), 0.95, 0, modifiers.multiplyByAttemptsExp(0f).getClass(), 1.8));
     private static final BoundParseValidator DEFAULT_MIN_DELTA_VALIDATOR = new BoundParseValidator(defaultMinDelta(), true, assertBound(5000, MAX, 5000, selectors.maxReadWrite(0f).getClass(), 0.50, 0, modifiers.multiply(0f).getClass(), 0.5));
@@ -76,14 +64,6 @@ public class ContentionStrategyTest
             new BoundParseValidator("125us", true, assertBound(125, 125, 125, selectors.constant(0).getClass(), 0.0f, 125, modifiers.identity().getClass(), 1)),
             new BoundParseValidator("5us <= p95(r)*1.8^attempts <= 100us", true, assertBound(5, 100, 5, selectors.read(0f).getClass(), 0.95, 0, modifiers.multiplyByAttemptsExp(0f).getClass(), 1.8)),
             DEFAULT_MIN_VALIDATOR, DEFAULT_MAX_VALIDATOR, DEFAULT_MIN_DELTA_VALIDATOR
-    );
-
-    private static List<WaitParseValidator> VALIDATE_RANDOMIZER = ImmutableList.of(
-            new WaitParseValidator("quantizedexponential(0.5)", QEXP, 0.5),
-            new WaitParseValidator("exponential(2.5)", EXP, 2.5),
-            new WaitParseValidator("exp(10)", EXP, 10),
-            new WaitParseValidator("uniform", UNIFORM, 0),
-            DEFAULT_WAIT_RANDOMIZER_VALIDATOR
     );
 
     static class BoundParseValidator
@@ -102,105 +82,6 @@ public class ContentionStrategyTest
         void validate(Bound bound)
         {
             validator.accept(bound);
-        }
-    }
-
-    enum WaitRandomizerType
-    {
-        UNIFORM(Uniform.class, (p, f) -> f.uniform()),
-        EXP(Exponential.class, (p, f) -> f.exponential(p)),
-        QEXP(QuantizedExponential.class, (p, f) -> f.quantizedExponential(p));
-
-        final Class<? extends WaitRandomizer> clazz;
-        final BiFunction<Double, WaitRandomizerFactory, WaitRandomizer> getter;
-
-        WaitRandomizerType(Class<? extends WaitRandomizer> clazz, BiFunction<Double, WaitRandomizerFactory, WaitRandomizer> getter)
-        {
-            this.clazz = clazz;
-            this.getter = getter;
-        }
-    }
-
-
-    static class WaitParseValidator
-    {
-        final String spec;
-        final WaitRandomizerType type;
-        final double power;
-
-        WaitParseValidator(String spec, WaitRandomizerType type, double power)
-        {
-            this.spec = spec;
-            this.type = type;
-            this.power = power;
-        }
-
-        void validate(WaitRandomizer randomizer)
-        {
-            Assert.assertSame(type.clazz, randomizer.getClass());
-            if (AbstractExponential.class.isAssignableFrom(type.clazz))
-                Assert.assertEquals(power, ((AbstractExponential) randomizer).power, 0.00001);
-        }
-    }
-
-    private static class WaitRandomizerOutputValidator
-    {
-        static void validate(WaitRandomizerType type, long seed, int trials, int samplesPerTrial)
-        {
-            Random random = new Random(seed);
-            WaitRandomizer randomizer = type.getter.apply(2d, new WaitRandomizerFactory()
-            {
-                @Override public LongBinaryOperator uniformLongSupplier() { return (min, max) -> min + random.nextInt((int) (max - min)); }
-                @Override public DoubleSupplier uniformDoubleSupplier() { return random::nextDouble; }
-            });
-
-            for (int i = 0 ; i < trials ; ++i)
-            {
-                int min = random.nextInt(1 << 20);
-                int max = min + 1024 + random.nextInt(1 << 20);
-                double minMean = minMean(type, min, max);
-                double maxMean = maxMean(type, min, max);
-                double sampleMean = sampleMean(samplesPerTrial, min, max, randomizer);
-                Assert.assertTrue(minMean <= sampleMean);
-                Assert.assertTrue(maxMean >= sampleMean);
-            }
-        }
-
-        private static double minMean(WaitRandomizerType type, int min, int max)
-        {
-            switch (type)
-            {
-                case UNIFORM: return min + (max - min) * (4d/10);
-                case EXP: case QEXP: return min + (max - min) * (6d/10);
-                default: throw new IllegalStateException();
-            }
-        }
-
-        private static double maxMean(WaitRandomizerType type, int min, int max)
-        {
-            switch (type)
-            {
-                case UNIFORM: return min + (max - min) * (6d/10);
-                case EXP: case QEXP: return min + (max - min) * (8d/10);
-                default: throw new IllegalStateException();
-            }
-        }
-
-        private static double sampleMean(int samples, int min, int max, WaitRandomizer randomizer)
-        {
-            double sum = 0;
-            int attempts = 1;
-            for (int i = 0 ; i < samples ; ++i)
-            {
-                long wait = randomizer.wait(min, max, attempts = (attempts & 15) + 1);
-                Assert.assertTrue(wait >= min);
-                Assert.assertTrue(wait <= max);
-                sum += wait;
-            }
-            double mean = sum / samples;
-            Assert.assertTrue(mean >= min);
-            Assert.assertTrue(mean <= max);
-            return mean;
         }
     }
 
@@ -259,28 +140,14 @@ public class ContentionStrategyTest
             {
                 for (BoundParseValidator minDelta : VALIDATE.stream().filter(v -> v.isMin).toArray(BoundParseValidator[]::new))
                 {
-                    for (WaitParseValidator random : VALIDATE_RANDOMIZER)
                     {
-                        {
-                            ParsedStrategy parsed = parseStrategy("min=" + min.spec + ",max=" + max.spec + ",delta=" + minDelta.spec + ",random=" + random.spec);
-                            Assert.assertEquals(parsed.min, min.spec);
-                            min.validate(parsed.strategy.min);
-                            Assert.assertEquals(parsed.max, max.spec);
-                            max.validate(parsed.strategy.max);
-                            Assert.assertEquals(parsed.minDelta, minDelta.spec);
-                            minDelta.validate(parsed.strategy.minDelta);
-                            Assert.assertEquals(parsed.waitRandomizer, random.spec);
-                            random.validate(parsed.strategy.waitRandomizer);
-                        }
-                        ParsedStrategy parsed = parseStrategy("random=" + random.spec);
-                        Assert.assertEquals(parsed.min, DEFAULT_MIN_VALIDATOR.spec);
-                        DEFAULT_MIN_VALIDATOR.validate(parsed.strategy.min);
-                        Assert.assertEquals(parsed.max, DEFAULT_MAX_VALIDATOR.spec);
-                        DEFAULT_MAX_VALIDATOR.validate(parsed.strategy.max);
-                        Assert.assertEquals(parsed.minDelta, DEFAULT_MIN_DELTA_VALIDATOR.spec);
-                        DEFAULT_MIN_DELTA_VALIDATOR.validate(parsed.strategy.minDelta);
-                        Assert.assertEquals(parsed.waitRandomizer, random.spec);
-                        random.validate(parsed.strategy.waitRandomizer);
+                        ParsedStrategy parsed = parseStrategy("min=" + min.spec + ",max=" + max.spec + ",delta=" + minDelta.spec);
+                        Assert.assertEquals(parsed.min, min.spec);
+                        min.validate(parsed.strategy.min);
+                        Assert.assertEquals(parsed.max, max.spec);
+                        max.validate(parsed.strategy.max);
+                        Assert.assertEquals(parsed.minDelta, minDelta.spec);
+                        minDelta.validate(parsed.strategy.minDelta);
                     }
                     ParsedStrategy parsed = parseStrategy("delta=" + minDelta.spec);
                     Assert.assertEquals(parsed.min, DEFAULT_MIN_VALIDATOR.spec);
@@ -393,6 +260,7 @@ public class ContentionStrategyTest
                     }
                 }
             }
+
         }
     }
 
@@ -400,31 +268,6 @@ public class ContentionStrategyTest
     public void boundParseTest()
     {
         VALIDATE.forEach(v -> v.validate(parseBound(v.spec, v.isMin)));
-    }
-
-    @Test
-    public void waitRandomizerParseTest()
-    {
-        VALIDATE_RANDOMIZER.forEach(v -> v.validate(parseWaitRandomizer(v.spec)));
-    }
-
-    @Test
-    public void waitRandomizerSampleTest()
-    {
-        waitRandomizerSampleTest(2);
-    }
-
-    private void waitRandomizerSampleTest(int count)
-    {
-        while (count-- > 0)
-        {
-            long seed = ThreadLocalRandom.current().nextLong();
-            logger.info("Seed {}", seed);
-            for (WaitRandomizerType type : WaitRandomizerType.values())
-            {
-                WaitRandomizerOutputValidator.validate(type, seed, 100, 1000000);
-            }
-        }
     }
 
     @Test

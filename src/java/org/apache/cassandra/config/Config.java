@@ -665,7 +665,6 @@ public class Config
     public boolean paxos_topology_repair_strict_each_quorum = false;
     public volatile Set<String> skip_paxos_repair_on_topology_change_keyspaces = splitCommaDelimited(System.getProperty("cassandra.skip_paxos_repair_on_topology_change_keyspaces"));
 
-    public String paxos_contention_wait_randomizer;
     public String paxos_contention_min_wait;
     public String paxos_contention_max_wait;
     public String paxos_contention_min_delta;
