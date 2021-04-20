@@ -46,9 +46,6 @@ import org.apache.cassandra.service.paxos.uncommitted.PaxosUncommittedTracker;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.UUIDGen;
 
-import static org.apache.cassandra.config.Config.PaxosVariant.legacy;
-import static org.apache.cassandra.config.Config.PaxosVariant.legacy_fixed;
-import static org.apache.cassandra.db.SystemKeyspace.loadPaxosState;
 import static org.apache.cassandra.service.paxos.Commit.*;
 import static org.apache.cassandra.service.paxos.Commit.isAfter;
 import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
@@ -491,8 +488,7 @@ public class PaxosState implements AutoCloseable
                 // on some replica and not others during a new proposal (in StorageProxy.beginAndRepairPaxos()), and no
                 // amount of re-submit will fix this (because the node on which the commit has expired will have a
                 // tombstone that hides any re-submit). See CASSANDRA-12043 for details.
-                Config.PaxosVariant variant = Paxos.getPaxosVariant();
-                if (variant == legacy)
+                if (Paxos.getPaxosVariant() == Config.PaxosVariant.legacy)
                     unsafeState.load(toPrepare.ballot);
                 else
                     unsafeState.maybeLoad(toPrepare.ballot, 0);
@@ -502,8 +498,7 @@ public class PaxosState implements AutoCloseable
                     // ignore nowInSec when merging as this can only be an issue during the transition period, so the unbounded
                     // problem of CASSANDRA-12043 is not an issue
                     Snapshot before = unsafeState.current;
-                    UUID latest = variant == legacy_fixed ? before.latestWitnessed() : before.promised;
-                    if (toPrepare.isAfter(latest))
+                    if (toPrepare.isAfter(before.promised))
                     {
                         Snapshot after = new Snapshot(toPrepare.ballot, before.accepted, before.committed);
                         if (currentUpdater.compareAndSet(unsafeState, before, after))
@@ -537,8 +532,7 @@ public class PaxosState implements AutoCloseable
         {
             synchronized (unsafeState)
             {
-                Config.PaxosVariant variant = Paxos.getPaxosVariant();
-                if (variant == legacy)
+                if (Paxos.getPaxosVariant() == Config.PaxosVariant.legacy)
                     unsafeState.load(proposal.ballot);
                 else
                     unsafeState.maybeLoad(proposal.ballot, 0);
@@ -548,15 +542,11 @@ public class PaxosState implements AutoCloseable
                     // ignore nowInSec when merging as this can only be an issue during the transition period, so the unbounded
                     // problem of CASSANDRA-12043 is not an issue
                     Snapshot before = unsafeState.current;
-                    boolean accept = variant == legacy_fixed
-                            ? proposal.isSameOrAfter(before.latestWitnessed())
-                            : proposal.hasBallot(before.promised) || proposal.isAfter(before.promised);
-
-                    if (accept)
+                    if (proposal.hasBallot(before.promised) || proposal.isAfter(before.promised))
                     {
+                        Snapshot after = new Snapshot(before.promised, new Accepted(proposal), before.committed);
                         // maintain legacy (broken) semantics of accepting proposal older than committed without breaking contract for Apple Paxos
-                        boolean acceptWithLegacyBug = variant != legacy_fixed && !proposal.isAfter(before.committed);
-                        if (acceptWithLegacyBug || currentUpdater.compareAndSet(unsafeState, before, new Snapshot(before.promised, new Accepted(proposal), before.committed)))
+                        if (!proposal.isAfter(before.committed) || currentUpdater.compareAndSet(unsafeState, before, after))
                         {
                             Tracing.trace("Accepting proposal {}", proposal);
                             SystemKeyspace.savePaxosProposal(proposal);

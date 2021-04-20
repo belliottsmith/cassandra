@@ -371,9 +371,6 @@ public class StorageProxy implements StorageProxyMBean
                 {
                     Tracing.trace("CAS precondition does not match current values {}", current);
                     casWriteMetrics.conditionNotMet.inc();
-                    if (Paxos.getPaxosVariant() == PaxosVariant.legacy_fixed
-                            && !proposePaxos(Commit.newProposal(ballot, PartitionUpdate.emptyUpdate(metadata, key)), liveEndpoints, requiredParticipants, true, consistencyForPaxos))
-                        continue;
                     return current.rowIterator();
                 }
 
@@ -1781,48 +1778,35 @@ public class StorageProxy implements StorageProxyMBean
         PartitionIterator result = null;
         try
         {
-            while (true)
+            // make sure any in-progress paxos writes are done (i.e., committed to a majority of replicas), before performing a quorum read
+            Pair<List<InetAddress>, Integer> p = getPaxosParticipants(metadata, key, consistencyLevel);
+            List<InetAddress> liveEndpoints = p.left;
+            int requiredParticipants = p.right;
+
+            // does the work of applying in-progress writes; throws UAE or timeout if it can't
+            final ConsistencyLevel consistencyForCommitOrFetch =
+                    (consistencyLevel == ConsistencyLevel.LOCAL_SERIAL || consistencyLevel == ConsistencyLevel.UNSAFE_DELAY_LOCAL_SERIAL)
+                            ? ConsistencyLevel.LOCAL_QUORUM : ConsistencyLevel.QUORUM;
+
+            try
             {
-                // make sure any in-progress paxos writes are done (i.e., committed to a majority of replicas), before performing a quorum read
-                Pair<List<InetAddress>, Integer> p = getPaxosParticipants(metadata, key, consistencyLevel);
-                List<InetAddress> liveEndpoints = p.left;
-                int requiredParticipants = p.right;
-
-                // does the work of applying in-progress writes; throws UAE or timeout if it can't
-                final ConsistencyLevel consistencyForCommitOrFetch =
-                (consistencyLevel == ConsistencyLevel.LOCAL_SERIAL || consistencyLevel == ConsistencyLevel.UNSAFE_DELAY_LOCAL_SERIAL)
-                ? ConsistencyLevel.LOCAL_QUORUM : ConsistencyLevel.QUORUM;
-
-                UUID ballot;
-                try
+                final Pair<UUID, Integer> pair = beginAndRepairPaxos(start, key, metadata, liveEndpoints, requiredParticipants, consistencyLevel, consistencyForCommitOrFetch, false);
+                if (pair.right > 0)
                 {
-                    final Pair<UUID, Integer> pair = beginAndRepairPaxos(start, key, metadata, liveEndpoints, requiredParticipants, consistencyLevel, consistencyForCommitOrFetch, false);
-                    ballot = pair.left;
-                    if (pair.right > 0)
-                    {
-                        casReadMetrics.contention.update(pair.right);
-                        casReadMetrics.contentionEstimatedHistogram.add(pair.right);
-                    }
+                    casReadMetrics.contention.update(pair.right);
+                    casReadMetrics.contentionEstimatedHistogram.add(pair.right);
                 }
-                catch (WriteTimeoutException e)
-                {
-                    throw new ReadTimeoutException(consistencyLevel, 0, consistencyLevel.blockFor(Keyspace.open(metadata.ksName)), false);
-                }
-                catch (WriteFailureException e)
-                {
-                    throw new ReadFailureException(consistencyLevel, e.received, e.failures, e.blockFor, false);
-                }
-
-                if (Paxos.getPaxosVariant() == PaxosVariant.legacy_fixed)
-                {
-                    Commit proposal = Commit.newProposal(ballot, PartitionUpdate.emptyUpdate(metadata, key));
-                    if (!proposePaxos(proposal, liveEndpoints, requiredParticipants, true, consistencyLevel))
-                        continue;
-                }
-
-                result = fetchRows(group.commands, consistencyForCommitOrFetch);
-                break;
             }
+            catch (WriteTimeoutException e)
+            {
+                throw new ReadTimeoutException(consistencyLevel, 0, consistencyLevel.blockFor(Keyspace.open(metadata.ksName)), false);
+            }
+            catch (WriteFailureException e)
+            {
+                throw new ReadFailureException(consistencyLevel, e.received, e.failures, e.blockFor, false);
+            }
+
+            result = fetchRows(group.commands, consistencyForCommitOrFetch);
         }
         catch (UnavailableException e)
         {
