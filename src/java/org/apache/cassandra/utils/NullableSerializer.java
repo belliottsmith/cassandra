@@ -47,24 +47,4 @@ public class NullableSerializer
                 : TypeSizes.sizeof(false);
     }
 
-    public static <T> IVersionedSerializer<T> wrap(IVersionedSerializer<T> wrap)
-    {
-        return new IVersionedSerializer<T>() {
-            public void serialize(T t, DataOutputPlus out, int version) throws IOException
-            {
-                serializeNullable(wrap, t, out, version);
-            }
-
-            public T deserialize(DataInputPlus in, int version) throws IOException
-            {
-                return deserializeNullable(wrap, in, version);
-            }
-
-            public long serializedSize(T t, int version)
-            {
-                return serializedSizeNullable(wrap, t, version);
-            }
-        };
-    }
-
 }

@@ -108,12 +108,6 @@ public class MessageOut<T>
         return new MessageOut<>(verb, payload, serializer, builder.build(), connectionType);
     }
 
-    public MessageOut<T> withPayload(T payload)
-    {
-        assert payload.getClass() == this.payload.getClass();
-        return new MessageOut<>(verb, payload, serializer, parameters, connectionType);
-    }
-
     public Stage getStage()
     {
         return MessagingService.verbStages.get(verb);

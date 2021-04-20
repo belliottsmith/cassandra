@@ -44,7 +44,7 @@ import org.apache.cassandra.utils.UUIDSerializer;
 public class Commit
 {
     public static final CommitSerializer serializer = new CommitSerializer();
-    private static final UUID emptyBallot = UUIDGen.getTimeUUIDWithClockSeqAndNode(0, 0); // use same clockSeqAndNode across cluster for empty commit
+    private static final UUID emptyBallot = UUIDGen.getTimeUUID(0);
 
     public final UUID ballot;
     public final PartitionUpdate update;

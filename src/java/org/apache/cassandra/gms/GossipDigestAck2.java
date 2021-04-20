@@ -36,11 +36,16 @@ public class GossipDigestAck2
 {
     public static final IVersionedSerializer<GossipDigestAck2> serializer = new GossipDigestAck2Serializer();
 
-    public final Map<InetAddress, EndpointState> epStateMap;
+    final Map<InetAddress, EndpointState> epStateMap;
 
-    public GossipDigestAck2(Map<InetAddress, EndpointState> epStateMap)
+    GossipDigestAck2(Map<InetAddress, EndpointState> epStateMap)
     {
         this.epStateMap = epStateMap;
+    }
+
+    Map<InetAddress, EndpointState> getEndpointStateMap()
+    {
+        return epStateMap;
     }
 }
 

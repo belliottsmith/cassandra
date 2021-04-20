@@ -43,7 +43,6 @@ import org.apache.cassandra.utils.UUIDSerializer;
 
 import static org.apache.cassandra.net.MessagingService.Verb.REQUEST_RESPONSE;
 import static org.apache.cassandra.service.paxos.Commit.isAfter;
-import static org.apache.cassandra.service.paxos.Paxos.*;
 import static org.apache.cassandra.service.paxos.PaxosPrepare.prepareWithBallot;
 import static org.apache.cassandra.service.paxos.PaxosRepair.Result.Outcome.*;
 import static org.apache.cassandra.utils.NullableSerializer.deserializeNullable;
@@ -120,7 +119,7 @@ public class PaxosRepair
     private final DecoratedKey partitionKey;
     private final CFMetaData metadata;
     private final ConsistencyLevel consistency;
-    private final Participants participants;
+    private final Paxos.Participants participants;
     private final int required;
     private final Consumer<Result> onDone;
 
@@ -175,7 +174,7 @@ public class PaxosRepair
                 if (state != this)
                     return;
 
-                if (++failures + required > participants.poll.size())
+                if (++failures + required > participants.contact.size())
                     restart();
             }
         }
@@ -238,7 +237,7 @@ public class PaxosRepair
                 // that latestPromised had already been accepted (by a minority) and repair it
                 // This means starting a new ballot, but we choose to use one that is likely to lose a contention battle
                 // Since this operation is not urgent, and we can piggy-back on other paxos operations
-                UUID ballot = staleBallotNewerThan(latestWitnessed);
+                UUID ballot = Paxos.staleBallotNewerThan(latestWitnessed);
                 PartitionUpdate proposal = PartitionUpdate.emptyUpdate(metadata, partitionKey);
 
                 return prepareWithBallot(participants, ballot, proposal.partitionKey(), proposal.metadata(),
@@ -322,9 +321,6 @@ public class PaxosRepair
                     return restart();
 
                 case SUCCESS:
-                    if (proposal.update.isEmpty())
-                        return DONE;
-
                     return PaxosCommit.async(proposal, participants, consistency, true,
                             new CommittingRepair());
 
@@ -343,7 +339,7 @@ public class PaxosRepair
         }
     }
 
-    public PaxosRepair(DecoratedKey partitionKey, CFMetaData metadata, ConsistencyLevel consistency, Participants participants, int required, Consumer<Result> onDone)
+    public PaxosRepair(DecoratedKey partitionKey, CFMetaData metadata, ConsistencyLevel consistency, Paxos.Participants participants, int required, Consumer<Result> onDone)
     {
         this.partitionKey = partitionKey;
         this.metadata = metadata;
@@ -355,10 +351,10 @@ public class PaxosRepair
 
     public static PaxosRepair async(ConsistencyLevel consistency, DecoratedKey partitionKey, CFMetaData metadata, Consumer<Result> onDone)
     {
-        return async(consistency, partitionKey, metadata, Participants.get(metadata, partitionKey, consistency), onDone);
+        return async(consistency, partitionKey, metadata, Paxos.Participants.get(true, metadata, partitionKey, consistency), onDone);
     }
 
-    public static PaxosRepair async(ConsistencyLevel consistency, DecoratedKey partitionKey, CFMetaData metadata, Participants participants, Consumer<Result> onDone)
+    public static PaxosRepair async(ConsistencyLevel consistency, DecoratedKey partitionKey, CFMetaData metadata, Paxos.Participants participants, Consumer<Result> onDone)
     {
         PaxosRepair repair = new PaxosRepair(partitionKey, metadata, consistency, participants, participants.requiredForConsensus, onDone);
         repair.start();
@@ -388,8 +384,8 @@ public class PaxosRepair
 
         Querying querying = new Querying();
         MessageOut<Request> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_REPAIR, new Request(partitionKey, metadata), requestSerializer);
-        for (int i = 0, size = participants.poll.size(); i < size ; ++i)
-            MessagingService.instance().sendRR(message, participants.poll.get(i), querying);
+        for (int i = 0, size = participants.contact.size() ; i < size ; ++i)
+            MessagingService.instance().sendRR(message, participants.contact.get(i), querying);
         return querying;
     }
 
@@ -445,9 +441,9 @@ public class PaxosRepair
         public void doVerb(MessageIn<PaxosRepair.Request> message, int id)
         {
             PaxosRepair.Request request = message.payload;
-            if (!isInRangeAndShouldProcess(message.from, request.partitionKey, request.metadata))
+            if (!Paxos.isInRangeAndShouldProcess(message.from, request.partitionKey, request.metadata))
             {
-                sendFailureResponse("repair", message.from, null, id);
+                Paxos.sendFailureResponse("repair", message.from, null, id);
                 return;
             }
 

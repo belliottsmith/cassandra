@@ -89,16 +89,6 @@ public class UUIDGen
     }
 
     /**
-     * Creates a type 1 UUID (time-based UUID) with the timestamp of @param when, in milliseconds.
-     *
-     * @return a UUID instance
-     */
-    public static UUID getTimeUUIDWithClockSeqAndNode(long when, long clockSeqAndNode)
-    {
-        return new UUID(createTime(fromUnixTimestamp(when)), clockSeqAndNode);
-    }
-
-    /**
      * Returns a version 1 UUID using the provided timestamp and the local clock and sequence.
      * <p>
      * Note that this method is generally only safe to use if you can guarantee that the provided

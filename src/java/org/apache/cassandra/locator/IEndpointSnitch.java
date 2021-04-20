@@ -21,8 +21,6 @@ import java.net.InetAddress;
 import java.util.Collection;
 import java.util.List;
 
-import com.google.common.base.Predicate;
-
 /**
  * This interface helps determine location of node in the data center relative to another node.
  * Give a node A and another node B it can tell if A and B are on the same rack or in the same
@@ -66,10 +64,4 @@ public interface IEndpointSnitch
      * to be faster than 2 sequential queries, one against l1 followed by one against l2.
      */
     public boolean isWorthMergingForRangeQuery(List<InetAddress> merged, List<InetAddress> l1, List<InetAddress> l2);
-
-    default public Predicate<InetAddress> isSameDcAs(InetAddress as)
-    {
-        String dcOfAs = getDatacenter(as);
-        return test -> dcOfAs.equals(getDatacenter(test)); // TODO should be able to use ==
-    }
 }

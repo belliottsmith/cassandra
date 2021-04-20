@@ -22,14 +22,8 @@ import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 
-import org.apache.cassandra.io.IVersionedSerializer;
-import org.apache.cassandra.io.util.DataInputPlus;
-import org.apache.cassandra.io.util.DataOutputPlus;
-
-public class CompactEndpointSerializationHelper implements IVersionedSerializer<InetAddress>
+public class CompactEndpointSerializationHelper
 {
-    public static final IVersionedSerializer<InetAddress> endpointSerializer = new CompactEndpointSerializationHelper();
-
     public static void serialize(InetAddress endpoint, DataOutput out) throws IOException
     {
         byte[] buf = endpoint.getAddress();
@@ -50,20 +44,5 @@ public class CompactEndpointSerializationHelper implements IVersionedSerializer<
             return 1 + 4;
         assert from instanceof Inet6Address;
         return 1 + 16;
-    }
-
-    public void serialize(InetAddress endpoint, DataOutputPlus out, int version) throws IOException
-    {
-        serialize(endpoint, out);
-    }
-
-    public InetAddress deserialize(DataInputPlus in, int version) throws IOException
-    {
-        return deserialize(in);
-    }
-
-    public long serializedSize(InetAddress endpoint, int version)
-    {
-        return serializedSize(endpoint);
     }
 }

@@ -18,18 +18,9 @@
 
 package org.apache.cassandra.service.paxos;
 
-import java.io.IOException;
 import java.net.InetAddress;
-import java.util.AbstractCollection;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -38,9 +29,9 @@ import java.util.function.Function;
 import javax.annotation.Nullable;
 
 import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
-import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.slf4j.Logger;
@@ -48,6 +39,7 @@ import org.slf4j.LoggerFactory;
 
 import com.codahale.metrics.Meter;
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
@@ -70,11 +62,7 @@ import org.apache.cassandra.exceptions.RequestTimeoutException;
 import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.exceptions.WriteFailureException;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
-import org.apache.cassandra.gms.EndpointState;
-import org.apache.cassandra.gms.Gossiper;
-import org.apache.cassandra.io.IVersionedSerializer;
-import org.apache.cassandra.io.util.DataInputPlus;
-import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.metrics.ClientRequestMetrics;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.service.CASRequest;
@@ -83,19 +71,14 @@ import org.apache.cassandra.service.DataResolver;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.triggers.TriggerExecutor;
-import org.apache.cassandra.utils.CollectionSerializer;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.UUIDGen;
 
-import static com.google.common.collect.Iterators.filter;
 import static com.google.common.collect.Iterators.size;
 import static java.util.concurrent.TimeUnit.MICROSECONDS;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.apache.cassandra.config.DatabaseDescriptor.*;
-import static org.apache.cassandra.gms.FailureDetector.isAlivePredicate;
-import static org.apache.cassandra.net.CompactEndpointSerializationHelper.*;
 import static org.apache.cassandra.net.MessagingService.FAILURE_RESPONSE_PARAM;
 import static org.apache.cassandra.net.MessagingService.ONE_BYTE;
 import static org.apache.cassandra.net.MessagingService.instance;
@@ -103,13 +86,12 @@ import static org.apache.cassandra.service.StorageProxy.casReadMetrics;
 import static org.apache.cassandra.service.StorageProxy.casWriteMetrics;
 import static org.apache.cassandra.service.StorageProxy.readMetrics;
 import static org.apache.cassandra.service.StorageProxy.readMetricsMap;
+import static org.apache.cassandra.service.StorageProxy.sameDCPredicateFor;
 import static org.apache.cassandra.service.StorageProxy.verifyAgainstBlacklist;
 import static org.apache.cassandra.service.StorageProxy.writeMetricsMap;
 import static org.apache.cassandra.service.paxos.PaxosCommitAndPrepare.commitAndPrepare;
 import static org.apache.cassandra.service.paxos.PaxosPrepare.prepare;
-import static org.apache.cassandra.utils.CollectionSerializer.newHashSet;
 import static org.apache.cassandra.utils.NoSpamLogger.Level.WARN;
-import static org.apache.cassandra.utils.FBUtilities.getBroadcastAddress;
 
 public class Paxos
 {
@@ -120,114 +102,6 @@ public class Paxos
 
     private static final Logger logger = LoggerFactory.getLogger(Paxos.class);
 
-    static class Electorate
-    {
-        // all replicas, including pending, but without those in a remote DC if consistency is local
-        final Set<InetAddress> all;
-
-        // pending subset of electorate
-        final Set<InetAddress> pending;
-
-        public Electorate(Set<InetAddress> all, Set<InetAddress> pending)
-        {
-            this.all = all;
-            this.pending = pending;
-        }
-
-        static Electorate get(CFMetaData cfm, DecoratedKey key, ConsistencyLevel consistency)
-        {
-            Token token = key.getToken();
-            List<InetAddress> natural = StorageService.instance.getNaturalEndpoints(cfm.ksName, token);
-            Collection<InetAddress> pending = StorageService.instance.getTokenMetadata().pendingEndpointsFor(token, cfm.ksName);
-            Collection<InetAddress> all = pending.isEmpty() ? natural :
-                    new AbstractCollection<InetAddress>() {
-                        public Iterator<InetAddress> iterator() { return Iterators.concat(natural.iterator(), pending.iterator()); }
-                        public int size() { return natural.size() + pending.size(); }
-                    };
-            return get(consistency, all, natural, pending);
-        }
-
-        static Electorate get(ConsistencyLevel consistency, Collection<InetAddress> all, List<InetAddress> allNatural, Collection<InetAddress> allPending)
-        {
-            Set<InetAddress> electorate, pendingElectorate;
-            if (consistency == ConsistencyLevel.LOCAL_SERIAL)
-            {
-                // Restrict naturalEndpoints and pendingEndpoints to node in the local DC only
-                Predicate<InetAddress> isLocalDc = getEndpointSnitch().isSameDcAs(getBroadcastAddress());
-
-                int countNatural = 0;
-                for (int i = 0 ; i < allNatural.size() ; ++i)
-                    if (isLocalDc.apply(allNatural.get(i)))
-                        ++countNatural;
-
-                int countPending = allPending.size();
-                if (countPending > 0)
-                    countPending = size(filter(allPending.iterator(), isLocalDc));
-
-                int count = countNatural + countPending;
-                electorate = copyAsSet(filter(all.iterator(), isLocalDc), count);
-                pendingElectorate = copyAsSet(filter(allPending.iterator(), isLocalDc), countPending);
-            }
-            else
-            {
-                electorate = copyAsSet(all);
-                pendingElectorate = copyAsSet(allPending);
-            }
-
-            return new Electorate(electorate, pendingElectorate);
-        }
-
-        boolean hasPending()
-        {
-            return !pending.isEmpty();
-        }
-
-        boolean isPending(InetAddress endpoint)
-        {
-            return hasPending() && pending.contains(endpoint);
-        }
-
-        public boolean equals(Object o)
-        {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            Electorate that = (Electorate) o;
-            return all.equals(that.all) && pending.equals(that.pending);
-        }
-
-        public int hashCode()
-        {
-            return Objects.hash(all, pending);
-        }
-
-        public String toString()
-        {
-            return "{" + all + ", " + pending + '}';
-        }
-
-        static final IVersionedSerializer<Electorate> serializer = new IVersionedSerializer<Electorate>()
-        {
-            public void serialize(Electorate electorate, DataOutputPlus out, int version) throws IOException
-            {
-                CollectionSerializer.serializeCollection(endpointSerializer, electorate.all, out, version);
-                CollectionSerializer.serializeCollection(endpointSerializer, electorate.pending, out, version);
-            }
-
-            public Electorate deserialize(DataInputPlus in, int version) throws IOException
-            {
-                Set<InetAddress> endpoints = CollectionSerializer.deserializeCollection(endpointSerializer, newHashSet(), in, version);
-                Set<InetAddress> pending = CollectionSerializer.deserializeCollection(endpointSerializer, newHashSet(), in, version);
-                return new Electorate(endpoints, pending);
-            }
-
-            public long serializedSize(Electorate electorate, int version)
-            {
-                return CollectionSerializer.serializedSizeCollection(endpointSerializer, electorate.all, version) +
-                       CollectionSerializer.serializedSizeCollection(endpointSerializer, electorate.pending, version);
-            }
-        };
-    }
-
     /**
      * Encapsulates the peers we will talk to for this operation.
      */
@@ -236,78 +110,91 @@ public class Paxos
         final ConsistencyLevel consistencyForConsensus;
 
         /**
-         * All endpoints for the token, regardless of location (DC) or status: natural, pending, live or otherwise
+         * All natural endpoints for the token, regardless of status and location
          */
-        final List<InetAddress> all;
+        final List<InetAddress> allNatural;
 
         /**
-         * {@link #all} but limited to those nodes that are "pending" (joining) endpoints
+         * All pending endpoints for the token, regardless of status and location
          */
         final Collection<InetAddress> allPending;
 
-        final Electorate electorate;
-
         /**
-         * those nodes we will 'poll' for their vote; {@code electorate} with down nodes removed
+         * allNatural++allPending, without down nodes or remote DC if consistency is local
          */
-        final List<InetAddress> poll;
-
+        final List<InetAddress> contact;
         /**
+         *
          * The number of responses we require to reach desired consistency from members of {@code contact}
          */
         final int requiredForConsensus;
 
-        /**
-         * The number of read responses we require to reach desired consistency from members of {@code contact}
-         * Note that this should always be met if {@link #requiredForConsensus} is met, but we supply it separately
-         * for corroboration.
-         */
-        final int requiredReads;
-
-        private Participants(ConsistencyLevel consistencyForConsensus, List<InetAddress> all, Collection<InetAddress> allPending, Electorate electorate, List<InetAddress> poll, int requiredForConsensus, int requiredReads)
+        private Participants(ConsistencyLevel consistencyForConsensus, List<InetAddress> allNatural, Collection<InetAddress> allPending, List<InetAddress> contact, int requiredForConsensus)
         {
             this.consistencyForConsensus = consistencyForConsensus;
-            this.all = all;
+            this.allNatural = allNatural;
             this.allPending = allPending;
-            this.electorate = electorate;
-            this.poll = poll;
+            this.contact = contact;
             this.requiredForConsensus = requiredForConsensus;
-            this.requiredReads = requiredReads;
         }
 
-        static Participants get(CFMetaData cfm, DecoratedKey key, ConsistencyLevel consistency)
+        static Participants get(boolean isWrite, CFMetaData cfm, DecoratedKey key, ConsistencyLevel consistency) throws UnavailableException
         {
-            Token token = key.getToken();
-            List<InetAddress> natural = StorageService.instance.getNaturalEndpoints(cfm.ksName, token);
-            Collection<InetAddress> allPending = StorageService.instance.getTokenMetadata().pendingEndpointsFor(token, cfm.ksName);
+            Token tk = key.getToken();
+            List<InetAddress> natural = StorageService.instance.getNaturalEndpoints(cfm.ksName, tk);
+            Collection<InetAddress> pending = StorageService.instance.getTokenMetadata().pendingEndpointsFor(tk, cfm.ksName);
 
-            List<InetAddress> all = allPending.isEmpty()
-                    ? natural
-                    : ImmutableList.<InetAddress>builder().addAll(natural).addAll(allPending).build();
-
-            Electorate electorate = Electorate.get(consistency, all, natural, allPending);
-            int countPending = electorate.pending.size();
-            int countNatural = electorate.all.size() - countPending;
-
-            List<InetAddress> contact = ImmutableList.copyOf(filter(electorate.all.iterator(), isAlivePredicate));
-
-            // we need a quorum of natural replicas + pending replicas to partipate in the paxos operation, but we
-            // can only read from a quorum of natural replicas
-            int readsRequired = countNatural/2 + 1;
-            // Since we read from the same group we use for consensus, we can simply increment the size of our quorum
-            // (i.e. we no longer need to limit ourselves due to the problems highlighted by CASSANDRA-8346 or CASSANDRA-833)
-            int requiredForConsensus = readsRequired + countPending;
-
-            return new Participants(consistency, all, allPending, electorate, contact, requiredForConsensus, readsRequired);
-        }
-
-        void assureSufficientLiveNodes(boolean isWrite) throws UnavailableException
-        {
-            if (requiredForConsensus > poll.size())
+            Predicate<InetAddress> filter = FailureDetector.isAlivePredicate;
+            int countNatural = natural.size(), countPending = pending.size();
+            if (consistency == ConsistencyLevel.LOCAL_SERIAL)
             {
-                mark(isWrite, m -> m.unavailables, consistencyForConsensus);
-                throw new UnavailableException(consistencyForConsensus, requiredForConsensus, poll.size());
+                // Restrict naturalEndpoints and pendingEndpoints to node in the local DC only
+                String localDc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddress());
+                Predicate<InetAddress> isLocalDc = sameDCPredicateFor(localDc);
+
+                countNatural = 0;
+                for (int i = 0 ; i < natural.size() ; ++i)
+                    if (isLocalDc.apply(natural.get(i)))
+                        ++countNatural;
+
+                if (countPending > 0)
+                    countPending = Iterators.size(Iterators.filter(pending.iterator(), isLocalDc));
+
+                filter = Predicates.and(filter, isLocalDc);
             }
+
+            List<InetAddress> contact; {
+                ImmutableList.Builder<InetAddress> builder = ImmutableList.builder();
+                builder.addAll(Iterators.filter(natural.iterator(), filter));
+                if (countPending > 0)
+                    builder.addAll(Iterators.filter(pending.iterator(), filter));
+                contact = builder.build();
+            }
+
+            int participants = countNatural + countPending;
+            int required = participants / 2 + 1; // See CASSANDRA-8346, CASSANDRA-833
+
+            if (countPending > 1 || required > contact.size())
+            {
+                mark(isWrite, m -> m.unavailables, consistency);
+
+                if (countPending > 1)
+                {
+                    // We cannot allow CAS operations with 2 or more pending endpoints, see #8346.
+                    // Note that we fake an impossible number of required nodes in the unavailable exception
+                    // to nail home the point that it's an impossible operation no matter how many nodes are live.
+                    throw new UnavailableException(String.format("Cannot perform LWT operation as there is more than one (%d) relevant pending range movement", countPending),
+                            consistency,
+                            participants + 1,
+                            contact.size());
+                }
+                else
+                {
+                    throw new UnavailableException(consistency, required, contact.size());
+                }
+            }
+
+            return new Participants(consistency, natural, pending, contact, required);
         }
 
         int requiredFor(ConsistencyLevel consistency, CFMetaData metadata)
@@ -318,7 +205,9 @@ public class Paxos
             int requiredPending = allPending.size();
             if (requiredPending > 0 && consistency.isDatacenterLocal())
             {
-                requiredPending = size(filter(allPending.iterator(), getEndpointSnitch().isSameDcAs(getBroadcastAddress())));
+                String localDc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddress());
+                Predicate<InetAddress> isLocalDc = sameDCPredicateFor(localDc);
+                requiredPending = Iterators.size(Iterators.filter(allPending.iterator(), isLocalDc));
             }
             return consistency.blockFor(Keyspace.open(metadata.ksName)) + requiredPending;
         }
@@ -331,26 +220,26 @@ public class Paxos
     static class MaybeFailure
     {
         final boolean isFailure;
-        final int contacted;
+        final int participants;
         final int required;
         final int successes;
         final int failures;
 
-        MaybeFailure(Participants contacted, int successes, int failures)
+        MaybeFailure(Participants participants, int successes, int failures)
         {
-            this(contacted.poll.size() - failures < contacted.requiredForConsensus,
-                    contacted.poll.size(), contacted.requiredForConsensus, successes, failures);
+            this(participants.contact.size() - failures < participants.requiredForConsensus,
+                    participants.contact.size(), participants.requiredForConsensus, successes, failures);
         }
 
-        MaybeFailure(int contacted, int required, int successes, int failures)
+        MaybeFailure(int participants, int required, int successes, int failures)
         {
-            this(contacted - failures < required, contacted, required, successes, failures);
+            this(participants - failures < required, participants, required, successes, failures);
         }
 
-        MaybeFailure(boolean isFailure, int contacted, int required, int successes, int failures)
+        MaybeFailure(boolean isFailure, int participants, int required, int successes, int failures)
         {
             this.isFailure = isFailure;
-            this.contacted = contacted;
+            this.participants = participants;
             this.required = required;
             this.successes = successes;
             this.failures = failures;
@@ -429,8 +318,8 @@ public class Paxos
             throws UnavailableException, IsBootstrappingException, RequestFailureException, RequestTimeoutException, InvalidRequestException
     {
         final long start = System.nanoTime();
-        final long proposeDeadline = start + MILLISECONDS.toNanos(getCasContentionTimeout());
-        final long commitDeadline = Math.max(proposeDeadline, start + MILLISECONDS.toNanos(getWriteRpcTimeout()));
+        final long proposeDeadline = start + MILLISECONDS.toNanos(DatabaseDescriptor.getCasContentionTimeout());
+        final long commitDeadline = Math.max(proposeDeadline, start + MILLISECONDS.toNanos(DatabaseDescriptor.getWriteRpcTimeout()));
 
         SinglePartitionReadCommand readCommand = request.readCommand(FBUtilities.nowInSeconds());
         CFMetaData metadata = readCommand.metadata();
@@ -446,13 +335,15 @@ public class Paxos
 
             while (true)
             {
+                // for simplicity, we'll do a single liveness check at the start of each attempt
+                Participants participants = Participants.get(true, metadata, key, consistencyForPaxos);
+
                 // read the current values and check they validate the conditions
                 Tracing.trace("Reading existing values for CAS precondition");
 
-                BeginResult begin = begin(proposeDeadline, readCommand, consistencyForPaxos,
+                BeginResult begin = begin(proposeDeadline, participants, readCommand, consistencyForPaxos,
                         true, minimumBallot, failedAttemptsDueToContention);
                 UUID ballot = begin.ballot;
-                Participants participants = begin.participants;
                 failedAttemptsDueToContention = begin.failedAttemptsDueToContention;
 
                 FilteredPartition current;
@@ -507,17 +398,14 @@ public class Paxos
 
                     case SUCCESS:
                     {
+                        // no need to commit a no-op; either it
+                        //   1) reached a majority, in which case it was agreed, had no effect and we can do nothing; or
+                        //   2) did not reach a majority, was not agreed, and was not user visible as a result
                         if (conditionMet)
                         {
-                            // no need to commit a no-op; either it
-                            //   1) reached a majority, in which case it was agreed, had no effect and we can do nothing; or
-                            //   2) did not reach a majority, was not agreed, and was not user visible as a result so we can ignore it
-                            if (!proposal.update.isEmpty())
-                            {
-                                PaxosCommit.Status commit = PaxosCommit.sync(commitDeadline, proposal, participants, consistencyForCommit, true);
-                                if (!commit.isSuccess())
-                                    throw commit.maybeFailure().markAndThrowAsTimeoutOrFailure(true, consistencyForCommit);
-                            }
+                            PaxosCommit.Status commit = PaxosCommit.sync(commitDeadline, proposal, participants, consistencyForCommit, true);
+                            if (!commit.isSuccess())
+                                throw commit.maybeFailure().markAndThrowAsTimeoutOrFailure(true, consistencyForCommit);
 
                             Tracing.trace("CAS successful");
                             return null;
@@ -540,7 +428,7 @@ public class Paxos
                                 // We don't know if our update has been applied, as the competing ballot may have completed
                                 // our proposal.  We yield our uncertainty to the caller via timeout exception.
                                 // TODO: should return more useful result to client, and should also avoid this situation where possible
-                                throw new MaybeFailure(false, participants.poll.size(), participants.requiredForConsensus, 0, 0)
+                                throw new MaybeFailure(false, participants.contact.size(), participants.requiredForConsensus, 0, 0)
                                         .markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
 
                             case NO:
@@ -578,13 +466,18 @@ public class Paxos
             throw new InvalidRequestException("SERIAL/LOCAL_SERIAL consistency may only be requested for one partition at a time");
 
         long start = System.nanoTime();
-        long deadline = start + MILLISECONDS.toNanos(getReadRpcTimeout());
-        SinglePartitionReadCommand read = group.commands.get(0);
+        long deadline = start + MILLISECONDS.toNanos(DatabaseDescriptor.getReadRpcTimeout());
+        SinglePartitionReadCommand command = group.commands.get(0);
+        CFMetaData metadata = command.metadata();
+        DecoratedKey key = command.partitionKey();
 
         try
         {
+            // make sure any in-progress paxos writes are done (i.e., committed to a majority of replicas), before performing a quorum read
+            Participants participants = Participants.get(false, metadata, key, consistencyLevel);
+
             // does the work of applying in-progress writes; throws UAE or timeout if it can't
-            final BeginResult begin = begin(deadline, group.commands.get(0), consistencyLevel, false, null, 0);
+            final BeginResult begin = begin(deadline, participants, group.commands.get(0), consistencyLevel, false, null, 0);
             if (begin.failedAttemptsDueToContention > 0)
             {
                 casReadMetrics.contention.update(begin.failedAttemptsDueToContention);
@@ -599,7 +492,6 @@ public class Paxos
             readMetrics.addNano(latency);
             casReadMetrics.addNano(latency);
             readMetricsMap.get(consistencyLevel).addNano(latency);
-            CFMetaData metadata = read.metadata();
             Keyspace.open(metadata.ksName).getColumnFamilyStore(metadata.cfName).metric.coordinatorReadLatency.update(latency, TimeUnit.NANOSECONDS);
         }
     }
@@ -607,14 +499,12 @@ public class Paxos
     static class BeginResult
     {
         final UUID ballot;
-        final Participants participants;
         final int failedAttemptsDueToContention;
         final PartitionIterator readResponse;
 
-        public BeginResult(UUID ballot, Participants participants, int failedAttemptsDueToContention, PartitionIterator readResponse)
+        public BeginResult(UUID ballot, int failedAttemptsDueToContention, PartitionIterator readResponse)
         {
             this.ballot = ballot;
-            this.participants = participants;
             this.failedAttemptsDueToContention = failedAttemptsDueToContention;
             this.readResponse = readResponse;
         }
@@ -627,16 +517,18 @@ public class Paxos
      * nodes have seen the mostRecentCommit.  Otherwise, return null.
      */
     private static BeginResult begin(long deadline,
+                                     Participants participants,
                                      SinglePartitionReadCommand readCommand,
-                                     ConsistencyLevel consistencyForConsensus,
+                                     ConsistencyLevel consistencyForPaxos,
                                      final boolean isWrite,
                                      UUID minimumBallot,
                                      int failedAttemptsDueToContention)
             throws WriteTimeoutException, WriteFailureException, ReadTimeoutException, ReadFailureException
     {
-        Participants initialParticipants = Participants.get(readCommand.metadata(), readCommand.partitionKey(), consistencyForConsensus);
-        initialParticipants.assureSufficientLiveNodes(isWrite);
-        PaxosPrepare preparing = prepare(minimumBallot, initialParticipants, readCommand);
+        // TODO: should we re-query participants whenever we prepare, and return them in BeginResult?
+        //       probably, since this would make it easier to verify participants as part of prepare,
+        //       and restart if another participant is aware of a change
+        PaxosPrepare preparing = prepare(participants, minimumBallot, readCommand);
         while (true)
         {
             // prepare
@@ -648,31 +540,31 @@ public class Paxos
 
                 case FOUND_IN_PROGRESS:
                 {
-                    PaxosPrepare.FoundInProgress inProgress = prepare.foundInProgress();
-                    Tracing.trace("Finishing incomplete paxos round {}", inProgress.partiallyAcceptedProposal);
+                    Commit inProgress = prepare.foundInProgress().partiallyAcceptedProposal;
+                    Tracing.trace("Finishing incomplete paxos round {}", inProgress);
                     if(isWrite)
                         casWriteMetrics.unfinishedCommit.inc();
                     else
                         casReadMetrics.unfinishedCommit.inc();
 
-                    Commit refreshedInProgress = Commit.newProposal(inProgress.promisedBallot, inProgress.partiallyAcceptedProposal.update);
-                    PaxosPropose.Status proposeResult = PaxosPropose.sync(deadline, refreshedInProgress, inProgress.participants, false);
+                    Commit refreshedInProgress = Commit.newProposal(prepare.foundInProgress().promisedBallot, inProgress.update);
+                    PaxosPropose.Status proposeResult = PaxosPropose.sync(deadline, refreshedInProgress, participants, false);
                     switch (proposeResult.outcome)
                     {
                         default: throw new IllegalStateException();
 
                         case MAYBE_FAILURE:
-                            throw proposeResult.maybeFailure().markAndThrowAsTimeoutOrFailure(isWrite, consistencyForConsensus);
+                            throw proposeResult.maybeFailure().markAndThrowAsTimeoutOrFailure(isWrite, consistencyForPaxos);
 
                         case SUCCESS:
-                            retry = commitAndPrepare(refreshedInProgress, inProgress.participants, readCommand);
+                            retry = commitAndPrepare(refreshedInProgress, participants, readCommand);
                             break retry;
 
                         case SUPERSEDED:
                             // since we are proposing a previous value that was maybe superseded by us before completion
                             // we don't need to test the side effects, as we just want to start again, and fall through
                             // to the superseded section below
-                            prepare = new PaxosPrepare.Superseded(proposeResult.superseded().by, inProgress.participants);
+                            prepare = new PaxosPrepare.Superseded(proposeResult.superseded().by);
 
                     }
                 }
@@ -682,8 +574,8 @@ public class Paxos
                     Tracing.trace("Some replicas have already promised a higher ballot than ours; aborting");
                     // sleep a random amount to give the other proposer a chance to finish
                     if (!waitForContention(deadline, ++failedAttemptsDueToContention))
-                        throw new MaybeFailure(prepare.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForConsensus);
-                    retry = prepare(prepare.supersededBy(), prepare.participants, readCommand);
+                        throw new MaybeFailure(participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
+                    retry = prepare(participants, prepare.supersededBy(), readCommand);
                     break;
                 }
 
@@ -693,22 +585,15 @@ public class Paxos
                     // round's proposal (if any).
                     PaxosPrepare.Success success = prepare.success();
 
-                    DataResolver resolver = new DataResolver(Keyspace.open(readCommand.metadata().ksName), readCommand, nonSerial(consistencyForConsensus), success.responses.size());
+                    DataResolver resolver = new DataResolver(Keyspace.open(readCommand.metadata().ksName), readCommand, nonSerial(consistencyForPaxos), success.responses.size());
                     for (int i = 0 ; i < success.responses.size() ; ++i)
                         resolver.preprocess(success.responses.get(i));
 
-                    return new BeginResult(success.ballot, success.participants, failedAttemptsDueToContention, resolver.resolve());
+                    return new BeginResult(success.ballot, failedAttemptsDueToContention, resolver.resolve());
                 }
 
                 case MAYBE_FAILURE:
-                    throw prepare.maybeFailure().markAndThrowAsTimeoutOrFailure(isWrite, consistencyForConsensus);
-
-                case ELECTORATE_MISMATCH:
-                    Participants participants = Participants.get(readCommand.metadata(), readCommand.partitionKey(), consistencyForConsensus);
-                    participants.assureSufficientLiveNodes(isWrite);
-                    retry = prepare(prepare.previousBallot(), participants, readCommand);
-                    break;
-
+                    throw prepare.maybeFailure().markAndThrowAsTimeoutOrFailure(isWrite, consistencyForPaxos);
             }
 
             preparing = retry;
@@ -718,18 +603,8 @@ public class Paxos
     static boolean waitForContention(long deadline, int failedAttemptsDueToContention)
     {
         // should have at most 2 of 3 messages to complete, and our latency counts retries and this is just a lower bound
-        long minimumWait = 10000;
-        long maximumWait = 100000;
-        try
-        {
-            minimumWait = (casWriteMetrics.recentLatencyHistogram.percentile(0.5) * 2)/3;
-            maximumWait = failedAttemptsDueToContention * casWriteMetrics.recentLatencyHistogram.percentile(0.95);
-        }
-        catch (Throwable t)
-        {
-            NoSpamLogger.getLogger(logger, 1L, TimeUnit.MINUTES).error("", t);
-        }
-
+        long minimumWait = (casWriteMetrics.recentLatencyHistogram.percentile(50) * 2)/3;
+        long maximumWait = failedAttemptsDueToContention * casWriteMetrics.recentLatencyHistogram.percentile(95);
         if (maximumWait <= 0 || maximumWait > 100000)
             maximumWait = 100000;
         if (minimumWait > maximumWait)
@@ -825,46 +700,5 @@ public class Paxos
         // Note that ballotMicros is not guaranteed to be unique if two proposal are being handled concurrently by the same coordinator. But we still
         // need ballots to be unique for each proposal so we have to use getRandomTimeUUIDFromMicros.
         return UUIDGen.getRandomTimeUUIDFromMicros(timestampMicros);
-    }
-
-    static Map<InetAddress, EndpointState> verifyElectorate(Electorate remoteElectorate, Electorate localElectorate)
-    {
-        // verify electorates; if they differ, send back gossip info for superset of two participant sets
-        if (remoteElectorate.equals(localElectorate))
-            return Collections.emptyMap();
-
-        Map<InetAddress, EndpointState> endpoints = Maps.newHashMapWithExpectedSize(remoteElectorate.all.size() + localElectorate.all.size());
-        for (InetAddress host : remoteElectorate.all)
-        {
-            endpoints.put(host, Gossiper.instance.getEndpointStateForEndpoint(host));
-        }
-        for (InetAddress host : localElectorate.all)
-        {
-            if (!endpoints.containsKey(host))
-                endpoints.put(host, Gossiper.instance.getEndpointStateForEndpoint(host));
-        }
-
-        return endpoints;
-    }
-
-    static boolean canExecuteOnSelf(InetAddress replica)
-    {
-        return replica.equals(getBroadcastAddress());
-    }
-
-    private static <V> Set<V> copyAsSet(Collection<V> collection)
-    {
-        return collection.isEmpty() ? Collections.emptySet() : new HashSet<>(collection);
-    }
-    private static <V> Set<V> copyAsSet(Iterator<V> iterator, int count)
-    {
-        if (count == 0)
-            return Collections.emptySet();
-
-        return new HashSet<>(new AbstractCollection<V>()
-        {
-            public Iterator<V> iterator() { return iterator; }
-            public int size() { return count; }
-        });
     }
 }

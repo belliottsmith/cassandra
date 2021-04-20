@@ -476,7 +476,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         }
         catch (IOException e)
         {
-            throw new RuntimeException(e);
+            throw new RuntimeException();
         }
     }
 

@@ -68,7 +68,7 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
 
     interface Callbacks
     {
-        void onRefreshFailure(InetAddress from, boolean isTimeout);
+        void onRefreshFailure(InetAddress from);
         void onRefreshSuccess(UUID isSupersededBy, InetAddress from);
     }
 
@@ -87,8 +87,7 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
         for (int i = 0, size = refresh.size(); i < size ; ++i)
         {
             InetAddress destination = refresh.get(i);
-            logger.trace("Refresh {} and Confirm {} to {}", send.payload.missingCommit.ballot, send.payload.promised, destination);
-            Tracing.trace("Refresh {} and Confirm {} to {}", send.payload.missingCommit.ballot, send.payload.promised, destination);
+            Tracing.trace("Refreshing {} of ballot {}", destination, send.payload.missingCommit.ballot);
             if (StorageProxy.canDoLocalRequest(destination))
                 executeOnSelf = true;
             else
@@ -102,12 +101,7 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
 
     public void onFailure(InetAddress from)
     {
-        callbacks.onRefreshFailure(from, false);
-    }
-
-    public void onExpired(InetAddress from)
-    {
-        callbacks.onRefreshFailure(from, true);
+        callbacks.onRefreshFailure(from);
     }
 
     public void response(MessageIn<Response> message)
