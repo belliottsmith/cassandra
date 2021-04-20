@@ -490,15 +490,10 @@ public class PaxosRepairHistoryTest
                 (r.right.isMinimum()
                         ? canonical.subMap(r.left, true, new LongToken(Long.MAX_VALUE), true)
                         : canonical.subMap(r.left, true, r.right, false)
-                ).entrySet().forEach(e -> e.setValue(latest(e.getValue(), ballot)));
+                ).entrySet().forEach(e -> e.setValue(latest(ballot, e.getValue())));
             }
 
         }
     }
 
-    @Test
-    public void testRegression2()
-    {
-        testRandomAdds(-5986708161426773475L, 3, 100, 3, 0.010000f, 0.100000f);
-    }
 }
