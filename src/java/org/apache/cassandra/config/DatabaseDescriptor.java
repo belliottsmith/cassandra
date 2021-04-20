@@ -2033,16 +2033,6 @@ public class DatabaseDescriptor
         conf.skip_paxos_repair_on_topology_change_keyspaces = Config.splitCommaDelimited(keyspaces);
     }
 
-    public static boolean paxoTopologyRepairNoDcChecks()
-    {
-        return conf.paxos_topology_repair_no_dc_checks;
-    }
-
-    public static boolean paxoTopologyRepairStrictEachQuorum()
-    {
-        return conf.paxos_topology_repair_strict_each_quorum;
-    }
-
     public static boolean getNativeTransportAllowOlderProtocols()
     {
         return conf.native_transport_allow_older_protocols;
