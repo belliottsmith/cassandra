@@ -625,6 +625,7 @@ public class Paxos
                                 minimumBallot = propose.superseded().by;
                                 // We have been superseded without our proposal being accepted by anyone, so we can safely retry
                                 Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
+                                failedAttemptsDueToContention++;
                                 if (!waitForContention(proposeDeadline, ++failedAttemptsDueToContention, metadata, key, consistencyForPaxos, true))
                                     throw new MaybeFailure(participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
                         }
