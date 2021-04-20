@@ -80,7 +80,6 @@ import org.apache.cassandra.service.paxos.PaxosRepair;
 import org.apache.cassandra.service.paxos.PrepareResponse;
 import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupResponse;
 import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupRequest;
-import org.apache.cassandra.service.paxos.cleanup.PaxosPrepareCleanup;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.*;
@@ -365,7 +364,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.PARTITION_SIZE, PartitionSizeCommand.serializer);
         put(Verb.PING, PingMessage.serializer);
 
-        put(Verb.APPLE_PAXOS_CLEANUP_PREPARE, PaxosPrepareCleanup.serializer);
+        put(Verb.APPLE_PAXOS_CLEANUP_PREPARE, EndpointState.serializer);
         put(Verb.APPLE_PAXOS_CLEANUP_REQUEST, PaxosCleanupRequest.serializer);
         put(Verb.APPLE_PAXOS_CLEANUP_RESPONSE, PaxosCleanupResponse.serializer);
         put(Verb.APPLE_PAXOS_CLEANUP_FINISH, UUIDSerializer.serializer);

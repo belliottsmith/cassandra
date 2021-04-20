@@ -80,7 +80,7 @@ public class PaxosCleanup extends AbstractFuture<Void> implements Runnable
     public void run()
     {
         EndpointState localEpState = Gossiper.instance.getEndpointStateForEndpoint(FBUtilities.getBroadcastAddress());
-        prepare = PaxosPrepareCleanup.prepare(cfId, endpoints, localEpState);
+        prepare = PaxosPrepareCleanup.prepare(endpoints, localEpState);
         addCallback(prepare, this::startSession);
     }
 

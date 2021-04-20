@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.service.paxos.cleanup;
 
-import java.io.IOException;
 import java.net.InetAddress;
 import java.util.*;
 
@@ -27,15 +26,9 @@ import com.google.common.util.concurrent.AbstractFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.ConsistencyLevel;
-import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
-import org.apache.cassandra.io.IVersionedSerializer;
-import org.apache.cassandra.io.util.DataInputPlus;
-import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.paxos.Commit;
@@ -51,9 +44,6 @@ import static org.apache.cassandra.service.paxos.PaxosState.ballotTracker;
 public class PaxosPrepareCleanup extends AbstractFuture<UUID> implements IAsyncCallbackWithFailure<UUID>
 {
     private static final Logger logger = LoggerFactory.getLogger(PaxosPrepareCleanup.class);
-
-    public static final RequestSerializer serializer = new RequestSerializer();
-
     private final Set<InetAddress> waitingResponse;
     private UUID maxBallot = null;
 
@@ -67,10 +57,10 @@ public class PaxosPrepareCleanup extends AbstractFuture<UUID> implements IAsyncC
      * prepare message to prevent racing with gossip dissemination and guarantee that every repair participant is aware
      * of the pending ring change during repair.
      */
-    public static PaxosPrepareCleanup prepare(UUID cfId, Collection<InetAddress> endpoints, EndpointState localEpState)
+    public static PaxosPrepareCleanup prepare(Collection<InetAddress> endpoints, EndpointState localEpState)
     {
         PaxosPrepareCleanup callback = new PaxosPrepareCleanup(endpoints);
-        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_CLEANUP_PREPARE, new Request(cfId, localEpState), serializer);
+        MessageOut<EndpointState> message = new MessageOut<>(APPLE_PAXOS_CLEANUP_PREPARE, localEpState, EndpointState.serializer);
         for (InetAddress endpoint : endpoints)
             MessagingService.instance().sendRRWithFailure(message, endpoint, callback);
         return callback;
@@ -121,46 +111,8 @@ public class PaxosPrepareCleanup extends AbstractFuture<UUID> implements IAsyncC
         PendingRangeCalculatorService.instance.blockUntilFinished();
     }
 
-    public static class Request
-    {
-        final UUID cfId;
-        final EndpointState epState;
-
-        public Request(UUID cfId, EndpointState epState)
-        {
-            this.cfId = cfId;
-            this.epState = epState;
-        }
-    }
-
-    public static class RequestSerializer implements IVersionedSerializer<Request>
-    {
-        public void serialize(Request request, DataOutputPlus out, int version) throws IOException
-        {
-            UUIDSerializer.serializer.serialize(request.cfId, out, version);
-            EndpointState.serializer.serialize(request.epState, out, version);
-        }
-
-        public Request deserialize(DataInputPlus in, int version) throws IOException
-        {
-            UUID cfId = UUIDSerializer.serializer.deserialize(in, version);
-            EndpointState epState = EndpointState.serializer.deserialize(in, version);
-            return new Request(cfId, epState);
-        }
-
-        public long serializedSize(Request request, int version)
-        {
-            return UUIDSerializer.serializer.serializedSize(request.cfId, version)
-                    + EndpointState.serializer.serializedSize(request.epState, version);
-        }
-    }
-
-    public static final IVerbHandler<Request> verbHandler = (message, id) -> {
-        CFMetaData metadata = Schema.instance.getCFMetaData(message.payload.cfId);
-        if (metadata != null)
-            Keyspace.openAndGetStore(metadata).forceBlockingFlush();
-
-        maybeUpdateTopology(message.from, message.payload.epState);
+    public static final IVerbHandler<EndpointState> verbHandler = (message, id) -> {
+        maybeUpdateTopology(message.from, message.payload);
         UUID highBound = newBallot(ballotTracker().getHighBound(), ConsistencyLevel.SERIAL);
         MessageOut<UUID> msg = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, highBound, UUIDSerializer.serializer);
         MessagingService.instance().sendReply(msg, id, message.from);
