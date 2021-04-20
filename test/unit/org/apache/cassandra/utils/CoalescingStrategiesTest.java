@@ -18,8 +18,6 @@
 package org.apache.cassandra.utils;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.net.OutboundTcpConnection;
 import org.apache.cassandra.utils.CoalescingStrategies.Clock;
 import org.apache.cassandra.utils.CoalescingStrategies.Coalescable;
 import org.apache.cassandra.utils.CoalescingStrategies.CoalescingStrategy;
@@ -32,7 +30,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
@@ -43,10 +40,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import com.google.common.util.concurrent.Uninterruptibles;
 
 import static org.junit.Assert.*;
 
@@ -82,27 +75,15 @@ public class CoalescingStrategiesTest
     static class SimpleCoalescable implements Coalescable
     {
         final long timestampNanos;
-        final boolean permitsDelay;
 
         SimpleCoalescable(long timestampNanos)
         {
-            this(timestampNanos, false);
-        }
-
-        SimpleCoalescable(long timestampNanos, boolean permitsDelay)
-        {
             this.timestampNanos = timestampNanos;
-            this.permitsDelay = permitsDelay;
         }
 
         public long timestampNanos()
         {
             return timestampNanos;
-        }
-
-        public DelayAction artificialDelayAction(long untilNanos)
-        {
-            return permitsDelay ? DelayAction.DELAY : DelayAction.NONE;
         }
     }
 
@@ -166,11 +147,6 @@ public class CoalescingStrategiesTest
     void add(long whenMicros)
     {
         input.offer(new SimpleCoalescable(toNanos(whenMicros)));
-    }
-
-    void add(long whenMicros, boolean permitsDelay)
-    {
-        input.offer(new SimpleCoalescable(toNanos(whenMicros), permitsDelay));
     }
 
     void clear()
@@ -271,9 +247,10 @@ public class CoalescingStrategiesTest
     }
 
     @Test
-    public void testDisabledCoalescingStrategy() throws Exception
+    public void testDisabledCoalescingStrateg() throws Exception
     {
         cs = newStrategy("DISABLED", 200);
+
         add(42);
         add(42);
         cs.coalesce(input, output, 128);
@@ -288,41 +265,6 @@ public class CoalescingStrategiesTest
         release();
         assertEquals( 2, output.size());
         assertNull(parker.parks.poll());
-    }
-
-    @Test
-    public void testArtificialDelayCoalescingStrategy() throws Exception
-    {
-        cs = newStrategy("ARTIFICIAL_LATENCY", 200);
-        add(42, true);
-        add(42, true);
-        cs.coalesce(input, output, 128);
-        assertEquals( 2, output.size());
-        assertNull(parker.parks.poll());
-        clear();
-
-        CoalescingStrategies.setArtificialLatencyMillis(100);
-
-        add(42, true);
-        add(42, false);
-        add(42, true);
-        add(42, false);
-        long start = System.nanoTime();
-        {
-            cs.coalesce(input, output, 128);
-            assertEquals(2, output.size());
-            assertNull(parker.parks.poll());
-        }
-        output.clear();
-        {
-            cs.coalesce(input, output, 128);
-            assertEquals(2, output.size());
-            assertNull(parker.parks.poll());
-        }
-        assertTrue(((CoalescingStrategies.ArtificialLatencyCoalescingStrategy) cs).tmp.isEmpty());
-        assertTrue(((CoalescingStrategies.ArtificialLatencyCoalescingStrategy) cs).delayed.isEmpty());
-        long elapsed = System.nanoTime() - start;
-        assertTrue(elapsed >= TimeUnit.MILLISECONDS.toNanos(100L));
     }
 
     @Test

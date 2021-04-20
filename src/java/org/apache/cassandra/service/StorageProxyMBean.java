@@ -51,13 +51,6 @@ public interface StorageProxyMBean
     public Long getTruncateRpcTimeout();
     public void setTruncateRpcTimeout(Long timeoutInMillis);
 
-    public String getArtificialLatencyVerbs();
-    public void setArtificialLatencyVerbs(String commaDelimitedVerbs);
-    public int getArtificialLatencyMillis();
-    public void setArtificialLatencyMillis(int timeoutInMillis);
-    public boolean getArtificialLatencyOnlyPermittedConsistencyLevels();
-    public void setArtificialLatencyOnlyPermittedConsistencyLevels(boolean onlyPermitted);
-
     public void setNativeTransportMaxConcurrentConnections(Long nativeTransportMaxConcurrentConnections);
     public Long getNativeTransportMaxConcurrentConnections();
 

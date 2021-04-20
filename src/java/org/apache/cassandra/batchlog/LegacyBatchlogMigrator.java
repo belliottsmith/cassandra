@@ -36,9 +36,6 @@ import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
-import org.apache.cassandra.metrics.KeyspaceMetrics;
-import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.AbstractWriteResponseHandler;
 import org.apache.cassandra.service.WriteResponseHandler;
@@ -134,10 +131,10 @@ public final class LegacyBatchlogMigrator
             logger.trace("Sending legacy batchlog store request {} to {} for {} mutations", batch.id, target, batch.size());
 
             int targetVersion = MessagingService.instance().getVersion(target);
-            MessageOut<Mutation> message = getStoreMutation(batch, targetVersion)
-                    .createMessage(MessagingService.Verb.MUTATION)
-                    .permitsArtificialDelay(handler.consistencyLevel);
-            MessagingService.instance().sendRR(message, target, handler, false);
+            MessagingService.instance().sendRR(getStoreMutation(batch, targetVersion).createMessage(MessagingService.Verb.MUTATION),
+                                               target,
+                                               handler,
+                                               false);
         }
     }
 

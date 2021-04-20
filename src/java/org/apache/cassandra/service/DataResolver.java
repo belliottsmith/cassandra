@@ -504,10 +504,8 @@ public class DataResolver extends ResponseResolver
                             additionalRecipients = candidates;
                             break;
                         }
-                    case UNSAFE_DELAY_LOCAL_QUORUM:
                     case LOCAL_QUORUM:
                     case LOCAL_ONE:
-                    case UNSAFE_DELAY_LOCAL_SERIAL:
                     case LOCAL_SERIAL:
                         if (keyspace.getReplicationStrategy() instanceof NetworkTopologyStrategy)
                             candidates.removeIf(inet -> !ConsistencyLevel.isLocal(inet));
@@ -1157,8 +1155,7 @@ public class DataResolver extends ResponseResolver
             if (StorageProxy.canDoLocalRequest(source))
                 StageManager.getStage(Stage.READ).maybeExecuteImmediately(new StorageProxy.LocalReadRunnable(cmd, handler));
             else
-                MessagingService.instance().sendRRWithFailure(cmd.createMessage(MessagingService.current_version)
-                        .permitsArtificialDelay(consistency), source, handler);
+                MessagingService.instance().sendRRWithFailure(cmd.createMessage(MessagingService.current_version), source, handler);
 
             // We don't call handler.get() because we want to preserve tombstones since we're still in the middle of merging node results.
             handler.awaitResults();

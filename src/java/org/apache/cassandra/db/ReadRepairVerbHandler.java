@@ -29,9 +29,9 @@ public class ReadRepairVerbHandler extends AbstractMutationVerbHandler<Mutation>
         processMessage(message, id, message.from);
     }
 
-    void applyMutation(int version, MessageIn<Mutation> message, int id, InetAddress replyTo)
+    void applyMutation(int version, Mutation mutation, int id, InetAddress replyTo)
     {
-        message.payload.apply();
-        MessagingService.instance().sendReply(WriteResponse.createMessage().permitsArtificialDelay(message), id, replyTo);
+        mutation.apply();
+        MessagingService.instance().sendReply(WriteResponse.createMessage(), id, replyTo);
     }
 }

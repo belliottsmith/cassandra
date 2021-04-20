@@ -51,8 +51,7 @@ public class PaxosCommitAndPrepare
         PaxosPrepare prepare = new PaxosPrepare(participants, request, null);
 
         Tracing.trace("Committing {}; Preparing {}", commit.ballot, ballot);
-        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, request, requestSerializer)
-                .permitsArtificialDelay(participants.consistencyForConsensus);
+        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, request, requestSerializer);
         start(prepare, participants, message, RequestHandler::execute);
         return prepare;
     }
@@ -125,10 +124,9 @@ public class PaxosCommitAndPrepare
         {
             PaxosPrepare.Response response = execute(message.payload, message.from);
             if (response == null)
-                Paxos.sendFailureResponse("CommitAndPrepare", message.from, message.payload.ballot, id, message);
+                Paxos.sendFailureResponse("CommitAndPrepare", message.from, message.payload.ballot, id);
             else
-                MessagingService.instance().sendReply(new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer)
-                        .permitsArtificialDelay(message), id, message.from);
+                MessagingService.instance().sendReply(new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer), id, message.from);
         }
 
         private static PaxosPrepare.Response execute(Request request, InetAddress from)

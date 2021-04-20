@@ -28,7 +28,6 @@ import com.google.common.collect.ImmutableMap;
 
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
@@ -36,9 +35,6 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.OutboundTcpConnectionPool.ConnectionType;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
-
-import static org.apache.cassandra.net.MessagingService.PERMIT_ARTIFICIAL_RESPONSE_DELAY;
-import static org.apache.cassandra.net.MessagingService.ZERO_BYTE;
 import static org.apache.cassandra.tracing.Tracing.isTracing;
 
 public class MessageOut<T>
@@ -48,7 +44,6 @@ public class MessageOut<T>
     public final T payload;
     public final IVersionedSerializer<T> serializer;
     public final Map<String, byte[]> parameters;
-    private final boolean permitsArtificialDelay;
     private long payloadSize = -1;
     private int payloadSizeVersion = -1;
 
@@ -69,8 +64,7 @@ public class MessageOut<T>
              payload,
              serializer,
              isTracing() ? Tracing.instance.getTraceHeaders() : Collections.emptyMap(),
-             null,
-             false);
+             null);
     }
 
     public MessageOut(MessagingService.Verb verb, T payload, IVersionedSerializer<T> serializer, ConnectionType connectionType)
@@ -79,22 +73,16 @@ public class MessageOut<T>
              payload,
              serializer,
              isTracing() ? Tracing.instance.getTraceHeaders() : Collections.emptyMap(),
-             connectionType,
-             false);
+             connectionType);
     }
 
-    public MessageOut(MessagingService.Verb verb, T payload, IVersionedSerializer<T> serializer, Map<String, byte[]> parameters, ConnectionType connectionType, boolean permitsArtificialDelay)
+    public MessageOut(MessagingService.Verb verb, T payload, IVersionedSerializer<T> serializer, Map<String, byte[]> parameters, ConnectionType connectionType)
     {
-        this(FBUtilities.getBroadcastAddress(), verb, payload, serializer, parameters, connectionType, permitsArtificialDelay);
+        this(FBUtilities.getBroadcastAddress(), verb, payload, serializer, parameters, connectionType);
     }
 
     @VisibleForTesting
-    public MessageOut(InetAddress from, MessagingService.Verb verb,
-                      T payload,
-                      IVersionedSerializer<T> serializer,
-                      Map<String, byte[]> parameters,
-                      ConnectionType connectionType,
-                      boolean permitsArtificialDelay)
+    public MessageOut(InetAddress from, MessagingService.Verb verb, T payload, IVersionedSerializer<T> serializer, Map<String, byte[]> parameters, ConnectionType connectionType)
     {
         this.from = from;
         this.verb = verb;
@@ -102,52 +90,13 @@ public class MessageOut<T>
         this.serializer = serializer;
         this.parameters = parameters;
         this.connectionType = connectionType;
-        this.permitsArtificialDelay = permitsArtificialDelay;
-    }
-
-    public MessageOut<T> permitsArtificialDelay(ConsistencyLevel consistencyLevel)
-    {
-        switch (consistencyLevel)
-        {
-            case UNSAFE_DELAY_LOCAL_QUORUM:
-            case UNSAFE_DELAY_LOCAL_SERIAL:
-            case UNSAFE_DELAY_QUORUM:
-            case UNSAFE_DELAY_SERIAL:
-                return permitsArtificialDelay(true);
-        }
-        return this;
-    }
-
-    public MessageOut<T> permitsArtificialDelay(MessageIn<?> replyingTo)
-    {
-        return permitsArtificialDelay(replyingTo.parameters);
-    }
-
-    public MessageOut<T> permitsArtificialDelay(Map<String, byte[]> replyingToParameters)
-    {
-        return permitsArtificialDelay(replyingToParameters.containsKey(PERMIT_ARTIFICIAL_RESPONSE_DELAY));
-    }
-
-    public MessageOut<T> permitsArtificialDelay(boolean permitsArtificialDelay)
-    {
-        return permitsArtificialDelay ? withParameter(PERMIT_ARTIFICIAL_RESPONSE_DELAY, ZERO_BYTE, permitsArtificialDelay) : this;
-    }
-
-    public boolean permitsArtificialDelay()
-    {
-        return permitsArtificialDelay;
     }
 
     public MessageOut<T> withParameter(String key, byte[] value)
     {
-        return withParameter(key, value, permitsArtificialDelay);
-    }
-
-    private MessageOut<T> withParameter(String key, byte[] value, boolean permitsArtificialDelay)
-    {
         ImmutableMap.Builder<String, byte[]> builder = ImmutableMap.builder();
         builder.putAll(parameters).put(key, value);
-        return new MessageOut<>(verb, payload, serializer, builder.build(), connectionType, permitsArtificialDelay);
+        return new MessageOut<T>(verb, payload, serializer, builder.build(), connectionType);
     }
 
     public MessageOut<T> withParameters(Map<String, byte[]> toAdd)
@@ -162,7 +111,7 @@ public class MessageOut<T>
     public MessageOut<T> withPayload(T payload)
     {
         assert payload.getClass() == this.payload.getClass();
-        return new MessageOut<>(verb, payload, serializer, parameters, connectionType, permitsArtificialDelay);
+        return new MessageOut<>(verb, payload, serializer, parameters, connectionType);
     }
 
     public Stage getStage()

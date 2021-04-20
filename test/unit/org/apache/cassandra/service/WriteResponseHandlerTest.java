@@ -69,9 +69,7 @@ public class WriteResponseHandlerTest
     static
     {
         writeCls.remove(SERIAL);
-        writeCls.remove(UNSAFE_DELAY_SERIAL);
         writeCls.remove(LOCAL_SERIAL);
-        writeCls.remove(UNSAFE_DELAY_LOCAL_SERIAL);
     }
 
     @BeforeClass
@@ -280,10 +278,10 @@ public class WriteResponseHandlerTest
         // Two replicas down in the same DC and none pending
         // Expect ALL, LOCAL_QUORUM & EACH_QUORUM to throw UnavailableException
         failureDetector = failureDetector(local1, local2);
-        verifyConsistencyLevels(natural, pending(), failureDetector, ALL, UNSAFE_DELAY_LOCAL_QUORUM, LOCAL_QUORUM, EACH_QUORUM);
+        verifyConsistencyLevels(natural, pending(), failureDetector, ALL, LOCAL_QUORUM, EACH_QUORUM);
         // Add a pending replica in the local DC. Expectation remains the same as the pending endpoint increases
         // the required endpoints for the consistency level. So a local quorum now requires 3 -> (rf=3/2 + 1) + 1
-        verifyConsistencyLevels(natural, pending(local4), failureDetector, ALL, UNSAFE_DELAY_LOCAL_QUORUM, LOCAL_QUORUM, EACH_QUORUM);
+        verifyConsistencyLevels(natural, pending(local4), failureDetector, ALL, LOCAL_QUORUM, EACH_QUORUM);
 
         // All replicas in the local DC down, without any pending
         // ANY & non-local ONE/TWO/THREE should succeed, everything else (i.e. ALL/LOCAL_QUORUM/EACH_QUORUM/

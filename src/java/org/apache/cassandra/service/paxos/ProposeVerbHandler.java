@@ -32,8 +32,7 @@ public class ProposeVerbHandler extends AbstractPaxosVerbHandler implements IVer
     void processMessage(MessageIn<Commit> message, int id)
     {
         Boolean response = PaxosState.legacyPropose(message.payload);
-        MessageOut<Boolean> reply = new MessageOut<Boolean>(MessagingService.Verb.REQUEST_RESPONSE, response, BooleanSerializer.serializer)
-                .permitsArtificialDelay(message);
+        MessageOut<Boolean> reply = new MessageOut<Boolean>(MessagingService.Verb.REQUEST_RESPONSE, response, BooleanSerializer.serializer);
         MessagingService.instance().sendReply(reply, id, message.from);
     }
 }

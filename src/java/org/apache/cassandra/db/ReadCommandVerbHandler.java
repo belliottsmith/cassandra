@@ -110,9 +110,7 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
         // e.g. some sstables read during this read were involved in pending but not yet
         // committed repair sessions or an unrepaired partition tombstone meant that not all
         // repaired sstables were read (but they might be on other replicas).
-        MessageOut<ReadResponse> reply = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, response, serializer())
-                .permitsArtificialDelay(message);
-
+        MessageOut<ReadResponse> reply = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, response, serializer());
         if (command.isTrackingRepairedStatus())
         {
             String paramName = command.isRepairedDataDigestConclusive()

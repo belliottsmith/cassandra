@@ -61,7 +61,6 @@ import org.apache.cassandra.utils.UUIDSerializer;
 import static org.apache.cassandra.concurrent.StageManager.getStage;
 import static org.apache.cassandra.net.CompactEndpointSerializationHelper.*;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ;
-import static org.apache.cassandra.net.MessagingService.Verb.REQUEST_RESPONSE;
 import static org.apache.cassandra.net.MessagingService.current_version;
 import static org.apache.cassandra.net.MessagingService.verbStages;
 import static org.apache.cassandra.service.paxos.Commit.*;
@@ -313,8 +312,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
     private static PaxosPrepare prepareWithBallotInternal(Participants participants, Request request, Consumer<Status> onDone)
     {
         PaxosPrepare prepare = new PaxosPrepare(participants, request, onDone);
-        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_PREPARE_REQ, request, requestSerializer)
-                .permitsArtificialDelay(participants.consistencyForConsensus);
+        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_PREPARE_REQ, request, requestSerializer);
 
         start(prepare, participants, message, RequestHandler::execute);
         return prepare;
@@ -630,7 +628,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
      */
     private void addReadResponse(ReadResponse response, InetAddress from)
     {
-        readResponses.add(MessageIn.create(from, response, Collections.emptyMap(), REQUEST_RESPONSE, current_version));
+        readResponses.add(MessageIn.create(from, response, Collections.emptyMap(), MessagingService.Verb.REQUEST_RESPONSE, current_version));
     }
 
     @Override
@@ -686,7 +684,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
     private void refreshStaleParticipants()
     {
         if (refreshStaleParticipants == null)
-            refreshStaleParticipants = new PaxosPrepareRefresh(request.ballot, participants, latestCommitted, this);
+            refreshStaleParticipants = new PaxosPrepareRefresh(request.ballot, latestCommitted, this);
 
         refreshStaleParticipants.refresh(needLatest);
         needLatest.clear();
@@ -846,10 +844,9 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         {
             Response response = execute(message.payload, message.from);
             if (response == null)
-                sendFailureResponse("Prepare", message.from, message.payload.ballot, id, message);
+                sendFailureResponse("Prepare", message.from, message.payload.ballot, id);
             else
-                MessagingService.instance().sendReply(new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer)
-                        .permitsArtificialDelay(message), id, message.from);
+                MessagingService.instance().sendReply(new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, response, responseSerializer), id, message.from);
         }
 
         static Response execute(AbstractRequest<?> request, InetAddress from)

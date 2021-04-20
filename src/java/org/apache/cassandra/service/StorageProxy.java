@@ -62,7 +62,6 @@ import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.hints.Hint;
 import org.apache.cassandra.hints.HintsService;
 import org.apache.cassandra.index.Index;
-import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.locator.*;
 import org.apache.cassandra.metrics.*;
@@ -346,20 +345,7 @@ public class StorageProxy implements StorageProxyMBean
                 // read the current values and check they validate the conditions
                 Tracing.trace("Reading existing values for CAS precondition");
                 SinglePartitionReadCommand readCommand = request.readCommand(FBUtilities.nowInSeconds());
-                ConsistencyLevel readConsistency;
-                switch (consistencyForPaxos)
-                {
-                    case LOCAL_SERIAL:
-                    case UNSAFE_DELAY_LOCAL_SERIAL:
-                        readConsistency = ConsistencyLevel.LOCAL_QUORUM;
-                        break;
-                    case SERIAL:
-                    case UNSAFE_DELAY_SERIAL:
-                        readConsistency = ConsistencyLevel.QUORUM;
-                        break;
-                    default:
-                        throw new IllegalStateException();
-                }
+                ConsistencyLevel readConsistency = consistencyForPaxos == ConsistencyLevel.LOCAL_SERIAL ? ConsistencyLevel.LOCAL_QUORUM : ConsistencyLevel.QUORUM;
 
                 FilteredPartition current;
                 try (RowIterator rowIter = readOne(readCommand, readConsistency))
@@ -449,7 +435,7 @@ public class StorageProxy implements StorageProxyMBean
         Token tk = key.getToken();
         List<InetAddress> naturalEndpoints = StorageService.instance.getNaturalEndpoints(cfm.ksName, tk);
         Collection<InetAddress> pendingEndpoints = StorageService.instance.getTokenMetadata().pendingEndpointsFor(tk, cfm.ksName);
-        if (consistencyForPaxos == ConsistencyLevel.LOCAL_SERIAL || consistencyForPaxos == ConsistencyLevel.UNSAFE_DELAY_LOCAL_SERIAL)
+        if (consistencyForPaxos == ConsistencyLevel.LOCAL_SERIAL)
         {
             // Restrict naturalEndpoints and pendingEndpoints to node in the local DC only
             String localDc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddress());
@@ -592,7 +578,7 @@ public class StorageProxy implements StorageProxyMBean
     throws WriteTimeoutException
     {
         PrepareCallback callback = new PrepareCallback(toPrepare.update.partitionKey(), toPrepare.update.metadata(), requiredParticipants, consistencyForPaxos);
-        MessageOut<Commit> message = messageForPaxos(consistencyForPaxos, Verb.PAXOS_PREPARE, toPrepare, Commit.serializer);
+        MessageOut<Commit> message = new MessageOut<Commit>(MessagingService.Verb.PAXOS_PREPARE, toPrepare, Commit.serializer);
         for (InetAddress target : endpoints)
             MessagingService.instance().sendRR(message, target, callback);
         callback.await();
@@ -603,7 +589,7 @@ public class StorageProxy implements StorageProxyMBean
     throws WriteTimeoutException
     {
         ProposeCallback callback = new ProposeCallback(endpoints.size(), requiredParticipants, !timeoutIfPartial, consistencyLevel);
-        MessageOut<Commit> message = messageForPaxos(consistencyLevel, MessagingService.Verb.PAXOS_PROPOSE, proposal, Commit.serializer);
+        MessageOut<Commit> message = new MessageOut<Commit>(MessagingService.Verb.PAXOS_PROPOSE, proposal, Commit.serializer);
         for (InetAddress target : endpoints)
             MessagingService.instance().sendRR(message, target, callback);
 
@@ -634,7 +620,7 @@ public class StorageProxy implements StorageProxyMBean
             responseHandler = rs.getWriteResponseHandler(naturalEndpoints, pendingEndpoints, consistencyLevel, null, WriteType.SIMPLE);
         }
 
-        MessageOut<Commit> message = messageForPaxos(consistencyLevel, MessagingService.Verb.PAXOS_COMMIT, proposal, Commit.serializer);
+        MessageOut<Commit> message = new MessageOut<Commit>(MessagingService.Verb.PAXOS_COMMIT, proposal, Commit.serializer);
         for (InetAddress destination : Iterables.concat(naturalEndpoints, pendingEndpoints))
         {
             if (FailureDetector.instance.isAlive(destination))
@@ -666,12 +652,6 @@ public class StorageProxy implements StorageProxyMBean
 
         if (shouldBlock)
             responseHandler.get();
-    }
-
-    public static <T> MessageOut<T> messageForPaxos(ConsistencyLevel consistencyLevel, Verb verb, T payload, IVersionedSerializer<T> serializer)
-    {
-        return new MessageOut<>(verb, payload, serializer)
-                .permitsArtificialDelay(consistencyLevel);
     }
 
     /**
@@ -1409,8 +1389,7 @@ public class StorageProxy implements StorageProxyMBean
                 {
                     // belongs on a different server
                     if (message == null)
-                        message = mutation.createMessage().permitsArtificialDelay(responseHandler.consistencyLevel);
-
+                        message = mutation.createMessage();
                     String dc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(destination);
                     // direct writes to local DC or old Cassandra versions
                     // (1.1 knows how to forward old-style String message IDs; updated to int in 2.0)
@@ -1455,7 +1434,7 @@ public class StorageProxy implements StorageProxyMBean
         {
             // for each datacenter, send the message to one node to relay the write to other replicas
             if (message == null)
-                message = mutation.createMessage().permitsArtificialDelay(responseHandler.consistencyLevel);
+                message = mutation.createMessage();
 
             for (Collection<InetAddress> dcTargets : dcGroups.values())
                 sendMessagesToNonlocalDC(message, dcTargets, responseHandler);
@@ -1784,9 +1763,9 @@ public class StorageProxy implements StorageProxyMBean
             int requiredParticipants = p.right;
 
             // does the work of applying in-progress writes; throws UAE or timeout if it can't
-            final ConsistencyLevel consistencyForCommitOrFetch =
-                    (consistencyLevel == ConsistencyLevel.LOCAL_SERIAL || consistencyLevel == ConsistencyLevel.UNSAFE_DELAY_LOCAL_SERIAL)
-                            ? ConsistencyLevel.LOCAL_QUORUM : ConsistencyLevel.QUORUM;
+            final ConsistencyLevel consistencyForCommitOrFetch = consistencyLevel == ConsistencyLevel.LOCAL_SERIAL
+                                                                                   ? ConsistencyLevel.LOCAL_QUORUM
+                                                                                   : ConsistencyLevel.QUORUM;
 
             try
             {
@@ -2091,9 +2070,7 @@ public class StorageProxy implements StorageProxyMBean
 
                 for (InetAddress endpoint : executor.getContactedReplicas())
                 {
-                    MessageOut<ReadCommand> message = command.createMessage(MessagingService.instance().getVersion(endpoint))
-                            .permitsArtificialDelay(consistency);
-
+                    MessageOut<ReadCommand> message = command.createMessage(MessagingService.instance().getVersion(endpoint));
                     if (command.isTrackingRepairedStatus())
                         message = message.withParameter(ReadCommand.TRACK_REPAIRED_DATA, MessagingService.ONE_BYTE);
 
@@ -2138,9 +2115,7 @@ public class StorageProxy implements StorageProxyMBean
                 for (InetAddress endpoint: Iterables.filter(ReadRepairHandler.getCandidateEndpoints(executor), e -> !contacted.contains(e)))
                 {
                     Tracing.trace("Enqueuing speculative full data read to {}", endpoint);
-                    MessageOut<ReadCommand> message = executor.command.createMessage(MessagingService.instance().getVersion(endpoint))
-                            .permitsArtificialDelay(consistency);
-                    MessagingService.instance().sendRR(message, endpoint, repairHandler);
+                    MessagingService.instance().sendRR(executor.command.createMessage(MessagingService.instance().getVersion(endpoint)), endpoint, repairHandler);
                 }
             }
         }
@@ -2549,8 +2524,7 @@ public class StorageProxy implements StorageProxyMBean
                 for (InetAddress endpoint : toQuery.filteredEndpoints)
                 {
                     Tracing.trace("Enqueuing request to {}", endpoint);
-                    MessageOut<ReadCommand> message = rangeCommand.createMessage(MessagingService.instance().getVersion(endpoint))
-                            .permitsArtificialDelay(consistency);
+                    MessageOut<ReadCommand> message = rangeCommand.createMessage(MessagingService.instance().getVersion(endpoint));
                     if (command.isTrackingRepairedStatus())
                         message =  message.withParameter(ReadCommand.TRACK_REPAIRED_DATA, MessagingService.ONE_BYTE);
                     MessagingService.instance().sendRRWithFailure(message, endpoint, handler);
@@ -3147,15 +3121,6 @@ public class StorageProxy implements StorageProxyMBean
 
     public Long getTruncateRpcTimeout() { return DatabaseDescriptor.getTruncateRpcTimeout(); }
     public void setTruncateRpcTimeout(Long timeoutInMillis) { DatabaseDescriptor.setTruncateRpcTimeout(timeoutInMillis); }
-
-    public String getArtificialLatencyVerbs() { return OutboundTcpConnection.getArtificialLatencyVerbs(); }
-    public void setArtificialLatencyVerbs(String commaDelimitedVerbs) { OutboundTcpConnection.setArtificialLatencyVerbs(commaDelimitedVerbs); }
-
-    public int getArtificialLatencyMillis() { return CoalescingStrategies.getArtificialLatencyMillis(); }
-    public void setArtificialLatencyMillis(int timeoutInMillis) { CoalescingStrategies.setArtificialLatencyMillis(timeoutInMillis); }
-
-    public boolean getArtificialLatencyOnlyPermittedConsistencyLevels() { return OutboundTcpConnection.getArtificialLatencyOnlyPermittedConsistencyLevels(); }
-    public void setArtificialLatencyOnlyPermittedConsistencyLevels(boolean onlyPermitted) { OutboundTcpConnection.setArtificialLatencyOnlyPermittedConsistencyLevels(onlyPermitted); }
 
     public Long getNativeTransportMaxConcurrentConnections() { return DatabaseDescriptor.getNativeTransportMaxConcurrentConnections(); }
     public void setNativeTransportMaxConcurrentConnections(Long nativeTransportMaxConcurrentConnections) { DatabaseDescriptor.setNativeTransportMaxConcurrentConnections(nativeTransportMaxConcurrentConnections); }

@@ -210,9 +210,7 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
 
     void start(Paxos.Participants participants)
     {
-        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_PROPOSE_REQ, new Request(proposal), requestSerializer)
-                .permitsArtificialDelay(participants.consistencyForConsensus);
-
+        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_PROPOSE_REQ, new Request(proposal), requestSerializer);
         boolean executeOnSelf = false;
         for (int i = 0, size = participants.sizeOfPoll(); i < size ; ++i)
         {
@@ -424,10 +422,9 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
         {
             Response response = execute(message.payload.proposal, message.from);
             if (response == null)
-                Paxos.sendFailureResponse("Propose", message.from, message.payload.proposal.ballot, id, message);
+                Paxos.sendFailureResponse("Propose", message.from, message.payload.proposal.ballot, id);
             else
-                MessagingService.instance().sendReply(new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer)
-                        .permitsArtificialDelay(message), id, message.from);
+                MessagingService.instance().sendReply(new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer), id, message.from);
         }
 
         public static Response execute(Commit proposal, InetAddress from)

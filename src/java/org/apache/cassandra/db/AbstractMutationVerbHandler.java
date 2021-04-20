@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
@@ -53,23 +54,23 @@ public abstract class AbstractMutationVerbHandler<T extends IMutation> implement
                 NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.SECONDS, logMessageTemplate, replyTo, key, message.payload.getKeyspaceName());
 
             if (outOfRangeTokenRejection)
-                sendFailureResponse(id, replyTo, message);
+                sendFailureResponse(id, replyTo);
             else
-                applyMutation(message.version, message, id, replyTo);
+                applyMutation(message.version, message.payload, id, replyTo);
         }
         else
         {
-            applyMutation(message.version, message, id, replyTo);
+            applyMutation(message.version, message.payload, id, replyTo);
         }
     }
 
-    abstract void applyMutation(int version, MessageIn<T> mutation, int id, InetAddress replyTo);
+    abstract void applyMutation(int version, T mutation, int id, InetAddress replyTo);
 
-    private static void sendFailureResponse(int id, InetAddress replyTo, MessageIn<?> message)
+    private static void sendFailureResponse(int id, InetAddress replyTo)
     {
-        MessageOut<?> responseMessage = WriteResponse.createMessage()
-                .withParameter(MessagingService.FAILURE_RESPONSE_PARAM, MessagingService.ONE_BYTE)
-                .permitsArtificialDelay(message);
+        MessageOut responseMessage = WriteResponse.createMessage()
+                                                   .withParameter(MessagingService.FAILURE_RESPONSE_PARAM,
+                                                                  MessagingService.ONE_BYTE);
         MessagingService.instance().sendReply(responseMessage, id, replyTo);
     }
 

@@ -18,7 +18,6 @@
 package org.apache.cassandra.db;
 
 import java.net.InetAddress;
-import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +37,7 @@ public class CounterMutationVerbHandler extends AbstractMutationVerbHandler<Coun
         processMessage(message, id, message.from);
     }
 
-    protected void applyMutation(int version, MessageIn<CounterMutation> cm, int id, InetAddress replyTo)
+    protected void applyMutation(int version, CounterMutation cm, int id, InetAddress replyTo)
     {
         logger.debug("Applying forwarded {}", cm);
 
@@ -50,9 +49,12 @@ public class CounterMutationVerbHandler extends AbstractMutationVerbHandler<Coun
         // will not be called if the request timeout, but this is ok
         // because the coordinator of the counter mutation will timeout on
         // it's own in that case.
-        Map<String, byte[]> parameters = cm.parameters;
-        StorageProxy.applyCounterMutationOnLeader(cm.payload, localDataCenter,
-                () -> MessagingService.instance().sendReply(
-                        WriteResponse.createMessage().permitsArtificialDelay(parameters), id, replyTo));
+        StorageProxy.applyCounterMutationOnLeader(cm, localDataCenter, new Runnable()
+        {
+            public void run()
+            {
+                MessagingService.instance().sendReply(WriteResponse.createMessage(), id, replyTo);
+            }
+        });
     }
 }

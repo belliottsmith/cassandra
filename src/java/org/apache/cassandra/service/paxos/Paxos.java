@@ -78,7 +78,6 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.metrics.ClientRequestMetrics;
-import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.CASRequest;
@@ -167,7 +166,7 @@ public class Paxos
         static Electorate get(ConsistencyLevel consistency, Collection<InetAddress> all, List<InetAddress> allNatural, Collection<InetAddress> allPending)
         {
             Set<InetAddress> electorate, pendingElectorate;
-            if (consistency == LOCAL_SERIAL || consistency == UNSAFE_DELAY_LOCAL_SERIAL)
+            if (consistency == LOCAL_SERIAL)
             {
                 // Restrict naturalEndpoints and pendingEndpoints to node in the local DC only
                 Predicate<InetAddress> isLocalDc = getEndpointSnitch().isSameDcAs(getBroadcastAddress());
@@ -914,11 +913,11 @@ public class Paxos
         return true;
     }
 
-    static void sendFailureResponse(String action, InetAddress to, UUID ballot, int messageId, MessageIn<?> respondingTo)
+    static void sendFailureResponse(String action, InetAddress to, UUID ballot, int messageId)
     {
         if (Tracing.isTracing())
             Tracing.trace("Sending {} failure response to {} for {}", action, ballot, to);
-        MessagingService.instance().sendReply(failureResponse.permitsArtificialDelay(respondingTo), messageId, to);
+        MessagingService.instance().sendReply(failureResponse, messageId, to);
     }
 
     static boolean isInRangeAndShouldProcess(InetAddress from, DecoratedKey key, CFMetaData metadata)

@@ -58,7 +58,7 @@ public abstract class AbstractPaxosVerbHandler implements IVerbHandler<Commit>
                 NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.SECONDS, logMessageTemplate, message.from, key, commit.update.metadata().ksName);
 
             if (outOfRangeTokenRejection)
-                sendFailureResponse(message, id, message.from);
+                sendFailureResponse(id, message.from);
             else
                 processMessage(message, id);
         }
@@ -70,11 +70,11 @@ public abstract class AbstractPaxosVerbHandler implements IVerbHandler<Commit>
 
     abstract void processMessage(MessageIn<Commit> message, int id);
 
-    private static void sendFailureResponse(MessageIn<?> message, int id, InetAddress replyTo)
+    private static void sendFailureResponse(int id, InetAddress replyTo)
     {
         MessageOut responseMessage = WriteResponse.createMessage()
-                .withParameter(MessagingService.FAILURE_RESPONSE_PARAM, MessagingService.ONE_BYTE)
-                .permitsArtificialDelay(message);
+                                                  .withParameter(MessagingService.FAILURE_RESPONSE_PARAM,
+                                                                 MessagingService.ONE_BYTE);
         MessagingService.instance().sendReply(responseMessage, id, replyTo);
     }
 

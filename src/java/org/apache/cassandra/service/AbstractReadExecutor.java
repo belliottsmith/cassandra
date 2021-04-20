@@ -125,8 +125,7 @@ public abstract class AbstractReadExecutor
             if (traceState != null)
                 traceState.trace("reading {} from {}", readCommand.isDigestQuery() ? "digest" : "data", endpoint);
             logger.trace("reading {} from {}", readCommand.isDigestQuery() ? "digest" : "data", endpoint);
-            MessageOut<ReadCommand> message = readCommand.createMessage(MessagingService.instance().getVersion(endpoint))
-                    .permitsArtificialDelay(consistency);
+            MessageOut<ReadCommand> message = readCommand.createMessage(MessagingService.instance().getVersion(endpoint));
             MessagingService.instance().sendRRWithFailure(message, endpoint, handler);
         }
 
@@ -374,9 +373,7 @@ public abstract class AbstractReadExecutor
                     traceState.trace("speculating read retry on {}", extraReplica);
                 logger.trace("speculating read retry on {}", extraReplica);
                 int version = MessagingService.instance().getVersion(extraReplica);
-                MessageOut<ReadCommand> retryMessage = retryCommand.createMessage(version)
-                        .permitsArtificialDelay(consistency);
-                MessagingService.instance().sendRRWithFailure(retryMessage, extraReplica, handler);
+                MessagingService.instance().sendRRWithFailure(retryCommand.createMessage(version), extraReplica, handler);
             }
         }
 

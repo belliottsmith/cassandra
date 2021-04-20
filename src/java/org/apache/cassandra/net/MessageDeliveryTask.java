@@ -68,17 +68,17 @@ public class MessageDeliveryTask implements Runnable
         }
         catch (IOException ioe)
         {
-            handleFailure(ioe, message);
+            handleFailure(ioe);
             throw new RuntimeException(ioe);
         }
         catch (TombstoneOverwhelmingException | IndexNotAvailableException e)
         {
-            handleFailure(e, message);
+            handleFailure(e);
             logger.error(e.getMessage());
         }
         catch (Throwable t)
         {
-            handleFailure(t, message);
+            handleFailure(t);
             throw t;
         }
 
@@ -86,13 +86,12 @@ public class MessageDeliveryTask implements Runnable
             Gossiper.instance.setLastProcessedMessageAt(constructionTime);
     }
 
-    private void handleFailure(Throwable t, MessageIn<?> messageIn)
+    private void handleFailure(Throwable t)
     {
         if (message.doCallbackOnFailure())
         {
             MessageOut response = new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE)
-                    .withParameter(MessagingService.FAILURE_RESPONSE_PARAM, MessagingService.ONE_BYTE)
-                    .permitsArtificialDelay(messageIn);
+                                                .withParameter(MessagingService.FAILURE_RESPONSE_PARAM, MessagingService.ONE_BYTE);
             MessagingService.instance().sendReply(response, id, message.from);
         }
     }

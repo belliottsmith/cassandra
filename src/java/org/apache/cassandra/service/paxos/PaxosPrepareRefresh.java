@@ -74,11 +74,10 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
     private final MessageOut<Request> send;
     private final Callbacks callbacks;
 
-    public PaxosPrepareRefresh(UUID prepared, Paxos.Participants participants, Committed latestCommitted, Callbacks callbacks)
+    public PaxosPrepareRefresh(UUID prepared, Committed latestCommitted, Callbacks callbacks)
     {
         this.callbacks = callbacks;
-        this.send = new MessageOut<>(APPLE_PAXOS_PREPARE_REFRESH_REQ, new Request(prepared, latestCommitted), requestSerializer)
-                .permitsArtificialDelay(participants.consistencyForConsensus);
+        this.send = new MessageOut<>(APPLE_PAXOS_PREPARE_REFRESH_REQ, new Request(prepared, latestCommitted), requestSerializer);
     }
 
     void refresh(List<InetAddress> refresh)
@@ -177,10 +176,9 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
         {
             Response response = execute(message.payload, message.from);
             if (response == null)
-                Paxos.sendFailureResponse("prepare-refresh", message.from, message.payload.promised, id, message);
+                Paxos.sendFailureResponse("prepare-refresh", message.from, message.payload.promised, id);
             else
-                MessagingService.instance().sendReply(new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer)
-                        .permitsArtificialDelay(message), id, message.from);
+                MessagingService.instance().sendReply(new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer), id, message.from);
         }
 
         public static Response execute(Request request, InetAddress from)

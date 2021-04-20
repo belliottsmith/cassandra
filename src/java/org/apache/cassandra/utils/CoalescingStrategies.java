@@ -29,11 +29,9 @@ import java.io.RandomAccessFile;
 import java.lang.reflect.Constructor;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel.MapMode;
-import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
-import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
@@ -54,34 +52,6 @@ public class CoalescingStrategies
 
     private static final String DEBUG_COALESCING_PATH_PROPERTY = Config.PROPERTY_PREFIX + "coalescing_debug_path";
     private static final String DEBUG_COALESCING_PATH = System.getProperty(DEBUG_COALESCING_PATH_PROPERTY, "/tmp/coleascing_debug");
-
-    private static final String ARTIFICIAL_LATENCY_PROPERTY = Config.PROPERTY_PREFIX + "artificial_latency_ms";
-    private static final String UNSAFE_ARTIFICIAL_LATENCY_PROPERTY = Config.PROPERTY_PREFIX + "unsafe_artificial_latency_ms";
-    private static volatile int artificialLatencyMs;
-
-    static
-    {
-        int ms = Integer.getInteger(UNSAFE_ARTIFICIAL_LATENCY_PROPERTY, 0);
-        if (ms > 0) unsafeSetArtificialLatencyMillis(ms);
-        else setArtificialLatencyMillis(Integer.getInteger(ARTIFICIAL_LATENCY_PROPERTY, 0));
-    }
-
-    public static int getArtificialLatencyMillis()
-    {
-        return artificialLatencyMs;
-    }
-
-    public static void setArtificialLatencyMillis(int ms)
-    {
-        if (ms > 100)
-            throw new IllegalArgumentException();
-        artificialLatencyMs = ms;
-    }
-
-    public static void unsafeSetArtificialLatencyMillis(int ms)
-    {
-        artificialLatencyMs = ms;
-    }
 
     static {
         if (DEBUG_COALESCING)
@@ -111,11 +81,8 @@ public class CoalescingStrategies
         }
     };
 
-    public static interface Coalescable
-    {
-        public enum DelayAction { NONE, DELAY, DROP }
-        long timestampNanos(); // the timestamp by which to make coalescing decisions
-        DelayAction artificialDelayAction(long untilNanos);
+    public static interface Coalescable {
+        long timestampNanos();
     }
 
     @VisibleForTesting
@@ -543,132 +510,6 @@ public class CoalescingStrategies
         }
     }
 
-    /*
-     * A coalescing strategy mmay apply an artificial delay to some waiting messages, by storing them internally
-     * and returning them on future calls
-     *
-     * Note that this strategy does not guarantee to return {@code maxItems}
-     */
-    @VisibleForTesting
-    static class ArtificialLatencyCoalescingStrategy extends CoalescingStrategy
-    {
-        //
-        static class Delayed
-        {
-            final Coalescable value;
-            final long untilNanos;
-
-            Delayed(Coalescable value, long untilNanos)
-            {
-                this.value = value;
-                this.untilNanos = untilNanos;
-            }
-        }
-
-        // messages we have stashed in order to apply an artificial delay
-        // note that this queue is not ordered, so that if the artificial delay is modified
-        // it may not take effect until the difference between the two delays elapses
-        final Queue<Delayed> delayed = new ArrayDeque<>();
-        // temporary working space
-        final Queue<Coalescable> tmp = new ArrayDeque<>();
-
-        public ArtificialLatencyCoalescingStrategy(int coalesceWindowMicros, Parker parker, Logger logger, String displayName)
-        {
-            super(parker, logger, displayName);
-        }
-
-        @Override
-        protected <C extends Coalescable> void coalesceInternal(BlockingQueue<C> input, List<C> out, int maxItems) throws InterruptedException
-        {
-            long nowNanos = System.nanoTime();
-            do
-            {
-                // first take any ready messages out of {@code delayed} and place them in {@code out}
-                if (!delayed.isEmpty())
-                {
-                    drainDelayQueue(nowNanos, out, maxItems);
-                    if (maxItems == out.size())
-                        return;
-                }
-
-                // {@code out} isn't full, so decide how long we will wait when polling:
-                //   if we already have output, we don't wait;
-                //   if we have a delayed message waiting, we wait until it is ready;
-                //   otherwise we wait indefinitely
-                long timeoutNanos;
-                if (!out.isEmpty()) timeoutNanos = 0L;
-                else if (delayed.isEmpty()) timeoutNanos = Long.MAX_VALUE;
-                else timeoutNanos = delayed.peek().untilNanos - nowNanos;
-
-                boolean maybeHasMore = waitDrainAndApplyDelay(timeoutNanos, input, out, maxItems);
-                // if we exhaust {@code input} and we have output, return immediately
-                // if we're full return immediately
-                // otherwise loop to try and fetch more from {@code input} (or {@code delayed})
-                if (!maybeHasMore ? !out.isEmpty() : maxItems == out.size())
-                    return;
-
-                if (timeoutNanos > 0L)
-                     nowNanos = System.nanoTime();
-            }
-            while (out.size() < maxItems);
-        }
-
-        /**
-         * Remove items from {@code drained} whose delay has elapsed into {@code out}
-         */
-        private <C extends Coalescable> void drainDelayQueue(long nowNanos, List<C> out, int maxItems)
-        {
-            while (!delayed.isEmpty() && delayed.peek().untilNanos < nowNanos && out.size() < maxItems)
-                out.add((C) delayed.poll().value);
-        }
-
-        /**
-         * Drains {@code input} into {@code out}, moving those messages that should be delayed into {@code delayed}
-         * @return true if it is possible {@code input} has not been exhausted
-         */
-        private <C extends Coalescable> boolean waitDrainAndApplyDelay(long timeoutNanos, BlockingQueue<C> input, List<C> out, int maxItems) throws InterruptedException
-        {
-            int drain = maxItems - out.size();
-            if (input.isEmpty())
-            {
-                C first = input.poll(timeoutNanos, TimeUnit.NANOSECONDS);
-                if (first == null)
-                    return false;
-                tmp.add(first);
-                --drain;
-            }
-            input.drainTo(tmp, drain);
-            drainAndApplyDelay(out);
-            return true;
-        }
-
-        /**
-         * Filters the contents of {@code tmp} into either {@code out} or {@code delayed}, depending on if a delay should be applied
-         */
-        private <C extends Coalescable> void drainAndApplyDelay(List<C> out)
-        {
-            long untilNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(artificialLatencyMs);
-            while (!tmp.isEmpty())
-            {
-                Coalescable next = tmp.poll();
-                switch (next.artificialDelayAction(untilNanos))
-                {
-                    case NONE:
-                        out.add((C) next);
-                        break;
-                    case DELAY:
-                        delayed.add(new Delayed(next, untilNanos));
-                    case DROP:
-                }
-            }
-        }
-
-        @Override
-        public String toString() {
-            return "ArtificialDelay";
-        }
-    }
-
     @VisibleForTesting
     static CoalescingStrategy newCoalescingStrategy(String strategy,
                                                     int coalesceWindow,
@@ -688,9 +529,6 @@ public class CoalescingStrategies
             break;
         case "TIMEHORIZON":
             classname = TimeHorizonMovingAverageCoalescingStrategy.class.getName();
-            break;
-        case "ARTIFICIAL_LATENCY":
-            classname = ArtificialLatencyCoalescingStrategy.class.getName();
             break;
         case "DISABLED":
             classname = DisabledCoalescingStrategy.class.getName();

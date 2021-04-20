@@ -124,8 +124,6 @@ public final class MessagingService implements MessagingServiceMBean
     public static final String FAILURE_CALLBACK_PARAM = "CAL_BAC";
     public static final byte[] ONE_BYTE = new byte[1];
     public static final String FAILURE_RESPONSE_PARAM = "FAIL";
-    public static final String PERMIT_ARTIFICIAL_RESPONSE_DELAY = "DLY";
-    public static final byte[] ZERO_BYTE = new byte[0];
 
     /**
      * we preface every message with this number so the recipient can validate the sender is sane

@@ -19,7 +19,6 @@
 package org.apache.cassandra.distributed.test;
 
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,13 +28,11 @@ import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
-import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 // TODO: this test should be removed after running in-jvm dtests is set up via the shared API repository
 // FIXME: restore single cluster changes from 8da97d23be6bf2d0cc50390fa3c7a7e2360457df
@@ -93,99 +90,6 @@ public class SimpleReadWriteTest extends SharedClusterTestBase
         assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
                                                   ConsistencyLevel.QUORUM),
                    row(1, 1, 1));
-    }
-
-    @Test
-    public void coordinatorDelaySerialWriteTest() throws Throwable
-    {
-        System.setProperty("cassandra.artificial_latency_verbs", "PAXOS_PREPARE,PAXOS_PROPOSE,PAXOS_COMMIT,REQUEST_RESPONSE");
-        System.setProperty("cassandra.artificial_latency_ms", "100");
-        try (Cluster cluster = init(Cluster.create(3, config -> config.with(Feature.NETWORK)
-                                                                      .set("otc_coalescing_strategy", "ARTIFICIAL_LATENCY"))))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            long start = System.nanoTime();
-            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS",
-                                           ConsistencyLevel.UNSAFE_DELAY_SERIAL, ConsistencyLevel.UNSAFE_DELAY_QUORUM);
-            long end = System.nanoTime();
-
-            assertTrue(end - start > TimeUnit.MILLISECONDS.toNanos(600));
-
-            start = System.nanoTime();
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
-                                                      ConsistencyLevel.UNSAFE_DELAY_SERIAL),
-                       row(1, 1, 1));
-            end = System.nanoTime();
-            assertTrue(end - start > TimeUnit.MILLISECONDS.toNanos(200));
-        }
-        finally
-        {
-            System.clearProperty("cassandra.artificial_latency_verbs");
-            System.clearProperty("cassandra.artificial_latency_ms");
-        }
-    }
-
-    @Test
-    public void coordinatorDelayQuorumReadWriteTest() throws Throwable
-    {
-        System.setProperty("cassandra.artificial_latency_verbs", "PAXOS_PREPARE,PAXOS_PROPOSE,PAXOS_COMMIT,MUTATION,READ,READ_REPAIR,REQUEST_RESPONSE");
-        System.setProperty("cassandra.artificial_latency_ms", "100");
-        try (Cluster cluster = init(Cluster.create(3, config -> config.with(Feature.NETWORK)
-                                                                      .set("otc_coalescing_strategy", "ARTIFICIAL_LATENCY"))))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            long start = System.nanoTime();
-            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1)",
-                                           ConsistencyLevel.UNSAFE_DELAY_QUORUM);
-            long end = System.nanoTime();
-
-            assertTrue(end - start > TimeUnit.MILLISECONDS.toNanos(200));
-
-            start = System.nanoTime();
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
-                                                      ConsistencyLevel.UNSAFE_DELAY_LOCAL_QUORUM),
-                       row(1, 1, 1));
-            end = System.nanoTime();
-            assertTrue(end - start > TimeUnit.MILLISECONDS.toNanos(200));
-        }
-        finally
-        {
-            System.clearProperty("cassandra.artificial_latency_verbs");
-            System.clearProperty("cassandra.artificial_latency_ms");
-        }
-    }
-
-    @Test
-    public void coordinatorNoDelayQuorumReadWriteTest() throws Throwable
-    {
-        System.setProperty("cassandra.artificial_latency_verbs", "PAXOS_PREPARE,PAXOS_PROPOSE,PAXOS_COMMIT,MUTATION,READ,READ_REPAIR,REQUEST_RESPONSE");
-        System.setProperty("cassandra.unsafe_artificial_latency_ms", "1000");
-        try (Cluster cluster = init(Cluster.create(3, config -> config.with(Feature.NETWORK)
-                                                                      .set("otc_coalescing_strategy", "ARTIFICIAL_LATENCY"))))
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-
-            long start = System.nanoTime();
-            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1)",
-                                           ConsistencyLevel.QUORUM);
-            long end = System.nanoTime();
-
-            assertTrue(end - start < TimeUnit.MILLISECONDS.toNanos(1000));
-
-            start = System.nanoTime();
-            assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
-                                                      ConsistencyLevel.QUORUM),
-                       row(1, 1, 1));
-            end = System.nanoTime();
-            assertTrue(end - start < TimeUnit.MILLISECONDS.toNanos(1000));
-        }
-        finally
-        {
-            System.clearProperty("cassandra.artificial_latency_verbs");
-            System.clearProperty("cassandra.unsafe_artificial_latency_ms");
-        }
     }
 
     @Test

@@ -451,8 +451,7 @@ public class PaxosRepair
             return state;
 
         Querying querying = new Querying();
-        MessageOut<Request> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_REPAIR_REQ, new Request(partitionKey, metadata), requestSerializer)
-                .permitsArtificialDelay(participants.consistencyForConsensus);
+        MessageOut<Request> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_REPAIR_REQ, new Request(partitionKey, metadata), requestSerializer);
         for (int i = 0, size = participants.sizeOfPoll(); i < size ; ++i)
             MessagingService.instance().sendRR(message, participants.electorateToPoll.get(i), querying);
         return querying;
@@ -517,7 +516,7 @@ public class PaxosRepair
             PaxosRepair.Request request = message.payload;
             if (!isInRangeAndShouldProcess(message.from, request.partitionKey, request.metadata))
             {
-                sendFailureResponse("repair", message.from, null, id, message);
+                sendFailureResponse("repair", message.from, null, id);
                 return;
             }
 
@@ -528,8 +527,7 @@ public class PaxosRepair
             Committed committed = current.committed;
 
             Response response = new Response(latestWitnessed, acceptedButNotCommited, committed);
-            MessageOut<Response> reply = new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer)
-                    .permitsArtificialDelay(message);
+            MessageOut<Response> reply = new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer);
             MessagingService.instance().sendReply(reply, id, message.from);
         }
     }
