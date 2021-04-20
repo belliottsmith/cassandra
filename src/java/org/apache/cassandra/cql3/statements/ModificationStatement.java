@@ -446,7 +446,8 @@ public abstract class ModificationStatement implements CQLStatement
                                                    request.key,
                                                    request,
                                                    options.getSerialConsistency(),
-                                                   options.getConsistency()))
+                                                   options.getConsistency(),
+                                                   queryState.getClientState()))
         {
             return new ResultMessage.Rows(buildCasResultSet(result, options));
         }

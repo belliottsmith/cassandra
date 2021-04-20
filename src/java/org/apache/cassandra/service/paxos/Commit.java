@@ -25,8 +25,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.UUID;
 
-import javax.annotation.Nullable;
-
 import com.google.common.base.Objects;
 
 import org.apache.cassandra.config.CFMetaData;
@@ -37,6 +35,7 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.UUIDGen;
 import org.apache.cassandra.utils.UUIDSerializer;
@@ -83,11 +82,6 @@ public class Commit
         return this.ballot.equals(ballot);
     }
 
-    public boolean hasSameBallot(Commit other)
-    {
-        return this.ballot.equals(other.ballot);
-    }
-
     public Mutation makeMutation()
     {
         return new Mutation(update);
@@ -114,46 +108,6 @@ public class Commit
     public String toString()
     {
         return String.format("Commit(%s, %s)", ballot, update);
-    }
-
-    /**
-     * @return testIfAfter.isAfter(testIfBefore), with non-null > null
-     */
-    public static boolean isAfter(@Nullable Commit testIsAfter, @Nullable Commit testIsBefore)
-    {
-        return testIsAfter != null && testIsAfter.isAfter(testIsBefore);
-    }
-
-    /**
-     * True iff a and b are both not null and a.hasSameBallot(b)
-     */
-    public static boolean hasSameBallot(@Nullable Commit a, @Nullable Commit b)
-    {
-        return a != null && b != null && a.hasSameBallot(b);
-    }
-
-    /**
-     * @return testIfAfter.isAfter(testIfBefore), with non-null > null
-     */
-    public static boolean isAfter(@Nullable UUID testIsAfter, @Nullable Commit testIsBefore)
-    {
-        return testIsAfter != null && (testIsBefore == null || testIsAfter.timestamp() > testIsBefore.ballot.timestamp());
-    }
-
-    /**
-     * @return testIfAfter.isAfter(testIfBefore), with non-null > null
-     */
-    public static boolean isAfter(@Nullable Commit testIsAfter, @Nullable UUID testIsBefore)
-    {
-        return testIsAfter != null && (testIsBefore == null || testIsAfter.ballot.timestamp() > testIsBefore.timestamp());
-    }
-
-    /**
-     * @return testIfAfter.isAfter(testIfBefore), with non-null > null
-     */
-    public static boolean isAfter(@Nullable UUID testIsAfter, @Nullable UUID testIsBefore)
-    {
-        return testIsAfter != null && (testIsBefore == null || testIsAfter.timestamp() > testIsBefore.timestamp());
     }
 
     public static class CommitSerializer implements IVersionedSerializer<Commit>
@@ -189,5 +143,4 @@ public class Commit
                  + PartitionUpdate.serializer.serializedSize(commit.update, version);
         }
     }
-
 }

@@ -41,11 +41,9 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.metrics.StorageMetrics;
-import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.transport.Message;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDGen;
@@ -105,10 +103,10 @@ public class PaxosVerbHandlerTest
     @Test
     public void acceptCommitForNaturalEndpoint() throws Exception
     {
-        acceptRequestForNaturalEndpoint(new PaxosCommit.RequestHandler());
+        acceptRequestForNaturalEndpoint(new CommitVerbHandler());
     }
 
-    private void acceptRequestForNaturalEndpoint(IVerbHandler<Commit> handler) throws Exception
+    private void acceptRequestForNaturalEndpoint(AbstractPaxosVerbHandler handler) throws Exception
     {
         ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
         int messageId = randomInt();
@@ -138,10 +136,10 @@ public class PaxosVerbHandlerTest
     @Test
     public void acceptCommitForPendingEndpoint() throws Exception
     {
-        acceptRequestForPendingEndpoint(new PaxosCommit.RequestHandler());
+        acceptRequestForPendingEndpoint(new CommitVerbHandler());
     }
 
-    private void acceptRequestForPendingEndpoint(IVerbHandler<Commit> handler) throws Exception
+    private void acceptRequestForPendingEndpoint(AbstractPaxosVerbHandler handler) throws Exception
     {
         // remove localhost from TM and add it back as pending
         StorageService.instance.getTokenMetadata().removeEndpoint(broadcastAddress);
@@ -177,10 +175,10 @@ public class PaxosVerbHandlerTest
     @Test
     public void rejectCommitForTokenOutOfRange() throws Exception
     {
-        rejectRequestForTokenOutOfRange(new PaxosCommit.RequestHandler());
+        rejectRequestForTokenOutOfRange(new CommitVerbHandler());
     }
 
-    private void rejectRequestForTokenOutOfRange(IVerbHandler<Commit> handler) throws Exception
+    private void rejectRequestForTokenOutOfRange(AbstractPaxosVerbHandler handler) throws Exception
     {
         // reject a commit for a token the node neither owns nor is pending
         ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
@@ -211,10 +209,10 @@ public class PaxosVerbHandlerTest
     @Test
     public void acceptCommitIfRejectionNotEnabled() throws Exception
     {
-        acceptRequestIfRejectionNotEnabled(new PaxosCommit.RequestHandler());
+        acceptRequestIfRejectionNotEnabled(new CommitVerbHandler());
     }
 
-    private void acceptRequestIfRejectionNotEnabled(IVerbHandler<Commit> handler) throws Exception
+    private void acceptRequestIfRejectionNotEnabled(AbstractPaxosVerbHandler handler) throws Exception
     {
         DatabaseDescriptor.setRejectOutOfTokenRangeRequests(false);
         ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();

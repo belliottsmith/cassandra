@@ -101,30 +101,31 @@ public abstract class AbstractWriteResponseHandler<T> implements IAsyncCallbackW
                             ? DatabaseDescriptor.getCounterWriteRpcTimeout()
                             : DatabaseDescriptor.getWriteRpcTimeout();
 
-        get(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(requestTimeout));
-    }
+        long timeout = TimeUnit.MILLISECONDS.toNanos(requestTimeout) - (System.nanoTime() - start);
 
-    public void get(long deadline) throws WriteTimeoutException, WriteFailureException
-    {
         boolean success;
         try
         {
-            success = condition.awaitUntil(deadline);
+            success = condition.await(timeout, TimeUnit.NANOSECONDS);
         }
         catch (InterruptedException ex)
         {
             throw new AssertionError(ex);
         }
 
-        int blockedFor = totalBlockFor();
         if (!success)
         {
+            int blockedFor = totalBlockFor();
             int acks = ackCount();
-            if (!condition.isSignaled()) // recheck if we've been signaled to ensure our exception makes sense
-                throw new WriteTimeoutException(writeType, consistencyLevel, acks, blockedFor);
+            // It's pretty unlikely, but we can race between exiting await above and here, so
+            // that we could now have enough acks. In that case, we "lie" on the acks count to
+            // avoid sending confusing info to the user (see CASSANDRA-6491).
+            if (acks >= blockedFor)
+                acks = blockedFor - 1;
+            throw new WriteTimeoutException(writeType, consistencyLevel, acks, blockedFor);
         }
 
-        if (blockedFor + failures > totalEndpoints())
+        if (totalBlockFor() + failures > totalEndpoints())
         {
             throw new WriteFailureException(consistencyLevel, ackCount(), failures, totalBlockFor(), writeType);
         }

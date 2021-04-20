@@ -67,12 +67,12 @@ import org.apache.cassandra.locator.*;
 import org.apache.cassandra.metrics.*;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.service.paxos.Commit;
-import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.service.paxos.PrepareCallback;
 import org.apache.cassandra.service.paxos.ProposeCallback;
 import org.apache.cassandra.net.MessagingService.Verb;
 import org.apache.cassandra.tracing.Tracing;
+import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.triggers.TriggerExecutor;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.AbstractIterator;
@@ -102,14 +102,14 @@ public class StorageProxy implements StorageProxyMBean
     @VisibleForTesting
     public static final ClientRequestMetrics rangeMetrics = new ClientRequestMetrics("RangeSlice");
     private static final ClientRequestMetrics partitionSizeMetrics = new ClientRequestMetrics("PartitionSize");
-    public static final ClientRequestMetrics writeMetrics = new ClientRequestMetrics("Write");
-    public static final CASClientRequestMetrics casWriteMetrics = new CASClientRequestMetrics("CASWrite");
-    public static final CASClientRequestMetrics casReadMetrics = new CASClientRequestMetrics("CASRead");
+    private static final ClientRequestMetrics writeMetrics = new ClientRequestMetrics("Write");
+    private static final CASClientRequestMetrics casWriteMetrics = new CASClientRequestMetrics("CASWrite");
+    private static final CASClientRequestMetrics casReadMetrics = new CASClientRequestMetrics("CASRead");
     private static final ViewWriteMetrics viewWriteMetrics = new ViewWriteMetrics("ViewWrite");
     private static final EnumMap<ConsistencyLevel, ClientRequestMetrics> partitionSizeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
-    public static final Map<ConsistencyLevel, ClientRequestMetrics> readMetricsMap = new EnumMap<>(ConsistencyLevel.class);
-    public static final Map<ConsistencyLevel, ClientRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
-    public static final BlacklistMetrics blacklistMetrics = new BlacklistMetrics();
+    private static final Map<ConsistencyLevel, ClientRequestMetrics> readMetricsMap = new EnumMap<>(ConsistencyLevel.class);
+    private static final Map<ConsistencyLevel, ClientRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
+    private static final BlacklistMetrics blacklistMetrics = new BlacklistMetrics();
 
     private static final double CONCURRENT_SUBREQUESTS_MARGIN = 0.10;
 
@@ -293,20 +293,8 @@ public class StorageProxy implements StorageProxyMBean
                                   DecoratedKey key,
                                   CASRequest request,
                                   ConsistencyLevel consistencyForPaxos,
-                                  ConsistencyLevel consistencyForCommit)
-    throws UnavailableException, IsBootstrappingException, RequestFailureException, RequestTimeoutException, InvalidRequestException
-    {
-        return Paxos.USE_APPLE_PAXOS
-                ? Paxos.cas(key, request, consistencyForPaxos, consistencyForCommit)
-                : legacyCas(keyspaceName, cfName, key, request, consistencyForPaxos, consistencyForCommit);
-    }
-
-    public static RowIterator legacyCas(String keyspaceName,
-                                  String cfName,
-                                  DecoratedKey key,
-                                  CASRequest request,
-                                  ConsistencyLevel consistencyForPaxos,
-                                  ConsistencyLevel consistencyForCommit)
+                                  ConsistencyLevel consistencyForCommit,
+                                  ClientState state)
     throws UnavailableException, IsBootstrappingException, RequestFailureException, RequestTimeoutException, InvalidRequestException
     {
         final long start = System.nanoTime();
@@ -336,7 +324,7 @@ public class StorageProxy implements StorageProxyMBean
                 List<InetAddress> liveEndpoints = p.left;
                 int requiredParticipants = p.right;
 
-                final Pair<UUID, Integer> pair = beginAndRepairPaxos(start, key, metadata, liveEndpoints, requiredParticipants, consistencyForPaxos, consistencyForCommit, true);
+                final Pair<UUID, Integer> pair = beginAndRepairPaxos(start, key, metadata, liveEndpoints, requiredParticipants, consistencyForPaxos, consistencyForCommit, true, state);
                 final UUID ballot = pair.left;
                 contentions += pair.right;
 
@@ -422,10 +410,16 @@ public class StorageProxy implements StorageProxyMBean
         }
     }
 
-    public static Predicate<InetAddress> sameDCPredicateFor(final String dc)
+    private static Predicate<InetAddress> sameDCPredicateFor(final String dc)
     {
         final IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
-        return host -> dc.equals(snitch.getDatacenter(host));
+        return new Predicate<InetAddress>()
+        {
+            public boolean apply(InetAddress host)
+            {
+                return dc.equals(snitch.getDatacenter(host));
+            }
+        };
     }
 
     private static Pair<List<InetAddress>, Integer> getPaxosParticipants(CFMetaData cfm, DecoratedKey key, ConsistencyLevel consistencyForPaxos) throws UnavailableException
@@ -472,7 +466,8 @@ public class StorageProxy implements StorageProxyMBean
                                                            int requiredParticipants,
                                                            ConsistencyLevel consistencyForPaxos,
                                                            ConsistencyLevel consistencyForCommit,
-                                                           final boolean isWrite)
+                                                           final boolean isWrite,
+                                                           ClientState state)
     throws WriteTimeoutException, WriteFailureException
     {
         long timeout = TimeUnit.MILLISECONDS.toNanos(DatabaseDescriptor.getCasContentionTimeout());
@@ -486,7 +481,7 @@ public class StorageProxy implements StorageProxyMBean
             // in progress (#5667). Lastly, we don't want to use a timestamp that is older than the last one assigned by ClientState or operations may appear
             // out-of-order (#7801).
             long minTimestampMicrosToUse = summary == null ? Long.MIN_VALUE : 1 + UUIDGen.microsTimestamp(summary.mostRecentInProgressCommit.ballot);
-            long ballotMicros = ClientState.getTimestampForPaxos(minTimestampMicrosToUse);
+            long ballotMicros = state.getTimestampForPaxos(minTimestampMicrosToUse);
             // Note that ballotMicros is not guaranteed to be unique if two proposal are being handled concurrently by the same coordinator. But we still
             // need ballots to be unique for each proposal so we have to use getRandomTimeUUIDFromMicros.
             UUID ballot = UUIDGen.getRandomTimeUUIDFromMicros(ballotMicros);
@@ -918,19 +913,6 @@ public class StorageProxy implements StorageProxyMBean
         finally
         {
             viewWriteMetrics.addNano(System.nanoTime() - startTime);
-        }
-    }
-
-    public static void verifyAgainstBlacklist(String keyspaceName, String cfName, DecoratedKey key)
-    {
-        if (DatabaseDescriptor.enablePartitionBlacklist() && DatabaseDescriptor.enableBlacklistWrites() && !partitionBlacklist.validateKey(keyspaceName, cfName, key.getKey()))
-        {
-            blacklistMetrics.incrementWritesRejected();
-            blacklistMetrics.incrementTotalRejected();
-            final byte[] keyBytes  = new byte[key.getKey().remaining()];
-            key.getKey().slice().get(keyBytes);
-            throw new InvalidRequestException(String.format("Unable to CAS write to blacklisted partition [0x%s] in %s/%s",
-                    Hex.bytesToHex(keyBytes), keyspaceName, cfName));
         }
     }
 
@@ -1729,21 +1711,14 @@ public class StorageProxy implements StorageProxyMBean
         }
 
         return consistencyLevel.isSerialConsistency()
-             ? readWithPaxos(group, consistencyLevel)
+             ? readWithPaxos(group, consistencyLevel, state)
              : readRegular(group, consistencyLevel);
     }
 
-    private static PartitionIterator readWithPaxos(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyLevel)
+    private static PartitionIterator readWithPaxos(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyLevel, ClientState state)
     throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
     {
-        return Paxos.USE_APPLE_PAXOS
-                ? Paxos.read(group, consistencyLevel)
-                : legacyReadWithPaxos(group, consistencyLevel);
-    }
-
-    private static PartitionIterator legacyReadWithPaxos(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyLevel)
-    throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
-    {
+        assert state != null;
         if (group.commands.size() > 1)
             throw new InvalidRequestException("SERIAL/LOCAL_SERIAL consistency may only be requested for one partition at a time");
 
@@ -1767,7 +1742,7 @@ public class StorageProxy implements StorageProxyMBean
 
             try
             {
-                final Pair<UUID, Integer> pair = beginAndRepairPaxos(start, key, metadata, liveEndpoints, requiredParticipants, consistencyLevel, consistencyForCommitOrFetch, false);
+                final Pair<UUID, Integer> pair = beginAndRepairPaxos(start, key, metadata, liveEndpoints, requiredParticipants, consistencyLevel, consistencyForCommitOrFetch, false, state);
                 if (pair.right > 0)
                 {
                     casReadMetrics.contention.update(pair.right);
@@ -1963,10 +1938,8 @@ public class StorageProxy implements StorageProxyMBean
      * 3. Wait for a response from R replicas
      * 4. If the digests (if any) match the data return the data
      * 5. else carry out read repair by getting data from all the nodes.
-     *
-     * TODO: temporarily public
      */
-    public static PartitionIterator fetchRows(List<SinglePartitionReadCommand> commands, ConsistencyLevel consistencyLevel)
+    private static PartitionIterator fetchRows(List<SinglePartitionReadCommand> commands, ConsistencyLevel consistencyLevel)
     throws UnavailableException, ReadFailureException, ReadTimeoutException
     {
         int cmdCount = commands.size();
@@ -2931,10 +2904,8 @@ public class StorageProxy implements StorageProxyMBean
     /**
      * Like DroppableRunnable, but if it aborts, it will rerun (on the mutation stage) after
      * marking itself as a hint in progress so that the hint backpressure mechanism can function.
-     *
-     * TODO temporarily public
      */
-    public static abstract class LocalMutationRunnable implements Runnable
+    private static abstract class LocalMutationRunnable implements Runnable
     {
         private final long constructionTime = System.currentTimeMillis();
 

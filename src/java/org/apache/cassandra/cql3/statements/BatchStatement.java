@@ -380,7 +380,8 @@ public class BatchStatement implements CQLStatement
                                                    casRequest.key,
                                                    casRequest,
                                                    options.getSerialConsistency(),
-                                                   options.getConsistency()))
+                                                   options.getConsistency(),
+                                                   state.getClientState()))
         {
             return new ResultMessage.Rows(ModificationStatement.buildCasResultSet(ksName, tableName, result, columnsWithConditions, true, options.forStatement(0)));
         }

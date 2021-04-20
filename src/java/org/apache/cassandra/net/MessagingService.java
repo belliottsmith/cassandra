@@ -75,8 +75,6 @@ import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.service.*;
 import org.apache.cassandra.service.paxos.Commit;
-import org.apache.cassandra.service.paxos.PaxosPrepare;
-import org.apache.cassandra.service.paxos.PaxosPropose;
 import org.apache.cassandra.service.paxos.PrepareResponse;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
@@ -189,9 +187,6 @@ public final class MessagingService implements MessagingServiceMBean
         APPLE_UPDATE_REPAIRED_RANGES(-1001),
         APPLE_REPAIR_SUCCESS(-1002),
         APPLE_QUERY_REPAIR_HISTORY(-1003),
-        APPLE_PAXOS_PREPARE(-1004),
-        APPLE_PAXOS_PROPOSE(-1006),
-        APPLE_PAXOS_REPAIR(-1008),
         ;
         private final int id;
         Verb()
@@ -246,9 +241,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.HINT, Stage.MUTATION);
         put(Verb.TRUNCATE, Stage.MUTATION);
         put(Verb.PAXOS_PREPARE, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_PREPARE, Stage.MUTATION);
         put(Verb.PAXOS_PROPOSE, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_PROPOSE, Stage.MUTATION);
         put(Verb.PAXOS_COMMIT, Stage.MUTATION);
         put(Verb.BATCH_STORE, Stage.MUTATION);
         put(Verb.BATCH_REMOVE, Stage.MUTATION);
@@ -330,9 +323,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.APPLE_UPDATE_REPAIRED_RANGES, BootStrapper.UpdateRepairedRanges.serializer);
         put(Verb.ECHO, EchoMessage.serializer);
         put(Verb.PAXOS_PREPARE, Commit.serializer);
-        put(Verb.APPLE_PAXOS_PREPARE, PaxosPrepare.requestSerializer);
         put(Verb.PAXOS_PROPOSE, Commit.serializer);
-        put(Verb.APPLE_PAXOS_PROPOSE, PaxosPropose.requestSerializer);
         put(Verb.PAXOS_COMMIT, Commit.serializer);
         put(Verb.HINT, HintMessage.serializer);
         put(Verb.BATCH_STORE, Batch.serializer);
@@ -366,9 +357,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.APPLE_UPDATE_REPAIRED_RANGES, StorageService.UpdateRepairedRangesResponse.serializer);
 
         put(Verb.PAXOS_PREPARE, PrepareResponse.serializer);
-        put(Verb.APPLE_PAXOS_PREPARE, PaxosPrepare.responseSerializer);
         put(Verb.PAXOS_PROPOSE, BooleanSerializer.serializer);
-        put(Verb.APPLE_PAXOS_PROPOSE, PaxosPropose.responseSerializer);
 
         put(Verb.BATCH_STORE, WriteResponse.serializer);
         put(Verb.BATCH_REMOVE, WriteResponse.serializer);
@@ -544,7 +533,7 @@ public final class MessagingService implements MessagingServiceMBean
                     StageManager.getStage(Stage.INTERNAL_RESPONSE).submit(new Runnable() {
                         @Override
                         public void run() {
-                            ((IAsyncCallbackWithFailure)expiredCallbackInfo.callback).onExpired(expiredCallbackInfo.target);
+                            ((IAsyncCallbackWithFailure)expiredCallbackInfo.callback).onFailure(expiredCallbackInfo.target);
                         }
                     });
                 }

@@ -1303,31 +1303,27 @@ public final class SystemKeyspace
         return results;
     }
 
-    /**
-     * Load the current paxos state for the table and key
-     */
     public static PaxosState loadPaxosState(DecoratedKey key, CFMetaData metadata, int nowInSec)
     {
         String req = "SELECT * FROM system.%s WHERE row_key = ? AND cf_id = ?";
         UntypedResultSet results = QueryProcessor.executeInternalWithNow(nowInSec, String.format(req, PAXOS), key.getKey(), metadata.cfId);
         if (results.isEmpty())
-            return PaxosState.empty(key, metadata);
-        Commit empty = null;
+            return new PaxosState(key, metadata);
         UntypedResultSet.Row row = results.one();
         Commit promised = row.has("in_progress_ballot")
                         ? new Commit(row.getUUID("in_progress_ballot"), new PartitionUpdate(metadata, key, metadata.partitionColumns(), 1))
-                        : (empty = Commit.emptyCommit(key, metadata));
+                        : Commit.emptyCommit(key, metadata);
         // either we have both a recently accepted ballot and update or we have neither
         int proposalVersion = row.has("proposal_version") ? row.getInt("proposal_version") : MessagingService.VERSION_21;
         Commit accepted = row.has("proposal")
                         ? new Commit(row.getUUID("proposal_ballot"), PartitionUpdate.fromBytes(row.getBytes("proposal"), proposalVersion, key))
-                        : (empty == null ? empty = Commit.emptyCommit(key, metadata) : empty);
+                        : Commit.emptyCommit(key, metadata);
         // either most_recent_commit and most_recent_commit_at will both be set, or neither
         int mostRecentVersion = row.has("most_recent_commit_version") ? row.getInt("most_recent_commit_version") : MessagingService.VERSION_21;
-        Commit committed = row.has("most_recent_commit")
-                         ? new Commit(row.getUUID("most_recent_commit_at"), PartitionUpdate.fromBytes(row.getBytes("most_recent_commit"), mostRecentVersion, key))
-                         : (empty == null ? Commit.emptyCommit(key, metadata) : empty);
-        return new PaxosState(promised, accepted, committed);
+        Commit mostRecent = row.has("most_recent_commit")
+                          ? new Commit(row.getUUID("most_recent_commit_at"), PartitionUpdate.fromBytes(row.getBytes("most_recent_commit"), mostRecentVersion, key))
+                          : Commit.emptyCommit(key, metadata);
+        return new PaxosState(promised, accepted, mostRecent);
     }
 
     public static void savePaxosPromise(Commit promise)
