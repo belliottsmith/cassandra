@@ -23,9 +23,9 @@ import java.util.*;
 
 import com.google.common.util.concurrent.AbstractFuture;
 
-import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.service.paxos.PaxosState;
+import org.apache.cassandra.utils.UUIDSerializer;
 import org.apache.cassandra.utils.VoidSerializer;
 
 public class PaxosFinishPrepareCleanup extends AbstractFuture<Void> implements IAsyncCallbackWithFailure<Void>
@@ -37,10 +37,10 @@ public class PaxosFinishPrepareCleanup extends AbstractFuture<Void> implements I
         this.waitingResponse = new HashSet<>(endpoints);
     }
 
-    public static PaxosFinishPrepareCleanup finish(Collection<InetAddress> endpoints, PaxosCleanupHistory result)
+    public static PaxosFinishPrepareCleanup finish(Collection<InetAddress> endpoints, UUID lowBound)
     {
         PaxosFinishPrepareCleanup callback = new PaxosFinishPrepareCleanup(endpoints);
-        MessageOut<PaxosCleanupHistory> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, result, PaxosCleanupHistory.serializer);
+        MessageOut<UUID> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, lowBound, UUIDSerializer.serializer);
         for (InetAddress endpoint : endpoints)
             MessagingService.instance().sendRRWithFailure(message, endpoint, callback);
         return callback;
@@ -68,9 +68,8 @@ public class PaxosFinishPrepareCleanup extends AbstractFuture<Void> implements I
         return false;
     }
 
-    public static final IVerbHandler<PaxosCleanupHistory> verbHandler = (message, id) -> {
-        PaxosState.ballotTracker().updateLowerBound(message.payload.highBound);
-        Schema.instance.getColumnFamilyStoreInstance(message.payload.cfId).syncPaxosRepairHistory(message.payload.history);
+    public static final IVerbHandler<UUID> verbHandler = (message, id) -> {
+        PaxosState.ballotTracker().updateLowerBound(message.payload);
         MessageOut<Void> msg = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, null, VoidSerializer.serializer);
         MessagingService.instance().sendReply(msg, id, message.from);
     };

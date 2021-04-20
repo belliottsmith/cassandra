@@ -62,19 +62,17 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
     private CountDownLatch successResponses = null;
     private volatile long repairJobStartTime;
     private final PreviewKind previewKind;
-    private final boolean skippedReplicas;
     private final boolean optimiseStreams;
 
     /**
      * Create repair job to run on specific columnfamily
-     *  @param session RepairSession that this RepairJob belongs
+     *
+     * @param session RepairSession that this RepairJob belongs
      * @param columnFamily name of the ColumnFamily to repair
-     * @param skippedReplicas
      */
-    public RepairJob(RepairSession session, String columnFamily, boolean isIncremental, PreviewKind previewKind, boolean skippedReplicas, boolean optimiseStreams)
+    public RepairJob(RepairSession session, String columnFamily, boolean isIncremental, PreviewKind previewKind, boolean optimiseStreams)
     {
         this.session = session;
-        this.skippedReplicas = skippedReplicas;
         this.desc = new RepairJobDesc(session.parentRepairSession, session.getId(), session.keyspace, columnFamily, session.getRanges());
         this.taskExecutor = session.taskExecutor;
         this.parallelismDegree = session.parallelismDegree;
@@ -113,7 +111,7 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         {
             logger.info("{} {}.{} starting paxos repair", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
             CFMetaData cfm = Schema.instance.getCFMetaData(desc.keyspace, desc.columnFamily);
-            paxosRepair = PaxosCleanup.cleanup(allEndpoints, cfm.cfId, session.ranges, skippedReplicas, taskExecutor);
+            paxosRepair = PaxosCleanup.cleanup(session.endpoints, cfm.cfId, session.ranges, taskExecutor);
         }
         else
         {

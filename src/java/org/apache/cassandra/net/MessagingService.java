@@ -78,7 +78,9 @@ import org.apache.cassandra.service.paxos.PaxosPrepareRefresh;
 import org.apache.cassandra.service.paxos.PaxosPropose;
 import org.apache.cassandra.service.paxos.PaxosRepair;
 import org.apache.cassandra.service.paxos.PrepareResponse;
-import org.apache.cassandra.service.paxos.cleanup.*;
+import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupResponse;
+import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupRequest;
+import org.apache.cassandra.service.paxos.cleanup.PaxosStartPrepareCleanup;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.*;
@@ -203,7 +205,6 @@ public final class MessagingService implements MessagingServiceMBean
         APPLE_PAXOS_CLEANUP_REQUEST(16362),
         APPLE_PAXOS_CLEANUP_RESPONSE(16361),
         APPLE_PAXOS_CLEANUP_FINISH_PREPARE(16360),
-        APPLE_PAXOS_CLEANUP_COMPLETE(16359),
         ;
         private final int id;
         Verb()
@@ -313,7 +314,6 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.APPLE_PAXOS_CLEANUP_REQUEST, Stage.MISC);
         put(Verb.APPLE_PAXOS_CLEANUP_RESPONSE, Stage.MISC);
         put(Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, Stage.MISC);
-        put(Verb.APPLE_PAXOS_CLEANUP_COMPLETE, Stage.MISC);
     }};
 
     /**
@@ -366,10 +366,9 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.PING, PingMessage.serializer);
 
         put(Verb.APPLE_PAXOS_CLEANUP_START_PREPARE, PaxosStartPrepareCleanup.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, PaxosCleanupHistory.serializer);
+        put(Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, UUIDSerializer.serializer);
         put(Verb.APPLE_PAXOS_CLEANUP_REQUEST, PaxosCleanupRequest.serializer);
         put(Verb.APPLE_PAXOS_CLEANUP_RESPONSE, PaxosCleanupResponse.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_COMPLETE, PaxosCleanupComplete.serializer);
     }};
 
     /**
@@ -403,9 +402,8 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, PaxosPrepare.responseSerializer);
         put(Verb.APPLE_PAXOS_REPAIR_REQ, PaxosRepair.responseSerializer);
 
-        put(Verb.APPLE_PAXOS_CLEANUP_START_PREPARE, PaxosCleanupHistory.serializer);
+        put(Verb.APPLE_PAXOS_CLEANUP_START_PREPARE, UUIDSerializer.serializer);
         put(Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, VoidSerializer.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_COMPLETE, VoidSerializer.serializer);
 
         put(Verb.BATCH_STORE, WriteResponse.serializer);
         put(Verb.BATCH_REMOVE, WriteResponse.serializer);

@@ -27,11 +27,10 @@ import com.google.common.util.concurrent.AbstractFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.db.*;
-import org.apache.cassandra.dht.AbstractBounds;
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.io.IVersionedSerializer;
@@ -40,7 +39,6 @@ import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.paxos.Commit;
-import org.apache.cassandra.service.paxos.PaxosRepairHistory;
 import org.apache.cassandra.utils.UUIDSerializer;
 
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_CLEANUP_START_PREPARE;
@@ -50,20 +48,17 @@ import static org.apache.cassandra.service.paxos.PaxosState.ballotTracker;
 /**
  * Determines the highest ballot we should attempt to repair
  */
-public class PaxosStartPrepareCleanup extends AbstractFuture<PaxosCleanupHistory> implements IAsyncCallbackWithFailure<PaxosCleanupHistory>
+public class PaxosStartPrepareCleanup extends AbstractFuture<UUID> implements IAsyncCallbackWithFailure<UUID>
 {
     private static final Logger logger = LoggerFactory.getLogger(PaxosStartPrepareCleanup.class);
 
     public static final RequestSerializer serializer = new RequestSerializer();
 
-    private final UUID cfId;
     private final Set<InetAddress> waitingResponse;
     private UUID maxBallot = null;
-    private PaxosRepairHistory history = null;
 
-    PaxosStartPrepareCleanup(UUID cfId, Collection<InetAddress> endpoints)
+    PaxosStartPrepareCleanup(Collection<InetAddress> endpoints)
     {
-        this.cfId = cfId;
         this.waitingResponse = new HashSet<>(endpoints);
     }
 
@@ -72,10 +67,10 @@ public class PaxosStartPrepareCleanup extends AbstractFuture<PaxosCleanupHistory
      * prepare message to prevent racing with gossip dissemination and guarantee that every repair participant is aware
      * of the pending ring change during repair.
      */
-    public static PaxosStartPrepareCleanup prepare(UUID cfId, Collection<InetAddress> endpoints, EndpointState localEpState, Collection<Range<Token>> ranges)
+    public static PaxosStartPrepareCleanup prepare(UUID cfId, Collection<InetAddress> endpoints, EndpointState localEpState)
     {
-        PaxosStartPrepareCleanup callback = new PaxosStartPrepareCleanup(cfId, endpoints);
-        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_CLEANUP_START_PREPARE, new Request(cfId, localEpState, ranges), serializer);
+        PaxosStartPrepareCleanup callback = new PaxosStartPrepareCleanup(endpoints);
+        MessageOut<Request> message = new MessageOut<>(APPLE_PAXOS_CLEANUP_START_PREPARE, new Request(cfId, localEpState), serializer);
         for (InetAddress endpoint : endpoints)
             MessagingService.instance().sendRRWithFailure(message, endpoint, callback);
         return callback;
@@ -86,7 +81,7 @@ public class PaxosStartPrepareCleanup extends AbstractFuture<PaxosCleanupHistory
         setException(new RuntimeException("Received failure response from " + from));
     }
 
-    public synchronized void response(MessageIn<PaxosCleanupHistory> msg)
+    public synchronized void response(MessageIn<UUID> msg)
     {
         if (isDone())
             return;
@@ -94,13 +89,11 @@ public class PaxosStartPrepareCleanup extends AbstractFuture<PaxosCleanupHistory
         if (!waitingResponse.remove(msg.from))
             throw new IllegalArgumentException("Received unexpected response from " + msg.from);
 
-        if (Commit.isAfter(msg.payload.highBound, maxBallot))
-            maxBallot = msg.payload.highBound;
-
-        history = PaxosRepairHistory.merge(history, msg.payload.history);
+        if (Commit.isAfter(msg.payload, maxBallot))
+            maxBallot = msg.payload;
 
         if (waitingResponse.isEmpty())
-            set(new PaxosCleanupHistory(cfId, maxBallot, history));
+            set(maxBallot);
     }
 
     public boolean isLatencyForSnitch()
@@ -132,13 +125,11 @@ public class PaxosStartPrepareCleanup extends AbstractFuture<PaxosCleanupHistory
     {
         final UUID cfId;
         final EndpointState epState;
-        final Collection<Range<Token>> ranges;
 
-        public Request(UUID cfId, EndpointState epState, Collection<Range<Token>> ranges)
+        public Request(UUID cfId, EndpointState epState)
         {
             this.cfId = cfId;
             this.epState = epState;
-            this.ranges = ranges;
         }
     }
 
@@ -148,45 +139,30 @@ public class PaxosStartPrepareCleanup extends AbstractFuture<PaxosCleanupHistory
         {
             UUIDSerializer.serializer.serialize(request.cfId, out, version);
             EndpointState.serializer.serialize(request.epState, out, version);
-            out.writeInt(request.ranges.size());
-            for (Range<Token> rt : request.ranges)
-                AbstractBounds.tokenSerializer.serialize(rt, out, version);
         }
 
         public Request deserialize(DataInputPlus in, int version) throws IOException
         {
             UUID cfId = UUIDSerializer.serializer.deserialize(in, version);
             EndpointState epState = EndpointState.serializer.deserialize(in, version);
-
-            int numRanges = in.readInt();
-            List<Range<Token>> ranges = new ArrayList<>();
-            for (int i = 0; i < numRanges; i++)
-            {
-                Range<Token> range = (Range<Token>) AbstractBounds.tokenSerializer.deserialize(in, MessagingService.globalPartitioner(), version);
-                ranges.add(range);
-            }
-            return new Request(cfId, epState, ranges);
+            return new Request(cfId, epState);
         }
 
         public long serializedSize(Request request, int version)
         {
-            long size = UUIDSerializer.serializer.serializedSize(request.cfId, version);
-            size += EndpointState.serializer.serializedSize(request.epState, version);
-            size += TypeSizes.sizeof(request.ranges.size());
-            for (Range<Token> range : request.ranges)
-                size += AbstractBounds.tokenSerializer.serializedSize(range, version);
-            return size;
+            return UUIDSerializer.serializer.serializedSize(request.cfId, version)
+                    + EndpointState.serializer.serializedSize(request.epState, version);
         }
     }
 
     public static final IVerbHandler<Request> verbHandler = (message, id) -> {
-        ColumnFamilyStore cfs = Schema.instance.getColumnFamilyStoreInstance(message.payload.cfId);
+        CFMetaData metadata = Schema.instance.getCFMetaData(message.payload.cfId);
+        if (metadata != null)
+            Keyspace.openAndGetStore(metadata).forceBlockingFlush();
+
         maybeUpdateTopology(message.from, message.payload.epState);
         UUID highBound = newBallot(ballotTracker().getHighBound(), ConsistencyLevel.SERIAL);
-        PaxosRepairHistory history = cfs.getHistoryForRanges(message.payload.ranges);
-        MessageOut<PaxosCleanupHistory> msg = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE,
-                                                               new PaxosCleanupHistory(cfs.metadata.cfId, highBound, history),
-                                                               PaxosCleanupHistory.serializer);
+        MessageOut<UUID> msg = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, highBound, UUIDSerializer.serializer);
         MessagingService.instance().sendReply(msg, id, message.from);
     };
 }

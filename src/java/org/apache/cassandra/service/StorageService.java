@@ -436,7 +436,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_REQUEST, PaxosCleanupRequest.verbHandler);
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_RESPONSE, PaxosCleanupResponse.verbHandler);
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, PaxosFinishPrepareCleanup.verbHandler);
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_COMPLETE, PaxosCleanupComplete.verbHandler);
     }
 
     public void registerDaemon(CassandraDaemon daemon)

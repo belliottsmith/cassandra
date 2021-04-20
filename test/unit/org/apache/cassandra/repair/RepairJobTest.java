@@ -152,7 +152,7 @@ public class RepairJobTest extends SchemaLoader
                                                     KEYSPACE, RepairParallelism.SEQUENTIAL, true, neighbors,
                                                     false, false, false, PreviewKind.NONE, true, false, false, CF);
 
-        this.job = new RepairJob(session, CF, false, PreviewKind.NONE, false, false);
+        this.job = new RepairJob(session, CF, false, PreviewKind.NONE, false);
         this.sessionJobDesc = new RepairJobDesc(session.parentRepairSession, session.getId(),
                                                 session.keyspace, CF, session.getRanges());
 
