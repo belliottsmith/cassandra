@@ -504,10 +504,8 @@ public class PaxosState implements AutoCloseable
                         if (currentUpdater.compareAndSet(unsafeState, before, after))
                         {
                             Tracing.trace("Promising ballot {}", toPrepare.ballot);
-                            DecoratedKey partitionKey = toPrepare.update.partitionKey();
-                            CFMetaData metadata = toPrepare.update.metadata();
-                            SystemKeyspace.savePaxosPromise(partitionKey, metadata, toPrepare.ballot);
-                            return new PrepareResponse(true, before.accepted == null ? Accepted.none(partitionKey, metadata) : before.accepted, before.committed);
+                            SystemKeyspace.savePaxosPromise(toPrepare.update.partitionKey(), toPrepare.update.metadata(), toPrepare.ballot);
+                            return new PrepareResponse(true, before.accepted == null ? before.committed : before.accepted, before.committed);
                         }
                     }
                     else
