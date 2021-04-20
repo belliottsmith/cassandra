@@ -41,7 +41,6 @@ import org.apache.cassandra.repair.asymmetric.HostDifferences;
 import org.apache.cassandra.repair.asymmetric.PreferedNodeFilter;
 import org.apache.cassandra.repair.asymmetric.ReduceHelper;
 import org.apache.cassandra.service.*;
-import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupSession;
 import org.apache.cassandra.service.paxos.cleanup.PaxosPrepareCleanup;
 import org.apache.cassandra.streaming.PreviewKind;
@@ -108,9 +107,8 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         this.repairJobStartTime = System.currentTimeMillis();
 
         ListenableFuture<Object> paxosRepair;
-        if ((Paxos.useApplePaxos() && session.repairPaxos) || session.paxosOnly)
+        if (session.repairPaxos || session.paxosOnly)
         {
-            logger.info("{} {}.{} starting paxos repair", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
             CFMetaData cfm = Schema.instance.getCFMetaData(desc.keyspace, desc.columnFamily);
             ListenableFuture<UUID> cleanupPrepare = PaxosPrepareCleanup.prepare(session.endpoints);
             paxosRepair = Futures.transform(cleanupPrepare, (AsyncFunction<UUID, Object>) highBallot -> {
@@ -121,12 +119,12 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         }
         else
         {
-            logger.info("{} {}.{} not running paxos repair", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
             paxosRepair = Futures.immediateFuture(new Object());
         }
 
         if (session.paxosOnly)
         {
+
             Futures.addCallback(paxosRepair, new FutureCallback<Object>()
             {
                 public void onSuccess(Object o)
