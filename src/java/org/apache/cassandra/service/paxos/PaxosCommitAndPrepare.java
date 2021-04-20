@@ -31,7 +31,6 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.service.paxos.Commit.Agreed;
 import org.apache.cassandra.tracing.Tracing;
 
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ;
@@ -44,7 +43,7 @@ public class PaxosCommitAndPrepare
 {
     public static final RequestSerializer requestSerializer = new RequestSerializer();
 
-    static PaxosPrepare commitAndPrepare(Agreed commit, Paxos.Participants participants, SinglePartitionReadCommand readCommand, boolean tryOptimisticRead)
+    static PaxosPrepare commitAndPrepare(Commit commit, Paxos.Participants participants, SinglePartitionReadCommand readCommand, boolean tryOptimisticRead)
     {
         UUID ballot = newBallot(commit.ballot, participants.consistencyForConsensus);
         Request request = new Request(commit, ballot, participants.electorate, readCommand, tryOptimisticRead);
@@ -58,15 +57,15 @@ public class PaxosCommitAndPrepare
 
     private static class Request extends PaxosPrepare.AbstractRequest<Request>
     {
-        final Agreed commit;
+        final Commit commit;
 
-        Request(Agreed commit, UUID ballot, Paxos.Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability)
+        Request(Commit commit, UUID ballot, Paxos.Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability)
         {
             super(ballot, electorate, read, checkProposalStability);
             this.commit = commit;
         }
 
-        private Request(Agreed commit, UUID ballot, Paxos.Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability)
+        private Request(Commit commit, UUID ballot, Paxos.Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability)
         {
             super(ballot, electorate, partitionKey, metadata, checkProposalStability);
             this.commit = commit;
@@ -79,18 +78,19 @@ public class PaxosCommitAndPrepare
 
         public String toString()
         {
-            return commit.toString("CommitAndPrepare(") + ", " + Ballot.toString(ballot) + ')';
+            return "CommitAndPrepare((" + commit.ballot + ", " + commit.update + "), " + ballot + ')';
         }
     }
 
-    public static class RequestSerializer extends PaxosPrepare.AbstractRequestSerializer<Request, Agreed>
+    public static class RequestSerializer extends PaxosPrepare.AbstractRequestSerializer<Request, Commit>
     {
-        Request construct(Agreed param, UUID ballot, Paxos.Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability)
+
+        Request construct(Commit param, UUID ballot, Paxos.Electorate electorate, SinglePartitionReadCommand read, boolean checkProposalStability)
         {
             return new Request(param, ballot, electorate, read, checkProposalStability);
         }
 
-        Request construct(Agreed param, UUID ballot, Paxos.Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability)
+        Request construct(Commit param, UUID ballot, Paxos.Electorate electorate, DecoratedKey partitionKey, CFMetaData metadata, boolean checkProposalStability)
         {
             return new Request(param, ballot, electorate, partitionKey, metadata, checkProposalStability);
         }
@@ -98,21 +98,21 @@ public class PaxosCommitAndPrepare
         @Override
         public void serialize(Request request, DataOutputPlus out, int version) throws IOException
         {
-            Agreed.serializer.serialize(request.commit, out, version);
+            Commit.serializer.serialize(request.commit, out, version);
             super.serialize(request, out, version);
         }
 
         @Override
         public Request deserialize(DataInputPlus in, int version) throws IOException
         {
-            Agreed committed = Agreed.serializer.deserialize(in, version);
-            return deserialize(committed, in, version);
+            Commit commit = Commit.serializer.deserialize(in, version);
+            return deserialize(commit, in, version);
         }
 
         @Override
         public long serializedSize(Request request, int version)
         {
-            return Agreed.serializer.serializedSize(request.commit, version)
+            return Commit.serializer.serializedSize(request.commit, version)
                     + super.serializedSize(request, version);
         }
     }

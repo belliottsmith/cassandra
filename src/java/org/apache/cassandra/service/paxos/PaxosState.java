@@ -23,72 +23,63 @@ package org.apache.cassandra.service.paxos;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-
 import com.google.common.util.concurrent.Striped;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
-import org.apache.cassandra.service.paxos.Commit.Accepted;
-import org.apache.cassandra.service.paxos.Commit.Committed;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.UUIDGen;
 
-import static org.apache.cassandra.service.paxos.Commit.hasSameBallot;
+import static org.apache.cassandra.service.paxos.Commit.emptyBallot;
 import static org.apache.cassandra.service.paxos.Commit.isAfter;
 
 public class PaxosState
 {
     private static final Striped<Lock> LOCKS = Striped.lazyWeakLock(DatabaseDescriptor.getConcurrentWriters() * 1024);
 
-    @Nonnull final UUID promised;
-    @Nullable final Accepted accepted; // if already committed, this will be null
-    @Nonnull final Committed committed;
+    final UUID promised;
+    final Commit accepted;
+    final Commit committed;
 
-    public @Nonnull UUID latestWitnessed()
+    public static PaxosState empty(DecoratedKey key, CFMetaData metadata)
     {
-        Commit proposal = accepted == null ? committed : accepted;
-        // if proposal has same timestamp as promised, we should prefer accepted since (if different) it reached a quorum of promises
-        return proposal.isBefore(promised) ? promised : proposal.ballot;
+        Commit empty = Commit.emptyCommit(key, metadata);
+        return new PaxosState(empty.ballot, empty, empty);
     }
 
-    public PaxosState(UUID promised, Accepted accepted, Committed committed)
+    public PaxosState(UUID promised, Commit accepted, Commit committed)
     {
-        assert accepted == null || accepted.update.partitionKey().equals(committed.update.partitionKey());
-        assert accepted == null || accepted.update.metadata().equals(committed.update.metadata());
+        assert accepted.update.partitionKey().equals(committed.update.partitionKey());
+        assert accepted.update.metadata().equals(committed.update.metadata());
 
         this.promised = promised;
         this.accepted = accepted;
         this.committed = committed;
     }
 
+    public static PrepareResponse legacyPrepare(Commit toPrepare)
+    {
+        PromiseResult result = promiseIfNewer(toPrepare.update.partitionKey(), toPrepare.update.metadata(), toPrepare.ballot);
+        if (result.isPromised())
+            return new PrepareResponse(true, result.accepted, result.committed);
+        else
+            return new PrepareResponse(false, Commit.newPrepare(toPrepare.update.partitionKey(), toPrepare.update.metadata(), result.promised), result.committed);
+    }
+
     public static class PromiseResult extends PaxosState
     {
-        final UUID prevPromised;
-        final UUID supersededBy;
+        final UUID previousPromised;
 
-        public PromiseResult(PaxosState previous, UUID promised, UUID supersededBy)
+        public PromiseResult(PaxosState previous, UUID promised)
         {
             super(promised, previous.accepted, previous.committed);
-            this.prevPromised = previous.promised;
-            this.supersededBy = supersededBy;
+            this.previousPromised = previous.promised;
         }
 
         public boolean isPromised()
         {
-            return supersededBy == null;
-        }
-
-        static PromiseResult promised(PaxosState previous, UUID promised)
-        {
-            return new PromiseResult(previous, promised, null);
-        }
-
-        static PromiseResult rejected(PaxosState previous, UUID supersededBy)
-        {
-            return new PromiseResult(previous, previous.promised, supersededBy);
+            return previousPromised != promised;
         }
     }
 
@@ -111,20 +102,20 @@ public class PaxosState
                 // amount of re-submit will fix this (because the node on which the commit has expired will have a
                 // tombstone that hides any re-submit). See CASSANDRA-12043 for details.
                 int nowInSec = UUIDGen.unixTimestampInSec(ballot);
-                PaxosState state = SystemKeyspace.loadPaxosState(key, metadata, nowInSec, true);
+                PaxosState state = SystemKeyspace.loadPaxosState(key, metadata, nowInSec);
                 // state.promised can be null, because it is invalidated by committed;
                 // we may also have accepted a newer proposal than we promised, so we confirm that we are the absolute newest
-                UUID latest = state.latestWitnessed();
-                if (isAfter(ballot, latest))
+                if (isAfter(ballot, state.promised) && isAfter(ballot, state.accepted) && isAfter(ballot, state.committed))
                 {
                     Tracing.trace("Promising ballot {}", ballot);
                     SystemKeyspace.savePaxosPromise(key, metadata, ballot);
-                    return PromiseResult.promised(state, ballot);
+                    return new PromiseResult(state, ballot);
                 }
                 else
                 {
-                    Tracing.trace("Promise rejected; {} is not sufficiently newer than {}", ballot, latest);
-                    return PromiseResult.rejected(state, latest);
+                    Tracing.trace("Promise rejected; {} is not sufficiently newer than {}", ballot, state.promised);
+                    // return the currently promised ballot (not the last accepted one) so the coordinator can make sure it uses newer ballot next time (#5667)
+                    return new PromiseResult(state, state.promised);
                 }
             }
             finally
@@ -140,7 +131,7 @@ public class PaxosState
 
     static PaxosState read(DecoratedKey partitionKey, CFMetaData metadata, int nowInSec)
     {
-        return SystemKeyspace.loadPaxosState(partitionKey, metadata, nowInSec, true);
+        return SystemKeyspace.loadPaxosState(partitionKey, metadata, nowInSec);
     }
 
     /**
@@ -156,15 +147,11 @@ public class PaxosState
             try
             {
                 int nowInSec = UUIDGen.unixTimestampInSec(proposal.ballot);
-                PaxosState state = SystemKeyspace.loadPaxosState(proposal.update.partitionKey(), proposal.update.metadata(), nowInSec, true);
+                PaxosState state = SystemKeyspace.loadPaxosState(proposal.update.partitionKey(), proposal.update.metadata(), nowInSec);
                 // state.promised can be null, because it is invalidated by committed;
                 // we may also have accepted a newer proposal than we promised, so we confirm that we are the absolute newest
                 // (or that we have the exact same ballot as our promise, which is the typical case)
-                UUID latest;
-                if (proposal.hasBallot(state.promised)
-                        || hasSameBallot(state.accepted, proposal)  // PaxosRepair may re-propose the same commit to reach a majority
-                        || proposal.isAfter(latest = state.latestWitnessed())
-                        )
+                if ((proposal.hasBallot(state.promised) || proposal.isAfter(state.promised)) && proposal.isAfter(state.accepted) && proposal.isAfter(state.committed))
                 {
                     Tracing.trace("Accepting proposal {}", proposal);
                     SystemKeyspace.savePaxosProposal(proposal);
@@ -172,8 +159,8 @@ public class PaxosState
                 }
                 else
                 {
-                    Tracing.trace("Rejecting proposal for {} because latest is now {}", proposal, latest);
-                    return latest;
+                    Tracing.trace("Rejecting proposal for {} because inProgress is now {}", proposal, state.promised);
+                    return state.promised;
                 }
             }
             finally
@@ -217,81 +204,4 @@ public class PaxosState
             Keyspace.open(proposal.update.metadata().ksName).getColumnFamilyStore(proposal.update.metadata().cfId).metric.casCommit.addNano(System.nanoTime() - start);
         }
     }
-
-    public static PrepareResponse legacyPrepare(Commit toPrepare)
-    {
-        long start = System.nanoTime();
-        try
-        {
-            Lock lock = LOCKS.get(toPrepare.update.partitionKey());
-            lock.lock();
-            try
-            {
-                // When preparing, we need to use the same time as "now" (that's the time we use to decide if something
-                // is expired or not) accross nodes otherwise we may have a window where a Most Recent Commit shows up
-                // on some replica and not others during a new proposal (in StorageProxy.beginAndRepairPaxos()), and no
-                // amount of re-submit will fix this (because the node on which the commit has expired will have a
-                // tombstone that hides any re-submit). See CASSANDRA-12043 for details.
-                int nowInSec = UUIDGen.unixTimestampInSec(toPrepare.ballot);
-                PaxosState state = SystemKeyspace.loadPaxosState(toPrepare.update.partitionKey(), toPrepare.update.metadata(), nowInSec, false);
-                assert state.accepted != null;
-                if (toPrepare.isAfter(state.promised))
-                {
-                    Tracing.trace("Promising ballot {}", toPrepare.ballot);
-                    SystemKeyspace.savePaxosPromise(toPrepare.update.partitionKey(), toPrepare.update.metadata(), toPrepare.ballot);
-                    return new PrepareResponse(true, state.accepted, state.committed);
-                }
-                else
-                {
-                    Tracing.trace("Promise rejected; {} is not sufficiently newer than {}", toPrepare, state.promised);
-                    // return the currently promised ballot (not the last accepted one) so the coordinator can make sure it uses newer ballot next time (#5667)
-                    return new PrepareResponse(false, new Commit(state.promised, toPrepare.update), state.committed);
-                }
-            }
-            finally
-            {
-                lock.unlock();
-            }
-        }
-        finally
-        {
-            Keyspace.open(toPrepare.update.metadata().ksName).getColumnFamilyStore(toPrepare.update.metadata().cfId).metric.casPrepare.addNano(System.nanoTime() - start);
-        }
-
-    }
-
-    public static Boolean legacyPropose(Commit proposal)
-    {
-        long start = System.nanoTime();
-        try
-        {
-            Lock lock = LOCKS.get(proposal.update.partitionKey());
-            lock.lock();
-            try
-            {
-                int nowInSec = UUIDGen.unixTimestampInSec(proposal.ballot);
-                PaxosState state = SystemKeyspace.loadPaxosState(proposal.update.partitionKey(), proposal.update.metadata(), nowInSec, false);
-                if (proposal.hasBallot(state.promised) || proposal.isAfter(state.promised))
-                {
-                    Tracing.trace("Accepting proposal {}", proposal);
-                    SystemKeyspace.savePaxosProposal(proposal);
-                    return true;
-                }
-                else
-                {
-                    Tracing.trace("Rejecting proposal for {} because inProgress is now {}", proposal, state.promised);
-                    return false;
-                }
-            }
-            finally
-            {
-                lock.unlock();
-            }
-        }
-        finally
-        {
-            Keyspace.open(proposal.update.metadata().ksName).getColumnFamilyStore(proposal.update.metadata().cfId).metric.casPropose.addNano(System.nanoTime() - start);
-        }
-    }
-
 }

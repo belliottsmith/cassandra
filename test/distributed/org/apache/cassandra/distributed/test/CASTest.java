@@ -27,7 +27,6 @@ import java.util.function.Consumer;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
-import org.apache.cassandra.service.paxos.ContentionStrategy;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
@@ -534,7 +533,6 @@ public class CASTest extends CASCommonTestCases
     }
 
     // TODO: RF changes
-    // TODO: Aborted range movements
     // TODO: Leaving ring
 
     static void consistencyAfterWriteTimeoutTest(BiConsumer<String, ICoordinator> postTimeoutOperation1, BiConsumer<String, ICoordinator> postTimeoutOperation2, boolean loseCommitOfOperation1, Cluster cluster)

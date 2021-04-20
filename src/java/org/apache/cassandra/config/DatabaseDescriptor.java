@@ -1440,11 +1440,6 @@ public class DatabaseDescriptor
             case HINT:
             case BATCH_STORE:
             case BATCH_REMOVE:
-            case APPLE_PAXOS_PREPARE_REQ:
-            case APPLE_PAXOS_PREPARE_REFRESH_REQ:
-            case APPLE_PAXOS_PROPOSE_REQ:
-            case APPLE_PAXOS_COMMIT_AND_PREPARE_REQ:
-            case APPLE_PAXOS_REPAIR_REQ:
                 return getWriteRpcTimeout();
             case COUNTER_MUTATION:
                 return getCounterWriteRpcTimeout();

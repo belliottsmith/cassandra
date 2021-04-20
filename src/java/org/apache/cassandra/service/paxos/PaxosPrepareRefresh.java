@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,7 +39,6 @@ import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageProxy;
-import org.apache.cassandra.service.paxos.Commit.Committed;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDGen;
@@ -74,7 +75,7 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
     private final MessageOut<Request> send;
     private final Callbacks callbacks;
 
-    public PaxosPrepareRefresh(UUID prepared, Committed latestCommitted, Callbacks callbacks)
+    public PaxosPrepareRefresh(UUID prepared, Commit latestCommitted, Callbacks callbacks)
     {
         this.callbacks = callbacks;
         this.send = new MessageOut<>(APPLE_PAXOS_PREPARE_REFRESH_REQ, new Request(prepared, latestCommitted), requestSerializer);
@@ -86,13 +87,8 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
         for (int i = 0, size = refresh.size(); i < size ; ++i)
         {
             InetAddress destination = refresh.get(i);
-
-            if (logger.isTraceEnabled())
-                logger.trace("Refresh {} and Confirm {} to {}", send.payload.missingCommit, Ballot.toString(send.payload.promised, "Promise"), destination);
-
-            if (Tracing.isTracing())
-                Tracing.trace("Refresh {} and Confirm {} to {}", send.payload.missingCommit.ballot, send.payload.promised, destination);
-
+            logger.trace("Refresh {} and Confirm {} to {}", send.payload.missingCommit.ballot, send.payload.promised, destination);
+            Tracing.trace("Refresh {} and Confirm {} to {}", send.payload.missingCommit.ballot, send.payload.promised, destination);
             if (StorageProxy.canDoLocalRequest(destination))
                 executeOnSelf = true;
             else
@@ -151,9 +147,9 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
     private static class Request
     {
         final UUID promised;
-        final Committed missingCommit;
+        final Commit missingCommit;
 
-        Request(UUID promised, Committed missingCommit)
+        Request(UUID promised, Commit missingCommit)
         {
             this.promised = promised;
             this.missingCommit = missingCommit;
@@ -189,13 +185,12 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
                 return null;
 
             PaxosState.commit(commit);
-            PaxosState current = PaxosState.read(commit.update.partitionKey(), commit.update.metadata(), UUIDGen.unixTimestampInSec(commit.ballot));
+            PaxosState currentPaxosState = PaxosState.read(commit.update.partitionKey(), commit.update.metadata(), UUIDGen.unixTimestampInSec(commit.ballot));
 
-            UUID latest = current.latestWitnessed();
-            if (isAfter(latest, request.promised))
+            if (isAfter(currentPaxosState.promised, request.promised))
             {
-                Tracing.trace("Promise {} rescinded; latest is now {}", request.promised, latest);
-                return new Response(latest);
+                Tracing.trace("Promise rescinded; {} is now older than {}", request.promised, currentPaxosState.promised);
+                return new Response(currentPaxosState.promised);
             }
             else
             {
@@ -211,14 +206,14 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
         public void serialize(Request request, DataOutputPlus out, int version) throws IOException
         {
             UUIDSerializer.serializer.serialize(request.promised, out, version);
-            Committed.serializer.serialize(request.missingCommit, out, version);
+            Commit.serializer.serialize(request.missingCommit, out, version);
         }
 
         @Override
         public Request deserialize(DataInputPlus in, int version) throws IOException
         {
             UUID promise = UUIDSerializer.serializer.deserialize(in, version);
-            Committed missingCommit = Committed.serializer.deserialize(in, version);
+            Commit missingCommit = Commit.serializer.deserialize(in, version);
             return new Request(promise, missingCommit);
         }
 
@@ -226,7 +221,7 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
         public long serializedSize(Request request, int version)
         {
             return UUIDSerializer.serializer.serializedSize(request.promised, version)
-                    + Committed.serializer.serializedSize(request.missingCommit, version);
+                    + Commit.serializer.serializedSize(request.missingCommit, version);
         }
     }
 

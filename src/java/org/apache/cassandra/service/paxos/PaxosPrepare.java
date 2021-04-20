@@ -53,7 +53,6 @@ import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.PendingRangeCalculatorService;
-import org.apache.cassandra.service.paxos.PaxosPrepare.Status.Outcome;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDSerializer;
@@ -63,9 +62,10 @@ import static org.apache.cassandra.net.CompactEndpointSerializationHelper.*;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ;
 import static org.apache.cassandra.net.MessagingService.current_version;
 import static org.apache.cassandra.net.MessagingService.verbStages;
-import static org.apache.cassandra.service.paxos.Commit.*;
+import static org.apache.cassandra.service.paxos.Commit.emptyBallot;
+import static org.apache.cassandra.service.paxos.Commit.isAfter;
 import static org.apache.cassandra.service.paxos.Paxos.*;
-import static org.apache.cassandra.service.paxos.PaxosPrepare.Status.Outcome.*;
+import static org.apache.cassandra.service.paxos.Paxos.newBallot;
 import static org.apache.cassandra.utils.CollectionSerializer.deserializeMap;
 import static org.apache.cassandra.utils.CollectionSerializer.newHashMap;
 import static org.apache.cassandra.utils.CollectionSerializer.serializeMap;
@@ -109,7 +109,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
      */
     static class Status
     {
-        enum Outcome { SUCCESS, SUPERSEDED, FOUND_INCOMPLETE_ACCEPTED, FOUND_INCOMPLETE_COMMITTED, MAYBE_FAILURE, ELECTORATE_MISMATCH }
+        enum Outcome { SUCCESS, SUPERSEDED, FOUND_IN_PROGRESS, MAYBE_FAILURE, ELECTORATE_MISMATCH }
 
         final Outcome outcome;
         final Participants participants;
@@ -122,8 +122,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         UUID supersededBy() { return ((Superseded) this).by; }
         UUID previousBallot() { return ((ElectorateMismatch) this).ballot; }
         Success success() { return (Success) this; }
-        FoundIncompleteAccepted incompleteAccepted() { return (FoundIncompleteAccepted) this; }
-        FoundIncompleteCommitted incompleteCommitted() { return (FoundIncompleteCommitted) this; }
+        FoundInProgress foundInProgress() { return (FoundInProgress) this; }
         Paxos.MaybeFailure maybeFailure() { return ((MaybeFailure) this).info; }
     }
 
@@ -135,7 +134,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
         Success(UUID ballot, Participants participants, List<MessageIn<ReadResponse>> responses, boolean isReadConsistent)
         {
-            super(SUCCESS, participants);
+            super(Outcome.SUCCESS, participants);
             this.ballot = ballot;
             this.responses = responses;
             this.isReadConsistent = isReadConsistent;
@@ -153,24 +152,11 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
         Superseded(UUID by, Participants participants)
         {
-            super(SUPERSEDED, participants);
+            super(Outcome.SUPERSEDED, participants);
             this.by = by;
         }
 
         public String toString() { return "Superseded(" + by + ')'; }
-    }
-
-    static class FoundIncomplete extends Status
-    {
-        final UUID promisedBallot;
-        final Participants participants;
-
-        private FoundIncomplete(Outcome outcome, UUID promisedBallot, Participants participants)
-        {
-            super(outcome, participants);
-            this.promisedBallot = promisedBallot;
-            this.participants = participants;
-        }
     }
 
     /**
@@ -178,46 +164,25 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
      * (though may have been accepted by a majority; we don't know).
      * In this case we cannot readily know if we have prevented this proposal from being completed, so we attempt
      * to finish it ourselves (unfortunately leaving the proposer to timeout, given the current semantics)
+     * TODO: we should inform the proposer of our completion of their request
      * TODO: we should consider waiting for more responses in case we encounter any successful commit, or a majority
      *       of acceptors?
      */
-    static class FoundIncompleteAccepted extends FoundIncomplete
+    static class FoundInProgress extends Status
     {
-        final Accepted accepted;
+        final UUID promisedBallot;
+        final Participants participants;
+        final Commit partiallyAcceptedProposal;
 
-        private FoundIncompleteAccepted(UUID promisedBallot, Participants participants, Accepted accepted)
+        private FoundInProgress(UUID promisedBallot, Participants participants, Commit partiallyAcceptedProposal)
         {
-            super(FOUND_INCOMPLETE_ACCEPTED, promisedBallot, participants);
-            this.accepted = accepted;
+            super(Outcome.FOUND_IN_PROGRESS, participants);
+            this.promisedBallot = promisedBallot;
+            this.participants = participants;
+            this.partiallyAcceptedProposal = partiallyAcceptedProposal;
         }
 
-        public String toString()
-        {
-            return "FoundIncomplete" + accepted;
-        }
-    }
-
-    /**
-     * We have been informed of a proposal that was accepted by a majority, but we do not know has been
-     * committed to a majority, and we failed to read from a single natural replica that had witnessed this
-     * commit when we performed the read.
-     * Since this is an edge case, we simply start again, to keep the control flow more easily understood;
-     * the commit shouldld be committed to a majority as part of our re-prepare.
-     */
-    static class FoundIncompleteCommitted extends FoundIncomplete
-    {
-        final Committed committed;
-
-        private FoundIncompleteCommitted(UUID promisedBallot, Participants participants, Committed committed)
-        {
-            super(FOUND_INCOMPLETE_COMMITTED, promisedBallot, participants);
-            this.committed = committed;
-        }
-
-        public String toString()
-        {
-            return "FoundIncomplete" + committed;
-        }
+        public String toString() { return "FoundInProgress(" + partiallyAcceptedProposal.ballot + ')'; }
     }
 
     static class MaybeFailure extends Status
@@ -225,7 +190,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         final Paxos.MaybeFailure info;
         private MaybeFailure(Paxos.MaybeFailure info, Participants participants)
         {
-            super(MAYBE_FAILURE, participants);
+            super(Outcome.MAYBE_FAILURE, participants);
             this.info = info;
         }
 
@@ -237,27 +202,27 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         final UUID ballot;
         private ElectorateMismatch(Participants participants, UUID ballot)
         {
-            super(ELECTORATE_MISMATCH, participants);
+            super(Outcome.ELECTORATE_MISMATCH, participants);
             this.ballot = ballot;
         }
     }
 
     private final AbstractRequest<?> request;
     private UUID supersededBy; // cannot be promised, as a newer promise has been made
-    private Accepted latestAccepted; // the latest latestAcceptedButNotCommitted response we have received (which may still have been committed elsewhere)
-    private Committed latestCommitted; // latest actually committed proposal
+    private boolean electorateMismatch; // cannot be promised, a participant has a different view of the electorate
+    private Commit latestAccepted; // the latest latestAcceptedButNotCommitted response we have received (which may still have been committed elsewhere)
+    private Commit latestCommitted; // latest actually committed proposal
 
-    private final Participants participants;
+    private final Participants participants; // may be modified _only_ until we receive a quorum of promises
 
     private final List<MessageIn<ReadResponse>> readResponses;
-    private boolean haveReadResponseWithLatest;
     private boolean haveQuorumOfPromises;
     private List<InetAddress> withLatest; // promised and have latest commit
     private List<InetAddress> needLatest; // promised without having witnessed latest commit, nor yet been refreshed by us
     private List<InetAddress> failures; // failed either on initial request or on refresh
     private boolean hadProposalStability = true; // no successful proposal could have raced with us and not been seen
 
-    private Outcome outcome;
+    private boolean isDone;
     private final Consumer<Status> onDone;
 
     private PaxosPrepareRefresh refreshStaleParticipants;
@@ -269,12 +234,16 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         this.request = request;
         this.readResponses = new ArrayList<>(participants.requiredForConsensus);
         this.withLatest = new ArrayList<>(participants.requiredForConsensus);
-        this.latestAccepted = Accepted.none(request.partitionKey, request.metadata);
-        this.latestCommitted = Committed.none(request.partitionKey, request.metadata);
+        this.latestCommitted = this.latestAccepted = Commit.emptyCommit(request.partitionKey, request.metadata);
         this.onDone = onDone;
     }
 
-    private boolean hasInProgressProposal()
+    private boolean isSuperseded()
+    {
+        return supersededBy != null;
+    }
+
+    private boolean hasInProgressCommit()
     {
         // no need to commit a no-op; either it
         //   1) reached a majority, in which case it was agreed, had no effect and we can do nothing; or
@@ -282,12 +251,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         if (latestAccepted.update.isEmpty())
             return false;
 
-        // If we aren't newer than latestCommitted, then we're done
-        if (!latestAccepted.isAfter(latestCommitted))
-            return false;
-
-        // We can be a re-proposal of latestCommitted, in which case we do not need to re-propose it
-        return !latestAccepted.isReproposalOf(latestCommitted);
+        return latestAccepted.isAfter(latestCommitted);
     }
 
     static PaxosPrepare prepare(UUID minimumBallot, Participants participants, SinglePartitionReadCommand readCommand, boolean tryOptimisticRead) throws UnavailableException
@@ -323,10 +287,11 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
      */
     static <R extends AbstractRequest<R>> void start(PaxosPrepare prepare, Participants participants, MessageOut<R> send, BiFunction<R, InetAddress, Response> selfHandler)
     {
+        List<InetAddress> contact = participants.poll;
         boolean executeOnSelf = false;
-        for (int i = 0, size = participants.sizeOfPoll() ; i < size ; ++i)
+        for (int i = 0, size = contact.size() ; i < size ; ++i)
         {
-            InetAddress destination = participants.electorateToPoll.get(i);
+            InetAddress destination = contact.get(i);
             boolean isPending = participants.electorate.isPending(destination);
             logger.trace("{} to {}", send.payload, destination);
             if (canExecuteOnSelf(destination))
@@ -344,22 +309,16 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         try
         {
             //noinspection StatementWithEmptyBody
-            while (!isDone() && WAIT.waitUntil(this, deadline)) {}
+            while (!isDone && WAIT.waitUntil(this, deadline)) {}
 
-            // TODO: should we explicitly mark ourselves as outcome=MAYBE_FAILURE when we timeout?
             return status();
         }
         catch (InterruptedException e)
         {
             // can only normally be interrupted if the system is shutting down; should rethrow as a write failure but propagate the interrupt
             Thread.currentThread().interrupt();
-            return new MaybeFailure(new Paxos.MaybeFailure(true, participants.sizeOfPoll(), participants.requiredForConsensus, 0, 0), participants);
+            return new MaybeFailure(new Paxos.MaybeFailure(true, participants.poll.size(), participants.requiredForConsensus, 0, 0), participants);
         }
-    }
-
-    private boolean isDone()
-    {
-        return outcome != null;
     }
 
     /**
@@ -367,27 +326,27 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
      */
     private synchronized Status status()
     {
-        Outcome outcome = this.outcome;
-        if (outcome == null)
-            outcome = MAYBE_FAILURE;
+        if (electorateMismatch)
+            return new ElectorateMismatch(participants, request.ballot);
 
-        switch (outcome)
+        if (isSuperseded())
+            return new Superseded(supersededBy, participants);
+
+        if (haveQuorumOfPromises)
         {
-            case ELECTORATE_MISMATCH:
-                return new ElectorateMismatch(participants, request.ballot);
-            case SUPERSEDED:
-                return new Superseded(supersededBy, participants);
-            case FOUND_INCOMPLETE_ACCEPTED:
-                return new FoundIncompleteAccepted(request.ballot, participants, latestAccepted);
-            case FOUND_INCOMPLETE_COMMITTED:
-                return new FoundIncompleteCommitted(request.ballot, participants, latestCommitted);
-            case SUCCESS:
+            // We must be certain to have witnessed a quorum of promises before completing any in-progress commit
+            // else we may complete a stale proposal that did not reach a quorum (and may do so in preference
+            // to a different in progress proposal that did reach a quorum)
+            if (hasInProgressCommit())
+                return new FoundInProgress(request.ballot, participants, latestAccepted);
+
+            // we can only return success if we have received sufficient promises AND we know that at least that many
+            // nodes have also committed the prior proposal
+            if (withLatest() >= participants.requiredForConsensus)
                 return new Success(request.ballot, participants, readResponses, hadProposalStability);
-            case MAYBE_FAILURE:
-                return new MaybeFailure(new Paxos.MaybeFailure(participants, withLatest(), failures()), participants);
-            default:
-                throw new IllegalStateException();
         }
+
+        return new MaybeFailure(new Paxos.MaybeFailure(participants, withLatest(), failures()), participants);
     }
 
     private int withLatest()
@@ -448,29 +407,24 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
     private synchronized void response(Response response, InetAddress from)
     {
-        if (logger.isTraceEnabled())
-            logger.trace("{} for {} from {}", response, request.ballot, from);
+        logger.trace("{} for {} from {}", response, request.ballot, from);
 
-        if (isDone())
+        if (isDone)
             return;
 
         if (!response.isPromised)
         {
             Rejected rejected = response.rejected();
             supersededBy = rejected.supersededBy;
-            signalDone(SUPERSEDED);
+            signalDone();
             return;
         }
 
         Promised promised = response.promised();
-        if (promised.gossipInfo.isEmpty())
-            // we agree about the electorate, so can simply accept the prommise
+        if (!needsGossipUpdate(promised.gossipInfo))
             promise(promised, from);
-        else if (!needsGossipUpdate(promised.gossipInfo))
-            // our gossip is up-to-date, but our original electroate could have been built with stale gossip, so verify it
-            promiseOrTerminateIfElectorateMismatch(promised, from);
         else
-            // otherwise our beliefs about the ring potentially diverge, so update gossip with the peer's information
+            // otherwise the peer has divergent beliefs about the ring, so update with the information provided by the peer
             Gossiper.runInGossipStageAsync(() -> {
                 Gossiper.instance.notifyFailureDetector(promised.gossipInfo);
                 Gossiper.instance.applyStateLocally(promised.gossipInfo);
@@ -480,19 +434,17 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
                 //       Note it would be fine for us to fail to complete the migration task and simply treat this response as a failure/timeout.
 
                 // once any pending ranges have been calculated, refresh our Participants list and submit the promise
-                PendingRangeCalculatorService.instance.executeWhenFinished(() -> promiseOrTerminateIfElectorateMismatch(promised, from));
+                PendingRangeCalculatorService.instance.executeWhenFinished(() -> promiseOrTerminateAfterGossipUpdate(promised, from));
             });
     }
 
-    private synchronized void promiseOrTerminateIfElectorateMismatch(Promised promised, InetAddress from)
+    private synchronized void promiseOrTerminateAfterGossipUpdate(Promised promised, InetAddress from)
     {
-        if (isDone()) // this execution is asynchronous wrt promise arrival, so must recheck done status
-            return;
-
         // if the electorate has changed, finish so we can retry with the updated view of the ring
         if (!Electorate.get(request.metadata, request.partitionKey, decodeConsistency(request.ballot)).equals(participants.electorate))
         {
-            signalDone(ELECTORATE_MISMATCH);
+            electorateMismatch = true;
+            signalDone();
             return;
         }
 
@@ -502,133 +454,70 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
     private void promise(Promised promised, InetAddress from)
     {
-        if (!haveQuorumOfPromises)
+        hadProposalStability &= promised.hadProposalStability;
+        if (promised.latestCommitted.hasSameBallot(latestCommitted))
         {
-            CompareResult compareLatest = promised.latestCommitted.compareWith(latestCommitted);
-            switch (compareLatest)
+            withLatest.add(from);
+        }
+        else if (!haveQuorumOfPromises && promised.latestCommitted.isAfter(latestCommitted))
+        {
+            // move with->withoutMostRecent
+            if (!withLatest.isEmpty())
             {
-                default: throw new IllegalStateException();
-                case IS_REPROPOSAL:
-                    latestCommitted = promised.latestCommitted;
-                case WAS_REPROPOSED_BY:
-                case SAME:
-                    withLatest.add(from);
-                    haveReadResponseWithLatest |= promised.readResponse != null;
-                    break;
-                case BEFORE:
-                    if (needLatest == null)
-                        needLatest = new ArrayList<>(participants.sizeOfPoll() - withLatest.size());
-                    needLatest.add(from);
-                    break;
-                case AFTER:
-                    // move with->need
-                    if (!withLatest.isEmpty())
-                    {
-                        if (needLatest == null)
-                        {
-                            needLatest = withLatest;
-                            withLatest = new ArrayList<>(Math.min(participants.sizeOfPoll() - needLatest.size(), participants.requiredForConsensus));
-                        }
-                        else
-                        {
-                            List<InetAddress> tmp = needLatest;
-                            needLatest = withLatest;
-                            withLatest = tmp;
-                            withLatest.clear();
-                        }
-                    }
-
-                    withLatest.add(from);
-                    haveReadResponseWithLatest = promised.readResponse != null;
-                    latestCommitted = promised.latestCommitted;
+                if (needLatest == null)
+                {
+                    needLatest = withLatest;
+                    withLatest = new ArrayList<>(Math.min(participants.poll.size() - needLatest.size(), participants.requiredForConsensus));
+                }
+                else
+                {
+                    List<InetAddress> tmp = needLatest;
+                    needLatest = withLatest;
+                    withLatest = tmp;
+                    withLatest.clear();
+                }
             }
 
-            if (isAfter(promised.latestAcceptedButNotCommitted, latestAccepted))
-                latestAccepted = promised.latestAcceptedButNotCommitted;
-
-            hadProposalStability &= promised.hadProposalStability;
-            if (promised.readResponse != null)
-                addReadResponse(promised.readResponse, from);
+            withLatest.add(from);
+            latestCommitted = promised.latestCommitted;
         }
         else
         {
-            switch (promised.latestCommitted.compareWith(latestCommitted))
+            if (haveQuorumOfPromises)
             {
-                default: throw new IllegalStateException();
-                case SAME:
-                case IS_REPROPOSAL:
-                case WAS_REPROPOSED_BY:
-                    withLatest.add(from);
-                    break;
-                case AFTER:
-                    if (!(promised.latestCommitted.hasSameBallot(latestAccepted)
-                            || (latestAccepted != null && latestAccepted.update.isEmpty() && latestAccepted.isAfter(promised.latestCommitted))))
-                    {
-                        // if we witness a newer commit AND are accepted, something has gone wrong
-                        // except in race with an ongoing commit, having missed all of them initially
-                        // (or in the case that we have an empty proposal accepted, since that will not be committed);
-                        // in theory in the latter case we could now restart refreshStaleParticipants, but this would
-                        // unnecessarily complicate the logic so instead we accept that we will unnecessarily re-propose
-                        logger.error("Linearizability violation: {} witnessed {} of latest {}({}) (withLatest: {}, readResponses: {}); {} promised with latest {}({})",
-                                request.ballot, decodeConsistency(request.ballot), latestCommitted, latestCommitted.ballot.timestamp(),
-                                withLatest, readResponses
-                                        .stream()
-                                        .map(r -> r.from)
-                                        .map(Object::toString)
-                                        .collect(Collectors.joining(", ", "[", "]")),
-                                from, promised.latestCommitted, promised.latestCommitted.ballot.timestamp());
-                    }
-
-                case BEFORE:
-                    if (needLatest == null)
-                        needLatest = new ArrayList<>(participants.sizeOfPoll() - withLatest.size());
-                    needLatest.add(from);
+                logger.error("Linearizability violation: {} witnessed {} of latest {}({}) (withLatest: {}, readResponses: {}); {} promised with latest {}({})",
+                        request.ballot, decodeConsistency(request.ballot), latestCommitted, latestCommitted.ballot.timestamp(),
+                        withLatest, readResponses
+                                .stream()
+                                .map(r -> r.from)
+                                .map(Object::toString)
+                                .collect(Collectors.joining(", ", "[", "]")),
+                        from, promised.latestCommitted, promised.latestCommitted.ballot.timestamp());
             }
+            // if promised.latestCommitted.isAfter(latestCommitted) we have a consistency violation,
+            // as we should not be able to witness a newer committed after receiving a quorum of responses
+            if (needLatest == null)
+                needLatest = new ArrayList<>(participants.poll.size() - withLatest.size());
+            needLatest.add(from);
         }
+
+        if (isAfter(promised.latestAcceptedButNotCommitted, latestAccepted))
+            latestAccepted = promised.latestAcceptedButNotCommitted;
+
+        if (promised.readResponse != null && !participants.electorate.isPending(from))
+            addReadResponse(promised.readResponse, from);
 
         haveQuorumOfPromises |= withLatest() + needLatest() >= participants.requiredForConsensus;
         if (haveQuorumOfPromises)
         {
             if (request.read != null && readResponses.size() < participants.requiredReads)
-                throw new IllegalStateException("Insufficient read responses: " + readResponses + "; need " + participants.requiredReads);
+                throw new AssertionError("Insufficient read responses: " + readResponses + "; need " + participants.requiredReads);
 
-            // We must be certain to have witnessed a quorum of promises before completing any in-progress proposal
-            // else we may complete a stale proposal that did not reach a quorum (and may do so in preference
-            // to a different in progress proposal that did reach a quorum).
-
-            // We should also be sure to return any in progress proposal in preference to any incompletely committed
-            // earlier commits (since, while we should encounter it next round, any commit that is incomplete in the
-            // presence of an incomplete proposal can be ignored, as either the proposal is a re-proposal of the same
-            // commit or the commit has already reached a quorum
-            if (hasInProgressProposal())
-                signalDone(FOUND_INCOMPLETE_ACCEPTED);
-
-            // If we've reached a quorum of responses that witnessed the latest commmit,
-            // our read response should be correct, as will future readers
-            else if (withLatest() >= participants.requiredForConsensus)
-                signalDone(SUCCESS);
-
-            // otherwise if we have any read response with the latest commit,
-            // try to simply ensure it has been persisted to a consensus group
-            else if (haveReadResponseWithLatest)
+            if (withLatest() < participants.requiredForConsensus)
                 refreshStaleParticipants();
-
-            // otherwise we need to run our reads again anyway,
-            // and the chance of receiving another response with latest may be slim.
-            // so we just start again
             else
-                signalDone(FOUND_INCOMPLETE_COMMITTED);
+                signalDone();
         }
-    }
-
-    /**
-     * Save a read response from a node that we know to have witnessed the most recent commit
-     *
-     * Must be invoked while owning lock
-     */
-    private void addReadResponse(ReadResponse response, InetAddress from)
-    {
-        readResponses.add(MessageIn.create(from, response, Collections.emptyMap(), MessagingService.Verb.REQUEST_RESPONSE, current_version));
     }
 
     @Override
@@ -645,18 +534,17 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
     private synchronized void onFailure(String kind, InetAddress from)
     {
-        if (logger.isTraceEnabled())
-            logger.trace("{} {} from {}", request, kind, from);
+        logger.trace("{} {} from {}", request, kind, from);
 
-        if (isDone())
+        if (isDone)
             return;
 
         if (failures == null)
-            failures = new ArrayList<>(participants.sizeOfPoll() - withLatest());
+            failures = new ArrayList<>(participants.poll.size() - withLatest());
 
         failures.add(from);
-        if (failures() + participants.requiredForConsensus == participants.sizeOfPoll())
-            signalDone(MAYBE_FAILURE);
+        if (failures() + participants.requiredForConsensus == participants.poll.size())
+            signalDone();
     }
 
     @Override
@@ -665,15 +553,23 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         return false;
     }
 
-    private synchronized void signalDone(Outcome outcome)
+    private synchronized void signalDone()
     {
-        if (isDone())
-            throw new IllegalStateException();
-
-        this.outcome = outcome;
+        isDone = true;
         if (onDone != null)
             onDone.accept(status());
         WAIT.notify(this);
+    }
+
+    /**
+     * Save a read response from a node that we know to have witnessed the most recent commit
+     *
+     * Must be invoked while owning lock
+     */
+    private void addReadResponse(ReadResponse response, InetAddress from)
+    {
+        if (readResponses.size() < participants.requiredForConsensus)
+            readResponses.add(MessageIn.create(from, response, Collections.emptyMap(), MessagingService.Verb.REQUEST_RESPONSE, current_version));
     }
 
     /**
@@ -697,22 +593,21 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
 
     public synchronized void onRefreshSuccess(UUID isSupersededBy, InetAddress from)
     {
-        if (logger.isTraceEnabled())
-            logger.trace("Refresh {} from {}", isSupersededBy == null ? "Success" : "SupersededBy(" + isSupersededBy + ')', from);
+        logger.trace("Refresh {} from {}", isSupersededBy == null ? "Success" : "SupersededBy(" + isSupersededBy + ')', from);
 
-        if (isDone())
+        if (isDone)
             return;
 
         if (isSupersededBy != null)
         {
             supersededBy = isSupersededBy;
-            signalDone(SUPERSEDED);
+            signalDone();
         }
         else
         {
             withLatest.add(from);
             if (withLatest.size() >= participants.requiredForConsensus)
-                signalDone(SUCCESS);
+                signalDone();
         }
     }
 
@@ -796,14 +691,14 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
     static class Promised extends Response
     {
         // a proposal that has been accepted but not committed, i.e. must be null or > latestCommit
-        @Nullable final Accepted latestAcceptedButNotCommitted;
-        final Committed latestCommitted;
+        @Nullable final Commit latestAcceptedButNotCommitted;
+        final Commit latestCommitted;
         @Nullable final ReadResponse readResponse;
         // latestAcceptedButNotCommitted and latestCommitted were the same before and after the read occurred, and no incomplete promise was witnessed
         final boolean hadProposalStability;
         final Map<InetAddress, EndpointState> gossipInfo;
 
-        Promised(@Nullable Accepted latestAcceptedButNotCommitted, Committed latestCommitted, @Nullable ReadResponse readResponse, boolean hadProposalStability, Map<InetAddress, EndpointState> gossipInfo)
+        Promised(@Nullable Commit latestAcceptedButNotCommitted, Commit latestCommitted, @Nullable ReadResponse readResponse, boolean hadProposalStability, Map<InetAddress, EndpointState> gossipInfo)
         {
             super(true);
             this.latestAcceptedButNotCommitted = latestAcceptedButNotCommitted;
@@ -871,16 +766,11 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
                 boolean hasProposalStability = false;
                 if (request.checkProposalStability)
                 {
-                    // Simply check we cannot race with a proposal, i.e. that we have not made a promise that
-                    // could be in the process of making a proposal. If a majority of nodes have made no such promise
-                    // then either we must have witnessed it (since it must have been committed), or the proposal
-                    // will now be rejected by our promises.
-                    // This is logicaly complicated a bit by reading from a subset of the consensus group when there are
-                    // pending nodes, however electorate verification we will cause us to retry if the pending status changes
-                    // during execution; otherwise if the most recent commit we witnessed wasn't witnessed by a read response
-                    // we will abort and retry, and we must witness it by the above argument.
-                    hasProposalStability = result.prevPromised == null
-                            || (result.accepted != null && result.accepted.ballot.equals(result.prevPromised) && result.accepted.update.isEmpty());
+                    // simply check we cannot race with a proposal, i.e. that we have not made a promise that
+                    // could be in the process of making a proposal; if a majority of nodes have made no such promise
+                    // then either we must have witnessed it (since it must have been committed), or it cannot happen
+                    hasProposalStability = result.previousPromised == emptyBallot()
+                            || (result.accepted.ballot.equals(result.previousPromised) && result.accepted.update.isEmpty());
                     if (hasProposalStability && request.read != null)
                     {
                         PaxosState after = PaxosState.read(request.partitionKey, request.metadata, request.read.nowInSec());
@@ -888,14 +778,17 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
                     }
                 }
 
-                Accepted acceptedButNotCommitted = result.accepted;
-                Committed committed = result.committed;
+                Commit acceptedButNotCommitted = result.accepted;
+                Commit committed = result.committed;
+                if (!isAfter(acceptedButNotCommitted, committed))
+                    acceptedButNotCommitted = null;
 
-                return new Promised(acceptedButNotCommitted, committed, readResponse, hasProposalStability, gossipInfo);
+                return new Promised(acceptedButNotCommitted, result.committed, readResponse, hasProposalStability, gossipInfo);
             }
             else
             {
-                return new Rejected(result.supersededBy);
+                assert result.promised != null;
+                return new Rejected(result.promised);
             }
         }
     }
@@ -982,8 +875,8 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
                         | (promised.readResponse != null                  ? 4 : 0)
                         | (promised.hadProposalStability                  ? 8 : 0));
                 if (promised.latestAcceptedButNotCommitted != null)
-                    Accepted.serializer.serialize(promised.latestAcceptedButNotCommitted, out, version);
-                Committed.serializer.serialize(promised.latestCommitted, out, version);
+                    Commit.serializer.serialize(promised.latestAcceptedButNotCommitted, out, version);
+                Commit.serializer.serialize(promised.latestCommitted, out, version);
                 if (promised.readResponse != null)
                     ReadResponse.serializer.serialize(promised.readResponse, out, version);
                 serializeMap(endpointSerializer, EndpointState.nullableSerializer, promised.gossipInfo, out, version);
@@ -1001,8 +894,8 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             byte flags = in.readByte();
             if (flags != 0)
             {
-                Accepted acceptedNotCommitted = (flags & 2) != 0 ? Accepted.serializer.deserialize(in, version) : null;
-                Committed committed = Committed.serializer.deserialize(in, version);
+                Commit acceptedNotCommitted = (flags & 2) != 0 ? Commit.serializer.deserialize(in, version) : null;
+                Commit committed = Commit.serializer.deserialize(in, version);
                 ReadResponse readResponse = (flags & 4) != 0 ? ReadResponse.serializer.deserialize(in, version) : null;
                 Map<InetAddress, EndpointState> gossipInfo = deserializeMap(endpointSerializer, EndpointState.nullableSerializer, newHashMap(), in, version);
                 return new Promised(acceptedNotCommitted, committed, readResponse, (flags & 8) != 0, gossipInfo);
@@ -1020,8 +913,8 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             {
                 Promised promised = (Promised) response;
                 return 1
-                        + (promised.latestAcceptedButNotCommitted == null ? 0 : Accepted.serializer.serializedSize(promised.latestAcceptedButNotCommitted, version))
-                        + Committed.serializer.serializedSize(promised.latestCommitted, version)
+                        + (promised.latestAcceptedButNotCommitted == null ? 0 : Commit.serializer.serializedSize(promised.latestAcceptedButNotCommitted, version))
+                        + Commit.serializer.serializedSize(promised.latestCommitted, version)
                         + (promised.readResponse == null ? 0 : ReadResponse.serializer.serializedSize(promised.readResponse, version))
                         + serializedSizeMap(endpointSerializer, EndpointState.nullableSerializer, promised.gossipInfo, version);
             }

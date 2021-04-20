@@ -65,10 +65,7 @@ import org.apache.cassandra.metrics.TopPartitionTracker;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.*;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.service.paxos.Ballot;
 import org.apache.cassandra.service.paxos.Commit;
-import org.apache.cassandra.service.paxos.Commit.Accepted;
-import org.apache.cassandra.service.paxos.Commit.Committed;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.thrift.cassandraConstants;
 import org.apache.cassandra.transport.Server;
@@ -1309,30 +1306,28 @@ public final class SystemKeyspace
     /**
      * Load the current paxos state for the table and key
      */
-    public static PaxosState loadPaxosState(DecoratedKey key, CFMetaData metadata, int nowInSec, boolean permitNullAccept)
+    public static PaxosState loadPaxosState(DecoratedKey key, CFMetaData metadata, int nowInSec)
     {
         String req = "SELECT * FROM system.%s WHERE row_key = ? AND cf_id = ?";
         UntypedResultSet results = QueryProcessor.executeInternalWithNow(nowInSec, String.format(req, PAXOS), key.getKey(), metadata.cfId);
         if (results.isEmpty())
-        {
-            Committed noneCommitted = Committed.none(key, metadata);
-            return new PaxosState(Ballot.none(), permitNullAccept ? null : Accepted.none(key, metadata), noneCommitted);
-        }
+            return PaxosState.empty(key, metadata);
 
+        Commit empty = null;
         UntypedResultSet.Row row = results.one();
         UUID promised = row.has("in_progress_ballot")
                         ? row.getUUID("in_progress_ballot")
-                        : Ballot.none();
+                        : Commit.emptyBallot();
         // either we have both a recently accepted ballot and update or we have neither
         int proposalVersion = row.has("proposal_version") ? row.getInt("proposal_version") : MessagingService.VERSION_21;
-        Accepted accepted = row.has("proposal")
-                        ? new Accepted(row.getUUID("proposal_ballot"), PartitionUpdate.fromBytes(row.getBytes("proposal"), proposalVersion, key))
-                        : permitNullAccept ? null : Accepted.none(key, metadata);
+        Commit accepted = row.has("proposal")
+                        ? new Commit(row.getUUID("proposal_ballot"), PartitionUpdate.fromBytes(row.getBytes("proposal"), proposalVersion, key))
+                        : (empty = Commit.emptyCommit(key, metadata));
         // either most_recent_commit and most_recent_commit_at will both be set, or neither
         int mostRecentVersion = row.has("most_recent_commit_version") ? row.getInt("most_recent_commit_version") : MessagingService.VERSION_21;
-        Committed committed = row.has("most_recent_commit")
-                         ? new Committed(row.getUUID("most_recent_commit_at"), PartitionUpdate.fromBytes(row.getBytes("most_recent_commit"), mostRecentVersion, key))
-                         : Committed.none(key, metadata);
+        Commit committed = row.has("most_recent_commit")
+                         ? new Commit(row.getUUID("most_recent_commit_at"), PartitionUpdate.fromBytes(row.getBytes("most_recent_commit"), mostRecentVersion, key))
+                         : (empty == null ? Commit.emptyCommit(key, metadata) : empty);
         return new PaxosState(promised, accepted, committed);
     }
 

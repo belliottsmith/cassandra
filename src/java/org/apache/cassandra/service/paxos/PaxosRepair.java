@@ -20,20 +20,16 @@ package org.apache.cassandra.service.paxos;
 
 
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.net.InetAddress;
 import java.util.UUID;
 import java.util.function.Consumer;
 
 import javax.annotation.Nullable;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -46,9 +42,9 @@ import org.apache.cassandra.service.paxos.PaxosRepair.Result.Outcome;
 import org.apache.cassandra.utils.UUIDSerializer;
 
 import static org.apache.cassandra.net.MessagingService.Verb.REQUEST_RESPONSE;
-import static org.apache.cassandra.service.paxos.Commit.*;
+import static org.apache.cassandra.service.paxos.Commit.isAfter;
 import static org.apache.cassandra.service.paxos.Paxos.*;
-import static org.apache.cassandra.service.paxos.PaxosPrepare.*;
+import static org.apache.cassandra.service.paxos.PaxosPrepare.prepareWithBallot;
 import static org.apache.cassandra.service.paxos.PaxosRepair.Result.Outcome.*;
 import static org.apache.cassandra.utils.NullableSerializer.deserializeNullable;
 import static org.apache.cassandra.utils.NullableSerializer.serializeNullable;
@@ -96,8 +92,6 @@ import static org.apache.cassandra.utils.NullableSerializer.serializedSizeNullab
  */
 public class PaxosRepair
 {
-    private static final Logger logger = LoggerFactory.getLogger(PaxosRepair.class);
-
     public static final RequestSerializer requestSerializer = new RequestSerializer();
     public static final ResponseSerializer responseSerializer = new ResponseSerializer();
 
@@ -109,7 +103,6 @@ public class PaxosRepair
         {
             this.outcome = outcome;
         }
-        public String toString() { return outcome.toString(); }
     }
     public static final Result DONE = new Result(Outcome.DONE);
     public static final Result CANCELLED = new Result(Outcome.CANCELLED);
@@ -120,14 +113,6 @@ public class PaxosRepair
         {
             super(FAILURE);
             this.failure = failure;
-        }
-
-        public String toString()
-        {
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            failure.printStackTrace(pw);
-            return outcome.toString() + ": " + sw.toString();
         }
     }
 
@@ -177,8 +162,8 @@ public class PaxosRepair
         private int failures;
 
         private UUID latestWitnessed;
-        private Accepted latestAccepted;
-        private Committed latestCommitted;
+        private Commit latestAccepted;
+        private Commit latestCommitted;
         private UUID oldestCommitted;
 
         @Override
@@ -189,7 +174,7 @@ public class PaxosRepair
                 if (state != this)
                     return;
 
-                if (++failures + required > participants.sizeOfPoll())
+                if (++failures + required > participants.poll.size())
                     restart();
             }
         }
@@ -197,7 +182,6 @@ public class PaxosRepair
         @Override
         public void response(MessageIn<Response> msg)
         {
-            logger.trace("PaxosRepair {} from {}", msg.payload, msg.from);
             synchronized (PaxosRepair.this)
             {
                 try
@@ -227,69 +211,50 @@ public class PaxosRepair
 
         private State execute()
         {
-            // if accepted is equal to promised, we should prefer accepted because two ballots with same
-            // timestamp could have been proposed, but only one will have reached a quorum
-            if (latestAccepted != null && latestAccepted.ballot.timestamp() == latestWitnessed.timestamp())
-                latestWitnessed = latestAccepted.ballot;
-            else if (latestWitnessed != null && latestCommitted.ballot.timestamp() == latestWitnessed.timestamp())
-                latestWitnessed = latestCommitted.ballot;
-
             // Save as success criteria the latest promise seen by our first round; if we ever see anything
             // newer committed, we know at least one paxos round has been completed since we started, which is all we need
             // or newer than this committed we know we're done, so to avoid looping indefinitely in competition
             // with others, we store this ballot for future retries so we can terminate based on other proposers' work
             if (successCriteria == null)
-            {
-                if (logger.isTraceEnabled())
-                    logger.trace("PaxosRepair of {} setting success criteria to {}", partitionKey, Ballot.toString(latestWitnessed));
-
                 successCriteria = latestWitnessed;
-            }
 
-            boolean hasCommittedSuccessCriteria = isAfter(latestCommitted, successCriteria) || latestCommitted.hasBallot(successCriteria);
+            boolean hasCommittedSuccessCriteria = isAfter(latestCommitted, successCriteria) || latestCommitted.ballot.equals(successCriteria);
             boolean isPromisedButNotAccepted    = isAfter(latestWitnessed, latestAccepted);
             boolean isAcceptedButNotCommitted   = isAfter(latestAccepted, latestCommitted);
 
             if (hasCommittedSuccessCriteria)
             {
-                if (logger.isTraceEnabled())
-                    logger.trace("PaxosRepair witnessed {} newer than success criteria {} (oldest: {})", latestCommitted, Ballot.toString(successCriteria), Ballot.toString(oldestCommitted));
-
                 // we have a new enough commit, but it might not have reached enough participants; make sure it has before terminating
                 // note: we could send to only those we know haven't witnessed it, but this is a rare operation so a small amount of redundant work is fine
                 return oldestCommitted.equals(latestCommitted.ballot)
                         ? DONE
-                        : PaxosCommit.commit(latestCommitted, participants, consistency, true,
+                        : PaxosCommit.async(latestCommitted, participants, consistency, true,
                             new CommittingRepair());
             }
-            else if (isAcceptedButNotCommitted && !isPromisedButNotAccepted)
+            else if (isPromisedButNotAccepted)
             {
-                if (logger.isTraceEnabled())
-                    logger.trace("PaxosRepair of {} completing {}", partitionKey, latestAccepted);
+                // We need to propose a no-op > latestPromised, to ensure we don't later discover
+                // that latestPromised had already been accepted (by a minority) and repair it
+                // This means starting a new ballot, but we choose to use one that is likely to lose a contention battle
+                // Since this operation is not urgent, and we can piggy-back on other paxos operations
+                UUID ballot = staleBallotNewerThan(latestWitnessed, consistency);
+                PartitionUpdate proposal = PartitionUpdate.emptyUpdate(metadata, partitionKey);
+
+                return prepareWithBallot(ballot, participants, proposal.partitionKey(), proposal.metadata(),
+                        new PoisonProposals(ballot, proposal));
+            }
+            else if (isAcceptedButNotCommitted)
+            {
                 // We need to complete this in-progress accepted proposal, which may not have been seen by a majority
                 // However, since we have not sought any promises, we can simply complete the existing proposal
                 // since this is an idempotent operation - both us and the original proposer (and others) can
                 // all do it at the same time without incident
 
-                return PaxosPropose.propose(latestAccepted, participants, false,
+                return PaxosPropose.async(latestAccepted, participants, false,
                         new ProposingRepair(latestAccepted));
-            }
-            else if (isAcceptedButNotCommitted || isPromisedButNotAccepted)
-            {
-                UUID ballot = staleBallotNewerThan(latestWitnessed, consistency);
-                // We need to propose a no-op > latestPromised, to ensure we don't later discover
-                // that latestPromised had already been accepted (by a minority) and repair it
-                // This means starting a new ballot, but we choose to use one that is likely to lose a contention battle
-                // Since this operation is not urgent, and we can piggy-back on other paxos operations
-                if (logger.isTraceEnabled())
-                    logger.trace("PaxosRepair of {} found incomplete promise or proposal; preparing stale ballot {}", partitionKey, Ballot.toString(ballot));
-
-                return prepareWithBallot(ballot, participants, partitionKey, metadata,
-                        new PoisonProposals());
             }
             else
             {
-                logger.error("PaxosRepair illegal state latestWitnessed={}, latestAcceptedButNotCommitted={}, latestCommitted={}, oldestCommitted={}", latestWitnessed, latestAccepted, latestCommitted, oldestCommitted);
                 throw new IllegalStateException(); // should be logically impossible
             }
         }
@@ -304,48 +269,33 @@ public class PaxosRepair
     /**
      * We found either an incomplete promise or proposal, so we need to start a new paxos round to complete them
      */
-    private class PoisonProposals extends ConsumerState<Status>
+    private class PoisonProposals extends ConsumerState<PaxosPrepare.Status>
     {
+        final UUID ballot;
+        final PartitionUpdate proposal;
+
+        private PoisonProposals(UUID ballot, PartitionUpdate proposal)
+        {
+            this.ballot = ballot;
+            this.proposal = proposal;
+        }
+
         @Override
-        public State execute(Status input) throws Throwable
+        public State execute(PaxosPrepare.Status input) throws Throwable
         {
             switch (input.outcome)
             {
                 case MAYBE_FAILURE:
                 case SUPERSEDED:
+                case FOUND_IN_PROGRESS:
+                    // start again
                     return restart();
 
-                case FOUND_INCOMPLETE_ACCEPTED:
-                {
-                    // finish the in-progress proposal
-                    // cannot simply restart, as our latest promise is newer than the proposal
-                    // so we require a promise before we decide which proposal to complete
-                    // (else an "earlier" operation can sneak in and invalidate us while we're proposing
-                    // with a newer ballot)
-                    FoundIncompleteAccepted incomplete = input.incompleteAccepted();
-                    Proposal propose = new Proposal(incomplete.promisedBallot, incomplete.accepted.update);
-                    logger.trace("PaxosRepair of {} found incomplete {}", partitionKey, incomplete.accepted);
-                    return PaxosPropose.propose(propose, participants, false,
-                            new ProposingRepair(propose)); // we don't know if we're done, so we must restart
-                }
-
-                case FOUND_INCOMPLETE_COMMITTED:
-                {
-                    // finish the in-progress commit
-                    FoundIncompleteCommitted incomplete = input.incompleteCommitted();
-                    logger.trace("PaxosRepair of {} found in progress {}", partitionKey, incomplete.committed);
-                    return PaxosCommit.commit(incomplete.committed, participants, consistency, true,
-                            new CommitAndRestart()); // we don't know if we're done, so we must restart
-                }
-
                 case SUCCESS:
-                {
-                    // propose the empty ballot
-                    logger.trace("PaxosRepair of {} submitting empty proposal", partitionKey);
-                    Proposal proposal = Proposal.empty(input.success().ballot, partitionKey, metadata);
-                    return PaxosPropose.propose(proposal, participants, false,
+                    // propose the in-progress operation
+                    Commit proposal = Commit.newProposal(ballot, this.proposal);
+                    return PaxosPropose.async(proposal, participants, false,
                             new ProposingRepair(proposal));
-                }
 
                 default:
                     throw new IllegalStateException();
@@ -355,8 +305,8 @@ public class PaxosRepair
 
     private class ProposingRepair extends ConsumerState<PaxosPropose.Status>
     {
-        final Proposal proposal;
-        private ProposingRepair(Proposal proposal)
+        final Commit proposal;
+        private ProposingRepair(Commit proposal)
         {
             this.proposal = proposal;
         }
@@ -372,13 +322,9 @@ public class PaxosRepair
 
                 case SUCCESS:
                     if (proposal.update.isEmpty())
-                    {
-                        logger.trace("PaxosRepair of {} complete after successful empty proposal", partitionKey);
                         return DONE;
-                    }
 
-                    logger.trace("PaxosRepair of {} committing successful proposal {}", partitionKey, proposal);
-                    return PaxosCommit.commit(proposal.agreed(), participants, consistency, true,
+                    return PaxosCommit.async(proposal, participants, consistency, true,
                             new CommittingRepair());
 
                 default:
@@ -392,17 +338,7 @@ public class PaxosRepair
         @Override
         public State execute(PaxosCommit.Status input)
         {
-            logger.trace("PaxosRepair of {} {}", partitionKey, input);
             return input.isSuccess() ? DONE : restart();
-        }
-    }
-
-    private class CommitAndRestart extends ConsumerState<PaxosCommit.Status>
-    {
-        @Override
-        public State execute(PaxosCommit.Status input)
-        {
-            return restart();
         }
     }
 
@@ -438,11 +374,10 @@ public class PaxosRepair
         setState(CANCELLED);
     }
 
-    public synchronized Result await() throws InterruptedException
+    public synchronized void await() throws InterruptedException
     {
         while (!(state instanceof Result))
             WAIT.wait(this);
-        return (Result) state;
     }
 
     private State restart()
@@ -452,8 +387,8 @@ public class PaxosRepair
 
         Querying querying = new Querying();
         MessageOut<Request> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_REPAIR_REQ, new Request(partitionKey, metadata), requestSerializer);
-        for (int i = 0, size = participants.sizeOfPoll(); i < size ; ++i)
-            MessagingService.instance().sendRR(message, participants.electorateToPoll.get(i), querying);
+        for (int i = 0, size = participants.poll.size(); i < size ; ++i)
+            MessagingService.instance().sendRR(message, participants.poll.get(i), querying);
         return querying;
     }
 
@@ -489,19 +424,14 @@ public class PaxosRepair
     static class Response
     {
         final UUID latestWitnessed;
-        @Nullable final Accepted acceptedButNotCommitted;
-        final Committed committed;
+        @Nullable final Commit acceptedButNotCommitted;
+        final Commit committed;
 
-        Response(UUID latestWitnessed, @Nullable Accepted acceptedButNotCommitted, Committed committed)
+        Response(UUID latestWitnessed, Commit acceptedButNotCommitted, Commit committed)
         {
             this.latestWitnessed = latestWitnessed;
             this.acceptedButNotCommitted = acceptedButNotCommitted;
             this.committed = committed;
-        }
-
-        public String toString()
-        {
-            return String.format("Response(%s, %s, %s", latestWitnessed, acceptedButNotCommitted, committed);
         }
     }
 
@@ -522,9 +452,21 @@ public class PaxosRepair
 
             PaxosState current = PaxosState.read(request.partitionKey, request.metadata, (int)(System.currentTimeMillis() / 1000L));
 
-            UUID latestWitnessed = current.latestWitnessed();
-            Accepted acceptedButNotCommited = current.accepted;
-            Committed committed = current.committed;
+            UUID latestWitnessed = current.promised;
+            Commit acceptedButNotCommited = current.accepted;
+            Commit committed = current.committed;
+
+            if (isAfter(acceptedButNotCommited, committed))
+            {
+                if (isAfter(acceptedButNotCommited, latestWitnessed))
+                    latestWitnessed = acceptedButNotCommited.ballot;
+            }
+            else
+            {
+                if (isAfter(committed, latestWitnessed))
+                    latestWitnessed = committed.ballot;
+                acceptedButNotCommited = null;
+            }
 
             Response response = new Response(latestWitnessed, acceptedButNotCommited, committed);
             MessageOut<Response> reply = new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer);
@@ -562,23 +504,23 @@ public class PaxosRepair
         public void serialize(Response response, DataOutputPlus out, int version) throws IOException
         {
             UUIDSerializer.serializer.serialize(response.latestWitnessed, out, version);
-            serializeNullable(Accepted.serializer, response.acceptedButNotCommitted, out, version);
-            Committed.serializer.serialize(response.committed, out, version);
+            serializeNullable(Commit.serializer, response.acceptedButNotCommitted, out, version);
+            Commit.serializer.serialize(response.committed, out, version);
         }
 
         public Response deserialize(DataInputPlus in, int version) throws IOException
         {
             UUID latestWitnessed = UUIDSerializer.serializer.deserialize(in, version);
-            Accepted acceptedButNotCommitted = deserializeNullable(Accepted.serializer, in, version);
-            Committed committed = Committed.serializer.deserialize(in, version);
+            Commit acceptedButNotCommitted = deserializeNullable(Commit.serializer, in, version);
+            Commit committed = Commit.serializer.deserialize(in, version);
             return new Response(latestWitnessed, acceptedButNotCommitted, committed);
         }
 
         public long serializedSize(Response response, int version)
         {
             return UUIDSerializer.serializer.serializedSize(response.latestWitnessed, version)
-                    + serializedSizeNullable(Accepted.serializer, response.acceptedButNotCommitted, version)
-                    + Committed.serializer.serializedSize(response.committed, version);
+                    + serializedSizeNullable(Commit.serializer, response.acceptedButNotCommitted, version)
+                    + Commit.serializer.serializedSize(response.committed, version);
         }
     }
 }
