@@ -94,7 +94,7 @@ public class Murmur3Partitioner implements IPartitioner
     {
         static final long serialVersionUID = -5833580143318243006L;
 
-        public final long token;
+        final long token;
 
         public LongToken(long token)
         {
@@ -154,14 +154,9 @@ public class Murmur3Partitioner implements IPartitioner
         }
 
         @Override
-        public LongToken increaseSlightly()
+        public Token increaseSlightly()
         {
             return new LongToken(token + 1);
-        }
-
-        public LongToken decreaseSlightly()
-        {
-            return new LongToken(token - 1);
         }
     }
 

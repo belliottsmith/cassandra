@@ -18,19 +18,13 @@
 
 package org.apache.cassandra.service.paxos;
 
-import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+import java.util.Collections;
+import java.util.UUID;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import com.google.common.collect.Lists;
 import org.apache.cassandra.dht.Murmur3Partitioner.LongToken;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.junit.Assert;
 import org.junit.Test;
@@ -40,17 +34,12 @@ import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.utils.UUIDGen;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import static org.apache.cassandra.dht.Range.deoverlap;
 import static org.apache.cassandra.service.paxos.Ballot.none;
-import static org.apache.cassandra.service.paxos.Commit.latest;
 import static org.apache.cassandra.service.paxos.PaxosRepairHistory.trim;
 
 public class PaxosRepairHistoryTest
 {
-    static final Logger logger = LoggerFactory.getLogger(PaxosRepairHistoryTest.class);
     static
     {
         System.setProperty("cassandra.partitioner", Murmur3Partitioner.class.getName());
@@ -226,274 +215,4 @@ public class PaxosRepairHistoryTest
                 Collections.singleton(new Range<>(new LongToken(-1317624576693539401L), new LongToken(1317624576693539401L))))
             .ballotForToken(new LongToken(-4208619967696141037L)));
     }
-
-    @Test
-    public void testInequality()
-    {
-        Collection<Range<Token>> ranges = Collections.singleton(new Range<>(Murmur3Partitioner.MINIMUM, Murmur3Partitioner.MINIMUM));
-        PaxosRepairHistory a = PaxosRepairHistory.add(PaxosRepairHistory.EMPTY, ranges, Ballot.none());
-        PaxosRepairHistory b = PaxosRepairHistory.add(PaxosRepairHistory.EMPTY, ranges, UUIDGen.getTimeUUID());
-        Assert.assertNotEquals(a, b);
-    }
-
-    @Test
-    public void testRandomTrims()
-    {
-        ExecutorService executor = Executors.newFixedThreadPool(FBUtilities.getAvailableProcessors());
-        List<Future<?>> results = new ArrayList<>();
-        int count = 1000;
-        for (int numberOfAdditions : new int[] { 1, 10, 100 })
-        {
-            for (float maxCoveragePerRange : new float[] { 0.01f, 0.1f, 0.5f })
-            {
-                for (float chanceOfMinToken : new float[] { 0.01f, 0.1f })
-                {
-                    results.addAll(testRandomTrims(executor, count, numberOfAdditions, 3, maxCoveragePerRange, chanceOfMinToken));
-                }
-            }
-        }
-        FBUtilities.waitOnFutures(results);
-        executor.shutdown();
-    }
-
-    private List<Future<?>> testRandomTrims(ExecutorService executor, int tests, int numberOfAdditions, int maxNumberOfRangesPerAddition, float maxCoveragePerRange, float chanceOfMinToken)
-    {
-        return ThreadLocalRandom.current()
-                .longs(tests)
-                .mapToObj(seed -> executor.submit(() -> testRandomTrims(seed, numberOfAdditions, maxNumberOfRangesPerAddition, maxCoveragePerRange, chanceOfMinToken)))
-                .collect(Collectors.toList());
-    }
-
-    private void testRandomTrims(long seed, int numberOfAdditions, int maxNumberOfRangesPerAddition, float maxCoveragePerRange, float chanceOfMinToken)
-    {
-        Random random = new Random(seed);
-        logger.info("Seed {} ({}, {}, {}, {})", seed, numberOfAdditions, maxNumberOfRangesPerAddition, maxCoveragePerRange, chanceOfMinToken);
-        PaxosRepairHistory history = RandomPaxosRepairHistory.build(random, numberOfAdditions, maxNumberOfRangesPerAddition, maxCoveragePerRange, chanceOfMinToken);
-        // generate a random list of ranges that cover the whole ring
-        long[] tokens = random.longs(16).distinct().toArray();
-        if (random.nextBoolean())
-            tokens[0] = Long.MIN_VALUE;
-        Arrays.sort(tokens);
-        List<List<Range<Token>>> ranges = IntStream.range(0, tokens.length <= 3 ? 1 : 1 + random.nextInt((tokens.length - 1) / 2))
-                .mapToObj(ignore -> new ArrayList<Range<Token>>())
-                .collect(Collectors.toList());
-
-        for (int i = 1 ; i < tokens.length ; ++i)
-            ranges.get(random.nextInt(ranges.size())).add(new Range<>(new LongToken(tokens[i - 1]), new LongToken(tokens[i])));
-        ranges.get(random.nextInt(ranges.size())).add(new Range<>(new LongToken(tokens[tokens.length - 1]), new LongToken(tokens[0])));
-
-        List<PaxosRepairHistory> splits = new ArrayList<>();
-        for (List<Range<Token>> rs : ranges)
-        {
-            PaxosRepairHistory trimmed = PaxosRepairHistory.trim(history, rs);
-            splits.add(trimmed);
-            if (rs.isEmpty())
-                continue;
-
-            Range<Token> prev = rs.get(rs.size() - 1);
-            for (Range<Token> range : rs)
-            {
-                if (prev.right.equals(range.left))
-                {
-                    Assert.assertEquals(history.ballotForToken(((LongToken)range.left).decreaseSlightly()), trimmed.ballotForToken(((LongToken)range.left).decreaseSlightly()));
-                    Assert.assertEquals(history.ballotForToken(range.left), trimmed.ballotForToken(range.left));
-                }
-                else
-                {
-                    if (!range.left.isMinimum())
-                        Assert.assertEquals(Ballot.none(), trimmed.ballotForToken(range.left));
-                    if (!prev.right.isMinimum())
-                        Assert.assertEquals(Ballot.none(), trimmed.ballotForToken(prev.right.increaseSlightly()));
-                }
-                Assert.assertEquals(history.ballotForToken(range.left.increaseSlightly()), trimmed.ballotForToken(range.left.increaseSlightly()));
-                if (!range.left.increaseSlightly().equals(range.right))
-                    Assert.assertEquals(history.ballotForToken(((LongToken)range.right).decreaseSlightly()), trimmed.ballotForToken(((LongToken)range.right).decreaseSlightly()));
-
-                if (range.right.isMinimum())
-                    Assert.assertEquals(history.ballotForToken(new LongToken(Long.MAX_VALUE)), trimmed.ballotForToken(new LongToken(Long.MAX_VALUE)));
-                else
-                    Assert.assertEquals(history.ballotForToken(range.right), trimmed.ballotForToken(range.right));
-                prev = range;
-            }
-        }
-
-        PaxosRepairHistory merged = PaxosRepairHistory.EMPTY;
-        for (PaxosRepairHistory split : splits)
-            merged = PaxosRepairHistory.merge(merged, split);
-
-        Assert.assertEquals(history, merged);
-    }
-
-    @Test
-    public void testRandomAdds()
-    {
-        ExecutorService executor = Executors.newFixedThreadPool(FBUtilities.getAvailableProcessors());
-        List<Future<?>> results = new ArrayList<>();
-        int count = 1000;
-        for (int numberOfAdditions : new int[] { 1, 10, 100 })
-        {
-            for (float maxCoveragePerRange : new float[] { 0.01f, 0.1f, 0.5f })
-            {
-                for (float chanceOfMinToken : new float[] { 0.01f, 0.1f })
-                {
-                    results.addAll(testRandomAdds(executor, count, 3, numberOfAdditions, 3, maxCoveragePerRange, chanceOfMinToken));
-                }
-            }
-        }
-        FBUtilities.waitOnFutures(results);
-        executor.shutdown();
-    }
-
-    private List<Future<?>> testRandomAdds(ExecutorService executor, int tests, int numberOfMerges, int numberOfAdditions, int maxNumberOfRangesPerAddition, float maxCoveragePerRange, float chanceOfMinToken)
-    {
-        return ThreadLocalRandom.current()
-                .longs(tests)
-                .mapToObj(seed -> executor.submit(() -> testRandomAdds(seed, numberOfMerges, numberOfAdditions, maxNumberOfRangesPerAddition, maxCoveragePerRange, chanceOfMinToken)))
-                .collect(Collectors.toList());
-    }
-
-    private void testRandomAdds(long seed, int numberOfMerges, int numberOfAdditions, int maxNumberOfRangesPerAddition, float maxCoveragePerRange, float chanceOfMinToken)
-    {
-        Random random = new Random(seed);
-        String id = String.format("%d, %d, %d, %dd, %f, %f", seed, numberOfMerges, numberOfAdditions, maxNumberOfRangesPerAddition, maxCoveragePerRange, chanceOfMinToken);
-        logger.info(id);
-        List<RandomWithCanonical> merge = new ArrayList<>();
-        while (numberOfMerges-- > 0)
-        {
-            RandomWithCanonical build = new RandomWithCanonical();
-            build.addRandom(random, numberOfAdditions, maxNumberOfRangesPerAddition, maxCoveragePerRange, chanceOfMinToken);
-            merge.add(build);
-        }
-
-        RandomWithCanonical check = new RandomWithCanonical();
-        for (RandomWithCanonical add : merge)
-            check = check.merge(add);
-
-        for (Token token : check.canonical.keySet())
-        {
-            LongToken tk = (LongToken) token;
-            Assert.assertEquals(id, check.ballotForToken(tk.decreaseSlightly()), check.test.ballotForToken(tk.decreaseSlightly()));
-            Assert.assertEquals(id, check.ballotForToken(tk), check.test.ballotForToken(token));
-            Assert.assertEquals(id, check.ballotForToken(tk.increaseSlightly()), check.test.ballotForToken(token.increaseSlightly()));
-        }
-
-        // check some random
-        {
-            int count = 1000;
-            while (count-- > 0)
-            {
-                LongToken token = new LongToken(random.nextLong());
-                Assert.assertEquals(id, check.ballotForToken(token), check.test.ballotForToken(token));
-            }
-        }
-    }
-
-    static class RandomPaxosRepairHistory
-    {
-        PaxosRepairHistory test = PaxosRepairHistory.EMPTY;
-
-        void add(Collection<Range<Token>> ranges, UUID ballot)
-        {
-            test = PaxosRepairHistory.add(test, ranges, ballot);
-        }
-
-        void merge(RandomPaxosRepairHistory other)
-        {
-            test = PaxosRepairHistory.merge(test, other.test);
-        }
-
-        void addOneRandom(Random random, int maxRangeCount, float maxCoverage, float minChance)
-        {
-            int count = maxRangeCount == 1 ? 1 : 1 + random.nextInt(maxRangeCount - 1);
-            UUID ballot = UUIDGen.getRandomTimeUUIDFromMicros(random.nextInt(Integer.MAX_VALUE), 0);
-            List<Range<Token>> ranges = new ArrayList<>();
-            while (count-- > 0)
-            {
-                long length = (long) (2 * random.nextDouble() * maxCoverage * Long.MAX_VALUE);
-                if (length == 0) length = 1;
-                Range<Token> range;
-                if (random.nextFloat() <= minChance)
-                {
-                    if (random.nextBoolean()) range = new Range<>(Murmur3Partitioner.MINIMUM, new LongToken(Long.MIN_VALUE + length));
-                    else range = new Range<>(new LongToken(Long.MAX_VALUE - length), Murmur3Partitioner.MINIMUM);
-                }
-                else
-                {
-                    long start = random.nextLong();
-                    range = new Range<>(new LongToken(start), new LongToken(start + length));
-                }
-                ranges.add(range);
-            }
-            ranges.sort(Range::compareTo);
-            add(deoverlap(ranges), ballot);
-        }
-
-        void addRandom(Random random, int count, int maxNumberOfRangesPerAddition, float maxCoveragePerAddition, float minTokenChance)
-        {
-            while (count-- > 0)
-                addOneRandom(random, maxNumberOfRangesPerAddition, maxCoveragePerAddition, minTokenChance);
-        }
-
-        static PaxosRepairHistory build(Random random, int count, int maxNumberOfRangesPerAddition, float maxCoveragePerRange, float chanceOfMinToken)
-        {
-            RandomPaxosRepairHistory result = new RandomPaxosRepairHistory();
-            result.addRandom(random, count, maxNumberOfRangesPerAddition, maxCoveragePerRange, chanceOfMinToken);
-            return result.test;
-        }
-    }
-
-    static class RandomWithCanonical extends RandomPaxosRepairHistory
-    {
-        NavigableMap<Token, UUID> canonical = new TreeMap<>();
-        {
-            canonical.put(Murmur3Partitioner.MINIMUM, Ballot.none());
-        }
-
-        UUID ballotForToken(LongToken token)
-        {
-            return canonical
-                    .floorEntry(token.token == Long.MIN_VALUE ? token : token.decreaseSlightly())
-                    .getValue();
-        }
-
-        RandomWithCanonical merge(RandomWithCanonical other)
-        {
-            RandomWithCanonical result = new RandomWithCanonical();
-            result.test = PaxosRepairHistory.merge(test, other.test);
-            result.canonical = new TreeMap<>();
-            result.canonical.putAll(canonical);
-            for (Map.Entry<Token, UUID> entry : other.canonical.entrySet())
-            {
-                Token left = entry.getKey();
-                Token right = other.canonical.higherKey(left);
-                if (right == null) right = Murmur3Partitioner.MINIMUM;
-                result.addCanonical(new Range<>(left, right), entry.getValue());
-            }
-            return result;
-        }
-
-        void add(Collection<Range<Token>> addRanges, UUID ballot)
-        {
-            super.add(addRanges, ballot);
-            for (Range<Token> range : addRanges)
-                addCanonical(range, ballot);
-        }
-
-        void addCanonical(Range<Token> range, UUID ballot)
-        {
-            canonical.put(range.left, canonical.floorEntry(range.left).getValue());
-            if (!range.right.isMinimum())
-                canonical.put(range.right, canonical.floorEntry(range.right).getValue());
-
-            for (Range<Token> r : range.unwrap())
-            {
-                (r.right.isMinimum()
-                        ? canonical.subMap(r.left, true, new LongToken(Long.MAX_VALUE), true)
-                        : canonical.subMap(r.left, true, r.right, false)
-                ).entrySet().forEach(e -> e.setValue(latest(ballot, e.getValue())));
-            }
-
-        }
-    }
-
 }

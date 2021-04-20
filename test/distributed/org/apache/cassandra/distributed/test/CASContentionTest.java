@@ -19,6 +19,7 @@
 package org.apache.cassandra.distributed.test;
 
 import com.google.common.util.concurrent.Uninterruptibles;
+
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.concurrent.StageManager;
 import org.apache.cassandra.distributed.Cluster;

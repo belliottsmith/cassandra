@@ -141,7 +141,6 @@ rdar://74517075 (Apple Internal) (Backport CASSANDRA-15595: Many errors of "java
 <rdar://70780990> (CASSANDRA-15385) Ensure that tracing doesn't break connections in 3.x/4.0 mixed mode by default
 
 3.0.19.60
-* <rdar://70624271> (Apple Internal) Follow-up: apple paxos can re-prepare stable ballots in some cases
 
 3.0.19.59
 * <rdar://70521993> (Apple Internal) Support UNSAFE_DELAY_X with Apple Paxos
