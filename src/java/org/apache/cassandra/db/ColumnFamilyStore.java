@@ -2838,6 +2838,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return compactionStrategyManager.getSSTableCountPerLevel();
     }
 
+    public long[] getPerLevelSizeBytes()
+    {
+        return compactionStrategyManager.getPerLevelSizeBytes();
+    }
+
     public int[] getSSTableCountPerTWCSBucket()
     {
         return compactionStrategyManager.getSSTableCountPerTWCSBucket();

@@ -172,6 +172,12 @@ public interface ColumnFamilyStoreMBean
     public int[] getSSTableCountPerLevel();
 
     /**
+     * @return total size on disk for each level. null unless leveled compaction is used.
+     *         array index corresponds to level(int[0] is for level 0, ...).
+     */
+    public long[] getPerLevelSizeBytes();
+
+    /**
      * @return sstable count for each bucket in TWCS. null unless time window compaction is used.
      *         array index corresponds to bucket(int[0] is for most recent, ...).
      */

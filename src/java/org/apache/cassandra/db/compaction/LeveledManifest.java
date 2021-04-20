@@ -578,6 +578,14 @@ public class LeveledManifest
         return counts;
     }
 
+    public synchronized long[] getAllLevelSizeBytes()
+    {
+        long[] sums = new long[generations.length];
+        for (int i = 0; i < sums.length; i++)
+            sums[i] = getLevel(i).stream().map(SSTableReader::onDiskLength).reduce(0L, Long::sum);
+        return sums;
+    }
+
     private void logDistribution()
     {
         if (logger.isTraceEnabled())

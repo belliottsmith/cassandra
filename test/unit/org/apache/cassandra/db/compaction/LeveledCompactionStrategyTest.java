@@ -1107,6 +1107,54 @@ public class LeveledCompactionStrategyTest
         }
     }
 
+    @Test
+    public void testPerLevelSizeBytes() throws IOException
+    {
+        byte [] b = new byte[100];
+        new Random().nextBytes(b);
+        ByteBuffer value = ByteBuffer.wrap(b);
+        int rows = 5;
+        int columns = 5;
+
+        cfs.disableAutoCompaction();
+        for (int r = 0; r < rows; r++)
+        {
+            UpdateBuilder update = UpdateBuilder.create(cfs.metadata, String.valueOf(r));
+            for (int c = 0; c < columns; c++)
+                update.newRow("column" + c).add("val", value);
+            update.applyUnsafe();
+        }
+        cfs.forceBlockingFlush();
+
+        SSTableReader sstable = cfs.getLiveSSTables().iterator().next();
+        long [] levelSizes = cfs.getPerLevelSizeBytes();
+        for (int i = 0; i < levelSizes.length; i++)
+        {
+            if (i != 0)
+                assertEquals(0, levelSizes[i]);
+            else
+                assertEquals(sstable.onDiskLength(), levelSizes[i]);
+        }
+
+        assertEquals(sstable.onDiskLength(), cfs.getPerLevelSizeBytes()[0]);
+
+        LeveledCompactionStrategy strategy = (LeveledCompactionStrategy) ( cfs.getCompactionStrategyManager()).getStrategies().get(1);
+        strategy.manifest.remove(sstable);
+        sstable.descriptor.getMetadataSerializer().mutateLevel(sstable.descriptor, 2);
+        sstable.reloadSSTableMetadata();
+        strategy.manifest.add(sstable);
+
+        levelSizes = cfs.getPerLevelSizeBytes();
+        for (int i = 0; i < levelSizes.length; i++)
+        {
+            if (i != 2)
+                assertEquals(0, levelSizes[i]);
+            else
+                assertEquals(sstable.onDiskLength(), levelSizes[i]);
+        }
+
+    }
+
     private int getTaskLevel(ColumnFamilyStore cfs)
     {
         for (AbstractCompactionStrategy strategy : cfs.getCompactionStrategyManager().getStrategies())

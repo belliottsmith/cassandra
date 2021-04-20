@@ -402,6 +402,31 @@ public class CompactionStrategyManager implements INotificationConsumer
         }
     }
 
+
+    public long[] getPerLevelSizeBytes()
+    {
+        readLock.lock();
+        try
+        {
+            if (repaired instanceof LeveledCompactionStrategy && unrepaired instanceof LeveledCompactionStrategy)
+            {
+                long [] res = new long[LeveledManifest.MAX_LEVEL_COUNT];
+                long[] repairedCountPerLevel = ((LeveledCompactionStrategy) repaired).getAllLevelSizeBytes();
+                res = sumArrays(res, repairedCountPerLevel);
+                long[] unrepairedCountPerLevel = ((LeveledCompactionStrategy) unrepaired).getAllLevelSizeBytes();
+                res = sumArrays(res, unrepairedCountPerLevel);
+                long[] pendingRepairCountPerLevel = pendingRepairs.getAllLevelSizeBytes();
+                res = sumArrays(res, pendingRepairCountPerLevel);
+                return res;
+            }
+            return null;
+        }
+        finally
+        {
+            readLock.unlock();
+        }
+    }
+
     public int[] getSSTableCountPerTWCSBucket()
     {
         readLock.lock();
@@ -431,6 +456,21 @@ public class CompactionStrategyManager implements INotificationConsumer
     static int[] sumArrays(int[] a, int[] b)
     {
         int[] res = new int[Math.max(a.length, b.length)];
+        for (int i = 0; i < res.length; i++)
+        {
+            if (i < a.length && i < b.length)
+                res[i] = a[i] + b[i];
+            else if (i < a.length)
+                res[i] = a[i];
+            else
+                res[i] = b[i];
+        }
+        return res;
+    }
+
+    static long[] sumArrays(long[] a, long[] b)
+    {
+        long[] res = new long[Math.max(a.length, b.length)];
         for (int i = 0; i < res.length; i++)
         {
             if (i < a.length && i < b.length)

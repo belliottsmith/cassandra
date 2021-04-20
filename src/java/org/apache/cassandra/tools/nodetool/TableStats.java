@@ -167,6 +167,21 @@ public class TableStats extends NodeToolCmd
                     }
                 }
 
+                long[] leveledSStablesSize = table.getPerLevelSizeBytes();
+                if (leveledSStablesSize != null)
+                {
+                    out.print("\t\tSSTable size on disk in each level: [");
+                    for (int level = 0; level < leveledSStablesSize.length; level++)
+                    {
+                        long size = leveledSStablesSize[level];
+                        out.print(format(size, humanReadable));
+                        if (level < leveledSStablesSize.length - 1)
+                            out.print(", ");
+                        else
+                            out.println("]");
+                    }
+                }
+
                 int[] sstablesByBucket = table.getSSTableCountPerTWCSBucket();
                 if (sstablesByBucket != null)
                 {

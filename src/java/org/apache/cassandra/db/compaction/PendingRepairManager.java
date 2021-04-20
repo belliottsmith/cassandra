@@ -376,6 +376,18 @@ class PendingRepairManager
         return res;
     }
 
+    synchronized long[] getAllLevelSizeBytes()
+    {
+        long [] res = new long[LeveledManifest.MAX_LEVEL_COUNT];
+        for (AbstractCompactionStrategy strategy : strategies.values())
+        {
+            assert strategy instanceof LeveledCompactionStrategy;
+            long[] sizes = ((LeveledCompactionStrategy) strategy).getAllLevelSizeBytes();
+            res = CompactionStrategyManager.sumArrays(res, sizes);
+        }
+        return res;
+    }
+
     @SuppressWarnings("resource")
     synchronized Set<ISSTableScanner> getScanners(Collection<SSTableReader> sstables, Collection<Range<Token>> ranges)
     {
