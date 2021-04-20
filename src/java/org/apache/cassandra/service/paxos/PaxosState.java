@@ -390,9 +390,7 @@ public class PaxosState implements PaxosOperationLock
             if (--cur.active > 0)
                 return cur;
 
-            Snapshot stash = cur.current;
-            if (stash != null && stash.getClass() == Snapshot.class)
-                RECENT.put(key, stash);
+            RECENT.put(key, cur.current);
             return null;
         });
         int active = 1 + this.active, total = this.total;
