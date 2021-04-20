@@ -671,7 +671,6 @@ public class Paxos
             {
                 // does the work of applying in-progress writes; throws UAE or timeout if it can't
                 final BeginResult begin = begin(deadline, read, consistencyForPaxos, false, minimumBallot, failedAttemptsDueToContention);
-                failedAttemptsDueToContention = begin.failedAttemptsDueToContention;
                 if (PAXOS_VARIANT == apple_norrl)
                     return begin.readResponse;
 
@@ -710,6 +709,7 @@ public class Paxos
                                 minimumBallot = propose.superseded().by;
                                 // We have been superseded without our proposal being accepted by anyone, so we can safely retry
                                 Tracing.trace("Paxos proposal not accepted (pre-empted by a higher ballot)");
+                                failedAttemptsDueToContention++;
                                 if (!waitForContention(deadline, ++failedAttemptsDueToContention))
                                     throw new MaybeFailure(begin.participants, 0, 0).markAndThrowAsTimeoutOrFailure(true, consistencyForPaxos);
                         }
