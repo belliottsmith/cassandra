@@ -816,12 +816,6 @@ public class DatabaseDescriptor
                     + conf.paxos_cache_size_in_mb + "', supported values are <integer> >= 0.", false);
         }
 
-        if (conf.paxos_auto_repair_threshold_mb < 0)
-        {
-            throw new ConfigurationException("paxos_auto_repair_threshold_mb option was set incorrectly to '"
-                                             + conf.paxos_auto_repair_threshold_mb + "', supported values are <integer> >= 0.", false);
-        }
-
         // if set to empty/"auto" then use 5% of Heap size
         indexSummaryCapacityInMB = (conf.index_summary_capacity_in_mb == null)
             ? Math.max(1, (int) (Runtime.getRuntime().totalMemory() * 0.05 / 1024 / 1024))
@@ -2047,11 +2041,6 @@ public class DatabaseDescriptor
     public static boolean paxoTopologyRepairStrictEachQuorum()
     {
         return conf.paxos_topology_repair_strict_each_quorum;
-    }
-
-    public static int getPaxosAutoRepairThresholdMB()
-    {
-        return conf.paxos_auto_repair_threshold_mb;
     }
 
     public static boolean getNativeTransportAllowOlderProtocols()

@@ -71,11 +71,6 @@ class UncommittedKeyFile
         this.generation = generation;
     }
 
-    long sizeOnDisk()
-    {
-        return file.length() + crcFile.length();
-    }
-
     synchronized void markDeleted()
     {
         markedDeleted = true;

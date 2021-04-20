@@ -413,68 +413,29 @@ public class PaxosRepairTest extends TestBaseImpl
     {
         UUID staleBallot = Paxos.newBallot(Ballot.none(), org.apache.cassandra.db.ConsistencyLevel.SERIAL);
         try (Cluster cluster = init(Cluster.create(3, cfg -> cfg.with(Feature.GOSSIP, Feature.NETWORK)
-                                                                .set("paxos_variant", "apple_rrl")
-                                                                .set("truncate_request_timeout_in_ms", 1000L)))
+                                                             .set("paxos_variant", "apple_rrl")
+                                                             .set("truncate_request_timeout_in_ms", 1000L)))
         )
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (k int primary key, v int)");
             cluster.get(3).shutdown();
             InetAddress node3 = cluster.get(3).broadcastAddress().getAddress();
 
-            for (int i = 0; i < 10; i++)
+            for (int i=0; i<10; i++)
             {
                 if (!cluster.get(1).callOnInstance(() -> FailureDetector.instance.isAlive(node3)))
                     break;
             }
 
             repair(cluster, KEYSPACE, TABLE, true);
-            for (int i = 0; i < cluster.size() - 1; i++)
+            for (int i=0; i<cluster.size() -1; i++)
             {
-                cluster.get(i + 1).runOnInstance(() -> {
+                cluster.get(i+1).runOnInstance(() -> {
                     ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(TABLE);
                     DecoratedKey key = cfs.decorateKey(ByteBufferUtil.bytes(1));
                     Assert.assertTrue(FBUtilities.getBroadcastAddress().toString(), Commit.isAfter(staleBallot, cfs.getPaxosRepairLowBound(key)));
                 });
             }
-        }
-    }
-
-    @Test
-    public void paxosAutoRepair() throws Throwable
-    {
-        try (Cluster cluster = init(Cluster.create(3, cfg -> cfg
-                                                             .set("paxos_variant", "apple_rrl")
-                                                             .set("paxos_auto_repair_threshold_mb", 0)  // should repair anything left over on flush
-                                                             .set("truncate_request_timeout_in_ms", 1000L)))
-        )
-        {
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-            cluster.get(3).shutdown();
-            cluster.verbs(PAXOS_COMMIT).drop();
-            try
-            {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
-                Assert.fail("expected write timeout");
-            }
-            catch (Throwable t)
-            {
-                // expected
-            }
-            cluster.get(3).startup();
-            assertUncommitted(cluster.get(1), KEYSPACE, TABLE, 1);
-            assertUncommitted(cluster.get(2), KEYSPACE, TABLE, 1);
-
-            cluster.filters().reset();
-            cluster.get(1).flush("system");  // flushing the paxos table should trigger a paxos repair, since the threshold is zero
-            for (int i=0; i<20; i++)
-            {
-                if (!cluster.get(1).callsOnInstance(() -> PaxosState.uncommittedTracker().hasInflightAutoRepairs()).call())
-                    break;
-                logger.info("Waiting for auto repairs to finish...");
-                Thread.sleep(1000);
-            }
-            assertUncommitted(cluster.get(1), KEYSPACE, TABLE, 0);
-            assertUncommitted(cluster.get(2), KEYSPACE, TABLE, 0);
         }
     }
 }
