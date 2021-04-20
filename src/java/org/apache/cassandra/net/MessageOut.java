@@ -105,7 +105,7 @@ public class MessageOut<T>
             return this;
         ImmutableMap.Builder<String, byte[]> builder = ImmutableMap.builder();
         builder.putAll(parameters).putAll(toAdd);
-        return new MessageOut<>(verb, payload, serializer, builder.build(), connectionType, permitsArtificialDelay);
+        return new MessageOut<>(verb, payload, serializer, builder.build(), connectionType);
     }
 
     public MessageOut<T> withPayload(T payload)
