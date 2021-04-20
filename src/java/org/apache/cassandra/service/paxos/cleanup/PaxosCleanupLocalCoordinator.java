@@ -88,7 +88,6 @@ public class PaxosCleanupLocalCoordinator extends AbstractFuture<PaxosCleanupRes
     private void scheduleKeyRepairsOrFinish()
     {
         int parallelism = DatabaseDescriptor.getPaxosRepairParalellism();
-        Preconditions.checkArgument(parallelism > 0);
         while (inflight.size() < parallelism && uncommittedIter.hasNext())
             repairKey(uncommittedIter.next());
 

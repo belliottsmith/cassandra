@@ -893,7 +893,7 @@ public class DatabaseDescriptor
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
 
         if (conf.paxos_repair_paralellism <= 0)
-            config.paxos_repair_paralellism = Math.max(1, conf.concurrent_writes / 8);
+            config.paxos_repair_paralellism = conf.concurrent_writes / 8;
 
         repairedDataTrackingExclusions =
             RepairedDataTrackingExclusions.fromConfig(conf.repaired_data_tracking_exclusions);
