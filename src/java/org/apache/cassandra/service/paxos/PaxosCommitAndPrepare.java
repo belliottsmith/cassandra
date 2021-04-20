@@ -24,7 +24,6 @@ import java.util.UUID;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -134,15 +133,12 @@ public class PaxosCommitAndPrepare
 
         private static PaxosPrepare.Response execute(Request request, InetAddress from)
         {
-            Agreed commit = request.commit;
+            Commit commit = request.commit;
             if (!Paxos.isInRangeAndShouldProcess(from, commit.update.partitionKey(), commit.update.metadata()))
                 return null;
 
-            try (PaxosState state = PaxosState.get(commit))
-            {
-                state.commit(commit);
-                return PaxosPrepare.RequestHandler.execute(request, state);
-            }
+            PaxosState.commit(commit);
+            return PaxosPrepare.RequestHandler.execute(request, from);
         }
     }
 

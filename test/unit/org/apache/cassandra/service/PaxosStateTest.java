@@ -27,6 +27,7 @@ import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.gms.Gossiper;
@@ -68,19 +69,19 @@ public class PaxosStateTest
 
         // Commit the proposal & verify the data is present
         Commit beforeTruncate = newProposal(0, update);
-        PaxosState.commitDirect(beforeTruncate);
+        PaxosState.commit(beforeTruncate);
         assertDataPresent(cfs, Util.dk(key), "val", value);
 
         // Truncate then attempt to commit again, mutation should
         // be ignored as the proposal predates the truncation
         cfs.truncateBlocking();
-        PaxosState.commitDirect(beforeTruncate);
+        PaxosState.commit(beforeTruncate);
         assertNoDataPresent(cfs, Util.dk(key));
 
         // Now try again with a ballot created after the truncation
         long timestamp = SystemKeyspace.getTruncatedAt(update.metadata().cfId) + 1;
         Commit afterTruncate = newProposal(timestamp, update);
-        PaxosState.commitDirect(afterTruncate);
+        PaxosState.commit(afterTruncate);
         assertDataPresent(cfs, Util.dk(key), "val", value);
     }
 

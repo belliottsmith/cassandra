@@ -44,8 +44,8 @@ import static org.apache.cassandra.net.MessagingService.verbStages;
 import static org.apache.cassandra.service.StorageProxy.shouldHint;
 import static org.apache.cassandra.service.StorageProxy.submitHint;
 import static org.apache.cassandra.service.paxos.Commit.*;
+import static org.apache.cassandra.service.paxos.Paxos.WAIT;
 import static org.apache.cassandra.service.paxos.Paxos.canExecuteOnSelf;
-import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
 
 // Does not support EACH_QUORUM, as no such thing as EACH_SERIAL
 public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> implements IAsyncCallbackWithFailure<WriteResponse>
@@ -122,7 +122,7 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
             {
                 try
                 {
-                    waits().awaitUntil(onDone, deadline);
+                    WAIT.awaitUntil(onDone, deadline);
                 }
                 catch (InterruptedException e)
                 {
@@ -155,7 +155,7 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
     void start(Paxos.Participants participants, ConsistencyLevel consistency, boolean async)
     {
         boolean executeOnSelf = false;
-        MessageOut<Agreed> message = new MessageOut<>(PAXOS_COMMIT, commit, Agreed.serializer)
+        MessageOut<Commit> message = new MessageOut<>(PAXOS_COMMIT, commit, serializer)
                 .permitsArtificialDelay(consistency);
         for (int i = 0, mi = participants.all.size(); i < mi ; ++i)
             executeOnSelf |= isSelfOrSend(message, participants.all.get(i));
@@ -171,7 +171,7 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
     /**
      * If isLocal return true; otherwise if the destination is alive send our message, and if not mark the callback with failure
      */
-    private boolean isSelfOrSend(MessageOut<Agreed> message, InetAddress destination)
+    private boolean isSelfOrSend(MessageOut<Commit> message, InetAddress destination)
     {
         if (canExecuteOnSelf(destination))
             return true;
@@ -299,10 +299,10 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
         return false;
     }
 
-    public static class RequestHandler implements IVerbHandler<Agreed>
+    public static class RequestHandler implements IVerbHandler<Commit>
     {
         @Override
-        public void doVerb(MessageIn<Agreed> message, int id)
+        public void doVerb(MessageIn<Commit> message, int id)
         {
             MessageOut<WriteResponse> response = execute(message.payload, message.from);
             // NOTE: for correctness, this must be our last action, so that we cannot throw an error and send both a response and a failure response
@@ -312,12 +312,12 @@ public class PaxosCommit<OnDone extends Consumer<? super PaxosCommit.Status>> im
                 MessagingService.instance().sendReply(response.permitsArtificialDelay(message), id, message.from);
         }
 
-        private static MessageOut<WriteResponse> execute(Agreed agreed, InetAddress from)
+        private static MessageOut<WriteResponse> execute(Commit commit, InetAddress from)
         {
-            if (!Paxos.isInRangeAndShouldProcess(from, agreed.update.partitionKey(), agreed.update.metadata()))
+            if (!Paxos.isInRangeAndShouldProcess(from, commit.update.partitionKey(), commit.update.metadata()))
                 return null;
 
-            PaxosState.commitDirect(agreed);
+            PaxosState.commit(commit);
             Tracing.trace("Enqueuing acknowledge to {}", from);
             return WriteResponse.createMessage();
         }

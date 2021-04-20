@@ -43,7 +43,6 @@ import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.paxos.PaxosRepair.Result.Outcome;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDSerializer;
 
 import static org.apache.cassandra.net.MessagingService.Verb.REQUEST_RESPONSE;
@@ -54,7 +53,6 @@ import static org.apache.cassandra.service.paxos.PaxosRepair.Result.Outcome.*;
 import static org.apache.cassandra.utils.NullableSerializer.deserializeNullable;
 import static org.apache.cassandra.utils.NullableSerializer.serializeNullable;
 import static org.apache.cassandra.utils.NullableSerializer.serializedSizeNullable;
-import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
 
 /**
  * Facility to finish any in-progress paxos transaction, and ensure that a quorum of nodes agree on the most recent operation.
@@ -144,8 +142,9 @@ public class PaxosRepair
     private final DecoratedKey partitionKey;
     private final CFMetaData metadata;
     private final ConsistencyLevel consistency;
+    private final Participants participants;
+    private final int required;
     private final Consumer<Result> onDone;
-    private Participants participants;
 
     private UUID successCriteria;
     private State state;
@@ -199,7 +198,7 @@ public class PaxosRepair
                 if (state != this)
                     return;
 
-                if (++failures + participants.requiredForConsensus > participants.sizeOfPoll())
+                if (++failures + required > participants.sizeOfPoll())
                     setState(maybeRetry());
             }
         }
@@ -225,7 +224,7 @@ public class PaxosRepair
                         oldestCommitted = msg.payload.committed.ballot;
 
                     // once we receive the requisite number, we can simply proceed, and ignore future responses
-                    if (++successes == participants.requiredForConsensus)
+                    if (++successes == required)
                         setState(execute());
                 }
                 catch (Throwable t)
@@ -418,17 +417,24 @@ public class PaxosRepair
         }
     }
 
-    public PaxosRepair(DecoratedKey partitionKey, CFMetaData metadata, ConsistencyLevel consistency, Consumer<Result> onDone)
+    public PaxosRepair(DecoratedKey partitionKey, CFMetaData metadata, ConsistencyLevel consistency, Participants participants, int required, Consumer<Result> onDone)
     {
         this.partitionKey = partitionKey;
         this.metadata = metadata;
         this.consistency = consistency;
+        this.participants = participants;
+        this.required = required;
         this.onDone = onDone;
     }
 
     public static PaxosRepair async(ConsistencyLevel consistency, DecoratedKey partitionKey, CFMetaData metadata, Consumer<Result> onDone)
     {
-        PaxosRepair repair = new PaxosRepair(partitionKey, metadata, consistency, onDone);
+        return async(consistency, partitionKey, metadata, Participants.get(metadata, partitionKey, consistency), onDone);
+    }
+
+    public static PaxosRepair async(ConsistencyLevel consistency, DecoratedKey partitionKey, CFMetaData metadata, Participants participants, Consumer<Result> onDone)
+    {
+        PaxosRepair repair = new PaxosRepair(partitionKey, metadata, consistency, participants, participants.requiredForConsensus, onDone);
         repair.start();
         return repair;
     }
@@ -446,7 +452,7 @@ public class PaxosRepair
     public synchronized Result await() throws InterruptedException
     {
         while (!(state instanceof Result))
-            waits().wait(this);
+            WAIT.wait(this);
         return (Result) state;
     }
 
@@ -466,8 +472,6 @@ public class PaxosRepair
         if (state instanceof Result)
             return state;
 
-        // TODO: assureSufficientLiveNodes?
-        participants = Participants.get(metadata, partitionKey, consistency);
         Querying querying = new Querying();
         MessageOut<Request> message = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_REPAIR_REQ, new Request(partitionKey, metadata), requestSerializer)
                 .permitsArtificialDelay(participants.consistencyForConsensus);
@@ -486,7 +490,7 @@ public class PaxosRepair
         {
             if (onDone != null)
                 onDone.accept((Result) newState);
-            waits().notify(this);
+            WAIT.notify(this);
         }
     }
 
@@ -539,17 +543,11 @@ public class PaxosRepair
                 return;
             }
 
-            UUID latestWitnessed;
-            Accepted acceptedButNotCommited;
-            Committed committed;
-            int nowInSec = FBUtilities.nowInSeconds();
-            try (PaxosState state = PaxosState.get(request.partitionKey, request.metadata, nowInSec))
-            {
-                PaxosState.Snapshot snapshot = state.current();
-                latestWitnessed = snapshot.latestWitnessed();
-                acceptedButNotCommited = snapshot.accepted;
-                committed = snapshot.committed;
-            }
+            PaxosState current = PaxosState.read(request.partitionKey, request.metadata, (int)(System.currentTimeMillis() / 1000L));
+
+            UUID latestWitnessed = current.latestWitnessed();
+            Accepted acceptedButNotCommited = current.accepted;
+            Committed committed = current.committed;
 
             Response response = new Response(latestWitnessed, acceptedButNotCommited, committed);
             MessageOut<Response> reply = new MessageOut<>(REQUEST_RESPONSE, response, responseSerializer)

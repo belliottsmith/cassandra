@@ -129,12 +129,6 @@ public class ComplexColumnData extends ColumnData implements Iterable<Cell>
         return heapSize;
     }
 
-    public long unsharedHeapSize()
-    {
-        long heapSize = EMPTY_SIZE + ObjectSizes.sizeOfArray(cells) + complexDeletion.unsharedHeapSize();
-        return BTree.<Cell>accumulate(cells, (cell, value) -> value + cell.unsharedHeapSize(), heapSize);
-    }
-
     public void validate()
     {
         for (Cell cell : this)

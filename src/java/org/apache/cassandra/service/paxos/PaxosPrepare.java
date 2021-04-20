@@ -35,7 +35,6 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadOrderGroup;
 import org.apache.cassandra.db.ReadResponse;
@@ -72,7 +71,6 @@ import static org.apache.cassandra.utils.CollectionSerializer.deserializeMap;
 import static org.apache.cassandra.utils.CollectionSerializer.newHashMap;
 import static org.apache.cassandra.utils.CollectionSerializer.serializeMap;
 import static org.apache.cassandra.utils.CollectionSerializer.serializedSizeMap;
-import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
 
 /**
  * Perform one paxos "prepare" attempt, with various optimisations.
@@ -348,7 +346,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         try
         {
             //noinspection StatementWithEmptyBody
-            while (!isDone() && waits().waitUntil(this, deadline)) {}
+            while (!isDone() && WAIT.waitUntil(this, deadline)) {}
 
             // TODO: should we explicitly mark ourselves as outcome=MAYBE_FAILURE when we timeout?
             return status();
@@ -659,7 +657,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             failures = new ArrayList<>(participants.sizeOfPoll() - withLatest());
 
         failures.add(from);
-        if (failures() + participants.requiredForConsensus == 1 + participants.sizeOfPoll())
+        if (failures() + participants.requiredForConsensus == participants.sizeOfPoll())
             signalDone(MAYBE_FAILURE);
     }
 
@@ -677,7 +675,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
         this.outcome = outcome;
         if (onDone != null)
             onDone.accept(status());
-        waits().notify(this);
+        WAIT.notify(this);
     }
 
     /**
@@ -859,20 +857,7 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
             if (!isInRangeAndShouldProcess(from, request.partitionKey, request.metadata))
                 return null;
 
-            long start = System.nanoTime();
-            try (PaxosState state = PaxosState.get(request.partitionKey, request.metadata, request.ballot))
-            {
-                return execute(request, state);
-            }
-            finally
-            {
-                Keyspace.openAndGetStore(request.metadata).metric.casPrepare.addNano(System.nanoTime() - start);
-            }
-        }
-
-        static Response execute(AbstractRequest<?> request, PaxosState state)
-        {
-            PaxosState.PromiseResult result = state.promiseIfNewer(request.ballot);
+            PaxosState.PromiseResult result = PaxosState.promiseIfNewer(request.partitionKey, request.metadata, request.ballot);
             if (result.isPromised())
             {
                 // verify electorates; if they differ, send back gossip info for superset of two participant sets
@@ -897,22 +882,23 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
                     // pending nodes, however electorate verification we will cause us to retry if the pending status changes
                     // during execution; otherwise if the most recent commit we witnessed wasn't witnessed by a read response
                     // we will abort and retry, and we must witness it by the above argument.
-                    hasProposalStability = result.before.promised == Ballot.none()
-                            || (result.after.accepted != null && result.after.accepted.ballot.equals(result.before.promised) && result.after.accepted.update.isEmpty());
+                    hasProposalStability = result.prevPromised == null
+                            || (result.accepted != null && result.accepted.ballot.equals(result.prevPromised) && result.accepted.update.isEmpty());
                     if (hasProposalStability && request.read != null)
                     {
-                        hasProposalStability = result.after == state.current();
+                        PaxosState after = PaxosState.read(request.partitionKey, request.metadata, request.read.nowInSec());
+                        hasProposalStability = after.promised.equals(result.promised);
                     }
                 }
 
-                Accepted acceptedButNotCommitted = result.after.accepted;
-                Committed committed = result.after.committed;
+                Accepted acceptedButNotCommitted = result.accepted;
+                Committed committed = result.committed;
 
                 return new Promised(acceptedButNotCommitted, committed, readResponse, hasProposalStability, gossipInfo);
             }
             else
             {
-                return new Rejected(result.supersededBy());
+                return new Rejected(result.supersededBy);
             }
         }
     }

@@ -323,8 +323,6 @@ public class Config
     public volatile int counter_cache_save_period = 7200;
     public volatile int counter_cache_keys_to_save = Integer.MAX_VALUE;
 
-    public Long paxos_cache_size_in_mb = null;
-
     private static boolean isClientMode = false;
     private static Supplier<Config> overrideLoadConfig = null;
 
@@ -628,7 +626,6 @@ public class Config
     public enum PaxosVariant
     {
         legacy,
-        legacy_cached,
         apple_norrl, // with legacy semantics for read/read linearizability (i.e. not guaranteed)
         apple_rrl2rt, // with read/read linearizability guaranteed but requiring an extra read round-trip
         apple_rrl // provides read/read linearizability, doesn't incur an extra round-trip if no contending paxos operation is detected

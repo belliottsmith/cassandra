@@ -434,16 +434,6 @@ public class BTreeRow extends AbstractRow
         return accumulate((cd, v) -> v + cd.unsharedHeapSizeExcludingData(), heapSize);
     }
 
-    public long unsharedHeapSize()
-    {
-        long size = EMPTY_SIZE
-                // TODO this ignores some items (as does ExcludingData)
-                      + clustering.unsharedHeapSize()
-                      + BTree.sizeOfStructureOnHeap(btree);
-
-        return accumulate((cd, v) -> v + cd.unsharedHeapSize(), size);
-    }
-
     public static Row.Builder sortedBuilder()
     {
         return new Builder(true);

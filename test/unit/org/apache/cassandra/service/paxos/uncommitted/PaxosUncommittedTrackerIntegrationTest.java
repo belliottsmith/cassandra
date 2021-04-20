@@ -28,12 +28,12 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.schema.KeyspaceParams;
+import org.apache.cassandra.service.paxos.Commit;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CloseableIterator;
 import org.apache.cassandra.utils.UUIDGen;
 
-import static org.apache.cassandra.service.paxos.Commit.*;
 import static org.apache.cassandra.service.paxos.uncommitted.PaxosUncommittedTests.ALL_RANGES;
 import static org.apache.cassandra.service.paxos.uncommitted.PaxosUncommittedTests.PAXOS_CFS;
 
@@ -76,29 +76,21 @@ public class PaxosUncommittedTrackerIntegrationTest
         }
 
         DecoratedKey key = dk(1);
-        Proposal proposal = new Proposal(UUIDGen.getTimeUUID(), PartitionUpdate.emptyUpdate(cfm, key));
+        Commit commit = new Commit(UUIDGen.getTimeUUID(), PartitionUpdate.emptyUpdate(cfm, key));
 
-        try (PaxosState state = PaxosState.get(key, cfm, proposal.ballot))
-        {
-            state.promiseIfNewer(proposal.ballot);
-        }
-
+        PaxosState.promiseIfNewer(key, cfm, commit.ballot);
         try (CloseableIterator<UncommittedPaxosKey> iterator = tracker.uncommittedKeyIterator(cfm.cfId, ALL_RANGES, null))
         {
             Assert.assertFalse(iterator.hasNext());
         }
 
-        try (PaxosState state = PaxosState.get(key, cfm, proposal.ballot))
-        {
-            state.acceptIfLatest(proposal);
-        }
-
+        PaxosState.acceptIfLatest(commit);
         try (CloseableIterator<UncommittedPaxosKey> iterator = tracker.uncommittedKeyIterator(cfm.cfId, ALL_RANGES, null))
         {
             Assert.assertEquals(key, Iterators.getOnlyElement(iterator).getKey());
         }
 
-        PaxosState.commitDirect(proposal.agreed());
+        PaxosState.commit(commit);
         try (CloseableIterator<UncommittedPaxosKey> iterator = tracker.uncommittedKeyIterator(cfm.cfId, ALL_RANGES, null))
         {
             Assert.assertFalse(iterator.hasNext());
@@ -111,13 +103,10 @@ public class PaxosUncommittedTrackerIntegrationTest
         PaxosUncommittedTracker tracker = PaxosState.tracker();
 
         DecoratedKey key = dk(1);
-        Proposal proposal = new Proposal(UUIDGen.getTimeUUID(), PartitionUpdate.emptyUpdate(cfm, key));
+        Commit commit = new Commit(UUIDGen.getTimeUUID(), PartitionUpdate.emptyUpdate(cfm, key));
 
-        try (PaxosState state = PaxosState.get(key, cfm, proposal.ballot))
-        {
-            state.promiseIfNewer(proposal.ballot);
-            state.acceptIfLatest(proposal);
-        }
+        PaxosState.promiseIfNewer(key, cfm, commit.ballot);
+        PaxosState.acceptIfLatest(commit);
         try (CloseableIterator<UncommittedPaxosKey> iterator = tracker.uncommittedKeyIterator(cfm.cfId, ALL_RANGES, null))
         {
             Assert.assertEquals(key, Iterators.getOnlyElement(iterator).getKey());
@@ -125,7 +114,7 @@ public class PaxosUncommittedTrackerIntegrationTest
 
         PAXOS_CFS.forceBlockingFlush();
 
-        PaxosState.commitDirect(proposal.agreed());
+        PaxosState.commit(commit);
         try (CloseableIterator<UncommittedPaxosKey> iterator = tracker.uncommittedKeyIterator(cfm.cfId, ALL_RANGES, null))
         {
             Assert.assertEquals(Lists.newArrayList(), Lists.newArrayList(iterator));

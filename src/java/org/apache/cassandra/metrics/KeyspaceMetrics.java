@@ -93,10 +93,6 @@ public class KeyspaceMetrics
     public final LatencyMetrics casPropose;
     /** CAS Commit metrics */
     public final LatencyMetrics casCommit;
-    /** Number of simultaneous active operations for the updated partition **/
-    public final Histogram casLocalConcurrency;
-    /** Number of operations that have overlapped for the partition since there was last no concurrent activity **/
-    public final Histogram casLocalRecentOverlaps;
     /** Writes failed ideal consistency **/
     public final Counter writeFailedIdealCL;
     /** Ideal CL write latency metrics */
@@ -305,8 +301,6 @@ public class KeyspaceMetrics
         casPrepare = new LatencyMetrics(factory, "CasPrepare");
         casPropose = new LatencyMetrics(factory, "CasPropose");
         casCommit = new LatencyMetrics(factory, "CasCommit");
-        casLocalConcurrency = Metrics.histogram(factory.createMetricName("CasLocalConcurrency"), false);
-        casLocalRecentOverlaps = Metrics.histogram(factory.createMetricName("CasLocalRecentOverlaps"), false);
         writeFailedIdealCL = Metrics.counter(factory.createMetricName("WriteFailedIdealCL"));
         idealCLWriteLatency = new LatencyMetrics(factory, "IdealCLWrite");
 

@@ -687,14 +687,14 @@ public class StorageProxy implements StorageProxyMBean
             {
                 try
                 {
-                PaxosState.commitDirect(message.payload);
-                if (responseHandler != null)
-                    responseHandler.response(null);
+                    PaxosState.commit(message.payload);
+                    if (responseHandler != null)
+                        responseHandler.response(null);
                 }
                 catch (Exception ex)
                 {
                     if (!(ex instanceof WriteTimeoutException))
-                        logger.error("Failed to apply paxos commit locally", ex);
+                        logger.error("Failed to apply paxos commit locally : {}", ex);
                     responseHandler.onFailure(FBUtilities.getBroadcastAddress());
                 }
             }
@@ -3593,7 +3593,7 @@ public class StorageProxy implements StorageProxyMBean
 
     public String getPaxosVariant()
     {
-        return Paxos.getPaxosVariant().toString();
+        return Paxos.getPaxosVariant();
     }
 
     public boolean getAllowCompactStorage()

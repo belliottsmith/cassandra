@@ -270,8 +270,6 @@ public interface Row extends Unfiltered, Iterable<ColumnData>
 
     public long unsharedHeapSizeExcludingData();
 
-    public long unsharedHeapSize();
-
     public String toString(CFMetaData metadata, boolean fullDetails);
 
     /**

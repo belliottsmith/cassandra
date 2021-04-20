@@ -1311,14 +1311,14 @@ public final class SystemKeyspace
     /**
      * Load the current paxos state for the table and key
      */
-    public static PaxosState.Snapshot loadPaxosState(DecoratedKey key, CFMetaData metadata, int nowInSec)
+    public static PaxosState loadPaxosState(DecoratedKey key, CFMetaData metadata, int nowInSec, boolean permitNullAccept)
     {
         String req = "SELECT * FROM system.%s WHERE row_key = ? AND cf_id = ?";
         UntypedResultSet results = QueryProcessor.executeInternalWithNow(nowInSec, String.format(req, PAXOS), key.getKey(), metadata.cfId);
         if (results.isEmpty())
         {
             Committed noneCommitted = Committed.none(key, metadata);
-            return new PaxosState.Snapshot(Ballot.none(), null, noneCommitted);
+            return new PaxosState(Ballot.none(), permitNullAccept ? null : Accepted.none(key, metadata), noneCommitted);
         }
 
         UntypedResultSet.Row row = results.one();
@@ -1329,13 +1329,13 @@ public final class SystemKeyspace
         int proposalVersion = row.has("proposal_version") ? row.getInt("proposal_version") : MessagingService.VERSION_21;
         Accepted accepted = row.has("proposal")
                         ? new Accepted(row.getUUID("proposal_ballot"), PartitionUpdate.fromBytes(row.getBytes("proposal"), proposalVersion, key))
-                        : null;
+                        : permitNullAccept ? null : Accepted.none(key, metadata);
         // either most_recent_commit and most_recent_commit_at will both be set, or neither
         int mostRecentVersion = row.has("most_recent_commit_version") ? row.getInt("most_recent_commit_version") : MessagingService.VERSION_21;
         Committed committed = row.has("most_recent_commit")
                          ? new Committed(row.getUUID("most_recent_commit_at"), PartitionUpdate.fromBytes(row.getBytes("most_recent_commit"), mostRecentVersion, key))
                          : Committed.none(key, metadata);
-        return new PaxosState.Snapshot(promised, accepted, committed);
+        return new PaxosState(promised, accepted, committed);
     }
 
     public static void savePaxosPromise(DecoratedKey key, CFMetaData metadata, UUID ballot)

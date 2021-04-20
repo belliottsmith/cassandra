@@ -79,11 +79,6 @@ public class Commit
             return new Proposal(ballot, PartitionUpdate.emptyUpdate(metadata, partitionKey));
         }
 
-        public Accepted accepted()
-        {
-            return new Accepted(ballot, update);
-        }
-
         public Agreed agreed()
         {
             return new Agreed(ballot, update);
@@ -102,11 +97,6 @@ public class Commit
         public Accepted(UUID ballot, PartitionUpdate update)
         {
             super(ballot, update);
-        }
-
-        public Accepted(Commit commit)
-        {
-            super(commit.ballot, commit.update);
         }
 
         public String toString()
@@ -178,11 +168,6 @@ public class Commit
     public boolean isAfter(Commit other)
     {
         return other == null || ballot.timestamp() > other.ballot.timestamp();
-    }
-
-    public boolean isSameOrAfter(@Nullable UUID otherBallot)
-    {
-        return otherBallot == null || otherBallot.equals(ballot) || ballot.timestamp() > otherBallot.timestamp();
     }
 
     public boolean isAfter(@Nullable UUID otherBallot)

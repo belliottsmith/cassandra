@@ -27,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.common.primitives.Ints;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -397,20 +396,14 @@ public class PartitionUpdate extends AbstractBTreePartition
      */
     public int dataSize()
     {
-        maybeBuild();
-        return Ints.saturatedCast(BTree.<Row>accumulate(holder.tree, (row, value) -> row.dataSize() + value, 0L)
-                + holder.staticRow.dataSize() + holder.deletionInfo.dataSize());
-    }
-
-    /**
-     * The size of the data contained in this update.
-     *
-     * @return the size of the data contained in this update.
-     */
-    public long unsharedHeapSize()
-    {
-        return BTree.<Row>accumulate(holder.tree, (row, value) -> row.unsharedHeapSize() + value, 0L)
-                + holder.staticRow.unsharedHeapSize() + holder.deletionInfo.unsharedHeapSize();
+        int size = 0;
+        for (Row row : this)
+        {
+            size += row.clustering().dataSize();
+            for (ColumnData cd : row)
+                size += cd.dataSize();
+        }
+        return size;
     }
 
     @Override

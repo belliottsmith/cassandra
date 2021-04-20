@@ -57,8 +57,6 @@ public abstract class ColumnData
 
     public abstract long unsharedHeapSizeExcludingData();
 
-    public abstract long unsharedHeapSize();
-
     /**
      * Validate the column data.
      *

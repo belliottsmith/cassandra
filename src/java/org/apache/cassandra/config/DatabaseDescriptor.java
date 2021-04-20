@@ -115,7 +115,6 @@ public class DatabaseDescriptor
     private static RequestSchedulerOptions requestSchedulerOptions;
 
     private static long keyCacheSizeInMB;
-    private static long paxosCacheSizeInMB;
     private static long counterCacheSizeInMB;
     private static long indexSummaryCapacityInMB;
 
@@ -798,22 +797,6 @@ public class DatabaseDescriptor
         {
             throw new ConfigurationException("counter_cache_size_in_mb option was set incorrectly to '"
                     + conf.counter_cache_size_in_mb + "', supported values are <integer> >= 0.", false);
-        }
-
-        try
-        {
-            // if paxos_cache_size_in_mb option was set to "auto" then size of the cache should be "min(1% of Heap (in MB), 50MB)
-            paxosCacheSizeInMB = (conf.paxos_cache_size_in_mb == null)
-                    ? Math.min(Math.max(1, (int) (Runtime.getRuntime().totalMemory() * 0.01 / 1024 / 1024)), 50)
-                    : conf.paxos_cache_size_in_mb;
-
-            if (paxosCacheSizeInMB < 0)
-                throw new NumberFormatException(); // to escape duplicating error message
-        }
-        catch (NumberFormatException e)
-        {
-            throw new ConfigurationException("paxos_cache_size_in_mb option was set incorrectly to '"
-                    + conf.paxos_cache_size_in_mb + "', supported values are <integer> >= 0.", false);
         }
 
         // if set to empty/"auto" then use 5% of Heap size
@@ -2542,11 +2525,6 @@ public class DatabaseDescriptor
     public static int getRowCacheKeysToSave()
     {
         return conf.row_cache_keys_to_save;
-    }
-
-    public static long getPaxosCacheSizeInMB()
-    {
-        return paxosCacheSizeInMB;
     }
 
     public static long getCounterCacheSizeInMB()

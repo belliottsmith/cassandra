@@ -37,10 +37,10 @@ import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageProxy;
-import org.apache.cassandra.service.paxos.Commit.Agreed;
 import org.apache.cassandra.service.paxos.Commit.Committed;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.UUIDGen;
 import org.apache.cassandra.utils.UUIDSerializer;
 
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ;
@@ -185,25 +185,24 @@ public class PaxosPrepareRefresh implements IAsyncCallbackWithFailure<PaxosPrepa
 
         public static Response execute(Request request, InetAddress from)
         {
-            Agreed commit = request.missingCommit;
+            Commit commit = request.missingCommit;
 
             if (!Paxos.isInRangeAndShouldProcess(from, commit.update.partitionKey(), commit.update.metadata()))
                 return null;
 
-            try (PaxosState state = PaxosState.get(commit))
+            PaxosState.commit(commit);
+            PaxosState current = PaxosState.read(commit.update.partitionKey(), commit.update.metadata(), UUIDGen.unixTimestampInSec(commit.ballot));
+
+            UUID latest = current.latestWitnessed();
+            if (isAfter(latest, request.promised))
             {
-                state.commit(commit);
-                UUID latest = state.current().latestWitnessed();
-                if (isAfter(latest, request.promised))
-                {
-                    Tracing.trace("Promise {} rescinded; latest is now {}", request.promised, latest);
-                    return new Response(latest);
-                }
-                else
-                {
-                    Tracing.trace("Promise confirmed for ballot {}", request.promised);
-                    return new Response(null);
-                }
+                Tracing.trace("Promise {} rescinded; latest is now {}", request.promised, latest);
+                return new Response(latest);
+            }
+            else
+            {
+                Tracing.trace("Promise confirmed for ballot {}", request.promised);
+                return new Response(null);
             }
         }
     }

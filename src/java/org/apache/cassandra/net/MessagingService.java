@@ -356,7 +356,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.PAXOS_PROPOSE, Commit.serializer);
         put(Verb.APPLE_PAXOS_PROPOSE_REQ, PaxosPropose.requestSerializer);
         put(Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, PaxosCommitAndPrepare.requestSerializer);
-        put(Verb.PAXOS_COMMIT, Commit.Agreed.serializer);
+        put(Verb.PAXOS_COMMIT, Commit.serializer);
         put(Verb.APPLE_PAXOS_REPAIR_REQ, PaxosRepair.requestSerializer);
         put(Verb.HINT, HintMessage.serializer);
         put(Verb.BATCH_STORE, Batch.serializer);

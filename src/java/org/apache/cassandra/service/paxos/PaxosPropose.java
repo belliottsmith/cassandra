@@ -29,7 +29,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.StageManager;
-import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.io.IVersionedSerializer;
@@ -47,11 +46,11 @@ import org.apache.cassandra.utils.UUIDSerializer;
 
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ;
 import static org.apache.cassandra.net.MessagingService.Verb.REQUEST_RESPONSE;
+import static org.apache.cassandra.service.paxos.Paxos.WAIT;
 import static org.apache.cassandra.service.paxos.Paxos.canExecuteOnSelf;
 import static org.apache.cassandra.service.paxos.PaxosPropose.Superseded.SideEffects.NO;
 import static org.apache.cassandra.service.paxos.PaxosPropose.Superseded.SideEffects.MAYBE;
 import static org.apache.cassandra.net.MessagingService.verbStages;
-import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
 
 /**
  * In waitForNoSideEffect mode, we will not return failure to the caller until
@@ -182,7 +181,7 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
             {
                 try
                 {
-                    waits().awaitUntil(onDone, deadline);
+                    WAIT.awaitUntil(onDone, deadline);
                 }
                 catch (InterruptedException e)
                 {
@@ -252,7 +251,7 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
         response(msg.payload, msg.from);
     }
 
-    private void executeOnSelf(Proposal proposal)
+    private void executeOnSelf(Commit proposal)
     {
         try
         {
@@ -431,20 +430,12 @@ public class PaxosPropose<OnDone extends Consumer<? super PaxosPropose.Status>> 
                         .permitsArtificialDelay(message), id, message.from);
         }
 
-        public static Response execute(Proposal proposal, InetAddress from)
+        public static Response execute(Commit proposal, InetAddress from)
         {
             if (!Paxos.isInRangeAndShouldProcess(from, proposal.update.partitionKey(), proposal.update.metadata()))
                 return null;
 
-            long start = System.nanoTime();
-            try (PaxosState state = PaxosState.get(proposal))
-            {
-                return new Response(state.acceptIfLatest(proposal));
-            }
-            finally
-            {
-                Keyspace.openAndGetStore(proposal.update.metadata()).metric.casPropose.addNano(System.nanoTime() - start);
-            }
+            return new Response(PaxosState.acceptIfLatest(proposal));
         }
     }
 
