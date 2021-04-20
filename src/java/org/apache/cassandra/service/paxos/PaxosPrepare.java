@@ -535,7 +535,9 @@ public class PaxosPrepare implements IAsyncCallbackWithFailure<PaxosPrepare.Resp
                         }
                         else
                         {
-                            needLatest.addAll(withLatest);
+                            List<InetAddress> tmp = needLatest;
+                            needLatest = withLatest;
+                            withLatest = tmp;
                             withLatest.clear();
                         }
                     }
