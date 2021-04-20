@@ -46,7 +46,6 @@ import javax.management.openmbean.TabularData;
 import javax.management.openmbean.TabularDataSupport;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.*;
@@ -63,9 +62,16 @@ import org.apache.cassandra.db.ReadCommandVerbHandler;
 import org.apache.cassandra.db.partitions.AtomicBTreePartition;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.net.PingVerbHandler;
-import org.apache.cassandra.service.paxos.*;
-import org.apache.cassandra.service.paxos.cleanup.*;
+import org.apache.cassandra.service.paxos.PaxosCommitAndPrepare;
+import org.apache.cassandra.service.paxos.PaxosPrepareRefresh;
+import org.apache.cassandra.service.paxos.PaxosRepair;
+import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupRequest;
+import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupResponse;
+import org.apache.cassandra.service.paxos.cleanup.PaxosPrepareCleanup;
 import org.apache.cassandra.utils.progress.ProgressListener;
+import org.apache.cassandra.service.paxos.PaxosCommit;
+import org.apache.cassandra.service.paxos.PaxosPrepare;
+import org.apache.cassandra.service.paxos.PaxosPropose;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.Appender;
@@ -144,6 +150,8 @@ import org.apache.cassandra.net.ResponseVerbHandler;
 import org.apache.cassandra.repair.RepairMessageVerbHandler;
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.schema.SchemaKeyspace;
+import org.apache.cassandra.service.paxos.PrepareVerbHandler;
+import org.apache.cassandra.service.paxos.ProposeVerbHandler;
 import org.apache.cassandra.streaming.*;
 import org.apache.cassandra.thrift.EndpointDetails;
 import org.apache.cassandra.thrift.TokenRange;
@@ -159,7 +167,6 @@ import org.apache.cassandra.utils.progress.jmx.LegacyJMXProgressSupport;
 import static java.util.Arrays.asList;
 import static java.util.Arrays.stream;
 import static java.util.concurrent.TimeUnit.MINUTES;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static org.apache.cassandra.index.SecondaryIndexManager.getIndexName;
@@ -272,12 +279,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public Collection<Range<Token>> getLocalRanges(String keyspaceName)
     {
         return getRangesForEndpoint(keyspaceName, FBUtilities.getBroadcastAddress());
-    }
-
-    public Collection<Range<Token>> getPendingRanges(String keyspaceName)
-    {
-        InetAddress broadcastAddress = FBUtilities.getBroadcastAddress();
-        return getTokenMetadata().getPendingRanges(keyspaceName, broadcastAddress);
     }
 
     public OwnedRanges getNormalizedLocalRanges(String keyspaceName)
@@ -436,7 +437,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_PREPARE, PaxosPrepareCleanup.verbHandler);
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_REQUEST, PaxosCleanupRequest.verbHandler);
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_RESPONSE, PaxosCleanupResponse.verbHandler);
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_FINISH, PaxosFinishCleanup.verbHandler);
     }
 
     public void registerDaemon(CassandraDaemon daemon)
@@ -1414,7 +1414,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                     keyspace == null ? "(All keyspaces)" : keyspace,
                     tokens == null ? "(All tokens)" : tokens);
 
-        repairPaxosForTopologyChange("rebuild");
         try
         {
             RangeStreamer streamer = new RangeStreamer(tokenMetadata,
@@ -1697,7 +1696,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             SystemKeyspace.resetAvailableRanges();
         }
 
-        repairPaxosForTopologyChange("bootstrap");
         setMode(Mode.JOINING, "Starting to bootstrap...", true);
         BootStrapper bootstrapper = new BootStrapper(FBUtilities.getBroadcastAddress(), tokens, tokenMetadata);
         bootstrapper.addProgressListener(progressSupport);
@@ -3934,50 +3932,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return new FutureTask<>(task, null);
     }
 
-    private void repairPaxosForTopologyChange(String reason)
-    {
-        if (getSkipPaxosRepairOnTopologyChange() || !Paxos.useApplePaxos())
-        {
-            logger.info("skipping paxos repair for {}. skip_paxos_repair_on_topology_change is set, or apple paxos variant is not being used", reason);
-            return;
-        }
-
-        logger.info("repairing paxos for {}", reason);
-
-        List<ListenableFuture<?>> futures = new ArrayList<>();
-
-        List<String> keyspaces = Schema.instance.getNonLocalStrategyKeyspaces() ;
-        for (String ksName : keyspaces)
-        {
-            if (Schema.REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(ksName))
-                continue;
-
-            if (DatabaseDescriptor.skipPaxosRepairOnTopologyChangeKeyspaces().contains(ksName))
-                continue;
-
-            List<Range<Token>> ranges = new ArrayList<>();
-            ranges.addAll(getLocalRanges(ksName));
-            ranges.addAll(getPendingRanges(ksName));
-
-            futures.add(ActiveRepairService.instance.repairPaxosForTopologyChange(ksName, ranges, reason));
-        }
-
-        try
-        {
-            Futures.allAsList(futures).get();
-        }
-        catch (InterruptedException e)
-        {
-            throw new AssertionError(e);
-        }
-        catch (ExecutionException e)
-        {
-            throw new RuntimeException(e);
-        }
-
-        logger.info("paxos repair for {} complete", reason);
-    }
-
     public void forceTerminateAllRepairSessions() {
         ActiveRepairService.instance.terminateSessions();
     }
@@ -4395,7 +4349,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         setMode(Mode.LEAVING, "replaying batch log and streaming data to other nodes", true);
 
-        repairPaxosForTopologyChange("decommission");
         // Start with BatchLog replay, which may create hints but no writes since this is no longer a valid endpoint.
         Future<?> batchlogReplay = BatchlogManager.instance.startBatchlogReplay();
         Future<StreamState> streamSuccess = streamRanges(rangesToStream);
@@ -4520,7 +4473,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         RangeRelocator relocator = new RangeRelocator(Collections.singleton(newToken), keyspacesToProcess);
 
-        repairPaxosForTopologyChange("move");
         if (relocator.streamsNeeded())
         {
             setMode(Mode.MOVING, "fetching new ranges and streaming old ranges", true);
@@ -6112,26 +6064,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public boolean getForcePagingStateLegacySerialization()
     {
         return DatabaseDescriptor.forcePagingStateLegacySerialization();
-    }
-
-    public boolean getSkipPaxosRepairOnTopologyChange()
-    {
-        return DatabaseDescriptor.skipPaxosRepairOnTopologyChange();
-    }
-
-    public void setSkipPaxosRepairOnTopologyChange(boolean v)
-    {
-        DatabaseDescriptor.setSkipPaxosRepairOnTopologyChange(v);
-    }
-
-    public String getSkipPaxosRepairOnTopologyChangeKeyspaces()
-    {
-        return Joiner.on(',').join(DatabaseDescriptor.skipPaxosRepairOnTopologyChangeKeyspaces());
-    }
-
-    public void setSkipPaxosRepairOnTopologyChangeKeyspaces(String v)
-    {
-        DatabaseDescriptor.setSkipPaxosRepairOnTopologyChangeKeyspaces(v);
     }
 
     public boolean autoOptimiseIncRepairStreams()

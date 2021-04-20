@@ -21,7 +21,6 @@
 package org.apache.cassandra.service.paxos;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
@@ -43,7 +42,6 @@ import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.service.paxos.Commit.Accepted;
 import org.apache.cassandra.service.paxos.Commit.Committed;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.service.paxos.uncommitted.PaxosBallotTracker;
 import org.apache.cassandra.service.paxos.uncommitted.PaxosUncommittedTracker;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.UUIDGen;
@@ -68,41 +66,26 @@ public class PaxosState implements AutoCloseable
             .maximumWeightedCapacity(DatabaseDescriptor.getPaxosCacheSizeInMB() << 20)
             .build();
 
+    private static PaxosUncommittedTracker loadTracker()
+    {
+        File directory = new File(Directories.dataDirectories[0].location, "paxos");
+        FileUtils.createDirectory(directory);
+        return PaxosUncommittedTracker.load(directory);
+    }
+
     private static class TrackerHandle
     {
-        static final PaxosUncommittedTracker uncommittedInstance;
-        static final PaxosBallotTracker ballotInstance;
-
-        static
-        {
-            File directory = new File(Directories.dataDirectories[0].location, "paxos");
-            FileUtils.createDirectory(directory);
-            uncommittedInstance = PaxosUncommittedTracker.load(directory);
-            try
-            {
-                ballotInstance = PaxosBallotTracker.load(directory);
-            }
-            catch (IOException e)
-            {
-                throw new RuntimeException(e);
-            }
-        }
+        static final PaxosUncommittedTracker instance = loadTracker();
     }
 
-    public static PaxosUncommittedTracker uncommittedTracker()
+    public static PaxosUncommittedTracker tracker()
     {
-        return TrackerHandle.uncommittedInstance;
+        return TrackerHandle.instance;
     }
 
-    public static PaxosBallotTracker ballotTracker()
+    public static void initializeTracker()
     {
-        return TrackerHandle.ballotInstance;
-    }
-
-    public static void initializeTrackers()
-    {
-        Preconditions.checkState(TrackerHandle.uncommittedInstance != null);
-        Preconditions.checkState(TrackerHandle.ballotInstance != null);
+        Preconditions.checkState(TrackerHandle.instance != null);
     }
 
     public static class Key
@@ -154,9 +137,7 @@ public class PaxosState implements AutoCloseable
         {
             Commit proposal = accepted == null ? committed : accepted;
             // if proposal has same timestamp as promised, we should prefer accepted since (if different) it reached a quorum of promises
-            UUID latest = proposal.isBefore(promised) ? promised : proposal.ballot;
-            UUID lowerBound = ballotTracker().getLowBound();
-            return isAfter(lowerBound, latest) ? lowerBound : latest;
+            return proposal.isBefore(promised) ? promised : proposal.ballot;
         }
 
         public static Snapshot merge(Snapshot a, Snapshot b)
@@ -206,38 +187,35 @@ public class PaxosState implements AutoCloseable
         }
     }
 
-    @VisibleForTesting
-    public static class PromiseResult
+    static class PromiseResult
     {
         final Snapshot before;
         final Snapshot after;
-        final UUID supersededBy;
 
-        PromiseResult(Snapshot before, Snapshot after, UUID supersededBy)
+        PromiseResult(Snapshot before, Snapshot after)
         {
             this.before = before;
             this.after = after;
-            this.supersededBy = supersededBy;
         }
 
         static PromiseResult promise(Snapshot before, Snapshot after)
         {
-            return new PromiseResult(before, after, null);
+            return new PromiseResult(before, after);
         }
 
-        static PromiseResult reject(Snapshot snapshot, UUID supersededBy)
+        static PromiseResult reject(Snapshot snapshot)
         {
-            return new PromiseResult(snapshot, snapshot, supersededBy);
+            return new PromiseResult(snapshot, snapshot);
         }
 
         public boolean isPromised()
         {
-            return supersededBy == null;
+            return before != after;
         }
 
         public UUID supersededBy()
         {
-            return supersededBy;
+            return before.promised;
         }
     }
 
@@ -254,8 +232,7 @@ public class PaxosState implements AutoCloseable
         this.current = current;
     }
 
-    @VisibleForTesting
-    public static PaxosState get(Commit commit)
+    static PaxosState get(Commit commit)
     {
         return get(commit.update.partitionKey(), commit.update.metadata(), commit.ballot, 0);
     }
@@ -391,7 +368,7 @@ public class PaxosState implements AutoCloseable
             if (!isAfter(ballot, latest))
             {
                 Tracing.trace("Promise rejected; {} is not sufficiently newer than {}", ballot, latest);
-                return PromiseResult.reject(before, latest);
+                return PromiseResult.reject(before);
             }
 
             after = new Snapshot(ballot, before.accepted, before.committed);
@@ -600,10 +577,4 @@ public class PaxosState implements AutoCloseable
         }
     }
 
-    public static void unsafeReset()
-    {
-        ACTIVE.clear();
-        RECENT.clear();
-        ballotTracker().truncate();
-    }
 }

@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.service.paxos.uncommitted;
 
-import java.nio.ByteBuffer;
 import java.util.UUID;
 
 import com.google.common.collect.Lists;
@@ -38,7 +37,6 @@ import org.apache.cassandra.utils.CloseableIterator;
 
 class PaxosRows
 {
-    private static final ColumnDefinition IN_PROGRESS = paxosUUIDColumn("in_progress_ballot");
     private static final ColumnDefinition PROPOSAL = paxosUUIDColumn("proposal_ballot");
     private static final ColumnDefinition COMMIT = paxosUUIDColumn("most_recent_commit_at");
 
@@ -60,24 +58,6 @@ class PaxosRows
         if (cell == null)
             return null;
         return TimeUUIDType.instance.compose(cell.value());
-    }
-
-    private static long getTimestamp(Row row, ColumnDefinition cdef)
-    {
-        Cell cell = row.getCell(cdef);
-        if (cell == null)
-            return Long.MIN_VALUE;
-
-        ByteBuffer value = cell.value();
-        if (!value.hasRemaining())
-            return Long.MIN_VALUE;
-
-        long mostSigBits = value.getLong(value.position());
-
-        // copied from timestamp method in UUID.java
-        return (mostSigBits & 0x0FFFL) << 48
-               | ((mostSigBits >> 16) & 0x0FFFFL) << 32
-               | mostSigBits >>> 32;
     }
 
     static PaxosKeyState getCommitState(DecoratedKey key, Row row, UUID targetCfId)
@@ -169,32 +149,5 @@ class PaxosRows
         {
             iter.close();
         }
-    }
-
-    static UUID getHighBallot(Row row, UUID current)
-    {
-        long maxBallot = current != null ? current.timestamp() : Long.MIN_VALUE;
-        ColumnDefinition maxCDef = null;
-
-
-        long inProgress = getTimestamp(row, IN_PROGRESS);
-        if (inProgress > maxBallot)
-        {
-            maxBallot = inProgress;
-            maxCDef = IN_PROGRESS;
-        }
-
-        long proposal = getTimestamp(row, PROPOSAL);
-        if (proposal > maxBallot)
-        {
-            maxBallot = proposal;
-            maxCDef = PROPOSAL;
-        }
-
-        long commit = getTimestamp(row, COMMIT);
-        if (commit > maxBallot)
-            maxCDef = COMMIT;
-
-        return maxCDef == null ? current : getBallot(row, maxCDef);
     }
 }

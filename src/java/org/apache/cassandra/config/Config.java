@@ -19,12 +19,16 @@ package org.apache.cassandra.config;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -42,20 +46,6 @@ public class Config
 {
     private static final Logger logger = LoggerFactory.getLogger(Config.class);
 
-    public static Set<String> splitCommaDelimited(String src)
-    {
-        if (src == null)
-            return ImmutableSet.of();
-        String[] split = src.split(",\\s*");
-        ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-        for (String s : split)
-        {
-            s = s.trim();
-            if (!s.isEmpty())
-                builder.add(s);
-        }
-        return builder.build();
-    }
     /*
      * Prefix for Java properties for internal Cassandra configuration options
      */
@@ -174,7 +164,7 @@ public class Config
     // default changed in request rdar://63403100 (Enable use_offheap_merkle_trees by default)
     public volatile boolean use_offheap_merkle_trees = true;
 
-    public volatile int paxos_repair_parallelism = -1;
+    public volatile int paxos_repair_paralellism = -1;
 
     public Integer storage_port = 7000;
     public Integer ssl_storage_port = 7001;
@@ -646,9 +636,6 @@ public class Config
     }
 
     public volatile PaxosVariant paxos_variant = PaxosVariant.legacy;
-
-    public volatile boolean skip_paxos_repair_on_topology_change = Boolean.getBoolean("cassandra.skip_paxos_repair_on_topology_change");
-    public volatile Set<String> skip_paxos_repair_on_topology_change_keyspaces = splitCommaDelimited(System.getProperty("cassandra.skip_paxos_repair_on_topology_change_keyspaces"));
 
     public volatile boolean allow_compact_storage = true;
 

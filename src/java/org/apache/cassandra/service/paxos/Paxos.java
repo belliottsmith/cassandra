@@ -509,7 +509,7 @@ public class Paxos
         consistencyForCommit.validateForCasCommit(metadata.ksName);
         verifyAgainstBlacklist(metadata.ksName, metadata.cfName, key);
 
-        UUID minimumBallot = PaxosState.ballotTracker().getLowBound();
+        UUID minimumBallot = null;
         int failedAttemptsDueToContention = 0;
         try
         {
@@ -662,7 +662,7 @@ public class Paxos
             throw new InvalidRequestException("SERIAL/LOCAL_SERIAL consistency may only be requested for one partition at a time");
 
         int failedAttemptsDueToContention = 0;
-        UUID minimumBallot = PaxosState.ballotTracker().getLowBound();
+        UUID minimumBallot = null;
         SinglePartitionReadCommand read = group.commands.get(0);
         try
         {

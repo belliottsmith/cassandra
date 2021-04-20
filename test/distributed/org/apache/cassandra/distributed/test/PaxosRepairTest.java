@@ -29,7 +29,6 @@ import java.util.stream.Collectors;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,7 +63,7 @@ public class PaxosRepairTest extends TestBaseImpl
             return 0;
         int uncommitted = instance.callsOnInstance(() -> {
             CFMetaData cfm = Schema.instance.getCFMetaData(keyspace, table);
-            return Iterators.size(PaxosState.uncommittedTracker().uncommittedKeyIterator(cfm.cfId, null, null));
+            return Iterators.size(PaxosState.tracker().uncommittedKeyIterator(cfm.cfId, null, null));
         }).call();
         logger.info("{} has {} uncommitted instances", instance, uncommitted);
         return uncommitted;
@@ -160,7 +159,7 @@ public class PaxosRepairTest extends TestBaseImpl
             cluster.verbs(MessagingService.Verb.PAXOS_COMMIT).drop();
             try
             {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (400, 2, 2) IF NOT EXISTS", ConsistencyLevel.QUORUM);
+                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (2, 2, 2) IF NOT EXISTS", ConsistencyLevel.QUORUM);
                 Assert.fail("expected write timeout");
             }
             catch (RuntimeException e)
@@ -178,39 +177,6 @@ public class PaxosRepairTest extends TestBaseImpl
             assertUncommitted(cluster.get(1), KEYSPACE, TABLE, 0);
             assertUncommitted(cluster.get(2), KEYSPACE, TABLE, 0);
             assertUncommitted(cluster.get(3), KEYSPACE, TABLE, 0);
-        }
-    }
-
-    @Ignore
-    @Test
-    public void topologyChangePaxosTest() throws Throwable
-    {
-        try (Cluster cluster = Cluster.build(4).withConfig(CONFIG_CONSUMER).createWithoutStarting())
-        {
-            for (int i=1; i<=3; i++)
-                cluster.get(i).startup();
-
-            init(cluster);
-            cluster.schemaChange("CREATE TABLE " + KEYSPACE + '.' + TABLE + " (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
-            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
-
-            cluster.verbs(MessagingService.Verb.PAXOS_COMMIT).drop();
-            try
-            {
-                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + '.' + TABLE + " (pk, ck, v) VALUES (350, 2, 2) IF NOT EXISTS", ConsistencyLevel.QUORUM);
-                Assert.fail("expected write timeout");
-            }
-            catch (RuntimeException e)
-            {
-                // exception expected
-            }
-            Assert.assertTrue(hasUncommitted(cluster, KEYSPACE, TABLE));
-
-            cluster.filters().reset();
-
-            // node 4 starting should repair paxos and inform the other nodes of its gossip state
-            cluster.get(4).startup();
-            Assert.assertFalse(hasUncommitted(cluster, KEYSPACE, TABLE));
         }
     }
 }

@@ -28,7 +28,6 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.schema.KeyspaceParams;
-import org.apache.cassandra.service.paxos.Ballot;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CloseableIterator;
@@ -68,11 +67,8 @@ public class PaxosUncommittedTrackerIntegrationTest
     @Test
     public void commitCycle()
     {
-        PaxosUncommittedTracker tracker = PaxosState.uncommittedTracker();
-        PaxosBallotTracker ballotTracker = PaxosState.ballotTracker();
+        PaxosUncommittedTracker tracker = PaxosState.tracker();
         Assert.assertNull(tracker.getTableState(cfm.cfId));
-        Assert.assertEquals(Ballot.none(), ballotTracker.getLowBound());
-        Assert.assertEquals(Ballot.none(), ballotTracker.getHighBound());
 
         try (CloseableIterator<UncommittedPaxosKey> iterator = tracker.uncommittedKeyIterator(cfm.cfId, ALL_RANGES, null))
         {
@@ -112,7 +108,7 @@ public class PaxosUncommittedTrackerIntegrationTest
     @Test
     public void inMemoryCommit()
     {
-        PaxosUncommittedTracker tracker = PaxosState.uncommittedTracker();
+        PaxosUncommittedTracker tracker = PaxosState.tracker();
 
         DecoratedKey key = dk(1);
         Proposal proposal = new Proposal(UUIDGen.getTimeUUID(), PartitionUpdate.emptyUpdate(cfm, key));

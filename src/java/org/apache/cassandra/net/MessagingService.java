@@ -56,7 +56,10 @@ import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.BootStrapper;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.gms.*;
+import org.apache.cassandra.gms.EchoMessage;
+import org.apache.cassandra.gms.GossipDigestAck;
+import org.apache.cassandra.gms.GossipDigestAck2;
+import org.apache.cassandra.gms.GossipDigestSyn;
 import org.apache.cassandra.hints.HintMessage;
 import org.apache.cassandra.hints.HintResponse;
 import org.apache.cassandra.io.IVersionedSerializer;
@@ -203,7 +206,6 @@ public final class MessagingService implements MessagingServiceMBean
         APPLE_PAXOS_CLEANUP_PREPARE(16363),
         APPLE_PAXOS_CLEANUP_REQUEST(16362),
         APPLE_PAXOS_CLEANUP_RESPONSE(16361),
-        APPLE_PAXOS_CLEANUP_FINISH(16360),
         ;
         private final int id;
         Verb()
@@ -312,7 +314,6 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.APPLE_PAXOS_CLEANUP_PREPARE, Stage.MISC);
         put(Verb.APPLE_PAXOS_CLEANUP_REQUEST, Stage.MISC);
         put(Verb.APPLE_PAXOS_CLEANUP_RESPONSE, Stage.MISC);
-        put(Verb.APPLE_PAXOS_CLEANUP_FINISH, Stage.MISC);
     }};
 
     /**
@@ -364,10 +365,9 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.PARTITION_SIZE, PartitionSizeCommand.serializer);
         put(Verb.PING, PingMessage.serializer);
 
-        put(Verb.APPLE_PAXOS_CLEANUP_PREPARE, EndpointState.serializer);
+        put(Verb.APPLE_PAXOS_CLEANUP_PREPARE, VoidSerializer.serializer);
         put(Verb.APPLE_PAXOS_CLEANUP_REQUEST, PaxosCleanupRequest.serializer);
         put(Verb.APPLE_PAXOS_CLEANUP_RESPONSE, PaxosCleanupResponse.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_FINISH, UUIDSerializer.serializer);
     }};
 
     /**
@@ -402,7 +402,6 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.APPLE_PAXOS_REPAIR_REQ, PaxosRepair.responseSerializer);
 
         put(Verb.APPLE_PAXOS_CLEANUP_PREPARE, UUIDSerializer.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_FINISH, VoidSerializer.serializer);
 
         put(Verb.BATCH_STORE, WriteResponse.serializer);
         put(Verb.BATCH_REMOVE, WriteResponse.serializer);

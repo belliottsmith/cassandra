@@ -320,7 +320,6 @@ class UncommittedKeyFile
         public void close()
         {
             onReaderClose();
-            reader.close();
         }
     }
 

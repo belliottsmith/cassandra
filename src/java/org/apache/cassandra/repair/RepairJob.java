@@ -42,7 +42,8 @@ import org.apache.cassandra.repair.asymmetric.PreferedNodeFilter;
 import org.apache.cassandra.repair.asymmetric.ReduceHelper;
 import org.apache.cassandra.service.*;
 import org.apache.cassandra.service.paxos.Paxos;
-import org.apache.cassandra.service.paxos.cleanup.PaxosCleanup;
+import org.apache.cassandra.service.paxos.cleanup.PaxosCleanupSession;
+import org.apache.cassandra.service.paxos.cleanup.PaxosPrepareCleanup;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.*;
@@ -106,24 +107,29 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
         allEndpoints.add(FBUtilities.getBroadcastAddress());
         this.repairJobStartTime = System.currentTimeMillis();
 
-        ListenableFuture<Void> paxosRepair;
+        ListenableFuture<Object> paxosRepair;
         if ((Paxos.useApplePaxos() && session.repairPaxos) || session.paxosOnly)
         {
             logger.info("{} {}.{} starting paxos repair", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
             CFMetaData cfm = Schema.instance.getCFMetaData(desc.keyspace, desc.columnFamily);
-            paxosRepair = PaxosCleanup.cleanup(session.endpoints, cfm.cfId, session.ranges, taskExecutor);
+            ListenableFuture<UUID> cleanupPrepare = PaxosPrepareCleanup.prepare(session.endpoints);
+            paxosRepair = Futures.transform(cleanupPrepare, (AsyncFunction<UUID, Object>) highBallot -> {
+                PaxosCleanupSession cleanupSession = new PaxosCleanupSession(session.endpoints, cfm.cfId, session.ranges, highBallot);
+                taskExecutor.execute(cleanupSession);
+                return cleanupSession;
+            });
         }
         else
         {
             logger.info("{} {}.{} not running paxos repair", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
-            paxosRepair = Futures.immediateFuture(null);
+            paxosRepair = Futures.immediateFuture(new Object());
         }
 
         if (session.paxosOnly)
         {
-            Futures.addCallback(paxosRepair, new FutureCallback<Void>()
+            Futures.addCallback(paxosRepair, new FutureCallback<Object>()
             {
-                public void onSuccess(Void v)
+                public void onSuccess(Object o)
                 {
                     logger.info("{} {}.{} paxos repair completed", previewKind.logPrefix(session.getId()), desc.keyspace, desc.columnFamily);
                     set(new RepairResult(desc, Collections.emptyList()));
