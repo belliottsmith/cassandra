@@ -24,7 +24,6 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.InetAddress;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.annotation.Nonnull;
@@ -52,7 +51,6 @@ import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.paxos.PaxosRepair.Result.Outcome;
-import org.apache.cassandra.service.paxos.cleanup.PaxosTableRepairs;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDSerializer;
 
@@ -106,19 +104,13 @@ import static org.apache.cassandra.utils.concurrent.WaitManager.Global.waits;
  *      that we do not interfere with normal paxos operations.
  *   6) If we are "beaten" we start again (without delay, as (2) manages delays where necessary)
  */
-public class PaxosRepair implements PaxosTableRepairs.QueueableRepair
+public class PaxosRepair
 {
     private static final Logger logger = LoggerFactory.getLogger(PaxosRepair.class);
 
     public static final RequestSerializer requestSerializer = new RequestSerializer();
     public static final ResponseSerializer responseSerializer = new ResponseSerializer();
-    private static final long RETRY_TIMEOUT_NANOS = getRetryTimeoutNanos();
-
-    private static long getRetryTimeoutNanos()
-    {
-        long retryMillis = Long.getLong("cassandra.paxos_repair_retry_timeout_millis", 60000);
-        return TimeUnit.MILLISECONDS.toNanos(retryMillis);
-    }
+    private static final int MAX_RETRIES = 4;
 
     public static class Result extends State
     {
@@ -166,8 +158,7 @@ public class PaxosRepair implements PaxosTableRepairs.QueueableRepair
     private UUID successCriteria;
     private UUID prevSupersededBy;
     private State state;
-    private long startedNanos;
-    private boolean started = false;
+    private int retries = 0;
 
     private static class State {}
 
@@ -439,7 +430,7 @@ public class PaxosRepair implements PaxosTableRepairs.QueueableRepair
         }
     }
 
-    private PaxosRepair(DecoratedKey partitionKey, CFMetaData metadata, ConsistencyLevel consistency, Consumer<Result> onDone)
+    public PaxosRepair(DecoratedKey partitionKey, CFMetaData metadata, ConsistencyLevel consistency, Consumer<Result> onDone)
     {
         this.partitionKey = partitionKey;
         this.metadata = metadata;
@@ -447,29 +438,21 @@ public class PaxosRepair implements PaxosTableRepairs.QueueableRepair
         this.onDone = onDone;
     }
 
-    public static PaxosRepair create(ConsistencyLevel consistency, DecoratedKey partitionKey, CFMetaData metadata, Consumer<Result> onDone)
+    public static PaxosRepair async(ConsistencyLevel consistency, DecoratedKey partitionKey, CFMetaData metadata, Consumer<Result> onDone)
     {
-        return new PaxosRepair(partitionKey, metadata, consistency, onDone);
+        PaxosRepair repair = new PaxosRepair(partitionKey, metadata, consistency, onDone);
+        repair.start();
+        return repair;
     }
 
-    public synchronized PaxosRepair start()
+    private synchronized void start()
     {
-        Preconditions.checkState(!started);
-        startedNanos = System.nanoTime();
-        started = true;
         setState(restart());
-        return this;
     }
 
     public synchronized void cancel()
     {
         setState(CANCELLED);
-    }
-
-    @Override
-    public DecoratedKey key()
-    {
-        return partitionKey;
     }
 
     public synchronized Result await() throws InterruptedException
@@ -481,11 +464,10 @@ public class PaxosRepair implements PaxosTableRepairs.QueueableRepair
 
     private State maybeRetry()
     {
-        assert started;
         if (state instanceof Result)
             return state;
 
-        if (System.nanoTime() - startedNanos > RETRY_TIMEOUT_NANOS)
+        if (++retries >= MAX_RETRIES)
             return new Failure(null);
 
         return restart();

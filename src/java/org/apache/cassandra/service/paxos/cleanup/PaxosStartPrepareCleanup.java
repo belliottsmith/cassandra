@@ -83,7 +83,7 @@ public class PaxosStartPrepareCleanup extends AbstractFuture<PaxosCleanupHistory
 
     public void onFailure(InetAddress from)
     {
-        setException(new PaxosCleanupException("Received failure response from " + from));
+        setException(new RuntimeException("Received failure response from " + from));
     }
 
     public synchronized void response(MessageIn<PaxosCleanupHistory> msg)

@@ -404,7 +404,6 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.APPLE_PAXOS_REPAIR_REQ, PaxosRepair.responseSerializer);
 
         put(Verb.APPLE_PAXOS_CLEANUP_START_PREPARE, PaxosCleanupHistory.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_REQUEST, VoidSerializer.serializer);
         put(Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, VoidSerializer.serializer);
         put(Verb.APPLE_PAXOS_CLEANUP_COMPLETE, VoidSerializer.serializer);
 

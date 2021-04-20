@@ -22,6 +22,10 @@ import java.net.InetAddress;
 import java.util.Collections;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+
+import org.junit.Assert;
+import org.junit.Test;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.DecoratedKey;
@@ -48,6 +52,7 @@ import org.apache.cassandra.utils.UUIDGen;
 
 import static org.apache.cassandra.db.ConsistencyLevel.*;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
+import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ;
 import static org.apache.cassandra.net.MessagingService.Verb.APPLE_PAXOS_REPAIR_REQ;
@@ -80,7 +85,7 @@ public abstract class CASTestBase extends TestBaseImpl
             DecoratedKey key = schema.decorateKey(Int32Type.instance.decompose(pk));
             try
             {
-                PaxosRepair.create(SERIAL, key, schema, null).start().await();
+                PaxosRepair.async(SERIAL, key, schema, null).await();
             }
             catch (Throwable t)
             {

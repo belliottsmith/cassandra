@@ -18,67 +18,22 @@
 
 package org.apache.cassandra.service.paxos.cleanup;
 
-import java.lang.ref.WeakReference;
 import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.*;
 
-import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.gms.ApplicationState;
-import org.apache.cassandra.gms.EndpointState;
-import org.apache.cassandra.gms.IEndpointStateChangeSubscriber;
-import org.apache.cassandra.gms.IFailureDetectionEventListener;
-import org.apache.cassandra.gms.VersionedValue;
-import org.apache.cassandra.net.IAsyncCallbackWithFailure;
-import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 
-public class PaxosCleanupSession extends AbstractFuture<Void> implements Runnable,
-                                                                         IEndpointStateChangeSubscriber,
-                                                                         IFailureDetectionEventListener,
-                                                                         IAsyncCallbackWithFailure<Void>
+public class PaxosCleanupSession extends AbstractFuture<Void> implements Runnable
 {
     private static final Map<UUID, PaxosCleanupSession> sessions = new ConcurrentHashMap<>();
-
-    private static final long TIMEOUT_MILLIS;
-    static
-    {
-        long timeoutSeconds = Integer.getInteger("cassandra.paxos_cleanup_session_timeout_seconds", (int) TimeUnit.HOURS.toSeconds(2));
-        TIMEOUT_MILLIS = TimeUnit.SECONDS.toMillis(timeoutSeconds);
-    }
-
-    private static class TimeoutTask implements Runnable
-    {
-        private final WeakReference<PaxosCleanupSession> ref;
-
-        public TimeoutTask(PaxosCleanupSession session)
-        {
-            this.ref = new WeakReference<>(session);
-        }
-
-        @Override
-        public void run()
-        {
-            PaxosCleanupSession session = ref.get();
-            if (session == null || session.isDone())
-                return;
-
-            session.fail(String.format("Paxos cleanup session %s timed out", session.session));
-        }
-
-        private static void schedule(PaxosCleanupSession session, long delayMillis)
-        {
-            ScheduledExecutors.scheduledTasks.schedule(new TimeoutTask(session), delayMillis, TimeUnit.MILLISECONDS);
-        }
-    }
 
     private final UUID session = UUID.randomUUID();
     private final UUID cfId;
@@ -86,7 +41,7 @@ public class PaxosCleanupSession extends AbstractFuture<Void> implements Runnabl
     private final Queue<InetAddress> pendingCleanups = new ConcurrentLinkedQueue<>();
     private InetAddress inProgress = null;
 
-    PaxosCleanupSession(Collection<InetAddress> endpoints, UUID cfId, Collection<Range<Token>> ranges)
+    public PaxosCleanupSession(Collection<InetAddress> endpoints, UUID cfId, Collection<Range<Token>> ranges)
     {
         this.cfId = cfId;
         this.ranges = ranges;
@@ -106,11 +61,9 @@ public class PaxosCleanupSession extends AbstractFuture<Void> implements Runnabl
         sessions.remove(session.session);
     }
 
-    @Override
     public void run()
     {
         setSession(this);
-        TimeoutTask.schedule(this, TIMEOUT_MILLIS);
         startNextOrFinish();
     }
 
@@ -118,7 +71,7 @@ public class PaxosCleanupSession extends AbstractFuture<Void> implements Runnabl
     {
         PaxosCleanupRequest completer = new PaxosCleanupRequest(session, cfId, ranges);
         MessageOut<PaxosCleanupRequest> msg = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_CLEANUP_REQUEST, completer, PaxosCleanupRequest.serializer);
-        MessagingService.instance().sendRRWithFailure(msg, endpoint, this);
+        MessagingService.instance().sendOneWay(msg, endpoint);
     }
 
     private synchronized void startNextOrFinish()
@@ -143,14 +96,6 @@ public class PaxosCleanupSession extends AbstractFuture<Void> implements Runnabl
         }
     }
 
-    private synchronized void fail(String message)
-    {
-        if (isDone())
-            return;
-        removeSession(this);
-        setException(new PaxosCleanupException(message));
-    }
-
     private synchronized void finish(InetAddress from, PaxosCleanupResponse finished)
     {
         Preconditions.checkArgument(from.equals(inProgress), "Received unexpected cleanup complete response from %s for session %s. Expected %s", from, session, inProgress);
@@ -162,7 +107,8 @@ public class PaxosCleanupSession extends AbstractFuture<Void> implements Runnabl
         }
         else
         {
-            fail(String.format("Paxos cleanup session %s failed on %s with message: %s", session, from, finished.message));
+            removeSession(this);
+            setException(new RuntimeException(String.format("Paxos cleanup failed on %s with message: %s", from, finished.message)));
         }
     }
 
@@ -171,57 +117,5 @@ public class PaxosCleanupSession extends AbstractFuture<Void> implements Runnabl
         PaxosCleanupSession session = sessions.get(response.session);
         if (session != null)
             session.finish(from, response);
-    }
-
-    private synchronized void maybeKillSession(InetAddress unavailable, String reason)
-    {
-        // don't fail if we've already completed the cleanup for the unavailable endpoint,
-        // if it's something that affects availability, the ongoing sessions will fail themselves
-        if (!pendingCleanups.contains(unavailable))
-            return;
-
-        fail(String.format("Paxos cleanup session %s failed after %s %s", session, unavailable, reason));
-    }
-
-    @Override
-    public void onDead(InetAddress endpoint, EndpointState state)
-    {
-        maybeKillSession(endpoint, "marked dead");
-    }
-
-    @Override
-    public void onRemove(InetAddress endpoint)
-    {
-        maybeKillSession(endpoint, "removed from ring");
-    }
-
-    @Override
-    public void onRestart(InetAddress endpoint, EndpointState state)
-    {
-        maybeKillSession(endpoint, "restarted");
-    }
-
-    @Override
-    public void convict(InetAddress ep, double phi)
-    {
-        maybeKillSession(ep, "convicted by failure detector");
-    }
-
-    @Override
-    public void onFailure(InetAddress from)
-    {
-        fail(from.toString() + " did not acknowledge the cleanup request for paxos cleanup session  " + session);
-    }
-
-    @Override
-    public void response(MessageIn<Void> msg)
-    {
-        // noop, we're only interested in failures
-    }
-
-    @Override
-    public boolean isLatencyForSnitch()
-    {
-        return false;
     }
 }

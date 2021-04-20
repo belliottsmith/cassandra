@@ -68,7 +68,7 @@ public class PaxosCleanupComplete extends AbstractFuture<Void> implements IAsync
 
     public void onFailure(InetAddress from)
     {
-        setException(new PaxosCleanupException("Timed out waiting on response from " + from));
+        setException(new RuntimeException("Timed out waiting on response from " + from));
     }
 
     public synchronized void response(MessageIn<Void> msg)

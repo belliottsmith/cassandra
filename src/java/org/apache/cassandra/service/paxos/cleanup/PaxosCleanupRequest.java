@@ -42,7 +42,6 @@ import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.utils.UUIDSerializer;
-import org.apache.cassandra.utils.VoidSerializer;
 
 public class PaxosCleanupRequest
 {
@@ -69,17 +68,6 @@ public class PaxosCleanupRequest
     public static final IVerbHandler<PaxosCleanupRequest> verbHandler = (message, id) -> {
         PaxosCleanupRequest request = message.payload;
 
-        if (!PaxosCleanup.isInRangeAndShouldProcess(message.from, request.ranges, request.cfId))
-        {
-            String msg = String.format("Rejecting cleanup request %s from %s. Some ranges are not replicated (%s)",
-                                       request.session, message.from, request.ranges);
-            MessageOut<PaxosCleanupResponse> reply = new MessageOut<>(MessagingService.Verb.APPLE_PAXOS_CLEANUP_RESPONSE,
-                                                                      PaxosCleanupResponse.failed(request.session, msg),
-                                                                      PaxosCleanupResponse.serializer);
-            MessagingService.instance().sendOneWay(reply, message.from);
-            return;
-        }
-
         PaxosCleanupLocalCoordinator coordinator = PaxosCleanupLocalCoordinator.create(request);
 
         Futures.addCallback(coordinator, new FutureCallback<PaxosCleanupResponse>()
@@ -100,10 +88,6 @@ public class PaxosCleanupRequest
                 MessagingService.instance().sendOneWay(reply, message.from);
             }
         });
-
-        // ack the request so the coordinator knows we've started
-        MessageOut<Void> msg = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, null, VoidSerializer.serializer);
-        MessagingService.instance().sendReply(msg, id, message.from);
 
         coordinator.start();
     };
