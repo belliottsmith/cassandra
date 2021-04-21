@@ -387,13 +387,13 @@ public class SimpleReadWriteTest extends TestBaseImpl
         for (int i = 0; i < 100; i++)
             withNetwork.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (?,?,?)", ConsistencyLevel.ALL, i, i, i);
 
-        long readCount1 = readCount((IInvokableInstance) withNetwork.get(1));
-        long readCount2 = readCount((IInvokableInstance) withNetwork.get(2));
+        long readCount1 = readCount(withNetwork.get(1));
+        long readCount2 = readCount(withNetwork.get(2));
         for (int i = 0; i < 100; i++)
             withNetwork.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = ? and ck = ?", ConsistencyLevel.ALL, i, i);
 
-        readCount1 = readCount((IInvokableInstance) withNetwork.get(1)) - readCount1;
-        readCount2 = readCount((IInvokableInstance) withNetwork.get(2)) - readCount2;
+        readCount1 = readCount(withNetwork.get(1)) - readCount1;
+        readCount2 = readCount(withNetwork.get(2)) - readCount2;
         assertEquals(readCount1, readCount2);
         assertEquals(100, readCount1);
     }
@@ -409,21 +409,21 @@ public class SimpleReadWriteTest extends TestBaseImpl
         withNetwork.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (1, 1, 1) USING TIMESTAMP 2");
         withNetwork.get(1).flush(KEYSPACE);
         // expect a single sstable, where minTimestamp equals the timestamp of the partition delete
-        withNetwork.get(1).runOnInstance(() -> {
-            Set<SSTableReader> sstables = Keyspace.open(KEYSPACE)
+        withNetwork.get(1).acceptsOnInstance((String keyspace) -> {
+            Set<SSTableReader> sstables = Keyspace.open(keyspace)
                                                   .getColumnFamilyStore("tbl")
                                                   .getLiveSSTables();
             assertEquals(1, sstables.size());
             assertEquals(1, sstables.iterator().next().getMinTimestamp());
-        });
+        }).accept(KEYSPACE);
 
         // on node 2, add a row for the deleted partition with an older timestamp than the deletion so it should be shadowed
         withNetwork.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (0, 10, 10) USING TIMESTAMP 0");
 
 
         Object[][] rows = withNetwork.coordinator(1)
-                                 .execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk=0 AND ck > 5",
-                                          ConsistencyLevel.ALL);
+                                     .execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk=0 AND ck > 5",
+                                              ConsistencyLevel.ALL);
         assertEquals(0, rows.length);
     }
 
@@ -487,7 +487,7 @@ public class SimpleReadWriteTest extends TestBaseImpl
 
     private long readCount(IInvokableInstance instance)
     {
-        return instance.callOnInstance(() -> Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").metric.readLatency.latency.getCount());
+        return instance.appliesOnInstance((String keyspace) -> Keyspace.open(keyspace).getColumnFamilyStore("tbl").metric.readLatency.latency.getCount()).apply(KEYSPACE);
     }
 
     private static Object[][] rows(Object[]...rows)
