@@ -72,7 +72,14 @@ public class BinLogTest
         public void start()
         {
             super.start();
-            onStart.awaitUninterruptibly();
+            try
+            {
+                onStart.await();
+            }
+            catch (InterruptedException e)
+            {
+                throw new AssertionError(e);
+            }
         }
 
         public void run()
