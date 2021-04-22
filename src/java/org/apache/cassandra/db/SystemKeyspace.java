@@ -150,6 +150,7 @@ public final class SystemKeyspace
                 + "row_key blob,"
                 + "cf_id UUID,"
                 + "in_progress_ballot timeuuid,"
+                + "in_progress_read_ballot timeuuid,"
                 + "most_recent_commit blob,"
                 + "most_recent_commit_at timeuuid,"
                 + "most_recent_commit_version int,"
