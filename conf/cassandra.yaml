@@ -1172,3 +1172,12 @@ allow_drop_compact_storage: false
 # should be set to at least the length of time that we would reasonably expect internode sockets
 # to be idle across the cluster.
 internode_socket_timeout_ms: 0
+
+
+# When the client triggers a protocol exception or unknown issue (Cassandra bug) we increment
+# a client metric showing this; this logic will exclude specific subnets from updating these
+# metrics
+#client_error_reporting_exclusions:
+#  subnets:
+#    - 127.0.0.1
+#    - 127.0.0.0/31

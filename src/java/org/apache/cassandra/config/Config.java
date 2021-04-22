@@ -686,6 +686,60 @@ public class Config
     public volatile long min_tracked_partition_tombstone_count = 5000;
     public volatile boolean top_partitions_enabled = true;
 
+    public volatile SubnetGroups client_error_reporting_exclusions = new SubnetGroups(Arrays.asList(
+    // these ranges were pulled out of
+    // https://github.geo.apple.com/cie/cie-db/blob/52b47c4467739fb1bc47dac11151be4f949f5ab7/cassandrastubtwoone/src/mme/cassandraplugin/DynamicPropertyFileSnitch.java#L76-L82
+    // and
+    // https://infosec.apple.com/guidance/engineering/resources/network/scanning/scanner_source_ips/
+
+    // subnets only in DynamicPropertyFileSnitch
+    "12.248.108.202/32"
+    , "167.216.252.0/26"
+    , "209.10.217.224/27"
+    , "38.122.74.18/32"
+    , "62.210.136.128/25"
+    , "63.128.163.0/27"
+    , "64.244.165.6/32"
+    , "64.39.96.0/20"
+    , "67.207.113.226/32"
+
+    // subnets defined by infosec AMR
+    , "10.110.60.0/26"
+    , "10.180.100.128/25"
+    , "10.180.168.0/25"
+    , "17.102.228.0/24"
+    , "17.104.24.0/24"
+    , "17.104.29.128/25"
+    , "17.135.63.0/27"
+    , "17.140.41.0/27"
+    , "17.150.252.224/27"
+    , "17.157.12.0/24"
+    , "17.157.16.0/24"
+    , "17.157.224.0/23"
+    , "17.168.112.64/26"
+    , "17.176.20.139"
+    , "17.176.20.140"
+    , "17.178.33.0/27"
+    , "17.8.64.0/21"
+    , "2620:149:142:4200::/64"
+    , "2620:149:42:4200::/64"
+    , "2620:149:fb:4200::/64"
+    , "2620:149:ff:4200::/64"
+
+    // subnets defined by infosec APAC
+    , "10.101.76.80/29"
+    , "17.132.126.0/27"
+    , "17.132.154.128/27"
+    , "17.132.39.0/27"
+    , "17.84.66.245/32"
+
+    // subnets defined by infosec EMEIA
+    , "10.45.45.0/27"
+    , "10.45.47.0/27"
+    , "17.130.29.128/27"
+    , "17.66.24.126/32"
+    ));
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;

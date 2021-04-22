@@ -3561,4 +3561,9 @@ public class DatabaseDescriptor
     {
         conf.min_tracked_partition_tombstone_count = value;
     }
+
+    public static SubnetGroups getExcludeClientErrorsFrom()
+    {
+        return conf.client_error_reporting_exclusions;
+    }
 }

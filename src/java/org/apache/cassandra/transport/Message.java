@@ -813,6 +813,13 @@ public abstract class Message
                     });
                 }
             }
+            if (DatabaseDescriptor.getExcludeClientErrorsFrom().contains(ctx.channel().remoteAddress()))
+            {
+                // some times it is desirable to ignore exceptions from specific IPs; such as when security scans are
+                // running.  To avoid polluting logs and metrics, metrics are not updated when the IP is in the exclude
+                // list
+                return;
+            }
             if (Throwables.anyCauseMatches(cause, t -> t instanceof ProtocolException))
             {
                 ClientMetrics.instance.markProtocolException();
