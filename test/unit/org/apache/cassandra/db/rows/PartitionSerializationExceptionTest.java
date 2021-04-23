@@ -53,7 +53,7 @@ public class PartitionSerializationExceptionTest
         when(partition.partitionKey()).thenReturn(key);
         
         PartitionSerializationException pse = new PartitionSerializationException(partition, new RuntimeException());
-        assertEquals("Failed to serialize partition key 'foo' on table 'tbl' in keyspace 'ks'.", pse.getMessage());
+        assertEquals("Failed to serialize partition 'foo' on table 'tbl' in keyspace 'ks'.", pse.getMessage());
     }
 
     @Test
@@ -73,6 +73,6 @@ public class PartitionSerializationExceptionTest
         when(partition.partitionKey()).thenReturn(key);
 
         PartitionSerializationException pse = new PartitionSerializationException(partition, new RuntimeException());
-        assertEquals("Failed to serialize partition key 'foo:bar' on table 'tbl' in keyspace 'ks'.", pse.getMessage());
+        assertEquals("Failed to serialize partition 'foo:bar' on table 'tbl' in keyspace 'ks'.", pse.getMessage());
     }
 }

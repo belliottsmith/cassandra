@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.db.rows;
 
+import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.schema.TableMetadata;
 
 public class PartitionSerializationException extends RuntimeException
@@ -27,11 +28,24 @@ public class PartitionSerializationException extends RuntimeException
         super(buildMessage(partition), cause);
     }
 
+    public PartitionSerializationException(BaseRowIterator<Unfiltered> partition, ColumnFilter filter, Throwable cause)
+    {
+        super(buildMessage(partition, filter), cause);
+    }
+
     private static String buildMessage(BaseRowIterator<Unfiltered> partition)
     {
         TableMetadata table = partition.metadata();
         Object readablePartitionkey = table.partitionKeyType.getString(partition.partitionKey().getKey());
-        return String.format("Failed to serialize partition key '%s' on table '%s' in keyspace '%s'.",
+        return String.format("Failed to serialize partition '%s' on table '%s' in keyspace '%s'.",
                              readablePartitionkey, table.name, table.keyspace);
+    }
+
+    private static String buildMessage(BaseRowIterator<Unfiltered> partition, ColumnFilter filter)
+    {
+        TableMetadata table = partition.metadata();
+        Object readablePartitionkey = table.partitionKeyType.getString(partition.partitionKey().getKey());
+        return String.format("Failed to serialize partition '%s' for columns %s on table '%s' in keyspace '%s'.",
+                             readablePartitionkey, filter, table.name, table.keyspace);
     }
 }
