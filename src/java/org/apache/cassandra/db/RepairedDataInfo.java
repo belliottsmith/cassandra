@@ -30,6 +30,7 @@ import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.RangeTombstoneMarker;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.db.transform.BaseRows;
 import org.apache.cassandra.db.transform.MoreRows;
 import org.apache.cassandra.db.transform.Transformation;
 import org.apache.cassandra.metrics.TableMetrics;
@@ -37,7 +38,7 @@ import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 @NotThreadSafe
-class RepairedDataInfo
+public class RepairedDataInfo
 {
     public static final RepairedDataInfo NO_OP_REPAIRED_DATA_INFO = new RepairedDataInfo(null)
     {
@@ -304,8 +305,16 @@ class RepairedDataInfo
                 if (partition == null)
                     return;
 
-                while (!counter.isDone() && partition.hasNext())
-                    partition.next();
+                try
+                {
+                    while (!counter.isDone() && partition.hasNext())
+                        partition.next();
+                }
+                catch (BaseRows.IteratorStateException ise)
+                {
+                    String keyString = partition.metadata().partitionKeyType.getString(partition.partitionKey().getKey());
+                    throw new RepairedDataException("Error consuming partition " + keyString + ", counter state: " + counter, ise);
+                }
 
                 partition.close();
             }
@@ -315,6 +324,14 @@ class RepairedDataInfo
         if (metrics == null || repairedCounter.isDone())
             return partitions;
         return Transformation.apply(partitions, new OverreadRepairedData());
+    }
+
+    public static class RepairedDataException extends RuntimeException
+    {
+        public RepairedDataException(String message, Throwable cause)
+        {
+            super(message, cause);
+        }
     }
 
     /**
