@@ -1,4 +1,5 @@
 3.0.24.4
+rdar://77070129 (Apple Internal) (NPE when iterating Slices.ALL for paging)
 rdar://77062175 (Apple Internal) (Revert Apple paxos from 3.0.24)
 rdar://76535835 (Apple Internal) (Only return live nodes in StorageProxy.getLiveSorted… (#2338)
 rdar://76602359 (Apple Internal) (Users of NativeLibrary should handle lack of JNA appropriately)

@@ -798,7 +798,8 @@ public abstract class Slices implements Iterable<Slice>
 
         public Slices forPaging(ClusteringComparator comparator, Clustering lastReturned, boolean inclusive, boolean reversed)
         {
-            return new ArrayBackedSlices(comparator, new Slice[]{ Slice.ALL.forPaging(comparator, lastReturned, inclusive, reversed) });
+            Slice forPaging = Slice.ALL.forPaging(comparator, lastReturned, inclusive, reversed);
+            return forPaging == null ? Slices.NONE : new ArrayBackedSlices(comparator, new Slice[]{ forPaging });
         }
 
         public InOrderTester inOrderTester(boolean reversed)
