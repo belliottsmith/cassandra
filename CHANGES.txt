@@ -1,4 +1,17 @@
 3.0.24.4
+rdar://77062175 (Apple Internal) (Revert Apple paxos from 3.0.24)
+rdar://76535835 (Apple Internal) (Only return live nodes in StorageProxy.getLiveSorted… (#2338)
+rdar://76602359 (Apple Internal) (Users of NativeLibrary should handle lack of JNA appropriately)
+rdar://76555703 (CASSANDRA-16398,164439) ACCESS, DATACENTERS, SELECT_SIZE to non-reserved
+rdar://76707700 (Apple Internal) (InvalidSSTables reported by Verifier) (#2346)
+rdar://76594867 (CASSANDRA-16435) (Reverse iteration with paging may throw)
+rdar://76701417 (CASSANDRA-16453) (Partition tombstone and range tombstone timestamp collision)
+rdar://76582313 (Apple Internal) (Bring 3.0 timestamp tie resolution regression in line with 4.0 by using unsigned byte comparisons)
+rdar://76455638 (Apple Internal) (modify SecondaryIndexManager#indexPartition() to retrieve only columns for which indexes are actually being built)
+rdar://41346695 (Apple Internal) (Expose number of bytes per level pending compaction) (#2348)
+rdar://66234496 (Apple Internal) (log too many tombstone compactions) (#2345)
+rdar://76900058 (Apple Internal) (Disable thrift by default) (#2361)
+rdar://76740431 (Apple Internal) (create a block list for infosec IPs to make sure we don't log and update metrics for their traffic) (#2359)
 
 3.0.24.3
 
