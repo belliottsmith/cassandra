@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.db.partitions;
 
-import java.io.EOFException;
 import java.io.IOError;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -28,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.common.primitives.Ints;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,14 +37,10 @@ import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.rows.*;
 import org.apache.cassandra.io.util.*;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.btree.UpdateFunction;
-import org.apache.cassandra.utils.vint.VIntCoding;
-
-import static org.apache.cassandra.db.rows.UnfilteredRowIteratorSerializer.IS_EMPTY;
 
 /**
  * Stores updates made on a partition.
@@ -402,20 +396,14 @@ public class PartitionUpdate extends AbstractBTreePartition
      */
     public int dataSize()
     {
-        maybeBuild();
-        return Ints.saturatedCast(BTree.<Row>accumulate(holder.tree, (row, value) -> row.dataSize() + value, 0L)
-                + holder.staticRow.dataSize() + holder.deletionInfo.dataSize());
-    }
-
-    /**
-     * The size of the data contained in this update.
-     *
-     * @return the size of the data contained in this update.
-     */
-    public long unsharedHeapSize()
-    {
-        return BTree.<Row>accumulate(holder.tree, (row, value) -> row.unsharedHeapSize() + value, 0L)
-                + holder.staticRow.unsharedHeapSize() + holder.deletionInfo.unsharedHeapSize();
+        int size = 0;
+        for (Row row : this)
+        {
+            size += row.clustering().dataSize();
+            for (ColumnData cd : row)
+                size += cd.dataSize();
+        }
+        return size;
     }
 
     @Override
@@ -648,13 +636,10 @@ public class PartitionUpdate extends AbstractBTreePartition
     }
 
     @Override
-    public String toString(boolean includeFullDetails)
+    public String toString()
     {
         if (isBuilt)
-            return super.toString(includeFullDetails);
-
-        if (!includeFullDetails)
-            return "key=" + metadata.getKeyValidator().getString(partitionKey().getKey()) + " (not built)";
+            return super.toString();
 
         // We intentionally override AbstractBTreePartition#toString() to avoid iterating over the rows in the
         // partition, which can result in build() being triggered and lead to errors if the PartitionUpdate is later
@@ -662,10 +647,10 @@ public class PartitionUpdate extends AbstractBTreePartition
 
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("[%s.%s] key=%s columns=%s",
-                metadata.ksName,
-                metadata.cfName,
-                metadata.getKeyValidator().getString(partitionKey().getKey()),
-                columns()));
+                                metadata.ksName,
+                                metadata.cfName,
+                                metadata.getKeyValidator().getString(partitionKey().getKey()),
+                                columns()));
 
         sb.append("\n    deletionInfo=").append(deletionInfo);
         sb.append(" (not built)");
@@ -766,42 +751,6 @@ public class PartitionUpdate extends AbstractBTreePartition
             {
                 assert iterator != null; // This is only used in mutation, and mutation have never allowed "null" column families
                 return PartitionUpdate.fromPre30Iterator(iterator);
-            }
-        }
-
-        public static boolean isEmpty(ByteBuffer in, int version, DeserializationHelper.Flag flag, DecoratedKey key) throws IOException
-        {
-            if (version >= MessagingService.VERSION_30)
-            {
-                return isEmpty30(in);
-            }
-            else
-            {
-                assert key != null;
-                return isEmptyPre30(new DataInputBuffer(in, true), version, flag, key.getKey());
-            }
-        }
-
-        private static boolean isEmpty30(ByteBuffer in) throws IOException
-        {
-            int position = in.position();
-            position += 16; // CFMetaData.serializer.deserialize(in, version);
-            if (position >= in.limit())
-                throw new EOFException();
-            // DecoratedKey key = metadata.decorateKey(ByteBufferUtil.readWithVIntLength(in));
-            int keyLength = (int) VIntCoding.getUnsignedVInt(in, position);
-            position += keyLength + VIntCoding.computeUnsignedVIntSize(keyLength);
-            if (position >= in.limit())
-                throw new EOFException();
-            int flags = in.get(position) & 0xff;
-            return (flags & IS_EMPTY) != 0;
-        }
-
-        private static boolean isEmptyPre30(DataInputPlus in, int version, DeserializationHelper.Flag flag, ByteBuffer key) throws IOException
-        {
-            try (UnfilteredRowIterator iterator = LegacyLayout.deserializeLegacyPartition(in, version, flag, key))
-            {
-                return iterator.isEmpty();
             }
         }
 

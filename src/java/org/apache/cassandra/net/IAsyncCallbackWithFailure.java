@@ -21,13 +21,9 @@ import java.net.InetAddress;
 
 public interface IAsyncCallbackWithFailure<T> extends IAsyncCallback<T>
 {
+
     /**
      * Called when there is an exception on the remote node or timeout happens
      */
     public void onFailure(InetAddress from);
-
-    /**
-     * Called on timeout
-     */
-    public default void onExpired(InetAddress from) { onFailure(from); }
 }

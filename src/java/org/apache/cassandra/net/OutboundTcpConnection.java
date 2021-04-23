@@ -34,8 +34,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collector;
-import java.util.stream.Collectors;
 import java.util.zip.Checksum;
 
 import javax.net.ssl.SSLHandshakeException;
@@ -90,45 +88,6 @@ public class OutboundTcpConnection extends FastThreadLocalThread
     //Size of 3 elements added to every message
     private static final int PROTOCOL_MAGIC_ID_TIMESTAMP_SIZE = 12;
     public static final int MAX_COALESCED_MESSAGES = 128;
-
-    private static final String ARTIFICIAL_LATENCY_VERBS_PROPERTY = Config.PROPERTY_PREFIX + "artificial_latency_verbs";
-    private static volatile Set<MessagingService.Verb> artificialLatencyVerbs;
-
-    private static volatile boolean artificialLatencyOnlyPermittedConsistencyLevels = true;
-
-    static
-    {
-        setArtificialLatencyVerbs(System.getProperty(ARTIFICIAL_LATENCY_VERBS_PROPERTY, ""));
-    }
-
-    public static String getArtificialLatencyVerbs()
-    {
-        return artificialLatencyVerbs.stream()
-                                     .map(MessagingService.Verb::toString)
-                                     .collect(Collectors.joining(","));
-    }
-
-    public static boolean getArtificialLatencyOnlyPermittedConsistencyLevels()
-    {
-        return artificialLatencyOnlyPermittedConsistencyLevels;
-    }
-
-    public static void setArtificialLatencyVerbs(String commaDelimitedVerbs)
-    {
-        if (commaDelimitedVerbs.isEmpty())
-            artificialLatencyVerbs = Collections.emptySet();
-        else
-            artificialLatencyVerbs = Arrays.stream(commaDelimitedVerbs.split(","))
-                                           .filter(s -> !s.isEmpty())
-                                           .map(MessagingService.Verb::valueOf)
-                                           .collect(Collector.of(() -> EnumSet.noneOf(MessagingService.Verb.class), Set::add, (left, right) -> { left.addAll(right); return left; }));
-
-    }
-
-    public static void setArtificialLatencyOnlyPermittedConsistencyLevels(boolean onlyPermitted)
-    {
-        artificialLatencyOnlyPermittedConsistencyLevels = onlyPermitted;
-    }
 
     private static CoalescingStrategy newCoalescingStrategy(String displayName)
     {
@@ -733,22 +692,6 @@ public class OutboundTcpConnection extends FastThreadLocalThread
         public long timestampNanos()
         {
             return timestampNanos;
-        }
-
-        public MessagingService.Verb verb()
-        {
-            return message.verb;
-        }
-
-        public DelayAction artificialDelayAction(long untilNanos)
-        {
-            if (artificialLatencyOnlyPermittedConsistencyLevels && !message.permitsArtificialDelay())
-                return DelayAction.NONE;
-
-            if (!artificialLatencyVerbs.contains(message.verb))
-                return DelayAction.NONE;
-
-            return isTimedOut(untilNanos) ? DelayAction.DROP : DelayAction.DELAY;
         }
     }
 

@@ -56,7 +56,10 @@ import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.BootStrapper;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.gms.*;
+import org.apache.cassandra.gms.EchoMessage;
+import org.apache.cassandra.gms.GossipDigestAck;
+import org.apache.cassandra.gms.GossipDigestAck2;
+import org.apache.cassandra.gms.GossipDigestSyn;
 import org.apache.cassandra.hints.HintMessage;
 import org.apache.cassandra.hints.HintResponse;
 import org.apache.cassandra.io.IVersionedSerializer;
@@ -72,13 +75,7 @@ import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.service.*;
 import org.apache.cassandra.service.paxos.Commit;
-import org.apache.cassandra.service.paxos.PaxosCommitAndPrepare;
-import org.apache.cassandra.service.paxos.PaxosPrepare;
-import org.apache.cassandra.service.paxos.PaxosPrepareRefresh;
-import org.apache.cassandra.service.paxos.PaxosPropose;
-import org.apache.cassandra.service.paxos.PaxosRepair;
 import org.apache.cassandra.service.paxos.PrepareResponse;
-import org.apache.cassandra.service.paxos.cleanup.*;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.*;
@@ -122,8 +119,6 @@ public final class MessagingService implements MessagingServiceMBean
     public static final String FAILURE_CALLBACK_PARAM = "CAL_BAC";
     public static final byte[] ONE_BYTE = new byte[1];
     public static final String FAILURE_RESPONSE_PARAM = "FAIL";
-    public static final String PERMIT_ARTIFICIAL_RESPONSE_DELAY = "DLY";
-    public static final byte[] ZERO_BYTE = new byte[0];
 
     /**
      * we preface every message with this number so the recipient can validate the sender is sane
@@ -192,18 +187,6 @@ public final class MessagingService implements MessagingServiceMBean
         APPLE_UPDATE_REPAIRED_RANGES(-1001),
         APPLE_REPAIR_SUCCESS(-1002),
         APPLE_QUERY_REPAIR_HISTORY(-1003),
-        // the ids here are based on the custom ids in cie-4.0.0
-        APPLE_PAXOS_PREPARE_REQ(16373),
-        APPLE_PAXOS_PREPARE_REFRESH_REQ(16371),
-        APPLE_PAXOS_PROPOSE_REQ(16369),
-        APPLE_PAXOS_COMMIT_AND_PREPARE_REQ(16367),
-        APPLE_PAXOS_REPAIR_REQ(16365),
-        APPLE_PAXOS_REPAIR(16364),
-        APPLE_PAXOS_CLEANUP_START_PREPARE(16363),
-        APPLE_PAXOS_CLEANUP_REQUEST(16362),
-        APPLE_PAXOS_CLEANUP_RESPONSE(16361),
-        APPLE_PAXOS_CLEANUP_FINISH_PREPARE(16360),
-        APPLE_PAXOS_CLEANUP_COMPLETE(16359),
         ;
         private final int id;
         Verb()
@@ -258,13 +241,8 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.HINT, Stage.MUTATION);
         put(Verb.TRUNCATE, Stage.MUTATION);
         put(Verb.PAXOS_PREPARE, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_PREPARE_REQ, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ, Stage.MUTATION);
         put(Verb.PAXOS_PROPOSE, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_PROPOSE_REQ, Stage.MUTATION);
         put(Verb.PAXOS_COMMIT, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, Stage.MUTATION);
-        put(Verb.APPLE_PAXOS_REPAIR_REQ, Stage.MUTATION);
         put(Verb.BATCH_STORE, Stage.MUTATION);
         put(Verb.BATCH_REMOVE, Stage.MUTATION);
 
@@ -308,12 +286,6 @@ public final class MessagingService implements MessagingServiceMBean
 
         put(Verb.PARTITION_SIZE, Stage.READ);
         put(Verb.PING, Stage.READ);
-
-        put(Verb.APPLE_PAXOS_CLEANUP_START_PREPARE, Stage.MISC);
-        put(Verb.APPLE_PAXOS_CLEANUP_REQUEST, Stage.MISC);
-        put(Verb.APPLE_PAXOS_CLEANUP_RESPONSE, Stage.MISC);
-        put(Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, Stage.MISC);
-        put(Verb.APPLE_PAXOS_CLEANUP_COMPLETE, Stage.MISC);
     }};
 
     /**
@@ -351,25 +323,14 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.APPLE_UPDATE_REPAIRED_RANGES, BootStrapper.UpdateRepairedRanges.serializer);
         put(Verb.ECHO, EchoMessage.serializer);
         put(Verb.PAXOS_PREPARE, Commit.serializer);
-        put(Verb.APPLE_PAXOS_PREPARE_REQ, PaxosPrepare.requestSerializer);
-        put(Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ, PaxosPrepareRefresh.requestSerializer);
         put(Verb.PAXOS_PROPOSE, Commit.serializer);
-        put(Verb.APPLE_PAXOS_PROPOSE_REQ, PaxosPropose.requestSerializer);
-        put(Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, PaxosCommitAndPrepare.requestSerializer);
-        put(Verb.PAXOS_COMMIT, Commit.Agreed.serializer);
-        put(Verb.APPLE_PAXOS_REPAIR_REQ, PaxosRepair.requestSerializer);
+        put(Verb.PAXOS_COMMIT, Commit.serializer);
         put(Verb.HINT, HintMessage.serializer);
         put(Verb.BATCH_STORE, Batch.serializer);
         put(Verb.BATCH_REMOVE, UUIDSerializer.serializer);
 
         put(Verb.PARTITION_SIZE, PartitionSizeCommand.serializer);
         put(Verb.PING, PingMessage.serializer);
-
-        put(Verb.APPLE_PAXOS_CLEANUP_START_PREPARE, PaxosStartPrepareCleanup.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, PaxosCleanupHistory.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_REQUEST, PaxosCleanupRequest.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_RESPONSE, PaxosCleanupResponse.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_COMPLETE, PaxosCleanupComplete.serializer);
     }};
 
     /**
@@ -396,17 +357,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.APPLE_UPDATE_REPAIRED_RANGES, StorageService.UpdateRepairedRangesResponse.serializer);
 
         put(Verb.PAXOS_PREPARE, PrepareResponse.serializer);
-        put(Verb.APPLE_PAXOS_PREPARE_REQ, PaxosPrepare.responseSerializer);
-        put(Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ, PaxosPrepareRefresh.responseSerializer);
         put(Verb.PAXOS_PROPOSE, BooleanSerializer.serializer);
-        put(Verb.APPLE_PAXOS_PROPOSE_REQ, PaxosPropose.responseSerializer);
-        put(Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, PaxosPrepare.responseSerializer);
-        put(Verb.APPLE_PAXOS_REPAIR_REQ, PaxosRepair.responseSerializer);
-
-        put(Verb.APPLE_PAXOS_CLEANUP_START_PREPARE, PaxosCleanupHistory.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_REQUEST, VoidSerializer.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, VoidSerializer.serializer);
-        put(Verb.APPLE_PAXOS_CLEANUP_COMPLETE, VoidSerializer.serializer);
 
         put(Verb.BATCH_STORE, WriteResponse.serializer);
         put(Verb.BATCH_REMOVE, WriteResponse.serializer);
@@ -582,7 +533,7 @@ public final class MessagingService implements MessagingServiceMBean
                     StageManager.getStage(Stage.INTERNAL_RESPONSE).submit(new Runnable() {
                         @Override
                         public void run() {
-                            ((IAsyncCallbackWithFailure)expiredCallbackInfo.callback).onExpired(expiredCallbackInfo.target);
+                            ((IAsyncCallbackWithFailure)expiredCallbackInfo.callback).onFailure(expiredCallbackInfo.target);
                         }
                     });
                 }

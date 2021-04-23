@@ -19,12 +19,17 @@ package org.apache.cassandra.config;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -42,20 +47,6 @@ public class Config
 {
     private static final Logger logger = LoggerFactory.getLogger(Config.class);
 
-    public static Set<String> splitCommaDelimited(String src)
-    {
-        if (src == null)
-            return ImmutableSet.of();
-        String[] split = src.split(",\\s*");
-        ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-        for (String s : split)
-        {
-            s = s.trim();
-            if (!s.isEmpty())
-                builder.add(s);
-        }
-        return builder.build();
-    }
     /*
      * Prefix for Java properties for internal Cassandra configuration options
      */
@@ -173,8 +164,6 @@ public class Config
 
     // default changed in request rdar://63403100 (Enable use_offheap_merkle_trees by default)
     public volatile boolean use_offheap_merkle_trees = true;
-
-    public volatile int paxos_repair_parallelism = -1;
 
     public Integer storage_port = 7000;
     public Integer ssl_storage_port = 7001;
@@ -332,8 +321,6 @@ public class Config
     public Long counter_cache_size_in_mb = null;
     public volatile int counter_cache_save_period = 7200;
     public volatile int counter_cache_keys_to_save = Integer.MAX_VALUE;
-
-    public Long paxos_cache_size_in_mb = null;
 
     private static boolean isClientMode = false;
     private static Supplier<Config> overrideLoadConfig = null;
@@ -634,46 +621,6 @@ public class Config
     public volatile boolean auto_optimise_inc_repair_streams = false;
     public volatile boolean auto_optimise_full_repair_streams = false;
     public volatile boolean auto_optimise_preview_repair_streams = false;
-
-    public enum PaxosVariant
-    {
-        legacy,
-        legacy_cached,
-        legacy_fixed,  // fixes bugs in legacy impl to support validating transition from legacy to apple paxos. Not intended for production
-        apple_norrl, // with legacy semantics for read/read linearizability (i.e. not guaranteed)
-        apple_norrfwl, // with legacy semantics for read/read and failed write linearizability (i.e. not guaranteed)
-        apple_rrl2rt, // with read/read linearizability guaranteed but requiring an extra read round-trip
-        apple_rrl // provides read/read linearizability, doesn't incur an extra round-trip if no contending paxos operation is detected
-    }
-
-    public volatile PaxosVariant paxos_variant = PaxosVariant.legacy;
-
-    public volatile boolean skip_paxos_repair_on_topology_change = Boolean.getBoolean("cassandra.skip_paxos_repair_on_topology_change");
-
-    /**
-     * If true, paxos topology change repair only requires a global quorum of live nodes. If false,
-     * it requires a global quorum as well as a local quorum for each dc (EACH_QUORUM), with the
-     * exception explained in paxos_topology_repair_strict_each_quorum
-     */
-    public boolean paxos_topology_repair_no_dc_checks = false;
-
-    /**
-     * If true, a quorum will be required for the global and local quorum checks. If false, we will
-     * accept a quorum OR n - 1 live nodes. This is to allow for topologies like 2:2:2, where paxos queries
-     * always use SERIAL, and a single node down in a dc should not preclude a paxos repair
-     */
-    public boolean paxos_topology_repair_strict_each_quorum = false;
-    public volatile Set<String> skip_paxos_repair_on_topology_change_keyspaces = splitCommaDelimited(System.getProperty("cassandra.skip_paxos_repair_on_topology_change_keyspaces"));
-
-    public String paxos_contention_wait_randomizer;
-    public String paxos_contention_min_wait;
-    public String paxos_contention_max_wait;
-    public String paxos_contention_min_delta;
-
-    /**
-     * The amount of disk space paxos uncommitted key files can consume before we begin automatically scheduling paxos repairs
-     */
-    public volatile int paxos_auto_repair_threshold_mb = 32;
 
     public volatile boolean allow_compact_storage = true;
 

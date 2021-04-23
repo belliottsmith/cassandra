@@ -36,7 +36,6 @@ import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.config.ReadRepairDecision;
-import org.apache.cassandra.service.paxos.*;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,18 +62,20 @@ import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.hints.Hint;
 import org.apache.cassandra.hints.HintsService;
 import org.apache.cassandra.index.Index;
-import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.locator.*;
 import org.apache.cassandra.metrics.*;
 import org.apache.cassandra.net.*;
+import org.apache.cassandra.service.paxos.Commit;
+import org.apache.cassandra.service.paxos.PaxosState;
+import org.apache.cassandra.service.paxos.PrepareCallback;
+import org.apache.cassandra.service.paxos.ProposeCallback;
 import org.apache.cassandra.net.MessagingService.Verb;
 import org.apache.cassandra.tracing.Tracing;
+import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.triggers.TriggerExecutor;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.AbstractIterator;
-
-import static org.apache.cassandra.config.Config.*;
 
 public class StorageProxy implements StorageProxyMBean
 {
@@ -101,14 +102,14 @@ public class StorageProxy implements StorageProxyMBean
     @VisibleForTesting
     public static final ClientRequestMetrics rangeMetrics = new ClientRequestMetrics("RangeSlice");
     private static final ClientRequestMetrics partitionSizeMetrics = new ClientRequestMetrics("PartitionSize");
-    public static final ClientRequestMetrics writeMetrics = new ClientRequestMetrics("Write");
-    public static final CASClientRequestMetrics casWriteMetrics = new CASClientRequestMetrics("CASWrite");
-    public static final CASClientRequestMetrics casReadMetrics = new CASClientRequestMetrics("CASRead");
+    private static final ClientRequestMetrics writeMetrics = new ClientRequestMetrics("Write");
+    private static final CASClientRequestMetrics casWriteMetrics = new CASClientRequestMetrics("CASWrite");
+    private static final CASClientRequestMetrics casReadMetrics = new CASClientRequestMetrics("CASRead");
     private static final ViewWriteMetrics viewWriteMetrics = new ViewWriteMetrics("ViewWrite");
     private static final EnumMap<ConsistencyLevel, ClientRequestMetrics> partitionSizeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
-    public static final Map<ConsistencyLevel, ClientRequestMetrics> readMetricsMap = new EnumMap<>(ConsistencyLevel.class);
-    public static final Map<ConsistencyLevel, ClientRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
-    public static final BlacklistMetrics blacklistMetrics = new BlacklistMetrics();
+    private static final Map<ConsistencyLevel, ClientRequestMetrics> readMetricsMap = new EnumMap<>(ConsistencyLevel.class);
+    private static final Map<ConsistencyLevel, ClientRequestMetrics> writeMetricsMap = new EnumMap<>(ConsistencyLevel.class);
+    private static final BlacklistMetrics blacklistMetrics = new BlacklistMetrics();
 
     private static final double CONCURRENT_SUBREQUESTS_MARGIN = 0.10;
 
@@ -292,20 +293,8 @@ public class StorageProxy implements StorageProxyMBean
                                   DecoratedKey key,
                                   CASRequest request,
                                   ConsistencyLevel consistencyForPaxos,
-                                  ConsistencyLevel consistencyForCommit)
-    throws UnavailableException, IsBootstrappingException, RequestFailureException, RequestTimeoutException, InvalidRequestException
-    {
-        return Paxos.useApplePaxos()
-                ? Paxos.cas(key, request, consistencyForPaxos, consistencyForCommit)
-                : legacyCas(keyspaceName, cfName, key, request, consistencyForPaxos, consistencyForCommit);
-    }
-
-    public static RowIterator legacyCas(String keyspaceName,
-                                  String cfName,
-                                  DecoratedKey key,
-                                  CASRequest request,
-                                  ConsistencyLevel consistencyForPaxos,
-                                  ConsistencyLevel consistencyForCommit)
+                                  ConsistencyLevel consistencyForCommit,
+                                  ClientState state)
     throws UnavailableException, IsBootstrappingException, RequestFailureException, RequestTimeoutException, InvalidRequestException
     {
         final long start = System.nanoTime();
@@ -335,27 +324,14 @@ public class StorageProxy implements StorageProxyMBean
                 List<InetAddress> liveEndpoints = p.left;
                 int requiredParticipants = p.right;
 
-                final Pair<UUID, Integer> pair = beginAndRepairPaxos(start, key, metadata, liveEndpoints, requiredParticipants, consistencyForPaxos, consistencyForCommit, true);
+                final Pair<UUID, Integer> pair = beginAndRepairPaxos(start, key, metadata, liveEndpoints, requiredParticipants, consistencyForPaxos, consistencyForCommit, true, state);
                 final UUID ballot = pair.left;
                 contentions += pair.right;
 
                 // read the current values and check they validate the conditions
                 Tracing.trace("Reading existing values for CAS precondition");
                 SinglePartitionReadCommand readCommand = request.readCommand(FBUtilities.nowInSeconds());
-                ConsistencyLevel readConsistency;
-                switch (consistencyForPaxos)
-                {
-                    case LOCAL_SERIAL:
-                    case UNSAFE_DELAY_LOCAL_SERIAL:
-                        readConsistency = ConsistencyLevel.LOCAL_QUORUM;
-                        break;
-                    case SERIAL:
-                    case UNSAFE_DELAY_SERIAL:
-                        readConsistency = ConsistencyLevel.QUORUM;
-                        break;
-                    default:
-                        throw new IllegalStateException();
-                }
+                ConsistencyLevel readConsistency = consistencyForPaxos == ConsistencyLevel.LOCAL_SERIAL ? ConsistencyLevel.LOCAL_QUORUM : ConsistencyLevel.QUORUM;
 
                 FilteredPartition current;
                 try (RowIterator rowIter = readOne(readCommand, readConsistency))
@@ -367,15 +343,12 @@ public class StorageProxy implements StorageProxyMBean
                 {
                     Tracing.trace("CAS precondition does not match current values {}", current);
                     casWriteMetrics.conditionNotMet.inc();
-                    if (Paxos.getPaxosVariant() == PaxosVariant.legacy_fixed
-                            && !proposePaxos(Commit.newProposal(ballot, PartitionUpdate.emptyUpdate(metadata, key)), liveEndpoints, requiredParticipants, true, consistencyForPaxos))
-                        continue;
                     return current.rowIterator();
                 }
 
                 // finish the paxos round w/ the desired updates
                 // TODO turn null updates into delete?
-                PartitionUpdate updates = request.makeUpdates(current, ballot.timestamp());
+                PartitionUpdate updates = request.makeUpdates(current);
 
                 // Apply triggers to cas updates. A consideration here is that
                 // triggers emit Mutations, and so a given trigger implementation
@@ -437,10 +410,16 @@ public class StorageProxy implements StorageProxyMBean
         }
     }
 
-    public static Predicate<InetAddress> sameDCPredicateFor(final String dc)
+    private static Predicate<InetAddress> sameDCPredicateFor(final String dc)
     {
         final IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
-        return host -> dc.equals(snitch.getDatacenter(host));
+        return new Predicate<InetAddress>()
+        {
+            public boolean apply(InetAddress host)
+            {
+                return dc.equals(snitch.getDatacenter(host));
+            }
+        };
     }
 
     private static Pair<List<InetAddress>, Integer> getPaxosParticipants(CFMetaData cfm, DecoratedKey key, ConsistencyLevel consistencyForPaxos) throws UnavailableException
@@ -448,7 +427,7 @@ public class StorageProxy implements StorageProxyMBean
         Token tk = key.getToken();
         List<InetAddress> naturalEndpoints = StorageService.instance.getNaturalEndpoints(cfm.ksName, tk);
         Collection<InetAddress> pendingEndpoints = StorageService.instance.getTokenMetadata().pendingEndpointsFor(tk, cfm.ksName);
-        if (consistencyForPaxos == ConsistencyLevel.LOCAL_SERIAL || consistencyForPaxos == ConsistencyLevel.UNSAFE_DELAY_LOCAL_SERIAL)
+        if (consistencyForPaxos == ConsistencyLevel.LOCAL_SERIAL)
         {
             // Restrict naturalEndpoints and pendingEndpoints to node in the local DC only
             String localDc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(FBUtilities.getBroadcastAddress());
@@ -487,7 +466,8 @@ public class StorageProxy implements StorageProxyMBean
                                                            int requiredParticipants,
                                                            ConsistencyLevel consistencyForPaxos,
                                                            ConsistencyLevel consistencyForCommit,
-                                                           final boolean isWrite)
+                                                           final boolean isWrite,
+                                                           ClientState state)
     throws WriteTimeoutException, WriteFailureException
     {
         long timeout = TimeUnit.MILLISECONDS.toNanos(DatabaseDescriptor.getCasContentionTimeout());
@@ -501,10 +481,10 @@ public class StorageProxy implements StorageProxyMBean
             // in progress (#5667). Lastly, we don't want to use a timestamp that is older than the last one assigned by ClientState or operations may appear
             // out-of-order (#7801).
             long minTimestampMicrosToUse = summary == null ? Long.MIN_VALUE : 1 + UUIDGen.microsTimestamp(summary.mostRecentInProgressCommit.ballot);
-            long ballotMicros = ClientState.getTimestampForPaxos(minTimestampMicrosToUse);
+            long ballotMicros = state.getTimestampForPaxos(minTimestampMicrosToUse);
             // Note that ballotMicros is not guaranteed to be unique if two proposal are being handled concurrently by the same coordinator. But we still
             // need ballots to be unique for each proposal so we have to use getRandomTimeUUIDFromMicros.
-            UUID ballot = Paxos.ballotForConsistency(ballotMicros, consistencyForPaxos);
+            UUID ballot = UUIDGen.getRandomTimeUUIDFromMicros(ballotMicros);
 
             // prepare
             Tracing.trace("Preparing {}", ballot);
@@ -591,7 +571,7 @@ public class StorageProxy implements StorageProxyMBean
     throws WriteTimeoutException
     {
         PrepareCallback callback = new PrepareCallback(toPrepare.update.partitionKey(), toPrepare.update.metadata(), requiredParticipants, consistencyForPaxos);
-        MessageOut<Commit> message = messageForPaxos(consistencyForPaxos, Verb.PAXOS_PREPARE, toPrepare, Commit.serializer);
+        MessageOut<Commit> message = new MessageOut<Commit>(MessagingService.Verb.PAXOS_PREPARE, toPrepare, Commit.serializer);
         for (InetAddress target : endpoints)
             MessagingService.instance().sendRR(message, target, callback);
         callback.await();
@@ -602,7 +582,7 @@ public class StorageProxy implements StorageProxyMBean
     throws WriteTimeoutException
     {
         ProposeCallback callback = new ProposeCallback(endpoints.size(), requiredParticipants, !timeoutIfPartial, consistencyLevel);
-        MessageOut<Commit> message = messageForPaxos(consistencyLevel, MessagingService.Verb.PAXOS_PROPOSE, proposal, Commit.serializer);
+        MessageOut<Commit> message = new MessageOut<Commit>(MessagingService.Verb.PAXOS_PROPOSE, proposal, Commit.serializer);
         for (InetAddress target : endpoints)
             MessagingService.instance().sendRR(message, target, callback);
 
@@ -633,7 +613,7 @@ public class StorageProxy implements StorageProxyMBean
             responseHandler = rs.getWriteResponseHandler(naturalEndpoints, pendingEndpoints, consistencyLevel, null, WriteType.SIMPLE);
         }
 
-        MessageOut<Commit> message = messageForPaxos(consistencyLevel, MessagingService.Verb.PAXOS_COMMIT, proposal, Commit.serializer);
+        MessageOut<Commit> message = new MessageOut<Commit>(MessagingService.Verb.PAXOS_COMMIT, proposal, Commit.serializer);
         for (InetAddress destination : Iterables.concat(naturalEndpoints, pendingEndpoints))
         {
             if (FailureDetector.instance.isAlive(destination))
@@ -667,12 +647,6 @@ public class StorageProxy implements StorageProxyMBean
             responseHandler.get();
     }
 
-    public static <T> MessageOut<T> messageForPaxos(ConsistencyLevel consistencyLevel, Verb verb, T payload, IVersionedSerializer<T> serializer)
-    {
-        return new MessageOut<>(verb, payload, serializer)
-                .permitsArtificialDelay(consistencyLevel);
-    }
-
     /**
      * Commit a PAXOS task locally, and if the task times out rather then submitting a real hint
      * submit a fake one that executes immediately on the mutation stage, but generates the necessary backpressure
@@ -686,14 +660,14 @@ public class StorageProxy implements StorageProxyMBean
             {
                 try
                 {
-                PaxosState.commitDirect(message.payload);
-                if (responseHandler != null)
-                    responseHandler.response(null);
+                    PaxosState.commit(message.payload);
+                    if (responseHandler != null)
+                        responseHandler.response(null);
                 }
                 catch (Exception ex)
                 {
                     if (!(ex instanceof WriteTimeoutException))
-                        logger.error("Failed to apply paxos commit locally", ex);
+                        logger.error("Failed to apply paxos commit locally : {}", ex);
                     responseHandler.onFailure(FBUtilities.getBroadcastAddress());
                 }
             }
@@ -939,19 +913,6 @@ public class StorageProxy implements StorageProxyMBean
         finally
         {
             viewWriteMetrics.addNano(System.nanoTime() - startTime);
-        }
-    }
-
-    public static void verifyAgainstBlacklist(String keyspaceName, String cfName, DecoratedKey key)
-    {
-        if (DatabaseDescriptor.enablePartitionBlacklist() && DatabaseDescriptor.enableBlacklistWrites() && !partitionBlacklist.validateKey(keyspaceName, cfName, key.getKey()))
-        {
-            blacklistMetrics.incrementWritesRejected();
-            blacklistMetrics.incrementTotalRejected();
-            final byte[] keyBytes  = new byte[key.getKey().remaining()];
-            key.getKey().slice().get(keyBytes);
-            throw new InvalidRequestException(String.format("Unable to CAS write to blacklisted partition [0x%s] in %s/%s",
-                    Hex.bytesToHex(keyBytes), keyspaceName, cfName));
         }
     }
 
@@ -1408,8 +1369,7 @@ public class StorageProxy implements StorageProxyMBean
                 {
                     // belongs on a different server
                     if (message == null)
-                        message = mutation.createMessage().permitsArtificialDelay(responseHandler.consistencyLevel);
-
+                        message = mutation.createMessage();
                     String dc = DatabaseDescriptor.getEndpointSnitch().getDatacenter(destination);
                     // direct writes to local DC or old Cassandra versions
                     // (1.1 knows how to forward old-style String message IDs; updated to int in 2.0)
@@ -1454,7 +1414,7 @@ public class StorageProxy implements StorageProxyMBean
         {
             // for each datacenter, send the message to one node to relay the write to other replicas
             if (message == null)
-                message = mutation.createMessage().permitsArtificialDelay(responseHandler.consistencyLevel);
+                message = mutation.createMessage();
 
             for (Collection<InetAddress> dcTargets : dcGroups.values())
                 sendMessagesToNonlocalDC(message, dcTargets, responseHandler);
@@ -1751,21 +1711,14 @@ public class StorageProxy implements StorageProxyMBean
         }
 
         return consistencyLevel.isSerialConsistency()
-             ? readWithPaxos(group, consistencyLevel)
+             ? readWithPaxos(group, consistencyLevel, state)
              : readRegular(group, consistencyLevel);
     }
 
-    private static PartitionIterator readWithPaxos(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyLevel)
+    private static PartitionIterator readWithPaxos(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyLevel, ClientState state)
     throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
     {
-        return Paxos.useApplePaxos()
-                ? Paxos.read(group, consistencyLevel)
-                : legacyReadWithPaxos(group, consistencyLevel);
-    }
-
-    private static PartitionIterator legacyReadWithPaxos(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyLevel)
-    throws InvalidRequestException, UnavailableException, ReadFailureException, ReadTimeoutException
-    {
+        assert state != null;
         if (group.commands.size() > 1)
             throw new InvalidRequestException("SERIAL/LOCAL_SERIAL consistency may only be requested for one partition at a time");
 
@@ -1777,48 +1730,35 @@ public class StorageProxy implements StorageProxyMBean
         PartitionIterator result = null;
         try
         {
-            while (true)
+            // make sure any in-progress paxos writes are done (i.e., committed to a majority of replicas), before performing a quorum read
+            Pair<List<InetAddress>, Integer> p = getPaxosParticipants(metadata, key, consistencyLevel);
+            List<InetAddress> liveEndpoints = p.left;
+            int requiredParticipants = p.right;
+
+            // does the work of applying in-progress writes; throws UAE or timeout if it can't
+            final ConsistencyLevel consistencyForCommitOrFetch = consistencyLevel == ConsistencyLevel.LOCAL_SERIAL
+                                                                                   ? ConsistencyLevel.LOCAL_QUORUM
+                                                                                   : ConsistencyLevel.QUORUM;
+
+            try
             {
-                // make sure any in-progress paxos writes are done (i.e., committed to a majority of replicas), before performing a quorum read
-                Pair<List<InetAddress>, Integer> p = getPaxosParticipants(metadata, key, consistencyLevel);
-                List<InetAddress> liveEndpoints = p.left;
-                int requiredParticipants = p.right;
-
-                // does the work of applying in-progress writes; throws UAE or timeout if it can't
-                final ConsistencyLevel consistencyForCommitOrFetch =
-                (consistencyLevel == ConsistencyLevel.LOCAL_SERIAL || consistencyLevel == ConsistencyLevel.UNSAFE_DELAY_LOCAL_SERIAL)
-                ? ConsistencyLevel.LOCAL_QUORUM : ConsistencyLevel.QUORUM;
-
-                UUID ballot;
-                try
+                final Pair<UUID, Integer> pair = beginAndRepairPaxos(start, key, metadata, liveEndpoints, requiredParticipants, consistencyLevel, consistencyForCommitOrFetch, false, state);
+                if (pair.right > 0)
                 {
-                    final Pair<UUID, Integer> pair = beginAndRepairPaxos(start, key, metadata, liveEndpoints, requiredParticipants, consistencyLevel, consistencyForCommitOrFetch, false);
-                    ballot = pair.left;
-                    if (pair.right > 0)
-                    {
-                        casReadMetrics.contention.update(pair.right);
-                        casReadMetrics.contentionEstimatedHistogram.add(pair.right);
-                    }
+                    casReadMetrics.contention.update(pair.right);
+                    casReadMetrics.contentionEstimatedHistogram.add(pair.right);
                 }
-                catch (WriteTimeoutException e)
-                {
-                    throw new ReadTimeoutException(consistencyLevel, 0, consistencyLevel.blockFor(Keyspace.open(metadata.ksName)), false);
-                }
-                catch (WriteFailureException e)
-                {
-                    throw new ReadFailureException(consistencyLevel, e.received, e.failures, e.blockFor, false);
-                }
-
-                if (Paxos.getPaxosVariant() == PaxosVariant.legacy_fixed)
-                {
-                    Commit proposal = Commit.newProposal(ballot, PartitionUpdate.emptyUpdate(metadata, key));
-                    if (!proposePaxos(proposal, liveEndpoints, requiredParticipants, true, consistencyLevel))
-                        continue;
-                }
-
-                result = fetchRows(group.commands, consistencyForCommitOrFetch);
-                break;
             }
+            catch (WriteTimeoutException e)
+            {
+                throw new ReadTimeoutException(consistencyLevel, 0, consistencyLevel.blockFor(Keyspace.open(metadata.ksName)), false);
+            }
+            catch (WriteFailureException e)
+            {
+                throw new ReadFailureException(consistencyLevel, e.received, e.failures, e.blockFor, false);
+            }
+
+            result = fetchRows(group.commands, consistencyForCommitOrFetch);
         }
         catch (UnavailableException e)
         {
@@ -1998,10 +1938,8 @@ public class StorageProxy implements StorageProxyMBean
      * 3. Wait for a response from R replicas
      * 4. If the digests (if any) match the data return the data
      * 5. else carry out read repair by getting data from all the nodes.
-     *
-     * TODO: temporarily public
      */
-    public static PartitionIterator fetchRows(List<SinglePartitionReadCommand> commands, ConsistencyLevel consistencyLevel)
+    private static PartitionIterator fetchRows(List<SinglePartitionReadCommand> commands, ConsistencyLevel consistencyLevel)
     throws UnavailableException, ReadFailureException, ReadTimeoutException
     {
         int cmdCount = commands.size();
@@ -2103,9 +2041,7 @@ public class StorageProxy implements StorageProxyMBean
 
                 for (InetAddress endpoint : executor.getContactedReplicas())
                 {
-                    MessageOut<ReadCommand> message = command.createMessage(MessagingService.instance().getVersion(endpoint))
-                            .permitsArtificialDelay(consistency);
-
+                    MessageOut<ReadCommand> message = command.createMessage(MessagingService.instance().getVersion(endpoint));
                     if (command.isTrackingRepairedStatus())
                         message = message.withParameter(ReadCommand.TRACK_REPAIRED_DATA, MessagingService.ONE_BYTE);
 
@@ -2150,9 +2086,7 @@ public class StorageProxy implements StorageProxyMBean
                 for (InetAddress endpoint: Iterables.filter(ReadRepairHandler.getCandidateEndpoints(executor), e -> !contacted.contains(e)))
                 {
                     Tracing.trace("Enqueuing speculative full data read to {}", endpoint);
-                    MessageOut<ReadCommand> message = executor.command.createMessage(MessagingService.instance().getVersion(endpoint))
-                            .permitsArtificialDelay(consistency);
-                    MessagingService.instance().sendRR(message, endpoint, repairHandler);
+                    MessagingService.instance().sendRR(executor.command.createMessage(MessagingService.instance().getVersion(endpoint)), endpoint, repairHandler);
                 }
             }
         }
@@ -2561,8 +2495,7 @@ public class StorageProxy implements StorageProxyMBean
                 for (InetAddress endpoint : toQuery.filteredEndpoints)
                 {
                     Tracing.trace("Enqueuing request to {}", endpoint);
-                    MessageOut<ReadCommand> message = rangeCommand.createMessage(MessagingService.instance().getVersion(endpoint))
-                            .permitsArtificialDelay(consistency);
+                    MessageOut<ReadCommand> message = rangeCommand.createMessage(MessagingService.instance().getVersion(endpoint));
                     if (command.isTrackingRepairedStatus())
                         message =  message.withParameter(ReadCommand.TRACK_REPAIRED_DATA, MessagingService.ONE_BYTE);
                     MessagingService.instance().sendRRWithFailure(message, endpoint, handler);
@@ -3160,15 +3093,6 @@ public class StorageProxy implements StorageProxyMBean
     public Long getTruncateRpcTimeout() { return DatabaseDescriptor.getTruncateRpcTimeout(); }
     public void setTruncateRpcTimeout(Long timeoutInMillis) { DatabaseDescriptor.setTruncateRpcTimeout(timeoutInMillis); }
 
-    public String getArtificialLatencyVerbs() { return OutboundTcpConnection.getArtificialLatencyVerbs(); }
-    public void setArtificialLatencyVerbs(String commaDelimitedVerbs) { OutboundTcpConnection.setArtificialLatencyVerbs(commaDelimitedVerbs); }
-
-    public int getArtificialLatencyMillis() { return CoalescingStrategies.getArtificialLatencyMillis(); }
-    public void setArtificialLatencyMillis(int timeoutInMillis) { CoalescingStrategies.setArtificialLatencyMillis(timeoutInMillis); }
-
-    public boolean getArtificialLatencyOnlyPermittedConsistencyLevels() { return OutboundTcpConnection.getArtificialLatencyOnlyPermittedConsistencyLevels(); }
-    public void setArtificialLatencyOnlyPermittedConsistencyLevels(boolean onlyPermitted) { OutboundTcpConnection.setArtificialLatencyOnlyPermittedConsistencyLevels(onlyPermitted); }
-
     public Long getNativeTransportMaxConcurrentConnections() { return DatabaseDescriptor.getNativeTransportMaxConcurrentConnections(); }
     public void setNativeTransportMaxConcurrentConnections(Long nativeTransportMaxConcurrentConnections) { DatabaseDescriptor.setNativeTransportMaxConcurrentConnections(nativeTransportMaxConcurrentConnections); }
 
@@ -3579,7 +3503,6 @@ public class StorageProxy implements StorageProxyMBean
         DatabaseDescriptor.setCheckForDuplicateRowsDuringCompaction(false);
     }
 
-
     @Override
     public void enableSecondaryIndex()
     {
@@ -3598,26 +3521,6 @@ public class StorageProxy implements StorageProxyMBean
         return DatabaseDescriptor.enableSecondaryIndex();
     }
 
-    public void setPaxosVariant(String variant)
-    {
-        Paxos.setPaxosVariant(PaxosVariant.valueOf(variant));
-    }
-
-    public String getPaxosVariant()
-    {
-        return Paxos.getPaxosVariant().toString();
-    }
-
-    public void setPaxosContentionStrategy(String spec)
-    {
-        ContentionStrategy.setStrategy(spec);
-    }
-
-    public String getPaxosContentionStrategy()
-    {
-        return ContentionStrategy.getStrategySpec();
-    }
-
     public boolean getAllowCompactStorage()
     {
         return DatabaseDescriptor.allowCompactStorage();
@@ -3626,18 +3529,6 @@ public class StorageProxy implements StorageProxyMBean
     public void setAllowCompactStorage(boolean allowCompactStorage)
     {
         DatabaseDescriptor.setAllowCompactStorage(allowCompactStorage);
-    }
-
-    @Override
-    public void setPaxosCoordinatorLockingDisabled(boolean disabled)
-    {
-        PaxosState.setDisableCoordinatorLocking(disabled);
-    }
-
-    @Override
-    public boolean getPaxosCoordinatorLockingDisabled()
-    {
-        return PaxosState.getDisableCoordinatorLocking();
     }
 
     @Override

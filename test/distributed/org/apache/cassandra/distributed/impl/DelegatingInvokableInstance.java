@@ -50,7 +50,7 @@ public abstract class DelegatingInvokableInstance implements IInvokableInstance
     @Override
     public InetSocketAddress broadcastAddress()
     {
-        return config().broadcastAddress();
+        return delegate().broadcastAddress();
     }
 
     @Override

@@ -32,14 +32,20 @@ import javax.management.openmbean.OpenDataException;
 import javax.management.openmbean.TabularData;
 import java.util.concurrent.Future;
 
-import com.google.common.collect.*;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.SetMultimap;
 import com.google.common.io.ByteStreams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.util.concurrent.Futures;
 
-import org.apache.cassandra.config.*;
+import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.functions.*;
@@ -49,7 +55,6 @@ import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.xmas.InvalidatedRepairedRange;
 import org.apache.cassandra.dht.*;
-import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.io.sstable.Descriptor;
@@ -59,12 +64,9 @@ import org.apache.cassandra.metrics.RestorableMeter;
 import org.apache.cassandra.metrics.TopPartitionTracker;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.*;
-import org.apache.cassandra.schema.Tables;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.service.paxos.*;
-import org.apache.cassandra.service.paxos.Commit.Accepted;
-import org.apache.cassandra.service.paxos.Commit.Committed;
-import org.apache.cassandra.service.paxos.uncommitted.PaxosUncommittedIndex;
+import org.apache.cassandra.service.paxos.Commit;
+import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.thrift.cassandraConstants;
 import org.apache.cassandra.transport.Server;
 import org.apache.cassandra.utils.*;
@@ -75,7 +77,6 @@ import static java.util.Collections.singletonMap;
 import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
 import static org.apache.cassandra.cql3.QueryProcessor.executeOnceInternal;
 import static org.apache.cassandra.io.util.FileUtils.visitDirectory;
-import static org.apache.cassandra.service.paxos.Commit.latest;
 
 public final class SystemKeyspace
 {
@@ -98,7 +99,6 @@ public final class SystemKeyspace
 
     public static final String BATCHES = "batches";
     public static final String PAXOS = "paxos";
-    public static final String PAXOS_REPAIR_HISTORY = "paxos_repair_history";
     public static final String BUILT_INDEXES = "IndexInfo";
     public static final String LOCAL = "local";
     public static final String PEERS = "peers";
@@ -158,19 +158,7 @@ public final class SystemKeyspace
                 + "proposal_ballot timeuuid,"
                 + "proposal_version int,"
                 + "PRIMARY KEY ((row_key), cf_id))")
-                .compaction(CompactionParams.lcs(emptyMap()))
-                .indexes(PaxosUncommittedIndex.indexes());
-
-    private static final CFMetaData PaxosRepairHistoryTable =
-    compile(PAXOS_REPAIR_HISTORY,
-            "paxos repair history",
-            "CREATE TABLE %s ("
-            + "keyspace_name text,"
-            + "table_name text,"
-            + "points frozen<list<tuple<blob, uuid>>>, "
-            + "PRIMARY KEY (keyspace_name, table_name))"
-            + "WITH COMMENT='Last successful paxos repairs by range'");
-
+                .compaction(CompactionParams.lcs(emptyMap()));
 
     private static final CFMetaData BuiltIndexes =
         compile(BUILT_INDEXES,
@@ -541,7 +529,6 @@ public final class SystemKeyspace
         return Tables.of(BuiltIndexes,
                          Batches,
                          Paxos,
-                         PaxosRepairHistoryTable,
                          Local,
                          Peers,
                          PeerEvents,
@@ -1317,73 +1304,43 @@ public final class SystemKeyspace
         return results;
     }
 
-    /**
-     * Load the current paxos state for the table and key
-     */
-    public static PaxosState.Snapshot loadPaxosState(DecoratedKey key, CFMetaData metadata, int nowInSec)
+    public static PaxosState loadPaxosState(DecoratedKey key, CFMetaData metadata, int nowInSec)
     {
-        String cql = "SELECT * FROM system." + PAXOS + " WHERE row_key = ? AND cf_id = ?";
-        UntypedResultSet results = QueryProcessor.executeInternalWithNow(nowInSec, cql, key.getKey(), metadata.cfId);
+        String req = "SELECT * FROM system.%s WHERE row_key = ? AND cf_id = ?";
+        UntypedResultSet results = QueryProcessor.executeInternalWithNow(nowInSec, String.format(req, PAXOS), key.getKey(), metadata.cfId);
         if (results.isEmpty())
-        {
-            Committed noneCommitted = Committed.none(key, metadata);
-            return new PaxosState.Snapshot(Ballot.none(), Ballot.none(), null, noneCommitted);
-        }
-
+            return new PaxosState(key, metadata);
         UntypedResultSet.Row row = results.one();
-
-        UUID promisedWrite = row.getUUID("in_progress_ballot", null); // TODO: ideally we would use Ballot.none() here, but this would break linearizability during migration to new algorithm
-        UUID promised = latest(promisedWrite, row.getUUID("in_progress_read_ballot", Ballot.none()));
+        Commit promised = row.has("in_progress_ballot")
+                        ? new Commit(row.getUUID("in_progress_ballot"), new PartitionUpdate(metadata, key, metadata.partitionColumns(), 1))
+                        : Commit.emptyCommit(key, metadata);
         // either we have both a recently accepted ballot and update or we have neither
-        Accepted accepted = null;
-        if (row.has("proposal"))
-        {
-            int proposalVersion = row.getInt("proposal_version", MessagingService.VERSION_21);
-            accepted = new Accepted(row.getUUID("proposal_ballot"), PartitionUpdate.fromBytes(row.getBytes("proposal"), proposalVersion, key));
-        }
+        int proposalVersion = row.has("proposal_version") ? row.getInt("proposal_version") : MessagingService.VERSION_21;
+        Commit accepted = row.has("proposal")
+                        ? new Commit(row.getUUID("proposal_ballot"), PartitionUpdate.fromBytes(row.getBytes("proposal"), proposalVersion, key))
+                        : Commit.emptyCommit(key, metadata);
         // either most_recent_commit and most_recent_commit_at will both be set, or neither
-        Committed committed;
-        if (row.has("most_recent_commit"))
-        {
-            int mostRecentVersion = row.getInt("most_recent_commit_version", MessagingService.VERSION_21);
-            committed = new Committed(row.getUUID("most_recent_commit_at"), PartitionUpdate.fromBytes(row.getBytes("most_recent_commit"), mostRecentVersion, key));
-            // fix a race with TTL/deletion resolution, where TTL expires after equal deletion is inserted; TTL wins the resolution, and is read using an old ballot's nowInSec
-            if (accepted != null && !accepted.isAfter(committed))
-                accepted = null;
-        }
-        else
-        {
-            committed = Committed.none(key, metadata);
-        }
-        return new PaxosState.Snapshot(promised, promisedWrite, accepted, committed);
+        int mostRecentVersion = row.has("most_recent_commit_version") ? row.getInt("most_recent_commit_version") : MessagingService.VERSION_21;
+        Commit mostRecent = row.has("most_recent_commit")
+                          ? new Commit(row.getUUID("most_recent_commit_at"), PartitionUpdate.fromBytes(row.getBytes("most_recent_commit"), mostRecentVersion, key))
+                          : Commit.emptyCommit(key, metadata);
+        return new PaxosState(promised, accepted, mostRecent);
     }
 
-    public static void savePaxosWritePromise(DecoratedKey key, CFMetaData metadata, UUID ballot)
+    public static void savePaxosPromise(Commit promise)
     {
-        String cql = "UPDATE system." + PAXOS + " USING TIMESTAMP ? AND TTL ? SET in_progress_ballot = ? WHERE row_key = ? AND cf_id = ?";
-        executeInternal(cql,
-                        UUIDGen.microsTimestamp(ballot),
-                        paxosTtlSec(metadata),
-                        ballot,
-                        key.getKey(),
-                        metadata.cfId);
-    }
-
-    public static void savePaxosReadPromise(DecoratedKey key, CFMetaData metadata, UUID ballot)
-    {
-        String cql = "UPDATE system." + PAXOS + " USING TIMESTAMP ? AND TTL ? SET in_progress_read_ballot = ? WHERE row_key = ? AND cf_id = ?";
-        executeInternal(cql,
-                        UUIDGen.microsTimestamp(ballot),
-                        paxosTtlSec(metadata),
-                        ballot,
-                        key.getKey(),
-                        metadata.cfId);
+        String req = "UPDATE system.%s USING TIMESTAMP ? AND TTL ? SET in_progress_ballot = ? WHERE row_key = ? AND cf_id = ?";
+        executeInternal(String.format(req, PAXOS),
+                        UUIDGen.microsTimestamp(promise.ballot),
+                        paxosTtlSec(promise.update.metadata()),
+                        promise.ballot,
+                        promise.update.partitionKey().getKey(),
+                        promise.update.metadata().cfId);
     }
 
     public static void savePaxosProposal(Commit proposal)
     {
-        String cql = "UPDATE system." + PAXOS + " USING TIMESTAMP ? AND TTL ? SET proposal_ballot = ?, proposal = ?, proposal_version = ? WHERE row_key = ? AND cf_id = ?";
-        executeInternal(cql,
+        executeInternal(String.format("UPDATE system.%s USING TIMESTAMP ? AND TTL ? SET proposal_ballot = ?, proposal = ?, proposal_version = ? WHERE row_key = ? AND cf_id = ?", PAXOS),
                         UUIDGen.microsTimestamp(proposal.ballot),
                         paxosTtlSec(proposal.update.metadata()),
                         proposal.ballot,
@@ -1403,7 +1360,7 @@ public final class SystemKeyspace
     {
         // We always erase the last proposal (with the commit timestamp to no erase more recent proposal in case the commit is old)
         // even though that's really just an optimization  since SP.beginAndRepairPaxos will exclude accepted proposal older than the mrc.
-        String cql = "UPDATE system.%s USING TIMESTAMP ? AND TTL ? SET proposal_ballot = null, proposal = null, proposal_version = null, most_recent_commit_at = ?, most_recent_commit = ?, most_recent_commit_version = ? WHERE row_key = ? AND cf_id = ?";
+        String cql = "UPDATE system.%s USING TIMESTAMP ? AND TTL ? SET proposal_ballot = null, proposal = null, most_recent_commit_at = ?, most_recent_commit = ?, most_recent_commit_version = ? WHERE row_key = ? AND cf_id = ?";
         executeInternal(String.format(cql, PAXOS),
                         UUIDGen.microsTimestamp(commit.ballot),
                         paxosTtlSec(commit.update.metadata()),
@@ -1412,28 +1369,6 @@ public final class SystemKeyspace
                         MessagingService.current_version,
                         commit.update.partitionKey().getKey(),
                         commit.update.metadata().cfId);
-    }
-
-    public static void savePaxosRepairHistory(String keyspace, String table, PaxosRepairHistory history)
-    {
-        String cql = "INSERT INTO system.%s (keyspace_name, table_name, points) VALUES (?, ?, ?)";
-        executeInternal(String.format(cql, PAXOS_REPAIR_HISTORY), keyspace, table, history.toTupleBufferList());
-        Schema.instance.getColumnFamilyStoreInstance(PaxosRepairHistoryTable.cfId).forceBlockingFlush();
-    }
-
-    public static PaxosRepairHistory loadPaxosRepairHistory(String keyspace, String table)
-    {
-        if (Schema.LOCAL_SYSTEM_KEYSPACE_NAMES.contains(keyspace))
-            return PaxosRepairHistory.EMPTY;
-
-        UntypedResultSet results = executeInternal(String.format("SELECT * FROM system.%s WHERE keyspace_name=? AND table_name=?", PAXOS_REPAIR_HISTORY), keyspace, table);
-        if (results.isEmpty())
-            return PaxosRepairHistory.EMPTY;
-
-        UntypedResultSet.Row row = Iterables.getOnlyElement(results);
-        List<ByteBuffer> points = row.getList("points", BytesType.instance);
-
-        return PaxosRepairHistory.fromTupleBufferList(points);
     }
 
     /**
@@ -1805,20 +1740,6 @@ public final class SystemKeyspace
             throw new RuntimeException("Could not serialize token", e);
         }
         return dob.toByteArray();
-    }
-
-    private static Token byteBufferToToken(ByteBuffer buffer, IPartitioner partitioner)
-    {
-        try
-        {
-            return Token.serializer.deserialize(ByteStreams.newDataInput(ByteBufferUtil.getArray(buffer)),
-                                                partitioner,
-                                                MessagingService.VERSION_22);
-        }
-        catch (IOException e)
-        {
-            throw new IOError(e);
-        }
     }
 
     public static void successfulScheduledCompaction(String keyspaceName, String columnFamilyName, boolean repaired, Token token, long startTime)

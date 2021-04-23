@@ -23,8 +23,6 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Function;
-import java.util.function.IntFunction;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
@@ -38,13 +36,11 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.db.ConsistencyLevel;
-import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.metrics.StorageMetrics;
-import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
@@ -95,27 +91,27 @@ public class PaxosVerbHandlerTest
     @Test
     public void acceptPrepareForNaturalEndpoint() throws Exception
     {
-        acceptRequestForNaturalEndpoint(new PrepareVerbHandler(), key -> commit(key));
+        acceptRequestForNaturalEndpoint(new PrepareVerbHandler());
     }
 
     @Test
     public void acceptProposeForNaturalEndpoint() throws Exception
     {
-        acceptRequestForNaturalEndpoint(new ProposeVerbHandler(), key -> commit(key));
+        acceptRequestForNaturalEndpoint(new ProposeVerbHandler());
     }
 
     @Test
     public void acceptCommitForNaturalEndpoint() throws Exception
     {
-        acceptRequestForNaturalEndpoint(new PaxosCommit.RequestHandler(), key -> commit(key).agreed());
+        acceptRequestForNaturalEndpoint(new CommitVerbHandler());
     }
 
-    private <C extends Commit> void acceptRequestForNaturalEndpoint(IVerbHandler<C> handler, IntFunction<C> supplier) throws Exception
+    private void acceptRequestForNaturalEndpoint(AbstractPaxosVerbHandler handler) throws Exception
     {
         ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
         int messageId = randomInt();
         int key = 50;
-        C commit = supplier.apply(key);
+        Commit commit = commit(key);
         handler.doVerb(MessageIn.create(node1,
                                         commit,
                                         EMPTY_PARAMS,
@@ -128,22 +124,22 @@ public class PaxosVerbHandlerTest
     @Test
     public void acceptPrepareForPendingEndpoint() throws Exception
     {
-        acceptRequestForPendingEndpoint(new PrepareVerbHandler(), key -> commit(key));
+        acceptRequestForPendingEndpoint(new PrepareVerbHandler());
     }
 
     @Test
     public void acceptProposeForPendingEndpoint() throws Exception
     {
-        acceptRequestForPendingEndpoint(new ProposeVerbHandler(), key -> commit(key));
+        acceptRequestForPendingEndpoint(new ProposeVerbHandler());
     }
 
     @Test
     public void acceptCommitForPendingEndpoint() throws Exception
     {
-        acceptRequestForPendingEndpoint(new PaxosCommit.RequestHandler(), key -> commit(key).agreed());
+        acceptRequestForPendingEndpoint(new CommitVerbHandler());
     }
 
-    private <C extends Commit> void acceptRequestForPendingEndpoint(IVerbHandler<C> handler, IntFunction<C> supplier) throws Exception
+    private void acceptRequestForPendingEndpoint(AbstractPaxosVerbHandler handler) throws Exception
     {
         // remove localhost from TM and add it back as pending
         StorageService.instance.getTokenMetadata().removeEndpoint(broadcastAddress);
@@ -154,7 +150,7 @@ public class PaxosVerbHandlerTest
         ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
         int messageId = randomInt();
         int key = 50;
-        C commit = supplier.apply(key);
+        Commit commit = commit(key);
         handler.doVerb(MessageIn.create(node1,
                                         commit,
                                         EMPTY_PARAMS,
@@ -167,28 +163,28 @@ public class PaxosVerbHandlerTest
     @Test
     public void rejectPrepareForTokenOutOfRange() throws Exception
     {
-        rejectRequestForTokenOutOfRange(new PrepareVerbHandler(), key -> commit(key));
+        rejectRequestForTokenOutOfRange(new PrepareVerbHandler());
     }
 
     @Test
     public void rejectProposeForTokenOutOfRange() throws Exception
     {
-        rejectRequestForTokenOutOfRange(new ProposeVerbHandler(), key -> commit(key));
+        rejectRequestForTokenOutOfRange(new ProposeVerbHandler());
     }
 
     @Test
     public void rejectCommitForTokenOutOfRange() throws Exception
     {
-        rejectRequestForTokenOutOfRange(new PaxosCommit.RequestHandler(), key -> commit(key).agreed());
+        rejectRequestForTokenOutOfRange(new CommitVerbHandler());
     }
 
-    private <C extends Commit> void rejectRequestForTokenOutOfRange(IVerbHandler<C> handler, IntFunction<C> supplier) throws Exception
+    private void rejectRequestForTokenOutOfRange(AbstractPaxosVerbHandler handler) throws Exception
     {
         // reject a commit for a token the node neither owns nor is pending
         ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
         int messageId = randomInt();
         int key = 200;
-        C commit = supplier.apply(key);
+        Commit commit = commit(key);
         handler.doVerb(MessageIn.create(node1,
                                         commit,
                                         EMPTY_PARAMS,
@@ -201,28 +197,28 @@ public class PaxosVerbHandlerTest
     @Test
     public void acceptPrepareIfRejectionNotEnabled() throws Exception
     {
-        acceptRequestIfRejectionNotEnabled(new PrepareVerbHandler(), key -> commit(key));
+        acceptRequestIfRejectionNotEnabled(new PrepareVerbHandler());
     }
 
     @Test
     public void acceptProposeIfRejectionNotEnabled() throws Exception
     {
-        acceptRequestIfRejectionNotEnabled(new ProposeVerbHandler(), key -> commit(key));
+        acceptRequestIfRejectionNotEnabled(new ProposeVerbHandler());
     }
 
     @Test
     public void acceptCommitIfRejectionNotEnabled() throws Exception
     {
-        acceptRequestIfRejectionNotEnabled(new PaxosCommit.RequestHandler(), key -> commit(key).agreed());
+        acceptRequestIfRejectionNotEnabled(new CommitVerbHandler());
     }
 
-    private <C extends Commit> void acceptRequestIfRejectionNotEnabled(IVerbHandler<C> handler, IntFunction<C> supplier) throws Exception
+    private void acceptRequestIfRejectionNotEnabled(AbstractPaxosVerbHandler handler) throws Exception
     {
         DatabaseDescriptor.setRejectOutOfTokenRangeRequests(false);
         ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
         int messageId = randomInt();
         int key = 200;
-        C commit = supplier.apply(key);
+        Commit commit = commit(key);
         handler.doVerb(MessageIn.create(node1,
                                         commit,
                                         EMPTY_PARAMS,
@@ -247,11 +243,11 @@ public class PaxosVerbHandlerTest
         assertEquals(startingKeyspaceMetricCount + (isOutOfRange ? 1 : 0), keyspaceMetricValue());
     }
 
-    private static Commit.Proposal commit(int key)
+    private static Commit commit(int key)
     {
         CFMetaData cfm = Schema.instance.getCFMetaData(KEYSPACE, TABLE);
-        UUID ballot = Paxos.ballotForConsistency(FBUtilities.timestampMicros(), ConsistencyLevel.SERIAL);
-        return Commit.Proposal.empty(ballot, cfm.decorateKey(ByteBufferUtil.bytes(key)), cfm);
+        UUID ballot = UUIDGen.getRandomTimeUUIDFromMicros(FBUtilities.timestampMicros());
+        return Commit.newPrepare(cfm.decorateKey(ByteBufferUtil.bytes(key)), cfm, ballot);
     }
 
     private static long keyspaceMetricValue()

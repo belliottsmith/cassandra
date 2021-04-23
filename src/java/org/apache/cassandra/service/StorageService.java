@@ -46,7 +46,6 @@ import javax.management.openmbean.TabularData;
 import javax.management.openmbean.TabularDataSupport;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.*;
@@ -63,8 +62,6 @@ import org.apache.cassandra.db.ReadCommandVerbHandler;
 import org.apache.cassandra.db.partitions.AtomicBTreePartition;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.net.PingVerbHandler;
-import org.apache.cassandra.service.paxos.*;
-import org.apache.cassandra.service.paxos.cleanup.*;
 import org.apache.cassandra.utils.progress.ProgressListener;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
@@ -144,6 +141,9 @@ import org.apache.cassandra.net.ResponseVerbHandler;
 import org.apache.cassandra.repair.RepairMessageVerbHandler;
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.schema.SchemaKeyspace;
+import org.apache.cassandra.service.paxos.CommitVerbHandler;
+import org.apache.cassandra.service.paxos.PrepareVerbHandler;
+import org.apache.cassandra.service.paxos.ProposeVerbHandler;
 import org.apache.cassandra.streaming.*;
 import org.apache.cassandra.thrift.EndpointDetails;
 import org.apache.cassandra.thrift.TokenRange;
@@ -273,12 +273,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return getRangesForEndpoint(keyspaceName, FBUtilities.getBroadcastAddress());
     }
 
-    public Collection<Range<Token>> getPendingRanges(String keyspaceName)
-    {
-        InetAddress broadcastAddress = FBUtilities.getBroadcastAddress();
-        return getTokenMetadata().getPendingRanges(keyspaceName, broadcastAddress);
-    }
-
     public OwnedRanges getNormalizedLocalRanges(String keyspaceName)
     {
         return new OwnedRanges(getLocalRanges(keyspaceName));
@@ -392,13 +386,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.COUNTER_MUTATION, new CounterMutationVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.TRUNCATE, new TruncateVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PAXOS_PREPARE, new PrepareVerbHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PREPARE_REQ, new PaxosPrepare.RequestHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PREPARE_REFRESH_REQ, new PaxosPrepareRefresh.RequestHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_COMMIT_AND_PREPARE_REQ, new PaxosCommitAndPrepare.RequestHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PAXOS_PROPOSE, new ProposeVerbHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_PROPOSE_REQ, new PaxosPropose.RequestHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PAXOS_COMMIT, new PaxosCommit.RequestHandler());
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_REPAIR_REQ, new PaxosRepair.RequestHandler());
+        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PAXOS_COMMIT, new CommitVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.HINT, new HintVerbHandler());
 
         // see BootStrapper for a summary of how the bootstrap verbs interact
@@ -431,12 +420,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PARTITION_SIZE, new PartitionSizeVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.PING, new PingVerbHandler());
-
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_START_PREPARE, PaxosStartPrepareCleanup.verbHandler);
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_REQUEST, PaxosCleanupRequest.verbHandler);
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_RESPONSE, PaxosCleanupResponse.verbHandler);
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_FINISH_PREPARE, PaxosFinishPrepareCleanup.verbHandler);
-        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.APPLE_PAXOS_CLEANUP_COMPLETE, PaxosCleanupComplete.verbHandler);
     }
 
     public void registerDaemon(CassandraDaemon daemon)
@@ -1414,7 +1397,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                     keyspace == null ? "(All keyspaces)" : keyspace,
                     tokens == null ? "(All tokens)" : tokens);
 
-        repairPaxosForTopologyChange("rebuild");
         try
         {
             RangeStreamer streamer = new RangeStreamer(tokenMetadata,
@@ -1697,7 +1679,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             SystemKeyspace.resetAvailableRanges();
         }
 
-        repairPaxosForTopologyChange("bootstrap");
         setMode(Mode.JOINING, "Starting to bootstrap...", true);
         BootStrapper bootstrapper = new BootStrapper(FBUtilities.getBroadcastAddress(), tokens, tokenMetadata);
         bootstrapper.addProgressListener(progressSupport);
@@ -2248,7 +2229,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         break;
                     case SCHEMA:
                         SystemKeyspace.updatePeerInfo(endpoint, "schema_version", UUID.fromString(value.value), executor);
-                        MigrationManager.scheduleSchemaPull(endpoint, epState);
+                        MigrationManager.instance.scheduleSchemaPull(endpoint, epState);
                         break;
                     case HOST_ID:
                         SystemKeyspace.updatePeerInfo(endpoint, "host_id", UUID.fromString(value.value), executor);
@@ -3705,7 +3686,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             parallelism = RepairParallelism.PARALLEL;
         }
 
-        RepairOption options = new RepairOption(parallelism, primaryRange, !fullRepair, false, 1, Collections.<Range<Token>>emptyList(), false, false, false, PreviewKind.NONE, false, false, false, false);
+        RepairOption options = new RepairOption(parallelism, primaryRange, !fullRepair, false, 1, Collections.<Range<Token>>emptyList(), false, false, false, PreviewKind.NONE, false, false);
         if (dataCenters != null)
         {
             options.getDataCenters().addAll(dataCenters);
@@ -3797,7 +3778,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         "The repair will occur but without anti-compaction.");
         Collection<Range<Token>> repairingRange = createRepairRangeFrom(beginToken, endToken);
 
-        RepairOption options = new RepairOption(parallelism, false, !fullRepair, false, 1, repairingRange, true, false, false, PreviewKind.NONE, false, false, false, false);
+        RepairOption options = new RepairOption(parallelism, false, !fullRepair, false, 1, repairingRange, true, false, false, PreviewKind.NONE, false, false);
         if (dataCenters != null)
         {
             options.getDataCenters().addAll(dataCenters);
@@ -3932,64 +3913,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             return new FutureTask<>(r, null);
         }
         return new FutureTask<>(task, null);
-    }
-
-    private void repairPaxosForTopologyChange(String reason)
-    {
-        if (getSkipPaxosRepairOnTopologyChange() || !Paxos.useApplePaxos())
-        {
-            logger.info("skipping paxos repair for {}. skip_paxos_repair_on_topology_change is set, or apple paxos variant is not being used", reason);
-            return;
-        }
-
-        logger.info("repairing paxos for {}", reason);
-
-        List<ListenableFuture<?>> futures = new ArrayList<>();
-
-        List<String> keyspaces = Schema.instance.getNonLocalStrategyKeyspaces() ;
-        for (String ksName : keyspaces)
-        {
-            if (Schema.REPLICATED_SYSTEM_KEYSPACE_NAMES.contains(ksName))
-                continue;
-
-            if (DatabaseDescriptor.skipPaxosRepairOnTopologyChangeKeyspaces().contains(ksName))
-                continue;
-
-            List<Range<Token>> ranges = new ArrayList<>();
-            ranges.addAll(getLocalRanges(ksName));
-            ranges.addAll(getPendingRanges(ksName));
-
-            futures.add(ActiveRepairService.instance.repairPaxosForTopologyChange(ksName, ranges, reason));
-        }
-
-        try
-        {
-            Futures.allAsList(futures).get();
-        }
-        catch (InterruptedException e)
-        {
-            throw new AssertionError(e);
-        }
-        catch (ExecutionException e)
-        {
-            throw new RuntimeException(e);
-        }
-
-        logger.info("paxos repair for {} complete", reason);
-    }
-
-    public ListenableFuture autoRepairPaxos(UUID cfId)
-    {
-        CFMetaData cfm = Schema.instance.getCFMetaData(cfId);
-        if (cfm == null)
-            return Futures.immediateFuture(null);
-
-        List<Range<Token>> ranges = new ArrayList<>();
-        ranges.addAll(getLocalRanges(cfm.ksName));
-        ranges.addAll(getPendingRanges(cfm.ksName));
-        PaxosCleanupLocalCoordinator coordinator = PaxosCleanupLocalCoordinator.createForAutoRepair(cfId, ranges);
-        ScheduledExecutors.optionalTasks.submit(coordinator::start);
-        return coordinator;
     }
 
     public void forceTerminateAllRepairSessions() {
@@ -4409,7 +4332,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         setMode(Mode.LEAVING, "replaying batch log and streaming data to other nodes", true);
 
-        repairPaxosForTopologyChange("decommission");
         // Start with BatchLog replay, which may create hints but no writes since this is no longer a valid endpoint.
         Future<?> batchlogReplay = BatchlogManager.instance.startBatchlogReplay();
         Future<StreamState> streamSuccess = streamRanges(rangesToStream);
@@ -4534,7 +4456,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         RangeRelocator relocator = new RangeRelocator(Collections.singleton(newToken), keyspacesToProcess);
 
-        repairPaxosForTopologyChange("move");
         if (relocator.streamsNeeded())
         {
             setMode(Mode.MOVING, "fetching new ranges and streaming old ranges", true);
@@ -6126,48 +6047,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public boolean getForcePagingStateLegacySerialization()
     {
         return DatabaseDescriptor.forcePagingStateLegacySerialization();
-    }
-
-    public boolean getSkipPaxosRepairOnTopologyChange()
-    {
-        return DatabaseDescriptor.skipPaxosRepairOnTopologyChange();
-    }
-
-    public void setSkipPaxosRepairOnTopologyChange(boolean v)
-    {
-        DatabaseDescriptor.setSkipPaxosRepairOnTopologyChange(v);
-    }
-
-    public String getSkipPaxosRepairOnTopologyChangeKeyspaces()
-    {
-        return Joiner.on(',').join(DatabaseDescriptor.skipPaxosRepairOnTopologyChangeKeyspaces());
-    }
-
-    public void setSkipPaxosRepairOnTopologyChangeKeyspaces(String v)
-    {
-        DatabaseDescriptor.setSkipPaxosRepairOnTopologyChangeKeyspaces(v);
-    }
-
-    public int getPaxosAutoRepairThresholdMb()
-    {
-        return DatabaseDescriptor.getPaxosAutoRepairThresholdMB();
-    }
-
-    public void setPaxosAutoRepairThresholdMb(int threshold)
-    {
-        if (threshold < 0)
-            throw new RuntimeException("Paxos auto repair threshold must not be negative");
-
-        int oldThreshold = getPaxosAutoRepairThresholdMb();
-        if (oldThreshold == threshold)
-        {
-            logger.info("Supplied paxos auto repair threshold is the same as current value");
-        }
-        else
-        {
-            logger.info("Changing paxos auto repair threshold (MiB) from {} to {}", getPaxosAutoRepairThresholdMb(), threshold);
-            DatabaseDescriptor.setPaxosAutoRepairThresholdMB(threshold);
-        }
     }
 
     public boolean autoOptimiseIncRepairStreams()

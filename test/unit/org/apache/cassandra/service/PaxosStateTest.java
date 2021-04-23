@@ -18,28 +18,20 @@
 package org.apache.cassandra.service;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.*;
-import java.util.function.Supplier;
 
 import com.google.common.collect.Iterables;
-import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.dht.Murmur3Partitioner;
-import org.apache.cassandra.exceptions.ReadTimeoutException;
-import org.apache.cassandra.service.paxos.PaxosOperationLock;
 import org.junit.AfterClass;
-import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
-import org.apache.cassandra.config.Config;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.service.paxos.Commit;
-import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
@@ -77,42 +69,25 @@ public class PaxosStateTest
 
         // Commit the proposal & verify the data is present
         Commit beforeTruncate = newProposal(0, update);
-        PaxosState.commitDirect(beforeTruncate);
+        PaxosState.commit(beforeTruncate);
         assertDataPresent(cfs, Util.dk(key), "val", value);
 
         // Truncate then attempt to commit again, mutation should
         // be ignored as the proposal predates the truncation
         cfs.truncateBlocking();
-        PaxosState.commitDirect(beforeTruncate);
+        PaxosState.commit(beforeTruncate);
         assertNoDataPresent(cfs, Util.dk(key));
 
         // Now try again with a ballot created after the truncation
         long timestamp = SystemKeyspace.getTruncatedAt(update.metadata().cfId) + 1;
         Commit afterTruncate = newProposal(timestamp, update);
-        PaxosState.commitDirect(afterTruncate);
+        PaxosState.commit(afterTruncate);
         assertDataPresent(cfs, Util.dk(key), "val", value);
-    }
-
-    // WARNING: this test verifies that old broken behaviour works without error
-    // i.e. this behaviour is wrong, the test only confirms it works WITHOUT ERROR
-    // while we maintain the incorrect behaviour.
-    @Test
-    public void testBrokenLegacyAcceptPrecedingCommit()
-    {
-        assertNotSame(Paxos.getPaxosVariant(), Config.PaxosVariant.legacy_fixed);
-        String key = "key" + System.nanoTime();
-        PaxosState.commitDirect(newProposal(2, key));
-        PaxosState.legacyPropose(newProposal(1, key));
     }
 
     private Commit newProposal(long ballotMillis, PartitionUpdate update)
     {
         return Commit.newProposal(UUIDGen.getTimeUUID(ballotMillis), update);
-    }
-
-    private Commit newProposal(long ballotMillis, String k)
-    {
-        return Commit.newPrepare(Util.dk(k), Keyspace.open("PaxosStateTestKeyspace1").getColumnFamilyStore("Standard1").metadata, UUIDGen.getTimeUUID(ballotMillis));
     }
 
     private void assertDataPresent(ColumnFamilyStore cfs, DecoratedKey key, String name, ByteBuffer value)
@@ -125,39 +100,5 @@ public class PaxosStateTest
     private void assertNoDataPresent(ColumnFamilyStore cfs, DecoratedKey key)
     {
         Util.assertEmpty(Util.cmd(cfs, key).build());
-    }
-
-    @Test
-    public void testPaxosLock() throws ExecutionException, InterruptedException
-    {
-        DecoratedKey key = new BufferDecoratedKey(Murmur3Partitioner.MINIMUM, ByteBufferUtil.EMPTY_BYTE_BUFFER);
-        CFMetaData metadata = Keyspace.open("PaxosStateTestKeyspace1").getColumnFamilyStore("Standard1").metadata;
-        Supplier<PaxosOperationLock> locker = () -> PaxosState.lock(key, metadata, System.nanoTime() + TimeUnit.SECONDS.toNanos(1L), ConsistencyLevel.SERIAL, false);
-        ExecutorService executor = Executors.newFixedThreadPool(1);
-        Future<?> future;
-        try (PaxosOperationLock lock = locker.get())
-        {
-            try
-            {
-                try (PaxosOperationLock lock2 = locker.get())
-                {
-                    Assert.fail();
-                }
-            }
-            catch (ReadTimeoutException rte)
-            {
-            }
-
-            future = executor.submit(() -> {
-                try (PaxosOperationLock lock2 = locker.get())
-                {
-                }
-            });
-        }
-        finally
-        {
-            executor.shutdown();
-        }
-        future.get();
     }
 }

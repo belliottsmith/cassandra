@@ -134,12 +134,8 @@ public class ReadRepairHandler implements IAsyncCallback
             UUID cfId = extractUpdate(mutation).metadata().cfId;
 
             Tracing.trace("Sending read-repair-mutation to {}", destination);
-
             // use a separate verb here to avoid writing hints on timeouts
-            MessageOut<Mutation> message = mutation.createMessage(MessagingService.Verb.READ_REPAIR)
-                    .permitsArtificialDelay(consistency);
-
-            sendRR(message, destination);
+            sendRR(mutation.createMessage(MessagingService.Verb.READ_REPAIR), destination);
             ColumnFamilyStore.metricsFor(cfId).readRepairRequests.mark();
 
             if (!blockFor.waitsOn(destination))
@@ -211,11 +207,7 @@ public class ReadRepairHandler implements IAsyncCallback
             }
 
             Tracing.trace("Sending speculative read-repair-mutation to {}", endpoint);
-            // use a separate verb here to avoid writing hints on timeouts
-            MessageOut<Mutation> message = mutation.createMessage(MessagingService.Verb.READ_REPAIR)
-                    .permitsArtificialDelay(consistency);
-
-            sendRR(message, endpoint);
+            sendRR(mutation.createMessage(MessagingService.Verb.READ_REPAIR), endpoint);
         }
     }
 

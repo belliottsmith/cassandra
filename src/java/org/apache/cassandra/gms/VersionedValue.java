@@ -24,7 +24,6 @@ import java.util.UUID;
 
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.db.TypeSizes;
@@ -177,14 +176,6 @@ public class VersionedValue implements Comparable<VersionedValue>
             return new VersionedValue(versionString(VersionedValue.STATUS_LEFT,
                                                     makeTokenString(tokens),
                                                     Long.toString(expireTime)));
-        }
-
-        @VisibleForTesting
-        public VersionedValue left(Collection<Token> tokens, long expireTime, int generation)
-        {
-            return new VersionedValue(versionString(VersionedValue.STATUS_LEFT,
-                                                    makeTokenString(tokens),
-                                                    Long.toString(expireTime)), generation);
         }
 
         public VersionedValue moving(Token token)

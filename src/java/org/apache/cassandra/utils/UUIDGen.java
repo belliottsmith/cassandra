@@ -28,7 +28,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
+import com.google.common.base.Charsets;
 import com.google.common.primitives.Ints;
 
 
@@ -89,16 +89,6 @@ public class UUIDGen
     }
 
     /**
-     * Creates a type 1 UUID (time-based UUID) with the timestamp of @param when, in milliseconds.
-     *
-     * @return a UUID instance
-     */
-    public static UUID getTimeUUIDWithClockSeqAndNode(long when, long clockSeqAndNode)
-    {
-        return new UUID(createTime(fromUnixTimestamp(when)), clockSeqAndNode);
-    }
-
-    /**
      * Returns a version 1 UUID using the provided timestamp and the local clock and sequence.
      * <p>
      * Note that this method is generally only safe to use if you can guarantee that the provided
@@ -125,15 +115,13 @@ public class UUIDGen
      * through randomization.
      *
      * @param whenInMicros a unix time in microseconds.
-     * @param flag a value between 0 and 9 (inclusive) to put in least significant (and unused) part of the timestamp
      * @return a new UUID {@code id} such that {@code microsTimestamp(id) == whenInMicros}. The UUID returned
      * by different calls will be unique even if {@code whenInMicros} is not.
      */
-    public static UUID getRandomTimeUUIDFromMicros(long whenInMicros, int flag)
+    public static UUID getRandomTimeUUIDFromMicros(long whenInMicros)
     {
-        Preconditions.checkArgument(0 <= flag  && flag < 10);
         long whenInMillis = whenInMicros / 1000;
-        long nanos = (whenInMicros - (whenInMillis * 1000)) * 10 + flag;
+        long nanos = (whenInMicros - (whenInMillis * 1000)) * 10;
         return new UUID(createTime(fromUnixTimestamp(whenInMillis, nanos)), secureRandom.nextLong());
     }
 
@@ -267,11 +255,7 @@ public class UUIDGen
 
     private static byte[] createTimeUUIDBytes(long msb)
     {
-        return createTimeUUIDBytes(msb, clockSeqAndNode);
-    }
-
-    public static byte[] createTimeUUIDBytes(long msb, long lsb)
-    {
+        long lsb = clockSeqAndNode;
         byte[] uuidBytes = new byte[16];
 
         for (int i = 0; i < 8; i++)

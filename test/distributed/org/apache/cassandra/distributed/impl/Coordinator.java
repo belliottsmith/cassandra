@@ -84,33 +84,17 @@ public class Coordinator implements ICoordinator
         }).call();
     }
 
-    protected static org.apache.cassandra.db.ConsistencyLevel toCassandraCL(ConsistencyLevel cl)
+    protected org.apache.cassandra.db.ConsistencyLevel toCassandraCL(ConsistencyLevel cl)
     {
-        try
-        {
-            return org.apache.cassandra.db.ConsistencyLevel.fromCode(cl.code);
-        }
-        catch (NoSuchFieldError e)
-        {
-            return org.apache.cassandra.db.ConsistencyLevel.fromCode(cl.ordinal());
-        }
+        return org.apache.cassandra.db.ConsistencyLevel.fromCode(cl.ordinal());
     }
 
-    protected static org.apache.cassandra.db.ConsistencyLevel toCassandraSerialCL(ConsistencyLevel cl)
-    {
-        return toCassandraCL(cl == null ? ConsistencyLevel.SERIAL : cl);
-    }
-
-    private static SimpleQueryResult executeInternal(String query, ConsistencyLevel consistencyLevel, Object[] boundValues)
-    {
-        return executeInternal(query, null, consistencyLevel, boundValues);
-    }
-
-    private static SimpleQueryResult executeInternal(String query, ConsistencyLevel serialConsistencyLevel, ConsistencyLevel commitConsistencyLevel, Object[] boundValues)
+    private SimpleQueryResult executeInternal(String query, ConsistencyLevel consistencyLevelOrigin, Object[] boundValues)
     {
         ClientState clientState = makeFakeClientState();
         CQLStatement prepared = QueryProcessor.getStatement(query, clientState).statement;
         List<ByteBuffer> boundBBValues = new ArrayList<>();
+        ConsistencyLevel consistencyLevel = ConsistencyLevel.valueOf(consistencyLevelOrigin.name());
         for (Object boundValue : boundValues)
             boundBBValues.add(ByteBufferUtil.objectToBytes(boundValue));
 
@@ -123,12 +107,12 @@ public class Coordinator implements ICoordinator
         ClientWarn.instance.captureWarnings();
 
         ResultMessage res = prepared.execute(QueryState.forInternalCalls(),
-                                             QueryOptions.create(toCassandraCL(commitConsistencyLevel),
+                                             QueryOptions.create(toCassandraCL(consistencyLevel),
                                                                  boundBBValues,
                                                                  false,
                                                                  Integer.MAX_VALUE,
                                                                  null,
-                                                                 toCassandraSerialCL(serialConsistencyLevel),
+                                                                 null,
                                                                  Server.CURRENT_VERSION));
 
         // Collect warnings reported during the query.
@@ -138,20 +122,14 @@ public class Coordinator implements ICoordinator
         return RowUtil.toQueryResult(res);
     }
 
-    public Object[][] executeWithTracing(UUID sessionId, String query, ConsistencyLevel consistencyLevel, Object... boundValues)
+    public Object[][] executeWithTracing(UUID sessionId, String query, ConsistencyLevel consistencyLevelOrigin, Object... boundValues)
     {
-        return IsolatedExecutor.waitOn(asyncExecuteWithTracing(sessionId, query, consistencyLevel, boundValues));
+        return IsolatedExecutor.waitOn(asyncExecuteWithTracing(sessionId, query, consistencyLevelOrigin, boundValues));
     }
 
     public IInstance instance()
     {
         return instance;
-    }
-
-    @Override
-    public SimpleQueryResult executeWithResult(String query, ConsistencyLevel serialConsistencyLevel, ConsistencyLevel commitConsistencyLevel, Object... boundValues)
-    {
-        return instance.sync(() -> executeInternal(query, serialConsistencyLevel, commitConsistencyLevel, boundValues)).call();
     }
 
     @Override

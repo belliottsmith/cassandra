@@ -29,9 +29,8 @@ public class PrepareVerbHandler extends AbstractPaxosVerbHandler
 {
     void processMessage(MessageIn<Commit> message, int id)
     {
-        PrepareResponse response = PaxosState.legacyPrepare(message.payload);
-        MessageOut<PrepareResponse> reply = new MessageOut<PrepareResponse>(MessagingService.Verb.REQUEST_RESPONSE, response, PrepareResponse.serializer)
-                .permitsArtificialDelay(message);
+        PrepareResponse response = PaxosState.prepare(message.payload);
+        MessageOut<PrepareResponse> reply = new MessageOut<PrepareResponse>(MessagingService.Verb.REQUEST_RESPONSE, response, PrepareResponse.serializer);
         MessagingService.instance().sendReply(reply, id, message.from);
     }
 }

@@ -78,7 +78,7 @@ public class TimeUUIDType extends AbstractType<UUID>
     // takes as input 8 signed bytes in native machine order
     // returns the first byte unchanged, and the following 7 bytes converted to an unsigned representation
     // which is the same as a 2's complement long in native format
-    public static long signedBytesToNativeLong(long signedBytes)
+    private static long signedBytesToNativeLong(long signedBytes)
     {
         return signedBytes ^ 0x0080808080808080L;
     }

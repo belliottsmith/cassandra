@@ -955,7 +955,8 @@ public class CassandraServer implements Cassandra.Iface
                                                        dk,
                                                        new ThriftCASRequest(toLegacyCells(metadata, expected, nowInSec), partitionUpdates, nowInSec),
                                                        ThriftConversion.fromThrift(serial_consistency_level),
-                                                       ThriftConversion.fromThrift(commit_consistency_level)))
+                                                       ThriftConversion.fromThrift(commit_consistency_level),
+                                                       cState))
             {
                 return result == null
                      ? new CASResult(true)
@@ -2587,7 +2588,7 @@ public class CassandraServer implements Cassandra.Iface
             return true;
         }
 
-        public PartitionUpdate makeUpdates(FilteredPartition current, long ballotTimestamp)
+        public PartitionUpdate makeUpdates(FilteredPartition current)
         {
             return updates;
         }

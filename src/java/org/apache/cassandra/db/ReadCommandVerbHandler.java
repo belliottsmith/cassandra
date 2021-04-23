@@ -96,8 +96,7 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
                 throw e;
 
             response = command.createResponse(EmptyIterators.unfilteredPartition(command.metadata(), command.isForThrift()));
-            MessageOut<ReadResponse> reply = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, response, serializer())
-                                             .permitsArtificialDelay(message);
+            MessageOut<ReadResponse> reply = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, response, serializer());
             reply = MessageParams.addToMessage(reply);
             MessagingService.instance().sendReply(reply, id, message.from);
             return;
@@ -110,9 +109,7 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
         // e.g. some sstables read during this read were involved in pending but not yet
         // committed repair sessions or an unrepaired partition tombstone meant that not all
         // repaired sstables were read (but they might be on other replicas).
-        MessageOut<ReadResponse> reply = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, response, serializer())
-                .permitsArtificialDelay(message);
-
+        MessageOut<ReadResponse> reply = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, response, serializer());
         if (command.isTrackingRepairedStatus())
         {
             String paramName = command.isRepairedDataDigestConclusive()

@@ -871,15 +871,6 @@ public interface StorageServiceMBean extends NotificationEmitter
         DatabaseDescriptor.setLargePartitionIndexWarningThresholdKb(value);
     }
 
-    boolean getSkipPaxosRepairOnTopologyChange();
-    void setSkipPaxosRepairOnTopologyChange(boolean v);
-
-    String getSkipPaxosRepairOnTopologyChangeKeyspaces();
-    void setSkipPaxosRepairOnTopologyChangeKeyspaces(String v);
-
-    int getPaxosAutoRepairThresholdMb();
-    void setPaxosAutoRepairThresholdMb(int threshold);
-
     // see CASSANDRA-3200
     public boolean autoOptimiseIncRepairStreams();
     public void setAutoOptimiseIncRepairStreams(boolean enabled);

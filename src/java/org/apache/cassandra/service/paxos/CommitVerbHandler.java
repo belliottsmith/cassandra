@@ -1,4 +1,3 @@
-package org.apache.cassandra.service.paxos;
 /*
  * 
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -19,20 +18,20 @@ package org.apache.cassandra.service.paxos;
  * under the License.
  * 
  */
+package org.apache.cassandra.service.paxos;
 
-
-import org.apache.cassandra.net.IVerbHandler;
+import org.apache.cassandra.db.WriteResponse;
 import org.apache.cassandra.net.MessageIn;
-import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.utils.BooleanSerializer;
+import org.apache.cassandra.tracing.Tracing;
 
-public class ProposeVerbHandler extends AbstractPaxosVerbHandler implements IVerbHandler<Commit>
+public class CommitVerbHandler extends AbstractPaxosVerbHandler
 {
     void processMessage(MessageIn<Commit> message, int id)
     {
-        Boolean response = PaxosState.propose(message.payload);
-        MessageOut<Boolean> reply = new MessageOut<Boolean>(MessagingService.Verb.REQUEST_RESPONSE, response, BooleanSerializer.serializer);
-        MessagingService.instance().sendReply(reply, id, message.from);
+        PaxosState.commit(message.payload);
+
+        Tracing.trace("Enqueuing acknowledge to {}", message.from);
+        MessagingService.instance().sendReply(WriteResponse.createMessage(), id, message.from);
     }
 }

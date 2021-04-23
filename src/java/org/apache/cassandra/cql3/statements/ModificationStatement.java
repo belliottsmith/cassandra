@@ -446,7 +446,8 @@ public abstract class ModificationStatement implements CQLStatement
                                                    request.key,
                                                    request,
                                                    options.getSerialConsistency(),
-                                                   options.getConsistency()))
+                                                   options.getConsistency(),
+                                                   queryState.getClientState()))
         {
             return new ResultMessage.Rows(buildCasResultSet(result, options));
         }
@@ -608,7 +609,7 @@ public abstract class ModificationStatement implements CQLStatement
         if (!request.appliesTo(current))
             return current.rowIterator();
 
-        PartitionUpdate updates = request.makeUpdates(current, ballot.timestamp());
+        PartitionUpdate updates = request.makeUpdates(current);
         updates = TriggerExecutor.instance.execute(updates);
 
         Commit proposal = Commit.newProposal(ballot, updates);

@@ -376,34 +376,24 @@ public abstract class AbstractBTreePartition implements Partition, Iterable<Row>
     @Override
     public String toString()
     {
-        return toString(true);
-    }
-
-    public String toString(boolean includeFullDetails)
-    {
         StringBuilder sb = new StringBuilder();
-        if (includeFullDetails)
-        {
-            sb.append(String.format("[%s.%s] key=%s partition_deletion=%s columns=%s",
-                                    metadata.ksName,
-                                    metadata.cfName,
-                                    metadata.getKeyValidator().getString(partitionKey().getKey()),
-                                    partitionLevelDeletion(),
-                                    columns()));
-        }
-        else
-        {
-            sb.append("key=").append(metadata.getKeyValidator().getString(partitionKey().getKey()));
-        }
+
+        sb.append(String.format("[%s.%s] key=%s partition_deletion=%s columns=%s",
+                                metadata.ksName,
+                                metadata.cfName,
+                                metadata.getKeyValidator().getString(partitionKey().getKey()),
+                                partitionLevelDeletion(),
+                                columns()));
 
         if (staticRow() != Rows.EMPTY_STATIC_ROW)
-            sb.append("\n    ").append(staticRow().toString(metadata, includeFullDetails));
+            sb.append("\n    ").append(staticRow().toString(metadata, true));
 
         try (UnfilteredRowIterator iter = unfilteredIterator())
         {
             while (iter.hasNext())
-                sb.append("\n    ").append(iter.next().toString(metadata, includeFullDetails));
+                sb.append("\n    ").append(iter.next().toString(metadata, true));
         }
+
         return sb.toString();
     }
 

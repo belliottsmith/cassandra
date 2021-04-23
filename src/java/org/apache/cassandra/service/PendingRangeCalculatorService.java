@@ -24,7 +24,6 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.utils.ExecutorUtils;
-import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,12 +47,20 @@ public class PendingRangeCalculatorService
     // the executor will only run a single range calculation at a time while keeping at most one task queued in order
     // to trigger an update only after the most recent state change and not for each update individually
     private final JMXEnabledThreadPoolExecutor executor = new JMXEnabledThreadPoolExecutor(1, Integer.MAX_VALUE, TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>(), new NamedThreadFactory("PendingRangeCalculator"), "internal");
+            new LinkedBlockingQueue<>(1), new NamedThreadFactory("PendingRangeCalculator"), "internal");
 
     private AtomicInteger updateJobs = new AtomicInteger(0);
 
     public PendingRangeCalculatorService()
     {
+        executor.setRejectedExecutionHandler(new RejectedExecutionHandler()
+        {
+            public void rejectedExecution(Runnable r, ThreadPoolExecutor e)
+            {
+                PendingRangeCalculatorService.instance.finishUpdate();
+            }
+        }
+        );
     }
 
     private static class PendingRangeTask implements Runnable
@@ -83,26 +90,24 @@ public class PendingRangeCalculatorService
 
     public void update()
     {
-        try
-        {
-            if (updateJobs.incrementAndGet() <= 2)
-                executor.submit(new PendingRangeTask());
-            else
-                updateJobs.decrementAndGet();
-        }
-        catch (RejectedExecutionException ignore) {}
+        updateJobs.incrementAndGet();
+        executor.submit(new PendingRangeTask());
     }
 
     public void blockUntilFinished()
     {
-        SimpleCondition condition = new SimpleCondition();
-        executeWhenFinished(condition::signalAll);
-        condition.awaitUninterruptibly();
-    }
-
-    public void executeWhenFinished(Runnable runnable)
-    {
-        executor.execute(runnable);
+        // We want to be sure the job we're blocking for is actually finished and we can't trust the TPE's active job count
+        while (updateJobs.get() > 0)
+        {
+            try
+            {
+                Thread.sleep(100);
+            }
+            catch (InterruptedException e)
+            {
+                throw new RuntimeException(e);
+            }
+        }
     }
 
 

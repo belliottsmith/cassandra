@@ -115,7 +115,6 @@ public class DatabaseDescriptor
     private static RequestSchedulerOptions requestSchedulerOptions;
 
     private static long keyCacheSizeInMB;
-    private static long paxosCacheSizeInMB;
     private static long counterCacheSizeInMB;
     private static long indexSummaryCapacityInMB;
 
@@ -800,28 +799,6 @@ public class DatabaseDescriptor
                     + conf.counter_cache_size_in_mb + "', supported values are <integer> >= 0.", false);
         }
 
-        try
-        {
-            // if paxos_cache_size_in_mb option was set to "auto" then size of the cache should be "min(1% of Heap (in MB), 50MB)
-            paxosCacheSizeInMB = (conf.paxos_cache_size_in_mb == null)
-                    ? Math.min(Math.max(1, (int) (Runtime.getRuntime().totalMemory() * 0.01 / 1024 / 1024)), 50)
-                    : conf.paxos_cache_size_in_mb;
-
-            if (paxosCacheSizeInMB < 0)
-                throw new NumberFormatException(); // to escape duplicating error message
-        }
-        catch (NumberFormatException e)
-        {
-            throw new ConfigurationException("paxos_cache_size_in_mb option was set incorrectly to '"
-                    + conf.paxos_cache_size_in_mb + "', supported values are <integer> >= 0.", false);
-        }
-
-        if (conf.paxos_auto_repair_threshold_mb < 0)
-        {
-            throw new ConfigurationException("paxos_auto_repair_threshold_mb option was set incorrectly to '"
-                                             + conf.paxos_auto_repair_threshold_mb + "', supported values are <integer> >= 0.", false);
-        }
-
         // if set to empty/"auto" then use 5% of Heap size
         indexSummaryCapacityInMB = (conf.index_summary_capacity_in_mb == null)
             ? Math.max(1, (int) (Runtime.getRuntime().totalMemory() * 0.05 / 1024 / 1024))
@@ -914,9 +891,6 @@ public class DatabaseDescriptor
             logger.warn("native_transport_max_protocol_version set to {}. native_transport_max_protocol_version is deprecated and has no effect", conf.native_transport_max_protocol_version);
 
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
-
-        if (conf.paxos_repair_parallelism <= 0)
-            conf.paxos_repair_parallelism = Math.max(1, conf.concurrent_writes / 8);
 
         repairedDataTrackingExclusions =
             RepairedDataTrackingExclusions.fromConfig(conf.repaired_data_tracking_exclusions);
@@ -1466,11 +1440,6 @@ public class DatabaseDescriptor
             case HINT:
             case BATCH_STORE:
             case BATCH_REMOVE:
-            case APPLE_PAXOS_PREPARE_REQ:
-            case APPLE_PAXOS_PREPARE_REFRESH_REQ:
-            case APPLE_PAXOS_PROPOSE_REQ:
-            case APPLE_PAXOS_COMMIT_AND_PREPARE_REQ:
-            case APPLE_PAXOS_REPAIR_REQ:
                 return getWriteRpcTimeout();
             case COUNTER_MUTATION:
                 return getCounterWriteRpcTimeout();
@@ -1977,96 +1946,6 @@ public class DatabaseDescriptor
     public static boolean forcePagingStateLegacySerialization()
     {
         return conf.force_paging_state_legacy_serialization;
-    }
-
-    public static Config.PaxosVariant getPaxosVariant()
-    {
-        return conf.paxos_variant;
-    }
-
-    public static void setPaxosVariant(Config.PaxosVariant variant)
-    {
-        conf.paxos_variant = variant;
-    }
-
-    public static String getPaxosContentionWaitRandomizer()
-    {
-        return conf.paxos_contention_wait_randomizer;
-    }
-
-    public static String getPaxosContentionMinWait()
-    {
-        return conf.paxos_contention_min_wait;
-    }
-
-    public static String getPaxosContentionMaxWait()
-    {
-        return conf.paxos_contention_max_wait;
-    }
-
-    public static String getPaxosContentionMinDelta()
-    {
-        return conf.paxos_contention_min_delta;
-    }
-
-    public static void setPaxosContentionWaitRandomizer(String waitRandomizer)
-    {
-        conf.paxos_contention_wait_randomizer = waitRandomizer;
-    }
-
-    public static void setPaxosContentionMinWait(String minWait)
-    {
-        conf.paxos_contention_min_wait = minWait;
-    }
-
-    public static void setPaxosContentionMaxWait(String maxWait)
-    {
-        conf.paxos_contention_max_wait = maxWait;
-    }
-
-    public static void setPaxosContentionMinDelta(String minDelta)
-    {
-        conf.paxos_contention_min_delta = minDelta;
-    }
-
-    public static boolean skipPaxosRepairOnTopologyChange()
-    {
-        return conf.skip_paxos_repair_on_topology_change;
-    }
-
-    public static void setSkipPaxosRepairOnTopologyChange(boolean value)
-    {
-        conf.skip_paxos_repair_on_topology_change = value;
-    }
-
-    public static Set<String> skipPaxosRepairOnTopologyChangeKeyspaces()
-    {
-        return conf.skip_paxos_repair_on_topology_change_keyspaces;
-    }
-
-    public static void setSkipPaxosRepairOnTopologyChangeKeyspaces(String keyspaces)
-    {
-        conf.skip_paxos_repair_on_topology_change_keyspaces = Config.splitCommaDelimited(keyspaces);
-    }
-
-    public static boolean paxoTopologyRepairNoDcChecks()
-    {
-        return conf.paxos_topology_repair_no_dc_checks;
-    }
-
-    public static boolean paxoTopologyRepairStrictEachQuorum()
-    {
-        return conf.paxos_topology_repair_strict_each_quorum;
-    }
-
-    public static int getPaxosAutoRepairThresholdMB()
-    {
-        return conf.paxos_auto_repair_threshold_mb;
-    }
-
-    public static void setPaxosAutoRepairThresholdMB(int threshold)
-    {
-        conf.paxos_auto_repair_threshold_mb = threshold;
     }
 
     public static boolean getNativeTransportAllowOlderProtocols()
@@ -2635,11 +2514,6 @@ public class DatabaseDescriptor
         return conf.row_cache_keys_to_save;
     }
 
-    public static long getPaxosCacheSizeInMB()
-    {
-        return paxosCacheSizeInMB;
-    }
-
     public static long getCounterCacheSizeInMB()
     {
         return counterCacheSizeInMB;
@@ -2742,17 +2616,6 @@ public class DatabaseDescriptor
             logger.warn("repair_session_max_tree_depth of " + depth + " > 20 could lead to excessive memory usage");
 
         conf.repair_session_max_tree_depth = depth;
-    }
-
-    public static int getPaxosRepairParallelism()
-    {
-        return conf.paxos_repair_parallelism;
-    }
-
-    public static void setPaxosRepairParallelism(int v)
-    {
-        Preconditions.checkArgument(v > 0);
-        conf.paxos_repair_parallelism = v;
     }
 
     public static boolean getOutboundBindAny()

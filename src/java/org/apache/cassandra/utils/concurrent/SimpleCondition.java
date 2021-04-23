@@ -20,6 +20,7 @@ package org.apache.cassandra.utils.concurrent;
 import java.util.Date;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.concurrent.locks.Condition;
 
 // fulfils the Condition interface without spurious wakeup problems
 // (or lost notify problems either: that is, even if you call await()
@@ -31,34 +32,17 @@ public class SimpleCondition implements Condition
     private volatile WaitQueue waiting;
     private volatile boolean signaled = false;
 
-    private WaitQueue.Signal register()
+    public void await() throws InterruptedException
     {
         if (isSignaled())
-            return null;
+            return;
         if (waiting == null)
             waitingUpdater.compareAndSet(this, null, new WaitQueue());
         WaitQueue.Signal s = waiting.register();
         if (isSignaled())
-        {
             s.cancel();
-            s = null;
-        }
-        return s;
-    }
-
-    public void await() throws InterruptedException
-    {
-        WaitQueue.Signal s = register();
-        if (s != null)
+        else
             s.await();
-        assert isSignaled();
-    }
-
-    public void awaitUninterruptibly()
-    {
-        WaitQueue.Signal s = register();
-        if (s != null)
-            s.awaitUninterruptibly();
         assert isSignaled();
     }
 
@@ -67,14 +51,16 @@ public class SimpleCondition implements Condition
         if (isSignaled())
             return true;
         long start = System.nanoTime();
-        return awaitUntil(start + unit.toNanos(time));
-    }
-
-    // until System.nanoTime
-    public boolean awaitUntil(long until) throws InterruptedException
-    {
-        WaitQueue.Signal s = register();
-        return s == null|| s.awaitUntil(until) || isSignaled();
+        long until = start + unit.toNanos(time);
+        if (waiting == null)
+            waitingUpdater.compareAndSet(this, null, new WaitQueue());
+        WaitQueue.Signal s = waiting.register();
+        if (isSignaled())
+        {
+            s.cancel();
+            return true;
+        }
+        return s.awaitUntil(until) || isSignaled();
     }
 
     public void signal()
@@ -92,6 +78,11 @@ public class SimpleCondition implements Condition
         signaled = true;
         if (waiting != null)
             waiting.signalAll();
+    }
+
+    public void awaitUninterruptibly()
+    {
+        throw new UnsupportedOperationException();
     }
 
     public long awaitNanos(long nanosTimeout) throws InterruptedException

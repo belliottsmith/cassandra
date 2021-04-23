@@ -223,7 +223,7 @@ public class NetworkTopologyStrategy extends AbstractReplicationStrategy
                 throw new ConfigurationException("Following datacenters have active nodes and must be present in replication options for keyspace " + AuthKeyspace.NAME + ": " + differenceSet.toString());
             }
         }
-    }
+}
 
     @Override
     public boolean hasSameSettings(AbstractReplicationStrategy other)

@@ -18,6 +18,7 @@
 package org.apache.cassandra.service;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.*;
@@ -25,17 +26,13 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-import com.google.common.collect.*;
-import com.google.common.util.concurrent.*;
-
-import org.apache.cassandra.config.RepairedDataExclusion;
-import org.apache.cassandra.config.RepairedDataTrackingExclusions;
-import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.config.*;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
@@ -44,9 +41,11 @@ import com.google.common.util.concurrent.AbstractFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 
-import org.apache.cassandra.db.*;
+import org.apache.cassandra.config.RepairedDataExclusion;
+import org.apache.cassandra.config.RepairedDataTrackingExclusions;
+import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.compaction.CompactionManager;
-import org.apache.cassandra.exceptions.UnavailableException;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -56,6 +55,9 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
+import org.apache.cassandra.config.Config;
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -75,8 +77,6 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.service.paxos.PaxosRepair;
-import org.apache.cassandra.service.paxos.cleanup.PaxosCleanup;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.repair.RepairJobDesc;
 import org.apache.cassandra.repair.RepairParallelism;
@@ -260,15 +260,10 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                                              boolean force,
                                              PreviewKind previewKind,
                                              boolean optimiseStreams,
-                                             boolean repairPaxos,
-                                             boolean paxosOnly,
                                              ListeningExecutorService executor,
                                              String... cfnames)
 
     {
-        if (repairPaxos && previewKind != PreviewKind.NONE)
-            throw new IllegalArgumentException("cannot repair paxos in a preview repair");
-
         if (endpoints.isEmpty())
             return null;
 
@@ -282,7 +277,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         if (cfnames.length == 0)
             return null;
 
-        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, allReplicas, endpoints, isIncremental, pullRepair, force, previewKind, repairPaxos, paxosOnly, optimiseStreams, cfnames);
+        final RepairSession session = new RepairSession(parentRepairSession, UUIDGen.getTimeUUID(), range, keyspace, parallelismDegree, allReplicas, endpoints, isIncremental, pullRepair, force, previewKind, optimiseStreams, cfnames);
 
         sessions.put(session.getId(), session);
         // register listeners
@@ -379,8 +374,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
     }
 
 
-    @VisibleForTesting
-    public Pair<ParentRepairStatus, List<String>> getRepairStatus(Integer cmd)
+    Pair<ParentRepairStatus, List<String>> getRepairStatus(Integer cmd)
     {
         return repairStatusByCmd.getIfPresent(cmd);
     }
@@ -932,51 +926,4 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         DatabaseDescriptor.setRepairPendingCompactionRejectThreshold(value);
     }
 
-    public ListenableFuture<?> repairPaxosForTopologyChange(String ksName, Collection<Range<Token>> ranges, String reason)
-    {
-        if (ranges.isEmpty())
-            return Futures.immediateFuture(null);
-        List<CFMetaData> cfms = Lists.newArrayList(Schema.instance.getKSMetaData(ksName).tables);
-        List<ListenableFuture<Void>> futures = new ArrayList<>(ranges.size() * cfms.size());
-        Keyspace keyspace = Keyspace.open(ksName);
-        for (Range<Token> range: ranges)
-        {
-            for (CFMetaData cfm : cfms)
-            {
-                Set<InetAddress> endpoints = Sets.newHashSet(StorageService.instance.getLiveNaturalEndpoints(keyspace.getReplicationStrategy(), range.right));
-                if (!PaxosRepair.hasSufficientLiveNodesForTopologyChange(keyspace, range, endpoints))
-                {
-                    Set<InetAddress> downEndpoints = Sets.newHashSet(StorageService.instance.getNaturalEndpoints(ksName, range.right));
-                    downEndpoints.removeAll(endpoints);
-
-                    throw new RuntimeException(String.format("Insufficient live nodes to repair paxos for %s in %s for %s.\n" +
-                                                             "There must be enough live nodes to satisfy EACH_QUORUM, but the following nodes are down: %s\n" +
-                                                             "This check can be skipped by setting either the yaml property skip_paxos_repair_on_topology_change or " +
-                                                             "the system property cassandra.skip_paxos_repair_on_topology_change to false. The jmx property " +
-                                                             "StorageService.SkipPaxosRepairOnTopologyChange can also be set to false to temporarily disable without " +
-                                                             "restarting the node\n" +
-                                                             "Individual keyspaces can be skipped with the yaml property skip_paxos_repair_on_topology_change_keyspaces, the" +
-                                                             "system property cassandra.skip_paxos_repair_on_topology_change_keyspaces, or temporarily with the jmx" +
-                                                             "property StorageService.SkipPaxosRepairOnTopologyChangeKeyspaces\n" +
-                                                             "Skipping this check can lead to paxos correctness issues",
-                                                             range, ksName, reason, downEndpoints));
-                }
-                endpoints.addAll(StorageService.instance.getTokenMetadata().pendingEndpointsFor(range.right, ksName));
-                ListenableFuture<Void> future = PaxosCleanup.cleanup(endpoints, cfm.cfId, Collections.singleton(range), false, repairCommandExecutor());
-                futures.add(future);
-            }
-        }
-
-        return Futures.allAsList(futures);
-    }
-
-    public int getPaxosRepairParallelism()
-    {
-        return DatabaseDescriptor.getPaxosRepairParallelism();
-    }
-
-    public void setPaxosRepairParallelism(int v)
-    {
-        DatabaseDescriptor.setPaxosRepairParallelism(v);
-    }
 }
