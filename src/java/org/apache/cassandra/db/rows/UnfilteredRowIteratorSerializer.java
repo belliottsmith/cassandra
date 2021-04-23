@@ -94,9 +94,9 @@ public class UnfilteredRowIteratorSerializer
         {
             serialize(iterator, header, selection, out, version, rowEstimate);
         }
-        catch (BufferOverflowException boe)
+        catch (BufferOverflowException | RepairedDataInfo.RepairedDataException e)
         {
-            throw new PartitionSerializationException(iterator, boe);
+            throw new PartitionSerializationException(iterator, e);
         }
     }
 
