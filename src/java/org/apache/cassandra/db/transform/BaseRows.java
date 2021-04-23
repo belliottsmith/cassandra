@@ -20,10 +20,13 @@
  */
 package org.apache.cassandra.db.transform;
 
+import java.util.Arrays;
+
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.rows.*;
+import org.apache.cassandra.utils.AbstractIterator;
 
 import static org.apache.cassandra.utils.Throwables.merge;
 
@@ -130,35 +133,57 @@ implements BaseRowIterator<R>
             Transformation[] fs = stack;
             int len = length;
 
-            while (!stop.isSignalled && !stopChild.isSignalled && input.hasNext())
+            try
             {
-                Unfiltered next = input.next();
+                while (!stop.isSignalled && !stopChild.isSignalled && input.hasNext())
+                {
+                    Unfiltered next = input.next();
 
-                if (next.isRow())
-                {
-                    Row row = (Row) next;
-                    for (int i = 0 ; row != null && i < len ; i++)
-                        row = fs[i].applyToRow(row);
-                    next = row;
-                }
-                else
-                {
-                    RangeTombstoneMarker rtm = (RangeTombstoneMarker) next;
-                    for (int i = 0 ; rtm != null && i < len ; i++)
-                        rtm = fs[i].applyToMarker(rtm);
-                    next = rtm;
-                }
+                    if (next.isRow())
+                    {
+                        Row row = (Row) next;
+                        for (int i = 0; row != null && i < len; i++)
+                            row = fs[i].applyToRow(row);
+                        next = row;
+                    }
+                    else
+                    {
+                        RangeTombstoneMarker rtm = (RangeTombstoneMarker) next;
+                        for (int i = 0; rtm != null && i < len; i++)
+                            rtm = fs[i].applyToMarker(rtm);
+                        next = rtm;
+                    }
 
-                if (next != null)
-                {
-                    this.next = next;
-                    return true;
+                    if (next != null)
+                    {
+                        this.next = next;
+                        return true;
+                    }
                 }
+            }
+            catch (AbstractIterator.IteratorStateException ise)
+            {
+                Unfiltered inputNext = (Unfiltered) ise.next;
+                String inputNextString = inputNext == null ? "null" : inputNext.toString(metadata());
+                String currentNextString = this.next == null ? "null" : this.next.toString(metadata());
+
+                throw new IteratorStateException("Input iterator (" + input.getClass() + ") next value: " + inputNextString + 
+                                                 ", transform iterator (" + getClass() + ") next value: " + currentNextString +
+                                                 ", with " + len + " active transformations in " + Arrays.toString(fs),
+                                                 ise);
             }
 
             if (stop.isSignalled || stopChild.isSignalled || !hasMoreContents())
                 return false;
         }
         return true;
+    }
+
+    public static class IteratorStateException extends IllegalStateException
+    {
+        public IteratorStateException(String message, Throwable cause)
+        {
+            super(message, cause);
+        }
     }
 }

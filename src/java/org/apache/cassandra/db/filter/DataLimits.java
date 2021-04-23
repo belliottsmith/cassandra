@@ -337,6 +337,17 @@ public abstract class DataLimits
         {
             super.onClose();
         }
+
+        @Override
+        public String toString()
+        {
+            return "Counter{" +
+                   "nowInSec=" + nowInSec +
+                   ", assumeLiveData=" + assumeLiveData +
+                   ", enforceStrictLiveness=" + enforceStrictLiveness +
+                   ", enforceLimits=" + enforceLimits +
+                   '}';
+        }
     }
 
     /**
