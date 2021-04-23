@@ -54,7 +54,7 @@ public abstract class AbstractIterator<V> implements Iterator<V>, PeekingIterato
                 return true;
 
             case FAILED:
-                throw new IllegalStateException();
+                throw new IteratorStateException("Attempted to call hasNext() on failed iterator!", next);
         }
     }
 
@@ -84,5 +84,22 @@ public abstract class AbstractIterator<V> implements Iterator<V>, PeekingIterato
     public void close()
     {
         //no-op
+    }
+    
+    public static class IteratorStateException extends IllegalStateException
+    {
+        public final Object next;
+        
+        public IteratorStateException(String message, Object next)
+        {
+            super(message);
+            this.next = next;
+        }
+
+        @Override
+        public String toString()
+        {
+            return super.toString() + " (next=" + next + ')';
+        }
     }
 }
