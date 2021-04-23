@@ -1,3 +1,5 @@
+3.0.24.5
+
 3.0.24.4
 rdar://77070129 (Apple Internal) (NPE when iterating Slices.ALL for paging)
 rdar://77062175 (Apple Internal) (Revert Apple paxos from 3.0.24)
