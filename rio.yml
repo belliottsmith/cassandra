@@ -231,7 +231,7 @@ builds:
     name: publish-dtest-cie-3.0.24
     build:
       steps:
-      - ./rio/release-dtest.sh
+      - ./rio/release-dtest-jar.sh
       template: freestyle:v4:publish
     timeout: 30
     package:
@@ -257,3 +257,26 @@ builds:
             value: "$(./rio/dtest-version.sh)"
           - name: CASSANDRA_BRANCH
             value: "${GIT_BRANCH}"
+
+  - branchName: cie-cassandra-3.0.24
+    name: publish-dtest-pushbutton
+    build:
+      steps:
+        - git remote add to_build $BUILD_PARAM_URL
+        - git fetch to_build $BUILD_PARAM_BRANCH
+        - git checkout $BUILD_PARAM_BRANCH
+        - ./rio/release-dtest-jar.sh
+      template: freestyle:v4:publish
+      buildParameters:
+        - parameter: URL
+        - parameter: BRANCH
+
+    timeout: 30
+    package:
+      freeform:
+      - publish:
+        - repo: cie-release-local
+    reports:
+      junit: false
+    machine:
+      baseImage: docker.apple.com/cpbuild/applejdk-8:latest
