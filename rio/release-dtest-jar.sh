@@ -8,7 +8,11 @@ export VERSION=$(./rio/cie-version.sh)
 export ARTIFACT_NAME=cie-cassandra-dtest
 export REPO_DIR=.dist/
 
-cd /workspace
+if [ -z "$WORKSPACE" ]; then
+    export WORKSPACE=/workspace
+fi
+
+cd $WORKSPACE
 cp ./rio/patches/cassandra/build.properties.default ./
 ant clean
 ant dtest-jar
@@ -51,6 +55,6 @@ find ./ -name maven-metadata-local.xml -print0 | xargs -0 rm
 
 find ./.dist
 
-ci stage-lib "/workspace/.dist/**"
+ci stage-lib "$WORKSPACE/.dist/**"
 
 set +xe
