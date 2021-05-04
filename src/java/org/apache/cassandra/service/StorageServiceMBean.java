@@ -897,12 +897,18 @@ public interface StorageServiceMBean extends NotificationEmitter
     public Map<String, Set<String>> getOutstandingSchemaVersionsWithPort();
 
     // see CASSANDRA-3200
-    public boolean autoOptimiseIncRepairStreams();
+    public boolean getAutoOptimiseIncRepairStreams();
     public void setAutoOptimiseIncRepairStreams(boolean enabled);
-    public boolean autoOptimiseFullRepairStreams();
+    public boolean getAutoOptimiseFullRepairStreams();
     public void setAutoOptimiseFullRepairStreams(boolean enabled);
-    public boolean autoOptimisePreviewRepairStreams();
+    public boolean getAutoOptimisePreviewRepairStreams();
     public void setAutoOptimisePreviewRepairStreams(boolean enabled);
+    @Deprecated
+    default boolean autoOptimiseIncRepairStreams() { return getAutoOptimiseIncRepairStreams(); }
+    @Deprecated
+    default boolean autoOptimiseFullRepairStreams() { return getAutoOptimiseFullRepairStreams(); }
+    @Deprecated
+    default boolean autoOptimisePreviewRepairStreams() { return getAutoOptimisePreviewRepairStreams(); }
 
     // warning thresholds will be replaced by equivalent guardrails
     @Deprecated
