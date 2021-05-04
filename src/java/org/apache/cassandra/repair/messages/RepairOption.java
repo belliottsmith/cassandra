@@ -392,10 +392,7 @@ public class RepairOption
 
     public boolean optimiseStreams()
     {
-        if (optimiseStreams)
-            return true;
-
-        if (isPullRepair() || isForcedRepair())
+        if (isPullRepair())
             return false;
 
         if (isIncremental() && DatabaseDescriptor.autoOptimiseIncRepairStreams())
@@ -407,7 +404,7 @@ public class RepairOption
         if (!isIncremental() && DatabaseDescriptor.autoOptimiseFullRepairStreams())
             return true;
 
-        return false;
+        return optimiseStreams;
     }
 
     @Override

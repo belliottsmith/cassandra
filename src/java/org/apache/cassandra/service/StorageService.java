@@ -6049,7 +6049,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return DatabaseDescriptor.forcePagingStateLegacySerialization();
     }
 
-    public boolean autoOptimiseIncRepairStreams()
+    public boolean getAutoOptimiseIncRepairStreams()
     {
         return DatabaseDescriptor.autoOptimiseIncRepairStreams();
     }
@@ -6059,7 +6059,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         DatabaseDescriptor.setAutoOptimiseIncRepairStreams(enabled);
     }
 
-    public boolean autoOptimiseFullRepairStreams()
+    public boolean getAutoOptimiseFullRepairStreams()
     {
         return DatabaseDescriptor.autoOptimiseFullRepairStreams();
     }
@@ -6069,7 +6069,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         DatabaseDescriptor.setAutoOptimiseFullRepairStreams(enabled);
     }
 
-    public boolean autoOptimisePreviewRepairStreams()
+    public boolean getAutoOptimisePreviewRepairStreams()
     {
         return DatabaseDescriptor.autoOptimisePreviewRepairStreams();
     }
