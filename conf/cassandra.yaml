@@ -567,7 +567,7 @@ native_transport_port: 9042
 # native_transport_max_concurrent_connections_per_ip: -1
 
 # Whether to start the thrift rpc server.
-start_rpc: true
+start_rpc: false
 
 # Controls whether Cassandra honors older, yet currently supported, protocol versions.
 # The default is true, which means all supported protocols will be honored.
