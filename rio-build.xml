@@ -3,7 +3,14 @@
   <!-- Force remote repositories to go through artifacts.apple.com for Rio / K8S workers -->
   <property name="artifact.remoteRepository.central" value="https://artifacts.apple.com/libs-release"/>
   <property name="artifact.remoteRepository.apache" value="https://artifacts.apple.com/libs-release"/>
+  <property name="artifact.remoteRepository.java.net2" value="https://artifacts.apple.com/libs-release"/>
+  <property name="artifact.remoteRepository.jclouds" value="https://artifacts.apple.com/libs-release"/>
+  <property name="artifact.remoteRepository.oauth" value="https://artifacts.apple.com/libs-release"/>
   <property name="maven-ant-tasks.url" value="https://artifacts.apple.com/libs-release/org/apache/maven/maven-ant-tasks" />
+  <property name="resolver-ant-tasks.url" value="https://artifacts.apple.com/repo1-cache/org/apache/maven/resolver/maven-resolver-ant-tasks" />
+  <property name="artifact.github.release" value="https://artifacts.apple.com/github-releases"/>
+  <property name="artifact.python.pypi" value="https://artifacts.apple.com/pypi-python-org-cache/"/>
+  <property name="lib.download.base.url" value="https://github.pie.apple.com/aci/apache-cassandra/blob/1371883db3d8bf7d7c54e0baaca89c6c2d2a5abe"/>
 
   <!-- Bump up test timeouts for running on our infra -->
   <property name="test.timeout" value="540000" />
