@@ -25,12 +25,14 @@ import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.impl.AbstractCluster;
 import org.apache.cassandra.distributed.shared.AbstractBuilder;
+import org.apache.cassandra.distributed.shared.Shared;
 import org.apache.cassandra.distributed.shared.Versions;
 
 /**
  * A simple cluster supporting only the 'current' Cassandra version, offering easy access to the convenience methods
  * of IInvokableInstance on each node.
  */
+@Shared
 public class Cluster extends AbstractCluster<IInvokableInstance>
 {
 
@@ -64,6 +66,7 @@ public class Cluster extends AbstractCluster<IInvokableInstance>
         return build(nodeCount).start();
     }
 
+    @Shared
     public static final class Builder extends AbstractBuilder<IInvokableInstance, Cluster, Builder>
     {
         public Builder()

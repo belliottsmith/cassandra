@@ -107,6 +107,7 @@ import org.reflections.util.ConfigurationBuilder;
  * handlers for internode to have more control over it. Messaging is wired by passing verbs manually.
  * coordinator-handling code and hooks to the callbacks can be found in {@link Coordinator}.
  */
+@Shared
 public abstract class AbstractCluster<I extends IInstance> implements ICluster<I>, AutoCloseable
 {
     public static Versions.Version CURRENT_VERSION = new Versions.Version(FBUtilities.getReleaseVersionString(), Versions.getClassPath());
@@ -228,6 +229,8 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
                 instanceMap.put(newAddress, (I) this); // if the broadcast address changes, update
                 instanceMap.remove(previous);
                 broadcastAddress = newAddress;
+                // remove delegate to make sure static state is reset
+                delegate = null;
             }
             try
             {

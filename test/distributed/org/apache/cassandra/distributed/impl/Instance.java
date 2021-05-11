@@ -621,6 +621,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     registerMockMessaging(cluster);
                 }
 
+                JVMStabilityInspector.replaceKiller(new InstanceKiller());
+
                 // TODO: this is more than just gossip
                 StorageService.instance.registerDaemon(CassandraDaemon.getInstanceForTesting());
                 if (config.has(GOSSIP))
