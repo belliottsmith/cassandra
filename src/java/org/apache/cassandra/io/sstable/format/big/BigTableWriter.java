@@ -177,7 +177,7 @@ public class BigTableWriter extends SSTableWriter
 
     private void maybeLogManyTombstonesWarning(DecoratedKey key, int tombstoneCount)
     {
-        if (tombstoneCount > DatabaseDescriptor.getTombstoneWarnThreshold())
+        if (tombstoneCount > DatabaseDescriptor.getCompactionTombstoneWarningThreshold())
         {
             String keyString = metadata.getKeyValidator().getString(key.getKey());
             logger.warn("Writing {} tombstones to {}/{}:{} in sstable {}", tombstoneCount, metadata.ksName, metadata.cfName, keyString, getFilename());

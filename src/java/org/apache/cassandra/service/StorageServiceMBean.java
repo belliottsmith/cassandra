@@ -902,4 +902,7 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     public double getMaxSpaceForCompactionsPerDrive();
     public void setMaxSpaceForCompactionsPerDrive(double percentage);
+
+    public void setCompactionTombstoneWarningThreshold(int count);
+    public int getCompactionTombstoneWarningThreshold();
 }

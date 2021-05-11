@@ -6164,4 +6164,17 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         logger.info("Setting max_space_usable_for_compactions_in_percentage: {}", percentage);
         DatabaseDescriptor.setMaxSpaceForCompactionsPerDrive(percentage);
     }
+
+    public void setCompactionTombstoneWarningThreshold(int count)
+    {
+        if (count < 0)
+            throw new IllegalStateException("compaction tombstone warning threshold needs to be >= 0, not "+count);
+        logger.info("Setting compaction_tombstone_warning_threshold to {}", count);
+        DatabaseDescriptor.setCompactionTombstoneWarningThreshold(count);
+    }
+
+    public int getCompactionTombstoneWarningThreshold()
+    {
+        return DatabaseDescriptor.getCompactionTombstoneWarningThreshold();
+    }
 }

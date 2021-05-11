@@ -235,6 +235,7 @@ public class Config
     public Integer concurrent_compactors;
     public volatile Integer compaction_throughput_mb_per_sec = 16;
     public volatile Integer compaction_large_partition_warning_threshold_mb = 100;
+    public volatile Integer compaction_tombstone_warning_threshold = 100000;
     public Integer min_free_space_per_drive_in_mb = 50;
     // fraction of total disk space that is available for running compactions
     public volatile Double max_space_usable_for_compactions_in_percentage = 1.;

@@ -52,6 +52,7 @@ public class TombstoneWarningTest extends TestBaseImpl
 {
     private static final int TOMBSTONE_WARN = 50;
     private static final int TOMBSTONE_FAIL = 100;
+    private static final int COMPACTION_TOMBSTONE_WARN = 75;
     private static final ICluster<IInvokableInstance> cluster;
 
     static
@@ -60,7 +61,8 @@ public class TombstoneWarningTest extends TestBaseImpl
         {
             Cluster.Builder builder = Cluster.build(3);
             builder.withConfig(c -> c.set("tombstone_warn_threshold", TOMBSTONE_WARN)
-                                     .set("tombstone_failure_threshold", TOMBSTONE_FAIL));
+                                     .set("tombstone_failure_threshold", TOMBSTONE_FAIL)
+                                     .set("compaction_tombstone_warning_threshold", COMPACTION_TOMBSTONE_WARN));
             cluster = builder.createWithoutStarting();
         }
         catch (IOException e)
@@ -140,7 +142,7 @@ public class TombstoneWarningTest extends TestBaseImpl
         for (int i = 0; i < 100; i++)
             for (int j = 0; j < i; j++)
                 cluster.coordinator(1).execute(withKeyspace("update %s.tbl set v = null where pk = ? and ck = ?"), ConsistencyLevel.ALL, i, j);
-        assertTombstoneLogs(TOMBSTONE_WARN - 1, false);
+        assertTombstoneLogs(99 - COMPACTION_TOMBSTONE_WARN , false);
     }
 
     @Test
@@ -149,7 +151,7 @@ public class TombstoneWarningTest extends TestBaseImpl
         for (int i = 0; i < 100; i++)
             for (int j = 0; j < i; j++)
                 cluster.coordinator(1).execute(withKeyspace("delete from %s.tbl where pk = ? and ck = ?"), ConsistencyLevel.ALL, i, j);
-        assertTombstoneLogs(TOMBSTONE_WARN - 1, false);
+        assertTombstoneLogs(99 - COMPACTION_TOMBSTONE_WARN , false);
     }
 
     @Test
@@ -158,7 +160,21 @@ public class TombstoneWarningTest extends TestBaseImpl
         for (int i = 0; i < 100; i++)
             for (int j = 0; j < i; j++)
                 cluster.coordinator(1).execute(withKeyspace("delete from %s.tbl where pk = ? and ck >= ? and ck <= ?"), ConsistencyLevel.ALL, i, j, j);
-        assertTombstoneLogs((TOMBSTONE_WARN - 1) + TOMBSTONE_WARN / 2, true);
+        assertTombstoneLogs(99 - (COMPACTION_TOMBSTONE_WARN / 2), true);
+    }
+
+    @Test
+    public void ttlTest() throws InterruptedException
+    {
+        for (int i = 0; i < 100; i++)
+            for (int j = 0; j < i; j++)
+                cluster.coordinator(1).execute(withKeyspace("insert into %s.tbl (pk, ck, v) values (?, ?, ?) using ttl 1000"), ConsistencyLevel.ALL, i, j, j);
+        assertTombstoneLogs(0, true);
+        for (int i = 0; i < 100; i++)
+            for (int j = 0; j < i; j++)
+                cluster.coordinator(1).execute(withKeyspace("update %s.tbl using ttl 1 set v = 33 where pk = ? and ck = ?"), ConsistencyLevel.ALL, i, j);
+        Thread.sleep(1500);
+        assertTombstoneLogs(99 - COMPACTION_TOMBSTONE_WARN, false);
     }
 
     @Test
@@ -186,5 +202,10 @@ public class TombstoneWarningTest extends TestBaseImpl
             assertTrue(tombstoneCount > TOMBSTONE_WARN);
             assertEquals(r, Integer.parseInt(m.group("key")) * (isRangeTombstones ? 2 : 1), tombstoneCount);
         }
+
+        mark = cluster.get(1).logs().mark();
+        cluster.get(1).forceCompact(KEYSPACE, "tbl");
+        res = cluster.get(1).logs().grep(mark, pattern);
+        assertEquals(expectedCount, res.getResult().size());
     }
 }
