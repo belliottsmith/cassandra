@@ -1,4 +1,11 @@
 3.0.24.5
+rdar://77212652 (Apple Internal) (Create a rio task to build and publish a dtest jar from specific branch)
+rdar://77388030 (Apple Internal) (Fix RepairOption#optmizeStreams)
+rdar://76900058 (Apple Internal) (Disable thrift by default including in cassandra.yaml)
+rdar://77617250 (CASSANDRA-16372) (Backport CQLSH fixes)
+rdar://77624134 (Apple Internal) (Fix pycodestyle issues)
+rdar://77665343 (CASSANDRA-14559) (Root cause bootstrap_test.py::TestBootstrap::test_node_cannot_join_as_hibernating_node_without_replace_address)
+rdar://77807863 (Apple Internal) (Increase threshold for many tombstones logging)
 
 3.0.24.4
 rdar://77070129 (Apple Internal) (NPE when iterating Slices.ALL for paging)
