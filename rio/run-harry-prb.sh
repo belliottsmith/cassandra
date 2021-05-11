@@ -89,11 +89,14 @@ _main() {
       yum install -y jq
     fi
 
+    export BASE_VERSION=$(./rio/base-version.sh)
+
     # trigger harry build
     build_params=(
       "\"CASSANDRA_REPOSITORY\":\"aci-cassandra/aci-cassandra\"" ,
       "\"CASSANDRA_PR\":\"$GIT_PR_ID\"" ,
       "\"CASSANDRA_BRANCH\":\"$GIT_BRANCH\"" ,
+      "\"CASSANDRA_VERSION\":\"$BASE_VERSION-$GIT_PR_ID-$GIT_COMMIT_SHORT\"" ,
       "\"HARRY_BRANCH\":\"master\"" ,
       "\"DURATION_IN_MINUTES\":\"15\"" ,
       "\"PARALLELISM\":\"2\"" ,
