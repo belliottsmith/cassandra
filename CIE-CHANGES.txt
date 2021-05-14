@@ -1,4 +1,11 @@
 4.0.0.13
+* <rdar://77857547> (Apple Internal) Xmas patch SuccessfulRepairTimeHolder#getFullyRepairedTimeFor allocates a lot of memory causing GC issues impacting users) (#2393)
+* <rdar://76847473> (Apple Internal) Enhance the exception handling chain to provide more information for debugging when AbstractIterator gets into or is called in a bad state (#2363)
+* <rdar://74366262> (Apple Internal) Tolerate missing DNS entry when completing host replacement (#2212)
+* <rdar://76613627> (Apple Internal) Metrics CASClientRequestMetrics#conditionNotMet is not used (#2344)
+* <rdar://76602359> (Apple Internal) Users of NativeLibrary should handle lack of JNA appropriately (#2350)
+* <rdar://75769722> (Apple Internal) Harden PrunableArrayQueue against Pruner implementations that might throw exceptions.
+* <rdar://75962948> (Apple Internal) Add BytesReadPerQuery & BytesWrittenPerQuery metrics to StorageProxy (#2319)
 
 4.0.0.12
 * <rdar://71529224> (Apple Internal) Track top partition tombstone count and size for each table (#2228)
