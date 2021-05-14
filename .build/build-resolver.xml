@@ -227,7 +227,14 @@
             <url url="${lib.download.base.url}/lib/sigar-bin/sigar-x86-winnt.dll"/>
             <url url="${lib.download.base.url}/lib/sigar-bin/sigar-x86-winnt.lib"/>
         </get>
-        
+
+        <!-- until lz4 is patched for centos6 upstream check out our copy from an earlier build, revert once 1.7.1 upgraded upstream -->
+        <exec executable="git">
+          <arg value="checkout"/>
+          <arg value="2025ac908e23aa473b3166122ce18ecc2a470016"/>
+          <arg value="lib/lz4-java-1.7.1.jar"/>
+        </exec>
+
         <copy todir="${build.lib}" quiet="true">
             <file file="${user.home}/.m2/repository/org/apache/cassandra/deps/futures-2.1.6-py2.py3-none-any.zip"/>
             <file file="${user.home}/.m2/repository/org/apache/cassandra/deps/six-1.12.0-py2.py3-none-any.zip"/>
