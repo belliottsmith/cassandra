@@ -22,12 +22,9 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 import com.google.common.collect.PeekingIterator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public abstract class AbstractIterator<V> implements Iterator<V>, PeekingIterator<V>, CloseableIterator<V>
 {
-    private static final Logger logger = LoggerFactory.getLogger(AbstractIterator.class);
 
     private static enum State { MUST_FETCH, HAS_NEXT, DONE, FAILED }
     private State state = State.MUST_FETCH;
@@ -47,16 +44,7 @@ public abstract class AbstractIterator<V> implements Iterator<V>, PeekingIterato
         {
             case MUST_FETCH:
                 state = State.FAILED;
-                
-                try
-                {
-                    next = computeNext();
-                }
-                catch (Throwable t)
-                {
-                    logger.error("Failed to compute next element for iterator of type " + getClass(), t);
-                    throw t;
-                }
+                next = computeNext();
 
             default:
                 if (state == State.DONE)
