@@ -457,6 +457,29 @@ and it will update the (400, 500] one with a new invalidatedAtSeconds
     }
 
     @Test
+    public void testWrapBounds()
+    {
+        Bounds<Token> sstableBound = bounds(10, 100);
+        List<Range<Token>> repairedRanges = new ArrayList<>();
+        for (int i = 0; i < 50; i++)
+            repairedRanges.add(range(100 - i, i));
+
+        List<AbstractBounds<Token>> sstableBounds = new ArrayList<>();
+        sstableBounds.add(sstableBound);
+        int i = 0;
+        for (Range<Token> repairedRange : repairedRanges)
+        {
+            for (Range<Token> unwrappedRange : repairedRange.unwrap()) // avoid handling wrapping ranges in subtract below
+                sstableBounds = SuccessfulRepairTimeHolder.subtract(sstableBounds, unwrappedRange);
+
+            assertEquals(1, sstableBounds.size());
+            assertEquals(Math.max(10, i), (long)sstableBounds.get(0).left.getTokenValue());
+            assertEquals(100 - i, (long)sstableBounds.get(0).right.getTokenValue());
+            i++;
+        }
+    }
+
+    @Test
     public void randomSubtractTest()
     {
         Bounds<Token> sstableBounds = bounds(1, 2000);

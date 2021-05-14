@@ -161,6 +161,10 @@ public class SuccessfulRepairTimeHolder
 
         int leftComparison = range.left.compareTo(bounds.left);
         int rightComparison = range.right.compareTo(bounds.right);
+        // we only get unwrapped ranges to this method, but range.unwrap actually returns a wrapping range - handle that
+        // here, if .right == minValue it represents the maximum token
+        if (range.right.equals(range.right.minValue()))
+            rightComparison = 1;
 
         if (leftComparison < 0 && rightComparison >= 0)
         {
