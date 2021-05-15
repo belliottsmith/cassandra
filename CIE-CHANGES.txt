@@ -1,3 +1,5 @@
+4.0.0.14
+
 4.0.0.13
 * <rdar://77857547> (Apple Internal) Xmas patch SuccessfulRepairTimeHolder#getFullyRepairedTimeFor allocates a lot of memory causing GC issues impacting users) (#2393)
 * <rdar://76847473> (Apple Internal) Enhance the exception handling chain to provide more information for debugging when AbstractIterator gets into or is called in a bad state (#2363)
