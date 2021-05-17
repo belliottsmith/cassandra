@@ -3439,6 +3439,17 @@ public class DatabaseDescriptor
         return conf.autocompaction_on_startup_enabled;
     }
 
+    public static void setIgnorePkLivenessForRowCompletion(boolean ignore)
+    {
+        logger.info("Setting ignore_pk_liveness_for_row_completion to {}", ignore);
+        conf.ignore_pk_liveness_for_row_completion = ignore;
+    }
+
+    public static boolean ignorePkLivenessForRowCompletion()
+    {
+        return conf.ignore_pk_liveness_for_row_completion;
+    }
+
     public static boolean autoOptimiseIncRepairStreams()
     {
         return conf.auto_optimise_inc_repair_streams;
