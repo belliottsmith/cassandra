@@ -456,6 +456,9 @@ public abstract class AlterTableStatement extends AlterSchemaStatement
 
         public KeyspaceMetadata apply(KeyspaceMetadata keyspace, TableMetadata table)
         {
+            if (!DatabaseDescriptor.allowDropCompactStorage())
+                throw new InvalidRequestException("Dropping COMPACT STORAGE is disabled. See 'allow_drop_compact_storage' in cassandra.yaml.");
+
             if (!table.isCompactTable())
                 throw AlterTableStatement.ire("Cannot DROP COMPACT STORAGE on table without COMPACT STORAGE");
 
