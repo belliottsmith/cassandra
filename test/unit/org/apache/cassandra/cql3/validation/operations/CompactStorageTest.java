@@ -23,7 +23,9 @@ import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.UUID;
 
+import org.junit.AfterClass;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
@@ -42,6 +44,7 @@ import org.apache.cassandra.db.marshal.ReversedType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -55,6 +58,18 @@ import static org.reflections.util.Utils.isEmpty;
 public class CompactStorageTest extends CQLTester
 {
     private static final String compactOption = " WITH COMPACT STORAGE";
+
+    @BeforeClass
+    public static void enableDropCompactStorage()
+    {
+        StorageProxy.instance.enableDropCompactStorage();
+    }
+
+    @AfterClass
+    public static void disableDropCompactStorage()
+    {
+        StorageProxy.instance.disableDropCompactStorage();
+    }
 
     @Test
     public void testSparseCompactTableIndex() throws Throwable
