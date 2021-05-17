@@ -20,6 +20,8 @@
  */
 package org.apache.cassandra.cql3.validation.miscellaneous;
 
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -27,6 +29,7 @@ import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.metrics.ClearableHistogram;
+import org.apache.cassandra.service.StorageProxy;
 
 import static org.junit.Assert.assertEquals;
 
@@ -35,6 +38,18 @@ import static org.junit.Assert.assertEquals;
  */
 public class SSTablesIteratedTest extends CQLTester
 {
+    @BeforeClass
+    public static void enableDropCompactStorage()
+    {
+        StorageProxy.instance.enableDropCompactStorage();
+    }
+
+    @AfterClass
+    public static void disableDropCompactStorage()
+    {
+        StorageProxy.instance.disableDropCompactStorage();
+    }
+
     private void executeAndCheck(String query, int numSSTables, Object[]... rows) throws Throwable
     {
         ColumnFamilyStore cfs = getCurrentColumnFamilyStore(KEYSPACE_PER_TEST);
@@ -113,11 +128,10 @@ public class SSTablesIteratedTest extends CQLTester
         executeAndCheck("SELECT * FROM %s WHERE pk = 2 AND c > 20 ORDER BY c DESC", 2,
                         row(2, 40, "42"));
 
-        // Test with only 1 of the 3 SSTables being merged and a Name filter
+        // Test with only 2 of the 3 SSTables being merged and a Name filter
         // This test checks the SinglePartitionReadCommand::queryMemtableAndSSTablesInTimestampOrder which is only
         // used for ClusteringIndexNamesFilter when there are no multi-cell columns
-        executeAndCheck("SELECT * FROM %s WHERE pk = 2 AND c = 10", 2,
-                        row(2, 10, "12"));
+        executeAndCheck("SELECT * FROM %s WHERE pk = 2 AND c = 10", 2, row(2, 10, "12"));
 
         // For partition range queries the metric must not be updated. The reason being that range queries simply
         // scan all the SSTables containing data within the partition range. Due to that they might pollute the metric
@@ -620,7 +634,12 @@ public class SSTablesIteratedTest extends CQLTester
         executeAndCheck("SELECT * FROM %s WHERE pk = 1 AND ck = 51", 1, row(1, 51, "5"));
 
         execute("ALTER TABLE %s DROP COMPACT STORAGE");
+        // TODO: This should go back to expecting 1 SSTable read when we pull in CASSANDRA-16671.
         executeAndCheck("SELECT * FROM %s WHERE pk = 1 AND ck = 51", 2, row(1, 51, "5"));
+
+        DatabaseDescriptor.setIgnorePkLivenessForRowCompletion(true);
+        executeAndCheck("SELECT * FROM %s WHERE pk = 1 AND ck = 51", 1, row(1, 51, "5"));
+        DatabaseDescriptor.setIgnorePkLivenessForRowCompletion(false);
     }
 
     @Test
@@ -642,8 +661,14 @@ public class SSTablesIteratedTest extends CQLTester
 
         execute("ALTER TABLE %s DROP COMPACT STORAGE");
 
-        // The fact that non-compact table insert do not have primary key liveness force us to hit an extra sstable
+        // Dropping CS exposes a previously hidden/implicit field, so take that into account.
+        // TODO: This should go back to expecting 1 SSTable read when we pull in CASSANDRA-16671.
         executeAndCheck("SELECT * FROM %s WHERE pk = 1 AND ck = 51", 2, row(1, 51, null));
+
+        DatabaseDescriptor.setIgnorePkLivenessForRowCompletion(true);
+        // The fact that non-compact table insert do not have primary key liveness force us to hit an extra sstable
+        executeAndCheck("SELECT * FROM %s WHERE pk = 1 AND ck = 51", 1, row(1, 51, null));
+        DatabaseDescriptor.setIgnorePkLivenessForRowCompletion(false);
     }
 
     @Test
@@ -785,7 +810,12 @@ public class SSTablesIteratedTest extends CQLTester
         executeAndCheck("SELECT * FROM %s WHERE pk = 1 AND ck = 1", 1, row(1, 1, "2"));
 
         execute("ALTER TABLE %s DROP COMPACT STORAGE");
+        // TODO: This should go back to expecting 1 SSTable read when we pull in CASSANDRA-16671.
         executeAndCheck("SELECT * FROM %s WHERE pk = 1 AND ck = 1", 2, row(1, 1, "2"));
+
+        DatabaseDescriptor.setIgnorePkLivenessForRowCompletion(true);
+        executeAndCheck("SELECT * FROM %s WHERE pk = 1 AND ck = 1", 1, row(1, 1, "2"));
+        DatabaseDescriptor.setIgnorePkLivenessForRowCompletion(false);
     }
 
     @Test
