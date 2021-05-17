@@ -1,3 +1,5 @@
+3.0.24.6
+
 3.0.24.5
 rdar://78094545 (Apple Internal) (Set default max_space_usable_for_compactions_in_percentage=0.95)
 rdar://77857547 (Apple Internal) ([IF1 Issue] xmas patch SuccessfulRepairTimeHolder#getFullyRepairedTimeFor allocates a lot of memory causing GC issues impacting users)
