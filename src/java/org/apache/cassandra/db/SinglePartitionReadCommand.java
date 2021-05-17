@@ -995,26 +995,21 @@ public class SinglePartitionReadCommand extends ReadCommand implements SinglePar
      */
     private boolean isRowComplete(Row row, Columns requestedColumns, long sstableTimestamp)
     {
-        // Note that compact tables will always have an empty primary key liveness info.
-        if (!row.primaryKeyLivenessInfo().isEmpty() && row.primaryKeyLivenessInfo().timestamp() <= sstableTimestamp)
+        // Note that compact tables will always have an empty primary key liveness info. However, empty livenes info for
+        // a non-compact table means we must continue searching older SSTables in case one exists there.
+        if (!metadata().isCompactTable() && !DatabaseDescriptor.ignorePkLivenessForRowCompletion() &&
+            (row.primaryKeyLivenessInfo().isEmpty() || row.primaryKeyLivenessInfo().timestamp() <= sstableTimestamp)) 
+        {
             return false;
-
-        boolean hasLiveCell = false;
+        }
 
         for (ColumnMetadata column : requestedColumns)
         {
             Cell<?> cell = row.getCell(column);
-
             if (cell == null || cell.timestamp() <= sstableTimestamp)
                 return false;
-
-            if (!cell.isTombstone())
-                hasLiveCell = true;
         }
-
-        // If we've gotten here w/ a compact table or at least one non-tombstone cell, the row is considered
-        // complete and we can avoid any further searching of older SSTables.
-        return hasLiveCell || metadata().isCompactTable();
+        return true;
     }
 
     @Override
