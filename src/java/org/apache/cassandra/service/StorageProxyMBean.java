@@ -193,4 +193,11 @@ public interface StorageProxyMBean
 
     void setPaxosCoordinatorLockingDisabled(boolean disabled);
     boolean getPaxosCoordinatorLockingDisabled();
+
+    public void enableDropCompactStorage();
+    public void disableDropCompactStorage();
+    public boolean allowDropCompactStorage();
+
+    public void setIgnorePkLivenessForRowCompletion(boolean ignore);
+    public boolean getIgnorePkLivenessForRowCompletion();
 }
