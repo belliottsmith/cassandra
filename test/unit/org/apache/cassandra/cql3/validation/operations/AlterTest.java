@@ -38,15 +38,12 @@ import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.dht.OrderPreservingPartitioner;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.SyntaxException;
-import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.locator.TokenMetadata;
-import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.schema.SchemaKeyspace;
 import org.apache.cassandra.service.ClientWarn;
+import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.assertj.core.api.Assertions;
@@ -881,5 +878,25 @@ public class AlterTest extends CQLTester
         StorageService.instance.setAlterTableEnabled(true);
 
 
+    }
+
+    /*
+     * See rdar://78122775
+     */
+    @Test
+    public void testAllowDropCompactStorage() throws Throwable
+    {
+        try
+        {
+            createTable("CREATE TABLE %s (a int PRiMARY KEY, b int) WITH COMPACT STORAGE");
+            assertInvalidMessage("Dropping COMPACT STORAGE is disabled", "ALTER TABLE %s DROP COMPACT STORAGE");
+
+            StorageProxy.instance.enableDropCompactStorage();
+            execute("ALTER TABLE %s DROP COMPACT STORAGE");
+        }
+        finally
+        {
+            StorageProxy.instance.disableDropCompactStorage();
+        }
     }
 }
