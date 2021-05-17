@@ -511,6 +511,9 @@ public class Config
      * and has no other effect on the collection or processing of the repaired data.
      */
     public volatile boolean report_unconfirmed_repaired_data_mismatches = false;
+
+    public volatile boolean ignore_pk_liveness_for_row_completion = false;
+
     /*
      * If true, when a repaired data mismatch is detected at read time or during a preview repair,
      * a snapshot request will be issued to each particpating replica. These are limited at the replica level
