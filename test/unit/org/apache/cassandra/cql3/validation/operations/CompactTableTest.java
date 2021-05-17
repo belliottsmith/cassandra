@@ -20,6 +20,8 @@ package org.apache.cassandra.cql3.validation.operations;
 
 import java.util.concurrent.ConcurrentMap;
 
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.cql3.CQLTester;
@@ -27,12 +29,25 @@ import org.apache.cassandra.cql3.QueryHandler;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaChangeListener;
+import org.apache.cassandra.service.StorageProxy;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class CompactTableTest extends CQLTester
 {
+    @BeforeClass
+    public static void enableDropCompactStorage()
+    {
+        StorageProxy.instance.enableDropCompactStorage();
+    }
+
+    @AfterClass
+    public static void disableDropCompactStorage()
+    {
+        StorageProxy.instance.disableDropCompactStorage();
+    }
+
     @Test
     public void dropCompactStorageTest() throws Throwable
     {

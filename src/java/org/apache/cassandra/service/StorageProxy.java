@@ -3340,4 +3340,34 @@ public class StorageProxy implements StorageProxyMBean
     {
         return Paxos.getPaxosVariant().toString();
     }
+
+    @Override
+    public void enableDropCompactStorage()
+    {
+        DatabaseDescriptor.setEnableDropCompactStorage(true);
+    }
+
+    @Override
+    public void disableDropCompactStorage()
+    {
+        DatabaseDescriptor.setEnableDropCompactStorage(false);
+    }
+
+    @Override
+    public boolean allowDropCompactStorage()
+    {
+        return DatabaseDescriptor.enableDropCompactStorage();
+    }
+
+    @Override
+    public void setIgnorePkLivenessForRowCompletion(boolean force)
+    {
+        DatabaseDescriptor.setIgnorePkLivenessForRowCompletion(force);
+    }
+
+    @Override
+    public boolean getIgnorePkLivenessForRowCompletion()
+    {
+        return DatabaseDescriptor.ignorePkLivenessForRowCompletion();
+    }
 }

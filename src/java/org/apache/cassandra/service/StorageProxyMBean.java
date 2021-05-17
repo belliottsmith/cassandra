@@ -181,4 +181,11 @@ public interface StorageProxyMBean
 
     void setPaxosVariant(String variant);
     String getPaxosVariant();
+
+    public void enableDropCompactStorage();
+    public void disableDropCompactStorage();
+    public boolean allowDropCompactStorage();
+
+    public void setIgnorePkLivenessForRowCompletion(boolean ignore);
+    public boolean getIgnorePkLivenessForRowCompletion();
 }
