@@ -22,10 +22,13 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.UUID;
 
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.validation.entities.SecondaryIndexTest;
+import org.apache.cassandra.service.StorageProxy;
 
 import static org.apache.cassandra.utils.ByteBufferUtil.EMPTY_BYTE_BUFFER;
 import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
@@ -35,6 +38,18 @@ import static org.junit.Assert.fail;
 public class CompactStorageSplit1Test extends CQLTester
 {
     public static final String compactOption = " WITH COMPACT STORAGE";
+
+    @BeforeClass
+    public static void enableDropCompactStorage()
+    {
+        StorageProxy.instance.enableDropCompactStorage();
+    }
+
+    @AfterClass
+    public static void disableDropCompactStorage()
+    {
+        StorageProxy.instance.disableDropCompactStorage();
+    }
 
     @Test
     public void testSparseCompactTableIndex() throws Throwable
