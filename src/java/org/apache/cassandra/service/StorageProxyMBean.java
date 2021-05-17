@@ -151,4 +151,11 @@ public interface StorageProxyMBean
     boolean getCheckForDuplicateRowsDuringCompaction();
     void enableCheckForDuplicateRowsDuringCompaction();
     void disableCheckForDuplicateRowsDuringCompaction();
+
+    public void enableDropCompactStorage();
+    public void disableDropCompactStorage();
+    public boolean allowDropCompactStorage();
+
+    public void setIgnorePkLivenessForRowCompletion(boolean ignore);
+    public boolean getIgnorePkLivenessForRowCompletion();
 }

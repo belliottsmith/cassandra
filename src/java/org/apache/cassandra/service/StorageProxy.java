@@ -135,11 +135,8 @@ import org.apache.cassandra.service.paxos.Commit;
 import org.apache.cassandra.service.paxos.PaxosState;
 import org.apache.cassandra.service.paxos.PrepareCallback;
 import org.apache.cassandra.service.paxos.ProposeCallback;
-import org.apache.cassandra.service.reads.AbstractReadExecutor;
-import org.apache.cassandra.service.reads.ReadCallback;
 import org.apache.cassandra.service.reads.range.RangeCommandIterator;
 import org.apache.cassandra.service.reads.range.RangeCommands;
-import org.apache.cassandra.service.reads.repair.ReadRepair;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.triggers.TriggerExecutor;
 import org.apache.cassandra.utils.FBUtilities;
@@ -3112,5 +3109,35 @@ public class StorageProxy implements StorageProxyMBean
     public void disableCheckForDuplicateRowsDuringCompaction()
     {
         DatabaseDescriptor.setCheckForDuplicateRowsDuringCompaction(false);
+    }
+
+    @Override
+    public void enableDropCompactStorage()
+    {
+        DatabaseDescriptor.setAllowDropCompactStorage(true);
+    }
+
+    @Override
+    public void disableDropCompactStorage()
+    {
+        DatabaseDescriptor.setAllowDropCompactStorage(false);
+    }
+    
+    @Override
+    public boolean allowDropCompactStorage()
+    {
+        return DatabaseDescriptor.allowDropCompactStorage();
+    }
+
+    @Override
+    public void setIgnorePkLivenessForRowCompletion(boolean force)
+    {
+        DatabaseDescriptor.setIgnorePkLivenessForRowCompletion(force);
+    }
+    
+    @Override
+    public boolean getIgnorePkLivenessForRowCompletion()
+    {
+        return DatabaseDescriptor.ignorePkLivenessForRowCompletion();
     }
 }
