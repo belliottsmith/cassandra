@@ -1,4 +1,5 @@
 4.0.0.14
+* <rdar://78122775> (Apple Internal) Forward port rdar://70389638.  Preserve empty row semantics for tables that have never been compact (CASSANDRA-16671) (#2400)
 
 4.0.0.13
 * <rdar://77857547> (Apple Internal) Xmas patch SuccessfulRepairTimeHolder#getFullyRepairedTimeFor allocates a lot of memory causing GC issues impacting users) (#2393)
