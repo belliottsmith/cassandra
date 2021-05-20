@@ -26,6 +26,8 @@ import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 
+import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
+
 public class AlterTest extends TestBaseImpl
 {
     @Test
