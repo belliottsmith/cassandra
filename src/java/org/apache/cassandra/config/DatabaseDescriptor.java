@@ -70,6 +70,7 @@ import static org.apache.cassandra.io.util.FileUtils.ONE_MB;
 
 public class DatabaseDescriptor
 {
+
     static
     {
         // This static block covers most usages
@@ -1579,6 +1580,12 @@ public class DatabaseDescriptor
     public static void setCompactionTombstoneWarningThreshold(int count)
     {
         conf.compaction_tombstone_warning_threshold = count;
+    }
+
+
+    public static int getConcurrentIndexBuilds()
+    {
+        return conf.concurrent_index_builds;
     }
 
     public static int getConcurrentValidations()
