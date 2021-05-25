@@ -28,6 +28,7 @@ import java.util.List;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
+import org.apache.cassandra.service.ActiveRepairService;
 
 /**
  * Set repairedAt status on a given set of sstables.
@@ -85,12 +86,19 @@ public class SSTableRepairedAtSetter
             Descriptor descriptor = Descriptor.fromFilename(fname);
             if (descriptor.version.hasRepairedAt())
             {
-                FileTime f = Files.getLastModifiedTime(new File(descriptor.filenameFor(Component.DATA)).toPath());
-                descriptor.getMetadataSerializer().mutateRepaired(descriptor, f.toMillis(), null);
+                if (setIsRepaired)
+                {
+                    FileTime f = Files.getLastModifiedTime(new File(descriptor.filenameFor(Component.DATA)).toPath());
+                    descriptor.getMetadataSerializer().mutateRepaired(descriptor, f.toMillis(), null);
+                }
+                else
+                {
+                    descriptor.getMetadataSerializer().mutateRepaired(descriptor, ActiveRepairService.UNREPAIRED_SSTABLE, null);
+                }
             }
             else
             {
-                descriptor.getMetadataSerializer().mutateRepaired(descriptor, 0, null);
+                System.err.println("SSTable " + fname + " does not have repaired property, run upgradesstables");
             }
         }
     }
