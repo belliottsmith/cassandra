@@ -36,9 +36,11 @@ import org.junit.runners.Parameterized;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.NodeToolResult;
+import org.apache.cassandra.serializers.BooleanSerializer;
 import org.assertj.core.api.Assertions;
 
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
@@ -321,5 +323,24 @@ public class TopPartitionsTest extends TestBaseImpl
             Map<String, Long> tombstones = Keyspace.open(KEYSPACE).getColumnFamilyStore(name).getTopTombstonePartitions();
             assertTrue(tombstones.values().stream().allMatch( l -> l == 0));
         });
+    }
+
+    @Test
+    public void booleanTest() throws Throwable
+    {
+        String name = "tbl" + COUNTER.getAndIncrement();
+        String table = KEYSPACE + "." + name;
+            CLUSTER.schemaChange("create table " + table + " (id int, ck boolean, t int, primary key ((id, ck)))");
+            for (int i = 0; i < 10; i++)
+                CLUSTER.coordinator(1).execute("insert into " + table + " (id, ck, t) values (?, true, ?)", ConsistencyLevel.ALL, i, i);
+            repair();
+        CLUSTER.forEach(i -> i.runOnInstance(() -> {
+
+            ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(name);
+            cfs.topPartitions.save();
+            SystemKeyspace.getTopPartitions(cfs.metadata.get(), "SIZES");
+            assertEquals(0, BooleanSerializer.instance.serialize(true).position());
+            assertEquals(0, BooleanSerializer.instance.serialize(false).position());
+        }));
     }
 }
