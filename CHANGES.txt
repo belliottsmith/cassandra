@@ -1,3 +1,5 @@
+3.0.24.7
+
 3.0.24.6
 rdar://71703399 (Apple Internal) (i2 building should not block compactions from being executed)
 rdar://78170817 (Apple Internal) (Fix repeated executed page in in-jvm dtest coordinator code)
