@@ -1,3 +1,5 @@
+4.0.0.16
+
 4.0.0.15
 * <rdar://78251480> (Early port) Fix corrupting Boolean TRUE/FALSE constants. (original title: Not able to grant permission at C*Ver: 4.0.0.13-snaphot) (#2424)
 * <rdar://78170817> (Early port) Fix repeated executed page in in-jvm dtest coordinator code
