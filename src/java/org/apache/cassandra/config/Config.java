@@ -92,7 +92,7 @@ public class Config
     public CommitFailurePolicy commit_failure_policy = CommitFailurePolicy.stop;
 
     public volatile boolean disable_schema_drop_check = false;
-    public volatile boolean use_deterministic_table_id = Boolean.parseBoolean(System.getProperty("cassandra.disable_schema_drop_log", "true"));
+    public volatile boolean use_deterministic_table_id = Boolean.parseBoolean(System.getProperty("cassandra.use_deterministic_table_id", "true"));
 
     public volatile Boolean enable_partition_blacklist = false;
 
