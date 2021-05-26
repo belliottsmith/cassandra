@@ -1,4 +1,10 @@
 3.0.24.6
+rdar://71703399 (Apple Internal) (i2 building should not block compactions from being executed)
+rdar://78170817 (Apple Internal) (Fix repeated executed page in in-jvm dtest coordinator code)
+rdar://78489337 (Apple Internal) (allow disabling determanistic cfid via system properties)
+rdar://78433834 (Apple Internal) (SSTableRepairedAtSetter always sets repaired even if --is-unrepaired is used)
+rdar://78245560 (Apple Internal) (Reduce the amount of work in SuccessfulRepairTimeHolder.getFullyRepairedTimeFor)
+rdar://78251480 (Apple Internal) (Not able to grant permission at C*Ver: 4.0.0.13-snapshot for cluster: sirishareddev)
 
 3.0.24.5
 rdar://78094545 (Apple Internal) (Set default max_space_usable_for_compactions_in_percentage=0.95)
