@@ -25,8 +25,10 @@ import org.junit.Test;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
+import org.apache.cassandra.serializers.BooleanSerializer;
 
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
@@ -244,6 +246,31 @@ public class TopPartitionsTest extends TestBaseImpl
                 Map<String, Long> tombstones = cfs().getTopTombstonePartitions();
                 assertEquals(1L, (long)tombstones.get("1"));
             });
+        }
+    }
+
+    @Test
+    public void booleanTest() throws Throwable
+    {
+        try (Cluster cluster = init(Cluster.build(2).withConfig(config ->
+                                                                config.set("disable_incremental_repair", false)
+                                                                      .set("min_tracked_partition_tombstone_count", 0)
+                                                                      .set("min_tracked_partition_size_bytes", 0)
+                                                                      .with(GOSSIP)
+                                                                      .with(NETWORK))
+                                           .start()))
+        {
+            cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int, ck boolean, t int, primary key ((id, ck)))");
+            for (int i = 0; i < 10; i++)
+                cluster.coordinator(1).execute(withKeyspace("insert into %s.tbl (id, ck, t) values (?, true, ?)"), ConsistencyLevel.ALL, i, i);
+            cluster.get(1).nodetool("repair", "-full", KEYSPACE);
+            cluster.forEach(i -> i.runOnInstance(() -> {
+
+                cfs().topPartitions.save();
+                SystemKeyspace.getTopPartitions(cfs().metadata.get(), "SIZES");
+                assertEquals(0, BooleanSerializer.instance.serialize(true).position());
+                assertEquals(0, BooleanSerializer.instance.serialize(false).position());
+            }));
         }
     }
 
