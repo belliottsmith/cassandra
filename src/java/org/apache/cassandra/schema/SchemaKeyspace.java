@@ -869,7 +869,12 @@ public final class SchemaKeyspace
         String query = format("SELECT * FROM %s.%s WHERE keyspace_name = ?", SchemaConstants.SCHEMA_KEYSPACE_NAME, KEYSPACES);
 
         UntypedResultSet.Row row = query(query, keyspaceName).one();
-        boolean durableWrites = row.getBoolean(KeyspaceParams.Option.DURABLE_WRITES.toString());
+        String durableWritesColumn = KeyspaceParams.Option.DURABLE_WRITES.toString();
+        boolean durableWrites = true;
+        if (row.has(durableWritesColumn) && row.getBlob(durableWritesColumn).remaining() > 0)
+            durableWrites = row.getBoolean(durableWritesColumn);
+        else
+            logger.error("Durable writes null for "+keyspaceName);
         Map<String, String> replication = row.getFrozenTextMap(KeyspaceParams.Option.REPLICATION.toString());
         return KeyspaceParams.create(durableWrites, replication);
     }
