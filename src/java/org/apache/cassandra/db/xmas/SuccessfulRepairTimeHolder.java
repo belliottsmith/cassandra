@@ -100,8 +100,11 @@ public class SuccessfulRepairTimeHolder
      *
      * @return the last successful repair time for the sstable or Integer.MIN_VALUE if the sstable has not been completely covered by repair
      */
-    public int getFullyRepairedTimeFor(SSTableReader sstable)
+    public int getFullyRepairedTimeFor(SSTableReader sstable, int gcBefore)
     {
+        // if there is a tombstone newer than gcBefore we can't drop this sstable
+        if (sstable.getSSTableMetadata().maxLocalDeletionTime > gcBefore)
+            return Integer.MIN_VALUE;
         /*
         Idea is that we subtract the time-sorted repaired ranges from the sstable bound until it is gone
 
@@ -116,6 +119,9 @@ public class SuccessfulRepairTimeHolder
             Pair<Range<Token>, Integer> intersectingRepair = successfulRepairs.get(i);
             Range<Token> repairedRange = intersectingRepair.left;
             int repairTime = intersectingRepair.right;
+            // if the sstable contains a tombstone newer than the best possible repairTime, we can't drop this sstable, no need to keep subtracting
+            if (repairTime < sstable.getSSTableMetadata().maxLocalDeletionTime)
+                return Integer.MIN_VALUE;
 
             for (Range<Token> unwrappedRange : repairedRange.unwrap()) // avoid handling wrapping ranges in subtract below
                 sstableBounds = subtract(sstableBounds, unwrappedRange);
