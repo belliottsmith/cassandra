@@ -6,7 +6,12 @@ set -o pipefail
 set -o xtrace
 
 readonly RIO_DIR="$(dirname "$0")"
-readonly PARALLELOUTPUT="${PWD}/parallel-output"
+readonly BASE_DIR="$(cd "$RIO_DIR/.."; pwd)"
+readonly PARALLELOUTPUT="${BASE_DIR}/parallel-output"
+
+# build locally so parallel ci copies the jars into the container
+rm -rf "${BASE_DIR}/build" || true
+timeout 15m bash -c "cd '$BASE_DIR' && ant -f rio-build.xml jar "
 
 # Wrap call to parallel-tests with timeout as per-command
 # timeouts are not currently implemented and this gives us
