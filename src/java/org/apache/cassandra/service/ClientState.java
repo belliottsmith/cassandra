@@ -54,6 +54,7 @@ public class ClientState
 {
     private static final Logger logger = LoggerFactory.getLogger(ClientState.class);
     public static final CassandraVersion DEFAULT_CQL_VERSION = org.apache.cassandra.cql3.QueryProcessor.CQL_VERSION;
+    private static final boolean ENABLE_ALTERABLE_SYSTEM_KEYSPACES = Boolean.parseBoolean(System.getProperty("cie-cassandra.enable_alterable_system_keyspaces", "true"));
 
     /* FIXME: should assign the final fields in the static block */
     private static final Set<IResource> READABLE_SYSTEM_RESOURCES = new HashSet<>();
@@ -401,7 +402,7 @@ public class ClientState
                 return;
 
             // allow users with sufficient privileges to alter all system_auth and cie_internal tables. See rdar://56247937.
-            if (perm == Permission.ALTER && resource.isTableLevel() && ALTERABLE_SYSTEM_KEYSPACES.contains(keyspace))
+            if (ENABLE_ALTERABLE_SYSTEM_KEYSPACES && perm == Permission.ALTER && resource.isTableLevel() && ALTERABLE_SYSTEM_KEYSPACES.contains(keyspace))
                 return;
 
             // prevent all other modifications of replicated system keyspaces
