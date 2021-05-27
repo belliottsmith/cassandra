@@ -152,9 +152,9 @@ public class Scrubber implements Closeable
             outputHandler.output("Starting scrub with reinsert overflowed TTL option");
     }
 
-    private UnfilteredRowIterator withValidation(UnfilteredRowIterator iter, String filename)
+    private UnfilteredRowIterator withValidation(UnfilteredRowIterator iter, String filename, OutputHandler output)
     {
-        return checkData ? UnfilteredRowIterators.withValidation(iter, filename) : iter;
+        return checkData ? UnfilteredRowIterators.withValidation(iter, filename, output) : iter;
     }
 
     public void scrub()
@@ -332,7 +332,7 @@ public class Scrubber implements Closeable
         OrderCheckerIterator sstableIterator = new OrderCheckerIterator(getIterator(key),
                                                                         cfs.metadata.comparator);
 
-        try (UnfilteredRowIterator iterator = withValidation(sstableIterator, dataFile.getPath()))
+        try (UnfilteredRowIterator iterator = withValidation(sstableIterator, dataFile.getPath(), outputHandler))
         {
             if (prevKey != null && prevKey.compareTo(key) > 0)
             {

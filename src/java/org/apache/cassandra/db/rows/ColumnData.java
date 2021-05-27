@@ -96,4 +96,6 @@ public abstract class ColumnData
     public abstract ColumnData purge(DeletionPurger purger, int nowInSec);
 
     public abstract long maxTimestamp();
+
+    public abstract boolean isValid();
 }

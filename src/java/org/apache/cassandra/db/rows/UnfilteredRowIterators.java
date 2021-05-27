@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.rows;
 
+import java.nio.ByteBuffer;
 import java.util.*;
 
 import org.slf4j.Logger;
@@ -24,6 +25,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.transform.FilteredRows;
 import org.apache.cassandra.db.transform.MoreRows;
 import org.apache.cassandra.db.transform.Transformation;
@@ -34,6 +36,7 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.IMergeIterator;
 import org.apache.cassandra.utils.MergeIterator;
+import org.apache.cassandra.utils.OutputHandler;
 import org.apache.cassandra.utils.memory.AbstractAllocator;
 
 /**
@@ -322,7 +325,7 @@ public abstract class UnfilteredRowIterators
      * checks said data and throws a {@code CorruptedSSTableException} if it detects
      * invalid data.
      */
-    public static UnfilteredRowIterator withValidation(UnfilteredRowIterator iterator, final String filename)
+    public static UnfilteredRowIterator withValidation(UnfilteredRowIterator iterator, final String filename, OutputHandler output)
     {
         class Validator extends Transformation
         {
@@ -352,6 +355,7 @@ public abstract class UnfilteredRowIterators
                 try
                 {
                     unfiltered.validateData(iterator.metadata());
+                    checkBooleanUnfiltered(iterator.metadata(), iterator.partitionKey().getKey(), unfiltered, output);
                 }
                 catch (MarshalException me)
                 {
@@ -359,7 +363,62 @@ public abstract class UnfilteredRowIterators
                 }
             }
         }
+        checkBooleanPartitionKey(iterator.partitionKey().getKey(), iterator.metadata(), output);
         return Transformation.apply(iterator, new Validator());
+    }
+
+    private static void checkBooleanUnfiltered(CFMetaData metadata, ByteBuffer key, Unfiltered unfiltered, OutputHandler output)
+    {
+        boolean clusteringBroken = false;
+        for (int i = 0; i < unfiltered.clustering().size(); i++)
+        {
+            if (!metadata.comparator.subtype(i).validateStrict(unfiltered.clustering().get(i)))
+            {
+                clusteringBroken = true;
+                break;
+            }
+        }
+        boolean broken = false;
+        if (unfiltered.isRow())
+        {
+            for (ColumnData cd : ((Row)unfiltered).columnData())
+            {
+                if (!cd.isValid())
+                {
+                    broken = true;
+                    break;
+                }
+            }
+        }
+        if (clusteringBroken)
+            output.warn(String.format("Empty boolean in clustering key=[%s], %s", metadata.getKeyValidator().getString(key), unfiltered.toString(metadata, true, true)));
+        if (broken)
+            output.warn(String.format("Empty boolean in row key=[%s], %s", metadata.getKeyValidator().getString(key), unfiltered.toString(metadata, true, true)));
+    }
+
+    private static void checkBooleanPartitionKey(ByteBuffer key, CFMetaData metadata, OutputHandler output)
+    {
+        boolean broken = false;
+        if (metadata.getKeyValidator() instanceof CompositeType)
+        {
+            CompositeType keyValidator = (CompositeType)metadata.getKeyValidator();
+            ByteBuffer[] components = keyValidator.split(key);
+            for (int i = 0; i < components.length; i++)
+            {
+                if (!keyValidator.types.get(i).validateStrict(components[i]))
+                {
+                    broken = true;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            broken = !metadata.getKeyValidator().validateStrict(key);
+        }
+
+        if (broken)
+            output.warn(String.format("Empty boolean in partition key=[%s]", metadata.getKeyValidator().getString(key)));
     }
 
     /**

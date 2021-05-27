@@ -78,6 +78,11 @@ public class SetSerializer<T> extends CollectionSerializer<Set<T>>
         }
     }
 
+    public boolean validateStrict(ByteBuffer bytes)
+    {
+        return elements.validateStrict(bytes);
+    }
+
     public Set<T> deserializeForNativeProtocol(ByteBuffer bytes, int version)
     {
         try

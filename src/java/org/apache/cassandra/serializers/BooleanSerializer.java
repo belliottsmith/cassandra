@@ -49,6 +49,11 @@ public class BooleanSerializer implements TypeSerializer<Boolean>
             throw new MarshalException(String.format("Expected 1 or 0 byte value (%d)", bytes.remaining()));
     }
 
+    public boolean validateStrict(ByteBuffer bytes)
+    {
+        return bytes.remaining() == 1 && (bytes.get(0) == 0 || bytes.get(0) == 1);
+    }
+
     public String toString(Boolean value)
     {
         return value == null ? "" : value.toString();

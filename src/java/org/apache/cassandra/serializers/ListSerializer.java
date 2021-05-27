@@ -78,6 +78,11 @@ public class ListSerializer<T> extends CollectionSerializer<List<T>>
         }
     }
 
+    public boolean validateStrict(ByteBuffer bytes)
+    {
+        return elements.validateStrict(bytes);
+    }
+
     public List<T> deserializeForNativeProtocol(ByteBuffer bytes, int version)
     {
         try

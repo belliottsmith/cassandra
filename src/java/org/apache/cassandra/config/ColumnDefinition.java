@@ -433,4 +433,11 @@ public class ColumnDefinition extends ColumnSpecification implements Comparable<
             return ((CollectionType) type).valueComparator().isCounter();
         return type.isCounter();
     }
+
+    public boolean isPathValid(ByteBuffer path)
+    {
+        if (type instanceof CollectionType)
+            return ((CollectionType)type).nameComparator().validateStrict(path);
+        return true;
+    }
 }

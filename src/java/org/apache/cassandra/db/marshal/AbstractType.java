@@ -162,6 +162,19 @@ public abstract class AbstractType<T> implements Comparator<ByteBuffer>
         getSerializer().validate(bytes);
     }
 
+    /**
+     * Potentially stricter than {@linkplain #validate}, this is primarily used off the read/write path, where
+     * the primary concern is safety. In (semi-)offliner operations like Scrub/Verify, we may be less permissive
+     * and reject any byte sequence which doesn't strictly produce a valid instance of the specified type.
+     * See {@link TypeSerializer#validateStrict(ByteBuffer)} for further details
+     * @param value sequence of bytes to test
+     * @return true if valid, false otherwise
+     */
+    public boolean validateStrict(ByteBuffer value)
+    {
+        return getSerializer().validateStrict(value);
+    }
+
     public final int compare(ByteBuffer left, ByteBuffer right)
     {
         return isByteOrderComparable

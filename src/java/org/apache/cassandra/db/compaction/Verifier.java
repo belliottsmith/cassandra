@@ -348,7 +348,7 @@ public class Verifier implements Closeable
                         markAndThrow(new RuntimeException(String.format("key = %s, dataSize=%d, dataFile.length() = %d", key, dataSize, dataFile.length())));
 
                     try (UnfilteredRowIterator iterator = options.validateData ?
-                                                          UnfilteredRowIterators.withValidation(new SSTableIdentityIterator(sstable, dataFile, key), sstable.descriptor.baseFilename()) :
+                                                          UnfilteredRowIterators.withValidation(new SSTableIdentityIterator(sstable, dataFile, key), sstable.descriptor.baseFilename(), outputHandler) :
                                                           new SSTableIdentityIterator(sstable, dataFile, key))
                     {
                         Row first = null;

@@ -102,6 +102,11 @@ public class MapSerializer<K, V> extends CollectionSerializer<Map<K, V>>
         }
     }
 
+    public boolean validateStrict(ByteBuffer bytes)
+    {
+        return values.validateStrict(bytes);
+    }
+
     public Map<K, V> deserializeForNativeProtocol(ByteBuffer bytes, int version)
     {
         try

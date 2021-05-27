@@ -78,6 +78,14 @@ public abstract class AbstractCell extends Cell
             column().validateCellPath(path());
     }
 
+
+    public boolean isValid()
+    {
+        if (path() != null && !column.isPathValid(path().get(0)))
+            return false;
+        return column.type.validateStrict(value());
+    }
+
     public boolean hasInvalidDeletions()
     {
         if (ttl() < 0 || localDeletionTime() < 0 || (isExpiring() && localDeletionTime() == NO_DELETION_TIME))

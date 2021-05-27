@@ -47,5 +47,28 @@ public interface TypeSerializer<T>
              ? "null"
              : toString(deserialize(buffer));
     }
+
+    /**
+     * Checks that the supplied bytes are a valid representation of this type.
+     * This may be more strict than {@linkplain #validate}, which guarantees
+     * that {@linkplain #deserialize} is safe to call but may, for example,
+     * return null. A further example is {@link BooleanSerializer} in which
+     * {@link BooleanSerializer#deserialize(ByteBuffer)} ignores any trailing
+     * bytes in the sequence, whereas this method will return false.
+     * @param value the sequence of bytes to test
+     * @return true if this is a valid representation of the type, false otherwise
+     */
+    default boolean validateStrict(ByteBuffer value)
+    {
+        try
+        {
+            validate(value);
+            return true;
+        }
+        catch (MarshalException e)
+        {
+            return false;
+        }
+    }
 }
 
