@@ -1,3 +1,5 @@
+3.0.24.8
+
 3.0.24.7
 rdar://78568341 (Apple Internal) (Make nodetool verify check if there are any empty booleans in the sstables)
 rdar://78489337 (Apple Internal) (fixed property name to be use_deterministic_table_id)
