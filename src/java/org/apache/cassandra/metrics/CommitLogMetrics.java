@@ -42,11 +42,14 @@ public class CommitLogMetrics
     public final Timer waitingOnSegmentAllocation;
     /** The time spent waiting on CL sync; for Periodic this is only occurs when the sync is lagging its sync interval */
     public final Timer waitingOnCommit;
+    /** Time spent actually flushing the contents of a buffer to disk */
+    public final Timer waitingOnFlush;
     
     public CommitLogMetrics()
     {
         waitingOnSegmentAllocation = Metrics.timer(factory.createMetricName("WaitingOnSegmentAllocation"));
         waitingOnCommit = Metrics.timer(factory.createMetricName("WaitingOnCommit"));
+        waitingOnFlush = Metrics.timer(factory.createMetricName("WaitingOnFlush"));
     }
 
     public void attach(final AbstractCommitLogService service, final CommitLogSegmentManager allocator)

@@ -335,7 +335,11 @@ public abstract class CommitLogSegment
 
         if (flush || close)
         {
-            flush(startMarker, sectionEnd);
+            try (Timer.Context ignored = CommitLog.instance.metrics.waitingOnFlush.time())
+            {
+                flush(startMarker, sectionEnd);
+            }
+            
             lastSyncedOffset = lastMarkerOffset = nextMarker;
 
             if (close)
@@ -416,13 +420,12 @@ public abstract class CommitLogSegment
         }
     }
 
-    void waitForSync(int position, Timer waitingOnCommit)
+    void waitForSync(int position)
     {
         while (lastSyncedOffset < position)
         {
-            WaitQueue.Signal signal = waitingOnCommit != null ?
-                                      syncComplete.register(waitingOnCommit.time()) :
-                                      syncComplete.register();
+            WaitQueue.Signal signal = syncComplete.register();
+            
             if (lastSyncedOffset < position)
                 signal.awaitUninterruptibly();
             else
@@ -639,7 +642,10 @@ public abstract class CommitLogSegment
 
         void awaitDiskSync(Timer waitingOnCommit)
         {
-            segment.waitForSync(position, waitingOnCommit);
+            try (Timer.Context ignored = waitingOnCommit.time())
+            {
+                segment.waitForSync(position);
+            }
         }
 
         public ReplayPosition getReplayPosition()
