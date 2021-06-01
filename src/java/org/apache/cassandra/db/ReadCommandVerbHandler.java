@@ -95,6 +95,9 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
             if (!command.isTrackingWarnings())
                 throw e;
 
+            // make sure to log as the exception is swallowed
+            logger.error(e.getMessage());
+
             response = command.createResponse(EmptyIterators.unfilteredPartition(command.metadata(), command.isForThrift()));
             MessageOut<ReadResponse> reply = new MessageOut<>(MessagingService.Verb.REQUEST_RESPONSE, response, serializer());
             reply = MessageParams.addToMessage(reply);

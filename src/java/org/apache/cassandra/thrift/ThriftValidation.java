@@ -116,7 +116,7 @@ public class ThriftValidation
 
         CFMetaData metadata = Schema.instance.getCFMetaData(keyspaceName, cfName);
         if (metadata == null)
-            throw new org.apache.cassandra.exceptions.InvalidRequestException("unconfigured table " + cfName);
+            throw new org.apache.cassandra.exceptions.InvalidRequestException("unconfigured table " + keyspaceName + "." + cfName);
 
         if (metadata.isCompactTable() && noCompactMode)
             return metadata.asNonCompact();

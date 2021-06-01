@@ -255,7 +255,7 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
         }
 
         if (warnings != null && warnings.tombstoneAborts.get() > 0)
-            throw new TombstoneAbortException(warnings.tombstoneAborts.get(), warnings.maxTombstoneAbortsCount.get());
+            throw new TombstoneAbortException(consistencyLevel, received, failures, blockfor, resolver.isDataPresent(), warnings.tombstoneAborts.get(), warnings.maxTombstoneAbortsCount.get());
 
         if (warnings != null && warnings.indexSizeAborts.get() > 0)
             throw new IndexSizeAbortException(warnings.indexSizeAborts.get(), warnings.maxIndexAbortSize.get());

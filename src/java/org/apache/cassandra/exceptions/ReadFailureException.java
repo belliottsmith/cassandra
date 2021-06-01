@@ -28,4 +28,10 @@ public class ReadFailureException extends RequestFailureException
         super(ExceptionCode.READ_FAILURE, consistency, received, failures, blockFor);
         this.dataPresent = dataPresent;
     }
+
+    protected ReadFailureException(String msg, ConsistencyLevel consistency, int received, int failures, int blockFor, boolean dataPresent)
+    {
+        super(ExceptionCode.READ_FAILURE, msg, consistency, received, failures, blockFor);
+        this.dataPresent = dataPresent;
+    }
 }
