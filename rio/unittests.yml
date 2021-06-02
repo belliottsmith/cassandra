@@ -48,6 +48,7 @@ work:
       - include_command: 'Run Tests (testclasslist)'
         environment:
           CASSANDRA_TEST_KIND: unit
+      - include_command: 'Log Environment Information'
   jvm-dtest:
     machine:
       <<: *base-machine
@@ -58,6 +59,7 @@ work:
         environment:
           CASSANDRA_TEST_KIND: distributed
           SPLIT_FILTER: "| grep -v upgrade"
+      - include_command: 'Log Environment Information'
     map:
       - include_command: 'Log Environment Information'
       - include_command: 'Display Splits'
@@ -65,6 +67,7 @@ work:
       - include_command: 'Run Tests (testclasslist)'
         environment:
           CASSANDRA_TEST_KIND: distributed
+      - include_command: 'Log Environment Information'
   jvm-dtest-upgrade:
     machine:
       <<: *base-machine
@@ -88,3 +91,4 @@ work:
             echo 'skipping upgrade tests'
             exit 0
             fi
+      - include_command: 'Log Environment Information'
