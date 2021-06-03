@@ -36,10 +36,6 @@ commands:
       mkdir -p $PARALLEL_OUTPUT_DIR/build/test/logs
       cp -r build/test/logs/* $PARALLEL_OUTPUT_DIR/build/test/logs/
     fi
-
-    # Failure to allocate native memory has shown up as the ACI Kube clusters get more used, the leading belief is that memory is getting over allocated causing allocations to fail;
-    # to work around this, signal _KILL to parallel-ci to attempt to kill the pod, leading to another pod being scheduled (hopefully different node).
-    grep 'unable to create new native thread' "$PARALLEL_OUTPUT_DIR"/.command/*/std{out,err} | grep -v grep && touch "$PARALLEL_OUTPUT_DIR/_KILL" || true
 - name: Build dtest jar
   timeout: PT15M
   command: |
