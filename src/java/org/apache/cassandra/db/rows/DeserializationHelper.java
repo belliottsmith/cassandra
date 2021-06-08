@@ -111,7 +111,7 @@ public class DeserializationHelper
 
     public boolean canSkipValue(CellPath path)
     {
-        return path != null && tester != null && !tester.canSkipValue(path);
+        return path != null && tester != null && tester.canSkipValue(path);
     }
 
     public void startOfComplexColumn(ColumnDefinition column)
