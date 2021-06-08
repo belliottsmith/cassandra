@@ -17,6 +17,8 @@
  */
 package org.apache.cassandra.db;
 
+import java.io.IOException;
+
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
@@ -24,6 +26,14 @@ import org.apache.cassandra.net.MessagingService;
 public class ReadRepairVerbHandler extends AbstractMutationVerbHandler<Mutation>
 {
     public static final ReadRepairVerbHandler instance = new ReadRepairVerbHandler();
+
+    public void doVerb(Message<Mutation> message) throws IOException
+    {
+        // CIE - This method exists as python dtest relies on byte-code rewriting via Byteman, so requires this
+        // class defines a "doVerb" method for some tests; once CIE and OSS become in-sync, this logic may go away
+        // change: rdar://60088325 p33279387 OPS/COR Don't allow requests for out of token range operations
+        super.doVerb(message);
+    }
 
     void applyMutation(Message<Mutation> message, InetAddressAndPort respondToAddress)
     {
