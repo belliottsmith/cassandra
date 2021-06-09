@@ -22,6 +22,10 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+import org.assertj.core.api.Assertions;
+import org.junit.Test;
 
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
@@ -77,7 +81,10 @@ public class RepairErrorsTest extends TestBaseImpl
             cluster.forEach(i -> i.flush(KEYSPACE));
             long mark = cluster.get(1).logs().mark();
             cluster.forEach(i -> i.nodetoolResult("repair", "--full").asserts().failure());
-            Assertions.assertThat(cluster.get(1).logs().grep(mark, "^ERROR").getResult()).isEmpty();
+            Assertions.assertThat(
+                cluster.get(1).logs().grep(mark, "^ERROR").getResult()
+                       .stream().filter(s -> !s.contains("Reference-Reaper")).collect(Collectors.toList()))
+                       .isEmpty();
         }
     }
 
