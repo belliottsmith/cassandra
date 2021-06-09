@@ -20,8 +20,11 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
+import org.junit.Assert;
 import org.junit.Test;
 
 import net.bytebuddy.ByteBuddy;
@@ -56,17 +59,18 @@ public class RepairErrorsTest extends TestBaseImpl
                     return throwable.getMessage() != null && throwable.getMessage().contains("IGNORE");
                 return false;
             });
-            
+
             cluster.startup();
             init(cluster);
-            
+
             cluster.schemaChange("create table "+KEYSPACE+".tbl (id int primary key, x int)");
             for (int i = 0; i < 10; i++)
                 cluster.coordinator(1).execute("insert into "+KEYSPACE+".tbl (id, x) VALUES (?,?)", ConsistencyLevel.ALL, i, i);
             cluster.forEach(i -> i.flush(KEYSPACE));
             long mark = cluster.get(1).logs().mark();
             cluster.forEach(i -> i.nodetoolResult("repair", "--full").asserts().failure());
-            assertTrue(cluster.get(1).logs().grep(mark, "^ERROR").getResult().isEmpty());
+            Assert.assertEquals(Collections.emptyList(),
+                cluster.get(1).logs().grep(mark, "^ERROR").getResult().stream().filter(s -> !s.contains("Reference-Reaper")).collect(Collectors.toList()));
         }
     }
 
