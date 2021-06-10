@@ -89,6 +89,7 @@ public final class CFMetaData
     private final boolean isCounter;
     private final boolean isView;
     private final boolean isIndex;
+    private final boolean readRepairChanceEnabled;
 
     public volatile ClusteringComparator comparator;  // bytes, long, timeuuid, utf8, etc. This is built directly from clusteringColumns
     public final IPartitioner partitioner;            // partitioner the table uses
@@ -328,6 +329,7 @@ public final class CFMetaData
         this.isSuper = isSuper;
         this.isCounter = isCounter;
         this.isView = isView;
+        this.readRepairChanceEnabled = DatabaseDescriptor.getReadRepairChanceEnabled();
 
         EnumSet<Flag> flags = EnumSet.noneOf(Flag.class);
         if (isSuper)
@@ -747,6 +749,8 @@ public final class CFMetaData
 
     public ReadRepairDecision newReadRepairDecision()
     {
+        if (!readRepairChanceEnabled)
+            return ReadRepairDecision.NONE;
         double chance = ThreadLocalRandom.current().nextDouble();
         if (params.readRepairChance > chance)
             return ReadRepairDecision.GLOBAL;

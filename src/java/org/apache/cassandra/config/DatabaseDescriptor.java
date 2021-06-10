@@ -901,6 +901,8 @@ public class DatabaseDescriptor
 
         conf.client_large_read_warn_threshold_kb = Math.max(conf.client_large_read_warn_threshold_kb, 0);
         conf.client_large_read_block_threshold_kb = Math.max(conf.client_large_read_block_threshold_kb, 0);
+
+        logger.info("read_repair_chance_enabled is {}", conf.read_repair_chance_enabled);
     }
 
     public static IEndpointSnitch createEndpointSnitch(boolean dynamic, String snitchClassName) throws ConfigurationException
@@ -3445,5 +3447,10 @@ public class DatabaseDescriptor
     public static SubnetGroups getExcludeClientErrorsFrom()
     {
         return conf.client_error_reporting_exclusions;
+    }
+
+    public static boolean getReadRepairChanceEnabled()
+    {
+        return conf.read_repair_chance_enabled;
     }
 }

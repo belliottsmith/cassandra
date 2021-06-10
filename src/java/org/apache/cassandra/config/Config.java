@@ -636,6 +636,9 @@ public class Config
     public volatile long min_tracked_partition_tombstone_count = 5000;
     public volatile boolean top_partitions_enabled = true;
 
+    // not volatile as this is final in CFMetaData, so mutating at runtime would be inconsistent cross-table
+    public boolean read_repair_chance_enabled = Boolean.getBoolean("cassandra.read_repair_chance_enabled");
+
     public volatile SubnetGroups client_error_reporting_exclusions = new SubnetGroups(Arrays.asList(
     // these ranges were pulled out of
     // https://github.geo.apple.com/cie/cie-db/blob/52b47c4467739fb1bc47dac11151be4f949f5ab7/cassandrastubtwoone/src/mme/cassandraplugin/DynamicPropertyFileSnitch.java#L76-L82
