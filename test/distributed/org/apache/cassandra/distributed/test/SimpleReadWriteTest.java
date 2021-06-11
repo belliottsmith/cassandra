@@ -159,11 +159,8 @@ public class SimpleReadWriteTest extends TestBaseImpl
                    row(1, 1, 1));
     }
 
-    /**
-     * If a node receives a mutation for a column it's not aware of, it should fail, since it can't write the data.
-     */
     @Test
-    public void writeWithSchemaDisagreement() throws Throwable
+    public void writeWithSchemaDisagreement()
     {
         withoutNetwork.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
 
@@ -178,7 +175,7 @@ public class SimpleReadWriteTest extends TestBaseImpl
         try
         {
             withoutNetwork.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1, v2) VALUES (2, 2, 2, 2)",
-                                                  ConsistencyLevel.ALL);
+                    ConsistencyLevel.QUORUM);
         }
         catch (RuntimeException e)
         {
@@ -186,46 +183,11 @@ public class SimpleReadWriteTest extends TestBaseImpl
         }
 
         Assert.assertTrue(thrown.getMessage().contains("Exception occurred on node"));
+        Assert.assertTrue(thrown.getCause().getCause().getCause().getMessage().contains("Unknown column v2 during deserialization"));
     }
 
-    /**
-     * If a node receives a mutation for a column it knows has been dropped, the write should succeed
-     */
     @Test
-    public void writeWithSchemaDisagreement2() throws Throwable
-    {
-        withoutNetwork.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))");
-
-        withoutNetwork.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1, v2) VALUES (1, 1, 1, 1)");
-        withoutNetwork.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1, v2) VALUES (1, 1, 1, 1)");
-        withoutNetwork.get(3).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1, v2) VALUES (1, 1, 1, 1)");
-
-        for (int i=0; i<withoutNetwork.size(); i++)
-            withoutNetwork.get(i+1).flush(KEYSPACE);;
-
-        // Introduce schema disagreement
-        withoutNetwork.schemaChange("ALTER TABLE " + KEYSPACE + ".tbl DROP v2", 1);
-
-        // execute a write including the dropped column where the coordinator is not yet aware of the drop
-        // all nodes should process this without error
-        withoutNetwork.coordinator(2).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1, v2) VALUES (2, 2, 2, 2)",
-                                              ConsistencyLevel.ALL);
-        // and flushing should also be fine
-        for (int i=0; i<withoutNetwork.size(); i++)
-            withoutNetwork.get(i+1).flush(KEYSPACE);;
-        // the results of reads will vary depending on whether the coordinator has seen the schema change
-        // note: read repairs will propagate the v2 value to node1, but this is safe and handled correctly
-        assertRows(withoutNetwork.coordinator(2).execute("SELECT * FROM " + KEYSPACE + ".tbl", ConsistencyLevel.ALL),
-                   rows(row(1,1,1,1), row(2,2,2,2)));
-        assertRows(withoutNetwork.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl", ConsistencyLevel.ALL),
-                   rows(row(1,1,1), row(2,2,2)));
-    }
-
-    /**
-     * If a node isn't aware of a column, but receives a mutation without that column, the write should succeed
-     */
-    @Test
-    public void writeWithInconsequentialSchemaDisagreement() throws Throwable
+    public void readWithSchemaDisagreement() throws Throwable
     {
         withoutNetwork.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
 
@@ -240,7 +202,7 @@ public class SimpleReadWriteTest extends TestBaseImpl
         try
         {
             assertRows(withoutNetwork.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1",
-                                                             ConsistencyLevel.ALL),
+                                                      ConsistencyLevel.ALL),
                        row(1, 1, 1, null));
         }
         catch (Exception e)
@@ -248,28 +210,8 @@ public class SimpleReadWriteTest extends TestBaseImpl
             thrown = e;
         }
 
-        // this write shouldn't cause any problems because it doesn't write to the new column
-        withoutNetwork.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (2, 2, 2)",
-                                              ConsistencyLevel.ALL);
-    }
-
-    /**
-     * If a node receives a read for a column it's not aware of, it shouldn't complain, since it won't have any data for that column
-     */
-    @Test
-    public void readWithSchemaDisagreement() throws Throwable
-    {
-        withoutNetwork.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))");
-
-        withoutNetwork.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
-        withoutNetwork.get(2).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
-        withoutNetwork.get(3).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1) VALUES (1, 1, 1)");
-
-        // Introduce schema disagreement
-        withoutNetwork.schemaChange("ALTER TABLE " + KEYSPACE + ".tbl ADD v2 int", 1);
-
-        Object[][] expected = new Object[][]{new Object[]{1, 1, 1, null}};
-        assertRows(withoutNetwork.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", ConsistencyLevel.ALL), expected);
+        Assert.assertTrue(thrown.getMessage().contains("Exception occurred on node"));
+        Assert.assertTrue(thrown.getCause().getCause().getCause().getMessage().contains("Unknown column v2 during deserialization"));
     }
 
     @Test
@@ -488,12 +430,5 @@ public class SimpleReadWriteTest extends TestBaseImpl
     private long readCount(IInvokableInstance instance)
     {
         return instance.appliesOnInstance((String keyspace) -> Keyspace.open(keyspace).getColumnFamilyStore("tbl").metric.readLatency.latency.getCount()).apply(KEYSPACE);
-    }
-
-    private static Object[][] rows(Object[]...rows)
-    {
-        Object[][] r = new Object[rows.length][];
-        System.arraycopy(rows, 0, r, 0, rows.length);
-        return r;
     }
 }
