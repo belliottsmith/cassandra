@@ -1,4 +1,6 @@
-4.0.0.16
+4.0.0.20
+
+4.0.0.16-4.0.0.19 used for 4.0.0.15 hotfix releases
 
 4.0.0.15
 * <rdar://78251480> (Early port) Fix corrupting Boolean TRUE/FALSE constants. (original title: Not able to grant permission at C*Ver: 4.0.0.13-snaphot) (#2424)
