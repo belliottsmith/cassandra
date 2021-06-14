@@ -268,7 +268,7 @@ JVM_OPTS="$JVM_OPTS -Djava.net.preferIPv4Stack=true"
 # with authentication and/or ssl enabled. See https://wiki.apache.org/cassandra/JmxSecurity 
 #
 if [ "x$LOCAL_JMX" = "x" ]; then
-    LOCAL_JMX=no
+    LOCAL_JMX="${DEFAULT_LOCAL_JMX:-no}"
 fi
 
 # Specifies the default port over which Cassandra will be available for
