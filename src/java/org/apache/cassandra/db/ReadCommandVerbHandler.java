@@ -90,6 +90,10 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
         {
             response = command.createResponse(iterator);
         }
+        catch (AssertionError t)
+        {
+            throw new AssertionError(String.format("Caught an error while trying to process the command: %s", command.toCQLString()), t);
+        }
         catch (TombstoneOverwhelmingException | RowIndexOversizeException e)
         {
             if (!command.isTrackingWarnings())
