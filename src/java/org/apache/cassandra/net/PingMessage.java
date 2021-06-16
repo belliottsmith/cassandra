@@ -48,13 +48,13 @@ public class PingMessage
     {
         public void serialize(PingMessage t, DataOutputPlus out, int version) throws IOException
         {
-            if (version >= MessagingService.VERSION_3014)
+            if (isConnectionTypePresent(version))
                 out.writeByte(t.connectionType.getId());
         }
 
         public PingMessage deserialize(DataInputPlus in, int version) throws IOException
         {
-            ConnectionType connectionType = ConnectionType.fromId(in.readByte());
+            ConnectionType connectionType = isConnectionTypePresent(version) ? ConnectionType.fromId(in.readByte()) : null;
 
             // if we ever create a new connection type, then during a rolling upgrade, the old nodes won't know about
             // the new connection type (as it won't recognize the id), so just default to the small message type.
@@ -75,7 +75,12 @@ public class PingMessage
 
         public long serializedSize(PingMessage t, int version)
         {
-            return version >= MessagingService.VERSION_3014 ? 1 : 0;
+            return isConnectionTypePresent(version) ? 1 : 0;
+        }
+
+        private static boolean isConnectionTypePresent(int version)
+        {
+            return version >= MessagingService.VERSION_3014;
         }
     }
 }
