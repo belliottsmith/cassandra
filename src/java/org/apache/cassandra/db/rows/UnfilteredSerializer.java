@@ -226,7 +226,10 @@ public class UnfilteredSerializer
                 // with. So we use the ColumnDefinition from the "header" which is "current". Also see #11810 for what
                 // happens if we don't do that.
                 ColumnDefinition column = si.next(cd.column());
-                assert column != null : cd.column.toString();
+                assert column != null : String.format("Data: %s. Column is null: %s, header columns: %s.",
+                                                      cd,
+                                                      cd.column.toString(),
+                                                      helper.header.columns());
                 Preconditions.checkState(column.name.equals(cd.column.name));
 
                 try
