@@ -1,3 +1,5 @@
+4.0.0.21
+
 4.0.0.20
 * Rebased on OSS 4.0-rc2, commit e2ee45cc74a725ddd7a5a8e937e15599aab5227a
 * <rdar://79314476> (Apple Internal) Revert CASSANDRA-15899 on cie-cassandra-4.0.0 branch (#2460)
