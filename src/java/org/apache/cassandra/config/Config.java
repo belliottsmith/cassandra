@@ -244,7 +244,7 @@ public class Config
     public volatile int concurrent_validations;
 
     // The number of pending compactions at which we should reject new repair prepare requests
-    public volatile int reject_repair_compaction_threshold = 2048;
+    public volatile int reject_repair_compaction_threshold = 1024;
 
     public int concurrent_index_builds = 2;
 

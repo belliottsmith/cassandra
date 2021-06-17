@@ -26,6 +26,10 @@ import java.net.SocketTimeoutException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -37,6 +41,7 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.db.compaction.CompactionStrategyManager;
 import org.apache.cassandra.db.lifecycle.SSTableIntervalTree;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
@@ -250,7 +255,15 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public String description()
     {
-        return streamResult == null ? null : streamResult.description;
+        if (streamResult == null)
+        {
+            logger.warn("StreamResultFuture not initialized");
+            return null;
+        }
+        else
+        {
+            return streamResult.description;
+        }
     }
 
     public boolean keepSSTableLevel()
@@ -632,7 +645,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         processStreamRequests(requests);
 
         if (REPAIR_STREAM_PLAN_NAME.equals(description()))
-            checkAvailableDiskSpace(summaries);
+            checkAvailableDiskSpaceAndCompactions(summaries);
 
         for (StreamSummary summary : summaries)
             prepareReceiving(summary);
@@ -657,7 +670,13 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             startStreamingFiles();
     }
 
-    private void checkAvailableDiskSpace(Collection<StreamSummary> summaries)
+    private void checkAvailableDiskSpaceAndCompactions(Collection<StreamSummary> summaries)
+    {
+        checkAvailableDiskSpaceAndCompactions(summaries, planId(), peer.getHostAddress());
+    }
+
+    @VisibleForTesting
+    static void checkAvailableDiskSpaceAndCompactions(Collection<StreamSummary> summaries, @Nullable UUID planId, @Nullable String remoteAddress)
     {
         Map<UUID, Long> perCFIdIncomingBytes = new HashMap<>();
         Map<UUID, Integer> perCFIdIncomingFiles = new HashMap<>();
@@ -693,6 +712,55 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             }
             thisStreamTotalBytes += entry.getValue();
         }
+
+        // check estimate of total number of pending compactions including new incoming files
+        if (!perCFIdIncomingBytes.keySet().equals(perCFIdIncomingFiles.keySet())) {
+            logger.error("Mismatching sources for incoming bytes and files in summaries (bytes: {}; files: {})", perCFIdIncomingBytes.keySet(), perCFIdIncomingFiles.keySet());
+            return;
+        }
+        int pendingCompactionsBeforeStreaming = 0;
+        int pendingCompactionsAfterStreaming = 0;
+        List<String> tables = new ArrayList<>(perCFIdIncomingFiles.size());
+        for (Keyspace ks : Keyspace.all())
+        {
+            Map<ColumnFamilyStore, UUID> cfStreamed = perCFIdIncomingBytes.keySet().stream()
+                                                                        .filter(ks::hasColumnFamilyStore)
+                                                                        .collect(Collectors.toMap(ks::getColumnFamilyStore, Function.identity()));
+            for (ColumnFamilyStore cfs : ks.getColumnFamilyStores())
+            {
+                CompactionStrategyManager csm = cfs.getCompactionStrategyManager();
+                int tasksOther = csm.getEstimatedRemainingTasks();
+                int tasksStreamed = tasksOther;
+                if (cfStreamed.containsKey(cfs))
+                {
+                    UUID cfId = cfStreamed.get(cfs);
+                    tasksStreamed = csm.getEstimatedRemainingTasks(perCFIdIncomingFiles.get(cfId), perCFIdIncomingBytes.get(cfId));
+                    tables.add(String.format("%s.%s", cfs.keyspace.getName(), cfs.name));
+                }
+                pendingCompactionsBeforeStreaming += tasksOther;
+                pendingCompactionsAfterStreaming += tasksStreamed;
+            }
+        }
+        Collections.sort(tables);
+        int pendingThreshold = ActiveRepairService.instance.getRepairPendingCompactionRejectThreshold();
+        if (pendingCompactionsAfterStreaming > pendingThreshold)
+        {
+            logger.error("[Stream #{}] Rejecting incoming files based on pending compactions calculation " +
+                         "pendingCompactionsBeforeStreaming={} pendingCompactionsAfterStreaming={} pendingThreshold={} remoteAddress={}",
+                         planId, pendingCompactionsBeforeStreaming, pendingCompactionsAfterStreaming, pendingThreshold, remoteAddress);
+            throw new RuntimeException(String.format("Rejecting incoming streaming request, calculated pending compactions (%d) above threshold (%d)",
+                                                     pendingCompactionsAfterStreaming,
+                                                     pendingThreshold));
+        }
+
+        long newStreamFiles = perCFIdIncomingFiles.values().stream().mapToInt(i -> i).sum();
+
+        logger.info("[Stream #{}] Accepting incoming files newStreamTotalSSTables={} newStreamTotalBytes={} " +
+                    "pendingCompactionsBeforeStreaming={} pendingCompactionsAfterStreaming={} pendingThreshold={} remoteAddress={} " +
+                    "totalStreamRemainingBytes={} totalCompactionWriteRemainingBytes={} streamedTables=\"{}\"",
+                    planId, newStreamFiles, newStreamTotal,
+                    pendingCompactionsBeforeStreaming, pendingCompactionsAfterStreaming, pendingThreshold, remoteAddress,
+                    totalStreamRemaining, totalCompactionWriteRemaining, String.join(",", tables));
     }
 
     private void processStreamRequests(Collection<StreamRequest> requests)

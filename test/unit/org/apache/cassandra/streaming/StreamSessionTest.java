@@ -19,6 +19,7 @@
 package org.apache.cassandra.streaming;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -127,5 +128,32 @@ public class StreamSessionTest
 
         // a pending repair arg should only return sstables with the same pending repair id
         Assert.assertEquals(Sets.newHashSet(sstable2), selectReaders(pendingRepair));
+    }
+
+    @Test
+    public void checkAvailableDiskSpaceAndCompactions()
+    {
+        StreamSession.checkAvailableDiskSpaceAndCompactions(createSummaries(), UUID.randomUUID(), null);
+    }
+
+
+    @Test(expected = RuntimeException.class)
+    public void checkAvailableDiskSpaceAndCompactionsFailing()
+    {
+        int threshold = ActiveRepairService.instance.getRepairPendingCompactionRejectThreshold();
+        ActiveRepairService.instance.setRepairPendingCompactionRejectThreshold(1);
+        StreamSession.checkAvailableDiskSpaceAndCompactions(createSummaries(), UUID.randomUUID(), null);
+        ActiveRepairService.instance.setRepairPendingCompactionRejectThreshold(threshold);
+    }
+
+    private Collection<StreamSummary> createSummaries()
+    {
+        Collection<StreamSummary> summaries = new ArrayList<>();
+        for (int i = 0; i < 10; i++)
+        {
+            StreamSummary summary = new StreamSummary(tbm.cfId, i, (i + 1) * 10);
+            summaries.add(summary);
+        }
+        return summaries;
     }
 }

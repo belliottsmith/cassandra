@@ -904,6 +904,25 @@ public class CompactionStrategyManager implements INotificationConsumer
         }
     }
 
+    public int getEstimatedRemainingTasks(int additionalSSTables, long additionalBytes)
+    {
+        assert additionalSSTables > 0;
+        assert additionalBytes > 0;
+        readLock.lock();
+        try
+        {
+            int tasks = 0;
+            tasks += repaired.getEstimatedRemainingTasks(additionalSSTables, additionalBytes);
+            tasks += unrepaired.getEstimatedRemainingTasks(additionalSSTables, additionalBytes);
+            tasks += pendingRepairs.getEstimatedRemainingTasks(additionalSSTables, additionalBytes);
+            return tasks;
+        }
+        finally
+        {
+            readLock.unlock();
+        }
+    }
+
     public boolean shouldBeEnabled()
     {
         return params.isEnabled();

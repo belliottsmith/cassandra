@@ -19,6 +19,7 @@ package org.apache.cassandra.db.compaction;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
@@ -870,16 +871,25 @@ public class LeveledManifest
         return generations[i];
     }
 
-    public synchronized int getEstimatedTasks()
+    public int getEstimatedTasks()
+    {
+        return getEstimatedTasks(0);
+    }
+
+    int getEstimatedTasks(long additionalBytes)
+    {
+        return getEstimatedTasks((level) -> SSTableReader.getTotalBytes(getLevel(level)) + (level == 0 ? additionalBytes : 0));
+    }
+
+    private synchronized int getEstimatedTasks(Function<Integer,Long> fnTotalSizeBytesByLevel)
     {
         long tasks = 0;
         long[] estimated = new long[generations.length];
 
         for (int i = generations.length - 1; i >= 0; i--)
         {
-            List<SSTableReader> sstables = getLevel(i);
             // If there is 1 byte over TBL - (MBL * 1.001), there is still a task left, so we need to round up.
-            estimated[i] = (long)Math.ceil((double)Math.max(0L, SSTableReader.getTotalBytes(sstables) - (long)(maxBytesForLevel(i, maxSSTableSizeInBytes) * 1.001)) / (double)maxSSTableSizeInBytes);
+            estimated[i] = (long)Math.ceil((double)Math.max(0L, fnTotalSizeBytesByLevel.apply(i) - (long)(maxBytesForLevel(i, maxSSTableSizeInBytes) * 1.001)) / (double)maxSSTableSizeInBytes);
             tasks += estimated[i];
         }
 
