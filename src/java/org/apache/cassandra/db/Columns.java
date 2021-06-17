@@ -590,7 +590,7 @@ public class Columns extends AbstractCollection<ColumnMetadata> implements Colle
                 for (ColumnMetadata column : columns)
                 {
                     if (iter.next(column) == null)
-                        throw new IllegalStateException();
+                        throw new IllegalStateException(String.format("Unknown column: %s. Superset: %s", column, superset));
                     out.writeUnsignedVInt(iter.indexOfCurrent());
                 }
             }
@@ -601,7 +601,7 @@ public class Columns extends AbstractCollection<ColumnMetadata> implements Colle
                 for (ColumnMetadata column : columns)
                 {
                     if (iter.next(column) == null)
-                        throw new IllegalStateException();
+                        throw new IllegalStateException(String.format("Unknown column: %s. Superset: %s", column, superset));
                     int cur = iter.indexOfCurrent();
                     while (++prev != cur)
                         out.writeUnsignedVInt(prev);
