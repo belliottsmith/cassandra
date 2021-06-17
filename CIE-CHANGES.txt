@@ -1,4 +1,8 @@
 4.0.0.20
+* Rebased on OSS 4.0-rc2, commit e2ee45cc74a725ddd7a5a8e937e15599aab5227a
+* <rdar://79314476> (Apple Internal) Revert CASSANDRA-15899 on cie-cassandra-4.0.0 branch (#2460)
+* <rdar://79050572> (Apple Internal) Unable to decommision because cie_internal is rf=3 with only 1 live node) (#2450)
+* <rdar://78970609> (Apple Internal) Partial Revert: Avoid processing redundant application states on endpoint changes
 
 4.0.0.16-4.0.0.19 used for 4.0.0.15 hotfix releases
 
