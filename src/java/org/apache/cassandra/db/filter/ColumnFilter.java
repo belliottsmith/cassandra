@@ -1018,7 +1018,9 @@ public abstract class ColumnFilter
             {
                 if (version >= MessagingService.VERSION_3014)
                 {
-                    fetched = deserializeRegularAndStaticColumns(in, metadata);
+                    Columns statics = Columns.serializer.deserialize(in, metadata);
+                    Columns regulars = Columns.serializer.deserialize(in, metadata);
+                    fetched = new RegularAndStaticColumns(statics, regulars);
                 }
                 else
                 {
@@ -1028,7 +1030,9 @@ public abstract class ColumnFilter
 
             if (hasQueried)
             {
-                queried = deserializeRegularAndStaticColumns(in, metadata);
+                Columns statics = Columns.serializer.deserialize(in, metadata);
+                Columns regulars = Columns.serializer.deserialize(in, metadata);
+                queried = new RegularAndStaticColumns(statics, regulars);
             }
 
             SortedSetMultimap<ColumnIdentifier, ColumnSubselection> subSelections = null;
@@ -1063,14 +1067,6 @@ public abstract class ColumnFilter
             }
 
             return new SelectionColumnFilter(FetchingStrategy.ONLY_QUERIED_COLUMNS, queried, queried, subSelections);
-        }
-
-        private RegularAndStaticColumns deserializeRegularAndStaticColumns(DataInputPlus in,
-                                                                           TableMetadata metadata) throws IOException
-        {
-            Columns statics = Columns.serializer.deserializeStatics(in, metadata);
-            Columns regulars = Columns.serializer.deserializeRegulars(in, metadata);
-            return new RegularAndStaticColumns(statics, regulars);
         }
 
         private SortedSetMultimap<ColumnIdentifier, ColumnSubselection> deserializeSubSelection(DataInputPlus in,

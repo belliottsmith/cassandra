@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.distributed.test;
 
+import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -26,6 +27,7 @@ import org.apache.cassandra.distributed.Cluster;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ALL;
 
@@ -37,7 +39,7 @@ public class SchemaDisagreementTest extends TestBaseImpl
     @Test
     public void writeWithSchemaDisagreement() throws Throwable
     {
-        try (Cluster cluster = init(builder().withNodes(3).withConfig(config -> config.with(NETWORK)).start()))
+        try (Cluster cluster = init(builder().withNodes(3).start()))
         {
             cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))"));
 
@@ -47,7 +49,6 @@ public class SchemaDisagreementTest extends TestBaseImpl
 
             // Introduce schema disagreement
             cluster.schemaChange(withKeyspace("ALTER TABLE %s.tbl ADD v2 int"), 1);
-
             try
             {
                 cluster.coordinator(1).execute(withKeyspace("INSERT INTO %s.tbl (pk, ck, v1, v2) VALUES (2, 2, 2, 2)"), ALL);
@@ -55,78 +56,16 @@ public class SchemaDisagreementTest extends TestBaseImpl
             }
             catch (Exception e)
             {
-                // for some reason, we get weird errors when trying to check class directly
-                // I suppose it has to do with some classloader manipulation going on
-                Assert.assertTrue(e.getClass().toString().contains("WriteFailureException"));
-                // we may see 1 or 2 failures in here, because of the fail-fast behavior of AbstractWriteResponseHandler
-                Assert.assertTrue(e.getMessage().contains("INCOMPATIBLE_SCHEMA from ") &&
-                                  (e.getMessage().contains("/127.0.0.2") || e.getMessage().contains("/127.0.0.3")));
+                assertTrue(e.getCause().getMessage().contains("Unknown column v2 during deserialization"));
             }
         }
     }
 
-    /**
-     * If a node receives a mutation for a column it knows has been dropped, the write should succeed.
-     */
-    @Test
-    public void writeWithSchemaDisagreement2() throws Throwable
-    {
-        try (Cluster cluster = init(builder().withNodes(3).withConfig(config -> config.with(NETWORK)).start()))
-        {
-            cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl (pk int, ck int, v1 int, v2 int, PRIMARY KEY (pk, ck))"));
 
-            cluster.get(1).executeInternal(withKeyspace("INSERT INTO %s.tbl (pk, ck, v1, v2) VALUES (1, 1, 1, 1)"));
-            cluster.get(2).executeInternal(withKeyspace("INSERT INTO %s.tbl (pk, ck, v1, v2) VALUES (1, 1, 1, 1)"));
-            cluster.get(3).executeInternal(withKeyspace("INSERT INTO %s.tbl (pk, ck, v1, v2) VALUES (1, 1, 1, 1)"));
-            cluster.forEach((instance) -> instance.flush(KEYSPACE));
-
-            // Introduce schema disagreement
-            cluster.schemaChange(withKeyspace("ALTER TABLE %s.tbl DROP v2"), 1);
-
-            // execute a write including the dropped column where the coordinator is not yet aware of the drop
-            // all nodes should process this without error
-            cluster.coordinator(2).execute(withKeyspace("INSERT INTO %s.tbl (pk, ck, v1, v2) VALUES (2, 2, 2, 2)"), ALL);
-            // and flushing should also be fine
-            cluster.forEach((instance) -> instance.flush(KEYSPACE));
-            // the results of reads will vary depending on whether the coordinator has seen the schema change
-            // note: read repairs will propagate the v2 value to node1, but this is safe and handled correctly
-            assertRows(cluster.coordinator(2).execute(withKeyspace("SELECT * FROM %s.tbl"), ALL),
-                       rows(row(1, 1, 1, 1), row(2, 2, 2, 2)));
-            assertRows(cluster.coordinator(1).execute(withKeyspace("SELECT * FROM %s.tbl"), ALL),
-                       rows(row(1, 1, 1), row(2, 2, 2)));
-        }
-    }
-
-    /**
-     * If a node isn't aware of a column, but receives a mutation without that column, the write should succeed.
-     */
-    @Test
-    public void writeWithInconsequentialSchemaDisagreement() throws Throwable
-    {
-        try (Cluster cluster = init(builder().withNodes(3).withConfig(config -> config.with(NETWORK)).start()))
-        {
-            cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))"));
-
-            cluster.get(1).executeInternal(withKeyspace("INSERT INTO %s.tbl (pk, ck, v1) VALUES (1, 1, 1)"));
-            cluster.get(2).executeInternal(withKeyspace("INSERT INTO %s.tbl (pk, ck, v1) VALUES (1, 1, 1)"));
-            cluster.get(3).executeInternal(withKeyspace("INSERT INTO %s.tbl (pk, ck, v1) VALUES (1, 1, 1)"));
-
-            // Introduce schema disagreement
-            cluster.schemaChange(withKeyspace("ALTER TABLE %s.tbl ADD v2 int"), 1);
-
-            // this write shouldn't cause any problems because it doesn't write to the new column
-            cluster.coordinator(1).execute(withKeyspace("INSERT INTO %s.tbl (pk, ck, v1) VALUES (2, 2, 2)"), ALL);
-        }
-    }
-
-    /**
-     * If a node receives a read for a column it's not aware of, it shouldn't complain, since it won't have any data for
-     * that column.
-     */
     @Test
     public void readWithSchemaDisagreement() throws Throwable
     {
-        try (Cluster cluster = init(builder().withNodes(3).withConfig(config -> config.with(NETWORK)).start()))
+        try (Cluster cluster = init(builder().withNodes(3).start()))
         {
             cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl (pk int, ck int, v1 int, PRIMARY KEY (pk, ck))"));
 
@@ -136,9 +75,53 @@ public class SchemaDisagreementTest extends TestBaseImpl
 
             // Introduce schema disagreement
             cluster.schemaChange(withKeyspace("ALTER TABLE %s.tbl ADD v2 int"), 1);
+            try
+            {
+                assertRows(cluster.coordinator(1).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk = 1", ALL),
+                           row(1, 1, 1, null));
+                fail("Should have failed because of schema disagreement.");
+            }
+            catch (Exception e)
+            {
+                assertTrue(e.getCause().getMessage().contains("Unknown column v2 during deserialization"));
+            }
+        }
+    }
 
-            assertRows(cluster.coordinator(1).execute(withKeyspace("SELECT * FROM %s.tbl WHERE pk = 1"), ALL),
-                       new Object[][]{ new Object[]{ 1, 1, 1, null } });
+    @Test
+    public void readRepair() throws Throwable
+    {
+        try (Cluster cluster = init(Cluster.build(2).start()))
+        {
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v1 int, v2 int,  primary key (pk, ck))");
+            String name = "aaa";
+            cluster.get(1).schemaChangeInternal("ALTER TABLE " + KEYSPACE + ".tbl ADD " + name + " list<int>");
+            cluster.get(1).executeInternal("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v1, v2) values (?,1,1,1)", 1);
+            selectSilent(cluster, name);
+            cluster.get(2).flush(KEYSPACE);
+            cluster.get(2).schemaChangeInternal("ALTER TABLE " + KEYSPACE + ".tbl ADD " + name + " list<int>");
+            cluster.get(2).shutdown();
+            cluster.get(2).startup();
+            cluster.get(2).forceCompact(KEYSPACE, "tbl");
+        }
+    }
+    private void selectSilent(Cluster cluster, String name)
+    {
+        try
+        {
+            cluster.coordinator(1).execute(withKeyspace("SELECT * FROM %s.tbl WHERE pk = ?"), ConsistencyLevel.ALL, 1);
+        }
+        catch (Exception e)
+        {
+            boolean causeIsUnknownColumn = false;
+            Throwable cause = e;
+            while (cause != null)
+            {
+                if (cause.getMessage() != null && cause.getMessage().contains("Unknown column "+name+" during deserialization"))
+                    causeIsUnknownColumn = true;
+                cause = cause.getCause();
+            }
+            assertTrue(causeIsUnknownColumn);
         }
     }
 }
