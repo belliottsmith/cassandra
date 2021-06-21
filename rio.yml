@@ -90,6 +90,33 @@ builds:
           - parallel-output/**/*
 
   #
+  # Pull request builder triggering python dtests
+  #
+  - name: ghprb-python-dtest-3.0.24
+    branchName: cie-cassandra-3.0.24
+    jenkins:
+      concurrentBuild: true
+      throttlingEnabled: true
+      maxConcurrentTotal: 2
+    machine:
+      baseImage: docker.apple.com/cpbuild/applejdk-8:latest
+    secrets:
+      names:
+        - rio-env.sh
+    build:
+      template: freestyle:v4:prb
+      steps:
+        - rio/trigger-python-dtest-prb.sh
+    timeout: 180
+    reports:
+      junit: false
+    finally:
+      radar:
+        annotate: false
+      tag:
+        enabled: false
+
+  #
   # Snapshot build - runs automatically on commit
   #
   - name: build-3.0.24
