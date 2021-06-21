@@ -13,13 +13,15 @@ commands:
     ifconfig -a
     echo '*** uname -a ***'
     uname -a
+    echo '*** ulimit -a ***'
+    ulimit -a
     echo '*** mount ***'
     mount
     echo '*** env ***'
     env
     echo '*** java ***'
     which java
-    java -version
+    java -version 2>&1
 
 - name: Display Splits
   noOutputTimeout: PT15M
