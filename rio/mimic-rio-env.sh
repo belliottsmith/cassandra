@@ -40,7 +40,7 @@ echo -n '$mcqueen_yaml' > \"\$BUILD_SECRETS_PATH/mcqueen.yml\"
 export PIPELINE_SPEC_ID="${real_user}-rio-local"
 export RIO_BUILD_NUMBER=42
 # this is a flat out lie, but needed to make sure you can test the build train
-export GIT_BRANCH=cie-cassandra-3.0.19
+export GIT_BRANCH=cie-cassandra-3.0.24
 
 bash
 "

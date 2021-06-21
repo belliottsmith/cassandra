@@ -6,13 +6,22 @@ set -o pipefail
 set -o xtrace
 
 readonly RIO_DIR="$(dirname "$0")"
-readonly PARALLELOUTPUT="${PWD}/parallel-output"
+readonly BASE_DIR="$(cd "$RIO_DIR/.."; pwd)"
+readonly PARALLELOUTPUT="${BASE_DIR}/parallel-output"
+
+# build locally so parallel ci copies the jars into the container
+rm -rf "${BASE_DIR}/build" || true
+timeout 15m bash -c "cd '$BASE_DIR' && ant -f rio-build.xml jar "
 
 # Wrap call to parallel-tests with timeout as per-command
 # timeouts are not currently implemented and this gives us
 # a chance of having Rio examine any created output
 #
-timeout 160m "$RIO_DIR/parallel-tests.sh" ./rio/unittests.yml "$PARALLELOUTPUT"
+if [[ -e "${BASE_DIR}/disable-parallel-tests" ]]; then
+  timeout 160m "$RIO_DIR/sequential-tests.sh" "$PARALLELOUTPUT"
+else
+  timeout 160m "$RIO_DIR/parallel-tests.sh" ./rio/unittests.yml "$PARALLELOUTPUT"
+fi
 
 # Extract the count of errors and failures from the junit reports.
 # ParallelCI will prefix the test XML names with the jvm scope used,
