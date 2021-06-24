@@ -44,7 +44,7 @@ Audit Logging (FileAuditLogger) rolling file appender to audit.log -->
                 <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
 		<PatternLayout pattern="%-5level %date{HH:mm:ss,SSS} %msg%n"/>
 	    </Console>
-        <Async name="ASYNC">
+        <Async name="ASYNC" includeLocation="true">
             <AppenderRef ref="FILE" />
             <AppenderRef ref="DEBUG"/>
 	    <AppenderRef ref="STDOUT" />
