@@ -44,6 +44,7 @@ import org.apache.cassandra.db.partitions.PartitionStatisticsCollector;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.SearchIterator;
 
 public class RowsTest
 {
@@ -673,5 +674,53 @@ public class RowsTest
                         liveCell(b, 2),
                         liveCell(b, 1),
                         liveCell(a));
+    }
+
+    @Test
+    public void searchIteratorTest()
+    {
+        CFMetaData metadata = CFMetaData.Builder.create("testks", "testcf")
+                                                .addPartitionKey("pk", Int32Type.instance)
+                                                .addStaticColumn("s1", Int32Type.instance)
+                                                .addStaticColumn("s2", Int32Type.instance)
+                                                .addStaticColumn("s3", Int32Type.instance)
+                                                .addRegularColumn("v1", Int32Type.instance)
+                                                .addRegularColumn("v2", Int32Type.instance)
+                                                .addRegularColumn("v3", Int32Type.instance)
+                                                .build();
+
+        ColumnDefinition v1 = metadata.getColumnDefinition(new ColumnIdentifier("v1", true));
+        ColumnDefinition v2 = metadata.getColumnDefinition(new ColumnIdentifier("v2", true));
+        ColumnDefinition v3 = metadata.getColumnDefinition(new ColumnIdentifier("v3", true));
+
+        ColumnDefinition s1 = metadata.getColumnDefinition(new ColumnIdentifier("s1", true));
+        ColumnDefinition s2 = metadata.getColumnDefinition(new ColumnIdentifier("s2", true));
+        ColumnDefinition s3 = metadata.getColumnDefinition(new ColumnIdentifier("s3", true));
+
+        Row.Builder builder = BTreeRow.sortedBuilder();
+        builder.addCell(new BufferCell(v1, 1, Cell.NO_TTL, Cell.NO_DELETION_TIME, ByteBufferUtil.bytes(1), null));
+        builder.addCell(new BufferCell(v2, 1, Cell.NO_TTL, Cell.NO_DELETION_TIME, ByteBufferUtil.bytes(2), null));
+        builder.addCell(new BufferCell(v3, 1, Cell.NO_TTL, Cell.NO_DELETION_TIME, ByteBufferUtil.bytes(3), null));
+
+        Row row = builder.build();
+        Assert.assertEquals(ByteBufferUtil.bytes(1), row.getCell(v1).value());
+        Assert.assertEquals(ByteBufferUtil.bytes(2), row.getCell(v2).value());
+        Assert.assertEquals(ByteBufferUtil.bytes(3), row.getCell(v3).value());
+
+        SearchIterator<ColumnDefinition, ColumnData> iter = row.searchIterator();
+        Assert.assertEquals(ByteBufferUtil.bytes(1), ((Cell)iter.next(v1)).value());
+        Assert.assertEquals(ByteBufferUtil.bytes(2), ((Cell)iter.next(v2)).value());
+        Assert.assertEquals(ByteBufferUtil.bytes(3), ((Cell)iter.next(v3)).value());
+
+        builder.newRow(Clustering.STATIC_CLUSTERING);
+        builder.addCell(new BufferCell(s1, 1, Cell.NO_TTL, Cell.NO_DELETION_TIME, ByteBufferUtil.bytes(1), null));
+        builder.addCell(new BufferCell(s2, 1, Cell.NO_TTL, Cell.NO_DELETION_TIME, ByteBufferUtil.bytes(2), null));
+        builder.addCell(new BufferCell(s3, 1, Cell.NO_TTL, Cell.NO_DELETION_TIME, ByteBufferUtil.bytes(3), null));
+
+        row = builder.build();
+        iter = row.searchIterator();
+        Assert.assertEquals(ByteBufferUtil.bytes(1), ((Cell)iter.next(s1)).value());
+        Assert.assertEquals(ByteBufferUtil.bytes(2), ((Cell)iter.next(s2)).value());
+        Assert.assertEquals(ByteBufferUtil.bytes(3), ((Cell)iter.next(s3)).value());
     }
 }
