@@ -775,7 +775,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return bootstrapTokens;
     }
 
-    private synchronized void checkForEndpointCollision(UUID localHostId, Set<InetAddress> peers) throws ConfigurationException
+    public synchronized void checkForEndpointCollision(UUID localHostId, Set<InetAddress> peers) throws ConfigurationException
     {
         if (Boolean.getBoolean("cassandra.allow_unsafe_join"))
         {
