@@ -92,6 +92,7 @@ import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MBeanWrapper;
+import org.apache.cassandra.utils.MerkleTrees;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
 
@@ -740,19 +741,35 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
     public void handleMessage(Message<? extends RepairMessage> message)
     {
-        RepairJobDesc desc = message.payload.desc;
+        RepairMessage payload = message.payload;
+        RepairJobDesc desc = payload.desc;
         RepairSession session = sessions.get(desc.sessionId);
+
         if (session == null)
+        {
+            if (payload instanceof ValidationResponse)
+            {
+                // The trees may be off-heap, and will therefore need to be released.
+                ValidationResponse validation = (ValidationResponse) payload;
+                MerkleTrees trees = validation.trees;
+                
+                // The response from a failed validation won't have any trees.
+                if (trees != null)
+                    trees.release();
+            }
+
             return;
+        }
+
         switch (message.verb())
         {
             case VALIDATION_RSP:
-                ValidationResponse validation = (ValidationResponse) message.payload;
+                ValidationResponse validation = (ValidationResponse) payload;
                 session.validationComplete(desc, message.from(), validation.trees);
                 break;
             case SYNC_RSP:
                 // one of replica is synced.
-                SyncResponse sync = (SyncResponse) message.payload;
+                SyncResponse sync = (SyncResponse) payload;
                 session.syncComplete(desc, sync.nodes, sync.success, sync.summaries);
                 break;
             default:
