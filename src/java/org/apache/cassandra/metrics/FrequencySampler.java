@@ -37,27 +37,24 @@ import com.clearspring.analytics.stream.StreamSummary;
 public abstract class FrequencySampler<T> extends Sampler<T>
 {
     private static final Logger logger = LoggerFactory.getLogger(FrequencySampler.class);
-    private long endTimeMillis = -1;
 
     private StreamSummary<T> summary;
 
     /**
      * Start to record samples
      *
-     * @param capacity
-     *            Number of sample items to keep in memory, the lower this is
-     *            the less accurate results are. For best results use value
-     *            close to cardinality, but understand the memory trade offs.
+     * @param capacity Number of sample items to keep in memory, the lower this is
+     *                 the less accurate results are. For best results use value
+     *                 close to cardinality, but understand the memory trade offs.
      */
     public synchronized void beginSampling(int capacity, int durationMillis)
     {
-        if (endTimeMillis == -1 || clock.currentTimeMillis() > endTimeMillis)
+        if (isActive())
         {
-            summary = new StreamSummary<T>(capacity);
-            endTimeMillis = clock.currentTimeMillis() + durationMillis;
-        }
-        else
             throw new RuntimeException("Sampling already in progress");
+        }
+        updateEndTime(clock.currentTimeMillis() + durationMillis);
+        summary = new StreamSummary<>(capacity);
     }
 
     /**
@@ -67,12 +64,12 @@ public abstract class FrequencySampler<T> extends Sampler<T>
     public synchronized List<Sample<T>> finishSampling(int count)
     {
         List<Sample<T>> results = Collections.emptyList();
-        if (endTimeMillis != -1)
+        if (isEnabled())
         {
-            endTimeMillis = -1;
+            disable();
             results = summary.topK(count)
                              .stream()
-                             .map(c -> new Sample<T>(c.getItem(), c.getCount(), c.getError()))
+                             .map(c -> new Sample<>(c.getItem(), c.getCount(), c.getError()))
                              .collect(Collectors.toList());
         }
         return results;
@@ -82,22 +79,17 @@ public abstract class FrequencySampler<T> extends Sampler<T>
     {
         // samplerExecutor is single threaded but still need
         // synchronization against jmx calls to finishSampling
-        if (value > 0 && clock.currentTimeMillis() <= endTimeMillis)
+        if (value > 0 && isActive())
         {
             try
             {
                 summary.offer(item, (int) Math.min(value, Integer.MAX_VALUE));
-            } catch (Exception e)
+            }
+            catch (Exception e)
             {
                 logger.trace("Failure to offer sample", e);
             }
         }
     }
-
-    public boolean isEnabled()
-    {
-        return endTimeMillis != -1 && clock.currentTimeMillis() <= endTimeMillis;
-    }
-
 }
 

@@ -61,6 +61,7 @@ import org.apache.cassandra.db.RangeSliceVerbHandler;
 import org.apache.cassandra.db.ReadCommandVerbHandler;
 import org.apache.cassandra.db.partitions.AtomicBTreePartition;
 import org.apache.cassandra.io.util.DataInputPlus;
+import org.apache.cassandra.metrics.SamplingManager;
 import org.apache.cassandra.net.PingVerbHandler;
 import org.apache.cassandra.utils.progress.ProgressListener;
 import org.apache.logging.log4j.Level;
@@ -207,6 +208,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private volatile boolean isShutdown = false;
 
     public static final StorageService instance = new StorageService();
+
+    private final SamplingManager samplingManager = new SamplingManager();
 
     private final java.util.function.Predicate<Keyspace> anyOutOfRangeOpsRecorded
             = keyspace -> keyspace.metric.outOfRangeTokenReads.getCount() > 0
@@ -5609,13 +5612,14 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * { "sampler_name": [ {table: "", count: i, error: i, value: ""}, ... ] }
      */
     @Override
-    public Map<String, List<CompositeData>> samplePartitions(int durationMillis, int capacity, int count,
+    public Map<String, List<CompositeData>> samplePartitions(String keyspace, int durationMillis, int capacity, int count,
                                                              List<String> samplers) throws OpenDataException
     {
         ConcurrentHashMap<String, List<CompositeData>> result = new ConcurrentHashMap<>();
+        Iterable<ColumnFamilyStore> tables = SamplingManager.getTables(keyspace, null);
         for (String sampler : samplers)
         {
-            for (ColumnFamilyStore table : ColumnFamilyStore.all())
+            for (ColumnFamilyStore table : tables)
             {
                 table.beginLocalSampling(sampler, capacity, durationMillis);
             }
@@ -5625,7 +5629,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         for (String sampler : samplers)
         {
             List<CompositeData> topk = new ArrayList<>();
-            for (ColumnFamilyStore table : ColumnFamilyStore.all())
+            for (ColumnFamilyStore table : tables)
             {
                 topk.addAll(table.finishLocalSampling(sampler, count));
             }
@@ -5641,6 +5645,23 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             result.put(sampler, topk);
         }
         return result;
+    }
+
+    @Override // ks and table are nullable
+    public boolean startSamplePartitions(String ks, String table, int duration, int interval, int capacity, int count, List<String> samplers)
+    {
+        return samplingManager.register(ks, table, duration, interval, capacity, count, samplers);
+    }
+
+    @Override
+    public boolean stopSamplePartitions(String ks, String table)
+    {
+        return samplingManager.unregister(ks, table);
+    }
+
+    @Override
+    public List<String> getSampleTasks() {
+        return samplingManager.all();
     }
 
     public void rebuildSecondaryIndex(String ksName, String cfName, String... idxNames)

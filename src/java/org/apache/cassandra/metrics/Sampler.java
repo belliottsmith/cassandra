@@ -48,6 +48,8 @@ public abstract class Sampler<T>
             new NamedThreadFactory("Sampler"),
             "internal");
 
+    private long endTimeMillis = -1;
+
     static
     {
         samplerExecutor.setRejectedExecutionHandler((runnable, executor) ->
@@ -64,10 +66,54 @@ public abstract class Sampler<T>
 
     protected abstract void insert(T item, long value);
 
-    public abstract boolean isEnabled();
+    /**
+     * @return true if the sampler is enabled.
+     * A sampler is enabled between `beginSampling` and `finishSampling`.
+     */
+    public boolean isEnabled()
+    {
+        return endTimeMillis != -1;
+    }
 
+    // Disable the sampler
+    public void disable()
+    {
+        endTimeMillis = -1;
+    }
+
+    /**
+     * @return true if the sampler is active.
+     * A sampler is active only if it is enabled and the current time is within the `durationMillis` when beginning sampling.
+     */
+    public boolean isActive()
+    {
+        return isEnabled() && clock.currentTimeMillis() <= endTimeMillis;
+    }
+
+    /**
+     * Update the end time for the sampler. Implicitly, calling this method enables the sampler
+     */
+    public void updateEndTime(long endTimeMillis)
+    {
+        this.endTimeMillis = endTimeMillis;
+    }
+
+    /**
+     * Begin sampling with the configured capacity and duration
+     * @param capacity Number of sample items to keep in memory, the lower this is
+     *                 the less accurate results are. For best results use value
+     *                 close to cardinality, but understand the memory trade offs.
+     * @param durationMillis Upperbound duration in milliseconds for sampling. The sampler
+     *                       stops accepting new samples after exceeding the duration
+     *                       even if {@link #finishSampling(int)}} is not called.
+     */
     public abstract void beginSampling(int capacity, int durationMillis);
 
+    /**
+     * Stops samplings and return results
+     * @param count Number of samples requested to retrive from the sampler
+     * @return a list of samples, the size is the minimum of the total samples or {@param count}.
+     */
     public abstract List<Sample<T>> finishSampling(int count);
 
     public abstract String toString(T value);

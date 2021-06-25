@@ -28,35 +28,30 @@ public abstract class MaxSampler<T> extends Sampler<T>
 {
     private int capacity;
     private MinMaxPriorityQueue<Sample<T>> queue;
-    private long endTimeMillis = -1;
     private final Comparator<Sample<T>> comp = Collections.reverseOrder(Comparator.comparing(p -> p.count));
 
-    public boolean isEnabled()
-    {
-        return endTimeMillis != -1 && clock.currentTimeMillis() <= endTimeMillis;
-    }
-
+    @Override
     public synchronized void beginSampling(int capacity, int durationMillis)
     {
-        if (endTimeMillis == -1 || clock.currentTimeMillis() > endTimeMillis)
+        if (isActive())
         {
-            endTimeMillis = clock.currentTimeMillis() + durationMillis;
-            queue = MinMaxPriorityQueue
+            throw new RuntimeException("Sampling already in progress");
+        }
+        updateEndTime(clock.currentTimeMillis() + durationMillis);
+        queue = MinMaxPriorityQueue
                     .orderedBy(comp)
                     .maximumSize(Math.max(1, capacity))
                     .create();
-            this.capacity = capacity;
-        }
-        else
-            throw new RuntimeException("Sampling already in progress");
+        this.capacity = capacity;
     }
 
+    @Override
     public synchronized List<Sample<T>> finishSampling(int count)
     {
         List<Sample<T>> result = new ArrayList<>(count);
-        if (endTimeMillis != -1)
+        if (isEnabled())
         {
-            endTimeMillis = -1;
+            disable();
             Sample<T> next;
             while ((next = queue.poll()) != null && result.size() <= count)
                 result.add(next);
@@ -67,9 +62,12 @@ public abstract class MaxSampler<T> extends Sampler<T>
     @Override
     protected synchronized void insert(T item, long value)
     {
-        if (value > 0 && clock.currentTimeMillis() <= endTimeMillis
-                && (queue.isEmpty() || queue.size() < capacity || queue.peekLast().count < value))
-            queue.add(new Sample<T>(item, value, 0));
+        if (isActive() && permitsValue(value))
+            queue.add(new Sample<>(item, value, 0));
     }
 
+    private boolean permitsValue(long value)
+    {
+        return value > 0 && (queue.isEmpty() || queue.size() < capacity || queue.peekLast().count < value);
+    }
 }
