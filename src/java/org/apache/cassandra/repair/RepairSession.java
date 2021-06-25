@@ -18,7 +18,14 @@
 package org.apache.cassandra.repair;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -202,7 +209,12 @@ public class RepairSession extends AbstractFuture<RepairSessionResult> implement
         ValidationTask task = validating.remove(Pair.create(desc, endpoint));
         if (task == null)
         {
-            assert terminated;
+            assert terminated : "The repair session should be terminated if the validation we're completing no longer exists.";
+            
+            // The trees may be off-heap, and will therefore need to be released.
+            if (trees != null)
+                trees.release();
+            
             return;
         }
 
