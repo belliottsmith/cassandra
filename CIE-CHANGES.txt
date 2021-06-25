@@ -1,4 +1,5 @@
 4.0.0.21
+* <no radar> (Early Port CASSANDRA-16759) Avoid memoizing the wrong min cluster version during upgrades (#2479)
 
 4.0.0.20
 * Rebased on OSS 4.0-rc2, commit e2ee45cc74a725ddd7a5a8e937e15599aab5227a
