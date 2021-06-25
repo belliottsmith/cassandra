@@ -179,9 +179,11 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
         // Skip the round if the gossiper has not started yet
         // Otherwise, upgradeInProgressPossible can be set to false wrongly.
-        if (!isEnabled())
+        // If we don't know any epstate we don't know anything about the cluster.
+        // If we only know about ourselves, we can assume that version is CURRENT_VERSION
+        if (!isEnabled() || endpointStateMap.isEmpty() || endpointStateMap.keySet().equals(Collections.singleton(FBUtilities.getBroadcastAddressAndPort())))
         {
-            return new ExpiringMemoizingSupplier.Memoized<>(minVersion);
+            return new ExpiringMemoizingSupplier.NotMemoized<>(minVersion);
         }
 
         Iterable<InetAddressAndPort> allHosts = Iterables.concat(Gossiper.instance.getLiveMembers(),
