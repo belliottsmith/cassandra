@@ -20,11 +20,9 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
-import org.junit.Assert;
+import org.assertj.core.api.Assertions;
 import org.junit.Test;
 
 import net.bytebuddy.ByteBuddy;
@@ -69,8 +67,7 @@ public class RepairErrorsTest extends TestBaseImpl
             cluster.forEach(i -> i.flush(KEYSPACE));
             long mark = cluster.get(1).logs().mark();
             cluster.forEach(i -> i.nodetoolResult("repair", "--full").asserts().failure());
-            Assert.assertEquals(Collections.emptyList(),
-                cluster.get(1).logs().grep(mark, "^ERROR").getResult().stream().filter(s -> !s.contains("Reference-Reaper")).collect(Collectors.toList()));
+            Assertions.assertThat(cluster.get(1).logs().grep(mark, "^ERROR").getResult()).isEmpty();
         }
     }
 
