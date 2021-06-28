@@ -169,27 +169,32 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
      */
     private volatile boolean upgradeInProgressPossible = true;
 
+    // returns true when the node does not know the existence of other nodes.
+    private static boolean isLoneNode(Map<InetAddressAndPort, EndpointState> epStates)
+    {
+        return epStates.isEmpty() || epStates.keySet().equals(Collections.singleton(FBUtilities.getBroadcastAddressAndPort()));
+    }
+
     final Supplier<ExpiringMemoizingSupplier.ReturnValue<CassandraVersion>> upgradeFromVersionSupplier = () ->
     {
         // Once there are no prior version nodes we don't need to keep rechecking
         if (!upgradeInProgressPossible)
             return new ExpiringMemoizingSupplier.Memoized<>(null);
 
-        CassandraVersion minVersion = SystemKeyspace.CURRENT_VERSION.familyLowerBound.get();
+        CassandraVersion minVersion = SystemKeyspace.CURRENT_VERSION;
 
         // Skip the round if the gossiper has not started yet
         // Otherwise, upgradeInProgressPossible can be set to false wrongly.
         // If we don't know any epstate we don't know anything about the cluster.
         // If we only know about ourselves, we can assume that version is CURRENT_VERSION
-        if (!isEnabled() || endpointStateMap.isEmpty() || endpointStateMap.keySet().equals(Collections.singleton(FBUtilities.getBroadcastAddressAndPort())))
+        if (!isEnabled() || isLoneNode(endpointStateMap))
         {
             return new ExpiringMemoizingSupplier.NotMemoized<>(minVersion);
         }
 
-        Iterable<InetAddressAndPort> allHosts = Iterables.concat(Gossiper.instance.getLiveMembers(),
-                                                                 Gossiper.instance.getUnreachableMembers());
+        // Check the release version of all the peers it heard of. Not necessary the peer that it has/had contacted with.
         boolean allHostsHaveKnownVersion = true;
-        for (InetAddressAndPort host : allHosts)
+        for (InetAddressAndPort host : endpointStateMap.keySet())
         {
             CassandraVersion version = getReleaseVersion(host);
 
@@ -2213,18 +2218,19 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         return isUpgradingFromVersionLowerThan(CassandraVersion.CASSANDRA_4_0) || // this is quite obvious
                // however if we discovered only nodes at current version so far (in particular only this node),
                // but still there are nodes with unkonwn version, we also want to report that the cluster may have nodes at 3.x
-               upgradeInProgressPossible && !isUpgradingFromVersionLowerThan(SystemKeyspace.CURRENT_VERSION);
+               upgradeInProgressPossible && !isUpgradingFromVersionLowerThan(SystemKeyspace.CURRENT_VERSION.familyLowerBound.get());
     }
 
     /**
      * Returns {@code true} if there are nodes on version lower than the provided version (only major / minor counts)
      */
-    public boolean isUpgradingFromVersionLowerThan(CassandraVersion referenceVersion) {
+    public boolean isUpgradingFromVersionLowerThan(CassandraVersion referenceVersion)
+    {
         CassandraVersion v = upgradeFromVersionMemoized.get();
         if (SystemKeyspace.NULL_VERSION.equals(v) && scheduledGossipTask == null)
             return false;
-        else
-            return v != null && v.compareTo(referenceVersion.familyLowerBound.get()) < 0;
+
+        return v != null && v.compareTo(referenceVersion) < 0;
     }
 
     private boolean nodesAgreeOnSchema(Collection<InetAddressAndPort> nodes)
