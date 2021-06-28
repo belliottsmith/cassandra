@@ -1,3 +1,5 @@
+4.0.0.23
+
 4.0.0.22
 * <no radar> (Early Port CASSANDRA-16759, updated) Avoid memoizing the wrong min cluster version during upgrades  (#2482)
 
