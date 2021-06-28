@@ -149,7 +149,7 @@ public class GossiperTest
         Gossiper.instance.endpointStateMap.remove(InetAddressAndPort.getByName("127.0.0.2"));
         Gossiper.instance.liveEndpoints.remove(InetAddressAndPort.getByName("127.0.0.2"));
 
-        assertEquals(SystemKeyspace.CURRENT_VERSION.familyLowerBound.get(), Gossiper.instance.upgradeFromVersionSupplier.get().value());
+        assertEquals(SystemKeyspace.CURRENT_VERSION, Gossiper.instance.upgradeFromVersionSupplier.get().value());
     }
 
     @Test
