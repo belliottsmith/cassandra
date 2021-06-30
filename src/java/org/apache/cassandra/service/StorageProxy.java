@@ -3140,4 +3140,16 @@ public class StorageProxy implements StorageProxyMBean
     {
         return DatabaseDescriptor.ignorePkLivenessForRowCompletion();
     }
+
+    @Override
+    public boolean getDumpHeapOnUncaughtException()
+    {
+        return DatabaseDescriptor.getDumpHeapOnUncaughtException();
+    }
+
+    @Override
+    public void setDumpHeapOnUncaughtException(boolean enabled)
+    {
+        DatabaseDescriptor.setDumpHeapOnUncaughtException(enabled);
+    }
 }
