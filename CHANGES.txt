@@ -1,3 +1,5 @@
+3.0.24.10
+
 3.0.24.9
 rdar://77771062 (Apple Internal) (Ability to log load profiles at fixed intervals (#2395)
 rdar://79414851 (Apple Internal) (ColumnDefinition.asymmetricColumnDataComparator throws ClassCastException: ColumnDefinition cannot be cast to ColumnData) (#2463)
