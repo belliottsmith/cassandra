@@ -188,4 +188,7 @@ public interface StorageProxyMBean
 
     public void setIgnorePkLivenessForRowCompletion(boolean ignore);
     public boolean getIgnorePkLivenessForRowCompletion();
+
+    public boolean getDumpHeapOnUncaughtException();
+    public void setDumpHeapOnUncaughtException(boolean enabled);
 }
