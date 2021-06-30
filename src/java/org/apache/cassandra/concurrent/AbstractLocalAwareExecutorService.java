@@ -26,6 +26,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import org.apache.cassandra.utils.HeapUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -167,6 +168,16 @@ public abstract class AbstractLocalAwareExecutorService implements LocalAwareExe
                 result = t;
                 failure = true;
                 JVMStabilityInspector.inspectThrowable(t);
+
+                try
+                {
+                    // If the exception hasn't killed the JVM, take a heap dump (if heap dump creation is enabled). 
+                    HeapUtils.maybeCreateHeapDump();
+                }
+                catch (Throwable e)
+                {
+                    logger.warn("Unable to create heap dump.", e);
+                }
             }
             finally
             {
