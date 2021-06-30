@@ -3873,4 +3873,15 @@ public class DatabaseDescriptor
     {
         return conf.allow_unsafe_aggressive_sstable_expiration;
     }
+    
+    public static boolean getDumpHeapOnUncaughtException()
+    {
+        return conf.dump_heap_on_uncaught_exception;
+    }
+
+    public static void setDumpHeapOnUncaughtException(boolean enabled)
+    {
+        logger.info("Setting dump_heap_on_uncaught_exception to {}", enabled);
+        conf.dump_heap_on_uncaught_exception = enabled;
+    }
 }
