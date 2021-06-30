@@ -857,4 +857,6 @@ public class Config
 
         logger.info("Node configuration:[{}]", Joiner.on("; ").join(configMap.entrySet()));
     }
+    
+    public volatile boolean dump_heap_on_uncaught_exception = false;
 }
