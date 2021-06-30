@@ -1,4 +1,12 @@
 3.0.24.9
+rdar://77771062 (Apple Internal) (Ability to log load profiles at fixed intervals (#2395)
+rdar://78623577 (Apple Internal) (Backport CASSANDRA-13642 Expose recent histograms in …) (#2433)
+rdar://79414851 (Apple Internal) (ColumnDefinition.asymmetricColumnDataComparator throws ClassCastException: ColumnDefinition cannot be cast to ColumnData) (#2463)
+rdar://78721346 (Apple Internal) (Added ability to disable using parallelci and run tests sequentially; just create a file disable-parallel-tests in the top level) (#2466)
+rdar://77734343 (Apple Internal) (Repair streaming pending compactions check) (#2410)
+rdar://79218441 (Apple Internal) (ported hintedhandoff_test.py::TestHintedHandoffConfig::test_hintedhandoff_dc_reenabled to jvm-dtest to consistently test failed networking.  Fixed bug with PingMessage Serialization where older versions fail to deserialize) (#2461)
+rdar://79155001 (Apple Internal) (jmx_test.py::TestJMXSSL::test_require_client_auth failing due to casandra-env.sh differences with OSS) (#2453)
+rdar://77313693 (CASSANDRA-16588) (Ignore stale ack in shadow round)
 
 3.0.24.8
 
