@@ -25,7 +25,6 @@ import com.google.common.collect.PeekingIterator;
 
 public abstract class AbstractIterator<V> implements Iterator<V>, PeekingIterator<V>, CloseableIterator<V>
 {
-
     private static enum State { MUST_FETCH, HAS_NEXT, DONE, FAILED }
     private State state = State.MUST_FETCH;
     private V next;
@@ -54,6 +53,7 @@ public abstract class AbstractIterator<V> implements Iterator<V>, PeekingIterato
                 return true;
 
             case FAILED:
+                HeapUtils.maybeCreateHeapDump();
                 throw new IteratorStateException("Attempted to call hasNext() on failed iterator!", next);
         }
     }
