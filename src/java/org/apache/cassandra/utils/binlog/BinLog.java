@@ -123,7 +123,9 @@ public class BinLog implements Runnable, StoreFileListener
         shouldContinue = false;
         sampleQueue.put(NO_OP);
         binLogThread.join();
+        // appender is not closable
         appender = null;
+        queue.close();
         queue = null;
     }
 
