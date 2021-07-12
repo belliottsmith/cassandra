@@ -85,7 +85,7 @@ public final class HeapUtils
         }
     }
 
-    public static String maybeCreateHeapDump() throws IOException
+    public static String maybeCreateHeapDump()
     {
         // Make sure that only one heap dump can be in progress across all threads, and abort for 
         // threads that cannot immediately acquire the lock, allowing them to fail normally.
@@ -123,6 +123,10 @@ public final class HeapUtils
                 {
                     logger.debug("Heap dump creation on uncaught exceptions is disabled.");
                 }
+            }
+            catch (Throwable e)
+            {
+                logger.warn("Unable to create heap dump.", e);
             }
             finally
             {
