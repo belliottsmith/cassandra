@@ -1,4 +1,8 @@
 4.0.0.23
+* <rdar://80581891> (Early port CASSANDRA-16797) Correct fwd to/from messages for backward compatibility (#2496)
+* <rdar://77563055> (Apple Internal) ninja-fix for rdar://77563055 to move heap dump creation to a location that actually captures the stack at the point hasNext() is called on a failed iterator (#2491)
+* <rdar://77563055> (Apple Internal) Support for One-Time Heap Dump Generation on Unhandled Exceptions (#2486)
+* <rdar://78219043> (Apple Internal) Ensure off-heap Merkle trees are released on remote validation failures (#2478)
 
 4.0.0.22
 * <no radar> (Early Port CASSANDRA-16759, updated) Avoid memoizing the wrong min cluster version during upgrades  (#2482)
