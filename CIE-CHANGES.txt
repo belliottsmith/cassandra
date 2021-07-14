@@ -1,3 +1,5 @@
+4.0.0.24
+
 4.0.0.23
 * <rdar://80581891> (Early port CASSANDRA-16797) Correct fwd to/from messages for backward compatibility (#2496)
 * <rdar://77563055> (Apple Internal) ninja-fix for rdar://77563055 to move heap dump creation to a location that actually captures the stack at the point hasNext() is called on a failed iterator (#2491)
