@@ -80,15 +80,4 @@ commands:
       cp dtest_jars/* build/
     fi
 
-    ant dtest-jar
-
-# Rio seems to allow network access to maven central but k8s won't.
-# rather than patching cie-cassandra this will apply the patch in CI instead
-- name: Patch for internal networking
-  command: |
-    cat <<EOF > build.properties.default
-    # Maven2 Repository Locations (you can override these in "build.properties" to point to a local proxy, e.g. Nexus)
-    artifact.remoteRepository.central:     https://artifacts.apple.com/libs-release
-    artifact.remoteRepository.apache:      https://artifacts.apple.com/libs-release
-    maven-ant-tasks.url:                   https://artifacts.apple.com/libs-release/org/apache/maven/maven-ant-tasks
-    EOF
+    rio/build-dtest-jar.sh

@@ -47,7 +47,7 @@ _download_and_build() {
   clone_cassandra "$repo" "$version" "/tmp/$version"
   cd "/tmp/$version"
   # make sure to build jars outside of parallel ci since network access is more limited
-  ant dtest-jar
+  rio/build-dtest-jar.sh || ant dtest-jar
   cp build/dtest*.jar "$output_dir"
 }
 

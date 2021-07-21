@@ -44,7 +44,6 @@ work:
     map:
       - include_command: 'Log Environment Information'
       - include_command: 'Display Splits'
-      - include_command: 'Patch for internal networking'
       - include_command: 'Run Tests (testclasslist)'
         environment:
           CASSANDRA_TEST_KIND: unit
@@ -63,7 +62,6 @@ work:
     map:
       - include_command: 'Log Environment Information'
       - include_command: 'Display Splits'
-      - include_command: 'Patch for internal networking'
       - include_command: 'Run Tests (testclasslist)'
         environment:
           CASSANDRA_TEST_KIND: distributed
@@ -81,7 +79,6 @@ work:
     map:
       - include_command: 'Log Environment Information'
       - include_command: 'Display Splits'
-      - include_command: 'Patch for internal networking'
       - include_command: 'Build dtest jar'
       - include_command: 'Run Tests (testclasslist)'
         environment:
