@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.distributed.upgrade;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -25,6 +26,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -224,6 +226,9 @@ public class UpgradeTestBase extends DistributedTestBase
             {
                 try (UpgradeableCluster cluster = init(UpgradeableCluster.create(nodeCount, upgrade.initial, configConsumer, builderConsumer)))
                 {
+                    // Default to ignoring protocol negotiation exceptions.  assert on 3.0.19, IOException on 3.0.24.x
+                    // Possible to further refine in the setup method.
+                    cluster.setUncaughtExceptionsFilter(largerThanMaxSupportedMessagingVersionFilter);
                     setup.run(cluster);
 
                     for (Version version : upgrade.upgrade)
@@ -300,4 +305,18 @@ public class UpgradeTestBase extends DistributedTestBase
     {
         return current == numNodes ? 1 : current + 1;
     }
+
+    /* Filter out exceptions related to messaging version negotiation.  The version selected for initial collection
+    ** races with gossip anyway and it is perfectly valid to fail connection and reconnect. Unfortunately 3.0 handles
+    ** this by throwing an uncaught exception that needs to be filtered.
+    **/
+    public static BiPredicate<Integer, Throwable> largerThanMaxSupportedMessagingVersionFilter = (Integer nodeId, Throwable tr) -> {
+        /* 4.0 and above does not throw an exception, it logs and fails the handshake.
+         * 3.0/3.11 post-CASSANDRA-15066 throw IOException("Peer " + from + " attempted an unencrypted connection");
+         * 3.0/3.11 pre-CASSANDRA-15066 assert version <= MessagingService.current_version;
+         */
+        return (tr instanceof IOException && tr.getMessage().contains(" is larger than max supported ")) ||
+            (tr instanceof AssertionError && tr.getStackTrace()[0].getClassName().equals("org.apache.cassandra.net.IncomingTcpConnection") &&
+                                             tr.getStackTrace()[0].getMethodName().equals("receiveMessages"));
+    };
 }
