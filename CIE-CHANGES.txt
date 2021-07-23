@@ -1,4 +1,6 @@
 4.0.0.24
+* <rdar://80912904> (Early port CASSANDRA-16807) Weak visibility guarantees of Accumulator lead to failed assertions during digest comparison (#2502)
+* <rdar://80913349> (Early port CASSANDRA-16808) Fix pre-4.0 FWD_FRM parameter serializer (#2502)
 
 4.0.0.23
 * <rdar://80581891> (Early port CASSANDRA-16797) Correct fwd to/from messages for backward compatibility (#2496)
