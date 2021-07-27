@@ -19,12 +19,10 @@
 package org.apache.cassandra.distributed.test;
 
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
-import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.cassandra.distributed.Cluster;
 
-import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
 import static org.junit.Assert.assertTrue;
@@ -100,7 +98,7 @@ public class SchemaDisagreementTest extends TestBaseImpl
             selectSilent(cluster, name);
             cluster.get(2).flush(KEYSPACE);
             cluster.get(2).schemaChangeInternal("ALTER TABLE " + KEYSPACE + ".tbl ADD " + name + " list<int>");
-            cluster.get(2).shutdown();
+            cluster.get(2).shutdown().get();
             cluster.get(2).startup();
             cluster.get(2).forceCompact(KEYSPACE, "tbl");
         }
