@@ -717,6 +717,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 StorageService.instance.shutdownServer();
             }
 
+            error = parallelRun(error, executor, StorageService.instance::disableAutoCompaction);
+
             error = parallelRun(error, executor,
                                 () -> Gossiper.instance.stopShutdownAndWait(1L, MINUTES),
                                 CompactionManager.instance::forceShutdown,
@@ -733,12 +735,12 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                 () -> Ref.shutdownReferenceReaper(1L, MINUTES),
                                 () -> Memtable.MEMORY_POOL.shutdownAndWait(1L, MINUTES),
                                 () -> DiagnosticSnapshotService.instance.shutdownAndWait(1L, MINUTES),
-                                () -> ScheduledExecutors.shutdownAndWait(1L, MINUTES),
                                 () -> SSTableReader.shutdownBlocking(1L, MINUTES),
                                 () -> shutdownAndWait(Collections.singletonList(ActiveRepairService.repairCommandExecutor())),
-                                () -> ScheduledExecutors.shutdownAndWait(1L, MINUTES),
                                 () -> SnapshotManager.shutdownAndWait(1L, MINUTES)
             );
+
+            error = parallelRun(error, executor, () -> ScheduledExecutors.shutdownAndWait(1L, MINUTES));
 
             error = parallelRun(error, executor,
                                 CommitLog.instance::shutdownBlocking,
