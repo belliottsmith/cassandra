@@ -19,6 +19,7 @@
 package org.apache.cassandra.distributed.upgrade;
 
 import java.io.IOException;
+import java.util.Arrays;
 
 import org.apache.commons.lang.exception.ExceptionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -66,8 +67,14 @@ public class SelectSizeUpgradeTest extends UpgradeTestBase
         flush(cluster); // SELECT_SIZE measures size according to index entries of all SSTables that contain the partition
     }
 
-    public static void checkNode(UpgradeableCluster cluster, int ignoredNode)
+    public static void checkNode(UpgradeableCluster cluster, int upgradedNode)
     {
+        // When upgrading from pre-CASSANDRA-16619 sstables, the host-id is not present
+        // in the SSTable metadata, causing the commitlog to replay on startup
+        // and rewrite the data in another sstable, increasing the reported size
+        // as SELECT_SIZE does not compact.
+        cluster.get(upgradedNode).forceCompact(KEYSPACE, "tbl");
+
         // After each node upgrade, run the check on each instance to get the
         // full combination on coordinating from old and new versions.
         cluster.forEach(instance -> {
@@ -78,7 +85,7 @@ public class SelectSizeUpgradeTest extends UpgradeTestBase
             long absentSize = (Long) results[0][1];
             for (Object[] cols : results)
             {
-                Assert.assertEquals(results[0][1], cols[1]);
+                Assert.assertEquals("Difference in size reported: " + Arrays.toString(results), results[0][1], cols[1]);
             }
 
             results = coord.execute("SELECT_SIZE FROM " + KEYSPACE + ".tbl WHERE pk = -1", ConsistencyLevel.ALL); // null
@@ -86,7 +93,7 @@ public class SelectSizeUpgradeTest extends UpgradeTestBase
             Assert.assertTrue(nullSize > absentSize);
             for (Object[] cols : results)
             {
-                Assert.assertEquals(results[0][1], cols[1]);
+                Assert.assertEquals("Difference in size reported: " + Arrays.deepToString(results), results[0][1], cols[1]);
             }
 
             results = coord.execute("SELECT_SIZE FROM " + KEYSPACE + ".tbl WHERE pk = 0", ConsistencyLevel.ALL); // zero length
@@ -94,7 +101,7 @@ public class SelectSizeUpgradeTest extends UpgradeTestBase
             Assert.assertTrue(emptySize >= nullSize);
             for (Object[] cols : results)
             {
-                Assert.assertEquals(results[0][1], cols[1]);
+                Assert.assertEquals("Difference in size reported: " + Arrays.deepToString(results), results[0][1], cols[1]);
             }
 
             long valSize = 1;
@@ -107,7 +114,7 @@ public class SelectSizeUpgradeTest extends UpgradeTestBase
                 Assert.assertTrue(partitionSize >= previousPartition);
                 for (Object[] cols : results)
                 {
-                    Assert.assertEquals(results[0][1], cols[1]);
+                    Assert.assertEquals("Difference in size reported: " + Arrays.deepToString(results), results[0][1], cols[1]);
                 }
 
                 valSize *= 2;
@@ -123,6 +130,7 @@ public class SelectSizeUpgradeTest extends UpgradeTestBase
         new TestCase()
         .nodes(2)
         .nodesToUpgrade(1)
+        .withConfig(c -> c.set("autocompaction_on_startup_enabled", false))
         .upgrade(Versions.Major.v30, Versions.Major.v4)
         .setup(SelectSizeUpgradeTest::setupPartitions)
         .runAfterNodeUpgrade(SelectSizeUpgradeTest::checkNode)
@@ -179,6 +187,7 @@ public class SelectSizeUpgradeTest extends UpgradeTestBase
         .nodes(2)
         .nodesToUpgrade(1)
         .upgrade(Versions.Major.v30, Versions.Major.v4)
+        .withConfig(c -> c.set("autocompaction_on_startup_enabled", false))
         .setup(cluster -> {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".timeout_test (pk int PRIMARY KEY, v text)");
             checkTimeout(cluster);
