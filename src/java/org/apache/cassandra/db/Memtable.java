@@ -76,6 +76,8 @@ import org.apache.cassandra.utils.memory.NativePool;
 import org.apache.cassandra.utils.memory.SlabPool;
 
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
+import static org.apache.cassandra.config.CassandraRelevantProperties.MEMTABLE_OVERHEAD_COMPUTE_STEPS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.MEMTABLE_OVERHEAD_SIZE;
 
 public class Memtable implements Comparable<Memtable>
 {
@@ -104,7 +106,13 @@ public class Memtable implements Comparable<Memtable>
         }
     }
 
-    private static final int ROW_OVERHEAD_HEAP_SIZE = estimateRowOverhead(Integer.parseInt(System.getProperty("cassandra.memtable_row_overhead_computation_step", "100000")));
+    private static final int ROW_OVERHEAD_HEAP_SIZE;
+    static
+    {
+        int userDefinedOverhead = MEMTABLE_OVERHEAD_SIZE.getInt(-1);
+        if (userDefinedOverhead > 0) ROW_OVERHEAD_HEAP_SIZE = userDefinedOverhead;
+        else ROW_OVERHEAD_HEAP_SIZE = estimateRowOverhead(MEMTABLE_OVERHEAD_COMPUTE_STEPS.getInt());
+    }
 
     private final MemtableAllocator allocator;
     private final AtomicLong liveDataSize = new AtomicLong(0);

@@ -81,6 +81,8 @@ public class Config
     public DiskFailurePolicy disk_failure_policy = DiskFailurePolicy.ignore;
     public CommitFailurePolicy commit_failure_policy = CommitFailurePolicy.stop;
 
+    public volatile boolean use_deterministic_table_id = false;
+
     /* initial token in the ring */
     public String initial_token;
     public Integer num_tokens;
@@ -118,6 +120,7 @@ public class Config
     public int concurrent_writes = 32;
     public int concurrent_counter_writes = 32;
     public int concurrent_materialized_view_writes = 32;
+    public int available_processors = -1;
 
     @Deprecated
     public Integer concurrent_replicates = null;
@@ -280,6 +283,8 @@ public class Config
     public int dynamic_snitch_reset_interval_in_ms = 600000;
     public double dynamic_snitch_badness_threshold = 1.0;
 
+    public String failure_detector = "FailureDetector";
+
     public EncryptionOptions.ServerEncryptionOptions server_encryption_options = new EncryptionOptions.ServerEncryptionOptions();
     public EncryptionOptions client_encryption_options = new EncryptionOptions();
 
@@ -312,6 +317,8 @@ public class Config
     public Long counter_cache_size_in_mb = null;
     public volatile int counter_cache_save_period = 7200;
     public volatile int counter_cache_keys_to_save = Integer.MAX_VALUE;
+
+    public Long paxos_cache_size_in_mb = null;
 
     private static boolean isClientMode = false;
     private static Supplier<Config> overrideLoadConfig = null;
@@ -579,6 +586,13 @@ public class Config
 
     public volatile SubnetGroups client_error_reporting_exclusions = new SubnetGroups();
     public volatile SubnetGroups internode_error_reporting_exclusions = new SubnetGroups();
+
+    public enum PaxosVariant
+    {
+        v1_norrl, // with legacy semantics for read/read linearizability (i.e. not guaranteed)
+        v1
+    }
+    public volatile PaxosVariant paxos_variant = PaxosVariant.v1;
 
     public static Supplier<Config> getOverrideLoadConfig()
     {

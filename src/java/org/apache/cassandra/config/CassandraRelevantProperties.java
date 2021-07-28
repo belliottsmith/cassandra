@@ -200,7 +200,25 @@ public enum CassandraRelevantProperties
     SNAPSHOT_MIN_ALLOWED_TTL_SECONDS("cassandra.snapshot.min_allowed_ttl_seconds", "60"),
 
     /** what class to use for mbean registeration */
-    MBEAN_REGISTRATION_CLASS("org.apache.cassandra.mbean_registration_class");
+    MBEAN_REGISTRATION_CLASS("org.apache.cassandra.mbean_registration_class"),
+
+    BATCH_COMMIT_LOG_SYNC_INTERVAL("cassandra.batch_commitlog_sync_interval_millis", "1000"),
+
+    SYSTEM_AUTH_DEFAULT_RF("cassandra.system_auth.default_rf", "1"),
+
+    MEMTABLE_OVERHEAD_SIZE("cassandra.memtable.row_overhead_size", "-1"),
+    MEMTABLE_OVERHEAD_COMPUTE_STEPS("cassandra.memtable_row_overhead_computation_step", "100000"),
+    MIGRATION_DELAY("cassandra.migration_delay_ms", "60000"),
+
+    DETERMINISM_REQUIRE_NATIVE_FILE_HINTS("cassandra.require_native_file_hints", "true"),
+    DETERMINISM_SSTABLE_COMPRESSION_DEFAULT("cassandra.sstable_compression_default", "true"),
+    DETERMINISM_SSTABLE_ACTIVITY_TRACKING("cassandra.sstable_activity_tracking", "true"),
+
+    TEST_SIMULATOR_PRINT_ASM("cassandra.test.simulator.print_asm", "none"),
+    TEST_SIMULATOR_PRINT_ASM_TYPES("cassandra.test.simulator.print_asm_types", ""),
+
+    TEST_IGNORE_SIGAR("cassandra.test.ignore_sigar", "false"),
+    ;
 
 
     CassandraRelevantProperties(String key, String defaultVal)
