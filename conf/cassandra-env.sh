@@ -94,7 +94,10 @@ calculate_heap_sizes()
 # on white spaces without taking quotes into account
 # JVM_OPTS="$JVM_OPTS -XX:+ExitOnOutOfMemoryError"
 # JVM_OPTS="$JVM_OPTS -XX:+CrashOnOutOfMemoryError"
-JVM_ON_OUT_OF_MEMORY_ERROR_OPT="-XX:OnOutOfMemoryError=kill -9 %p"
+if [[ "${DISABLE_OnOutOfMemoryError:-false}" == "false" ]]; then
+  # This flag was added for  rdar://79755961 (Fix largecolumn_test.py::TestLargeColumn::test_cleanup); in OSS we do not do `kill -9` and it seems that largecolumn_test.py::TestLargeColumn::test_cleanup is failing with this feature, so need a way to revert back to OSS logic for testing
+  JVM_ON_OUT_OF_MEMORY_ERROR_OPT="-XX:OnOutOfMemoryError=kill -9 %p"
+fi
 
 
 # If we are running via WD-40 we shouldn't run any of this logic as it's all in cassandracfg now
