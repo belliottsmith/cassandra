@@ -50,6 +50,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.compress.DeflateCompressor;
 import org.apache.cassandra.io.compress.LZ4Compressor;
 import org.apache.cassandra.io.compress.SnappyCompressor;
+import org.apache.cassandra.io.compress.ZstdCompressor;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -87,6 +88,7 @@ public class RecoveryManagerTest
         Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_COUNTER1).truncateBlocking();
         Keyspace.open(KEYSPACE2).getColumnFamilyStore(CF_STANDARD3).truncateBlocking();
     }
+
     public RecoveryManagerTest(ParameterizedClass commitLogCompression)
     {
         DatabaseDescriptor.setCommitLogCompression(commitLogCompression);
@@ -99,7 +101,8 @@ public class RecoveryManagerTest
                 { null }, // No compression
                 { new ParameterizedClass(LZ4Compressor.class.getName(), Collections.emptyMap()) },
                 { new ParameterizedClass(SnappyCompressor.class.getName(), Collections.emptyMap()) },
-                { new ParameterizedClass(DeflateCompressor.class.getName(), Collections.emptyMap()) } });
+                { new ParameterizedClass(DeflateCompressor.class.getName(), Collections.emptyMap()) },
+                { new ParameterizedClass(ZstdCompressor.class.getName(), Collections.emptyMap()) }});
     }
 
     @Test
