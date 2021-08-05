@@ -514,7 +514,7 @@ public class CompactionAllocationTest
                 ParsedStatement.Prepared prepared = QueryProcessor.parseStatement(read).prepare(ClientState.forInternalCalls());
                 SelectStatement select = (SelectStatement) prepared.statement;
                 int now = FBUtilities.nowInSeconds();
-                for (int f=0; f<numSSTable; f++)
+                for (int f = 0; f < numSSTable; f++)
                 {
                     for (int p = 0; p < sstablePartitions; p++)
                     {
@@ -624,12 +624,12 @@ public class CompactionAllocationTest
                 ParsedStatement.Prepared prepared = QueryProcessor.parseStatement(read).prepare(ClientState.forInternalCalls());
                 SelectStatement select = (SelectStatement) prepared.statement;
                 int now = FBUtilities.nowInSeconds();
-                for (int f=0; f<numSSTable; f++)
+                for (int f = 0; f < numSSTable; f++)
                 {
                     for (int p = 0; p < sstablePartitions; p++)
                     {
                         String key = String.format("%08d", overlap ? p : (f * sstablePartitions) + p);
-                        for (int r=0; r<rowsPerPartition; r++)
+                        for (int r = 0; r < rowsPerPartition; r++)
                         {
                             QueryProcessor.executeInternal(insert, key, makeRandomString(6, overlapCK ? r : -1),
                                                            makeRandomString(8), makeRandomString(8),
@@ -726,12 +726,12 @@ public class CompactionAllocationTest
                 ParsedStatement.Prepared prepared = QueryProcessor.parseStatement(read).prepare(ClientState.forInternalCalls());
                 SelectStatement select = (SelectStatement) prepared.statement;
                 int now = FBUtilities.nowInSeconds();
-                for (int f=0; f<numSSTable; f++)
+                for (int f = 0; f < numSSTable; f++)
                 {
                     for (int p = 0; p < sstablePartitions; p++)
                     {
                         String key = String.format("%08d", overlap ? p : (f * sstablePartitions) + p);
-                        for (int r=0; r<rowsPerPartition; r++)
+                        for (int r = 0; r < rowsPerPartition; r++)
                         {
                             QueryProcessor.executeInternal(insert , key, makeRandomString(6, overlapCK ? r : -1),
                                                            makeRandomString(rowWidth>>2), makeRandomString(rowWidth>>2),
@@ -825,12 +825,12 @@ public class CompactionAllocationTest
             {
                 cfs.disableAutoCompaction();
                 String insert = String.format("INSERT INTO %s.%s (k, c, v1, v2, v3, v4) VALUES (?, ?, ?, ?, ?, ?)", ksname, "tbl");
-                for (int f=0; f<numSSTable; f++)
+                for (int f = 0; f < numSSTable; f++)
                 {
                     for (int p = 0; p < sstablePartitions; p++)
                     {
                         String key = String.format("%08d", (f * sstablePartitions) + p);
-                        for (int r=0; r<rowsPerPartition; r++)
+                        for (int r = 0; r < rowsPerPartition; r++)
                         {
                             QueryProcessor.executeInternal(insert , key, makeRandomString(6, -1),
                                                            makeRandomString(rowWidth>>2), makeRandomString(rowWidth>>2),

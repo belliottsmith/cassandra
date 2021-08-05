@@ -91,9 +91,11 @@ public class SecondaryIndexBuilder extends CompactionInfo.Holder
     private PartitionColumns extractIndexedColumns()
     {
         PartitionColumns.Builder builder = PartitionColumns.builder();
+        
         for (Index index : indexers)
         {
             boolean isPartitionIndex = true;
+            
             for (ColumnDefinition column : cfs.metadata.partitionColumns())
             {
                 if (index.dependsOn(column))
@@ -101,12 +103,12 @@ public class SecondaryIndexBuilder extends CompactionInfo.Holder
                     builder.add(column);
                     isPartitionIndex = false;
                 }
-
-                // if any index declares no dependency on any column, it is a full partition index
-                // so we can use the base partition columns as the input source
-                if (isPartitionIndex)
-                    return cfs.metadata.partitionColumns();
             }
+
+            // if any index declares no dependency on any column, it is a full partition index
+            // so we can use the base partition columns as the input source
+            if (isPartitionIndex)
+                return cfs.metadata.partitionColumns();
         }
         return builder.build();
     }
