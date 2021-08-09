@@ -6337,6 +6337,35 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return DatabaseDescriptor.enableShadowChristmasPatch();
     }
 
+    public void setIncrementalUpdatesLastRepaired(boolean enabled) {
+        DatabaseDescriptor.setIncrementalUpdatesLastRepaired(enabled);
+    }
+    public boolean getIncrementalUpdatesLastRepaired() {
+        return DatabaseDescriptor.getIncrementalUpdatesLastRepaired();
+    }
+
+    /**
+     * Clears all repair history.
+     */
+    public void clearRepairHistoryUnsafe()
+    {
+        if (ActiveRepairService.instance.consistent.local.activeSessions() > 0)
+        {
+            throw new RuntimeException("Disable and cancel running repairs before running clearRepairHistoryUnsafe");
+        }
+        for (String keyspace : Schema.instance.getNonSystemKeyspaces())
+        {
+            Keyspace k = Schema.instance.getKeyspaceInstance(keyspace);
+            if (k.getReplicationStrategy().getReplicationFactor().allReplicas < 2)
+                continue;
+
+            for (ColumnFamilyStore cf : k.getColumnFamilyStores())
+            {
+                cf.clearRepairedRangeUnsafes();
+            }
+        }
+    }
+
     public boolean isKeyspaceQuotaEnabled()
     {
         return DatabaseDescriptor.getEnableKeyspaceQuotas();
