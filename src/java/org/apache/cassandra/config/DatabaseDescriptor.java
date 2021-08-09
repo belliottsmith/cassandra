@@ -1865,6 +1865,12 @@ public class DatabaseDescriptor
 
     public static long getCompactionLargePartitionWarningThreshold() { return ByteUnit.MEBI_BYTES.toBytes(conf.compaction_large_partition_warning_threshold_mb); }
 
+
+    public static int getConcurrentIndexBuilds()
+    {
+        return conf.concurrent_index_builds;
+    }
+
     public static int getConcurrentValidations()
     {
         return conf.concurrent_validations;
