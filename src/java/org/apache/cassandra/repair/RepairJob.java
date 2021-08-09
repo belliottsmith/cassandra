@@ -612,9 +612,9 @@ public class RepairJob extends AsyncFuture<RepairResult> implements Runnable
             return true;
         }
 
-        if (session.isIncremental)
+        if (session.isIncremental && !DatabaseDescriptor.getIncrementalUpdatesLastRepaired())
         {
-            logger.info("Not sending repair success since we are running an incremental repair");
+            logger.info("Not sending repair success since we are running an incremental repair with incremental_updates_last_repaired false");
             return true;
         }
 
