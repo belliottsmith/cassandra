@@ -80,6 +80,7 @@ public class XmasPatchRepairSuccessTest extends TestBaseImpl
         try(Cluster cluster = init(Cluster.build(2).withConfig(config ->
                                                                config.set("disable_incremental_repair", false)
                                                                      .set("enable_christmas_patch", true)
+                                                                     .set("incremental_updates_last_repaired", false)
                                                                      .with(GOSSIP)
                                                                      .with(NETWORK))
                                           .start()))
