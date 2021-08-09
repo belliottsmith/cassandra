@@ -911,6 +911,11 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     public boolean isShadowChistmasPatchEnabled();
 
+    public void setIncrementalUpdatesLastRepaired(boolean enabled);
+    public boolean getIncrementalUpdatesLastRepaired();
+
+    public void clearRepairHistoryUnsafe();
+
     public boolean isKeyspaceQuotaEnabled();
 
     public void setKeyspaceQuotaEnabled(boolean enabled);
