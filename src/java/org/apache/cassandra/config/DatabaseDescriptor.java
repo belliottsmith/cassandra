@@ -2131,6 +2131,11 @@ public class DatabaseDescriptor
         conf.compaction_tombstone_warning_threshold = count;
     }
 
+    public static int getConcurrentIndexBuilds()
+    {
+        return conf.concurrent_index_builds;
+    }
+
     public static int getConcurrentValidations()
     {
         return conf.concurrent_validations;
