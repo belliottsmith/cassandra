@@ -180,6 +180,10 @@ public class LocalSessions
         return StorageService.instance.isInitialized();
     }
 
+    public long activeSessions() {
+        return sessions.values().stream().filter(s -> !s.isCompleted()).count();
+    }
+
     public List<Map<String, String>> sessionInfo(boolean all, Set<Range<Token>> ranges)
     {
         Iterable<LocalSession> currentSessions = sessions.values();

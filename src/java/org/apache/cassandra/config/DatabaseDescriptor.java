@@ -3990,6 +3990,16 @@ public class DatabaseDescriptor
         conf.enable_christmas_patch = false;
     }
 
+    public static void setIncrementalUpdatesLastRepaired(boolean enabled)
+    {
+        conf.incremental_updates_last_repaired = enabled;
+    }
+
+    public static boolean getIncrementalUpdatesLastRepaired()
+    {
+        return conf.incremental_updates_last_repaired;
+    }
+
     public static boolean getCompactBiggestSTCSBucketInL0()
     {
         return conf.compact_biggest_stcs_bucket_l0;

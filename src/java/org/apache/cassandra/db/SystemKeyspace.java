@@ -1275,7 +1275,6 @@ public final class SystemKeyspace
         executeInternal(String.format(cql, REPAIR_HISTORY_CF), keyspace, columnFamily, rangeToBytes(range), new Date(timestamp));
     }
 
-    @VisibleForTesting
     public static void clearRepairedRanges(String keyspace, String columnFamily)
     {
         String cql = "DELETE FROM system.%s WHERE keyspace_name='%s' AND columnfamily_name = '%s'";
