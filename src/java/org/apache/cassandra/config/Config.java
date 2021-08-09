@@ -589,6 +589,7 @@ public class Config
     public volatile boolean skip_single_sstable_scheduled_compactions = true;
     public volatile long max_scheduled_compaction_sstable_size_bytes = 10240 * 1024L * 1024L;
     public volatile int max_scheduled_compaction_sstable_count = 40;
+    public volatile boolean incremental_updates_last_repaired = false;
 
     public String repair_history_sync_timeout = "10m";
 
