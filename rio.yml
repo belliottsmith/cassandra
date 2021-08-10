@@ -85,7 +85,7 @@ builds:
   #
   # Pull request builder triggering python dtests
   #
-  - name: ghprb-python-dtest
+  - group: ghprb-python-dtest
     jenkins:
       concurrentBuild: true
       throttlingEnabled: true
