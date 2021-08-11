@@ -778,8 +778,6 @@ public class Config
 
     public Boolean enable_shadow_christmas_patch = false;
 
-    public volatile boolean compact_biggest_stcs_bucket_l0 = false;
-
     public volatile boolean allow_unsafe_aggressive_sstable_expiration = true;
 
     /**
@@ -875,6 +873,10 @@ public class Config
 
     // see CASSANDRA-17048 and the comment in cassandra.yaml
     public boolean uuid_sstable_identifiers_enabled = false;
+
+    public volatile boolean compact_biggest_stcs_bucket_l0 = true;
+    public volatile int biggest_bucket_max_sstable_count = 1024;
+    public volatile long biggest_bucket_max_size_bytes = 1 << 30;
 
     /**
      * Client mode means that the process is a pure client, that uses C* code base but does
