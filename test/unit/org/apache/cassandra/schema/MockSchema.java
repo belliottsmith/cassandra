@@ -76,8 +76,9 @@ public class MockSchema
     {
         Memory offsets = Memory.allocate(4);
         offsets.setInt(0, 0);
-        indexSummary = new IndexSummary(Murmur3Partitioner.instance, offsets, 0, Memory.allocate(4), 0, 0, 0, 1);
+        indexSummary = new IndexSummary(Murmur3Partitioner.instance, offsets, 0, Memory.allocate(4), 0, 0, 1, 1);
     }
+
     private static final AtomicInteger id = new AtomicInteger();
     public static final Keyspace ks = Keyspace.mockKS(KeyspaceMetadata.create("mockks", KeyspaceParams.simpleTransient(1)));
 
@@ -104,6 +105,7 @@ public class MockSchema
     {
         return sstable(generation, 0, false, first, last, 0, cfs, minLocalDeletionTime);
     }
+
     public static SSTableReader sstable(int generation, boolean keepRef, ColumnFamilyStore cfs)
     {
         return sstable(generation, 0, keepRef, cfs);
@@ -113,6 +115,7 @@ public class MockSchema
     {
         return sstable(generation, size, false, cfs);
     }
+
     public static SSTableReader sstable(int generation, int size, boolean keepRef, ColumnFamilyStore cfs)
     {
         return sstable(generation, size, keepRef, generation, generation, 0, cfs, Integer.MAX_VALUE);
@@ -138,7 +141,17 @@ public class MockSchema
         return sstable(generation, size, keepRef, firstToken, lastToken, level, cfs, Integer.MAX_VALUE);
     }
 
+    public static SSTableReader sstableWithTimestamp(int generation, int size, long timestamp, ColumnFamilyStore cfs)
+    {
+        return sstable(generation, size, false, generation, generation, 0, cfs, Integer.MAX_VALUE, timestamp);
+    }
+
     public static SSTableReader sstable(int generation, int size, boolean keepRef, long firstToken, long lastToken, int level, ColumnFamilyStore cfs, int minLocalDeletionTime)
+    {
+        return sstable(generation, size, keepRef, firstToken, lastToken, level, cfs, minLocalDeletionTime, System.currentTimeMillis() * 1000);
+    }
+
+    public static SSTableReader sstable(int generation, int size, boolean keepRef, long firstToken, long lastToken, int level, ColumnFamilyStore cfs, int minLocalDeletionTime, long timestamp)
     {
         Descriptor descriptor = new Descriptor(cfs.getDirectories().getDirectoryForNewSSTables(),
                                                cfs.keyspace.getName(),
@@ -168,7 +181,7 @@ public class MockSchema
             }
             SerializationHeader header = SerializationHeader.make(cfs.metadata(), Collections.emptyList());
             MetadataCollector collector = new MetadataCollector(cfs.metadata().comparator);
-            collector.update(new DeletionTime(System.currentTimeMillis() * 1000, minLocalDeletionTime));
+            collector.update(new DeletionTime(timestamp, minLocalDeletionTime));
             StatsMetadata metadata = (StatsMetadata) collector
                                                      .sstableLevel(level)
                                                      .finalizeMetadata(cfs.metadata().partitioner.getClass().getCanonicalName(), 0.01f, UNREPAIRED_SSTABLE, null, false, header)
