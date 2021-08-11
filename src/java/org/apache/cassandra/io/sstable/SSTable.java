@@ -182,6 +182,7 @@ public abstract class SSTable
 
     /**
      * Parse a sstable filename into both a {@link Descriptor} and {@code Component} object.
+     * Logs warning if the parent directory names do not contain keyspace and table name when expected.
      *
      * @param file the filename to parse.
      * @return a pair of the {@code Descriptor} and {@code Component} corresponding to {@code file} if it corresponds to
@@ -190,9 +191,24 @@ public abstract class SSTable
      */
     public static Pair<Descriptor, Component> tryComponentFromFilename(File file)
     {
+        return tryComponentFromFilename(file, true);
+    }
+
+    /**
+     * Parse a sstable filename into both a {@link Descriptor} and {@code Component} object.
+     *
+     * @param file the filename to parse.
+     * @param warnParentDirectoryNames log warning if the parent directory names do not contain keyspace and table name
+     *                                 when expected. e.g. disabled when importing sstables form arbitrary directories.
+     * @return a pair of the {@code Descriptor} and {@code Component} corresponding to {@code file} if it corresponds to
+     * a valid and supported sstable filename, {@code null} otherwise. Note that components of an unknown type will be
+     * returned as CUSTOM ones.
+     */
+    public static Pair<Descriptor, Component> tryComponentFromFilename(File file, boolean warnParentDirectoryNames)
+    {
         try
         {
-            return Descriptor.fromFilenameWithComponent(file);
+            return Descriptor.fromFilenameWithComponent(file, warnParentDirectoryNames);
         }
         catch (Throwable e)
         {
