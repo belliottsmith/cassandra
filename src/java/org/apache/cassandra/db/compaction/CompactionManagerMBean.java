@@ -210,4 +210,17 @@ public interface CompactionManagerMBean
      * Do we allow TWCS to drop sstables without checking for overlaps?
      */
     public boolean allowUnsafeAggressiveSSTableExpiration();
+    /**
+     * If we are doing biggest STCS bucket compactions, this is the maximum total amount of bytes allowed in a compaction
+     */
+    public long getBiggestBucketMaxSizeBytes();
+
+    /**
+     * If we are doing biggest STCS bucket compactions, this is the maximum total number of sstables allowed in a compaction
+     */
+    public int getBiggestBucketMaxSSTableCount();
+
+    public void setBiggestBucketMaxSizeBytes(long maxSizeBytes);
+
+    public void setBiggestBucketMaxSSTableCount(int maxSSTableCount);
 }
