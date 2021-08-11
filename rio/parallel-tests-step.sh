@@ -9,6 +9,8 @@ readonly RIO_DIR="$(dirname "$0")"
 readonly BASE_DIR="$(cd "$RIO_DIR/.."; pwd)"
 readonly PARALLELOUTPUT="${BASE_DIR}/parallel-output"
 
+source "${RIO_DIR}/functions.sh"
+
 # build locally so parallel ci copies the jars into the container
 rm -rf "${BASE_DIR}/build" || true
 timeout 15m bash -c "cd '$BASE_DIR' && ant -f rio-build.xml jar "
@@ -38,5 +40,6 @@ then
     exit 1
 else
     echo "### Tests passed - $ERRFAILS errors/failures detected"
-    exit 0
 fi
+
+_verify_command_success "$PARALLELOUTPUT"
