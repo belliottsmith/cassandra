@@ -2,6 +2,17 @@ _abspath() {
   echo "$(cd "$(dirname "$1")"; pwd)/$(basename "$1")"
 }
 
+warn() {
+  echo "$*" 1>&2
+}
+
+_is_xtrace_enabled() {
+  # copied from https://unix.stackexchange.com/questions/21922/bash-test-whether-original-script-was-run-with-x
+  case "$-" in
+    *x*) echo "true" ;;
+  esac
+}
+
 # clone the git branch only
 git_clone() {
   local -r url="$1"
@@ -67,4 +78,61 @@ _parallel_clone_branches() {
   for pid in "${pids[@]}"; do
     wait $pid
   done
+}
+
+_verify_command_success() {
+  local -r output_dir="$1"
+  # sample file parallel-output/unit/java=11/map-0-output/.command/3/rc
+  local fail=false
+  local dir
+  local rc_file
+  local rc
+  local stdout
+  local stderr
+  local xtrace_enabled=false
+  if [[ $(_is_xtrace_enabled) == true ]]; then
+    xtrace_enabled=true
+    set +x
+  fi
+
+  for command_dir in $(find "$output_dir" -name '.command' -type d); do
+    for command in $(ls -1 "$command_dir"); do
+      dir="${command_dir}/${command}"
+      if [[ ! -d "$dir" ]]; then
+        # skip files such as files.txt
+        continue
+      fi
+      rc_file="${dir}/rc"
+      stdout="${dir}/stdout"
+      stderr="${dir}/stderr"
+      if [[ ! -e "$rc_file" ]]; then
+        fail=true
+        warn "Unable to find rc file for command $dir"
+        continue
+      fi
+      rc="$(cat "$rc_file")"
+      if [[ $rc -ne 0 ]]; then
+        fail=true
+        warn "command $dir had rc=$rc"
+        if [[ -e "$stderr" ]]; then
+          warn "command $dir; stderr"
+          cat "$stderr" 1>&2
+        else
+          warn "command $dir does not have stderr"
+        fi
+        if [[ -e "$stdout" ]]; then
+          warn "command $dir; stdout"
+          cat "$stdout" 1>&2
+        else
+          warn "command $dir does not have stdout"
+        fi
+      fi
+    done
+  done
+  if [[ $xtrace_enabled  == true ]]; then
+    set -x
+  fi
+  if [[ $fail == true ]]; then
+    return 1
+  fi
 }
