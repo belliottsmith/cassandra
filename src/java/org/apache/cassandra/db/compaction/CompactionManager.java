@@ -2393,6 +2393,26 @@ public class CompactionManager implements CompactionManagerMBean
         return DatabaseDescriptor.allowUnsafeAggressiveSSTableExpiration();
     }
 
+    public long getBiggestBucketMaxSizeBytes()
+    {
+        return DatabaseDescriptor.getBiggestBucketMaxSizeBytes();
+    }
+
+    public int getBiggestBucketMaxSSTableCount()
+    {
+        return DatabaseDescriptor.getBiggestBucketMaxSSTableCount();
+    }
+
+    public void setBiggestBucketMaxSizeBytes(long maxSizeBytes)
+    {
+        DatabaseDescriptor.setBiggestBucketMaxSizeBytes(maxSizeBytes);
+    }
+
+    public void setBiggestBucketMaxSSTableCount(int maxSSTableCount)
+    {
+        DatabaseDescriptor.setBiggestBucketMaxSSTableCount(maxSSTableCount);
+    }
+
     /**
      * Try to stop all of the compactions for given ColumnFamilies.
      *
