@@ -45,7 +45,9 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.metrics.RestorableMeter;
 import org.apache.cassandra.schema.KeyspaceParams;
+import org.apache.cassandra.schema.MockSchema;
 import org.apache.cassandra.utils.Pair;
 
 import static org.apache.cassandra.db.compaction.TimeWindowCompactionStrategy.getWindowBoundsInMillis;
@@ -239,9 +241,9 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
             buckets.put(bounds.left, sstrs.get(i));
         }
 
+        DatabaseDescriptor.setBiggestBucketMaxSSTableCount(34);
         newBucket = newestBucket(buckets, 4, 32, new SizeTieredCompactionStrategyOptions(), getWindowBoundsInMillis(TimeUnit.HOURS, 1, System.currentTimeMillis()).left);
-        assertEquals("new bucket should be trimmed to max threshold of 32", newBucket.sstables.size(), 32);
-
+        assertEquals("new bucket should be trimmed to max sstable count of 34", 34, newBucket.sstables.size());
         // one per bucket because they are all eligible and one more for the sstables that were trimmed
         assertEquals("there should be one estimated remaining task per eligible bucket", buckets.keySet().size() + 1, newBucket.estimatedRemainingTasks);
     }
@@ -360,5 +362,46 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
         assertEquals(sstable, expiredSSTable);
         twcs.shutdown();
         t.transaction.abort();
+    }
+
+
+    @Test
+    public void testBiggestBucket()
+    {
+        DatabaseDescriptor.setCompactBiggestSTCSBucketInL0(false);
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        long now = System.currentTimeMillis();
+        List<SSTableReader> sstables = new ArrayList<>();
+        int generation = 0;
+        for (int i = 0; i < 100; i++)
+            sstables.add(MockSchema.sstableWithTimestamp(generation++, 10, now * 1000, cfs));
+
+        RestorableMeter meter = new RestorableMeter(1000, 1000);
+        for (int i = 0; i < 40; i++)
+        {
+            SSTableReader sstable = MockSchema.sstableWithTimestamp(generation++, 400, now * 1000, cfs);
+            sstables.add(sstable);
+            sstable.overrideReadMeter(meter); // make sure these larger sstables are "hot"
+        }
+
+        Pair<HashMultimap<Long, SSTableReader>, Long> buckets = TimeWindowCompactionStrategy.getBuckets(sstables, TimeUnit.HOURS, 1, TimeUnit.MICROSECONDS);
+        Map<String, String> optionsMap = new HashMap<>();
+        optionsMap.put("min_sstable_size","200"); // make sure the small sstables get put in the same bucket
+        SizeTieredCompactionStrategyOptions options = new SizeTieredCompactionStrategyOptions(optionsMap);
+        TimeWindowCompactionStrategy.NewestBucket newestBucket = TimeWindowCompactionStrategy.newestBucket(buckets.left, 4, 32, options, 0);
+        assertEquals(cfs.getMaximumCompactionThreshold(), newestBucket.sstables.size());
+        for (SSTableReader sstable : newestBucket.sstables)
+            assertEquals(400, sstable.onDiskLength());
+
+        DatabaseDescriptor.setCompactBiggestSTCSBucketInL0(true);
+        int oldVal = DatabaseDescriptor.getBiggestBucketMaxSSTableCount();
+        DatabaseDescriptor.setBiggestBucketMaxSSTableCount(35);
+        newestBucket = TimeWindowCompactionStrategy.newestBucket(buckets.left, 4, 32, options, 0);
+        assertEquals(35, newestBucket.sstables.size());
+        for (SSTableReader sstable : newestBucket.sstables)
+            assertEquals(10, sstable.onDiskLength());
+
+        DatabaseDescriptor.setBiggestBucketMaxSSTableCount(oldVal);
+
     }
 }

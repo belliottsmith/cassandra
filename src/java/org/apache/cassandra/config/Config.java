@@ -529,8 +529,6 @@ public class Config
 
     public Boolean enable_shadow_christmas_patch = false;
 
-    public volatile boolean compact_biggest_stcs_bucket_l0 = false;
-
     public volatile boolean allow_unsafe_aggressive_sstable_expiration = false;
 
     /**
@@ -645,6 +643,10 @@ public class Config
     public volatile boolean auto_optimise_inc_repair_streams = false;
     public volatile boolean auto_optimise_full_repair_streams = false;
     public volatile boolean auto_optimise_preview_repair_streams = false;
+
+    public volatile boolean compact_biggest_stcs_bucket_l0 = true;
+    public volatile int biggest_bucket_max_sstable_count = 1024;
+    public volatile long biggest_bucket_max_size_bytes = 1 << 30;
 
     /**
      * Client mode means that the process is a pure client, that uses C* code base but does

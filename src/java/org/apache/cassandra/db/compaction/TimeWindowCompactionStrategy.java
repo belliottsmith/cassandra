@@ -46,6 +46,7 @@ import org.apache.cassandra.utils.Pair;
 
 import static com.google.common.collect.Iterables.filter;
 import static org.apache.cassandra.db.compaction.TimeWindowCompactionStrategyOptions.UNSAFE_AGGRESSIVE_SSTABLE_EXPIRATION_KEY;
+import static org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy.bestBucket;
 
 public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
 {
@@ -294,7 +295,10 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
     /**
      * @param buckets list of buckets, sorted from newest to oldest, from which to return the newest bucket within thresholds.
      * @param minThreshold minimum number of sstables in a bucket to qualify.
-     * @param maxThreshold maximum number of sstables to compact at once (the returned bucket will be trimmed down to this).
+     * @param maxThreshold maximum number of sstables to compact at once (the returned bucket will be trimmed down to
+     *                     this), unless we are behind in the current window, in this case we limit the size of the compaction
+     *                     by either DatabaseDescriptor.getBiggestBucketMaxSizeBytes() or DatabaseDescriptor.getBiggestBucketMaxSSTableCount()
+     *                     to reduce the number of sstables quickly.
      * @return a bucket (list) of sstables to compact.
      */
     @VisibleForTesting
@@ -320,8 +324,20 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
                 // If we're in the newest bucket, we'll use STCS to prioritize sstables
                 List<Pair<SSTableReader,Long>> pairs = SizeTieredCompactionStrategy.createSSTableAndLengthPairs(bucket);
                 List<List<SSTableReader>> stcsBuckets = SizeTieredCompactionStrategy.getBuckets(pairs, stcsOptions.bucketHigh, stcsOptions.bucketLow, stcsOptions.minSSTableSize);
-                List<SSTableReader> stcsInterestingBucket = SizeTieredCompactionStrategy.mostInterestingBucket(stcsBuckets, minThreshold, maxThreshold);
-
+                List<SSTableReader> stcsInterestingBucket;
+                if (bucket.size() > maxThreshold && DatabaseDescriptor.getCompactBiggestSTCSBucketInL0())
+                {
+                    stcsInterestingBucket = bestBucket(stcsBuckets,
+                                                       minThreshold,
+                                                       maxThreshold,
+                                                       DatabaseDescriptor.getBiggestBucketMaxSizeBytes(),
+                                                       DatabaseDescriptor.getBiggestBucketMaxSSTableCount(),
+                                                       true);
+                }
+                else
+                {
+                    stcsInterestingBucket = SizeTieredCompactionStrategy.mostInterestingBucket(stcsBuckets, minThreshold, maxThreshold);
+                }
                 // If the tables in the current bucket aren't eligible in the STCS strategy, we'll skip it and look for other buckets
                 if (!stcsInterestingBucket.isEmpty())
                 {
