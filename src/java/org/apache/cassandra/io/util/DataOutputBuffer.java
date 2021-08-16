@@ -61,14 +61,7 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
             {
                 public void close()
                 {
-                    if (buffer.capacity() <= MAX_RECYCLE_BUFFER_SIZE)
-                    {
-                        buffer.clear();
-                    }
-                    else
-                    {
-                        buffer = ByteBuffer.allocate(DEFAULT_INITIAL_BUFFER_SIZE);
-                    }
+                    recycle();
                 }
             };
         }
@@ -237,6 +230,11 @@ public class DataOutputBuffer extends BufferedDataOutputStreamPlus
     {
         assert buffer.arrayOffset() == 0;
         return buffer.array();
+    }
+
+    public ByteBuffer unsafeFlipAndGetBuffer() {
+        buffer.flip();
+        return buffer;
     }
 
     public int getLength()

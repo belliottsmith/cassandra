@@ -43,5 +43,5 @@ public interface IMutation
      * @return size of the mutation (overhead is NOT included).
      * @throws MutationExceededMaxSizeException if {@link DatabaseDescriptor#getMaxMutationSize()} is exceeded
      */
-    public int validateSize(int version, int overhead);
+    public void validateSize(int version, int overhead);
 }
