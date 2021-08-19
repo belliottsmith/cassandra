@@ -796,6 +796,10 @@ public final class Schema implements SchemaProvider
         assert cfs != null;
         // make sure all the indexes are dropped, or else.
         cfs.indexManager.markAllIndexesRemoved();
+
+        // clear out old repair history
+        cfs.clearRepairedRangeUnsafes();
+
         CompactionManager.instance.interruptCompactionFor(Collections.singleton(metadata), (sstable) -> true, true);
         if (DatabaseDescriptor.isAutoSnapshot())
             cfs.snapshot(Keyspace.getTimestampedSnapshotNameWithPrefix(cfs.name, ColumnFamilyStore.SNAPSHOT_DROP_PREFIX));
