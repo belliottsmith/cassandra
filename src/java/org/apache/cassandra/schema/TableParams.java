@@ -24,6 +24,7 @@ import java.util.Map.Entry;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import org.apache.cassandra.cql3.Attributes;
 import org.apache.cassandra.cql3.CqlBuilder;
@@ -56,7 +57,8 @@ public final class TableParams
         ADDITIONAL_WRITE_POLICY,
         CRC_CHECK_CHANCE,
         CDC,
-        READ_REPAIR;
+        READ_REPAIR,
+        DISABLE_CHRISTMAS_PATCH;
 
         @Override
         public String toString()
@@ -82,6 +84,11 @@ public final class TableParams
     public final boolean cdc;
     public final ReadRepairStrategy readRepair;
 
+    // Used to disable the feature for specific tables where it is enabled at the instance level, in cassandra.yaml.
+    // By default the table level setting is false, i.e. the override is not in place for the table until explicitly
+    // set. See extractXmasPatchParam(Map<String, ByteBuffer>)
+    public final boolean disableChristmasPatch;
+
     private TableParams(Builder builder)
     {
         comment = builder.comment;
@@ -102,6 +109,20 @@ public final class TableParams
         extensions = builder.extensions;
         cdc = builder.cdc;
         readRepair = builder.readRepair;
+        disableChristmasPatch = extractXmasPatchParam(builder.extensions);
+    }
+
+    private boolean extractXmasPatchParam(Map<String, ByteBuffer> extensions)
+    {
+        // If enable_christmas_patch is set at the instance level, it can be overridden and
+        // turned off for specific tables. When this is done, the table level flag is
+        // persisted as an entry in the table extensions, which is a map<text, blob>. The
+        // default is for a table _not_ to override the instance setting, so a missing or
+        // empty value in the map indicates the override is not in place for this table.
+        // Conversely, the presence of _any_ value in the map can be read as the override
+        // being turned on (i.e. christmas patch is disabled) for the table.
+        ByteBuffer val = extensions.get(Option.DISABLE_CHRISTMAS_PATCH.name());
+        return null != val && val.hasRemaining();
     }
 
     public static Builder builder()
@@ -252,6 +273,7 @@ public final class TableParams
                           .add(Option.EXTENSIONS.toString(), extensions)
                           .add(Option.CDC.toString(), cdc)
                           .add(Option.READ_REPAIR.toString(), readRepair)
+                          .add(Option.DISABLE_CHRISTMAS_PATCH.toString(), disableChristmasPatch)
                           .toString();
     }
 
@@ -275,6 +297,8 @@ public final class TableParams
                .append("AND crc_check_chance = ").append(crcCheckChance)
                .newLine()
                .append("AND default_time_to_live = ").append(defaultTimeToLive)
+               .newLine()
+               .append("AND disable_christmas_patch = ").append(disableChristmasPatch)
                .newLine()
                .append("AND extensions = ").append(extensions.entrySet()
                                                              .stream()
@@ -416,8 +440,48 @@ public final class TableParams
 
         public Builder extensions(Map<String, ByteBuffer> val)
         {
-            extensions = ImmutableMap.copyOf(val);
+            // Before replacing any existing extensions map, extract the
+            // disable_christmas_patch setting, if present, so we can re-apply
+            // it as long as it doesn't conflict with the supplied new map (this
+            // is unlikely as there's no exposed way to actually set extensions).
+            if (val.containsKey(Option.DISABLE_CHRISTMAS_PATCH.name())
+                || !extensions.containsKey(Option.DISABLE_CHRISTMAS_PATCH.name()))
+            {
+                // either the option wasn't set previously, or it is explicitly set in
+                // this new map, so we can just copy the supplied map wholesale
+                extensions = ImmutableMap.copyOf(val);
+            }
+            else
+            {
+                // the entry is present in the existing map, but not the new one. Add it
+                // to the supplied map. The value associated with the key is not important.
+                extensions = ImmutableMap.<String, ByteBuffer>builder()
+                                         .putAll(val)
+                                         .put(Option.DISABLE_CHRISTMAS_PATCH.name(), ByteBuffer.wrap(new byte[]{1}))
+                                         .build();
+            }
             return this;
+        }
+
+        public Builder disableChristmasPatch(boolean val)
+        {
+            // Add/replace a serialized value for the xmas patch option in the
+            // extensions map. We store this like so as we don't have to modify the
+            // system_schema.tables schema to accomodate the xmas patch flag
+            // Note: we only insert an entry into the map if val == true. If
+            // the key is not present in the map when the TableParams are built,
+            // the feature is not disabled at the table level.
+            ImmutableMap.Builder<String, ByteBuffer> builder = ImmutableMap.builder();
+            builder.putAll(Maps.filterKeys(extensions, this::filterKey));
+            if (val)
+               builder.put(Option.DISABLE_CHRISTMAS_PATCH.name(), ByteBuffer.wrap(new byte[]{1}));
+            extensions = builder.build();
+            return this;
+        }
+
+        private boolean filterKey(String key)
+        {
+            return key != null && !key.equals(Option.DISABLE_CHRISTMAS_PATCH.name());
         }
     }
 }
