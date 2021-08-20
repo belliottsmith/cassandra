@@ -37,6 +37,8 @@ import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.TokenMetadata;
+import org.apache.cassandra.schema.CIEInternalKeyspace;
+import org.apache.cassandra.schema.CIEInternalLocalKeyspace;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.StorageService;
@@ -300,7 +302,9 @@ public class DescribeStatementTest extends CQLTester
 
             // Test describe keyspaces/keyspace
 
-            Object[][] testKeyspacesOutput = rows(row(KEYSPACE, "keyspace", KEYSPACE),
+            Object[][] testKeyspacesOutput = rows(row(CIEInternalKeyspace.NAME, "keyspace", CIEInternalKeyspace.NAME),
+                                                  row(CIEInternalLocalKeyspace.NAME, "keyspace", CIEInternalLocalKeyspace.NAME),
+                                                  row(KEYSPACE, "keyspace", KEYSPACE),
                                                   row(KEYSPACE_PER_TEST, "keyspace", KEYSPACE_PER_TEST),
                                                   row(SYSTEM_KEYSPACE_NAME, "keyspace", SYSTEM_KEYSPACE_NAME),
                                                   row(AUTH_KEYSPACE_NAME, "keyspace", AUTH_KEYSPACE_NAME),
@@ -478,7 +482,7 @@ public class DescribeStatementTest extends CQLTester
                                       "    PRIMARY KEY ((pk1, pk2), c)\n" +
                                       ") WITH ID = " + id + "\n" +
                                       "    AND CLUSTERING ORDER BY (c ASC)\n" +
-                                      "    AND " + tableParametersCql();
+                                      "    AND " + tableParametersCql(true);
 
         assertRowsNet(executeDescribeNet("DESCRIBE TABLE " + KEYSPACE + "." + table + " WITH INTERNALS"),
                       row(KEYSPACE,
@@ -528,7 +532,7 @@ public class DescribeStatementTest extends CQLTester
                                       "    reg2 list<int>,\n" +
                                       "    PRIMARY KEY ((pk1, pk2), ck1, ck2)\n" +
                                       ") WITH CLUSTERING ORDER BY (ck1 ASC, ck2 DESC)\n" +
-                                      "    AND " + tableParametersCql();
+                                      "    AND " + tableParametersCql(true);
 
         String mvCreateStatement ="CREATE MATERIALIZED VIEW " + KEYSPACE + ".mv AS\n" +
                                   "    SELECT *\n" +
@@ -536,7 +540,7 @@ public class DescribeStatementTest extends CQLTester
                                   "    WHERE pk2 IS NOT NULL AND pk1 IS NOT NULL AND ck2 IS NOT NULL AND ck1 IS NOT NULL\n" +
                                   "    PRIMARY KEY ((pk2, pk1), ck2, ck1)\n" +
                                   " WITH CLUSTERING ORDER BY (ck2 DESC, ck1 ASC)\n" +
-                                  "    AND " + tableParametersCql();
+                                  "    AND " + tableParametersCql(true);
 
         try
         {
@@ -566,7 +570,7 @@ public class DescribeStatementTest extends CQLTester
                                       "    v2 int,\n" +
                                       "    v3 int\n" +
                                       ") WITH ID = " + id + "\n" +
-                                      "    AND " + tableParametersCql();
+                                      "    AND " + tableParametersCql(true);
 
         assertRowsNet(executeDescribeNet("DESCRIBE TABLE " + KEYSPACE + "." + table + " WITH INTERNALS"),
                       row(KEYSPACE,
@@ -589,7 +593,7 @@ public class DescribeStatementTest extends CQLTester
                                                           "    pk text PRIMARY KEY,\n" +
                                                           "    v1 text,\n" +
                                                           "    v2 int\n" +
-                                                          ") WITH " + tableParametersCql();
+                                                          ") WITH " + tableParametersCql(true);
 
         assertRowsNet(executeDescribeNet("DESCRIBE TABLE " + KEYSPACE + "." + table),
                       row(KEYSPACE,
@@ -728,7 +732,7 @@ public class DescribeStatementTest extends CQLTester
         String expectedTableStmt = "CREATE TABLE " + KEYSPACE + "." + table + " (\n" +
                                    "    id int PRIMARY KEY,\n" +
                                    "    value text\n" +
-                                   ") WITH " + tableParametersCql();
+                                   ") WITH " + tableParametersCql(true);
 
         String expectedIndexStmtWithoutOptions = "CREATE CUSTOM INDEX " + indexWithoutOptions + " ON " + KEYSPACE + "." + table + " (value) USING 'org.apache.cassandra.index.sasi.SASIIndex';";
         String expectedIndexStmtWithOptions = "CREATE CUSTOM INDEX " + indexWithOptions + " ON " + KEYSPACE + "." + table + " (value) USING 'org.apache.cassandra.index.sasi.SASIIndex' WITH OPTIONS = {'is_literal': 'false'};";
@@ -773,7 +777,7 @@ public class DescribeStatementTest extends CQLTester
                "    listcol list<decimal>,\n" +
                "    mapcol map<timestamp, timeuuid>,\n" +
                "    setcol set<tinyint>\n" +
-               ") WITH " + tableParametersCql();
+               ") WITH " + tableParametersCql(false);
     }
 
     private static String usersByStateMvOutput()
@@ -784,7 +788,7 @@ public class DescribeStatementTest extends CQLTester
                "    WHERE state IS NOT NULL AND username IS NOT NULL\n" +
                "    PRIMARY KEY (state, username)\n" +
                " WITH CLUSTERING ORDER BY (username ASC)\n" +
-               "    AND " + tableParametersCql();
+               "    AND " + tableParametersCql(true);
     }
 
     private static String indexOutput(String index, String table, String col)
@@ -801,7 +805,7 @@ public class DescribeStatementTest extends CQLTester
                "    password text,\n" +
                "    session_token text,\n" +
                "    state text\n" +
-               ") WITH " + tableParametersCql();
+               ") WITH " + tableParametersCql(true);
     }
 
     private static String userTableOutput()
@@ -811,7 +815,7 @@ public class DescribeStatementTest extends CQLTester
                "    age int,\n" +
                "    firstname text,\n" +
                "    lastname text\n" +
-               ") WITH " + tableParametersCql();
+               ") WITH " + tableParametersCql(true);
     }
 
     private static String testTableOutput()
@@ -822,20 +826,24 @@ public class DescribeStatementTest extends CQLTester
                    "    val text,\n"  +
                    "    PRIMARY KEY (id, col)\n" +
                    ") WITH CLUSTERING ORDER BY (col ASC)\n" +
-                   "    AND " + tableParametersCql();
+                   "    AND " + tableParametersCql(true);
     }
 
-    private static String tableParametersCql()
+    private static String tableParametersCql(boolean useSizeTieredCompaction)
     {
+        String compactionClass = useSizeTieredCompaction
+                                 ? "org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy"
+                                 : "org.apache.cassandra.db.compaction.LeveledCompactionStrategy";
         return "additional_write_policy = '99p'\n" +
                "    AND bloom_filter_fp_chance = 0.01\n" +
                "    AND caching = {'keys': 'ALL', 'rows_per_partition': 'NONE'}\n" +
                "    AND cdc = false\n" +
                "    AND comment = ''\n" +
-               "    AND compaction = {'class': 'org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy', 'max_threshold': '32', 'min_threshold': '4'}\n" +
+               "    AND compaction = {'class': '" + compactionClass + "', 'enabled': 'true', 'max_threshold': '32', 'min_threshold': '4'}\n" +
                "    AND compression = {'chunk_length_in_kb': '16', 'class': 'org.apache.cassandra.io.compress.LZ4Compressor'}\n" +
                "    AND crc_check_chance = 1.0\n" +
                "    AND default_time_to_live = 0\n" +
+               "    AND disable_christmas_patch = false\n" +
                "    AND extensions = {}\n" +
                "    AND gc_grace_seconds = 864000\n" +
                "    AND max_index_interval = 2048\n" +

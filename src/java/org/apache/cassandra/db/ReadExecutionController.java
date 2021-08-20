@@ -22,16 +22,22 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.index.Index;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.MonotonicClock;
+import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
 import static org.apache.cassandra.utils.MonotonicClock.preciseTime;
 
 public class ReadExecutionController implements AutoCloseable
 {
+    protected static final Logger logger = LoggerFactory.getLogger(ReadExecutionController.class);
     private static final long NO_SAMPLING = Long.MIN_VALUE;
 
     // For every reads
@@ -106,6 +112,23 @@ public class ReadExecutionController implements AutoCloseable
         return baseOp != null && cfs.metadata.id.equals(baseMetadata.id);
     }
 
+    private static boolean isChristmasPatchDisabled(ColumnFamilyStore cfs)
+    {
+        if (CassandraRelevantProperties.OVERRIDE_DISABLED_XMAS_PATCH_PROP.getBoolean())
+            return false;
+
+        if (cfs.isChristmasPatchDisabled())
+        {
+            NoSpamLogger.log(logger, NoSpamLogger.Level.INFO, "RDT XMAS DISABLED",
+                             1, TimeUnit.MINUTES,
+                             "Repaired data tracking was requested for read command, but Christmas patch is disabled for table {}.{}",
+                             cfs.keyspace, cfs.name);
+            return true;
+        }
+
+        return false;
+    }
+
     public static ReadExecutionController empty()
     {
         return new ReadExecutionController(null, null, null, null, null, NO_SAMPLING, false);
@@ -125,6 +148,9 @@ public class ReadExecutionController implements AutoCloseable
     {
         ColumnFamilyStore baseCfs = Keyspace.openAndGetStore(command.metadata());
         ColumnFamilyStore indexCfs = maybeGetIndexCfs(baseCfs, command);
+
+        if (isChristmasPatchDisabled(baseCfs)) // Selective disable per-table
+            trackRepairedStatus = false;
 
         long createdAtNanos = baseCfs.metric.topLocalReadQueryTime.isEnabled() ? clock.now() : NO_SAMPLING;
 
