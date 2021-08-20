@@ -311,4 +311,7 @@ public interface ColumnFamilyStoreMBean
      * @see org.apache.cassandra.metrics.TableMetrics#coordinatorScanLatency
      */
     public long[] getCoordinatorScanLatencyHistogram();
+
+    public void setChristmasPatchDisabled(boolean disable);
+    public boolean isChristmasPatchDisabled();
 }

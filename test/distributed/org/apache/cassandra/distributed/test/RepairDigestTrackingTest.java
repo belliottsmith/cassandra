@@ -28,10 +28,12 @@ import java.util.stream.Stream;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
@@ -54,6 +56,12 @@ public class RepairDigestTrackingTest extends TestBaseImpl
 {
     private static final String TABLE = "tbl";
     private static final String KS_TABLE = KEYSPACE + "." + TABLE;
+
+    @BeforeClass
+    public static void setup()
+    {
+        System.setProperty(ReadCommand.OVERRIDE_DISABLED_XMAS_PATCH_PROP, "true");
+    }
 
     @Test
     public void testInconsistenciesFound() throws Throwable

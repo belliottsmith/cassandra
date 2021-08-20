@@ -190,7 +190,7 @@ public class CompactionController extends AbstractCompactionController
             Set<SSTableReader> fullyExpired = new HashSet<>();
             for (SSTableReader candidate : compacting)
             {
-                int lastRepairTime = lastRepairTime(gcBefore, repairTimeHolder, candidate);
+                int lastRepairTime = lastRepairTime(cfStore, gcBefore, repairTimeHolder, candidate);
 
                 if (candidate.getSSTableMetadata().maxLocalDeletionTime < Math.min(lastRepairTime, gcBefore))
                 {
@@ -216,7 +216,7 @@ public class CompactionController extends AbstractCompactionController
         // Check last successful repair for adjusted gcBefore for SSTable
         for (SSTableReader candidate : compacting)
         {
-            int lastRepairTime = lastRepairTime(gcBefore, repairTimeHolder, candidate);
+            int lastRepairTime = lastRepairTime(cfStore, gcBefore, repairTimeHolder, candidate);
 
             if (candidate.getSSTableMetadata().maxLocalDeletionTime < Math.min(lastRepairTime, gcBefore))
                 candidates.add(candidate);
@@ -249,12 +249,12 @@ public class CompactionController extends AbstractCompactionController
         return new HashSet<>(candidates);
     }
 
-    private static int lastRepairTime(int gcBefore, SuccessfulRepairTimeHolder repairTimeHolder, SSTableReader candidate)
+    private static int lastRepairTime(ColumnFamilyStore cfStore, int gcBefore, SuccessfulRepairTimeHolder repairTimeHolder, SSTableReader candidate)
     {
         int lastRepairTime = Integer.MIN_VALUE;
 
         //If Christmas patch is not enabled, we set lastRepairTime=gcgrace to disable it.
-        if (!DatabaseDescriptor.enableChristmasPatch())
+        if (cfStore.isChristmasPatchDisabled() || !cfStore.useRepairHistory())
         {
             lastRepairTime = gcBefore;
         }

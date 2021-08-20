@@ -151,6 +151,7 @@ public abstract class AbstractReadResponseTest
         SchemaLoader.prepareServer();
         SchemaLoader.createKeyspace(KEYSPACE1, KeyspaceParams.simple(2), builder1, builder2);
         SchemaLoader.createKeyspace(KEYSPACE3, KeyspaceParams.simple(4), builder3);
+        System.setProperty(ReadCommand.OVERRIDE_DISABLED_XMAS_PATCH_PROP, "true");
 
         ks = Keyspace.open(KEYSPACE1);
         cfs = ks.getColumnFamilyStore(CF_STANDARD);

@@ -66,6 +66,7 @@ import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.NoSpamLogger;
 
 import static com.google.common.collect.Iterables.any;
 import static com.google.common.collect.Iterables.filter;
@@ -82,6 +83,10 @@ public abstract class ReadCommand extends AbstractReadQuery
 {
     private static final int TEST_ITERATION_DELAY_MILLIS = Integer.parseInt(System.getProperty("cassandra.test.read_iteration_delay_ms", "0"));
     protected static final Logger logger = LoggerFactory.getLogger(ReadCommand.class);
+
+    // for testing
+    public static final String OVERRIDE_DISABLED_XMAS_PATCH_PROP = "cassandra.repaired_data_tracking_without_xmas_patch";
+
     public static final IVersionedSerializer<ReadCommand> serializer = new Serializer();
 
     private final Kind kind;
@@ -232,7 +237,25 @@ public abstract class ReadCommand extends AbstractReadQuery
      */
     public void trackRepairedStatus()
     {
-        trackRepairedStatus = true;
+        if (Boolean.getBoolean(OVERRIDE_DISABLED_XMAS_PATCH_PROP) || !isChristmasPatchDisabled())
+        {
+            trackRepairedStatus = true;
+        }
+    }
+
+    private boolean isChristmasPatchDisabled()
+    {
+        ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(metadata().id);
+        if (cfs != null && cfs.isChristmasPatchDisabled())
+        {
+            NoSpamLogger.log(logger, NoSpamLogger.Level.INFO, "RDT XMAS DISABLED",
+                             1, TimeUnit.MINUTES,
+                             "Repaired data tracking was requested for read command, but Christmas patch is disabled for table {}.{}",
+                             cfs.keyspace, cfs.name);
+            return true;
+        }
+
+        return false;
     }
 
     /**
