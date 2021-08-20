@@ -415,7 +415,7 @@ public abstract class AbstractCompactionStrategy
         if (uncheckedTombstoneCompaction)
             return true;
 
-        if (StorageService.instance.isChistmasPatchEnabled())
+        if (!cfs.isChristmasPatchDisabled())
         {
             int lastFullyRepairedTime = repairTimeHolder.getFullyRepairedTimeFor(sstable, gcBefore, true, REPAIRED_RANGE_ITERATION_LIMIT);
             droppableRatio = Math.min(droppableRatio, sstable.getEstimatedDroppableTombstoneRatio(lastFullyRepairedTime));
