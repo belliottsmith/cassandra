@@ -262,8 +262,9 @@ public enum CassandraRelevantProperties
     // CIE-specific property
     ALLOW_DISABLED_COMPRESSION("cassandra.allow_disabled_compression", "false"),
 
+    // CIE-specific property to force-enable the Christmas patch for any tables that have opted out
+    OVERRIDE_DISABLED_XMAS_PATCH_PROP(Config.PROPERTY_PREFIX + "repaired_data_tracking_without_xmas_patch");
     ;
-
 
     CassandraRelevantProperties(String key, String defaultVal)
     {

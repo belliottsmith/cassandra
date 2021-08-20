@@ -147,7 +147,7 @@ from cassandra.cluster import Cluster
 from cassandra.cqltypes import cql_typename
 from cassandra.marshal import int64_unpack
 from cassandra.metadata import (ColumnMetadata, KeyspaceMetadata,
-                                TableMetadata, protect_name, protect_names)
+                                TableMetadata, RegisteredTableExtension, protect_name, protect_names)
 from cassandra.policies import WhiteListRoundRobinPolicy
 from cassandra.query import SimpleStatement, ordered_dict_factory, TraceUnavailable
 from cassandra.util import datetime_from_timestamp
@@ -270,7 +270,23 @@ if os.path.exists(OLD_CONFIG_FILE):
 OLD_HISTORY = os.path.expanduser(os.path.join('~', '.cqlsh_history'))
 if os.path.exists(OLD_HISTORY):
     os.rename(OLD_HISTORY, HISTORY)
+
+
+class XmasPatchExtension(RegisteredTableExtension):
+    name = 'DISABLE_CHRISTMAS_PATCH'
+
+    @classmethod
+    def after_table_cql(cls, table_meta, ext_key, ext_blob):
+        enabled = ord(ext_blob)
+        return "" if not enabled else """
+// Repair based purging (Christmas patch) override is in place for this table.
+// If enabled for the cluster, this table will be exempted from tracking repair
+// history and using it during tombstone purging.
+ALTER TABLE %s.%s WITH disable_christmas_patch=true;
+""" % (table_meta.keyspace_name, table_meta.name)
+
 # END history/config definition
+
 
 CQL_ERRORS = (
     cassandra.AlreadyExists, cassandra.AuthenticationFailed, cassandra.CoordinationFailure,

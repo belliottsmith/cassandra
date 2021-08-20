@@ -35,6 +35,7 @@ import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -112,6 +113,7 @@ public class ReadCommandTest
 
             throw new AssertionError(e);
         }
+        CassandraRelevantProperties.OVERRIDE_DISABLED_XMAS_PATCH_PROP.setBoolean(true);
     }
 
     private static final int lastRepairTime = FBUtilities.nowInSeconds();
