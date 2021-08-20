@@ -134,7 +134,8 @@ from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import Cluster
 from cassandra.cqltypes import cql_typename
 from cassandra.marshal import int64_unpack
-from cassandra.metadata import (ColumnMetadata, KeyspaceMetadata, TableMetadata)
+from cassandra.metadata import (ColumnMetadata, KeyspaceMetadata,
+                                TableMetadata, RegisteredTableExtension, protect_name, protect_names)
 from cassandra.policies import WhiteListRoundRobinPolicy
 from cassandra.query import SimpleStatement, ordered_dict_factory, TraceUnavailable
 from cassandra.util import datetime_from_timestamp
@@ -269,6 +270,37 @@ else:
     CONFIG_FILE = DEFAULT_CQLSHRC
 
 CQL_DIR = os.path.dirname(CONFIG_FILE)
+
+OLD_CONFIG_FILE = os.path.expanduser(os.path.join('~', '.cqlshrc'))
+if os.path.exists(OLD_CONFIG_FILE):
+    if os.path.exists(CONFIG_FILE):
+        print('\nWarning: cqlshrc config files were found at both the old location ({0})'
+              + ' and the new location ({1}), the old config file will not be migrated to the new'
+              + ' location, and the new location will be used for now.  You should manually'
+              + ' consolidate the config files at the new location and remove the old file.'
+              .format(OLD_CONFIG_FILE, CONFIG_FILE))
+    else:
+        os.rename(OLD_CONFIG_FILE, CONFIG_FILE)
+OLD_HISTORY = os.path.expanduser(os.path.join('~', '.cqlsh_history'))
+if os.path.exists(OLD_HISTORY):
+    os.rename(OLD_HISTORY, HISTORY)
+
+
+class XmasPatchExtension(RegisteredTableExtension):
+    name = 'DISABLE_CHRISTMAS_PATCH'
+
+    @classmethod
+    def after_table_cql(cls, table_meta, ext_key, ext_blob):
+        enabled = ord(ext_blob)
+        return "" if not enabled else """
+// Repair based purging (Christmas patch) override is in place for this table.
+// If enabled for the cluster, this table will be exempted from tracking repair
+// history and using it during tombstone purging.
+ALTER TABLE %s.%s WITH disable_christmas_patch=true;
+""" % (table_meta.keyspace_name, table_meta.name)
+
+# END history/config definition
+
 
 CQL_ERRORS = (
     cassandra.AlreadyExists, cassandra.AuthenticationFailed, cassandra.CoordinationFailure,

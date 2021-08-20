@@ -27,8 +27,10 @@ import java.util.Objects;
 import java.util.Optional;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
+import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.repair.RepairResult;
 import org.apache.cassandra.repair.RepairSessionResult;
 import org.apache.cassandra.repair.SyncStat;
@@ -140,7 +142,18 @@ public class SyncStatSummary
             return tmd != null && tmd.isCounter();
         }
 
+        boolean isChristmasPatchDisabled()
+        {
+            ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(keyspace, table);
+            return cfs != null && cfs.isChristmasPatchDisabled();
+        }
+
         public String toString()
+        {
+            return toString(false);
+        }
+
+        public String toString(boolean includeChristmasPatchWarning)
         {
             if (!totalsCalculated)
             {
@@ -151,6 +164,10 @@ public class SyncStatSummary
             output.append(String.format("%s.%s - %s ranges, %s sstables, %s bytes", keyspace, table, ranges, files, FBUtilities.prettyPrintMemory(bytes)));
 
             maybeWarnOfCounter(keyspace, table, ranges, output);
+
+            if (includeChristmasPatchWarning && isChristmasPatchDisabled())
+                output.append(" **CHRISTMAS PATCH DISABLED**");
+
             output.append('\n');
 
             for (Session session: sessions.values())
@@ -227,7 +244,18 @@ public class SyncStatSummary
         totalsCalculated = true;
     }
 
+    public String getChristmasPatchDisabledWarning()
+    {
+        return Iterables.any(summaries.values(), Table::isChristmasPatchDisabled)
+               ? " (some tables have Christmas Patch disabled) " : "";
+    }
+
     public String toString()
+    {
+        return toString(false);
+    }
+
+    public String toString(boolean includeChristmasPatchWarning)
     {
         List<Pair<String, String>> tables = Lists.newArrayList(summaries.keySet());
         tables.sort((o1, o2) ->
@@ -252,7 +280,7 @@ public class SyncStatSummary
         for (Pair<String, String> tableName: tables)
         {
             Table table = summaries.get(tableName);
-            output.append(table.toString()).append('\n');
+            output.append(table.toString(includeChristmasPatchWarning)).append('\n');
         }
 
         return output.toString();

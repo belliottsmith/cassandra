@@ -898,6 +898,12 @@ public class TableMetadata implements SchemaElement
             return this;
         }
 
+        public Builder disableChristmasPatch(boolean disable)
+        {
+           params.disableChristmasPatch(disable);
+           return this;
+        }
+
         public Builder flags(Set<Flag> val)
         {
             flags = val;
