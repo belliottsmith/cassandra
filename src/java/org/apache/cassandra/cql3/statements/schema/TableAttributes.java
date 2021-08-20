@@ -140,6 +140,9 @@ public final class TableAttributes extends PropertyDefinitions
         if (hasOption(Option.READ_REPAIR))
             builder.readRepair(ReadRepairStrategy.fromString(getString(Option.READ_REPAIR)));
 
+        if (hasOption(Option.DISABLE_CHRISTMAS_PATCH))
+            builder.disableChristmasPatch(getBoolean(Option.DISABLE_CHRISTMAS_PATCH));
+
         return builder.build();
     }
 
@@ -198,6 +201,12 @@ public final class TableAttributes extends PropertyDefinitions
         if (value == null)
             throw new IllegalStateException(format("Option '%s' is absent", option));
         return value;
+    }
+
+    private Boolean getBoolean(Option option)
+    {
+        String value = getSimple(option.toString());
+        return Boolean.valueOf(value);
     }
 
     public boolean hasOption(Option option)

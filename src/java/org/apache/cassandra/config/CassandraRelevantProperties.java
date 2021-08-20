@@ -201,8 +201,10 @@ public enum CassandraRelevantProperties
     MBEAN_REGISTRATION_CLASS("org.apache.cassandra.mbean_registration_class"),
 
     // CIE-specific property to enable config.enable_materialzed_views
-    ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews");
+    ALLOW_MATERIALIZEDVIEWS(Config.PROPERTY_PREFIX + "allow_materializedviews"),
 
+    // CIE-specific property to force-enable the Christmas patch for any tables that have opted out
+    OVERRIDE_DISABLED_XMAS_PATCH_PROP(Config.PROPERTY_PREFIX + "repaired_data_tracking_without_xmas_patch");
 
     CassandraRelevantProperties(String key, String defaultVal)
     {

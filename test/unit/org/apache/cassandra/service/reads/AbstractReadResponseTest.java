@@ -32,6 +32,7 @@ import org.junit.Ignore;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.BufferClusteringBound;
@@ -151,6 +152,7 @@ public abstract class AbstractReadResponseTest
         SchemaLoader.prepareServer();
         SchemaLoader.createKeyspace(KEYSPACE1, KeyspaceParams.simple(2), builder1, builder2);
         SchemaLoader.createKeyspace(KEYSPACE3, KeyspaceParams.simple(4), builder3);
+        CassandraRelevantProperties.OVERRIDE_DISABLED_XMAS_PATCH_PROP.setBoolean(true);
 
         ks = Keyspace.open(KEYSPACE1);
         cfs = ks.getColumnFamilyStore(CF_STANDARD);
