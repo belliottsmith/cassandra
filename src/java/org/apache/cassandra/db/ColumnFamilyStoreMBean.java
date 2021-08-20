@@ -316,4 +316,7 @@ public interface ColumnFamilyStoreMBean
     public Long getTopSizePartitionsLastUpdate();
     public Map<String, Long> getTopTombstonePartitions();
     public Long getTopTombstonePartitionsLastUpdate();
+
+    public void setChristmasPatchDisabled(boolean disable);
+    public boolean isChristmasPatchDisabled();
 }

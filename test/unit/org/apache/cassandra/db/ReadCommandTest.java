@@ -112,6 +112,7 @@ public class ReadCommandTest
 
             throw new AssertionError(e);
         }
+        System.setProperty(ReadCommand.OVERRIDE_DISABLED_XMAS_PATCH_PROP, "true");
     }
 
     private static final int lastRepairTime = FBUtilities.nowInSeconds();
