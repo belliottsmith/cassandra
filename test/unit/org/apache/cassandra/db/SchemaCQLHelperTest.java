@@ -266,53 +266,60 @@ public class SchemaCQLHelperTest extends CQLTester
     @Test
     public void testCfmOptionsCQL()
     {
-        String keyspace = "cql_test_keyspace_options";
-        String table = "test_table_options";
+        for (boolean disableChristmasPatch : new boolean[] {false, true})
+        {
+            String keyspace = "cql_test_keyspace_options_" + disableChristmasPatch;
+            String table = "test_table_options";
 
-        TableMetadata.Builder builder = TableMetadata.builder(keyspace, table);
-        long droppedTimestamp = FBUtilities.timestampMicros();
-        builder.addPartitionKeyColumn("pk1", IntegerType.instance)
-               .addClusteringColumn("cl1", IntegerType.instance)
-               .addRegularColumn("reg1", AsciiType.instance)
-               .bloomFilterFpChance(1.0)
-               .comment("comment")
-               .compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1")))
-               .compression(CompressionParams.lz4(1 << 16, 1 << 15))
-               .crcCheckChance(0.3)
-               .defaultTimeToLive(4)
-               .gcGraceSeconds(5)
-               .minIndexInterval(6)
-               .maxIndexInterval(7)
-               .memtableFlushPeriod(8)
-               .speculativeRetry(SpeculativeRetryPolicy.fromString("always"))
-               .additionalWritePolicy(SpeculativeRetryPolicy.fromString("always"))
-               .extensions(ImmutableMap.of("ext1", ByteBuffer.wrap("val1".getBytes())))
-               .recordColumnDrop(ColumnMetadata.regularColumn(keyspace, table, "reg1", AsciiType.instance),
-                                 droppedTimestamp);
+            TableMetadata.Builder builder = TableMetadata.builder(keyspace, table);
+            long droppedTimestamp = FBUtilities.timestampMicros();
+            builder.addPartitionKeyColumn("pk1", IntegerType.instance)
+                   .addClusteringColumn("cl1", IntegerType.instance)
+                   .addRegularColumn("reg1", AsciiType.instance)
+                   .bloomFilterFpChance(1.0)
+                   .comment("comment")
+                   .compaction(CompactionParams.lcs(Collections.singletonMap("sstable_size_in_mb", "1")))
+                   .compression(CompressionParams.lz4(1 << 16, 1 << 15))
+                   .crcCheckChance(0.3)
+                   .defaultTimeToLive(4)
+                   .gcGraceSeconds(5)
+                   .minIndexInterval(6)
+                   .maxIndexInterval(7)
+                   .memtableFlushPeriod(8)
+                   .speculativeRetry(SpeculativeRetryPolicy.fromString("always"))
+                   .additionalWritePolicy(SpeculativeRetryPolicy.fromString("always"))
+                   .extensions(ImmutableMap.of("ext1", ByteBuffer.wrap("val1".getBytes())))
+                   .disableChristmasPatch(disableChristmasPatch)
+                   .recordColumnDrop(ColumnMetadata.regularColumn(keyspace, table, "reg1", AsciiType.instance),
+                                     droppedTimestamp);
 
-        SchemaLoader.createKeyspace(keyspace, KeyspaceParams.simple(1), builder);
+            SchemaLoader.createKeyspace(keyspace, KeyspaceParams.simple(1), builder);
 
-        ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(table);
+            ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(table);
 
-        assertThat(SchemaCQLHelper.getTableMetadataAsCQL(cfs.metadata(), cfs.keyspace.getMetadata()),
-                   containsString("CLUSTERING ORDER BY (cl1 ASC)\n" +
-                            "    AND additional_write_policy = 'ALWAYS'\n" +
-                            "    AND bloom_filter_fp_chance = 1.0\n" +
-                            "    AND caching = {'keys': 'ALL', 'rows_per_partition': 'NONE'}\n" +
-                            "    AND cdc = false\n" +
-                            "    AND comment = 'comment'\n" +
-                            "    AND compaction = {'class': 'org.apache.cassandra.db.compaction.LeveledCompactionStrategy', 'max_threshold': '32', 'min_threshold': '4', 'sstable_size_in_mb': '1'}\n" +
-                            "    AND compression = {'chunk_length_in_kb': '64', 'class': 'org.apache.cassandra.io.compress.LZ4Compressor', 'min_compress_ratio': '2.0'}\n" +
-                            "    AND crc_check_chance = 0.3\n" +
-                            "    AND default_time_to_live = 4\n" +
-                            "    AND extensions = {'ext1': 0x76616c31}\n" +
-                            "    AND gc_grace_seconds = 5\n" +
-                            "    AND max_index_interval = 7\n" +
-                            "    AND memtable_flush_period_in_ms = 8\n" +
-                            "    AND min_index_interval = 6\n" +
-                            "    AND read_repair = 'BLOCKING'\n" +
-                            "    AND speculative_retry = 'ALWAYS';"
-                   ));
+            assertThat(SchemaCQLHelper.getTableMetadataAsCQL(cfs.metadata(), cfs.keyspace.getMetadata()),
+                       containsString(String.format("CLUSTERING ORDER BY (cl1 ASC)\n" +
+                                            "    AND additional_write_policy = 'ALWAYS'\n" +
+                                            "    AND bloom_filter_fp_chance = 1.0\n" +
+                                            "    AND caching = {'keys': 'ALL', 'rows_per_partition': 'NONE'}\n" +
+                                            "    AND cdc = false\n" +
+                                            "    AND comment = 'comment'\n" +
+                                            "    AND compaction = {'class': 'org.apache.cassandra.db.compaction.LeveledCompactionStrategy', 'max_threshold': '32', 'min_threshold': '4', 'sstable_size_in_mb': '1'}\n" +
+                                            "    AND compression = {'chunk_length_in_kb': '64', 'class': 'org.apache.cassandra.io.compress.LZ4Compressor', 'min_compress_ratio': '2.0'}\n" +
+                                            "    AND crc_check_chance = 0.3\n" +
+                                            "    AND default_time_to_live = 4\n" +
+                                            "    AND disable_christmas_patch = %b\n" +
+                                            "    AND extensions = {%s'ext1': 0x76616c31}\n" +
+                                            "    AND gc_grace_seconds = 5\n" +
+                                            "    AND max_index_interval = 7\n" +
+                                            "    AND memtable_flush_period_in_ms = 8\n" +
+                                            "    AND min_index_interval = 6\n" +
+                                            "    AND read_repair = 'BLOCKING'\n" +
+                                            "    AND speculative_retry = 'ALWAYS';",
+                                            disableChristmasPatch,
+                                            disableChristmasPatch ? "'DISABLE_CHRISTMAS_PATCH': 0x01, " : "")
+                       ));
+        }
     }
 
     @Test

@@ -22,8 +22,10 @@ import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.marshal.BooleanType;
 import org.apache.cassandra.db.marshal.BytesType;
@@ -41,6 +43,12 @@ import static org.junit.Assert.assertTrue;
 
 public class TableMetadataTest
 {
+    @BeforeClass
+    static public void beforeClass()
+    {
+        DatabaseDescriptor.daemonInitialization();
+    }
+
     @Test
     public void testPartitionKeyAsCQLLiteral()
     {
