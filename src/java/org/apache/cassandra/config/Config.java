@@ -591,7 +591,7 @@ public class Config
 
     public volatile boolean disable_schema_drop_check = false;
 
-    public volatile boolean use_deterministic_table_id = false;
+    public volatile boolean use_deterministic_table_id = Boolean.parseBoolean(System.getProperty("cassandra.use_deterministic_table_id", "true"));
 
     // Deprecated configuration from
     // <rdar://problem/35142062> Cass: consider a transitional large-partition patch that dynamically downsamples column index (#964)
