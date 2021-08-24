@@ -21,8 +21,11 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import com.google.common.reflect.TypeToken;
+import com.google.common.reflect.TypeParameter;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -51,9 +54,22 @@ public class UFTest extends CQLTester
     public void testJavaSourceName()
     {
         Assert.assertEquals("String", JavaBasedUDFunction.javaSourceName(TypeToken.of(String.class)));
-        Assert.assertEquals("java.util.Map<Integer, String>", JavaBasedUDFunction.javaSourceName(TypeTokens.mapOf(Integer.class, String.class)));
+        Assert.assertEquals("java.util.Map<Integer, String>", JavaBasedUDFunction.javaSourceName(mapOf(Integer.class, String.class)));
         Assert.assertEquals("com.datastax.driver.core.UDTValue", JavaBasedUDFunction.javaSourceName(TypeToken.of(UDTValue.class)));
-        Assert.assertEquals("java.util.Set<com.datastax.driver.core.UDTValue>", JavaBasedUDFunction.javaSourceName(TypeTokens.setOf(UDTValue.class)));
+        Assert.assertEquals("java.util.Set<com.datastax.driver.core.UDTValue>", JavaBasedUDFunction.javaSourceName(setOf(UDTValue.class)));
+    }
+
+    private static <T> TypeToken<Set<T>> setOf(Class<T> eltType) {
+        return (new TypeToken<Set<T>>() {
+        }).where(new TypeParameter<T>() {
+        }, eltType);
+    }
+
+    private static <K, V> TypeToken<Map<K, V>> mapOf(Class<K> keyType, Class<V> valueType) {
+        return (new TypeToken<Map<K, V>>() {
+        }).where(new TypeParameter<K>() {
+        }, keyType).where(new TypeParameter<V>() {
+        }, valueType);
     }
 
     @Test

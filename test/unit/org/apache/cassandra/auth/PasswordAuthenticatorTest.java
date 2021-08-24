@@ -29,7 +29,6 @@ import org.junit.Test;
 import org.mindrot.jbcrypt.BCrypt;
 
 import com.datastax.driver.core.Authenticator;
-import com.datastax.driver.core.EndPoint;
 import com.datastax.driver.core.PlainTextAuthProvider;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -110,7 +109,7 @@ public class PasswordAuthenticatorTest extends CQLTester
     @Test(expected = ConfigurationException.class)
     public void testInvalidUpperBoundHashingRoundsValue()
     {
-        executeSaltRoundsPropertyTest(31);
+        executeSaltRoundsPropertyTest(32);
     }
 
     @Test(expected = ConfigurationException.class)
@@ -178,8 +177,8 @@ public class PasswordAuthenticatorTest extends CQLTester
     private void testDecodeIllegalUserAndPwd(String username, String password)
     {
         SaslNegotiator negotiator = authenticator.newSaslNegotiator(null);
-        Authenticator clientAuthenticator = (new PlainTextAuthProvider(username, password))
-                                            .newAuthenticator((EndPoint) null, null);
+        Authenticator clientAuthenticator = new PlainTextAuthProvider(username, password)
+                                            .newAuthenticator(null, null);
 
         negotiator.evaluateResponse(clientAuthenticator.initialResponse());
         negotiator.getAuthenticatedUser();
