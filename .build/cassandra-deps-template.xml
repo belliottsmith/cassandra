@@ -170,9 +170,8 @@
       <artifactId>hadoop-minicluster</artifactId>
     </dependency>
     <dependency>
-      <groupId>com.datastax.cassandra</groupId>
-      <artifactId>cassandra-driver-core</artifactId>
-      <classifier>shaded</classifier>
+      <groupId>com.apple.pie.cassandra</groupId>
+      <artifactId>cassandra-client</artifactId>
     </dependency>
     <dependency>
       <groupId>net.java.dev.jna</groupId>
