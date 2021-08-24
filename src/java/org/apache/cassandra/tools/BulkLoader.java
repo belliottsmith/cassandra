@@ -31,7 +31,7 @@ import com.google.common.collect.Multimap;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 
-import com.datastax.shaded.netty.channel.socket.SocketChannel;
+import mme.cassandraclient.shaded.io.netty.channel.socket.SocketChannel;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.EncryptionOptions;
 import org.apache.cassandra.io.sstable.SSTableLoader;

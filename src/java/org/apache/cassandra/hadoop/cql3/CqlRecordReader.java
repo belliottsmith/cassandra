@@ -24,14 +24,14 @@ import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-import com.google.common.base.Function;
-import com.google.common.base.Joiner;
-import com.google.common.base.Splitter;
+import mme.cassandraclient.shaded.com.google.common.base.Function;
+import mme.cassandraclient.shaded.com.google.common.base.Joiner;
+import mme.cassandraclient.shaded.com.google.common.base.Splitter;
 
 import com.datastax.driver.core.TypeCodec;
 import org.apache.cassandra.utils.AbstractIterator;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
+import mme.cassandraclient.shaded.com.google.common.collect.Iterables;
+import mme.cassandraclient.shaded.com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,7 +48,7 @@ import com.datastax.driver.core.TableMetadata;
 import com.datastax.driver.core.Token;
 import com.datastax.driver.core.TupleValue;
 import com.datastax.driver.core.UDTValue;
-import com.google.common.reflect.TypeToken;
+import mme.cassandraclient.shaded.com.google.common.reflect.TypeToken;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.hadoop.ColumnFamilySplit;
