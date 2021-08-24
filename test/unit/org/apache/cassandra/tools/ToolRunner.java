@@ -56,7 +56,13 @@ public class ToolRunner
 
     private static final ImmutableList<String> DEFAULT_CLEANERS = ImmutableList.of("(?im)^picked up.*\\R",
                                                                                    "(?im)^.*JavaScript user-defined functions have been deprecated. You can still use them but the plan is to remove them in the next major version. For more information - CASSANDRA-17280.*\\R",
-                                                                                   "(?im)^.*`USE <keyspace>` with prepared statements is.*\\R");
+                                                                                   "(?im)^.*`USE <keyspace>` with prepared statements is.*\\R",
+                                                                                   "(?im)^.*reads coordinated by this node will not offer linearizability.*\\R",
+                                                                                   "(?im)^.*java-driver only supports shaded guava or.*\\R",
+                                                                                   "(?im)^.*using withProtocolVersion is strongly discouraged.*\\R",
+                                                                                   "(?im)^.*slf4j.*\\R",
+                                                                                   "(?im)^.*found binding.*\\R");
+
 
     public static int runClassAsTool(String clazz, String... args)
     {

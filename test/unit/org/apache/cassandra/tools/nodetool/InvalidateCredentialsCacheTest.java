@@ -21,7 +21,6 @@ package org.apache.cassandra.tools.nodetool;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import com.datastax.driver.core.EndPoint;
 import com.datastax.driver.core.PlainTextAuthProvider;
 import org.apache.cassandra.auth.AuthTestUtils;
 import org.apache.cassandra.auth.AuthenticatedUser;
@@ -55,11 +54,11 @@ public class InvalidateCredentialsCacheTest extends CQLTester
         PasswordAuthenticator passwordAuthenticator = (PasswordAuthenticator) DatabaseDescriptor.getAuthenticator();
         roleANegotiator = passwordAuthenticator.newSaslNegotiator(null);
         roleANegotiator.evaluateResponse(new PlainTextAuthProvider(ROLE_A.getRoleName(), "ignored")
-                .newAuthenticator((EndPoint) null, null)
+                .newAuthenticator(null, null)
                 .initialResponse());
         roleBNegotiator = passwordAuthenticator.newSaslNegotiator(null);
         roleBNegotiator.evaluateResponse(new PlainTextAuthProvider(ROLE_B.getRoleName(), "ignored")
-                .newAuthenticator((EndPoint) null, null)
+                .newAuthenticator(null, null)
                 .initialResponse());
 
         startJMXServer();
