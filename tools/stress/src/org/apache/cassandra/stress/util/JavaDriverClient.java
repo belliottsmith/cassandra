@@ -25,14 +25,14 @@ import java.util.concurrent.ConcurrentMap;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 
-import com.google.common.net.HostAndPort;
+import mme.cassandraclient.shaded.com.google.common.net.HostAndPort;
 
 import com.datastax.driver.core.*;
 import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
 import com.datastax.driver.core.policies.LoadBalancingPolicy;
 import com.datastax.driver.core.policies.TokenAwarePolicy;
 import com.datastax.driver.core.policies.WhiteListPolicy;
-import com.datastax.shaded.netty.channel.socket.SocketChannel;
+import mme.cassandraclient.shaded.io.netty.channel.socket.SocketChannel;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import org.apache.cassandra.config.EncryptionOptions;

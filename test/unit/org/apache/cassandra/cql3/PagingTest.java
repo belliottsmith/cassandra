@@ -24,6 +24,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.QueryOptions;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
@@ -66,8 +68,9 @@ public class PagingTest
         Thread.sleep(500);
 
         cluster = Cluster.builder().addContactPoint("127.0.0.1")
-                                   .withPort(DatabaseDescriptor.getNativeTransportPort())
-                                   .build();
+                         .withPort(DatabaseDescriptor.getNativeTransportPort())
+                         .withQueryOptions(new QueryOptions().setConsistencyLevel(ConsistencyLevel.LOCAL_ONE))
+                         .build();
         session = cluster.connect();
 
         session.execute(dropKsStatement);
