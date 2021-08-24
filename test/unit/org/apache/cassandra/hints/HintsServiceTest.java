@@ -33,7 +33,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import com.datastax.driver.core.utils.MoreFutures;
+import com.google.common.util.concurrent.FutureCallback;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.db.DecoratedKey;
@@ -126,11 +126,16 @@ public class HintsServiceTest
 
         // we should not send any hints while paused
         ListenableFuture<Boolean> noMessagesWhilePaused = spy.interceptNoMsg(15, TimeUnit.SECONDS);
-        Futures.addCallback(noMessagesWhilePaused, new MoreFutures.SuccessCallback<Boolean>()
+        Futures.addCallback(noMessagesWhilePaused, new FutureCallback<Boolean>()
         {
             public void onSuccess(@Nullable Boolean aBoolean)
             {
                 HintsService.instance.resumeDispatch();
+            }
+
+            public void onFailure(Throwable throwable)
+            {
+
             }
         }, MoreExecutors.directExecutor());
 

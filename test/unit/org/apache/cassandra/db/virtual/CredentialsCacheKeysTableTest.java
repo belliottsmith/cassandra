@@ -24,7 +24,6 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import com.datastax.driver.core.EndPoint;
 import com.datastax.driver.core.PlainTextAuthProvider;
 import org.apache.cassandra.auth.AuthTestUtils;
 import org.apache.cassandra.auth.AuthenticatedUser;
@@ -161,7 +160,7 @@ public class CredentialsCacheKeysTableTest extends CQLTester
     {
         IAuthenticator.SaslNegotiator saslNegotiator = passwordAuthenticator.newSaslNegotiator(null);
         saslNegotiator.evaluateResponse(new PlainTextAuthProvider(roleResource.getRoleName(), "ignored")
-                .newAuthenticator((EndPoint) null, null)
+                .newAuthenticator(null, null)
                 .initialResponse());
         saslNegotiator.getAuthenticatedUser();
     }

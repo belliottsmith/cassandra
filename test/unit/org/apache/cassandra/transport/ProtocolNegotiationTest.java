@@ -22,8 +22,10 @@ import java.io.IOException;
 import java.util.Random;
 
 import com.google.common.collect.ImmutableMap;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import com.datastax.driver.core.Cluster;
@@ -48,7 +50,6 @@ import static org.apache.cassandra.transport.messages.StartupMessage.CQL_VERSION
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-
 
 public class ProtocolNegotiationTest extends CQLTester
 {
@@ -168,9 +169,23 @@ public class ProtocolNegotiationTest extends CQLTester
         if (requestedVersion != null)
         {
             if (requestedVersion.toInt() > org.apache.cassandra.transport.ProtocolVersion.CURRENT.asInt())
+            {
                 builder = builder.allowBetaProtocolVersion();
+            }
             else
-                builder = builder.withProtocolVersion(requestedVersion);
+            {
+                try
+                {
+                    builder = builder.withProtocolVersion(requestedVersion);
+                }
+                catch (IllegalArgumentException e)
+                {
+                    // Apple. Expected internally: we do not support versions lower than 4 on the client side.
+                    Assert.assertTrue(e.getMessage().contains("Oldest supported protocol version is"));
+                    return;
+                }
+
+            }
         }
 
         Cluster cluster = builder.build();
