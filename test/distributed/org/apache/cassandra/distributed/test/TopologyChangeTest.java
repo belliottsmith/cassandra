@@ -27,6 +27,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -145,6 +146,9 @@ public class TopologyChangeTest extends TestBaseImpl
         });
     }
 
+    // Apple-internal: this issue was not picked up into internal client/driver, see
+    // rdar://84195227 (Pick up the fix to CASSANDRA-15677 into client/drvier)
+    @Ignore
     @Test
     public void testDecommission() throws Throwable
     {

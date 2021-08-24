@@ -56,7 +56,11 @@ public class ToolRunner
 
     private static final ImmutableList<String> DEFAULT_CLEANERS = 
         ImmutableList.of("(?im)^picked up.*\\R", 
-                         "(?im)^.*reads coordinated by this node will not offer linearizability.*\\R");
+                         "(?im)^.*reads coordinated by this node will not offer linearizability.*\\R",
+                         "(?im)^.*java-driver only supports shaded guava or.*\\R",
+                         "(?im)^.*using withProtocolVersion is strongly discouraged.*\\R",
+                         "(?im)^.*slf4j.*\\R",
+                         "(?im)^.*found binding.*\\R");
 
     public static int runClassAsTool(String clazz, String... args)
     {
