@@ -263,6 +263,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             String message = String.format("%s Empty keyspace, skipping repair: %s", parentSession, keyspace);
             logger.info(message);
             fireProgressEvent(new ProgressEvent(ProgressEventType.COMPLETE, 0, 0, message));
+            ActiveRepairService.instance.recordRepairStatus(cmd, ActiveRepairService.ParentRepairStatus.COMPLETED, Collections.singletonList(message));
             return;
         }
 

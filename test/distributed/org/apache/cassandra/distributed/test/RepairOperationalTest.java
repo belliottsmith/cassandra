@@ -30,6 +30,7 @@ import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.shared.RepairResult;
+import org.apache.cassandra.service.StorageService;
 
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
@@ -37,6 +38,7 @@ import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 import static org.apache.cassandra.distributed.test.PreviewRepairTest.options;
 import static org.apache.cassandra.distributed.test.PreviewRepairTest.repair;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class RepairOperationalTest extends TestBaseImpl
 {
@@ -89,6 +91,20 @@ public class RepairOperationalTest extends TestBaseImpl
         public static int getPendingTasks()
         {
             return pendingCompactions;
+        }
+    }
+
+    @Test
+    public void testEmptyKeyspace() throws IOException
+    {
+        try(Cluster cluster = init(Cluster.build(2)
+                                          .withConfig(config -> config.with(GOSSIP).with(NETWORK))
+                                          .start()))
+        {
+            cluster.get(1).nodetoolResult("repair", KEYSPACE).asserts().success();
+            cluster.get(1).runOnInstance(() -> {
+                assertTrue(StorageService.instance.getParentRepairStatus(1).contains("COMPLETED"));
+            });
         }
     }
 }
