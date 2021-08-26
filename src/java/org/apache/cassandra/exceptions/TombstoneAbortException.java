@@ -21,14 +21,14 @@ package org.apache.cassandra.exceptions;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.service.ReadCallback;
 
-public class TombstoneAbortException extends ReadFailureException
+public class TombstoneAbortException extends ReadAbortException
 {
     public final int nodes;
     public final int tombstones;
 
-    public TombstoneAbortException(ConsistencyLevel consistency, int received, int failures, int blockFor, boolean dataPresent, int nodes, int tombstones)
+    public TombstoneAbortException(int nodes, int tombstones, String cql, boolean dataPresent, ConsistencyLevel consistency, int received, int failures, int blockFor)
     {
-        super(ReadCallback.tombstoneAbortMessage(nodes, tombstones), consistency, received, failures, blockFor, dataPresent);
+        super(ReadCallback.tombstoneAbortMessage(nodes, tombstones, cql), consistency, received, failures, blockFor, dataPresent);
         this.nodes = nodes;
         this.tombstones = tombstones;
     }

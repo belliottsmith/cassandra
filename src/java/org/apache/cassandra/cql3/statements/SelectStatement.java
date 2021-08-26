@@ -29,7 +29,6 @@ import java.util.NavigableSet;
 import java.util.SortedSet;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
@@ -774,7 +773,7 @@ public class SelectStatement implements CQLStatement
         long threshold = DatabaseDescriptor.getClientLargeReadWarnThresholdKB();
         if (result.shouldWarn(threshold))
         {
-            String msg = String.format("Read has exceeded the size warning threshold of %,d kb", threshold);
+            String msg = String.format("Read on table %s has exceeded the size warning threshold of %,d kb", cfm.toStringCQLSafe(), threshold);
             ClientWarn.instance.warn(msg + " with " + loggableTokens(options));
             logger.warn("{} with query {}", msg, asCQL(options));
             ReadMetrics.readSizeWarnings.mark();
@@ -786,12 +785,12 @@ public class SelectStatement implements CQLStatement
         long threshold = DatabaseDescriptor.getClientLargeReadBlockThresholdKB();
         if (result.shouldReject(threshold))
         {
-            String msg = String.format("Read has exceeded the size failure threshold of %,d kb", threshold);
+            String msg = String.format("Read on table %s has exceeded the size failure threshold of %,d kb", cfm.toStringCQLSafe(), threshold);
             String clientMsg = msg + " with " + loggableTokens(options);
             ClientWarn.instance.warn(clientMsg);
             logger.warn("{} with query {}", msg, asCQL(options));
             ReadMetrics.readSizeFailures.mark();
-            throw new ReadSizeFailureException(clientMsg);
+            throw new ReadSizeAbortException(clientMsg, options.getConsistency(), 0, 1, 1, true);
         }
     }
 
@@ -837,7 +836,6 @@ public class SelectStatement implements CQLStatement
                     }
                 }
             }
-            maybeWarn(result, options);
             return;
         }
 
@@ -871,7 +869,6 @@ public class SelectStatement implements CQLStatement
                         break;
                 }
             }
-            maybeWarn(result, options);
         }
     }
 

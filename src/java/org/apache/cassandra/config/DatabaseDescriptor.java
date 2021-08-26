@@ -1735,7 +1735,7 @@ public class DatabaseDescriptor
         return conf.client_large_read_block_threshold_kb;
     }
 
-    public static void setClientLargeReadBlockThresholdKB(long threshold)
+    public static void setClientLargeReadAbortThresholdKB(long threshold)
     {
         conf.client_large_read_block_threshold_kb = Math.max(threshold, 0);
     }

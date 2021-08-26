@@ -44,7 +44,7 @@ import org.apache.cassandra.service.QueryState;
 
 import static org.apache.cassandra.db.RowIndexEntry.Serializer.estimateMaterializedIndexSize;
 
-public class IndexSizeWarningTest extends TestBaseImpl
+public class ClientIndexSizeWarningTest extends TestBaseImpl
 {
     private static final int COLUMN_IDX_SIZE_KB = 1;
     private static final int INDEX_SIZE_WARN_KB = 1;

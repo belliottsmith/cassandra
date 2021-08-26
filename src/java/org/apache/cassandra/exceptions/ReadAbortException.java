@@ -19,17 +19,14 @@
 package org.apache.cassandra.exceptions;
 
 import org.apache.cassandra.db.ConsistencyLevel;
-import org.apache.cassandra.service.ReadCallback;
 
-public class IndexSizeAbortException extends ReadAbortException
+/**
+ * Special Read Failure which is caused by user query; implies a user request is not allowed and not that Cassandra had an issue.
+ */
+public abstract class ReadAbortException extends ReadFailureException
 {
-    public final int nodes;
-    public final long indexBytes;
-
-    public IndexSizeAbortException(int nodes, long indexBytes, String cql, boolean dataPresent, ConsistencyLevel consistency, int received, int failures, int blockFor)
+    protected ReadAbortException(String msg, ConsistencyLevel consistency, int received, int failures, int blockFor, boolean dataPresent)
     {
-        super(ReadCallback.indexSizeAbortMessage(nodes, indexBytes, cql), consistency, received, failures, blockFor, dataPresent);
-        this.nodes = nodes;
-        this.indexBytes = indexBytes;
+        super(msg, consistency, received, failures, blockFor, dataPresent);
     }
 }

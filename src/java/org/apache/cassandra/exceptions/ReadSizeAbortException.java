@@ -18,10 +18,12 @@
 
 package org.apache.cassandra.exceptions;
 
-public class ReadSizeFailureException extends RequestExecutionException
+import org.apache.cassandra.db.ConsistencyLevel;
+
+public class ReadSizeAbortException extends ReadAbortException
 {
-    public ReadSizeFailureException(String msg)
+    public ReadSizeAbortException(String msg, ConsistencyLevel consistency, int received, int failures, int blockFor, boolean dataPresent)
     {
-        super(ExceptionCode.READ_FAILURE, msg);
+        super(msg, consistency, received, failures, blockFor, dataPresent);
     }
 }

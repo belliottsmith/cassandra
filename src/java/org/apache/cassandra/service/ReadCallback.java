@@ -172,26 +172,27 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
     }
 
     @VisibleForTesting
-    public static String tombstoneAbortMessage(int nodes, int tombstones)
+    public static String tombstoneAbortMessage(int nodes, int tombstones, String cql)
     {
-        return String.format("%s nodes scanned over %s tombstones and aborted the query", nodes, tombstones);
+        return String.format("%s nodes scanned over %s tombstones and aborted the query %s (see tombstone_failure_threshold)", nodes, tombstones, cql);
     }
 
     @VisibleForTesting
-    public static String tombstoneWarnMessage(int nodes, int tombstones)
+    public static String tombstoneWarnMessage(int nodes, int tombstones, String cql)
     {
-        return String.format("%s nodes scanned up to %s tombstones and issued tombstone warnings", nodes, tombstones);
-    }
-    @VisibleForTesting
-    public static String indexSizeAbortMessage(int nodes, long maxIndexSize)
-    {
-        return String.format("%s nodes encountered estimated materialized row index sizes of up to %sb and aborted the query", nodes, maxIndexSize);
+        return String.format("%s nodes scanned up to %s tombstones and issued tombstone warnings for query %s  (see tombstone_warn_threshold)", nodes, tombstones, cql);
     }
 
     @VisibleForTesting
-    public static String indexSizeWarnMessage(int nodes, long maxIndexSize)
+    public static String indexSizeAbortMessage(int nodes, long maxIndexSize, String cql)
     {
-        return String.format("%s nodes encountered materialized row index sizes of up to %sb and issued index size warnings", nodes, maxIndexSize);
+        return String.format("%s nodes encountered estimated materialized row index sizes of up to %sb and aborted the query %s", nodes, maxIndexSize, cql);
+    }
+
+    @VisibleForTesting
+    public static String indexSizeWarnMessage(int nodes, long maxIndexSize, String cql)
+    {
+        return String.format("%s nodes encountered materialized row index sizes of up to %sb and issued index size warnings for query %s", nodes, maxIndexSize, cql);
     }
 
     private ColumnFamilyStore cfs()
@@ -209,7 +210,7 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
         {
             if (warnings.tombstoneAborts.get() > 0)
             {
-                String msg = tombstoneAbortMessage(warnings.tombstoneAborts.get(), warnings.maxTombstoneAbortsCount.get());
+                String msg = tombstoneAbortMessage(warnings.tombstoneAborts.get(), warnings.maxTombstoneAbortsCount.get(), command.toCQLString());
                 ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
                 logger.warn("{} with query {}", msg, command.toCQLString());
                 cfs().metric.clientTombstoneAborts.mark();
@@ -217,7 +218,7 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
 
             if (warnings.tombstoneWarnings.get() > 0)
             {
-                String msg = tombstoneWarnMessage(warnings.tombstoneWarnings.get(), warnings.maxTombstoneWarningCount.get());
+                String msg = tombstoneWarnMessage(warnings.tombstoneWarnings.get(), warnings.maxTombstoneWarningCount.get(), command.toCQLString());
                 ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
                 logger.warn("{} with query {}", msg, command.toCQLString());
                 cfs().metric.clientTombstoneWarnings.mark();
@@ -225,7 +226,7 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
 
             if (warnings.indexSizeAborts.get() > 0)
             {
-                String msg = indexSizeAbortMessage(warnings.indexSizeAborts.get(), warnings.maxIndexAbortSize.get());
+                String msg = indexSizeAbortMessage(warnings.indexSizeAborts.get(), warnings.maxIndexAbortSize.get(), command.toCQLString());
                 ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
                 logger.warn("{} with query {}", msg, command.toCQLString());
                 cfs().metric.clientIndexSizeAborts.mark();
@@ -233,7 +234,7 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
 
             if (warnings.indexSizeWarnings.get() > 0)
             {
-                String msg = indexSizeWarnMessage(warnings.indexSizeWarnings.get(), warnings.maxIndexWarningSize.get());
+                String msg = indexSizeWarnMessage(warnings.indexSizeWarnings.get(), warnings.maxIndexWarningSize.get(), command.toCQLString());
                 ClientWarn.instance.warn(msg + " with " + command.loggableTokens());
                 logger.warn("{} with query {}", msg, command.toCQLString());
                 cfs().metric.clientIndexSizeWarnings.mark();
@@ -255,10 +256,10 @@ public class ReadCallback implements IAsyncCallbackWithFailure<ReadResponse>
         }
 
         if (warnings != null && warnings.tombstoneAborts.get() > 0)
-            throw new TombstoneAbortException(consistencyLevel, received, failures, blockfor, resolver.isDataPresent(), warnings.tombstoneAborts.get(), warnings.maxTombstoneAbortsCount.get());
+            throw new TombstoneAbortException(warnings.tombstoneAborts.get(), warnings.maxTombstoneAbortsCount.get(), command.toCQLString(), resolver.isDataPresent(), consistencyLevel, received, failures, blockfor);
 
         if (warnings != null && warnings.indexSizeAborts.get() > 0)
-            throw new IndexSizeAbortException(warnings.indexSizeAborts.get(), warnings.maxIndexAbortSize.get());
+            throw new IndexSizeAbortException(warnings.indexSizeAborts.get(), warnings.maxIndexAbortSize.get(), command.toCQLString(), resolver.isDataPresent(), consistencyLevel, received, failures, blockfor);
 
         // Same as for writes, see AbstractWriteResponseHandler
         throw failed

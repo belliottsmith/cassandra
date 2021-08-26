@@ -5796,7 +5796,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     @Override
     public void setClientLargeReadBlockThresholdKB(long threshold)
     {
-        DatabaseDescriptor.setClientLargeReadBlockThresholdKB(threshold);
+        DatabaseDescriptor.setClientLargeReadAbortThresholdKB(threshold);
         logger.info("updated client_large_read_block_threshold_kb to {}", threshold);
     }
 
