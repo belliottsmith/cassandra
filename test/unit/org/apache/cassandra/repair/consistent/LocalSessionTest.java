@@ -50,6 +50,7 @@ import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.repair.messages.FailSession;
 import org.apache.cassandra.repair.messages.FinalizeCommit;
 import org.apache.cassandra.repair.messages.FinalizePromise;
@@ -132,7 +133,7 @@ public class LocalSessionTest extends AbstractRepairTest
 
         SettableFuture<Object> pendingAntiCompactionFuture = null;
         boolean submitPendingAntiCompactionCalled = false;
-        ListenableFuture submitPendingAntiCompaction(LocalSession session, ExecutorService executor, BooleanSupplier isCancelled)
+        ListenableFuture submitPendingAntiCompaction(LocalSession session, ExecutorService executor, BooleanSupplier isCancelled) throws NoSuchRepairSessionException
         {
             submitPendingAntiCompactionCalled = true;
             if (pendingAntiCompactionFuture != null)
@@ -152,7 +153,7 @@ public class LocalSessionTest extends AbstractRepairTest
             super.failSession(sessionID, sendMessage);
         }
 
-        public LocalSession prepareForTest(UUID sessionID)
+        public LocalSession prepareForTest(UUID sessionID) throws NoSuchRepairSessionException
         {
             pendingAntiCompactionFuture = SettableFuture.create();
             handlePrepareMessage(PARTICIPANT1, new PrepareConsistentRequest(sessionID, COORDINATOR, PARTICIPANTS));
@@ -248,7 +249,7 @@ public class LocalSessionTest extends AbstractRepairTest
     }
 
     @Test
-    public void prepareSuccessCase()
+    public void prepareSuccessCase() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -283,7 +284,7 @@ public class LocalSessionTest extends AbstractRepairTest
      * and send a failure message back to the coordinator
      */
     @Test
-    public void prepareAntiCompactFailure()
+    public void prepareAntiCompactFailure() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -320,7 +321,7 @@ public class LocalSessionTest extends AbstractRepairTest
      * the coordinator.
      */
     @Test
-    public void prepareWithNonExistantParentSession()
+    public void prepareWithNonExistantParentSession() throws NoSuchRepairSessionException
     {
         UUID sessionID = UUIDGen.getTimeUUID();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -334,7 +335,7 @@ public class LocalSessionTest extends AbstractRepairTest
      * If the session is cancelled mid-prepare, the isCancelled boolean supplier should start returning true
      */
     @Test
-    public void prepareCancellation()
+    public void prepareCancellation() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         AtomicReference<BooleanSupplier> isCancelledRef = new AtomicReference<>();
@@ -365,7 +366,7 @@ public class LocalSessionTest extends AbstractRepairTest
     }
 
     @Test
-    public void maybeSetRepairing()
+    public void maybeSetRepairing() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -385,7 +386,7 @@ public class LocalSessionTest extends AbstractRepairTest
      * Multiple calls to maybeSetRepairing shouldn't cause any problems
      */
     @Test
-    public void maybeSetRepairingDuplicates()
+    public void maybeSetRepairingDuplicates() throws NoSuchRepairSessionException
     {
 
         UUID sessionID = registerSession();
@@ -433,7 +434,7 @@ public class LocalSessionTest extends AbstractRepairTest
      * persisted, and a FinalizePromise message should be sent back to the coordinator
      */
     @Test
-    public void finalizeProposeSuccessCase()
+    public void finalizeProposeSuccessCase() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -459,7 +460,7 @@ public class LocalSessionTest extends AbstractRepairTest
      * state should fail the session and send a failure message to the proposer
      */
     @Test
-    public void finalizeProposeInvalidStateFailure()
+    public void finalizeProposeInvalidStateFailure() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -492,7 +493,7 @@ public class LocalSessionTest extends AbstractRepairTest
      * to repaired. No messages should be sent to the coordinator
      */
     @Test
-    public void finalizeCommitSuccessCase()
+    public void finalizeCommitSuccessCase() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -526,7 +527,7 @@ public class LocalSessionTest extends AbstractRepairTest
     }
 
     @Test
-    public void failSession()
+    public void failSession() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -548,7 +549,7 @@ public class LocalSessionTest extends AbstractRepairTest
      * Session should be failed, but no messages should be sent
      */
     @Test
-    public void handleFailMessage()
+    public void handleFailMessage() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -690,7 +691,7 @@ public class LocalSessionTest extends AbstractRepairTest
      * Check all states (except failed)
      */
     @Test
-    public void isSessionInProgress()
+    public void isSessionInProgress() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -717,7 +718,7 @@ public class LocalSessionTest extends AbstractRepairTest
     }
 
     @Test
-    public void isSessionInProgressFailed()
+    public void isSessionInProgressFailed() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -741,7 +742,7 @@ public class LocalSessionTest extends AbstractRepairTest
     }
 
     @Test
-    public void finalRepairedAtFinalized()
+    public void finalRepairedAtFinalized() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -758,7 +759,7 @@ public class LocalSessionTest extends AbstractRepairTest
     }
 
     @Test
-    public void finalRepairedAtFailed()
+    public void finalRepairedAtFailed() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();
@@ -784,7 +785,7 @@ public class LocalSessionTest extends AbstractRepairTest
     }
 
     @Test(expected = IllegalStateException.class)
-    public void finalRepairedAtInProgress()
+    public void finalRepairedAtInProgress() throws NoSuchRepairSessionException
     {
         UUID sessionID = registerSession();
         InstrumentedLocalSessions sessions = new InstrumentedLocalSessions();

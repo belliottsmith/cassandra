@@ -50,6 +50,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.concurrent.Refs;
 
@@ -350,7 +351,7 @@ public class PendingAntiCompaction
         this.isCancelled = isCancelled;
     }
 
-    public ListenableFuture run()
+    public ListenableFuture run() throws NoSuchRepairSessionException
     {
         ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(prsId);
         List<ListenableFutureTask<AcquireResult>> tasks = new ArrayList<>();

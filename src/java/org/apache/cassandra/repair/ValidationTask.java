@@ -64,7 +64,7 @@ public class ValidationTask extends AbstractFuture<TreeResponse> implements Runn
     {
         if (trees == null)
         {
-            setException(new RepairException(desc, previewKind, "Validation failed in " + endpoint));
+            setException(RepairException.warn(desc, previewKind, "Validation failed in " + endpoint));
         }
         else
         {

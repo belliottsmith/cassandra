@@ -71,6 +71,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -414,7 +415,7 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
      * Makes sure that PendingAntiCompaction fails when anticompaction throws exception
      */
     @Test
-    public void antiCompactionException()
+    public void antiCompactionException() throws NoSuchRepairSessionException
     {
         cfs.disableAutoCompaction();
         makeSSTables(2);
@@ -454,7 +455,7 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
 
 
     @Test
-    public void testBlockedAcquisition() throws ExecutionException, InterruptedException, TimeoutException
+    public void testBlockedAcquisition() throws ExecutionException, InterruptedException, TimeoutException, NoSuchRepairSessionException
     {
         cfs.disableAutoCompaction();
         ExecutorService es = Executors.newFixedThreadPool(1);
@@ -511,7 +512,7 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
 
 
     @Test
-    public void testUnblockedAcquisition() throws ExecutionException, InterruptedException
+    public void testUnblockedAcquisition() throws ExecutionException, InterruptedException, NoSuchRepairSessionException
     {
         cfs.disableAutoCompaction();
         ExecutorService es = Executors.newFixedThreadPool(1);
@@ -731,7 +732,7 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
     }
 
     @Test
-    public void testWith2i() throws ExecutionException, InterruptedException
+    public void testWith2i() throws ExecutionException, InterruptedException, NoSuchRepairSessionException
     {
         cfs2.disableAutoCompaction();
         makeSSTables(2, cfs2, 100);

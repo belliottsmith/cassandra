@@ -50,6 +50,7 @@ import org.apache.cassandra.index.StubIndex;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.ReducingKeyIterator;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.repair.consistent.PendingAntiCompaction;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.PreviewKind;
@@ -225,7 +226,7 @@ public class CancelCompactionsTest extends CQLTester
     }
 
     @Test
-    public void testAnticompaction() throws InterruptedException, ExecutionException
+    public void testAnticompaction() throws InterruptedException, ExecutionException, NoSuchRepairSessionException
     {
         // MockSchema flushing does not work in 3.0 it seems;
         ColumnFamilyStore cfs = MockSchema.newCFSOverrideFlush();

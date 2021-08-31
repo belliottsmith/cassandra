@@ -28,6 +28,7 @@ import org.junit.Test;
 
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.repair.consistent.LocalSessionAccessor;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDGen;
@@ -38,7 +39,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
      * If a local session is ongoing, it should not be cleaned up
      */
     @Test
-    public void needsCleanupInProgress()
+    public void needsCleanupInProgress() throws NoSuchRepairSessionException
     {
         PendingRepairManager prm = csm.getPendingRepairManager();
 
@@ -56,7 +57,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
      * If a local session is finalized, it should be cleaned up
      */
     @Test
-    public void needsCleanupFinalized()
+    public void needsCleanupFinalized() throws NoSuchRepairSessionException
     {
         PendingRepairManager prm = csm.getPendingRepairManager();
 
@@ -75,7 +76,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
      * If a local session has failed, it should be cleaned up
      */
     @Test
-    public void needsCleanupFailed()
+    public void needsCleanupFailed() throws NoSuchRepairSessionException
     {
         PendingRepairManager prm = csm.getPendingRepairManager();
 
@@ -99,7 +100,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
     }
 
     @Test
-    public void estimateRemainingTasksInProgress()
+    public void estimateRemainingTasksInProgress() throws NoSuchRepairSessionException
     {
         PendingRepairManager prm = csm.getPendingRepairManager();
 
@@ -115,7 +116,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
     }
 
     @Test
-    public void estimateRemainingFinishedRepairTasks()
+    public void estimateRemainingFinishedRepairTasks() throws NoSuchRepairSessionException
     {
         PendingRepairManager prm = csm.getPendingRepairManager();
 
@@ -133,7 +134,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
     }
 
     @Test
-    public void getNextBackgroundTask()
+    public void getNextBackgroundTask() throws NoSuchRepairSessionException
     {
         PendingRepairManager prm = csm.getPendingRepairManager();
 
@@ -188,7 +189,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
     }
 
     @Test
-    public void maximalTaskNeedsCleanup()
+    public void maximalTaskNeedsCleanup() throws NoSuchRepairSessionException
     {
         PendingRepairManager prm = csm.getPendingRepairManager();
 
@@ -258,7 +259,7 @@ public class PendingRepairManagerTest extends AbstractPendingRepairTest
     }
 
     @Test
-    public void sessionHasData()
+    public void sessionHasData() throws NoSuchRepairSessionException
     {
         PendingRepairManager prm = csm.getPendingRepairManager();
 

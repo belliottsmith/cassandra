@@ -67,7 +67,7 @@ public class RemoteSyncTask extends SyncTask implements CompletableRemoteSyncTas
         }
         else
         {
-            setException(new RepairException(desc, previewKind, String.format("Sync failed between %s and %s", firstEndpoint, secondEndpoint)));
+            setException(RepairException.warn(desc, previewKind, String.format("Sync failed between %s and %s", firstEndpoint, secondEndpoint)));
         }
         finished();
     }

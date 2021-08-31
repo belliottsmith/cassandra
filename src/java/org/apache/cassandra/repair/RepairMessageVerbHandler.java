@@ -59,7 +59,7 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
         return ActiveRepairService.instance.consistent.local.isSessionInProgress(sessionID);
     }
 
-    private PreviewKind previewKind(UUID sessionID)
+    private PreviewKind previewKind(UUID sessionID) throws NoSuchRepairSessionException
     {
         ActiveRepairService.ParentRepairSession prs = ActiveRepairService.instance.getParentRepairSession(sessionID);
         return prs != null ? prs.previewKind : PreviewKind.NONE;

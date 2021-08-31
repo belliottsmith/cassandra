@@ -56,6 +56,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.SchemaLoader;
@@ -184,7 +185,7 @@ public class AntiCompactionTest
 
     @Ignore
     @Test
-    public void antiCompactionSizeTest() throws InterruptedException, IOException
+    public void antiCompactionSizeTest() throws InterruptedException, IOException, NoSuchRepairSessionException
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF);
@@ -248,7 +249,7 @@ public class AntiCompactionTest
     }
 
     @Test
-    public void antiCompactTen() throws InterruptedException, IOException
+    public void antiCompactTen() throws InterruptedException, IOException, NoSuchRepairSessionException
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF);
@@ -308,7 +309,7 @@ public class AntiCompactionTest
         assertOnDiskState(store, 10);
     }
 
-    private void shouldMutate(UUID parentRepairSession, long repairedAt, UUID pendingRepair) throws InterruptedException, IOException
+    private void shouldMutate(UUID parentRepairSession, long repairedAt, UUID pendingRepair) throws InterruptedException, IOException, NoSuchRepairSessionException
     {
         ColumnFamilyStore store = prepareColumnFamilyStore();
         Collection<SSTableReader> sstables = getUnrepairedSSTables(store);
@@ -333,21 +334,21 @@ public class AntiCompactionTest
     }
 
     @Test
-    public void shouldMutateRepairedAt() throws InterruptedException, IOException
+    public void shouldMutateRepairedAt() throws InterruptedException, IOException, NoSuchRepairSessionException
     {
         UUID parentRepair = UUIDGen.getTimeUUID();
         shouldMutate(parentRepair, 1, NO_PENDING_REPAIR);
     }
 
     @Test
-    public void shouldMutatePendingRepair() throws InterruptedException, IOException
+    public void shouldMutatePendingRepair() throws InterruptedException, IOException, NoSuchRepairSessionException
     {
         UUID parentRepair = UUIDGen.getTimeUUID();
         shouldMutate(parentRepair, UNREPAIRED_SSTABLE, UUIDGen.getTimeUUID());
     }
 
     @Test
-    public void shouldSkipAntiCompactionForNonIntersectingRange() throws InterruptedException, IOException
+    public void shouldSkipAntiCompactionForNonIntersectingRange() throws InterruptedException, IOException, NoSuchRepairSessionException
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF);
@@ -443,7 +444,7 @@ public class AntiCompactionTest
                 CompactionManager.instance.performAnticompaction(store, ranges, refs, txn, 1, missingRepairSession, missingRepairSession, () -> false);
                 Assert.fail("expected RuntimeException");
             }
-            catch (RuntimeException e)
+            catch (NoSuchRepairSessionException e)
             {
                 // expected
             }

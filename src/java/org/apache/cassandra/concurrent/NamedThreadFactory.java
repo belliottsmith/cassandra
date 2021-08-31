@@ -20,6 +20,8 @@ package org.apache.cassandra.concurrent;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import io.netty.util.concurrent.FastThreadLocal;
 import io.netty.util.concurrent.FastThreadLocalThread;
 
@@ -67,6 +69,37 @@ public class NamedThreadFactory implements ThreadFactory
         thread.setDaemon(true);
         if (contextClassLoader != null)
             thread.setContextClassLoader(contextClassLoader);
+        return thread;
+    }
+
+    private static final AtomicInteger threadCounter = new AtomicInteger();
+
+    @VisibleForTesting
+    public static Thread createThread(Runnable runnable)
+    {
+        return createThread(null, runnable, "anonymous-" + threadCounter.incrementAndGet());
+    }
+
+    public static Thread createThread(Runnable runnable, String name)
+    {
+        return createThread(null, runnable, name);
+    }
+
+    public static Thread createThread(Runnable runnable, String name, boolean daemon)
+    {
+        return createThread(null, runnable, name, daemon);
+    }
+
+    public static Thread createThread(ThreadGroup threadGroup, Runnable runnable, String name)
+    {
+        return createThread(threadGroup, runnable, name, false);
+    }
+
+    public static Thread createThread(ThreadGroup threadGroup, Runnable runnable, String name, boolean daemon)
+    {
+        String prefix = globalPrefix;
+        Thread thread = new FastThreadLocalThread(threadGroup, runnable, prefix != null ? prefix + name : name);
+        thread.setDaemon(daemon);
         return thread;
     }
 

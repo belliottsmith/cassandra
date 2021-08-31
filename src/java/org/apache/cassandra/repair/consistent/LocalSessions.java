@@ -67,6 +67,7 @@ import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.repair.messages.FailSession;
 import org.apache.cassandra.repair.messages.FinalizeCommit;
 import org.apache.cassandra.repair.messages.FinalizePromise;
@@ -493,7 +494,7 @@ public class LocalSessions
         return buildSession(builder);
     }
 
-    protected ActiveRepairService.ParentRepairSession getParentRepairSession(UUID sessionID)
+    protected ActiveRepairService.ParentRepairSession getParentRepairSession(UUID sessionID) throws NoSuchRepairSessionException
     {
         return ActiveRepairService.instance.getParentRepairSession(sessionID);
     }
@@ -566,7 +567,7 @@ public class LocalSessions
     }
 
     @VisibleForTesting
-    ListenableFuture submitPendingAntiCompaction(LocalSession session, ExecutorService executor, BooleanSupplier isCancelled)
+    ListenableFuture submitPendingAntiCompaction(LocalSession session, ExecutorService executor, BooleanSupplier isCancelled) throws NoSuchRepairSessionException
     {
         PendingAntiCompaction pac = new PendingAntiCompaction(session.sessionID, session.ranges, executor, isCancelled);
         return pac.run();
@@ -581,7 +582,7 @@ public class LocalSessions
      * successfully. If the pending anti compaction fails, a failure message is sent to the coordinator,
      * cancelling the session.
      */
-    public void handlePrepareMessage(InetAddress from, PrepareConsistentRequest request)
+    public void handlePrepareMessage(InetAddress from, PrepareConsistentRequest request) throws NoSuchRepairSessionException
     {
         logger.trace("received {} from {}", request, from);
         UUID sessionID = request.parentSession;

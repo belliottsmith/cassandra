@@ -31,6 +31,7 @@ import org.apache.cassandra.db.compaction.CompactionInterruptedException;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.jboss.byteman.contrib.bmunit.BMRule;
 import org.jboss.byteman.contrib.bmunit.BMRules;
 import org.jboss.byteman.contrib.bmunit.BMUnitRunner;
@@ -47,7 +48,7 @@ public class PendingAntiCompactionBytemanTest extends AbstractPendingAntiCompact
                                targetMethod = "contains",
                                action = "throw new org.apache.cassandra.db.compaction.CompactionInterruptedException(\"in byteman\");")} )
     @Test
-    public void testExceptionAnticompaction() throws InterruptedException
+    public void testExceptionAnticompaction() throws InterruptedException, NoSuchRepairSessionException
     {
         cfs.disableAutoCompaction();
         cfs2.disableAutoCompaction();

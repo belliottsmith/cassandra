@@ -982,9 +982,21 @@ public final class MessagingService implements MessagingServiceMBean
             state.trace("{} message received from {}", message.verb, message.from);
 
         // message sinks are a testing hook
-        for (IMessageSink ms : messageSinks)
-            if (!ms.allowIncomingMessage(message, id))
-                return;
+        try
+        {
+            for (IMessageSink ms : messageSinks)
+                if (!ms.allowIncomingMessage(message, id))
+                    return;
+        }
+        catch (Exception e)
+        {
+            if (message.doCallbackOnFailure())
+            {
+                MessageOut response = new MessageOut(MessagingService.Verb.INTERNAL_RESPONSE)
+                                      .withParameter(MessagingService.FAILURE_RESPONSE_PARAM, MessagingService.ONE_BYTE);
+                MessagingService.instance().sendReply(response, id, message.from);
+            }
+        }
 
         Runnable runnable = new MessageDeliveryTask(message, id, timestamp, isCrossNodeTimestamp);
         LocalAwareExecutorService stage = StageManager.getStage(message.getMessageType());

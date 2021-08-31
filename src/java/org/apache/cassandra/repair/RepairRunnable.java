@@ -17,9 +17,19 @@
  */
 package org.apache.cassandra.repair;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -27,8 +37,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -36,7 +46,12 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.google.common.util.concurrent.*;
+import com.google.common.util.concurrent.AsyncFunction;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import org.apache.commons.lang3.time.DurationFormatUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,41 +60,45 @@ import com.codahale.metrics.Timer;
 import org.apache.cassandra.concurrent.JMXEnabledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.db.SnapshotCommand;
-import org.apache.cassandra.gms.FailureDetector;
-import org.apache.cassandra.metrics.RepairMetrics;
-import org.apache.cassandra.net.MessageOut;
-import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.repair.consistent.SyncStatSummary;
-import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.cql3.statements.SelectStatement;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.RepairException;
+import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.metrics.RepairMetrics;
+import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.repair.consistent.CoordinatorSession;
+import org.apache.cassandra.repair.consistent.SyncStatSummary;
 import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.service.ActiveRepairService;
+import org.apache.cassandra.service.ActiveRepairService.ParentRepairStatus;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.service.reads.RepairedDataVerifier;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.tracing.TraceKeyspace;
 import org.apache.cassandra.tracing.TraceState;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.messages.ResultMessage;
-import org.apache.cassandra.utils.*;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.DiagnosticSnapshotService;
+import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Throwables;
+import org.apache.cassandra.utils.UUIDGen;
+import org.apache.cassandra.utils.WrappedRunnable;
 import org.apache.cassandra.utils.progress.ProgressEvent;
 import org.apache.cassandra.utils.progress.ProgressEventNotifier;
 import org.apache.cassandra.utils.progress.ProgressEventType;
 import org.apache.cassandra.utils.progress.ProgressListener;
 
-public class RepairRunnable extends WrappedRunnable implements ProgressEventNotifier
+public class RepairRunnable implements Runnable, ProgressEventNotifier
 {
     private static final Logger logger = LoggerFactory.getLogger(RepairRunnable.class);
 
@@ -89,10 +108,18 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
     private final String keyspace;
 
     private final String tag;
-    private final AtomicInteger progress = new AtomicInteger();
+    private final AtomicInteger progressCounter = new AtomicInteger();
     private final int totalProgress;
 
+    private final long creationTimeMillis = System.currentTimeMillis();
+    private final UUID parentSession = UUIDGen.getTimeUUID();
+
     private final List<ProgressListener> listeners = new ArrayList<>();
+
+    private static final AtomicInteger threadCounter = new AtomicInteger(1);
+    private final AtomicReference<Throwable> firstError = new AtomicReference<>(null);
+
+    private TraceState traceState;
 
     public RepairRunnable(StorageService storageService, int cmd, RepairOption options, String keyspace)
     {
@@ -127,71 +154,274 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         }
     }
 
-    protected void fireErrorAndComplete(int progressCount, int totalProgress, String message)
+    public void notification(String msg)
     {
-        String errorMessage = String.format("Repair command #%d failed with error %s", cmd, message);
-        fireProgressEvent(new ProgressEvent(ProgressEventType.ERROR, progressCount, totalProgress, errorMessage));
+        logger.info(msg);
+        fireProgressEvent(new ProgressEvent(ProgressEventType.NOTIFICATION, progressCounter.get(), totalProgress, msg));
+    }
+
+    private void skip(String msg)
+    {
+        notification("Repair " + parentSession + " skipped: " + msg);
+        success(msg);
+    }
+
+    private void success(String msg)
+    {
+        fireProgressEvent(new ProgressEvent(ProgressEventType.SUCCESS, progressCounter.get(), totalProgress, msg));
+        ActiveRepairService.instance.recordRepairStatus(cmd, ActiveRepairService.ParentRepairStatus.COMPLETED,
+                                                        ImmutableList.of(msg));
+        complete(null);
+    }
+
+    public void notifyError(Throwable error)
+    {
+        // exception should be ignored
+        if (error instanceof SomeRepairFailedException)
+            return;
+
+        if (Throwables.anyCauseMatches(error, RepairException::shouldWarn))
+        {
+            logger.warn("Repair {} aborted: {}", parentSession, error.getMessage());
+            if (logger.isDebugEnabled())
+                logger.debug("Repair {} aborted: ", parentSession, error);
+        }
+        else
+        {
+            logger.error("Repair {} failed:", parentSession, error);
+        }
+
+        StorageMetrics.repairExceptions.inc();
+        String errorMessage = String.format("Repair command #%d failed with error %s", cmd, error.getMessage());
+        fireProgressEvent(new ProgressEvent(ProgressEventType.ERROR, progressCounter.get(), totalProgress, errorMessage));
+        firstError.compareAndSet(null, error);
+
+        // since this can fail, update table only after updating in-memory and notification state
+        maybeStoreParentRepairFailure(error);
+    }
+
+    private void fail(String reason)
+    {
+        if (reason == null)
+        {
+            Throwable error = firstError.get();
+            reason = error != null ? error.getMessage() : "Some repair failed";
+        }
         String completionMessage = String.format("Repair command #%d finished with error", cmd);
-        fireProgressEvent(new ProgressEvent(ProgressEventType.COMPLETE, progressCount, totalProgress, completionMessage));
-        recordFailure(errorMessage, completionMessage);
+
+        // Note we rely on the first message being the reason for the failure
+        // when inspecting this state from RepairRunner.queryForCompletedRepair
+        ActiveRepairService.instance.recordRepairStatus(cmd, ParentRepairStatus.FAILED,
+                                                        ImmutableList.of(reason, completionMessage));
+
+        complete(completionMessage);
     }
 
-    @VisibleForTesting
-    static class CommonRange
+    private void complete(String msg)
     {
-        public final Set<InetAddress> endpoints;
-        public final Collection<Range<Token>> ranges;
-
-        public CommonRange(Set<InetAddress> endpoints, Collection<Range<Token>> ranges)
+        long durationMillis = System.currentTimeMillis() - creationTimeMillis;
+        if (msg == null)
         {
-            Preconditions.checkArgument(endpoints != null && !endpoints.isEmpty(), "Endpoints can not be empty");
-            Preconditions.checkArgument(ranges != null && !ranges.isEmpty(), "ranges can not be empty");
-            this.endpoints = endpoints;
-            this.ranges = ranges;
+            String duration = DurationFormatUtils.formatDurationWords(durationMillis, true, true);
+            msg = String.format("Repair command #%d finished in %s", cmd, duration);
         }
 
-        public boolean equals(Object o)
+        fireProgressEvent(new ProgressEvent(ProgressEventType.COMPLETE, progressCounter.get(), totalProgress, msg));
+        logger.info(options.getPreviewKind().logPrefix(parentSession) + msg);
+
+        ActiveRepairService.instance.removeParentRepairSession(parentSession);
+        TraceState localState = traceState;
+        if (options.isTraced() && localState != null)
         {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-
-            CommonRange that = (CommonRange) o;
-
-            if (!endpoints.equals(that.endpoints)) return false;
-            return ranges.equals(that.ranges);
+            for (ProgressListener listener : listeners)
+                localState.removeProgressListener(listener);
+            // Because DebuggableThreadPoolExecutor#afterExecute and this callback
+            // run in a nondeterministic order (within the same thread), the
+            // TraceState may have been nulled out at this point. The TraceState
+            // should be traceState, so just set it without bothering to check if it
+            // actually was nulled out.
+            Tracing.instance.set(localState);
+            Tracing.traceRepair(msg);
+            Tracing.instance.stopSession();
         }
 
-        public int hashCode()
-        {
-            int result = endpoints.hashCode();
-            result = 31 * result + ranges.hashCode();
-            return result;
-        }
+        Keyspace.open(keyspace).metric.repairTime.update(durationMillis, TimeUnit.MILLISECONDS);
+    }
 
-        public String toString()
+    public void run()
+    {
+        try
         {
-            return "CommonRange{" +
-                   "endpoints=" + endpoints +
-                   ", ranges=" + ranges +
-                   '}';
+            runMayThrow();
+        }
+        catch (SkipRepairException e)
+        {
+            skip(e.getMessage());
+        }
+        catch (Exception | Error e)
+        {
+            notifyError(e);
+            fail(e.getMessage());
         }
     }
 
-    protected static Map<InetAddress, Set<Range<Token>>> collectEndpointRanges(List<CommonRange> commonRanges)
+    private void runMayThrow() throws Exception
     {
-        Map<InetAddress, Set<Range<Token>>> endpointRanges = new HashMap<>();
-        for (CommonRange commonRange: commonRanges)
+        ActiveRepairService.instance.recordRepairStatus(cmd, ParentRepairStatus.IN_PROGRESS, ImmutableList.of());
+
+        List<ColumnFamilyStore> columnFamilies = getColumnFamilies();
+        String[] cfnames = columnFamilies.stream().map(cfs -> cfs.name).toArray(String[]::new);
+
+        this.traceState = maybeCreateTraceState(columnFamilies);
+
+        notifyStarting();
+
+        NeighborsAndRanges neighborsAndRanges = getNeighborsAndRanges();
+
+        maybeStoreParentRepairStart(cfnames);
+
+        prepare(columnFamilies, neighborsAndRanges.participants, neighborsAndRanges.shouldExcludeDeadParticipants);
+
+        // CIE - xmas patch does syncRepairHistory
+        if (options.isGlobal() && !options.isForcedRepair())
         {
-            for (InetAddress endpoint: commonRange.endpoints)
+            syncRepairHistory(columnFamilies, neighborsAndRanges.commonRanges);
+        }
+
+        repair(cfnames, neighborsAndRanges);
+    }
+
+    private List<ColumnFamilyStore> getColumnFamilies() throws IOException
+    {
+        String[] columnFamilies = options.getColumnFamilies().toArray(new String[options.getColumnFamilies().size()]);
+        Iterable<ColumnFamilyStore> validColumnFamilies = storageService.getValidColumnFamilies(false, false, keyspace, columnFamilies);
+        progressCounter.incrementAndGet();
+
+        if (Iterables.isEmpty(validColumnFamilies))
+            throw new SkipRepairException(String.format("%s Empty keyspace, skipping repair: %s", parentSession, keyspace));
+        return Lists.newArrayList(validColumnFamilies);
+    }
+
+    private TraceState maybeCreateTraceState(Iterable<ColumnFamilyStore> columnFamilyStores)
+    {
+        if (!options.isTraced())
+            return null;
+
+        StringBuilder cfsb = new StringBuilder();
+        for (ColumnFamilyStore cfs : columnFamilyStores)
+            cfsb.append(", ").append(cfs.keyspace.getName()).append(".").append(cfs.name);
+
+        UUID sessionId = Tracing.instance.newSession(Tracing.TraceType.REPAIR);
+        TraceState traceState = Tracing.instance.begin("repair", ImmutableMap.of("keyspace", keyspace, "columnFamilies",
+                                                                                 cfsb.substring(2)));
+        traceState.enableActivityNotification(tag);
+        for (ProgressListener listener : listeners)
+            traceState.addProgressListener(listener);
+        Thread queryThread = createQueryThread(cmd, sessionId);
+        queryThread.setName("RepairTracePolling");
+        queryThread.start();
+        return traceState;
+    }
+
+    private void notifyStarting()
+    {
+        String message = String.format("Starting repair command #%d (%s), repairing keyspace %s with %s", cmd, parentSession, keyspace,
+                                       options);
+        logger.info(message);
+        Tracing.traceRepair(message);
+        fireProgressEvent(new ProgressEvent(ProgressEventType.START, 0, 100, message));
+    }
+
+    private NeighborsAndRanges getNeighborsAndRanges() throws RepairException
+    {
+        Set<InetAddress> allNeighbors = new HashSet<>();
+        List<CommonRange> commonRanges = new ArrayList<>();
+
+        //pre-calculate output of getLocalRanges and pass it to getNeighbors to increase performance and prevent
+        //calculation multiple times
+        Collection<Range<Token>> keyspaceLocalRanges = storageService.getLocalRanges(keyspace);
+        final Map<Set<InetAddress>, Boolean> allReplicaMap = new HashMap<>();
+        for (Range<Token> range : options.getRanges())
+        {
+            Set<InetAddress> unfilteredNeighbors = ActiveRepairService.getAllNeighbors(keyspace, keyspaceLocalRanges, range);
+            Set<InetAddress> neighbors = ActiveRepairService.filterNeighbors(unfilteredNeighbors, range,
+                                                                             options.getDataCenters(),
+                                                                             options.getHosts());
+            if (neighbors.isEmpty())
             {
-                if (!endpointRanges.containsKey(endpoint))
+                if (options.ignoreUnreplicatedKeyspaces())
                 {
-                    endpointRanges.put(endpoint, new HashSet<>());
+                    logger.info("{} Found no neighbors for range {} for {} - ignoring since repairing with --ignore-unreplicated-keyspaces", parentSession, range, keyspace);
+                    continue;
                 }
-                endpointRanges.get(endpoint).addAll(commonRange.ranges);
+                else
+                {
+                    throw RepairException.warn(String.format("Nothing to repair for %s in %s - aborting", range, keyspace));
+                }
             }
+
+            boolean allReplicas = unfilteredNeighbors.equals(neighbors);
+            if (!allReplicas && allReplicaMap.containsKey(neighbors))
+                allReplicaMap.put(neighbors, false);
+            else if (!allReplicaMap.containsKey(neighbors))
+                allReplicaMap.put(neighbors, allReplicas);
+            addRangeToNeighbors(commonRanges, range, neighbors);
+            allNeighbors.addAll(neighbors);
         }
-        return new HashMap<>(endpointRanges);
+
+        progressCounter.incrementAndGet();
+
+        if (options.ignoreUnreplicatedKeyspaces() && allNeighbors.isEmpty())
+        {
+            throw new SkipRepairException(String.format("Nothing to repair for %s in %s - unreplicated keyspace is ignored since repair was called with --ignore-unreplicated-keyspaces",
+                                                        options.getRanges(),
+                                                        keyspace));
+        }
+
+        boolean shouldExcludeDeadParticipants = options.isForcedRepair();
+
+        //TODO CIE has && options.isIncremental(), but trunk does not; try to find out why this changed
+        if (shouldExcludeDeadParticipants)
+        {
+            Set<InetAddress> actualNeighbors = Sets.newHashSet(Iterables.filter(allNeighbors, FailureDetector.instance::isAlive));
+            shouldExcludeDeadParticipants = !allNeighbors.equals(actualNeighbors);
+            allNeighbors = actualNeighbors;
+        }
+        return new NeighborsAndRanges(shouldExcludeDeadParticipants, allNeighbors, allReplicaMap, commonRanges);
+    }
+
+    private void maybeStoreParentRepairStart(String[] cfnames)
+    {
+        if (!options.isPreview())
+        {
+            SystemDistributedKeyspace.startParentRepair(parentSession, keyspace, cfnames, options.getRanges());
+        }
+    }
+
+    private void maybeStoreParentRepairSuccess(Collection<Range<Token>> successfulRanges)
+    {
+        if (!options.isPreview())
+        {
+            SystemDistributedKeyspace.successfulParentRepair(parentSession, successfulRanges);
+        }
+    }
+
+    private void maybeStoreParentRepairFailure(Throwable error)
+    {
+        if (!options.isPreview())
+        {
+            SystemDistributedKeyspace.failParentRepair(parentSession, error);
+        }
+    }
+
+
+    private void prepare(List<ColumnFamilyStore> columnFamilies, Set<InetAddress> allNeighbors, boolean force)
+    {
+        try (Timer.Context ignore = Keyspace.open(keyspace).metric.repairPrepareTime.time())
+        {
+            ActiveRepairService.instance.prepareForRepair(parentSession, FBUtilities.getBroadcastAddress(), allNeighbors, options, force, columnFamilies);
+            progressCounter.incrementAndGet();
+        }
     }
 
     protected void syncRepairHistory(Iterable<ColumnFamilyStore> tables, List<CommonRange> commonRanges)
@@ -228,6 +458,23 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         }
     }
 
+    protected static Map<InetAddress, Set<Range<Token>>> collectEndpointRanges(List<CommonRange> commonRanges)
+    {
+        Map<InetAddress, Set<Range<Token>>> endpointRanges = new HashMap<>();
+        for (CommonRange commonRange: commonRanges)
+        {
+            for (InetAddress endpoint: commonRange.endpoints)
+            {
+                if (!endpointRanges.containsKey(endpoint))
+                {
+                    endpointRanges.put(endpoint, new HashSet<>());
+                }
+                endpointRanges.get(endpoint).addAll(commonRange.ranges);
+            }
+        }
+        return new HashMap<>(endpointRanges);
+    }
+
     private static String tablesToString(Iterable<ColumnFamilyStore> tables)
     {
         StringBuilder sb = new StringBuilder();
@@ -238,215 +485,45 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         return sb.toString();
     }
 
-    protected void runMayThrow() throws Exception
+    private void repair(String[] cfnames, NeighborsAndRanges neighborsAndRanges)
     {
-        ActiveRepairService.instance.recordRepairStatus(cmd, ActiveRepairService.ParentRepairStatus.IN_PROGRESS, ImmutableList.of());
-        final TraceState traceState;
-        final UUID parentSession = UUIDGen.getTimeUUID();
-
-        String[] columnFamilies = options.getColumnFamilies().toArray(new String[options.getColumnFamilies().size()]);
-        Iterable<ColumnFamilyStore> validColumnFamilies;
-        try
-        {
-            validColumnFamilies = storageService.getValidColumnFamilies(false, false, keyspace, columnFamilies);
-            progress.incrementAndGet();
-        }
-        catch (IllegalArgumentException e)
-        {
-            logger.error("Repair {} failed:", parentSession, e);
-            fireErrorAndComplete(progress.get(), totalProgress, e.getMessage());
-            return;
-        }
-
-        if (Iterables.isEmpty(validColumnFamilies))
-        {
-            String message = String.format("%s Empty keyspace, skipping repair: %s", parentSession, keyspace);
-            logger.info(message);
-            fireProgressEvent(new ProgressEvent(ProgressEventType.COMPLETE, 0, 0, message));
-            ActiveRepairService.instance.recordRepairStatus(cmd, ActiveRepairService.ParentRepairStatus.COMPLETED, Collections.singletonList(message));
-            return;
-        }
-
-        final long startTime = System.currentTimeMillis();
-        String message = String.format("Starting repair command #%d (%s), repairing keyspace %s with %s", cmd, parentSession, keyspace,
-                                       options);
-        logger.info(message);
-        if (options.isTraced())
-        {
-            StringBuilder cfsb = new StringBuilder();
-            for (ColumnFamilyStore cfs : validColumnFamilies)
-                cfsb.append(", ").append(cfs.keyspace.getName()).append(".").append(cfs.name);
-
-            UUID sessionId = Tracing.instance.newSession(Tracing.TraceType.REPAIR);
-            traceState = Tracing.instance.begin("repair", ImmutableMap.of("keyspace", keyspace, "columnFamilies",
-                                                                          cfsb.substring(2)));
-            message = message + " tracing with " + sessionId;
-            fireProgressEvent(new ProgressEvent(ProgressEventType.START, 0, 100, message));
-            Tracing.traceRepair(message);
-            traceState.enableActivityNotification(tag);
-            for (ProgressListener listener : listeners)
-                traceState.addProgressListener(listener);
-            Thread queryThread = createQueryThread(cmd, sessionId);
-            queryThread.setName("RepairTracePolling");
-            queryThread.start();
-        }
-        else
-        {
-            fireProgressEvent(new ProgressEvent(ProgressEventType.START, 0, 100, message));
-            traceState = null;
-        }
-
-        Set<InetAddress> allNeighbors = new HashSet<>();
-        List<CommonRange> commonRanges = new ArrayList<>();
-
-        //pre-calculate output of getLocalRanges and pass it to getNeighbors to increase performance and prevent
-        //calculation multiple times
-        Collection<Range<Token>> keyspaceLocalRanges = storageService.getLocalRanges(keyspace);
-        final Map<Set<InetAddress>, Boolean> allReplicaMap = new HashMap<>();
-        try
-        {
-            for (Range<Token> range : options.getRanges())
-            {
-                Set<InetAddress> unfilteredNeighbors = ActiveRepairService.getAllNeighbors(keyspace, keyspaceLocalRanges, range);
-                Set<InetAddress> neighbors = ActiveRepairService.filterNeighbors(unfilteredNeighbors, range,
-                                                                              options.getDataCenters(),
-                                                                              options.getHosts());
-                if (neighbors.isEmpty())
-                {
-                    if (options.ignoreUnreplicatedKeyspaces())
-                    {
-                        logger.info("{} Found no neighbors for range {} for {} - ignoring since repairing with --ignore-unreplicated-keyspaces", parentSession, range, keyspace);
-                        continue;
-                    }
-                    else
-                    {
-                        String errorMessage = String.format("Nothing to repair for %s in %s - aborting", range, keyspace);
-                        logger.error("Repair {} {}", parentSession, errorMessage);
-                        fireErrorAndComplete(progress.get(), totalProgress, errorMessage);
-                        return;
-                    }
-                }
-
-                boolean allReplicas = unfilteredNeighbors.equals(neighbors);
-                if (!allReplicas && allReplicaMap.containsKey(neighbors))
-                    allReplicaMap.put(neighbors, false);
-                else if (!allReplicaMap.containsKey(neighbors))
-                    allReplicaMap.put(neighbors, allReplicas);
-                addRangeToNeighbors(commonRanges, range, neighbors);
-                allNeighbors.addAll(neighbors);
-            }
-
-            progress.incrementAndGet();
-        }
-        catch (IllegalArgumentException e)
-        {
-            logger.error("Repair {} failed:", parentSession, e);
-            fireErrorAndComplete(progress.get(), totalProgress, e.getMessage());
-            return;
-        }
-
-        if (options.ignoreUnreplicatedKeyspaces() && allNeighbors.isEmpty())
-        {
-            String ignoreUnreplicatedMessage = String.format("Nothing to repair for %s in %s - unreplicated keyspace is ignored since repair was called with --ignore-unreplicated-keyspaces",
-                                                             options.getRanges(),
-                                                             keyspace);
-
-            logger.info("Repair {} {}", parentSession, ignoreUnreplicatedMessage);
-            fireProgressEvent(new ProgressEvent(ProgressEventType.COMPLETE,
-                                                    progress.get(),
-                                                    totalProgress,
-                                                    ignoreUnreplicatedMessage));
-            ActiveRepairService.instance.recordRepairStatus(cmd, ActiveRepairService.ParentRepairStatus.COMPLETED,
-                                                            ImmutableList.of(ignoreUnreplicatedMessage));
-            return;
-        }
-
-        // Validate columnfamilies
-        List<ColumnFamilyStore> columnFamilyStores = new ArrayList<>();
-        try
-        {
-            Iterables.addAll(columnFamilyStores, validColumnFamilies);
-            progress.incrementAndGet();
-        }
-        catch (IllegalArgumentException e)
-        {
-            logger.error("Repair {} failed:", parentSession, e);
-            fireErrorAndComplete(progress.get(), totalProgress, e.getMessage());
-            return;
-        }
-
-        String[] cfnames = new String[columnFamilyStores.size()];
-        for (int i = 0; i < columnFamilyStores.size(); i++)
-        {
-            cfnames[i] = columnFamilyStores.get(i).name;
-        }
-
-        if (!options.isPreview())
-        {
-            SystemDistributedKeyspace.startParentRepair(parentSession, keyspace, cfnames, options.getRanges());
-        }
-
-        boolean force = options.isForcedRepair();
-
-        if (force && options.isIncremental())
-        {
-            Set<InetAddress> actualNeighbors = Sets.newHashSet(Iterables.filter(allNeighbors, FailureDetector.instance::isAlive));
-            force = !allNeighbors.equals(actualNeighbors);
-            allNeighbors = actualNeighbors;
-        }
-
-        try (Timer.Context ctx = Keyspace.open(keyspace).metric.repairPrepareTime.time())
-        {
-            ActiveRepairService.instance.prepareForRepair(parentSession, FBUtilities.getBroadcastAddress(), allNeighbors, options, force, columnFamilyStores);
-            progress.incrementAndGet();
-        }
-        catch (Throwable t)
-        {
-            logger.error("Repair {} failed:", parentSession, t);
-            if (!options.isPreview())
-            {
-                SystemDistributedKeyspace.failParentRepair(parentSession, t);
-            }
-            fireErrorAndComplete(progress.get(), totalProgress, t.getMessage());
-            return;
-        }
-
-        if (options.isGlobal() && !options.isForcedRepair())
-        {
-            syncRepairHistory(columnFamilyStores, commonRanges);
-        }
-
         if (options.isPreview())
         {
-            previewRepair(parentSession, startTime, allReplicaMap, commonRanges, cfnames);
+            previewRepair(parentSession,
+                          neighborsAndRanges.filterCommonRanges(keyspace, cfnames),
+                          neighborsAndRanges.allReplicaMap,
+                          cfnames);
         }
         else if (options.isIncremental())
         {
-            incrementalRepair(parentSession, startTime, force, traceState, allNeighbors, allReplicaMap, commonRanges, cfnames);
+            incrementalRepair(parentSession,
+                              traceState,
+                              neighborsAndRanges,
+                              neighborsAndRanges.allReplicaMap,
+                              cfnames);
         }
         else
         {
-            normalRepair(parentSession, startTime, traceState, allReplicaMap, commonRanges, cfnames);
+            normalRepair(parentSession,
+                         traceState,
+                         neighborsAndRanges.filterCommonRanges(keyspace, cfnames),
+                         neighborsAndRanges.allReplicaMap,
+                         cfnames);
         }
     }
 
-    protected void unhandledException(Exception e)
-    {
-        fireErrorAndComplete(progress.get(), totalProgress, e.getMessage());
-    }
-
+    @SuppressWarnings("UnstableApiUsage")
     private void normalRepair(UUID parentSession,
-                              long startTime,
                               TraceState traceState,
-                              Map<Set<InetAddress>, Boolean> allReplicaMap,
                               List<CommonRange> commonRanges,
+                              Map<Set<InetAddress>, Boolean> allReplicaMap,
                               String... cfnames)
     {
 
         // Set up RepairJob executor for this repair command.
         ListeningExecutorService executor = createExecutor();
 
-        final ListenableFuture<List<RepairSessionResult>> allSessions = submitRepairSessions(parentSession, false, executor, allReplicaMap, commonRanges, cfnames);
+        final ListenableFuture<List<RepairSessionResult>> allSessions = submitRepairSessions(parentSession, false, executor, commonRanges, allReplicaMap, cfnames);
 
         // After all repair sessions completes(successful or not),
         // run anticompaction if necessary and send finish notice back to client
@@ -455,12 +532,12 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         ListenableFuture repairResult = Futures.transform(allSessions, new AsyncFunction<List<RepairSessionResult>, Object>()
         {
             @SuppressWarnings("unchecked")
-            public ListenableFuture apply(List<RepairSessionResult> results) throws Exception
+            public ListenableFuture apply(List<RepairSessionResult> results)
             {
+                logger.debug("Repair result: {}", results);
                 // filter out null(=failed) results and get successful ranges
                 for (RepairSessionResult sessionResult : results)
                 {
-                    logger.debug("Repair result: {}", results);
                     if (sessionResult != null)
                     {
                         // don't record successful repair if we had to skip ranges
@@ -476,73 +553,58 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                 }
                 return Futures.immediateFuture(null);
             }
-        });
-        Futures.addCallback(repairResult, new RepairCompleteCallback(parentSession, successfulRanges, startTime, traceState, hasFailure, executor));
-    }
-
-    /**
-     * removes dead nodes from common ranges, and exludes ranges left without any participants
-     */
-    @VisibleForTesting
-    static List<CommonRange> filterCommonRanges(List<CommonRange> commonRanges, Set<InetAddress> liveEndpoints, boolean force)
-    {
-        if (!force)
-        {
-            return commonRanges;
-        }
-        else
-        {
-            List<CommonRange> filtered = new ArrayList<>(commonRanges.size());
-
-            for (CommonRange commonRange: commonRanges)
-            {
-                Set<InetAddress> endpoints = ImmutableSet.copyOf(Iterables.filter(commonRange.endpoints, liveEndpoints::contains));
-
-                // this node is implicitly a participant in this repair, so a single endpoint is ok here
-                if (!endpoints.isEmpty())
-                {
-                    filtered.add(new CommonRange(endpoints, commonRange.ranges));
-                }
-            }
-            Preconditions.checkState(!filtered.isEmpty(), "Not enough live endpoints for a repair");
-            return filtered;
-        }
+        }, MoreExecutors.directExecutor());
+        Futures.addCallback(repairResult,
+                            new RepairCompleteCallback(parentSession,
+                                                       successfulRanges,
+                                                       traceState,
+                                                       hasFailure,
+                                                       executor),
+                            MoreExecutors.directExecutor());
     }
 
     private void incrementalRepair(UUID parentSession,
-                                   long startTime,
-                                   boolean forceRepair,
                                    TraceState traceState,
-                                   Set<InetAddress> allNeighbors,
+                                   NeighborsAndRanges neighborsAndRanges,
                                    Map<Set<InetAddress>, Boolean> allReplicaMap,
-                                   List<CommonRange> commonRanges,
                                    String... cfnames)
     {
         // the local node also needs to be included in the set of participants, since coordinator sessions aren't persisted
         Set<InetAddress> allParticipants = ImmutableSet.<InetAddress>builder()
-                                           .addAll(allNeighbors)
-                                           .add(FBUtilities.getBroadcastAddress())
-                                           .build();
+                                                  .addAll(neighborsAndRanges.participants)
+                                                  .add(FBUtilities.getBroadcastAddress())
+                                                  .build();
+        // Not necessary to include self for filtering. The common ranges only contains neighbhor node endpoints.
+        List<CommonRange> allRanges = neighborsAndRanges.filterCommonRanges(keyspace, cfnames);
 
-        List<CommonRange> allRanges = filterCommonRanges(commonRanges, allParticipants, forceRepair);
-
-        CoordinatorSession coordinatorSession = ActiveRepairService.instance.consistent.coordinated.registerSession(parentSession, allParticipants, forceRepair);
+        CoordinatorSession coordinatorSession;
+        try
+        {
+            coordinatorSession = ActiveRepairService.instance.consistent.coordinated.registerSession(parentSession, allParticipants, neighborsAndRanges.shouldExcludeDeadParticipants);
+        }
+        catch (NoSuchRepairSessionException e)
+        {
+            logger.warn("Aborting repair session: "+e.getMessage());
+            fail(e.getMessage());
+            return;
+        }
         ListeningExecutorService executor = createExecutor();
         AtomicBoolean hasFailure = new AtomicBoolean(false);
-        ListenableFuture repairResult = coordinatorSession.execute(() -> submitRepairSessions(parentSession, true, executor, allReplicaMap, allRanges, cfnames),
+        ListenableFuture repairResult = coordinatorSession.execute(() -> submitRepairSessions(parentSession, true, executor, allRanges, allReplicaMap, cfnames),
                                                                    hasFailure);
         Collection<Range<Token>> ranges = new HashSet<>();
         for (Collection<Range<Token>> range : Iterables.transform(allRanges, cr -> cr.ranges))
         {
             ranges.addAll(range);
         }
-        Futures.addCallback(repairResult, new RepairCompleteCallback(parentSession, ranges, startTime, traceState, hasFailure, executor));
+        Futures.addCallback(repairResult,
+                            new RepairCompleteCallback(parentSession, ranges, traceState, hasFailure, executor),
+                            MoreExecutors.directExecutor());
     }
 
     private void previewRepair(UUID parentSession,
-                               long startTime,
-                               Map<Set<InetAddress>, Boolean> allReplicaMap,
                                List<CommonRange> commonRanges,
+                               Map<Set<InetAddress>, Boolean> allReplicaMap,
                                String... cfnames)
     {
 
@@ -550,7 +612,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         // Set up RepairJob executor for this repair command.
         ListeningExecutorService executor = createExecutor();
 
-        final ListenableFuture<List<RepairSessionResult>> allSessions = submitRepairSessions(parentSession, false, executor, allReplicaMap, commonRanges, cfnames);
+        final ListenableFuture<List<RepairSessionResult>> allSessions = submitRepairSessions(parentSession, false, executor, commonRanges, allReplicaMap, cfnames);
 
         Futures.addCallback(allSessions, new FutureCallback<List<RepairSessionResult>>()
         {
@@ -558,8 +620,14 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             {
                 try
                 {
+                    if (results == null || results.stream().anyMatch(s -> s == null))
+                    {
+                        // something failed
+                        fail(null);
+                        return;
+                    }
                     PreviewKind previewKind = options.getPreviewKind();
-                    assert previewKind != PreviewKind.NONE;
+                    Preconditions.checkState(previewKind != PreviewKind.NONE, "Preview is NONE");
                     SyncStatSummary summary = new SyncStatSummary(true);
                     summary.consumeSessionResults(results);
 
@@ -567,8 +635,6 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                     if (summary.isEmpty())
                     {
                         message = (previewKind == PreviewKind.REPAIRED ? "Repaired data is in sync" : "Previewed data was in sync") + " for " + parentSession;
-                        logger.info(message);
-                        fireProgressEvent(new ProgressEvent(ProgressEventType.NOTIFICATION, progress.get(), totalProgress, message));
 
                         // no need to keep the merkle trees around if everything was ok
                         if (DatabaseDescriptor.getDebugValidationPreviewEnabled() && previewKind == PreviewKind.REPAIRED)
@@ -583,47 +649,31 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                         String christmasPatchWarning = isRepaired ? summary.getChristmasPatchDisabledWarning() : "";
                         message = (isRepaired ? "Repaired data is inconsistent" : "Preview complete")
                                   + " for " + parentSession + christmasPatchWarning + '\n' + summary.toString(isRepaired);
-                        logger.info(message);
                         if (previewKind == PreviewKind.REPAIRED)
                             maybeSnapshotReplicas(parentSession, keyspace, results);
-                        fireProgressEvent(new ProgressEvent(ProgressEventType.NOTIFICATION, progress.get(), totalProgress, message));
                     }
+                    notification(message);
 
-                    String successMessage = "Repair preview completed successfully";
-                    fireProgressEvent(new ProgressEvent(ProgressEventType.SUCCESS, progress.get(), totalProgress,
-                                                        successMessage));
-                    String completionMessage = complete();
-
-                    ActiveRepairService.instance.recordRepairStatus(cmd, ActiveRepairService.ParentRepairStatus.COMPLETED,
-                                                           ImmutableList.of(message, successMessage, completionMessage));
+                    success("Repair preview completed successfully");
                 }
                 catch (Throwable t)
                 {
                     logger.error("Error completing preview repair", t);
                     onFailure(t);
                 }
+                finally
+                {
+                    executor.shutdownNow();
+                }
             }
 
             public void onFailure(Throwable t)
             {
-                fireProgressEvent(new ProgressEvent(ProgressEventType.ERROR, progress.get(), totalProgress, t.getMessage()));
-                logger.error("Error completing preview repair", t);
-                String completionMessage = complete();
-                recordFailure(t.getMessage(), completionMessage);
-            }
-
-            private String complete()
-            {
-                logger.debug("Preview repair {} completed", parentSession);
-
-                String duration = DurationFormatUtils.formatDurationWords(System.currentTimeMillis() - startTime,
-                                                                          true, true);
-                String message = String.format("Repair preview #%d finished in %s", cmd, duration);
-                fireProgressEvent(new ProgressEvent(ProgressEventType.COMPLETE, progress.get(), totalProgress, message));
+                notifyError(t);
+                fail("Error completing preview repair: " + t.getMessage());
                 executor.shutdownNow();
-                return message;
             }
-        });
+        }, MoreExecutors.directExecutor());
     }
 
     private void maybeSnapshotReplicas(UUID parentSession, String keyspace, List<RepairSessionResult> results)
@@ -653,7 +703,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
             String snapshotName = DiagnosticSnapshotService.getSnapshotName(DiagnosticSnapshotService.REPAIRED_DATA_MISMATCH_SNAPSHOT_PREFIX);
             for (String table : mismatchingTables)
             {
-                // we can shortcut the snapshot existence locally since the repair coordinator is always a replica (unlike in the read case)
+                // we can just check snapshot existence locally since the repair coordinator is always a replica (unlike in the read case)
                 if (!Keyspace.open(keyspace).getColumnFamilyStore(table).snapshotExists(snapshotName))
                 {
                     logger.info("{} Snapshotting {}.{} for preview repair mismatch with tag {} on instances {}",
@@ -685,8 +735,8 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
     private ListenableFuture<List<RepairSessionResult>> submitRepairSessions(UUID parentSession,
                                                                              boolean isIncremental,
                                                                              ListeningExecutorService executor,
-                                                                             Map<Set<InetAddress>, Boolean> allReplicaMap,
                                                                              List<CommonRange> commonRanges,
+                                                                             Map<Set<InetAddress>, Boolean> allReplicaMap,
                                                                              String... cfnames)
     {
         List<ListenableFuture<RepairSessionResult>> futures = new ArrayList<>(options.getRanges().size());
@@ -694,15 +744,15 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
         // we do endpoint filtering at the start of an incremental repair,
         // so repair sessions shouldn't also be checking liveness
         boolean force = options.isForcedRepair() && !isIncremental;
-        for (CommonRange cr : commonRanges)
+        for (CommonRange commonRange : commonRanges)
         {
-            logger.info("Starting RepairSession for {}", cr);
+            logger.info("Starting RepairSession for {}", commonRange);
             RepairSession session = ActiveRepairService.instance.submitRepairSession(parentSession,
-                                                                                     cr.ranges,
+                                                                                     commonRange.ranges,
                                                                                      keyspace,
                                                                                      options.getParallelism(),
-                                                                                     allReplicaMap.getOrDefault(cr.endpoints, false),
-                                                                                     cr.endpoints,
+                                                                                     allReplicaMap.getOrDefault(commonRange.endpoints, false),
+                                                                                     commonRange.endpoints,
                                                                                      isIncremental,
                                                                                      options.isPullRepair(),
                                                                                      force,
@@ -712,7 +762,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                                                                                      cfnames);
             if (session == null)
                 continue;
-            Futures.addCallback(session, new RepairSessionCallback(session));
+            Futures.addCallback(session, new RepairSessionCallback(session), MoreExecutors.directExecutor());
             futures.add(session);
         }
         return Futures.successfulAsList(futures);
@@ -721,11 +771,11 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
     private ListeningExecutorService createExecutor()
     {
         return MoreExecutors.listeningDecorator(new JMXEnabledThreadPoolExecutor(options.getJobThreads(),
-                                                                                      Integer.MAX_VALUE,
-                                                                                      TimeUnit.SECONDS,
-                                                                                      new LinkedBlockingQueue<>(),
-                                                                                      new NamedThreadFactory("Repair#" + cmd),
-                                                                                      "internal"));
+                                                                                 Integer.MAX_VALUE,
+                                                                                 TimeUnit.SECONDS,
+                                                                                 new LinkedBlockingQueue<>(),
+                                                                                 new NamedThreadFactory("Repair#" + cmd),
+                                                                                 "internal"));
     }
 
     private class RepairSessionCallback implements FutureCallback<RepairSessionResult>
@@ -739,34 +789,20 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
 
         public void onSuccess(RepairSessionResult result)
         {
-            /**
-             * If the success message below is modified, it must also be updated on
-             * {@link org.apache.cassandra.utils.progress.jmx.LegacyJMXProgressSupport}
-             * for backward-compatibility support.
-             */
             String message = String.format("Repair session %s for range %s finished", session.getId(),
-                                           session.getRanges().toString());
+                                           session.ranges.toString());
             logger.info(message);
             fireProgressEvent(new ProgressEvent(ProgressEventType.PROGRESS,
-                                                progress.incrementAndGet(),
+                                                progressCounter.incrementAndGet(),
                                                 totalProgress,
                                                 message));
         }
 
         public void onFailure(Throwable t)
         {
-            /**
-             * If the failure message below is modified, it must also be updated on
-             * {@link org.apache.cassandra.utils.progress.jmx.LegacyJMXProgressSupport}
-             * for backward-compatibility support.
-             */
             String message = String.format("Repair session %s for range %s failed with error %s",
-                                           session.getId(), session.getRanges().toString(), t.getMessage());
-            logger.error(message, t);
-            fireProgressEvent(new ProgressEvent(ProgressEventType.ERROR,
-                                                progress.incrementAndGet(),
-                                                totalProgress,
-                                                message));
+                                           session.getId(), session.ranges.toString(), t.getMessage());
+            notifyError(new RuntimeException(message, t));
         }
     }
 
@@ -774,21 +810,18 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
     {
         final UUID parentSession;
         final Collection<Range<Token>> successfulRanges;
-        final long startTime;
         final TraceState traceState;
         final AtomicBoolean hasFailure;
         final ExecutorService executor;
 
         public RepairCompleteCallback(UUID parentSession,
                                       Collection<Range<Token>> successfulRanges,
-                                      long startTime,
                                       TraceState traceState,
                                       AtomicBoolean hasFailure,
                                       ExecutorService executor)
         {
             this.parentSession = parentSession;
             this.successfulRanges = successfulRanges;
-            this.startTime = startTime;
             this.traceState = traceState;
             this.hasFailure = hasFailure;
             this.executor = executor;
@@ -796,105 +829,47 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
 
         public void onSuccess(Object result)
         {
-            if (!options.isPreview())
-            {
-                SystemDistributedKeyspace.successfulParentRepair(parentSession, successfulRanges);
-            }
-            final String message;
+            maybeStoreParentRepairSuccess(successfulRanges);
             if (hasFailure.get())
             {
-                message = "Some repair failed";
-                fireProgressEvent(new ProgressEvent(ProgressEventType.ERROR, progress.get(), totalProgress,
-                                                    message));
+                fail(null);
             }
             else
             {
-                message = "Repair completed successfully";
-                fireProgressEvent(new ProgressEvent(ProgressEventType.SUCCESS, progress.get(), totalProgress,
-                                                    message));
+                success("Repair completed successfully");
             }
-            String completionMessage = repairComplete();
-            if (hasFailure.get())
-            {
-                recordFailure(message, completionMessage);
-            }
-            else
-            {
-                ActiveRepairService.instance.recordRepairStatus(cmd, ActiveRepairService.ParentRepairStatus.COMPLETED,
-                                                       ImmutableList.of(message, completionMessage));
-            }
+            executor.shutdownNow();
         }
 
         public void onFailure(Throwable t)
         {
-            fireProgressEvent(new ProgressEvent(ProgressEventType.ERROR, progress.get(), totalProgress, t.getMessage()));
-            if (!options.isPreview())
-            {
-                SystemDistributedKeyspace.failParentRepair(parentSession, t);
-            }
-            String completionMessage = repairComplete();
-            recordFailure(t.getMessage(), completionMessage);
-        }
-
-        private String repairComplete()
-        {
-            ActiveRepairService.instance.removeParentRepairSession(parentSession);
-            long durationMillis = System.currentTimeMillis() - startTime;
-            String duration = DurationFormatUtils.formatDurationWords(durationMillis, true, true);
-            String message = String.format("Repair command #%d finished in %s", cmd, duration);
-            fireProgressEvent(new ProgressEvent(ProgressEventType.COMPLETE, progress.get(), totalProgress, message));
-            logger.info(options.getPreviewKind().logPrefix(parentSession) + message);
-            if (options.isTraced() && traceState != null)
-            {
-                for (ProgressListener listener : listeners)
-                    traceState.removeProgressListener(listener);
-                // Because DebuggableThreadPoolExecutor#afterExecute and this callback
-                // run in a nondeterministic order (within the same thread), the
-                // TraceState may have been nulled out at this point. The TraceState
-                // should be traceState, so just set it without bothering to check if it
-                // actually was nulled out.
-                Tracing.instance.set(traceState);
-                Tracing.traceRepair(message);
-                Tracing.instance.stopSession();
-            }
+            notifyError(t);
+            fail(t.getMessage());
             executor.shutdownNow();
-            Keyspace.open(keyspace).metric.repairTime.update(durationMillis, TimeUnit.MILLISECONDS);
-            return message;
         }
     }
 
-    private void recordFailure(String failureMessage, String completionMessage)
+    private static void addRangeToNeighbors(List<CommonRange> neighborRangeList, Range<Token> range, Set<InetAddress> endpoints)
     {
-        // Note we rely on the first message being the reason for the failure
-        // when inspecting this state from RepairRunner.queryForCompletedRepair
-        String failure = failureMessage == null ? "unknown failure" : failureMessage;
-        String completion = completionMessage == null ? "unknown completion" : completionMessage;
-
-        ActiveRepairService.instance.recordRepairStatus(cmd, ActiveRepairService.ParentRepairStatus.FAILED,
-                                               ImmutableList.of(failure, completion));
-    }
-
-    private void addRangeToNeighbors(List<CommonRange> neighborRangeList, Range<Token> range, Set<InetAddress> neighbors)
-    {
-        for (int i = 0; i < neighborRangeList.size(); i++)
+        for (CommonRange commonRange : neighborRangeList)
         {
-            CommonRange cr = neighborRangeList.get(i);
-
-            if (cr.endpoints.containsAll(neighbors))
+            // CIE: diff between CASSANDRA-15564 and this backport; keeping the 3.0 behavior
+            // in trunk we do equality rather than containsAll, this was done during transient refactor
+            if (commonRange.endpoints.containsAll(endpoints))
             {
-                cr.ranges.add(range);
+                commonRange.ranges.add(range);
                 return;
             }
         }
 
         List<Range<Token>> ranges = new ArrayList<>();
         ranges.add(range);
-        neighborRangeList.add(new CommonRange(neighbors, ranges));
+        neighborRangeList.add(new CommonRange(endpoints, ranges));
     }
 
     private Thread createQueryThread(final int cmd, final UUID sessionId)
     {
-        return new Thread(NamedThreadFactory.threadLocalDeallocator(new WrappedRunnable()
+        return NamedThreadFactory.createThread(new WrappedRunnable()
         {
             // Query events within a time interval that overlaps the last by one second. Ignore duplicates. Ignore local traces.
             // Wake up upon local trace activity. Query when notified of trace activity with a timeout that doubles every two timeouts.
@@ -911,7 +886,7 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                 ByteBuffer sessionIdBytes = ByteBufferUtil.bytes(sessionId);
                 InetAddress source = FBUtilities.getBroadcastAddress();
 
-                HashSet<UUID>[] seen = new HashSet[] { new HashSet<>(), new HashSet<>() };
+                HashSet<UUID>[] seen = new HashSet[]{ new HashSet<>(), new HashSet<>() };
                 int si = 0;
                 UUID uuid;
 
@@ -961,6 +936,72 @@ public class RepairRunnable extends WrappedRunnable implements ProgressEventNoti
                     seen[si].clear();
                 }
             }
-        }));
+        }, "Repair-Runnable-" + threadCounter.incrementAndGet());
+    }
+
+    private static final class SkipRepairException extends RuntimeException
+    {
+        SkipRepairException(String message)
+        {
+            super(message);
+        }
+    }
+
+    static final class NeighborsAndRanges
+    {
+        private final boolean shouldExcludeDeadParticipants;
+        private final Set<InetAddress> participants;
+        private final Map<Set<InetAddress>, Boolean> allReplicaMap;
+        private final List<CommonRange> commonRanges;
+
+        NeighborsAndRanges(boolean shouldExcludeDeadParticipants,
+                           Set<InetAddress> participants,
+                           Map<Set<InetAddress>, Boolean> allReplicaMap,
+                           List<CommonRange> commonRanges)
+        {
+            this.shouldExcludeDeadParticipants = shouldExcludeDeadParticipants;
+            this.participants = participants;
+            this.allReplicaMap = allReplicaMap;
+            this.commonRanges = commonRanges;
+        }
+
+        /**
+         * When in the force mode, removes dead nodes from common ranges (not contained within `allNeighbors`),
+         * and exludes ranges left without any participants
+         * When not in the force mode, no-op.
+         */
+        List<CommonRange> filterCommonRanges(String keyspace, String... tableNames)
+        {
+            if (!shouldExcludeDeadParticipants)
+            {
+                return commonRanges;
+            }
+            else
+            {
+                logger.debug("force flag set, removing dead endpoints if possible");
+
+                List<CommonRange> filtered = new ArrayList<>(commonRanges.size());
+
+                for (CommonRange commonRange : commonRanges)
+                {
+                    Set<InetAddress> endpoints = ImmutableSet.copyOf(Iterables.filter(commonRange.endpoints, participants::contains));
+
+                    // this node is implicitly a participant in this repair, so a single endpoint is ok here
+                    if (!endpoints.isEmpty())
+                    {
+                        Set<InetAddress> skippedReplicas = Sets.difference(commonRange.endpoints, endpoints);
+                        skippedReplicas.forEach(endpoint -> logger.info("Removing a dead node {} from repair for ranges {} due to -force", endpoint, commonRange.ranges));
+                        filtered.add(new CommonRange(endpoints, commonRange.ranges, !skippedReplicas.isEmpty()));
+                    }
+                    else
+                    {
+                        logger.warn("Skipping forced repair for ranges {} of tables {} in keyspace {}, as no neighbor nodes are live.",
+                                    commonRange.ranges, Arrays.asList(tableNames), keyspace);
+                    }
+                }
+                Preconditions.checkState(!filtered.isEmpty(), "Not enough live endpoints for a repair");
+                return filtered;
+            }
+        }
     }
 }

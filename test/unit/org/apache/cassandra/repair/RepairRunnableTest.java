@@ -22,15 +22,13 @@ import java.net.InetAddress;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.Test;
-
-import org.apache.cassandra.repair.RepairRunnable.CommonRange;
-
-import static org.apache.cassandra.repair.RepairRunnable.filterCommonRanges;
 
 public class RepairRunnableTest extends AbstractRepairTest
 {
@@ -56,10 +54,17 @@ public class RepairRunnableTest extends AbstractRepairTest
         Set<InetAddress> liveEndpoints = Sets.newHashSet(PARTICIPANT2, PARTICIPANT3); // PARTICIPANT1 is excluded
 
         List<CommonRange> initial = Lists.newArrayList(cr1, cr2);
-        List<CommonRange> expected = Lists.newArrayList(new CommonRange(Sets.newHashSet(PARTICIPANT2), Sets.newHashSet(RANGE1, RANGE2)),
-                                                        new CommonRange(Sets.newHashSet(PARTICIPANT2, PARTICIPANT3), Sets.newHashSet(RANGE3)));
+        List<CommonRange> expected = Lists.newArrayList(new CommonRange(Sets.newHashSet(PARTICIPANT2), Sets.newHashSet(RANGE1, RANGE2), true),
+                                                        new CommonRange(Sets.newHashSet(PARTICIPANT2, PARTICIPANT3), Sets.newHashSet(RANGE3), true));
         List<CommonRange> actual = filterCommonRanges(initial, liveEndpoints, true);
 
         Assert.assertEquals(expected, actual);
+    }
+
+    private static List<CommonRange> filterCommonRanges(List<CommonRange> commonRanges, Set<InetAddress> endpoints, boolean shouldExcludeDeadParticipants)
+    {
+        Set<InetAddress> all = commonRanges.stream().flatMap(r -> r.endpoints.stream()).collect(Collectors.toSet());
+        return new RepairRunnable.NeighborsAndRanges(shouldExcludeDeadParticipants, endpoints, ImmutableMap.of(endpoints, endpoints.containsAll(all)), commonRanges)
+               .filterCommonRanges("keyspace", "table");
     }
 }

@@ -73,6 +73,7 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.metrics.CompactionMetrics;
 import org.apache.cassandra.metrics.TableMetrics;
 import org.apache.cassandra.metrics.TopPartitionTracker;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.repair.PreviewRepairConflictWithIncrementalRepairException;
 import org.apache.cassandra.repair.Validator;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -694,7 +695,7 @@ public class CompactionManager implements CompactionManagerMBean
                                       long repairedAt,
                                       UUID pendingRepair,
                                       UUID parentRepairSession,
-                                      BooleanSupplier isCancelled) throws InterruptedException, IOException
+                                      BooleanSupplier isCancelled) throws InterruptedException, IOException, NoSuchRepairSessionException
     {
         try
         {
@@ -1460,7 +1461,7 @@ public class CompactionManager implements CompactionManagerMBean
                              validator.desc);
             }
         }
-        catch (PreviewRepairConflictWithIncrementalRepairException e)
+        catch (PreviewRepairConflictWithIncrementalRepairException | NoSuchRepairSessionException e)
         {
             validator.fail();
             logger.warn(e.getMessage());
@@ -1511,7 +1512,7 @@ public class CompactionManager implements CompactionManagerMBean
     }
 
     @VisibleForTesting
-    public synchronized Refs<SSTableReader> getSSTablesToValidate(ColumnFamilyStore cfs, Validator validator)
+    public synchronized Refs<SSTableReader> getSSTablesToValidate(ColumnFamilyStore cfs, Validator validator) throws NoSuchRepairSessionException
     {
         Refs<SSTableReader> sstables;
 

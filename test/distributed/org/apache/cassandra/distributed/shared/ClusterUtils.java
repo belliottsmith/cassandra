@@ -19,6 +19,7 @@
 package org.apache.cassandra.distributed.shared;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -48,7 +49,12 @@ import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.impl.AbstractCluster;
+import org.apache.cassandra.distributed.impl.Instance;
 import org.apache.cassandra.distributed.impl.InstanceConfig;
+import org.apache.cassandra.io.util.DataInputBuffer;
+import org.apache.cassandra.net.MessageIn;
+import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.repair.messages.RepairMessage;
 import org.apache.cassandra.service.StorageService;
 
 import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
@@ -757,6 +763,23 @@ public class ClusterUtils
     public static String getBroadcastAddressString(IInstance target)
     {
         return target.config().broadcastAddress().getAddress().toString();
+    }
+
+    public static IMessageFilters.Matcher repairMatcher(RepairMessage.Type type)
+    {
+        return repairMatcher(type, (from, to, m) -> true);
+    }
+
+    public static IMessageFilters.Matcher repairMatcher(RepairMessage.Type type, IMessageFilters.Matcher onMatch)
+    {
+        return (from, to, m) -> {
+            if (m.verb() != MessagingService.Verb.REPAIR_MESSAGE.getId())
+                return false;
+            MessageIn<RepairMessage> msg = (MessageIn<RepairMessage>) (MessageIn<?>) Instance.deserializeMessage(m).left;
+            if (msg.payload.messageType == type)
+                return onMatch.matches(from, to, m);
+            return false;
+        };
     }
 
     public static final class RingInstanceDetails

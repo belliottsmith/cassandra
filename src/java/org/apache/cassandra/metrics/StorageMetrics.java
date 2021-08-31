@@ -35,4 +35,5 @@ public class StorageMetrics
     public static final Counter totalOpsForInvalidToken = Metrics.counter(factory.createMetricName("TotalOpsForInvalidToken"));
     public static final Counter startupOpsForInvalidToken = Metrics.counter(factory.createMetricName("StartupOpsForInvalidToken"));
     public static final Counter columnIndexDownsamples = Metrics.counter(factory.createMetricName("ColumnIndexDownsamples"));
+    public static final Counter repairExceptions = Metrics.counter(factory.createMetricName("RepairExceptions"));
 }

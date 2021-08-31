@@ -60,6 +60,7 @@ import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.metrics.ClearableHistogram;
 import org.apache.cassandra.net.*;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.repair.consistent.LocalSessionAccessor;
 import org.apache.cassandra.schema.CachingParams;
 import org.apache.cassandra.schema.KeyspaceParams;
@@ -890,7 +891,7 @@ public class ReadCommandTest
         return iterators;
     }
 
-    private void testRepairedDataTracking(ColumnFamilyStore cfs, ReadCommand readCommand) throws IOException
+    private void testRepairedDataTracking(ColumnFamilyStore cfs, ReadCommand readCommand) throws IOException, NoSuchRepairSessionException
     {
         cfs.disableAutoCompaction();
 

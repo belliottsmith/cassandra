@@ -77,6 +77,7 @@ import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.repair.NoSuchRepairSessionException;
 import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.repair.RepairJobDesc;
 import org.apache.cassandra.repair.RepairParallelism;
@@ -301,7 +302,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
                 LocalSessions.unregisterListener(session);
                 repairSuccessListeners.remove(session);
             }
-        }, MoreExecutors.sameThreadExecutor());
+        }, MoreExecutors.directExecutor());
         session.start(executor);
         return session;
     }
@@ -602,13 +603,13 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         }
     }
 
-    public ParentRepairSession getParentRepairSession(UUID parentSessionId)
+    public ParentRepairSession getParentRepairSession(UUID parentSessionId) throws NoSuchRepairSessionException
     {
         ParentRepairSession session = parentRepairSessions.get(parentSessionId);
         // this can happen if a node thinks that the coordinator was down, but that coordinator got back before noticing
         // that it was down itself.
         if (session == null)
-            throw new RuntimeException("Parent repair session with id = " + parentSessionId + " has failed.");
+            throw new NoSuchRepairSessionException(parentSessionId);
 
         return session;
     }

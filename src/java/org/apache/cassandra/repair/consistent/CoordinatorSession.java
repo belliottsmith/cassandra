@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.repair.RepairSessionResult;
+import org.apache.cassandra.repair.SomeRepairFailedException;
 import org.apache.cassandra.repair.messages.FailSession;
 import org.apache.cassandra.repair.messages.FinalizeCommit;
 import org.apache.cassandra.repair.messages.FinalizePropose;
@@ -325,7 +326,7 @@ public class CoordinatorSession extends ConsistentSession
                         logger.debug("Incremental repair {} validation/stream phase completed in {}", sessionID, formatDuration(repairStart, finalizeStart));
 
                     }
-                    return Futures.immediateFailedFuture(new RuntimeException());
+                    return Futures.immediateFailedFuture(SomeRepairFailedException.INSTANCE);
                 }
                 else
                 {
