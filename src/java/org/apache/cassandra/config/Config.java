@@ -716,7 +716,7 @@ public class Config
         v1_without_linearizable_reads, // with legacy semantics for read/read linearizability (i.e. not guaranteed)
         v1
     }
-    public volatile PaxosVariant paxos_variant = PaxosVariant.v1;
+    public volatile PaxosVariant paxos_variant = PaxosVariant.v1_without_linearizable_reads;
 
     public static Supplier<Config> getOverrideLoadConfig()
     {
