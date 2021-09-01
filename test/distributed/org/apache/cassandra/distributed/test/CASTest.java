@@ -30,6 +30,7 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -202,7 +203,8 @@ public class CASTest extends TestBaseImpl
         // does not happen on 3.0 and there is no report of such long pauses otherwise, so an hypothesis is that this
         // is due to the in-jvm dtest framework. This is is why we use a 4 seconds timeout here. Given this test is
         // not about performance, this is probably ok, even if we ideally should dug into the underlying reason.
-        try (Cluster cluster = init(Cluster.create(3, config -> config.set("write_request_timeout_in_ms", 4000L)
+        try (Cluster cluster = init(Cluster.create(3, config -> config.set("paxos_variant", Config.PaxosVariant.v1)
+                                                                      .set("write_request_timeout_in_ms", 4000L)
                                                                       .set("cas_contention_timeout_in_ms", CONTENTION_TIMEOUT))))
         {
             String table = KEYSPACE + ".t";
