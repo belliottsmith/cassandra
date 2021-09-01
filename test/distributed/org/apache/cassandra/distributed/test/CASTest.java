@@ -23,7 +23,9 @@ import java.util.UUID;
 import java.util.function.BiConsumer;
 
 
+import org.junit.AfterClass;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -41,6 +43,7 @@ import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.impl.Instance;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.service.StorageProxy;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.UUIDGen;
 
@@ -57,6 +60,22 @@ import static org.junit.Assert.assertTrue;
 public class CASTest extends TestBaseImpl
 {
     private static final Logger logger = LoggerFactory.getLogger(CASTest.class);
+    
+    private static String originalDisableReadLinearizability; 
+    
+    @BeforeClass
+    public static void disableReadLinearizability()
+    {
+        // CIE currently disables serial read linearizability by default (see rdar://74705920)
+        originalDisableReadLinearizability = System.getProperty(StorageProxy.DISABLE_SERIAL_READ_LINEARIZABILITY_KEY, "true");
+        System.setProperty(StorageProxy.DISABLE_SERIAL_READ_LINEARIZABILITY_KEY, "false");
+    }
+
+    @AfterClass
+    public static void restoreReadLinearizability()
+    {
+         System.setProperty(StorageProxy.DISABLE_SERIAL_READ_LINEARIZABILITY_KEY, originalDisableReadLinearizability);
+    }
 
     /**
      * The {@code cas_contention_timeout_in_ms} used during the tests
