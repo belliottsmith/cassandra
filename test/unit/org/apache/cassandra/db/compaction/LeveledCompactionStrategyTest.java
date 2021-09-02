@@ -1155,6 +1155,39 @@ public class LeveledCompactionStrategyTest
 
     }
 
+    @Test
+    public void testAddDuplicateSSTable() throws IOException
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS();
+        Map<String, String> localOptions = new HashMap<>();
+        localOptions.put("class", "LeveledCompactionStrategy");
+        localOptions.put("sstable_size_in_mb", "1");
+        cfs.setCompactionParameters(localOptions);
+        Set<SSTableReader> sstables = new HashSet<>();
+        for (int i = 0; i < 3; i++)
+        {
+            SSTableReader sstable = MockSchema.sstable(i, 1 * 1024 * 1024, cfs);
+            sstable.descriptor.getMetadataSerializer().mutateLevel(sstable.descriptor, 5);
+            sstable.reloadSSTableMetadata();
+            sstables.add(sstable);
+            cfs.getCompactionStrategyManager().getStrategies().get(0).addSSTable(sstable);
+        }
+
+        for (SSTableReader sstable : sstables)
+            cfs.getCompactionStrategyManager().getStrategies().get(0).addSSTable(sstable);
+
+        assertEquals(3, cfs.getCompactionStrategyManager().getStrategies().get(0).getSSTables().size());
+        LeveledCompactionStrategy lcs = ((LeveledCompactionStrategy) cfs.getCompactionStrategyManager().getStrategies().get(0));
+        for (int i = 0; i < LeveledManifest.MAX_LEVEL_COUNT; i++)
+        {
+            if (i == 5)
+                assertEquals(3, lcs.getLevelSize(i));
+            else
+                assertEquals(0, lcs.getLevelSize(i));
+        }
+        assertTrue(cfs.getCompactionStrategyManager().getStrategies().get(0).getSSTables().stream().allMatch((sst) -> sst.getSSTableLevel() == 5));
+    }
+
     private int getTaskLevel(ColumnFamilyStore cfs)
     {
         for (AbstractCompactionStrategy strategy : cfs.getCompactionStrategyManager().getStrategies())

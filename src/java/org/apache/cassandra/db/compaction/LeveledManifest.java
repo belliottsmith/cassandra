@@ -156,6 +156,18 @@ public class LeveledManifest
         }
         else
         {
+            int manifestLevel = getManifestLevel(reader);
+            if (manifestLevel != -1)
+            {
+                // handle double notification of sstable addition
+                logger.warn("Manifest already contains {}, replacing instance in level={} with instance in level={}", reader, manifestLevel, reader.getSSTableLevel());
+                generations[manifestLevel].remove(reader);
+                if (canAddSSTable(reader))
+                {
+                    generations[reader.getSSTableLevel()].add(reader);
+                    return;
+                }
+            }
             // this can happen if:
             // * a compaction has promoted an overlapping sstable to the given level, or
             //   was also supposed to add an sstable at the given level.
@@ -173,28 +185,18 @@ public class LeveledManifest
             {
                 logger.error("Could not change sstable level - adding it at level 0 anyway, we will find it at restart.", e);
             }
-            if (!contains(reader))
-            {
-                generations[0].add(reader);
-            }
-            else
-            {
-                // An SSTable being added multiple times to this manifest indicates a programming error, but we don't
-                // throw an AssertionError because this shouldn't break the compaction strategy. Instead we log it
-                // together with a RuntimeException so the stack is print for troubleshooting if this ever happens.
-                logger.warn("SSTable {} is already present on leveled manifest and should not be re-added.", reader, new RuntimeException());
-            }
+            generations[0].add(reader);
         }
     }
 
-    private boolean contains(SSTableReader reader)
+    private int getManifestLevel(SSTableReader reader)
     {
         for (int i = 0; i < generations.length; i++)
         {
             if (generations[i].contains(reader))
-                return true;
+                return i;
         }
-        return false;
+        return -1;
     }
 
     public synchronized void replace(Collection<SSTableReader> removed, Collection<SSTableReader> added)
