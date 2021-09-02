@@ -21,9 +21,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
-import java.util.function.Supplier;
 
 import com.google.common.util.concurrent.RateLimiter;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -51,6 +53,8 @@ import static org.apache.cassandra.utils.Throwables.maybeFail;
  */
 public abstract class SegmentedFile extends SharedCloseableImpl
 {
+    protected static final Logger logger = LoggerFactory.getLogger(SegmentedFile.class);
+
     public final ChannelProxy channel;
     public final int bufferSize;
     public final long length;
@@ -206,6 +210,14 @@ public abstract class SegmentedFile extends SharedCloseableImpl
 
         private static int bufferSize(StatsMetadata stats)
         {
+            if (stats.estimatedPartitionSize.isOverflowed())
+            {
+                logger.warn("Estimated partition size histogram is overflowed ({} values greater than {}). " +
+                            "Clearing the overflow bucket to allow for degraded mean and percentile calculations...",
+                            stats.estimatedPartitionSize.overflowCount(),
+                            stats.estimatedPartitionSize.getLargestBucketOffset());
+                stats.estimatedPartitionSize.clearOverflow();
+            }
             return bufferSize(stats.estimatedPartitionSize.percentile(DatabaseDescriptor.getDiskOptimizationEstimatePercentile()));
         }
 

@@ -192,8 +192,8 @@ public class ColumnIndex
             if (columnsIndexMemory > DatabaseDescriptor.getColumnIndexMaxSizeInBytes()
                 || columnsIndex.size() > DatabaseDescriptor.getColumnIndexMaxCount())
             {
-                int mergeFactor = Math.max(Ints.checkedCast(columnsIndexMemory) / DatabaseDescriptor.getColumnIndexMaxSizeInBytes(),
-                                           columnsIndex.size() / DatabaseDescriptor.getColumnIndexMaxCount());
+                int mergeFactor = Ints.checkedCast(Math.max(columnsIndexMemory / DatabaseDescriptor.getColumnIndexMaxSizeInBytes(),
+                                                            columnsIndex.size() / DatabaseDescriptor.getColumnIndexMaxCount()));
 
 
                 if (mergeFactor > 1)
