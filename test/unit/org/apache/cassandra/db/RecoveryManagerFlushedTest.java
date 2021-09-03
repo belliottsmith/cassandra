@@ -36,9 +36,8 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.ParameterizedClass;
-import org.apache.cassandra.io.compress.ZstdCompressor;
-import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.commitlog.CommitLog;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.compress.DeflateCompressor;
 import org.apache.cassandra.io.compress.LZ4Compressor;
@@ -56,19 +55,6 @@ public class RecoveryManagerFlushedTest
     private static final String CF_STANDARD1 = "Standard1";
     private static final String CF_STANDARD2 = "Standard2";
 
-    public RecoveryManagerFlushedTest(ParameterizedClass commitLogCompression)
-    {
-        DatabaseDescriptor.setCommitLogCompression(commitLogCompression);
-    }
-
-
-
-    @Before
-    public void setUp() throws IOException
-    {
-        CommitLog.instance.resetUnsafe(true);
-    }
-
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
@@ -79,15 +65,25 @@ public class RecoveryManagerFlushedTest
                                     SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2));
     }
 
+    public RecoveryManagerFlushedTest(ParameterizedClass commitLogCompression)
+    {
+        DatabaseDescriptor.setCommitLogCompression(commitLogCompression);
+    }
+
+    @Before
+    public void setUp() throws IOException
+    {
+        CommitLog.instance.resetUnsafe(true);
+    }
+
     @Parameters()
     public static Collection<Object[]> generateData()
     {
-        return Arrays.asList(new Object[][]{
-            { null }, // No compression
-            { new ParameterizedClass(LZ4Compressor.class.getName(), Collections.emptyMap()) },
-            { new ParameterizedClass(SnappyCompressor.class.getName(), Collections.emptyMap()) },
-            { new ParameterizedClass(DeflateCompressor.class.getName(), Collections.emptyMap()) },
-            { new ParameterizedClass(ZstdCompressor.class.getName(), Collections.emptyMap())} });
+        return Arrays.asList(new Object[][] {
+                { null }, // No compression
+                { new ParameterizedClass(LZ4Compressor.class.getName(), Collections.emptyMap()) },
+                { new ParameterizedClass(SnappyCompressor.class.getName(), Collections.emptyMap()) },
+                { new ParameterizedClass(DeflateCompressor.class.getName(), Collections.emptyMap()) } });
     }
 
     @Test

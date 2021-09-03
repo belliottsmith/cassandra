@@ -43,8 +43,6 @@ import org.junit.runners.Parameterized.Parameters;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
-import org.apache.cassandra.io.compress.ZstdCompressor;
-import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.config.Config.DiskFailurePolicy;
@@ -98,8 +96,7 @@ public class CommitLogTest
                 { null }, // No compression
                 { new ParameterizedClass(LZ4Compressor.class.getName(), Collections.emptyMap()) },
                 { new ParameterizedClass(SnappyCompressor.class.getName(), Collections.emptyMap()) },
-                { new ParameterizedClass(DeflateCompressor.class.getName(), Collections.emptyMap()) },
-                { new ParameterizedClass(ZstdCompressor.class.getName(), Collections.emptyMap()) }});
+                { new ParameterizedClass(DeflateCompressor.class.getName(), Collections.emptyMap()) } });
     }
 
     @BeforeClass

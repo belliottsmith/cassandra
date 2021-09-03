@@ -269,7 +269,6 @@ public class Config
     public Integer commitlog_sync_period_in_ms;
     public int commitlog_segment_size_in_mb = 32;
     public ParameterizedClass commitlog_compression;
-    public FlushCompression flush_compression = FlushCompression.fast;
     public int commitlog_max_compression_buffers_in_pool = 3;
     public Integer periodic_commitlog_sync_lag_block_in_ms;
 
@@ -709,14 +708,6 @@ public class Config
         periodic,
         batch
     }
-
-    public enum FlushCompression
-    {
-        none,
-        fast,
-        table
-    }
-
     public enum InternodeCompression
     {
         all, none, dc

@@ -17,8 +17,6 @@
  */
 package org.apache.cassandra.io.compress;
 
-import io.netty.util.concurrent.FastThreadLocal;
-import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.utils.FBUtilities;
 
 import java.io.IOException;
@@ -30,29 +28,12 @@ import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
 
-import com.google.common.collect.ImmutableSet;
-
 public class DeflateCompressor implements ICompressor
 {
     public static final DeflateCompressor instance = new DeflateCompressor();
 
-    private static final FastThreadLocal<byte[]> threadLocalScratchBuffer = new FastThreadLocal<byte[]>()
-    {
-        @Override
-        protected byte[] initialValue()
-        {
-            return new byte[CompressionParams.DEFAULT_CHUNK_LENGTH];
-        }
-    };
-
-    public static byte[] getThreadLocalScratchBuffer()
-    {
-        return threadLocalScratchBuffer.get();
-    }
-
-    private final FastThreadLocal<Deflater> deflater;
-    private final FastThreadLocal<Inflater> inflater;
-    private final Set<Uses> recommendedUses;
+    private final ThreadLocal<Deflater> deflater;
+    private final ThreadLocal<Inflater> inflater;
 
     public static DeflateCompressor create(Map<String, String> compressionOptions)
     {
@@ -62,7 +43,7 @@ public class DeflateCompressor implements ICompressor
 
     private DeflateCompressor()
     {
-        deflater = new FastThreadLocal<Deflater>()
+        deflater = new ThreadLocal<Deflater>()
         {
             @Override
             protected Deflater initialValue()
@@ -70,7 +51,7 @@ public class DeflateCompressor implements ICompressor
                 return new Deflater();
             }
         };
-        inflater = new FastThreadLocal<Inflater>()
+        inflater = new ThreadLocal<Inflater>()
         {
             @Override
             protected Inflater initialValue()
@@ -78,7 +59,6 @@ public class DeflateCompressor implements ICompressor
                 return new Inflater();
             }
         };
-        recommendedUses = ImmutableSet.of(Uses.GENERAL);
     }
 
     public Set<String> supportedOptions()
@@ -230,11 +210,5 @@ public class DeflateCompressor implements ICompressor
     {
         // Prefer array-backed buffers.
         return BufferType.ON_HEAP;
-    }
-
-    @Override
-    public Set<Uses> recommendedUses()
-    {
-        return recommendedUses;
     }
 }

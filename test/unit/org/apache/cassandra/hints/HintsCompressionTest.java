@@ -43,7 +43,6 @@ import org.apache.cassandra.io.compress.DeflateCompressor;
 import org.apache.cassandra.io.compress.ICompressor;
 import org.apache.cassandra.io.compress.LZ4Compressor;
 import org.apache.cassandra.io.compress.SnappyCompressor;
-import org.apache.cassandra.io.compress.ZstdCompressor;
 import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.utils.UUIDGen;
 
@@ -53,15 +52,15 @@ public class HintsCompressionTest
 {
     private static final String KEYSPACE = "hints_compression_test";
     private static final String TABLE = "table";
-    private Class<? extends ICompressor> compressorClass;
+
 
     private static Mutation createMutation(int index, long timestamp)
     {
         CFMetaData table = Schema.instance.getCFMetaData(KEYSPACE, TABLE);
         return new RowUpdateBuilder(table, timestamp, bytes(index))
-                   .clustering(bytes(index))
-                   .add("val", bytes(index))
-                   .build();
+               .clustering(bytes(index))
+               .add("val", bytes(index))
+               .build();
     }
 
     private static Hint createHint(int idx, long baseTimestamp)
@@ -77,7 +76,7 @@ public class HintsCompressionTest
         SchemaLoader.createKeyspace(KEYSPACE, KeyspaceParams.simple(1), SchemaLoader.standardCFMD(KEYSPACE, TABLE));
     }
 
-    ImmutableMap<String, Object> params()
+    private ImmutableMap<String, Object> params(Class<? extends ICompressor> compressorClass)
     {
         ImmutableMap<String, Object> compressionParams = ImmutableMap.<String, Object>builder()
                                                                      .put(ParameterizedClass.CLASS_NAME, compressorClass.getSimpleName())
@@ -87,35 +86,7 @@ public class HintsCompressionTest
                            .build();
     }
 
-    @Test
-    public void lz4Compressor() throws Exception
-    {
-        compressorClass = LZ4Compressor.class;
-        multiFlushAndDeserializeTest();
-    }
-
-    @Test
-    public void snappyCompressor() throws Exception
-    {
-        compressorClass = SnappyCompressor.class;
-        multiFlushAndDeserializeTest();
-    }
-
-    @Test
-    public void deflateCompressor() throws Exception
-    {
-        compressorClass = DeflateCompressor.class;
-        multiFlushAndDeserializeTest();
-    }
-
-    @Test
-    public void zstdCompressor() throws Exception
-    {
-        compressorClass = ZstdCompressor.class;
-        multiFlushAndDeserializeTest();
-    }
-
-    public void multiFlushAndDeserializeTest() throws Exception
+    public void multiFlushAndDeserializeTest(Class<? extends ICompressor> compressorClass) throws Exception
     {
         int hintNum = 0;
         int bufferSize = HintsWriteExecutor.WRITE_BUFFER_SIZE;
@@ -124,7 +95,7 @@ public class HintsCompressionTest
         UUID hostId = UUIDGen.getTimeUUID();
         long ts = System.currentTimeMillis();
 
-        HintsDescriptor descriptor = new HintsDescriptor(hostId, ts, params());
+        HintsDescriptor descriptor = new HintsDescriptor(hostId, ts, params(compressorClass));
         File dir = Files.createTempDir();
         try (HintsWriter writer = HintsWriter.create(dir, descriptor))
         {
@@ -181,5 +152,23 @@ public class HintsCompressionTest
                 }
             }
         }
+    }
+
+    @Test
+    public void lz4Compressor() throws Exception
+    {
+        multiFlushAndDeserializeTest(LZ4Compressor.class);
+    }
+
+    @Test
+    public void snappyCompressor() throws Exception
+    {
+        multiFlushAndDeserializeTest(SnappyCompressor.class);
+    }
+
+    @Test
+    public void deflateCompressor() throws Exception
+    {
+        multiFlushAndDeserializeTest(DeflateCompressor.class);
     }
 }

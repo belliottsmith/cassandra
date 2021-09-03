@@ -42,7 +42,6 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.compress.DeflateCompressor;
 import org.apache.cassandra.io.compress.LZ4Compressor;
 import org.apache.cassandra.io.compress.SnappyCompressor;
-import org.apache.cassandra.io.compress.ZstdCompressor;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.schema.KeyspaceParams;
 
@@ -69,12 +68,11 @@ public class RecoveryManagerMissingHeaderTest
     @Parameters()
     public static Collection<Object[]> generateData()
     {
-        return Arrays.asList(new Object[][]{
-            { null }, // No compression
-            { new ParameterizedClass(LZ4Compressor.class.getName(), Collections.emptyMap()) },
-            { new ParameterizedClass(SnappyCompressor.class.getName(), Collections.emptyMap()) },
-            { new ParameterizedClass(DeflateCompressor.class.getName(), Collections.emptyMap()) },
-            { new ParameterizedClass(ZstdCompressor.class.getName(), Collections.emptyMap()) }});
+        return Arrays.asList(new Object[][] {
+                { null }, // No compression
+                { new ParameterizedClass(LZ4Compressor.class.getName(), Collections.emptyMap()) },
+                { new ParameterizedClass(SnappyCompressor.class.getName(), Collections.emptyMap()) },
+                { new ParameterizedClass(DeflateCompressor.class.getName(), Collections.emptyMap()) } });
     }
 
     @BeforeClass

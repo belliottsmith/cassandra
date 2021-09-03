@@ -1665,21 +1665,6 @@ public class DatabaseDescriptor
         conf.commitlog_compression = compressor;
     }
 
-    public static Config.FlushCompression getFlushCompression()
-    {
-        return conf.flush_compression;
-    }
-
-    public static void setFlushCompression(Config.FlushCompression compression)
-    {
-        conf.flush_compression = compression;
-    }
-
-    /**
-     * Maximum number of buffers in the compression pool. The default value is 3, it should not be set lower than that
-     * (one segment in compression, one written to, one in reserve); delays in compression may cause the log to use
-     * more, depending on how soon the sync policy stops all writing threads.
-     */
     public static int getCommitLogMaxCompressionBuffersInPool()
     {
         return conf.commitlog_max_compression_buffers_in_pool;
