@@ -1041,4 +1041,7 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void setMinTrackedPartitionSize(long value);
     public long getMinTrackedPartitionTombstoneCount();
     public void setMinTrackedPartitionTombstoneCount(long value);
+
+    public double getMaxSpaceForCompactionsPerDrive();
+    public void setMaxSpaceForCompactionsPerDrive(double percentage);
 }
