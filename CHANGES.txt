@@ -1,3 +1,5 @@
+3.0.24.11
+
 3.0.24.10
 rdar://81450592 (Apple Internal) (Investigate prepare exception in 3.0.24)
 rdar://81600604 (Apple Internal) (computeMinVersion exception, bad version string)
