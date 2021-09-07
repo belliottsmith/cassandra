@@ -1045,4 +1045,7 @@ public interface StorageServiceMBean extends NotificationEmitter
      * e.g. keyspace_name -> [reads, writes, paxos].
      */
     Map<String, long[]> getOutOfRangeOperationCounts();
+
+    public double getMaxSpaceForCompactionsPerDrive();
+    public void setMaxSpaceForCompactionsPerDrive(double percentage);
 }
