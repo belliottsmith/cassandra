@@ -489,7 +489,7 @@ public class Directories
         Collections.sort(candidates);
     }
 
-    public boolean hasAvailableDiskSpace(long estimatedSSTables, long expectedTotalWriteSize)
+    public boolean hasAvailableDiskSpaceForCompactions(long estimatedSSTables, long expectedTotalWriteSize)
     {
         long writeSize = expectedTotalWriteSize / estimatedSSTables;
         long totalAvailable = 0L;
@@ -500,9 +500,9 @@ public class Directories
                   continue;
             DataDirectoryCandidate candidate = new DataDirectoryCandidate(dataDir);
             // exclude directory if its total writeSize does not fit to data directory
-            if (candidate.availableSpace < writeSize)
+            if (candidate.availableSpaceForCompactions < writeSize)
                 continue;
-            totalAvailable += candidate.availableSpace;
+            totalAvailable += candidate.availableSpaceForCompactions;
         }
         return totalAvailable > expectedTotalWriteSize;
     }
@@ -641,6 +641,11 @@ public class Directories
             return availableSpace > 0 ? availableSpace : 0;
         }
 
+        public long getAvailableSpaceForCompactions()
+        {
+            return Math.round(getAvailableSpace() * DatabaseDescriptor.getMaxSpaceForCompactionsPerDrive());
+        }
+
         @Override
         public boolean equals(Object o)
         {
@@ -754,12 +759,14 @@ public class Directories
     {
         final DataDirectory dataDirectory;
         final long availableSpace;
+        final long availableSpaceForCompactions;
         double perc;
 
         public DataDirectoryCandidate(DataDirectory dataDirectory)
         {
             this.dataDirectory = dataDirectory;
             this.availableSpace = dataDirectory.getAvailableSpace();
+            this.availableSpaceForCompactions = dataDirectory.getAvailableSpaceForCompactions();
         }
 
         void calcFreePerc(long totalAvailableSpace)

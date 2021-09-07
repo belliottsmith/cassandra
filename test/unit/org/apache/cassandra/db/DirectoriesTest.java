@@ -818,6 +818,33 @@ public class DirectoriesTest
         return tm.keyspace + File.pathSeparator() + tm.name + (oldStyle ? "" : Component.separator + tm.id.toHexString()) + "/na-1-big-Data.db";
     }
 
+    @Test
+    public void testFreeCompactionSpace()
+    {
+        double was = DatabaseDescriptor.getMaxSpaceForCompactionsPerDrive();
+        Directories.DataDirectoryCandidate candidate = new Directories.DataDirectoryCandidate(new DataDirectory(new File("/nearlyFullDir1"))
+        {
+            public long getAvailableSpace()
+            {
+                return 100L;
+            }
+        });
+
+        try
+        {
+            DatabaseDescriptor.setMaxSpaceForCompactionsPerDrive(1);
+            assertEquals(100, candidate.dataDirectory.getAvailableSpaceForCompactions());
+            DatabaseDescriptor.setMaxSpaceForCompactionsPerDrive(.5);
+            assertEquals(50, candidate.dataDirectory.getAvailableSpaceForCompactions());
+            DatabaseDescriptor.setMaxSpaceForCompactionsPerDrive(0);
+            assertEquals(0, candidate.dataDirectory.getAvailableSpaceForCompactions());
+        }
+        finally
+        {
+            DatabaseDescriptor.setMaxSpaceForCompactionsPerDrive(was);
+        }
+    }
+
     private List<Directories.DataDirectoryCandidate> getWriteableDirectories(DataDirectory[] dataDirectories, long writeSize)
     {
         // copied from Directories.getWriteableLocation(long)
