@@ -333,6 +333,9 @@ public class Config
     public DataStorageSpec.IntMebibytesBound min_free_space_per_drive = new DataStorageSpec.IntMebibytesBound("50MiB");
     public volatile Integer compaction_tombstone_warning_threshold = 100000;
 
+    // fraction of total disk space that is available for running compactions
+    public volatile Double max_space_usable_for_compactions_in_percentage = .95;
+
     public volatile int concurrent_materialized_view_builders = 1;
     public volatile int reject_repair_compaction_threshold = Integer.MAX_VALUE;
 
