@@ -1,4 +1,15 @@
 3.0.24.10
+rdar://81450592 (Apple Internal) (Investigate prepare exception in 3.0.24)
+rdar://81600604 (Apple Internal) (computeMinVersion exception, bad version string)
+rdar://78162951 (Apple Internal) (RepairedAt spinning on same sstable)
+rdar://81738243 (Apple Internal) (Investigate column index downsampling exception)
+rdar://80239418 (CASSANDRA-15564) (Refactor repair coordinator so errors are consistent)
+rdar://81640685 (CASSANDRA-16850) (IndexSizeAbortException and ReadSizeFailureException fail for clients with a ClassCastException)
+rdar://77320313 (Apple Internal) (Avoid signaling DigestResolver until the minimum number of responses are guaranteed to be visible)
+rdar://80784334 (Apple Internal) (Inconsistent repair status caching)
+rdar://78757647 (Apple Internal) (Handle empty TOC file during snapshots)
+rdar://81525775 (CASSANDRA-15980) (Partial Backport of C-15980 - 3.0.24.x SSL Exceptions)
+rdar://79928869 (CASSANDRA-16774) (BinLog does not close chronicle queue leaving this to GC to cleanup)
 
 3.0.24.9
 rdar://77771062 (Apple Internal) (Ability to log load profiles at fixed intervals (#2395)
@@ -10,6 +21,12 @@ rdar://78623577 (CASSANDRA-13642) (Expose recent histograms in JmxHistograms) (#
 rdar://77313693 (CASSANDRA-16588) (Ignore stale ack in shadow round)
 
 3.0.24.8
+rdar://78611598 (CASSANDRA-16735) (Investigate corrupt sstable exception in feldqa1_s01)
+rdar://78481516 (Apple Internal) (TombstoneAbortException isn't of type ReadFailureException so when downgrading to v3 a class cast exception was thrown)
+rdar://78463553 (Apple Internal) (Backport rdar://78402016 (Modify CommitLogMetrics to be more useful for diagnosing local write latency issues))
+rdar://78782211 (Apple Internal) (Super columns get filtered out while reading from SSTables)
+rdar://78589447 (Apple Internal) (add a flag to enable/disable read_repair_chance and dclocal_read_repair_chance, default to disabled)
+rdar://78638620 (CASSANDRA-15834) (Bloom false positive rate includes true negatives)
 
 3.0.24.7
 rdar://78568341 (Apple Internal) (Make nodetool verify check if there are any empty booleans in the sstables)
