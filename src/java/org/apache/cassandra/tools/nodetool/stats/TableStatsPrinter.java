@@ -19,6 +19,7 @@
 package org.apache.cassandra.tools.nodetool.stats;
 
 import java.io.PrintStream;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -80,6 +81,11 @@ public class TableStatsPrinter<T extends StatsHolder>
             if (table.isLeveledSstable)
                 out.println(indent + "SSTables in each level: [" + String.join(", ",
                                                                           table.sstablesInEachLevel) + "]");
+            int[] sstablesByBucket = table.sstableCountPerTWCSBucket;
+            if (sstablesByBucket != null)
+            {
+                out.println(indent + "SSTables in most recent TWCS buckets: " + Arrays.toString(sstablesByBucket));
+            }
 
             out.println(indent + "Space used (live): " + table.spaceUsedLive);
             out.println(indent + "Space used (total): " + table.spaceUsedTotal);

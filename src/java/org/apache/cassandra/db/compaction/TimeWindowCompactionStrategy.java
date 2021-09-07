@@ -28,6 +28,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.*;
@@ -57,6 +59,7 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
     private final Set<SSTableReader> sstables = new HashSet<>();
     private long lastExpiredCheck;
     private long highestWindowSeen;
+    private Map<Long, Integer> sstableCountByBuckets = Collections.emptyMap();
 
     public TimeWindowCompactionStrategy(ColumnFamilyStore cfs, Map<String, String> options)
     {
@@ -183,6 +186,7 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
                 this.highestWindowSeen);
 
         this.estimatedRemainingTasks = mostInteresting.estimatedRemainingTasks;
+        this.sstableCountByBuckets = buckets.left.keySet().stream().collect(Collectors.toMap(Function.identity(), k -> buckets.left.get(k).size()));
         if (!mostInteresting.sstables.isEmpty())
             return mostInteresting.sstables;
         return null;
@@ -429,6 +433,11 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
     public long getMaxSSTableBytes()
     {
         return Long.MAX_VALUE;
+    }
+
+    public Map<Long, Integer> getSSTableCountByBuckets()
+    {
+        return sstableCountByBuckets;
     }
 
 
