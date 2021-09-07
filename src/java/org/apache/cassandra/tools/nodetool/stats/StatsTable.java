@@ -71,6 +71,7 @@ public class StatsTable
     public String droppedMutations;
     public List<String> sstablesInEachLevel = new ArrayList<>();
     public List<String> sstableBytesInEachLevel = new ArrayList<>();
+    public int[] sstableCountPerTWCSBucket = null;
     public Boolean isInCorrectLocation = null; // null: option not active
     public Map<String, String> topSizePartitions;
     public Map<String, Long> topTombstonePartitions;
