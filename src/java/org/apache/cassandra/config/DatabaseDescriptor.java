@@ -869,6 +869,9 @@ public class DatabaseDescriptor
 
         repairHistorySyncTimeoutSeconds = parseScheduledCycleTimeSeconds(conf.repair_history_sync_timeout);
 
+        if (conf.max_space_usable_for_compactions_in_percentage < 0 || conf.max_space_usable_for_compactions_in_percentage > 1)
+            throw new ConfigurationException("max_space_usable_for_compactions_in_percentage must be between 0 and 1", false);
+
         scheduledCompactionCycleTimeSeconds = parseScheduledCycleTimeSeconds(conf.scheduled_compaction_cycle_time);
 
         if (conf.column_index_max_target_size_in_kb != null || conf.column_index_max_target_index_objects != null)
@@ -1998,6 +2001,16 @@ public class DatabaseDescriptor
     public static long getMinFreeSpacePerDriveInBytes()
     {
         return ByteUnit.MEBI_BYTES.toBytes(conf.min_free_space_per_drive_in_mb);
+    }
+
+    public static double getMaxSpaceForCompactionsPerDrive()
+    {
+        return conf.max_space_usable_for_compactions_in_percentage;
+    }
+
+    public static void setMaxSpaceForCompactionsPerDrive(double percentage)
+    {
+        conf.max_space_usable_for_compactions_in_percentage = percentage;
     }
 
     public static boolean getDisableSTCSInL0()
