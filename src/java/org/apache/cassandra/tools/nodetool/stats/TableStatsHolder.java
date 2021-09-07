@@ -235,6 +235,7 @@ public class TableStatsHolder implements StatsHolder
                         statsTable.sstablesInEachLevel.add(count + ((count > maxCount) ? "/" + maxCount : ""));
                     }
                 }
+                statsTable.sstableCountPerTWCSBucket = table.getSSTableCountPerTWCSBucket();
 
                 if (locationCheck)
                     statsTable.isInCorrectLocation = !table.hasMisplacedSSTables();
