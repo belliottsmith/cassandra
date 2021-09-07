@@ -31,6 +31,7 @@ import com.google.common.collect.Iterables;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -434,6 +435,57 @@ public class TimeWindowCompactionStrategyTest extends SchemaLoader
             assertEquals(10, sstable.onDiskLength());
 
         DatabaseDescriptor.setBiggestBucketMaxSSTableCount(oldVal);
+    }
 
+    @Test
+    public void testBucketCount() throws InterruptedException
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
+        cfs.truncateBlocking();
+        cfs.disableAutoCompaction();
+
+        ByteBuffer value = ByteBuffer.wrap(new byte[100]);
+
+        // create some sstables
+        DecoratedKey key = Util.dk("nonexpired");
+        new RowUpdateBuilder(cfs.metadata(), 1000*1, key.getKey())
+        .clustering("column").add("val", value).build().applyUnsafe();
+        Util.flush(cfs);
+
+        key = Util.dk("nonexpired");
+        new RowUpdateBuilder(cfs.metadata(), 1000*10, key.getKey())
+        .clustering("column").add("val", value).build().applyUnsafe();
+        Util.flush(cfs);
+
+        key = Util.dk("nonexpired");
+        new RowUpdateBuilder(cfs.metadata(), 1000*90, key.getKey())
+        .clustering("column").add("val", value).build().applyUnsafe();
+        Util.flush(cfs);
+
+        key = Util.dk("nonexpired");
+        new RowUpdateBuilder(cfs.metadata(), 1000*180, key.getKey())
+        .clustering("column").add("val", value).build().applyUnsafe();
+        Util.flush(cfs);
+
+        assertEquals(cfs.getLiveSSTables().size(), 4);
+
+        Map<String, String> options = new HashMap<>();
+
+        options.put(TimeWindowCompactionStrategyOptions.COMPACTION_WINDOW_SIZE_KEY, "1");
+        options.put(TimeWindowCompactionStrategyOptions.COMPACTION_WINDOW_UNIT_KEY, "MINUTES");
+        options.put(TimeWindowCompactionStrategyOptions.TIMESTAMP_RESOLUTION_KEY, "MILLISECONDS");
+        options.put(TimeWindowCompactionStrategyOptions.EXPIRED_SSTABLE_CHECK_FREQUENCY_SECONDS_KEY, "0");
+        TimeWindowCompactionStrategy twcs = new TimeWindowCompactionStrategy(cfs, options);
+        for (SSTableReader sstable : cfs.getLiveSSTables())
+            twcs.addSSTable(sstable);
+        twcs.startup();
+        Thread.sleep(100);
+        assertNotNull(twcs.getSSTableCountByBuckets());
+        assertTrue(twcs.getSSTableCountByBuckets().isEmpty());
+        AbstractCompactionTask t = twcs.getNextBackgroundTask(0);
+        assertEquals(ImmutableMap.of(60000L, 1, 0L, 2, 180000L, 1), twcs.getSSTableCountByBuckets());
+        twcs.shutdown();
+        t.transaction.abort();
     }
 }
