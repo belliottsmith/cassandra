@@ -7150,6 +7150,21 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         DatabaseDescriptor.setMinTrackedPartitionTombstoneCount(value);
     }
 
+    public double getMaxSpaceForCompactionsPerDrive()
+    {
+        return DatabaseDescriptor.getMaxSpaceForCompactionsPerDrive();
+    }
+
+    public void setMaxSpaceForCompactionsPerDrive(double percentage)
+    {
+        if (percentage < 0 || percentage > 1)
+        {
+            throw new IllegalStateException("Value for max_space_usable_for_compactions_in_percentage must be between 0 and 1, not " + percentage);
+        }
+        logger.info("Setting max_space_usable_for_compactions_in_percentage: {}", percentage);
+        DatabaseDescriptor.setMaxSpaceForCompactionsPerDrive(percentage);
+    }
+
     public String getLastRepairTimeForKey(String keyspace, String table, String key)
     {
         ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(keyspace, table);

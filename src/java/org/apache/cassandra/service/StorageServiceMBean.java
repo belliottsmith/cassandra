@@ -1101,6 +1101,9 @@ public interface StorageServiceMBean extends NotificationEmitter
      */
     Map<String, long[]> getOutOfRangeOperationCounts();
 
+    public double getMaxSpaceForCompactionsPerDrive();
+    public void setMaxSpaceForCompactionsPerDrive(double percentage);
+
     String getLastRepairTimeForKey(String keyspace, String table, String key);
     String getLastRepairTimeForToken(String keyspace, String table, String token);
 }
