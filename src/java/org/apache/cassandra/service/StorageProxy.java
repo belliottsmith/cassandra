@@ -56,6 +56,7 @@ import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.PartitionPosition;
+import org.apache.cassandra.exceptions.QueryCancelledException;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.metrics.ClientMessageSizeMetrics;
 import org.apache.cassandra.db.PartitionSizeCommand;
@@ -2189,6 +2190,12 @@ public class StorageProxy implements StorageProxyMBean
                      UnfilteredPartitionIterator iterator = command.executeLocally(executionController))
                 {
                     response = command.createResponse(iterator);
+                }
+                catch (QueryCancelledException e)
+                {
+                    logger.debug("Query cancelled (timeout)", e);
+                    response = null;
+                    assert !command.isCompleted() : "Local read marked as completed despite being aborted by timeout to table " + command.metadata();
                 }
 
                 if (command.complete())
