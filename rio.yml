@@ -206,7 +206,7 @@ builds:
         - ant -f rio-build.xml jar
         - ./rio/parallel-tests-step.sh
         - ./rio/release.sh ${ARTIFACTS_VERSION}
-        - ./rio/carnival.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+        - ./rio/carnival-build.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
         - ./rio/bump-release-version.sh
     # timeout also set for parallelci command in rio/parallel-test-step.sh
     # and in rio/unittests.yml (although not currently implemented) and
@@ -248,11 +248,66 @@ builds:
             - name: "CASSANDRA_VERSION"
               value: "${FULL_VERSION}"
           project: pie-cassandra-test-infra-docker
+        - pipeline: carnival-local-install
+          buildArguments:
+            - name: "CARNIVAL_APP_NAME"
+              value: "${CARNIVAL_APP_NAME}"
+            - name: "CARNIVAL_BUILD_VERSION"
+              value: "${CARNIVAL_BUILD_VERSION}"
+            - name: "GIT_COMMITTER_EMAIL"
+              value: "${GIT_COMMITTER_EMAIL}"
+
+  #
+  # Carnival Local Install - automatically triggered from a successful release
+  #
+  # This pipeline is named with name instead of group, since it is referenced from a pipelineChain and there is
+  # currently no way to reference a pipeline in pipelineChain via group, or with variable substitution.
+  #
+  - name: carnival-local-install
+    branchName: cie-cassandra-4.0.0
+    trigger:
+      # Only trigger by pipelineChain via release build
+      gitPush: false
+    machine:
+      baseImage: docker.apple.com/piedb/parallelci:latest
+    secrets:
+      names:
+        - rio-env-cassandra-connect.sh
+
+    build:
+      template: freestyle:v4:publish
+      buildParameters:
+        - parameter: CARNIVAL_APP_NAME
+          description: >-
+            App name for build submitted to Carnival in the release pipeline, under "Published Artifacts" - "Carnival".
+            For example, if you see "cie-cassandra-four-zero-zero-twentyfive1BUILD1154" then use
+            "four-zero-zero-twentyfive" for this value. Optional if CONTINUE_LOCAL_INSTALL_REQUEST_ID is provided.
+        - parameter: CARNIVAL_BUILD_VERSION
+          description: >-
+            Build version for build submitted to Carnival in the release pipeline, under
+            "Published Artifacts" - "Carnival". For example, if you see
+            "cie-cassandra-four-zero-zero-twentyfive1BUILD1154" then use "1BUILD1154" for this value. Optional if
+            CONTINUE_LOCAL_INSTALL_REQUEST_ID is provided.
+        - parameter: GIT_COMMITTER_EMAIL
+          description: >-
+            Submit the local install workflow to Carnival on behalf of this user. Optional if
+            CONTINUE_LOCAL_INSTALL_REQUEST_ID is provided.
+        - parameter: CONTINUE_LOCAL_INSTALL_REQUEST_ID
+          description: >-
+            Set to a previous request ID (such as "1630649750900") if a previous pipeline run failed after submitting
+            the local install workflow to Carnival. This will instruct the pipeline to continue from the Carnival local
+            install status check. This can be useful in cases where the Carnival install was submitted, but could not
+            complete in time due to Carnival issues. Leave empty to disable.
+          defaultValue: ''
+      steps:
+        - yum install -y python36 && python3 -m pip install --user requests==2.26.0 tzlocal==2.1
+        - source $BUILD_SECRETS_PATH/rio-env-cassandra-connect.sh
+        - python3 ./rio/carnival_local_install.py
+    timeout: 180
 
   #
   # Harry build - PRB
   #
-
   - group: ghprb-harry
     build:
       steps:
@@ -280,7 +335,6 @@ builds:
   #
   # Publish in-JVM dtest jar and trigger Harry build using it
   #
-
   - group: publish-dtest-jar
     build:
       steps:
