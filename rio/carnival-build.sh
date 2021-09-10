@@ -2,7 +2,7 @@
 
 set -xe
 
-echo === START CARNIVAL BUILD === 
+echo === START CARNIVAL BUILD ===
 
 # There is a bug in workflows that assumes lower casing in the version, even -SNAPSHOT must be -snapshot; this causes issues with Artifactory as it requires -SNAPSHOT.
 # In order to work around the assumption, we need to make the carnival package use lower casing for the version, even though the rest of the builds use normal casing
@@ -36,6 +36,6 @@ find "$DIST_DIR" -ls
 ci stage-app --app-name "cie-cassandra-${CARNIVAL_VERSION_NAME}" --app-version "${BUILD_VERSION}" "${DIST_DIR}/**"
 # find .cicd -ls
 
-echo === COMPLETE CARNIVAL BUILD === 
+echo === COMPLETE CARNIVAL BUILD ===
 
 set +xe
