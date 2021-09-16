@@ -141,7 +141,7 @@ builds:
         - ant -f rio-build.xml jar
         - ./rio/parallel-tests-step.sh
         - ./rio/release.sh ${ARTIFACTS_VERSION}
-        - ./rio/carnival.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+        - ./rio/carnival-build.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
     # timeout also set for parallelci command in rio/parallel-test-step.sh
     # and in rio/unittests.yml (although not currently implemented)
     timeout: 180
