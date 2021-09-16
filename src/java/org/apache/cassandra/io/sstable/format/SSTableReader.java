@@ -144,7 +144,7 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
 {
     private static final Logger logger = LoggerFactory.getLogger(SSTableReader.class);
 
-    private static final boolean TRACK_ACTIVITY = CassandraRelevantProperties.DETERMINISM_SSTABLE_ACTIVITY_TRACKING.getBoolean();
+    private static final boolean TRACK_ACTIVITY = CassandraRelevantProperties.DISABLE_SSTABLE_ACTIVITY_TRACKING.getBoolean();
 
     private static final ScheduledExecutorPlus syncExecutor = initSyncExecutor();
     private static ScheduledExecutorPlus initSyncExecutor()
@@ -2098,6 +2098,12 @@ public abstract class SSTableReader extends SSTable implements SelfRefCounted<SS
 
                     if (logger.isTraceEnabled())
                         logger.trace("Async instance tidier for {}, completed", descriptor);
+                }
+
+                @Override
+                public String toString()
+                {
+                    return "Tidy " + descriptor.ksname + '.' + descriptor.cfname + '-' + descriptor.generation;
                 }
             });
         }

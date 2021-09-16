@@ -33,7 +33,7 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.NativeLibrary;
 
-import static org.apache.cassandra.config.CassandraRelevantProperties.DETERMINISM_REQUIRE_NATIVE_FILE_HINTS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.IGNORE_MISSING_NATIVE_FILE_HINTS;
 
 /**
  * Because a column family may have sstables on different disks and disks can
@@ -49,7 +49,7 @@ import static org.apache.cassandra.config.CassandraRelevantProperties.DETERMINIS
 final class LogReplica implements AutoCloseable
 {
     private static final Logger logger = LoggerFactory.getLogger(LogReplica.class);
-    private static final boolean REQUIRE_FD = !FBUtilities.isWindows && DETERMINISM_REQUIRE_NATIVE_FILE_HINTS.getBoolean();
+    private static final boolean REQUIRE_FD = !FBUtilities.isWindows && !IGNORE_MISSING_NATIVE_FILE_HINTS.getBoolean();
 
     private final File file;
     private int directoryDescriptor;

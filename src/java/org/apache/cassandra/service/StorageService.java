@@ -62,6 +62,7 @@ import com.google.common.util.concurrent.*;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.concurrent.*;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.dht.RangeStreamer.FetchReplica;
 import org.apache.cassandra.fql.FullQueryLogger;
@@ -173,7 +174,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     private static int getRingDelay()
     {
-        String newdelay = System.getProperty("cassandra.ring_delay_ms");
+        String newdelay = CassandraRelevantProperties.RING_DELAY.getString();
         if (newdelay != null)
         {
             logger.info("Overriding RING_DELAY to {}ms", newdelay);
@@ -4125,7 +4126,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public Pair<Integer, Future<?>> repair(String keyspace, Map<String, String> repairSpec, List<ProgressListener> listeners)
     {
         RepairOption option = RepairOption.parse(repairSpec, tokenMetadata.partitioner);
-        return repair(keyspace, repairSpec, listeners);
+        return repair(keyspace, option, listeners);
     }
 
     public Pair<Integer, Future<?>> repair(String keyspace, RepairOption option, List<ProgressListener> listeners)

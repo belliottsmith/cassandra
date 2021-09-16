@@ -1421,6 +1421,11 @@ public class DatabaseDescriptor
         return newFailureDetector.get();
     }
 
+    public static void setDefaultFailureDetector()
+    {
+        newFailureDetector = () -> createFailureDetector("FailureDetector");
+    }
+
     public static int getColumnIndexSize()
     {
         return (int) ByteUnit.KIBI_BYTES.toBytes(conf.column_index_size_in_kb);
@@ -2265,16 +2270,6 @@ public class DatabaseDescriptor
         conf.native_transport_allow_older_protocols = isEnabled;
     }
 
-    public static Config.PaxosVariant getPaxosVariant()
-    {
-        return conf.paxos_variant;
-    }
-
-    public static void setPaxosVariant(Config.PaxosVariant variant)
-    {
-        conf.paxos_variant = variant;
-    }
-
     public static double getCommitLogSyncGroupWindow()
     {
         return conf.commitlog_sync_group_window_in_ms;
@@ -2470,7 +2465,7 @@ public class DatabaseDescriptor
 
     public static boolean useDeterministicTableID()
     {
-        return conf.use_deterministic_table_id;
+        return conf != null && conf.use_deterministic_table_id;
     }
 
     public static void useDeterministicTableID(boolean value)

@@ -587,13 +587,6 @@ public class Config
     public volatile SubnetGroups client_error_reporting_exclusions = new SubnetGroups();
     public volatile SubnetGroups internode_error_reporting_exclusions = new SubnetGroups();
 
-    public enum PaxosVariant
-    {
-        v1_norrl, // with legacy semantics for read/read linearizability (i.e. not guaranteed)
-        v1
-    }
-    public volatile PaxosVariant paxos_variant = PaxosVariant.v1;
-
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;
@@ -634,6 +627,7 @@ public class Config
     public enum MemtableAllocationType
     {
         unslabbed_heap_buffers,
+        unslabbed_heap_buffers_logged,
         heap_buffers,
         offheap_buffers,
         offheap_objects

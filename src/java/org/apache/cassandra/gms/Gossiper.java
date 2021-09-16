@@ -74,7 +74,10 @@ import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 import org.apache.cassandra.utils.concurrent.NotScheduledFuture;
 
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
+import static org.apache.cassandra.config.CassandraRelevantProperties.DISABLE_GOSSIP_ENDPOINT_REMOVAL;
 import static org.apache.cassandra.config.CassandraRelevantProperties.GOSSIPER_QUARANTINE_DELAY;
+import static org.apache.cassandra.config.CassandraRelevantProperties.GOSSIPER_SKIP_WAITING_TO_SETTLE;
+import static org.apache.cassandra.config.CassandraRelevantProperties.SHUTDOWN_ANNOUNCE_DELAY_IN_MS;
 import static org.apache.cassandra.config.DatabaseDescriptor.getClusterName;
 import static org.apache.cassandra.config.DatabaseDescriptor.getPartitionerName;
 import static org.apache.cassandra.net.NoPayload.noPayload;
@@ -106,7 +109,6 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     public static class Props
     {
         public static final String DISABLE_THREAD_VALIDATION = "cassandra.gossip.disable_thread_validation";
-        public static final String DISABLE_ENDPOINT_REMOVAL = "cassandra.gossip.disable_endpoint_removal";
     }
 
     private static final ScheduledExecutorPlus executor = executorFactory().scheduled("GossipTasks");
@@ -252,7 +254,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     }
 
     private static final boolean disableThreadValidation = Boolean.getBoolean(Props.DISABLE_THREAD_VALIDATION);
-    private static volatile boolean disableEndpointRemoval = Boolean.getBoolean(Props.DISABLE_ENDPOINT_REMOVAL);
+    private static volatile boolean disableEndpointRemoval = DISABLE_GOSSIP_ENDPOINT_REMOVAL.getBoolean();
 
     private static long getVeryLongTime()
     {
@@ -2079,7 +2081,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             Message message = Message.out(Verb.GOSSIP_SHUTDOWN, noPayload);
             for (InetAddressAndPort ep : liveEndpoints)
                 MessagingService.instance().send(message, ep);
-            Uninterruptibles.sleepUninterruptibly(Integer.getInteger("cassandra.shutdown_announce_in_ms", 2000), TimeUnit.MILLISECONDS);
+            Uninterruptibles.sleepUninterruptibly(SHUTDOWN_ANNOUNCE_DELAY_IN_MS.getInt(), TimeUnit.MILLISECONDS);
         }
         else
             logger.warn("No local state, state is in silent shutdown, or node hasn't joined, not announcing shutdown");
@@ -2258,7 +2260,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
     public static void waitToSettle()
     {
-        int forceAfter = Integer.getInteger("cassandra.skip_wait_for_gossip_to_settle", -1);
+        int forceAfter = GOSSIPER_SKIP_WAITING_TO_SETTLE.getInt();
         if (forceAfter == 0)
         {
             return;

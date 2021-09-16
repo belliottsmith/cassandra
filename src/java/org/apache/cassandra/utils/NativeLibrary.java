@@ -33,6 +33,7 @@ import com.sun.jna.LastErrorException;
 
 import org.apache.cassandra.io.FSWriteError;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.IGNORE_MISSING_NATIVE_FILE_HINTS;
 import static org.apache.cassandra.config.CassandraRelevantProperties.OS_ARCH;
 import static org.apache.cassandra.config.CassandraRelevantProperties.OS_NAME;
 import static org.apache.cassandra.utils.NativeLibrary.OSType.LINUX;
@@ -43,7 +44,7 @@ import static org.apache.cassandra.utils.NativeLibrary.OSType.AIX;
 public final class NativeLibrary
 {
     private static final Logger logger = LoggerFactory.getLogger(NativeLibrary.class);
-    private static final boolean REQUIRE = CassandraRelevantProperties.DETERMINISM_REQUIRE_NATIVE_FILE_HINTS.getBoolean();
+    private static final boolean REQUIRE = !IGNORE_MISSING_NATIVE_FILE_HINTS.getBoolean();
 
     public enum OSType
     {
