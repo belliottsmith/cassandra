@@ -76,15 +76,14 @@ public class CounterMutation implements IMutation
         return mutation.getPartitionUpdates();
     }
 
-    public int validateSize(final int version, final int overhead)
+    public void validateSize(final int version, final int overhead)
     {
         long size = serializer.serializedSize(this, version);
         long totalSize = size + overhead;
-        if(totalSize > MAX_MUTATION_SIZE)
+        if (totalSize > MAX_MUTATION_SIZE)
         {
             throw new MutationExceededMaxSizeException(this, version, totalSize);
         }
-        return (int) size;
     }
 
     public Mutation getMutation()

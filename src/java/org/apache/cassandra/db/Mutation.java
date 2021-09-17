@@ -123,15 +123,14 @@ public class Mutation implements IMutation
         return modifications.get(cfId);
     }
 
-    public int validateSize(int version, int overhead)
+    public void validateSize(int version, int overhead)
     {
         long size = serializer.serializedSize(this, version);
         long totalSize = size + overhead;
-        if(totalSize > MAX_MUTATION_SIZE)
+        if (totalSize > MAX_MUTATION_SIZE)
         {
             throw new MutationExceededMaxSizeException(this, version, totalSize);
         }
-        return (int) size;
     }
 
     public Mutation add(PartitionUpdate update)

@@ -20,6 +20,8 @@ package org.apache.cassandra.db.commitlog;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.CRC32;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -29,11 +31,14 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.commons.lang3.StringUtils;
 
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.ParameterizedClass;
+import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.io.FSWriteError;
+import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.schema.CompressionParams;
 import org.apache.cassandra.io.compress.ICompressor;
 import org.apache.cassandra.io.util.BufferedDataOutputStreamPlus;
@@ -233,34 +238,46 @@ public class CommitLog implements CommitLogMBean
     {
         assert mutation != null;
 
-        int size = mutation.validateSize(MessagingService.current_version, ENTRY_OVERHEAD_SIZE);
-        int totalSize = size + ENTRY_OVERHEAD_SIZE;
-        Allocation alloc = allocator.allocate(mutation, totalSize);
+        mutation.validateSize(MessagingService.current_version, ENTRY_OVERHEAD_SIZE);
         CRC32 checksum = new CRC32();
-        final ByteBuffer buffer = alloc.getBuffer();
-        try (BufferedDataOutputStreamPlus dos = new DataOutputBufferFixed(buffer))
-        {
-            // checksummed length
-            dos.writeInt(size);
-            updateChecksumInt(checksum, size);
-            buffer.putInt((int) checksum.getValue());
 
-            // checksummed mutation
-            Mutation.serializer.serialize(mutation, dos, MessagingService.current_version);
-            updateChecksum(checksum, buffer, buffer.position() - size, size);
-            buffer.putInt((int) checksum.getValue());
+        try (DataOutputBuffer dob = DataOutputBuffer.scratchBuffer.get())
+        {
+            Mutation.serializer.serialize(mutation, dob, MessagingService.current_version);
+
+            int size = dob.getLength();
+            int totalSize = size + ENTRY_OVERHEAD_SIZE;
+
+            Allocation alloc = allocator.allocate(mutation, totalSize);
+            final ByteBuffer buffer = alloc.getBuffer();
+            try (BufferedDataOutputStreamPlus dos = new DataOutputBufferFixed(buffer))
+            {
+                // checksummed length
+                dos.writeInt(size);
+                updateChecksumInt(checksum, size);
+                buffer.putInt((int) checksum.getValue());
+
+                // checksummed mutation
+                dos.write(dob.unsafeFlipAndGetBuffer());
+                updateChecksum(checksum, buffer, buffer.position() - size, size);
+                buffer.putInt((int) checksum.getValue());
+            }
+            catch (IOException e)
+            {
+                throw new FSWriteError(e, alloc.getSegment().getPath());
+            }
+            finally
+            {
+                alloc.markWritten();
+            }
+
+            executor.finishWriteFor(alloc);
+            return alloc.getReplayPosition();
         }
         catch (IOException e)
         {
-            throw new FSWriteError(e, alloc.getSegment().getPath());
+            throw new FSWriteError(e, allocator.allocatingFrom().getPath());
         }
-        finally
-        {
-            alloc.markWritten();
-        }
-
-        executor.finishWriteFor(alloc);
-        return alloc.getReplayPosition();
     }
 
     /**
