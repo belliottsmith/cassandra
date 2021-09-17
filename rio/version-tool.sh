@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/usr/bin/env bash
 #
 # Return the RELEASE_VERSION used in the rio.yml configuration.
 #
