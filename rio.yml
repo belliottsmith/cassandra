@@ -194,6 +194,7 @@ builds:
         STUB_JAR: '/work/cassandrastub${STUB_VERSION_NAME}/cassandrastub${STUB_VERSION_NAME}.jar'
         DOCKER_IMAGE_VERSION: '${FULL_VERSION}'
         SSH_AUTH_SOCK: "$( echo $SSH_AUTH_SOCK_DEPLOY_KEY )"
+        CIE_TARGET_IF1_CLUSTERS: '$(./rio/cie-target-if1-clusters.sh)'
 
     secrets:
       names:
@@ -248,7 +249,7 @@ builds:
             - name: "CASSANDRA_VERSION"
               value: "${FULL_VERSION}"
           project: pie-cassandra-test-infra-docker
-        - pipeline: carnival-local-install
+        - pipeline: if1-release
           buildArguments:
             - name: "CARNIVAL_APP_NAME"
               value: "${CARNIVAL_APP_NAME}"
@@ -256,14 +257,18 @@ builds:
               value: "${CARNIVAL_BUILD_VERSION}"
             - name: "GIT_COMMITTER_EMAIL"
               value: "${GIT_COMMITTER_EMAIL}"
+            - name: "CIE_VERSION"
+              value: "${CIE_VERSION}"
+            - name: "CIE_TARGET_IF1_CLUSTERS"
+              value: "${CIE_TARGET_IF1_CLUSTERS}"
 
   #
-  # Carnival Local Install - automatically triggered from a successful release
+  # IF1 Release - automatically triggered from a successful release
   #
   # This pipeline is named with name instead of group, since it is referenced from a pipelineChain and there is
   # currently no way to reference a pipeline in pipelineChain via group, or with variable substitution.
   #
-  - name: carnival-local-install
+  - name: if1-release
     branchName: cie-cassandra-4.0.0
     trigger:
       # Only trigger by pipelineChain via release build
@@ -299,10 +304,23 @@ builds:
             install status check. This can be useful in cases where the Carnival install was submitted, but could not
             complete in time due to Carnival issues. Leave empty to disable.
           defaultValue: ''
+        - parameter: SKIP_TO_CONNECT_ROLLOUT
+          description: >-
+            Set to any value to skip all Carnival steps and go directly to Connect rollout. Leave empty to disable.
+          defaultValue: ''
+        - parameter: CIE_VERSION
+          description: >-
+            Cassandra version to deploy via Connect. If this pipeline is triggered normally (by successful completion of
+            an upstream release pipeline run), this value comes from the CIE_VERSION file.
+        - parameter: CIE_TARGET_IF1_CLUSTERS
+          description: >-
+            A list of appName/clusterName pairs (such as "dailydev40/dailydev40"), separated by spaces, in IF1 to
+            rollout to. If this pipeline is triggered normally (by successful completion of an upstream release pipeline
+            run), this value comes from the CIE_TARGET_IF1_CLUSTERS file.
       steps:
         - yum install -y python36 && python3 -m pip install --user requests==2.26.0 tzlocal==2.1
         - source $BUILD_SECRETS_PATH/rio-env-cassandra-connect.sh
-        - python3 ./rio/carnival_local_install.py
+        - python3 ./rio/if1_release.py
     timeout: 180
 
   #

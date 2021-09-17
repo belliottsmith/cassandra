@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/usr/bin/env bash
 #
 # Output the contents of the CIE-VERSION file so Rio can use it in variable interpolation
 #

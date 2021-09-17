@@ -1,4 +1,4 @@
-#! /usr/bin/env bash
+#!/usr/bin/env bash
 #
 # Helper script to be called by xargs to move test log files
 # from the parallel test output directories to a unified output

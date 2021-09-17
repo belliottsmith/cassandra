@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/usr/bin/env bash
 #
 # This script tries to reproduce the logic from dna/src/com/apple/cie/db/dna/logic/LogicUtils.java under cie-db,
 # warts and all.

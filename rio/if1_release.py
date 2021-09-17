@@ -4,7 +4,9 @@ import os
 import sys
 import json
 import time
+from datetime import datetime
 
+import tzlocal
 import requests
 
 
@@ -13,6 +15,13 @@ requests_log = logging.getLogger('urllib3')
 requests_log.setLevel(logging.DEBUG)
 requests_log.propagate = True
 LOGGER = logging.getLogger(__name__)
+
+CASSANDRA_CONNECT_ENV_BASE_URL = 'https://cassandra.apple.com'
+CASSANDRA_CONNECT_API_TIMEOUT_SECS = 60
+CASSANDRA_CONNECT_API_HEADERS = {'Content-Type': 'application/json'}
+
+PIPELINE_SPEC_ID = os.environ.get('PIPELINE_SPEC_ID')
+RIO_BUILD_ID = os.environ.get('RIO_BUILD_ID')
 
 
 def get_required_env(name):
@@ -24,7 +33,7 @@ def get_required_env(name):
 
 # Original Python source from: https://github.pie.apple.com/rio/carnival-client/blob/dev/scripts/getcookie.py
 # Adapted via the 2to3 tool, with other minor adjustments for loading credentials via env, etc
-def get_auth_cookie(ac_username, ac_password):
+def get_carnival_auth_cookie(ac_username, ac_password):
     # See https://docs.carnival.apple.com/documents/api-docs/carnival-web-service-authentication/
     # > To find the App_ID :
     # > Log out of any Carnival environment, once you log back in, copy the IDMS URL and use the appIdKey.
@@ -97,7 +106,7 @@ def submit_local_install(git_committer_email, auth_acack_cookie, carnival_app_na
         'autoApprove': True,
         'autoSchedule': True,
         'editable': True,
-        'notes': ['Automated request via Workflow API'],
+        'notes': [f'Automated request via Workflow API, initiated by Rio pipeline {PIPELINE_SPEC_ID} build {RIO_BUILD_ID}'],
         'qaVerifiedUser': git_committer_email,
         'scheduledDate': epoch_formatted
     })
@@ -148,24 +157,113 @@ def await_local_install_complete(local_install_request_id):
     raise Exception(msg)
 
 
+def get_connect_title(pipeline_spec_id, rio_build_id):
+    # Connect only supports 127-char titles, so truncate if necessary
+    max_len = 127
+    return f'Rio {pipeline_spec_id}/{rio_build_id}'[:max_len]
+
+
+def get_targets_if1(cie_target_if1_clusters):
+    # Make sure not empty, or Connect will rollout to all eligible clusters
+    results = []
+
+    for target in re.split('\\s+', cie_target_if1_clusters):
+        if not target:
+            continue
+        parts = target.split('/')
+        if len(parts) != 2:
+            raise Exception(f'Target clusters malformed. Expected app_name/cluster_name, got: {target}.')
+        app_name = parts[0]
+        cluster_name = parts[1]
+        results.append({'clusterName': app_name, 'partitionName': cluster_name})
+
+    if not results:
+        raise Exception('Must specify targets for rollout. Make sure file CIE_TARGET_IF1_CLUSTERS has targets, or env var is set.')
+    return results
+
+
+def submit_connect_release_rollout(od_username, od_password, target_cassandra_version, targets_if1):
+    # Persistent session required for cookie auth
+    session = requests.Session()
+
+    # Login
+    url = f'{CASSANDRA_CONNECT_ENV_BASE_URL}/auth/login'
+    payload = json.dumps({'username': od_username, 'password': od_password})
+    resp = None
+    try:
+        LOGGER.info(f'Authenticating to Cassandra Connect with od_username: {od_username}...')
+        resp = session.post(url=url, data=payload, headers=CASSANDRA_CONNECT_API_HEADERS, timeout=CASSANDRA_CONNECT_API_TIMEOUT_SECS)
+    except requests.exceptions.RequestException as e:
+        # Something went wrong (timeout, host not found, etc.)
+        LOGGER.info(f'Authentication to Cassandra Connect failed with exception: {e}')
+        raise e
+
+    if resp.status_code != 200:
+        raise Exception(f'Authentication to Cassandra Connect failed with status: {resp.status_code}, response body: {resp.text}')
+    else:
+        LOGGER.info(f'Authenticated to Cassandra Connect successfully')
+    resp_json = resp.json()
+
+    auth_token = resp_json.get('access_token')
+    xsrf_token = resp.cookies.get('XSRF-TOKEN')
+
+    # Submit release rollout
+    url = f'{CASSANDRA_CONNECT_ENV_BASE_URL}/ops/api/v1/version-upgrade/rollout-release'
+    headers = {**CASSANDRA_CONNECT_API_HEADERS, 'Authorization': f'Bearer {auth_token}', 'X-XSRF-TOKEN': xsrf_token}
+
+    title = get_connect_title(PIPELINE_SPEC_ID, RIO_BUILD_ID)
+
+    payload = json.dumps({
+        'stream': 'Cassandra',
+        'env': 'IF1',
+        'upgradeType': 'MinorVersionUpgrade',
+        'cassVersion': target_cassandra_version,
+        'startDate': datetime.now(tz=tzlocal.get_localzone()).isoformat(),
+        'title': title,
+        'partitions': targets_if1,
+        'config': {
+            'ignoreActivityCheck': True
+        }
+    })
+
+    LOGGER.info(f'Submitting release rollout url={url} payload={payload}')
+
+    resp = session.post(url=url, headers=headers, data=payload, timeout=CASSANDRA_CONNECT_API_TIMEOUT_SECS)
+
+    if resp.status_code < 200 or resp.status_code >= 400:
+        raise Exception(f'Post storage release rollout failed with status: {resp.status_code}, response body: {resp.text}')
+
+    resp_json = resp.json()
+    LOGGER.info(f'Posted storage release rollout, got response: {resp_json}')
+
+
 def main():
     ac_username = get_required_env('AC_USERNAME')
     ac_password = get_required_env('AC_PASSWORD')
 
-    # Pipeline runs may use CONTINUE_LOCAL_INSTALL_REQUEST_ID=<prior_request_id> to continue a prior run in case of an error
-    local_install_request_id = None
-    if os.environ.get('BUILD_PARAM_CONTINUE_LOCAL_INSTALL_REQUEST_ID'):
-        local_install_request_id = os.environ.get('BUILD_PARAM_CONTINUE_LOCAL_INSTALL_REQUEST_ID')
-        LOGGER.info(f'Continuing from prior local install request {local_install_request_id}, not submitting new request')
+    if not os.environ.get('BUILD_PARAM_SKIP_TO_CONNECT_ROLLOUT'):
+        # Pipeline runs may use CONTINUE_LOCAL_INSTALL_REQUEST_ID=<prior_request_id> to continue a prior run in case of an error
+        local_install_request_id = None
+        if os.environ.get('BUILD_PARAM_CONTINUE_LOCAL_INSTALL_REQUEST_ID'):
+            local_install_request_id = os.environ.get('BUILD_PARAM_CONTINUE_LOCAL_INSTALL_REQUEST_ID')
+            LOGGER.info(f'Continuing from prior local install request {local_install_request_id}, not submitting new request')
+        else:
+            git_committer_email = get_required_env('BUILD_PARAM_GIT_COMMITTER_EMAIL')
+            carnival_app_name = get_required_env('BUILD_PARAM_CARNIVAL_APP_NAME')
+            carnival_build_version = get_required_env('BUILD_PARAM_CARNIVAL_BUILD_VERSION')
+
+            auth_acack_cookie = get_carnival_auth_cookie(ac_username, ac_password)
+            local_install_request_id = submit_local_install(git_committer_email, auth_acack_cookie, carnival_app_name, carnival_build_version)
+
+        await_local_install_complete(local_install_request_id)
     else:
-        git_committer_email = get_required_env('BUILD_PARAM_GIT_COMMITTER_EMAIL')
-        carnival_app_name = get_required_env('BUILD_PARAM_CARNIVAL_APP_NAME')
-        carnival_build_version = get_required_env('BUILD_PARAM_CARNIVAL_BUILD_VERSION')
+        LOGGER.info('Skipping directly to Connect rollout...')
 
-        auth_acack_cookie = get_auth_cookie(ac_username, ac_password)
-        local_install_request_id = submit_local_install(git_committer_email, auth_acack_cookie, carnival_app_name, carnival_build_version)
-
-    await_local_install_complete(local_install_request_id)
+    od_username = get_required_env('OD_USERNAME')
+    od_password = get_required_env('OD_PASSWORD')
+    target_cassandra_version = get_required_env('BUILD_PARAM_CIE_VERSION')
+    cie_target_if1_clusters = get_targets_if1(get_required_env('BUILD_PARAM_CIE_TARGET_IF1_CLUSTERS'))
+    submit_connect_release_rollout(od_username, od_password, target_cassandra_version, cie_target_if1_clusters)
 
 
 if __name__ == '__main__':

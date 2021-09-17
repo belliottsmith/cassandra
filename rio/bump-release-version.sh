@@ -1,4 +1,4 @@
-#! /bin/bash
+#!/usr/bin/env bash
 
 #
 # Bump the patch-level version in CIE-VERSION and prepare CIE-CHANGES.txt for the next release.
