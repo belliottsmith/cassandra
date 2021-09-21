@@ -257,6 +257,7 @@ builds:
         # if1-release is defined on 4.0 branch, due to limitations in Rio pipelineChain with pipelines identified by
         # group field
         - pipeline: if1-release
+          upstreamGitRevision: false
           buildArguments:
             - name: "CARNIVAL_APP_NAME"
               value: "${CARNIVAL_APP_NAME}"
