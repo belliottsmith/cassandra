@@ -150,7 +150,7 @@ builds:
         - ant -f rio-build.xml jar
         - ./rio/parallel-tests-step.sh
         - ./rio/release.sh ${ARTIFACTS_VERSION}
-        - ./rio/carnival.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+        - ./rio/carnival-build.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
     # timeout also set for parallelci command in rio/parallel-test-step.sh
     # and in rio/unittests.yml (although not currently implemented)
     timeout: 180
@@ -204,6 +204,7 @@ builds:
         STUB_JAR: '/work/cassandrastub${STUB_VERSION_NAME}/cassandrastub${STUB_VERSION_NAME}.jar'
         DOCKER_IMAGE_VERSION: '${FULL_VERSION}'
         SSH_AUTH_SOCK: "$( echo $SSH_AUTH_SOCK_DEPLOY_KEY )"
+        CIE_TARGET_IF1_CLUSTERS: '$(./rio/cie-target-if1-clusters.sh)'
 
     secrets:
       names:
@@ -216,7 +217,7 @@ builds:
         - ant -f rio-build.xml jar
         - ./rio/parallel-tests-step.sh
         - ./rio/release.sh ${ARTIFACTS_VERSION}
-        - ./rio/carnival.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
+        - ./rio/carnival-build.sh ${FULL_VERSION} ${CARNIVAL_APP_NAME} ${CARNIVAL_BUILD_VERSION}
         - ./rio/bump-release-version.sh
     # timeout also set for parallelci command in rio/parallel-test-step.sh
     # and in rio/unittests.yml (although not currently implemented) and
@@ -252,6 +253,21 @@ builds:
       tag:
         enabled: true
         expression: 'cie-cassandra-${FULL_VERSION}'
+      pipelineChain:
+        # if1-release is defined on 4.0 branch, due to limitations in Rio pipelineChain with pipelines identified by
+        # group field
+        - pipeline: if1-release
+          buildArguments:
+            - name: "CARNIVAL_APP_NAME"
+              value: "${CARNIVAL_APP_NAME}"
+            - name: "CARNIVAL_BUILD_VERSION"
+              value: "${CARNIVAL_BUILD_VERSION}"
+            - name: "GIT_COMMITTER_EMAIL"
+              value: "${GIT_COMMITTER_EMAIL}"
+            - name: "CIE_VERSION"
+              value: "${CIE_VERSION}"
+            - name: "CIE_TARGET_IF1_CLUSTERS"
+              value: "${CIE_TARGET_IF1_CLUSTERS}"
 
   # Publish in-jvm dtest jar for CIE Cassandra
   - branchName: cie-cassandra-3.0.24
