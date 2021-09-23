@@ -184,32 +184,32 @@ public class InvalidatePermissionsCacheTest extends CQLTester
         assertThat(tool.getExitCode()).isEqualTo(1);
         assertThat(tool.getStdout())
                 .isEqualTo(wrapByDefaultNodetoolMessage("No options allowed without a <user> being specified"));
-        assertThat(tool.getStderr()).isEmpty();
+        assertThat(tool.getCleanedStderr()).isEmpty();
 
         tool = ToolRunner.invokeNodetool("invalidatepermissionscache", "user1", "--invalid-option");
         assertThat(tool.getExitCode()).isEqualTo(1);
         assertThat(tool.getStdout())
                 .isEqualTo(wrapByDefaultNodetoolMessage("A single <user> is only supported / you have a typo in the options spelling"));
-        assertThat(tool.getStderr()).isEmpty();
+        assertThat(tool.getCleanedStderr()).isEmpty();
 
         tool = ToolRunner.invokeNodetool("invalidatepermissionscache", "user1", "--table", "t1");
         assertThat(tool.getExitCode()).isEqualTo(1);
         assertThat(tool.getStdout())
                 .isEqualTo(wrapByDefaultNodetoolMessage("--table option should be passed along with --keyspace option"));
-        assertThat(tool.getStderr()).isEmpty();
+        assertThat(tool.getCleanedStderr()).isEmpty();
 
         tool = ToolRunner.invokeNodetool("invalidatepermissionscache", "user1", "--function", "f[Int32Type]");
         assertThat(tool.getExitCode()).isEqualTo(1);
         assertThat(tool.getStdout())
                 .isEqualTo(wrapByDefaultNodetoolMessage("--function option should be passed along with --functions-in-keyspace option"));
-        assertThat(tool.getStderr()).isEmpty();
+        assertThat(tool.getCleanedStderr()).isEmpty();
 
         tool = ToolRunner.invokeNodetool("invalidatepermissionscache", "user1", "--functions-in-keyspace",
                 KEYSPACE, "--function", "f[x]");
         assertThat(tool.getExitCode()).isEqualTo(1);
         assertThat(tool.getStdout())
                 .isEqualTo(wrapByDefaultNodetoolMessage("An error was encountered when looking up function definition; Unable to find abstract-type class 'org.apache.cassandra.db.marshal.x'"));
-        assertThat(tool.getStderr()).isEmpty();
+        assertThat(tool.getCleanedStderr()).isEmpty();
     }
 
     @Test
