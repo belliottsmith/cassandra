@@ -51,6 +51,8 @@ import org.assertj.core.api.Assertions;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.getCommitLogDirectory;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.getDataDirectories;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.stopUnchecked;
+import static org.apache.cassandra.distributed.upgrade.UpgradeTestBase.v22;
+import static org.apache.cassandra.distributed.upgrade.UpgradeTestBase.v30;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Ignore
@@ -67,7 +69,7 @@ public class SSTableValidate20Test extends TestBaseImpl
     public void correctColumnType() throws IOException
     {
         try (Cluster cluster = Cluster.build(1)
-                                      .withVersion(VERSIONS.getLatest(Versions.Major.v22))
+                                      .withVersion(VERSIONS.getLatest(v22))
                                       .withConfig(config -> config.set("dtest.api.config.check", false))
                                       .start())
         {
@@ -104,7 +106,7 @@ public class SSTableValidate20Test extends TestBaseImpl
     public void incorrectColumnType() throws IOException
     {
         try (Cluster cluster = Cluster.build(1)
-                                      .withVersion(VERSIONS.getLatest(Versions.Major.v22))
+                                      .withVersion(VERSIONS.getLatest(v22))
                                       .withConfig(c -> c.set("dtest.api.config.check", false))
                                       .start())
         {

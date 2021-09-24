@@ -21,7 +21,7 @@ public class AlterTypeTest extends UpgradeTestBase
     {
         new TestCase()
         .nodes(1)
-        .upgrade(Versions.Major.v22, Versions.Major.v30)
+        .singleUpgrade(v22, v30)
         .setup(cluster -> {
             IUpgradeableInstance node = cluster.get(1);
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".mismatch (key text primary key, value timeuuid)");

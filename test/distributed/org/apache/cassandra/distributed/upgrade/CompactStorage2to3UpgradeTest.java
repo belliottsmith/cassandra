@@ -41,7 +41,7 @@ public class CompactStorage2to3UpgradeTest extends UpgradeTestBase
     public void multiColumn() throws Throwable
     {
         new TestCase()
-        .upgrade(Versions.Major.v22, Versions.Major.v30)
+        .upgradesFrom(v22)
         .setup(cluster -> {
             assert cluster.size() == 3;
             int rf = cluster.size() - 1;
@@ -75,7 +75,7 @@ public class CompactStorage2to3UpgradeTest extends UpgradeTestBase
     public void singleColumn() throws Throwable
     {
         new TestCase()
-        .upgrade(Versions.Major.v22, Versions.Major.v30)
+        .upgradesFrom(v22)
         .setup(cluster -> {
             assert cluster.size() == 3;
             int rf = cluster.size() - 1;
@@ -110,8 +110,9 @@ public class CompactStorage2to3UpgradeTest extends UpgradeTestBase
     public void testSSTableTimestampSkipping() throws Throwable
     {
         new TestCase()
+
         .nodes(1)
-        .upgrade(Versions.Major.v22, Versions.Major.v30)
+        .upgradesFrom(v22)
         .setup(cluster -> {
             cluster.schemaChange("CREATE KEYSPACE ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
             // Remove compact storage, and both pre and post-upgrade reads will only hit one SSTable.
@@ -143,8 +144,8 @@ public class CompactStorage2to3UpgradeTest extends UpgradeTestBase
     public void testSSTableTimestampSkippingPkOnly() throws Throwable
     {
         new TestCase()
-        .nodes(1)
-        .upgrade(Versions.Major.v22, Versions.Major.v30)
+                .nodes(1)
+                .upgradesFrom(v22)
         .setup(cluster -> {
             cluster.schemaChange("CREATE KEYSPACE ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};");
             // Remove compact storage, and both pre and post-upgrade reads will only hit one SSTable.

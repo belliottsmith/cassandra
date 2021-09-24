@@ -36,7 +36,7 @@ public class UpgradeTest extends UpgradeTestBase
     public void upgradeTest() throws Throwable
     {
         new TestCase()
-        .upgrade(Versions.Major.v22, Versions.Major.v30)
+        .upgradesFrom(v22)
         .setup((cluster) -> {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
 
@@ -58,7 +58,7 @@ public class UpgradeTest extends UpgradeTestBase
     public void mixedModePagingTest() throws Throwable
     {
         new TestCase()
-        .upgrade(Versions.Major.v22, Versions.Major.v30)
+        .singleUpgrade(v22, v30)
         .nodes(2)
         .nodesToUpgrade(2)
         .setup((cluster) -> {
