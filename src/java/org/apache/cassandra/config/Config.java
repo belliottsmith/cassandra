@@ -57,15 +57,15 @@ public class Config
     public String authorizer;
     public String role_manager;
     public String network_authorizer;
-    public volatile int permissions_validity_in_ms = 2000;
+    public volatile int permissions_validity_in_ms = 43200000;
     public volatile int permissions_cache_max_entries = 1000;
-    public volatile int permissions_update_interval_in_ms = -1;
-    public volatile boolean permissions_cache_active_update = false;
-    public volatile int roles_validity_in_ms = 2000;
+    public volatile int permissions_update_interval_in_ms = 600000;
+    public volatile boolean permissions_cache_active_update = true;
+    public volatile int roles_validity_in_ms = 86400000;
     public volatile int roles_cache_max_entries = 1000;
-    public volatile int roles_update_interval_in_ms = -1;
-    public volatile boolean roles_cache_active_update = false;
-    public volatile int credentials_validity_in_ms = 2000;
+    public volatile int roles_update_interval_in_ms = 600000;
+    public volatile boolean roles_cache_active_update = true;
+    public volatile int credentials_validity_in_ms = 86400000;
     public volatile int credentials_cache_max_entries = 1000;
     public volatile int credentials_update_interval_in_ms = -1;
     public volatile boolean credentials_cache_active_update = false;
@@ -82,7 +82,7 @@ public class Config
     public String hints_directory;
 
     public ParameterizedClass seed_provider;
-    public DiskAccessMode disk_access_mode = DiskAccessMode.auto;
+    public DiskAccessMode disk_access_mode = DiskAccessMode.mmap_index_only;
 
     public DiskFailurePolicy disk_failure_policy = DiskFailurePolicy.ignore;
     public CommitFailurePolicy commit_failure_policy = CommitFailurePolicy.stop;
@@ -308,7 +308,7 @@ public class Config
 
     public volatile int sstable_preemptive_open_interval_in_mb = 50;
 
-    public volatile boolean key_cache_migrate_during_compaction = true;
+    public volatile boolean key_cache_migrate_during_compaction = false;
     public Long key_cache_size_in_mb = null;
     public volatile int key_cache_save_period = 14400;
     public volatile int key_cache_keys_to_save = Integer.MAX_VALUE;
@@ -470,7 +470,7 @@ public class Config
      * block_for_peers_in_remote_dcs: controls if this node will consider remote datacenters to wait for. The default
      * is to _not_ wait on remote datacenters.
      */
-    public int block_for_peers_timeout_in_secs = 10;
+    public int block_for_peers_timeout_in_secs = 60;
     public boolean block_for_peers_in_remote_dcs = false;
 
     public volatile boolean automatic_sstable_upgrade = false;
@@ -542,7 +542,7 @@ public class Config
 
     public volatile boolean enable_secondary_index = Boolean.getBoolean("cassandra.enable_secondary_index");
 
-    public Boolean disable_incremental_repair = Boolean.parseBoolean(System.getProperty("cassandra.disable_incremental_repair", "true"));
+    public Boolean disable_incremental_repair = Boolean.parseBoolean(System.getProperty("cassandra.disable_incremental_repair", "false"));
 
     public String full_query_log_dir = null; // CIE Cassandra 3.0 backward compatibility, create default FQL options if non-null.
 
