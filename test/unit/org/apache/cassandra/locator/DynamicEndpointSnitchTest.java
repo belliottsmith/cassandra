@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -35,6 +37,20 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 public class DynamicEndpointSnitchTest
 {
+    private double oldBadness;
+
+    @Before
+    public void before()
+    {
+        oldBadness = DatabaseDescriptor.getDynamicBadnessThreshold();
+        DatabaseDescriptor.setDynamicBadnessThreshold(0.1);
+    }
+
+    @After
+    public void after()
+    {
+        DatabaseDescriptor.setDynamicBadnessThreshold(oldBadness);
+    }
 
     @BeforeClass
     public static void setupDD()
