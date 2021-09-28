@@ -223,14 +223,14 @@ class HintsReader implements AutoCloseable, Iterable<HintsReader.Page>
             // if we cannot corroborate the size via crc, then we cannot safely skip this hint
             if (!input.checkCrc())
                 throw new IOException("Digest mismatch exception");
-
-            return readHint(size);
+            Hint hint = readHint(size);
+            if (hint != null && rateLimiter != null)
+                rateLimiter.acquire(size);
+            return hint;
         }
 
         private Hint readHint(int size) throws IOException
         {
-            if (rateLimiter != null)
-                rateLimiter.acquire(size);
             input.limit(size);
 
             Hint hint;
@@ -330,13 +330,16 @@ class HintsReader implements AutoCloseable, Iterable<HintsReader.Page>
             if (!input.checkCrc())
                 throw new IOException("Digest mismatch exception");
 
-            return readBuffer(size);
+            ByteBuffer buffer = readBuffer(size);
+
+            if (buffer != null && rateLimiter != null)
+                rateLimiter.acquire(size);
+
+            return buffer;
         }
 
         private ByteBuffer readBuffer(int size) throws IOException
         {
-            if (rateLimiter != null)
-                rateLimiter.acquire(size);
             input.limit(size);
 
             ByteBuffer buffer = Hint.serializer.readBufferIfLive(input, now, size, descriptor.messagingVersion());
