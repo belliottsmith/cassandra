@@ -7,3 +7,4 @@ tmp
 .idea
 parallel-output
 parallelci-*.log
+.cicd
