@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import com.google.common.collect.Iterables;
+import com.google.common.util.concurrent.RateLimiter;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -47,10 +48,15 @@ import org.apache.cassandra.schema.MigrationManager;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 
-import static junit.framework.Assert.assertEquals;
-import static junit.framework.Assert.assertNotNull;
 import static org.apache.cassandra.Util.dk;
 import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 public class HintsReaderTest
 {
@@ -78,7 +84,7 @@ public class HintsReaderTest
                .build();
     }
 
-    private void generateHints(int num, String ks) throws IOException
+    private void generateHints(int num, String ks, long now) throws IOException
     {
         try (HintsWriter writer = HintsWriter.create(directory, descriptor))
         {
@@ -87,7 +93,7 @@ public class HintsReaderTest
             {
                 for (int i = 0; i < num; i++)
                 {
-                    long timestamp = descriptor.timestamp + i;
+                    long timestamp = now > 0 ? now : descriptor.timestamp + i;
                     Mutation m = createMutation(i, TimeUnit.MILLISECONDS.toMicros(timestamp), ks, CF_STANDARD1);
                     session.append(Hint.create(m, timestamp));
                     m = createMutation(i, TimeUnit.MILLISECONDS.toMicros(timestamp), ks, CF_STANDARD2);
@@ -100,15 +106,16 @@ public class HintsReaderTest
 
     private void readHints(int num, int numTable)
     {
-        readAndVerify(num, numTable, HintsReader.Page::hintsIterator);
-        readAndVerify(num, numTable, this::deserializePageBuffers);
+        readAndVerify(num, numTable, HintsReader.Page::hintsIterator, null);
+        readAndVerify(num, numTable, this::deserializePageBuffers, null);
     }
 
-    private void readAndVerify(int num, int numTable, Function<HintsReader.Page, Iterator<Hint>> getHints)
+    private void readAndVerify(int num, int numTable, Function<HintsReader.Page, Iterator<Hint>> getHints , RateLimiter throttle)
     {
         long baseTimestamp = descriptor.timestamp;
         int index = 0;
-        try (HintsReader reader = HintsReader.open(new File(directory, descriptor.fileName())))
+        File file = new File(directory, descriptor.fileName());
+        try (HintsReader reader = throttle == null ? HintsReader.open(file) : HintsReader.open(file, throttle))
         {
             for (HintsReader.Page page : reader)
             {
@@ -199,7 +206,7 @@ public class HintsReaderTest
         directory = Files.createTempDirectory(null).toFile();
         try
         {
-            generateHints(3, ks);
+            generateHints(3, ks, 0);
             File hintFile = new File(directory, descriptor.fileName());
             Files.write(hintFile.toPath(), toAppend, StandardOpenOption.APPEND);
             readHints(3 * numTable, numTable);
@@ -222,7 +229,7 @@ public class HintsReaderTest
         directory = Files.createTempDirectory(null).toFile();
         try
         {
-            generateHints(3, ks);
+            generateHints(3, ks, 0);
             readHints(3 * numTable, numTable);
         }
         finally
@@ -243,9 +250,53 @@ public class HintsReaderTest
         directory = Files.createTempDirectory(null).toFile();
         try
         {
-            generateHints(3, ks);
+            generateHints(3, ks, 0);
             MigrationManager.announceTableDrop(ks, CF_STANDARD1, true);
             readHints(3, 1);
+        }
+        finally
+        {
+            directory.delete();
+        }
+    }
+
+    @Test
+    public void testOnlyLiveThrottled() throws IOException
+    {
+        String ks = "testOnlyLiveThrottled";
+        SchemaLoader.createKeyspace(ks,
+                                    KeyspaceParams.simple(1),
+                                    SchemaLoader.standardCFMD(ks, CF_STANDARD1),
+                                    SchemaLoader.standardCFMD(ks, CF_STANDARD2));
+        directory = Files.createTempDirectory(null).toFile();
+        try
+        {
+            generateHints(3, ks, 1);
+            RateLimiter throttle = mock(RateLimiter.class);
+            readAndVerify(0, 2, this::deserializePageBuffers, throttle);
+            verify(throttle, never()).acquire(any(Integer.class));
+        }
+        finally
+        {
+            directory.delete();
+        }
+    }
+
+    @Test
+    public void testLiveThrottled() throws IOException
+    {
+        String ks = "testLiveThrottled";
+        SchemaLoader.createKeyspace(ks,
+                                    KeyspaceParams.simple(1),
+                                    SchemaLoader.standardCFMD(ks, CF_STANDARD1),
+                                    SchemaLoader.standardCFMD(ks, CF_STANDARD2));
+        directory = Files.createTempDirectory(null).toFile();
+        try
+        {
+            generateHints(3, ks, 0);
+            RateLimiter throttle = mock(RateLimiter.class);
+            readAndVerify(6, 2, this::deserializePageBuffers, throttle);
+            verify(throttle, times(6)).acquire(any(Integer.class));
         }
         finally
         {
