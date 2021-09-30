@@ -207,4 +207,7 @@ public interface StorageProxyMBean
 
     public boolean getDumpHeapOnUncaughtException();
     public void setDumpHeapOnUncaughtException(boolean enabled);
+
+    public boolean getGenerateSSTableDigestComponents();
+    public void setGenerateSSTableDigestComponents(boolean shouldGenerateDigests);
 }
