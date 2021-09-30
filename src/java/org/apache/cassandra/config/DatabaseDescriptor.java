@@ -4341,4 +4341,14 @@ public class DatabaseDescriptor
             conf.biggest_bucket_max_sstable_count = maxSSTableCount;
         }
     }
+
+    public static boolean shouldGenerateSSTableDigestComponents()
+    {
+        return conf.generate_sstable_digest_components;
+    }
+
+    public static void setGenerateSSTableDigestComponents(boolean shouldGenerateDigests)
+    {
+        conf.generate_sstable_digest_components = shouldGenerateDigests;
+    }
 }

@@ -36,9 +36,9 @@ public class ChecksummedSequentialWriter extends SequentialWriter
     {
         super(file, option);
         crcWriter = new SequentialWriter(crcPath, CRC_WRITER_OPTION);
-        crcMetadata = new ChecksumWriter(crcWriter);
-        crcMetadata.writeChunkSize(buffer.capacity());
         this.digestFile = Optional.ofNullable(digestFile);
+        crcMetadata = new ChecksumWriter(crcWriter, this.digestFile.isPresent());
+        crcMetadata.writeChunkSize(buffer.capacity());
     }
 
     @Override
