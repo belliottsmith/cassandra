@@ -97,7 +97,7 @@ public class BigTableWriter extends SSTableWriter
         {
             dataFile = new ChecksummedSequentialWriter(new File(getFilename()),
                     new File(descriptor.filenameFor(Component.CRC)),
-                    new File(descriptor.filenameFor(Component.DIGEST)),
+                    DatabaseDescriptor.shouldGenerateSSTableDigestComponents() ? new File(descriptor.filenameFor(Component.DIGEST)) : null,
                     writerOption);
         }
         dbuilder = new FileHandle.Builder(descriptor.filenameFor(Component.DATA)).compressed(compression)

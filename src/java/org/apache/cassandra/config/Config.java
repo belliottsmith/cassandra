@@ -362,6 +362,8 @@ public class Config
 
     public final ReplicaFilteringProtectionOptions replica_filtering_protection = new ReplicaFilteringProtectionOptions();
 
+    public volatile boolean generate_sstable_digest_components = true;
+
     public volatile Long index_summary_capacity_in_mb;
     public volatile int index_summary_resize_interval_in_minutes = 60;
 
