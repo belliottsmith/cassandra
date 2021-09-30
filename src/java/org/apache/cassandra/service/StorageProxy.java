@@ -3391,4 +3391,16 @@ public class StorageProxy implements StorageProxyMBean
     {
         DatabaseDescriptor.setDumpHeapOnUncaughtException(enabled);
     }
+
+    @Override
+    public boolean getGenerateSSTableDigestComponents()
+    {
+        return DatabaseDescriptor.shouldGenerateSSTableDigestComponents();
+    }
+
+    @Override
+    public void setGenerateSSTableDigestComponents(boolean shouldGenerateDigests)
+    {
+        DatabaseDescriptor.setGenerateSSTableDigestComponents(shouldGenerateDigests);
+    }
 }

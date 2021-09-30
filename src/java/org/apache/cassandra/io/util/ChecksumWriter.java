@@ -35,11 +35,12 @@ public class ChecksumWriter
 {
     private final CRC32 incrementalChecksum = new CRC32();
     private final DataOutput incrementalOut;
-    private final CRC32 fullChecksum = new CRC32();
+    private final CRC32 fullChecksum;
 
-    public ChecksumWriter(DataOutput incrementalOut)
+    public ChecksumWriter(DataOutput incrementalOut, boolean keepFullChecksum)
     {
         this.incrementalOut = incrementalOut;
+        this.fullChecksum = keepFullChecksum ? new CRC32() : null;
     }
 
     public void writeChunkSize(int length)
@@ -73,13 +74,15 @@ public class ChecksumWriter
             int incrementalChecksumValue = (int) incrementalChecksum.getValue();
             incrementalOut.writeInt(incrementalChecksumValue);
 
-            fullChecksum.update(toAppend);
+            if (fullChecksum != null)
+                fullChecksum.update(toAppend);
             if (checksumIncrementalResult)
             {
                 ByteBuffer byteBuffer = ByteBuffer.allocate(4);
                 byteBuffer.putInt(incrementalChecksumValue);
                 assert byteBuffer.arrayOffset() == 0;
-                fullChecksum.update(byteBuffer.array(), 0, byteBuffer.array().length);
+                if (fullChecksum != null)
+                    fullChecksum.update(byteBuffer.array(), 0, byteBuffer.array().length);
             }
             incrementalChecksum.reset();
 
@@ -92,6 +95,9 @@ public class ChecksumWriter
 
     public void writeFullChecksum(@Nonnull File digestFile)
     {
+        if (fullChecksum == null)
+            throw new IllegalStateException("Full checksum was not calculated for '" + digestFile + '\'');
+
         try (BufferedWriter out = Files.newBufferedWriter(digestFile.toPath(), Charsets.UTF_8))
         {
             out.write(String.valueOf(fullChecksum.getValue()));
