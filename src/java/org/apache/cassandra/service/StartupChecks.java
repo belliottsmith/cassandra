@@ -410,6 +410,10 @@ public class StartupChecks
                     }
                 }
             }
+            catch (final AccessDeniedException ade)
+            {
+                logger.info("Skipping maximum memory areas per process check (access denied to {}", MAX_MAP_COUNT_PATH);
+            }
             catch (final IOException e)
             {
                 logger.warn("IO exception while reading file {}.", path, e);
