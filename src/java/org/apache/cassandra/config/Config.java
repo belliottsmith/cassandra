@@ -522,6 +522,8 @@ public class Config
 
     public final ReplicaFilteringProtectionOptions replica_filtering_protection = new ReplicaFilteringProtectionOptions();
 
+    public volatile boolean generate_sstable_digest_components = true;
+
     @Replaces(oldName = "index_summary_capacity_in_mb", converter = Converters.MEBIBYTES_DATA_STORAGE_LONG, deprecated = true)
     public volatile DataStorageSpec.LongMebibytesBound index_summary_capacity;
     @Nullable
