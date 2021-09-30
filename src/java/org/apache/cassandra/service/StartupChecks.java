@@ -21,6 +21,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileStore;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
@@ -479,6 +480,10 @@ public class StartupChecks
                         logger.warn("Unable to parse {}.", path, e);
                     }
                 }
+            }
+            catch (final AccessDeniedException ade)
+            {
+                logger.info("Skipping maximum memory areas per process check (access denied to {}", MAX_MAP_COUNT_PATH);
             }
             catch (final IOException e)
             {
