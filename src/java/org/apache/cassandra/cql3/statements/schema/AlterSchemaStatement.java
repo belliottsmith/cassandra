@@ -38,7 +38,7 @@ import org.apache.cassandra.transport.Event.SchemaChange;
 import org.apache.cassandra.transport.messages.ResultMessage;
 
 @VisibleForTesting // expose SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY for SchemaLoader
-abstract public class AlterSchemaStatement implements CQLStatement, SchemaTransformation
+abstract public class AlterSchemaStatement implements CQLStatement.SingleKeyspaceCqlStatement, SchemaTransformation
 {
     public static final String SYSTEM_PROPERTY_ALLOW_SIMPLE_STRATEGY = "cassandra.allow_simplestrategy";
     public static final String SYSTEM_PROPERTY_ALLOW_DISABLED_COMPRESSION = "cassandra.allow_disabled_compression";
@@ -57,6 +57,12 @@ abstract public class AlterSchemaStatement implements CQLStatement, SchemaTransf
     public ResultMessage execute(QueryState state, QueryOptions options, long queryStartNanoTime)
     {
         return execute(state, false);
+    }
+
+    @Override
+    public String keyspace()
+    {
+        return keyspaceName;
     }
 
     public ResultMessage executeLocally(QueryState state, QueryOptions options)
