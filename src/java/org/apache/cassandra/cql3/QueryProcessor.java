@@ -75,9 +75,9 @@ public class QueryProcessor implements QueryHandler
      * change.  In the version defined below, the USE keyspace is ignored when a fully-qualified name is used as an
      * attempt to make IDs stable.
      */
-    private static final CassandraVersion PREPARE_ID_BEHAVIOR_CHANGE_30 = new CassandraVersion("3.0.26");
+    private static final CassandraVersion PREPARE_ID_BEHAVIOR_CHANGE_30 = new CassandraVersion("3.0.19.63"); // Adjusted for ACI release
     private static final CassandraVersion PREPARE_ID_BEHAVIOR_CHANGE_3X = new CassandraVersion("3.11.12");
-    private static final CassandraVersion PREPARE_ID_BEHAVIOR_CHANGE_40 = new CassandraVersion("4.0.1");
+    private static final CassandraVersion PREPARE_ID_BEHAVIOR_CHANGE_40 = new CassandraVersion("4.0.0.35"); // Adjusted for ACI release
 
     public static final QueryProcessor instance = new QueryProcessor();
 
