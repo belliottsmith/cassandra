@@ -1,8 +1,27 @@
-4.0.0.27-4.0.0.29 used for 4.0.0.24 hotfix releases
+4.0.0.35
+* Rebased on OSS 4.1-SNAPSHOT commit db7f15dcd5e7770a2959ca8989409b6629d10450 (##2572)
+* <rdar://66166922> Prevent new COMPACT STORAGE tables
+* <rdar://81607055> Biggest bucket for LCS+TWCS (#2521)
+* <rdar://81829385> (Early port CASSANDRA-16877, rebased out) Remove assumption that all urgent messages are small (#2528)
+* <rdar://81804020> Prevent bulk loader warning about imported sstable parent directory names
+* <rdar://81971332> Expand RTBoundValidator logging to include the partition key in the message
+* <rdar://82811671> Implement SSTable count by TWCS bucket (#2553)
+* <rdar://82811481> Limit disk space for compactions (#2552)
+* <rdar://83012056> Skip cleanup if transient ranges empty
+* <rdar://83342491> (Early port CASSANDRA-16997) MonitorableImpl AssertionError (#2579)
+* <rdar://71703399> i2 building should not block compactions from being executed
+* <rdar://50061816> Add a yaml property to allow last repair times to be updated via incremental repairs
+* <rdar://75891192> HintReader shouldnt throttle on expired hints
+* <rdar://81461799> Apply prod defaults from 3.0.24 to 4.0
+* <rdar://83625324> Log timed-out requests with no-spam logger for identifying low-frequency timeouts
+* <rdar://49886282> Rate-limit new client connection setup to avoid overwhelming during bcrypt (#2580)
+* <rdar://83641964> (Early port CASSANDRA-16674) Allow -os to be used with force repair (#2584)
+* <rdar://83644660> (Early port CASSANDRA-16872) Avoid trying to acquire 0 permits from the rate limiter when taking snapshot
+* <rdar://27729513> Add generate_sstable_digest_components - skip generating file checksums (#2583)
+* <rdar://83743784> Maximum memory areas per process startup check access denied warning changed to info
+* <rdar://83768953> (Early port CASSANDRA-15252) Avoid re-prepare storm on qualified statements after `use` (#2590)
 
-4.0.0.26
-
-4.0.0.25
+4.0.0.25-4.0.0.34 used for 4.0.0.24 hotfix releases
 
 4.0.0.24
 * <rdar://80912904> (Early port CASSANDRA-16807) Weak visibility guarantees of Accumulator lead to failed assertions during digest comparison (#2502)
