@@ -147,6 +147,14 @@ public class SSTableImporter
                 try
                 {
                     Descriptor oldDescriptor = entry.getKey();
+                    if (oldDescriptor.version.isInFuture())
+                    {
+                        logger.error("Can't import sstables with a newer version than we support ({}: {}, latest supported is: {})",
+                                     oldDescriptor,
+                                     oldDescriptor.version,
+                                     oldDescriptor.getFormat().getLatestVersion());
+                        throw new RuntimeException("Can't import sstable with newer version than we support: " + oldDescriptor);
+                    }
                     if (currentDescriptors.contains(oldDescriptor))
                         continue;
 
