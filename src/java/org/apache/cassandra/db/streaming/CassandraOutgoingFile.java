@@ -53,7 +53,7 @@ public class CassandraOutgoingFile implements OutgoingStream
 
     public CassandraOutgoingFile(StreamOperation operation, Ref<SSTableReader> ref,
                                  List<SSTableReader.PartitionPositionBounds> sections, List<Range<Token>> normalizedRanges,
-                                 long estimatedKeys)
+                                 long estimatedKeys, boolean peerSupportsCurrentSSTableVersion)
     {
         Preconditions.checkNotNull(ref.get());
         Range.assertNormalized(normalizedRanges);
@@ -65,7 +65,7 @@ public class CassandraOutgoingFile implements OutgoingStream
         SSTableReader sstable = ref.get();
 
         this.filename = sstable.getFilename();
-        this.shouldStreamEntireSSTable = computeShouldStreamEntireSSTables();
+        this.shouldStreamEntireSSTable = computeShouldStreamEntireSSTables(peerSupportsCurrentSSTableVersion);
         ComponentManifest manifest = ComponentManifest.create(sstable.descriptor);
         this.header = makeHeader(sstable, operation, sections, estimatedKeys, shouldStreamEntireSSTable, manifest);
     }
@@ -185,11 +185,10 @@ public class CassandraOutgoingFile implements OutgoingStream
         }
     }
 
-    @VisibleForTesting
-    public boolean computeShouldStreamEntireSSTables()
+    private boolean computeShouldStreamEntireSSTables(boolean peerSupportsCurrentSSTableVersion)
     {
         // don't stream if full sstable transfers are disabled or legacy counter shards are present
-        if (!DatabaseDescriptor.streamEntireSSTables() || ref.get().getSSTableMetadata().hasLegacyCounterShards)
+        if (!peerSupportsCurrentSSTableVersion || !DatabaseDescriptor.streamEntireSSTables() || ref.get().getSSTableMetadata().hasLegacyCounterShards)
             return false;
 
         return contained(sections, ref.get());

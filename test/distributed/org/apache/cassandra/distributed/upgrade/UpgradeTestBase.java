@@ -99,6 +99,7 @@ public class UpgradeTestBase extends DistributedTestBase
     public static final Semver v22 = new Semver("2.2.0-beta1", SemverType.LOOSE);
     public static final Semver v30 = new Semver("3.0.0-alpha1", SemverType.LOOSE);
     public static final Semver v3X = new Semver("3.11.0", SemverType.LOOSE);
+    public static final Semver v4_0_0_30 = new Semver("4.0-rc2", SemverType.LOOSE);
     public static final Semver v40 = new Semver("4.0-alpha1", SemverType.LOOSE);
     public static final Semver v41 = new Semver("4.1-alpha1", SemverType.LOOSE);
 
@@ -108,7 +109,9 @@ public class UpgradeTestBase extends DistributedTestBase
         Pair.create(v30, v3X),
         Pair.create(v30, v40),
         Pair.create(v3X, v40),
-        Pair.create(v40, v41));
+        Pair.create(v40, v41),
+        Pair.create(v4_0_0_30, v41));
+
 
     // the last is always the current
     public static final Semver CURRENT = SUPPORTED_UPGRADE_PATHS.get(SUPPORTED_UPGRADE_PATHS.size() - 1).right;
