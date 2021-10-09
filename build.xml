@@ -2010,8 +2010,8 @@
       <jar jarfile="${build.dir}/dtest-${base.version}.jar">
           <!-- excluding ACCP as it includes META-INF/JKS.RSA which causes a security exception - just want it packaged for final jar anyway -->
           <zipgroupfileset dir="${build.lib}" includes="*.jar" excludes="AmazonCorrettoCryptoProvider-*"/>
-          <zipgroupfileset dir="${build.dir.lib}/jars" includes="javassist-*.jar,reflections-*.jar" excludes="META-INF/*.SF"/>
-          <zipgroupfileset dir="${build.dir.lib}/jars" includes="jimfs-1.1.jar" excludes="META-INF/*.SF"/>
+          <zipgroupfileset dir="${build.test.dir}/lib/jars" includes="javassist-*.jar,reflections-*.jar" excludes="META-INF/*.SF"/>
+          <zipgroupfileset dir="${build.test.dir}/lib/jars" includes="jimfs-1.1.jar" excludes="META-INF/*.SF"/>
           <fileset dir="${build.classes.main}"/>
           <fileset dir="${test.classes}"/>
           <fileset dir="${test.conf}" />
