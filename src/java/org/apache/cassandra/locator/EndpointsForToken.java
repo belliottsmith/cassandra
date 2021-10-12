@@ -141,6 +141,24 @@ public class EndpointsForToken extends Endpoints<EndpointsForToken>
         return copyOf(token, Arrays.asList(replicas));
     }
 
+    public static EndpointsForToken copyOf(Token token, EndpointsForToken natural, EndpointsForToken pending)
+    {
+        if (natural.isEmpty() && pending.isEmpty()) return empty(token);
+        if (pending.isEmpty()) return copyOf(token, natural);
+
+        // Changes to natural and pending replicas are not synchornised, so it can happen that replica is
+        // already in natural, but is still in pending. To avoid throwing exceptions in this case, we
+        // filter out all pending replicas that are already present in natural. This is going to be
+        // fixed properly when implementing transactional metadata.
+        //
+        // rdar://77202925 (Conflicting replica added (expected unique endpoints))
+        pending = pending.filter((replica) -> !natural.contains(replica));
+        return builder(token, natural.size() + pending.size())
+               .addAll(natural)
+               .addAll(pending)
+               .build();
+    }
+
     public static EndpointsForToken copyOf(Token token, Collection<Replica> replicas)
     {
         if (replicas.isEmpty()) return empty(token);
