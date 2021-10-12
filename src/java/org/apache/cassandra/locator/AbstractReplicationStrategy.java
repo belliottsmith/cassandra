@@ -27,7 +27,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Iterables;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -121,7 +120,7 @@ public abstract class AbstractReplicationStrategy
         if (pendingRanges != null)
         {
             EndpointsForToken pending = pendingRanges.pendingEndpointsFor(token);
-            return EndpointsForToken.copyOf(token, Iterables.concat(natural.list, pending.list));
+            return EndpointsForToken.copyOf(token, natural, pending);
         }
         else
         {
