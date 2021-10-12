@@ -120,7 +120,7 @@ public abstract class AbstractReplicationStrategy
         if (pendingRanges != null)
         {
             EndpointsForToken pending = pendingRanges.pendingEndpointsFor(token);
-            return EndpointsForToken.copyOf(token, Iterables.concat(natural.list, pending.list));
+            return EndpointsForToken.copyOf(token, natural, pending);
         }
         else
         {
