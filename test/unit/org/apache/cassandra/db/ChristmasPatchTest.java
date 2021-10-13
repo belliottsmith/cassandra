@@ -29,11 +29,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.primitives.Ints;
-import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
+import org.apache.cassandra.db.compaction.AbstractCompactionStrategy;
 import org.apache.cassandra.db.xmas.BoundsAndOldestTombstone;
 import org.apache.cassandra.db.xmas.InvalidatedRepairedRange;
 import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
@@ -54,6 +54,7 @@ import org.apache.cassandra.utils.Pair;
 import static org.apache.cassandra.db.ColumnFamilyStore.updateLastSuccessfulRepair;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -83,7 +84,7 @@ public class ChristmasPatchTest extends CQLTester
     void update(long left, long right, int time)
     {
         holder = updateLastSuccessfulRepair(range(left, right), time, holder);
-        Assert.assertNotNull(holder);
+        assertNotNull(holder);
     }
 
     /**
@@ -95,7 +96,7 @@ public class ChristmasPatchTest extends CQLTester
         update(50, 100, 99);
         update(0, 100, 100);
         update(50, 100, 101);
-        Assert.assertEquals(2, holder.successfulRepairs.size());
+        assertEquals(2, holder.successfulRepairs.size());
     }
 
     /**
@@ -111,7 +112,7 @@ public class ChristmasPatchTest extends CQLTester
         List<Pair<Range<Token>, Integer>> expected = Lists.newArrayList(Pair.create(range(150, 250), 101),
                                                                         Pair.create(range(0, 100), 100),
                                                                         Pair.create(range(50, 100), 99));
-        Assert.assertEquals(expected, holder.successfulRepairs);
+        assertEquals(expected, holder.successfulRepairs);
     }
 
     @Test
@@ -132,10 +133,10 @@ public class ChristmasPatchTest extends CQLTester
         int gcBefore = cfs.gcBefore(FBUtilities.nowInSeconds());
         DecoratedKey dk = new BufferDecoratedKey(cfs.getPartitioner().getRandomToken(), ByteBufferUtil.EMPTY_BYTE_BUFFER);
 
-        Assert.assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk, gcBefore));
+        assertEquals(Integer.MIN_VALUE, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk, gcBefore));
         Token min = cfs.getPartitioner().getMinimumToken();
         cfs.updateLastSuccessfulRepair(new Range<>(min, min), System.currentTimeMillis());
-        Assert.assertEquals(gcBefore, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk, gcBefore));
+        assertEquals(gcBefore, cfs.getRepairTimeSnapshot().gcBeforeForKey(cfs, dk, gcBefore));
     }
 
     @Test
@@ -593,6 +594,104 @@ and it will update the (400, 500] one with a new invalidatedAtSeconds
         }
         assertTrue(foundWithoutTombstones);
         assertFalse(foundTombstones);
+    }
+
+    @Test
+    public void testDroppableTombstones() throws Throwable
+    {
+        createTable("CREATE TABLE %s (id int, ck int, t text, primary key (id, ck))" +
+                    "WITH compaction = {'class': 'LeveledCompactionStrategy', 'tombstone_compaction_interval': 0}");
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        DatabaseDescriptor.setChristmasPatchEnabled();
+
+        int now = FBUtilities.nowInSeconds();
+
+        for (int i = 0; i < 100; i++)
+        {
+            for (int j = 0; j < 100; j++)
+            {
+                if (j < 25)
+                    execute("DELETE FROM %s WHERE id = ? and ck = ?", i, j);
+                else
+                    execute("INSERT INTO %s (id, ck, t) VALUES (?,?,'something')", i, j);
+            }
+        }
+
+        cfs.forceBlockingFlush();
+        cfs.forceMajorCompaction();
+        assertEquals(1, cfs.getLiveSSTables().size());
+        SSTableReader sstable = cfs.getLiveSSTables().iterator().next();
+
+        // gcgs has not passed;
+        assertEquals(0.0, sstable.getEstimatedDroppableTombstoneRatio(now - 100), 0.05);
+        // but here it has;
+        assertTrue(sstable.getEstimatedDroppableTombstoneRatio(now + 100) > 0.2);
+
+        AbstractCompactionStrategy strategy = cfs.getCompactionStrategyManager().getStrategies().get(0).get(0);
+
+        Range<Token> repairedRange = coveringRangeFor(sstable);
+
+        // range was repaired 2000s ago, should have no droppable tombstones
+        ImmutableList<Pair<Range<Token>, Integer>> l = ImmutableList.<Pair<Range<Token>, Integer>>builder()
+                                                                    .add(Pair.create(repairedRange, now - 2000)).build();
+        SuccessfulRepairTimeHolder srt = new SuccessfulRepairTimeHolder(l, ImmutableList.of());
+        assertFalse(strategy.worthDroppingTombstones(sstable, Integer.MAX_VALUE, srt));
+
+        // but if we disable xmas patch it should:
+        DatabaseDescriptor.setChristmasPatchDisabled();
+        assertTrue(strategy.worthDroppingTombstones(sstable, Integer.MAX_VALUE, srt));
+        DatabaseDescriptor.setChristmasPatchEnabled();
+
+        // range repaired in the future, all tombstones should be droppable
+        l = ImmutableList.<Pair<Range<Token>, Integer>>builder()
+                         .add(Pair.create(repairedRange, now + 2000)).build();
+        srt = new SuccessfulRepairTimeHolder(l, ImmutableList.of());
+        assertTrue(strategy.worthDroppingTombstones(sstable, now + 100, srt));
+
+        // should still honor gcbefore;
+        assertFalse(strategy.worthDroppingTombstones(sstable, now - 100, srt));
+
+    }
+
+    @Test
+    public void testLimitRanges() throws Throwable
+    {
+        createTable("CREATE TABLE %s (id int, ck int, t text, primary key (id, ck))" +
+                    "WITH compaction = {'class': 'LeveledCompactionStrategy', 'tombstone_compaction_interval': 0}");
+        ColumnFamilyStore cfs = getCurrentColumnFamilyStore();
+        DatabaseDescriptor.setChristmasPatchEnabled();
+
+        for (int i = 0; i < 100; i++)
+        {
+            for (int j = 0; j < 100; j++)
+            {
+                if (j < 20)
+                    execute("DELETE FROM %s WHERE id = ? and ck = ?", i, j);
+                else
+                    execute("INSERT INTO %s (id, ck, t) VALUES (?,?,'something')", i, j);
+            }
+        }
+
+        cfs.forceBlockingFlush();
+        cfs.forceMajorCompaction();
+        assertEquals(1, cfs.getLiveSSTables().size());
+        SSTableReader sstable = cfs.getLiveSSTables().iterator().next();
+
+        ImmutableList.Builder<Pair<Range<Token>, Integer>> builder = ImmutableList.<Pair<Range<Token>, Integer>>builder();
+        for (int i = 0; i < 100; i++)
+            builder.add(Pair.create(range(i-1, i), 0));
+        builder.add(Pair.create(coveringRangeFor(sstable), Integer.MAX_VALUE));
+
+        SuccessfulRepairTimeHolder srt = new SuccessfulRepairTimeHolder(builder.build(), ImmutableList.of());
+        assertEquals(Integer.MIN_VALUE, srt.getFullyRepairedTimeFor(sstable, 0, true, 100));
+        assertEquals(Integer.MAX_VALUE, srt.getFullyRepairedTimeFor(sstable, 0, true, 101));
+    }
+
+    private static Range<Token> coveringRangeFor(SSTableReader sstable)
+    {
+        long startL = (long) sstable.first.getToken().getTokenValue() - 1;
+        long endL =  (long) sstable.last.getToken().getTokenValue();
+        return range(startL, endL);
     }
 }
 

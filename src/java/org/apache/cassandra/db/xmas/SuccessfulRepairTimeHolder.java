@@ -95,32 +95,41 @@ public class SuccessfulRepairTimeHolder
         return lastRepairTime;
     }
 
+    public int getFullyRepairedTimeFor(SSTableReader sstable, int gcBefore)
+    {
+        return getFullyRepairedTimeFor(sstable, gcBefore, false, Integer.MAX_VALUE);
+    }
+
     /**
-     * Get the time of the oldest repair that made this sstable fully repaired
+     * Get the time of the oldest repair that made this sstable fully repaired.
+     *
+     * Iterates over the time-sorted repaired ranges and subtracts each repaired range from the sstable bounds. Once
+     * the sstable bounds are gone we know the timestamp of the oldest repair that made this sstable fully repaired.
+     *
+     * @param sstable
+     * @param gcBefore
+     * @param fullCheck true if we should get the full repair time even though the sstable has tombstones newer than gcBefore
+     * @param repairedRangeLimit max amount of repaired ranges we should check - some clusters have extremely many repaired ranges and
+     *                           if we set fullCheck to true we could potentially iterate them all
      *
      * @return the last successful repair time for the sstable or Integer.MIN_VALUE if the sstable has not been completely covered by repair
      */
-    public int getFullyRepairedTimeFor(SSTableReader sstable, int gcBefore)
+    public int getFullyRepairedTimeFor(SSTableReader sstable, int gcBefore, boolean fullCheck, int repairedRangeLimit)
     {
         // if there is a tombstone newer than gcBefore we can't drop this sstable
-        if (sstable.getSSTableMetadata().maxLocalDeletionTime > gcBefore)
+        if (!fullCheck && sstable.getSSTableMetadata().maxLocalDeletionTime > gcBefore)
             return Integer.MIN_VALUE;
-        /*
-        Idea is that we subtract the time-sorted repaired ranges from the sstable bound until it is gone
 
-        Result being that the last range we subtract before the sstable bounds are gone is the oldest repair that made the
-        sstable fully repaired.
-         */
         Bounds<Token> sstableBound = new Bounds<>(sstable.first.getToken(), sstable.last.getToken());
         List<AbstractBounds<Token>> sstableBounds = new ArrayList<>();
         sstableBounds.add(sstableBound);
-        for (int i = 0, isize = successfulRepairs.size(); i < isize; i++)
+        for (int i = 0, isize = Math.min(successfulRepairs.size(), repairedRangeLimit); i < isize; i++)
         {
             Pair<Range<Token>, Integer> intersectingRepair = successfulRepairs.get(i);
             Range<Token> repairedRange = intersectingRepair.left;
             int repairTime = intersectingRepair.right;
             // if the sstable contains a tombstone newer than the best possible repairTime, we can't drop this sstable, no need to keep subtracting
-            if (repairTime < sstable.getSSTableMetadata().maxLocalDeletionTime)
+            if (!fullCheck && repairTime < sstable.getSSTableMetadata().maxLocalDeletionTime)
                 return Integer.MIN_VALUE;
 
             for (Range<Token> unwrappedRange : repairedRange.unwrap()) // avoid handling wrapping ranges in subtract below

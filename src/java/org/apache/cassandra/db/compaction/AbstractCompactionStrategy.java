@@ -71,6 +71,9 @@ public abstract class AbstractCompactionStrategy
     protected static final String COMPACTION_ENABLED = "enabled";
     public static final String ONLY_PURGE_REPAIRED_TOMBSTONES = "only_purge_repaired_tombstones";
 
+    // Maximum number of successful repair pairs to check when computing getFullyRepairedTimeFor, if exceeded return oldest possible repair time
+    private static final int REPAIRED_RANGE_ITERATION_LIMIT = 2000;
+
     protected Map<String, String> options;
 
     protected final ColumnFamilyStore cfs;
@@ -384,6 +387,12 @@ public abstract class AbstractCompactionStrategy
      */
     protected boolean worthDroppingTombstones(SSTableReader sstable, int gcBefore)
     {
+        return worthDroppingTombstones(sstable, gcBefore, cfs.getRepairTimeSnapshot());
+    }
+
+    @VisibleForTesting
+    public boolean worthDroppingTombstones(SSTableReader sstable, int gcBefore, SuccessfulRepairTimeHolder repairTimeHolder)
+    {
         if (disableTombstoneCompactions || CompactionController.NEVER_PURGE_TOMBSTONES || cfs.getNeverPurgeTombstones())
             return false;
         // since we use estimations to calculate, there is a chance that compaction will not drop tombstones actually.
@@ -392,6 +401,8 @@ public abstract class AbstractCompactionStrategy
         if (System.currentTimeMillis() < sstable.getCreationTimeFor(Component.DATA) + tombstoneCompactionInterval * 1000)
            return false;
 
+        // early check to avoid calculating the fully repaired time for every sstable - if it doesn't have tombstoneThreshold
+        // droppable tombstones before gcBefore we can return here
         double droppableRatio = sstable.getEstimatedDroppableTombstoneRatio(gcBefore);
         if (droppableRatio <= tombstoneThreshold)
             return false;
@@ -399,7 +410,14 @@ public abstract class AbstractCompactionStrategy
         //sstable range overlap check is disabled. See CASSANDRA-6563.
         if (uncheckedTombstoneCompaction)
             return true;
-        SuccessfulRepairTimeHolder repairTimeHolder = cfs.getRepairTimeSnapshot();
+
+        if (!cfs.isChristmasPatchDisabled())
+        {
+            int lastFullyRepairedTime = repairTimeHolder.getFullyRepairedTimeFor(sstable, gcBefore, true, REPAIRED_RANGE_ITERATION_LIMIT);
+            droppableRatio = Math.min(droppableRatio, sstable.getEstimatedDroppableTombstoneRatio(lastFullyRepairedTime));
+            if (droppableRatio <= tombstoneThreshold)
+                return false;
+        }
         Collection<SSTableReader> overlaps = cfs.getOverlappingLiveSSTables(Collections.singleton(sstable));
 
         if (overlaps.isEmpty())
@@ -421,16 +439,16 @@ public abstract class AbstractCompactionStrategy
             }
             // first, calculate estimated keys that do not overlap
             long keys = sstable.estimatedKeys();
+            if (keys <= 0)
+                return false;
             Set<Range<Token>> ranges = new HashSet<Range<Token>>(overlaps.size());
             for (SSTableReader overlap : overlaps)
                 ranges.add(new Range<>(overlap.first.getToken(), overlap.last.getToken()));
             long remainingKeys = keys - sstable.estimatedKeysForRanges(ranges);
-            // next, calculate what percentage of columns we have within those keys
-            long columns = sstable.getEstimatedCellPerPartitionCount().mean() * remainingKeys;
-            double remainingColumnsRatio = ((double) columns) / (sstable.getEstimatedCellPerPartitionCount().count() * sstable.getEstimatedCellPerPartitionCount().mean());
-
-            // return if we still expect to have droppable tombstones in rest of columns
-            return remainingColumnsRatio * droppableRatio > tombstoneThreshold;
+            // we have `remainingKeys` partitions that don't overlap with anything
+            // that means `remainingKeys / keys` is the ratio we could possibly drop during compaction
+            double remainingKeysRatio = ((double) remainingKeys) / keys;
+            return remainingKeysRatio * droppableRatio > tombstoneThreshold;
         }
     }
 
