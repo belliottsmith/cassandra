@@ -22,7 +22,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import com.datastax.driver.core.EndPoint;
 import com.datastax.driver.core.PlainTextAuthProvider;
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.SchemaLoader;
@@ -60,11 +59,11 @@ public class InvalidateCredentialsCacheTest extends CQLTester
 
         roleANegotiator = authenticator.newSaslNegotiator(null);
         roleANegotiator.evaluateResponse(new PlainTextAuthProvider(ROLE_A.getRoleName(), "ignored")
-                .newAuthenticator((EndPoint) null, null)
+                .newAuthenticator(null, null)
                 .initialResponse());
         roleBNegotiator = authenticator.newSaslNegotiator(null);
         roleBNegotiator.evaluateResponse(new PlainTextAuthProvider(ROLE_B.getRoleName(), "ignored")
-                .newAuthenticator((EndPoint) null, null)
+                .newAuthenticator(null, null)
                 .initialResponse());
 
         startJMXServer();

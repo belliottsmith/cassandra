@@ -31,10 +31,10 @@ import java.util.concurrent.Executors;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.MoreExecutors;
+import mme.cassandraclient.shaded.com.google.common.util.concurrent.FutureCallback;
+import mme.cassandraclient.shaded.com.google.common.util.concurrent.Futures;
+import mme.cassandraclient.shaded.com.google.common.util.concurrent.ListenableFuture;
+import mme.cassandraclient.shaded.com.google.common.util.concurrent.MoreExecutors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
