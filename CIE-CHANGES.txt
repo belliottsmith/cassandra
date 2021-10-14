@@ -1,6 +1,7 @@
 4.0.0.36
 * <rdar://84012150> Mixed cluster rewrote sstable metadata with older format, reporting corruption on upgrade (#2597)
 * <rdar://83754527> Make tombstone compactions christmas patch aware (#2589)
+* <rdar://82028373> Use client instead of driver for internal C*i (#2544)
 
 4.0.0.35
 * Rebased on OSS 4.1-SNAPSHOT commit db7f15dcd5e7770a2959ca8989409b6629d10450 (#2572)
