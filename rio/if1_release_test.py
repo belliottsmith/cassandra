@@ -39,3 +39,22 @@ def test_get_targets_if1():
     with pytest.raises(Exception):
         if1_release.get_targets_if1(None)
         assert excinfo
+
+def test_parse_unauth_redirect_location():
+    # Expected result
+    location_header = 'https://idmsac.corp.apple.com/IDMSWebAuth/login?appIdKey=abcdef&rv=123&path='
+    app_id_key, rv = if1_release.parse_unauth_redirect_location(location_header)
+    assert app_id_key == 'abcdef'
+    assert rv == '123'
+
+    # Malformed: missing param keys
+    with pytest.raises(Exception) as excinfo:
+        location_header = 'https://idmsac.corp.apple.com/IDMSWebAuth/login'
+        app_id_key, rv = if1_release.parse_unauth_redirect_location(location_header)
+        assert excinfo
+
+    # Malformed: missing param values
+    with pytest.raises(Exception) as excinfo:
+        location_header = 'https://idmsac.corp.apple.com/IDMSWebAuth/login?appIdKey=&rv=&path='
+        app_id_key, rv = if1_release.parse_unauth_redirect_location(location_header)
+        assert excinfo

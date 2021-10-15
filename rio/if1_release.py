@@ -5,6 +5,7 @@ import sys
 import json
 import time
 from datetime import datetime
+from urllib.parse import urlparse, parse_qs
 
 import tzlocal
 import requests
@@ -16,6 +17,10 @@ requests_log.setLevel(logging.DEBUG)
 requests_log.propagate = True
 LOGGER = logging.getLogger(__name__)
 
+# Requires tailing slash, otherwise will redirects to include it, and we don't
+# want to need to follow the first but not subsequent redirects for
+# cookie-hijacking
+CARNIVAL_IF1_BASE_URL = 'https://if1.carnival.apple.com/Carnival/'
 CASSANDRA_CONNECT_ENV_BASE_URL = 'https://cassandra.apple.com'
 CASSANDRA_CONNECT_API_TIMEOUT_SECS = 60
 CASSANDRA_CONNECT_API_HEADERS = {'Content-Type': 'application/json'}
@@ -34,12 +39,15 @@ def get_required_env(name):
 # Original Python source from: https://github.pie.apple.com/rio/carnival-client/blob/dev/scripts/getcookie.py
 # Adapted via the 2to3 tool, with other minor adjustments for loading credentials via env, etc
 def get_carnival_auth_cookie(ac_username, ac_password):
-    # See https://docs.carnival.apple.com/documents/api-docs/carnival-web-service-authentication/
-    # > To find the App_ID :
-    # > Log out of any Carnival environment, once you log back in, copy the IDMS URL and use the appIdKey.
-    app_id = "ab74395cc3e8da24ee5b56ff70129f2eb49d4d14dddea094f4e0217f164042c9" # IF1 Carnival
 
-    login_url = f'https://idmsac.corp.apple.com/IDMSWebAuth/login?rv=1&appIdKey={app_id}'
+    LOGGER.info(f'Making an unauthenticated request to Carnival base URL {CARNIVAL_IF1_BASE_URL} to get IdMS appIdKey and rv params...')
+    unauth_resp = requests.get(url=CARNIVAL_IF1_BASE_URL, allow_redirects=False)
+    unauth_redirect_location = unauth_resp.headers['Location']
+    LOGGER.info(f'Parsing IdMS params from Location header: {unauth_redirect_location}')
+    app_id_key, rv = parse_unauth_redirect_location(unauth_redirect_location)
+    LOGGER.info(f'Got IdMS params: appIdKey={app_id_key} rv={rv}')
+
+    login_url = f'https://idmsac.corp.apple.com/IDMSWebAuth/login?rv={rv}&appIdKey={app_id_key}'
     authenticate_url = 'https://idmsac.corp.apple.com/IDMSWebAuth/authenticate'
 
     login_response = requests.get(url=login_url, headers={})
@@ -55,20 +63,33 @@ def get_carnival_auth_cookie(ac_username, ac_password):
     auth_cookies = {'JSESSIONID': jsessionid}
 
     auth_payload = {
-        'appIdKey': app_id,
+        'appIdKey': app_id_key,
         'appleId': ac_username,
         'accountPassword': ac_password,
     }
 
     auth_response = requests.post(url=authenticate_url, cookies=auth_cookies, data=auth_payload)
     LOGGER.info(f'Got auth response: {auth_response.status_code}')
-    auth_response.raise_for_status()
+    try:
+        auth_response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        LOGGER.info(f'Auth response returned error status, but can be ignored. This endpoint is known to return 410 but include a valid cookie for authentication; see rdar://84278366. Ignoring exception RequestException={e}')
 
     for redirect_response in auth_response.history:
         if redirect_response.cookies['acack']:
             return redirect_response.cookies['acack']
 
     raise Exception('Could not get an auth cookie from Carnival. Are you sure your credentials are correct?')
+
+
+def parse_unauth_redirect_location(location_header):
+    parsed_url = urlparse(location_header)
+    if not parsed_url.query:
+        raise ValueError(f'Could not extract querystring from Location header: {location_header}')
+    parsed_query = parse_qs(parsed_url.query)
+    app_id_key = parsed_query['appIdKey'][0]
+    rv = parsed_query['rv'][0]
+    return app_id_key, rv
 
 
 def parse_id_from_local_install_response(resp_json):
@@ -85,7 +106,8 @@ def submit_local_install(git_committer_email, auth_acack_cookie, carnival_app_na
 
     LOGGER.info(f'Creating Carnival local install request on behalf of committer {git_committer_email}...')
 
-    url = 'https://if1.carnival.apple.com/Carnival/services/1.0/workflow/request'
+    # See comment above around trailing slashes
+    url = f'{CARNIVAL_IF1_BASE_URL}services/1.0/workflow/request'
     params = {'userEmailAddress': git_committer_email}
     headers = {
         'Content-Type': 'application/json',
@@ -251,7 +273,6 @@ def main():
             git_committer_email = get_required_env('BUILD_PARAM_GIT_COMMITTER_EMAIL')
             carnival_app_name = get_required_env('BUILD_PARAM_CARNIVAL_APP_NAME')
             carnival_build_version = get_required_env('BUILD_PARAM_CARNIVAL_BUILD_VERSION')
-
             auth_acack_cookie = get_carnival_auth_cookie(ac_username, ac_password)
             local_install_request_id = submit_local_install(git_committer_email, auth_acack_cookie, carnival_app_name, carnival_build_version)
 
