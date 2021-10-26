@@ -110,14 +110,14 @@ public class Dispatcher
     }
 
     /**
-     * Note: this method may be executed on the netty event loop, during initial protocol negotiation
+     * Note: this method may be executed on the netty event loop, during initial protocol negotiation; the caller is
+     * responsible for cleaning up any global or thread-local state. (ex. tracing, client warnings, etc.).
      */
-    static Message.Response processRequest(ServerConnection connection, Message.Request request, Overload backpressure)
+    private static Message.Response processRequest(ServerConnection connection, Message.Request request, Overload backpressure)
     {
         long queryStartNanoTime = System.nanoTime();
         if (connection.getVersion().isGreaterOrEqualTo(ProtocolVersion.V4))
             ClientWarn.instance.captureWarnings();
-
         if (backpressure == Overload.REQUESTS)
         {
             String message = String.format("Request breached global limit of %d requests/second and triggered backpressure.",
@@ -140,6 +140,7 @@ public class Dispatcher
         Message.logger.trace("Received: {}, v={}", request, connection.getVersion());
         connection.requests.inc();
         Message.Response response = request.execute(qstate, queryStartNanoTime);
+
         response.setStreamId(request.getStreamId());
         response.setWarnings(ClientWarn.instance.getWarnings());
         response.attach(connection);
@@ -148,33 +149,38 @@ public class Dispatcher
     }
 
     /**
-     * Note: this method is not expected to execute on the netty event loop.
+     * Note: this method may be executed on the netty event loop.
      */
-    void processRequest(Channel channel, Message.Request request, FlushItemConverter forFlusher, Overload backpressure)
+    static Message.Response processRequest(Channel channel, Message.Request request, Overload backpressure)
     {
-        final Message.Response response;
-        final ServerConnection connection;
-        FlushItem<?> toFlush;
         try
         {
-            assert request.connection() instanceof ServerConnection;
-            connection = (ServerConnection) request.connection();
-            response = processRequest(connection, request, backpressure);
-            toFlush = forFlusher.toFlushItem(channel, request, response);
-            Message.logger.trace("Responding: {}, v={}", response, connection.getVersion());
+            return processRequest((ServerConnection) request.connection(), request, backpressure);
         }
         catch (Throwable t)
         {
             JVMStabilityInspector.inspectThrowable(t);
+
             Predicate<Throwable> handler = ExceptionHandlers.getUnexpectedExceptionHandler(channel, true);
             ErrorMessage error = ErrorMessage.fromException(t, handler);
             error.setStreamId(request.getStreamId());
-            toFlush = forFlusher.toFlushItem(channel, request, error);
+            error.setWarnings(ClientWarn.instance.getWarnings());
+            return error;
         }
         finally
         {
             ClientWarn.instance.resetWarnings();
         }
+    }
+
+    /**
+     * Note: this method is not expected to execute on the netty event loop.
+     */
+    void processRequest(Channel channel, Message.Request request, FlushItemConverter forFlusher, Overload backpressure)
+    {
+        Message.Response response = processRequest(channel, request, backpressure);
+        FlushItem<?> toFlush = forFlusher.toFlushItem(channel, request, response);
+        Message.logger.trace("Responding: {}, v={}", response, request.connection().getVersion());
         flush(toFlush);
     }
 
