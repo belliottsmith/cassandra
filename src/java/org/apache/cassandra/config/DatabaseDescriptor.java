@@ -4693,4 +4693,14 @@ public class DatabaseDescriptor
     {
         conf.generate_sstable_digest_components = shouldGenerateDigests;
     }
+
+    public static void setAllowNonSuperUserSelectSaltedHash(boolean allow)
+    {
+        conf.allow_nonsuperuser_select_salted_hash = allow;
+    }
+
+    public static boolean getAllowNonSuperUserSelectSaltedHash()
+    {
+        return conf.allow_nonsuperuser_select_salted_hash;
+    }
 }
