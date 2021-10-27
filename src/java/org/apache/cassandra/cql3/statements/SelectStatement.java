@@ -19,6 +19,7 @@ package org.apache.cassandra.cql3.statements;
 
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
@@ -30,6 +31,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.audit.AuditLogContext;
 import org.apache.cassandra.audit.AuditLogEntryType;
+import org.apache.cassandra.auth.AuthKeyspace;
 import org.apache.cassandra.auth.Permission;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.db.guardrails.Guardrails;
@@ -37,6 +39,7 @@ import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.*;
 import org.apache.cassandra.cql3.functions.Function;
 import org.apache.cassandra.cql3.restrictions.StatementRestrictions;
@@ -52,6 +55,7 @@ import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.marshal.CollectionType;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.db.marshal.UserType;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.rows.ComplexColumnData;
@@ -61,6 +65,11 @@ import org.apache.cassandra.db.view.View;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.index.IndexRegistry;
+import org.apache.cassandra.schema.ColumnMetadata;
+import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.SchemaConstants;
+import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.ClientWarn;
@@ -73,6 +82,7 @@ import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.NoSpamLogger;
 
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
@@ -97,6 +107,7 @@ import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 public class SelectStatement implements CQLStatement.SingleKeyspaceCqlStatement
 {
     private static final Logger logger = LoggerFactory.getLogger(SelectStatement.class);
+    private static final NoSpamLogger nospam1m = NoSpamLogger.getLogger(logger, 1, TimeUnit.MINUTES);
 
     public static final int DEFAULT_PAGE_SIZE = 10000;
 
@@ -229,6 +240,42 @@ public class SelectStatement implements CQLStatement.SingleKeyspaceCqlStatement
 
         for (Function function : getFunctions())
             state.ensurePermission(Permission.EXECUTE, function);
+
+        checkSensitiveColumns(state);
+    }
+
+    private void checkSensitiveColumns(ClientState state)
+    {
+        if (state.isInternal)
+            return;
+
+        if (!isReferencingSaltedHash())
+            return;
+
+        if (!state.getUser().isSuper())
+        {
+            if (DatabaseDescriptor.getAllowNonSuperUserSelectSaltedHash())
+            {
+                String maskedStatement = String.format("column mapping = %s, table metadata = %s", this.getSelection().getColumnMapping(), this.table);
+                String userNullOrName = String.format("user%s", state.getUser() == null ? "=null" : String.format(".name=%s", state.getUser().getName()));
+                nospam1m.warn("Non-superuser SELECT statement references column salted_hash, which will be deprecated in a future release; statement={} {} remoteAddress={}", maskedStatement, userNullOrName, state.getRemoteAddress());
+            }
+            else
+            {
+                throw new UnauthorizedException("Cannot allow references to salted_hash column due config allow_nonsuperuser_select_salted_hash");
+            }
+        }
+    }
+
+    @VisibleForTesting
+    boolean isReferencingSaltedHash()
+    {
+        // Where possible, skip allocations required for column check below
+        if (!this.table.keyspace.equals(SchemaConstants.AUTH_KEYSPACE_NAME) || !this.table.name.equals(AuthKeyspace.ROLES))
+            return false;
+
+        // this.queriedColumns is a misnomer -- see differentiation between queried and fetched columns in ColumnFilter
+        return this.queriedColumns().queriedColumns().contains(ColumnMetadata.regularColumn(SchemaConstants.AUTH_KEYSPACE_NAME, AuthKeyspace.ROLES, "salted_hash", UTF8Type.instance));
     }
 
     public void validate(ClientState state) throws InvalidRequestException
