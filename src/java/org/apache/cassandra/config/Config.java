@@ -1285,4 +1285,6 @@ public class Config
     }
     
     public volatile boolean dump_heap_on_uncaught_exception = false;
+
+    public volatile boolean allow_nonsuperuser_select_salted_hash = false;
 }
