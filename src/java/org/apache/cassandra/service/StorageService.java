@@ -2773,6 +2773,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         updateTokenMetadata(endpoint, tokens, new HashSet<>());
     }
 
+    // Check if this is the wrapped runtime exception thrown by org.apache.cassandra.config.DatabaseDescriptor.getReplaceAddress
+    // when it is unable to resolve the host in DNS
+    private static boolean isUnknownReplacementHostException(RuntimeException ex)
+    {
+        return ex != null && ex.getCause() != null && ex.getCause().getClass() == UnknownHostException.class;
+    }
+
     private void updateTokenMetadata(InetAddressAndPort endpoint, Iterable<Token> tokens, Set<InetAddressAndPort> endpointsToRemove)
     {
         Set<Token> tokensToUpdateInMetadata = new HashSet<>();
@@ -2818,8 +2825,27 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         for (InetAddressAndPort ep : endpointsToRemove)
         {
             removeEndpoint(ep);
-            if (replacing && ep.equals(DatabaseDescriptor.getReplaceAddress()))
-                Gossiper.instance.replacementQuarantine(ep); // quarantine locally longer than normally; see CASSANDRA-8260
+            try
+            {
+                if (replacing && ep.equals(DatabaseDescriptor.getReplaceAddress()))
+                    Gossiper.instance.replacementQuarantine(ep); // quarantine locally longer than normally; see CASSANDRA-8260
+            }
+            catch (RuntimeException ex)
+            {
+                // If a host is still running with replace_address_first_boot/replace_address system properties
+                // set, then the original host may have been removed from DNS by the time it is dropped from gossip.
+                // Ignore the exception and not add to replacement quarantine as there's no way to look up that address
+                // and it was being cleaned up from gossip state anyway.
+                if (isUnknownReplacementHostException(ex))
+                {
+                    logger.info("Suppressed exception while checking if removed endpoint was replacement address",
+                                ex.getMessage());
+                }
+                else
+                {
+                    throw ex;
+                }
+            }
         }
         if (!tokensToUpdateInSystemKeyspace.isEmpty())
             SystemKeyspace.updateTokens(endpoint, tokensToUpdateInSystemKeyspace);
@@ -2847,7 +2873,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             // decommissioned and did not have the same IP address or host id.  Allow the handleStateNormal
             // handling to proceed, otherwise gossip state will be inconistent with some nodes believing the
             // replacement host to be normal, and nodes unable to resolve the hostname will be left in JOINING.
-            if (ex.getCause() != null && ex.getCause().getClass() == UnknownHostException.class)
+            if (isUnknownReplacementHostException(ex))
             {
                 logger.info("Suppressed exception while checking isReplacingSameHostAddressAndHostId({}). Original host was probably decommissioned. ({})",
                         hostId, ex.getMessage());
