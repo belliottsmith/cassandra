@@ -202,7 +202,7 @@ public class CassandraDaemon
     public CassandraDaemon(boolean runManaged)
     {
         this.runManaged = runManaged;
-        this.startupChecks = new StartupChecks().withDefaultTests().withTest(new FileSystemOwnershipCheck());
+        this.startupChecks = new StartupChecks().withDefaultTests().withTest(new CIEFileSystemOwnershipCheck());
         this.setupCompleted = false;
     }
 
