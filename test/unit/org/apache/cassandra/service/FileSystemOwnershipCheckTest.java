@@ -35,15 +35,14 @@ import org.junit.Test;
 import org.apache.cassandra.exceptions.StartupException;
 
 import static org.apache.cassandra.service.FileSystemOwnershipCheck.*;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class FileSystemOwnershipCheckTest
 {
-    private File tempDir;
-    private String token;
+    protected File tempDir;
+    protected String token;
 
     @Before
     public void setup() throws IOException
@@ -63,7 +62,7 @@ public class FileSystemOwnershipCheckTest
         cleanTempDir();
     }
 
-    private void cleanTempDir()
+    protected void cleanTempDir()
     {
         if (tempDir != null && tempDir.exists())
             delete(tempDir);
@@ -406,7 +405,7 @@ public class FileSystemOwnershipCheckTest
         executeAndFail(checker(leafDir1, leafDir2), INVALID_FILE_COUNT);
     }
 
-    private static void executeAndFail(FileSystemOwnershipCheck checker, String messageTemplate, Object...messageArgs)
+    protected static void executeAndFail(FileSystemOwnershipCheck checker, String messageTemplate, Object...messageArgs)
     {
         try
         {
@@ -458,17 +457,17 @@ public class FileSystemOwnershipCheckTest
         return childDir;
     }
 
-    private static FileSystemOwnershipCheck checker(Supplier<Iterable<String>> dirs)
+    protected FileSystemOwnershipCheck checker(Supplier<Iterable<String>> dirs)
     {
         return new FileSystemOwnershipCheck(dirs);
     }
 
-    private static FileSystemOwnershipCheck checker(File...dirs)
+    protected FileSystemOwnershipCheck checker(File...dirs)
     {
         return checker(() -> Arrays.stream(dirs).map(File::getAbsolutePath).collect(Collectors.toList()));
     }
 
-    private static FileSystemOwnershipCheck checker(String...dirs)
+    private FileSystemOwnershipCheck checker(String...dirs)
     {
         return checker(() -> Arrays.asList(dirs));
     }
