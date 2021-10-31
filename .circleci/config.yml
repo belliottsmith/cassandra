@@ -3781,11 +3781,11 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           cd ~/cassandra
           mkdir ~/dtest_jars
-          git remote add belliottsmith git://github.com/belliottsmith/cassandra.git
-          for branch in 17050-2.2 17050-3.0 17050-3.11 17050-4.0 17050-trunk; do
+          git remote add apache git://github.com/apache/cassandra.git
+          for branch in cassandra-2.2 cassandra-3.0 cassandra-3.11 cassandra-4.0 trunk; do
             # check out the correct cassandra version:
-            git remote set-branches --add belliottsmith '$branch'
-            git fetch --depth 1 belliottsmith $branch
+            git remote set-branches --add apache '$branch'
+            git fetch --depth 1 apache $branch
             git checkout $branch
             git clean -fd
             # Loop to prevent failure due to maven-ant-tasks not downloading a jar..
