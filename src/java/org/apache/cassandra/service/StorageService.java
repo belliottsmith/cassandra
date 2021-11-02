@@ -47,16 +47,15 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.*;
 import com.google.common.util.concurrent.*;
 
-import org.apache.cassandra.audit.AuditLogOptionsCompositeData;
 import org.apache.cassandra.auth.AuthenticatedUser;
 import org.apache.cassandra.auth.Roles;
 import org.apache.cassandra.config.CassandraRelevantProperties;
-import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.dht.RangeStreamer.FetchReplica;
 import org.apache.cassandra.fql.FullQueryLogger;
 import org.apache.cassandra.fql.FullQueryLoggerOptions;
 import org.apache.cassandra.fql.FullQueryLoggerOptionsCompositeData;
 import org.apache.cassandra.locator.ReplicaCollection.Builder.Conflict;
+import org.apache.cassandra.metrics.Sampler;
 import org.apache.commons.lang3.StringUtils;
 
 import org.slf4j.Logger;
@@ -92,7 +91,6 @@ import org.apache.cassandra.dht.*;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token.TokenFactory;
 import org.apache.cassandra.exceptions.*;
-import org.apache.cassandra.gms.*;
 import org.apache.cassandra.hints.HintsService;
 import org.apache.cassandra.dht.RangeStreamer;
 import org.apache.cassandra.dht.Token;
@@ -113,6 +111,7 @@ import org.apache.cassandra.io.sstable.format.VersionAndType;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.*;
 import org.apache.cassandra.metrics.StorageMetrics;
+import org.apache.cassandra.metrics.SamplingManager;
 import org.apache.cassandra.net.*;
 import org.apache.cassandra.repair.*;
 import org.apache.cassandra.repair.messages.RepairOption;
@@ -142,6 +141,7 @@ import org.apache.cassandra.utils.progress.ProgressListener;
 import org.apache.cassandra.utils.progress.jmx.JMXBroadcastExecutor;
 import org.apache.cassandra.utils.progress.jmx.JMXProgressSupport;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.Iterables.transform;
 import static com.google.common.collect.Iterables.tryFind;
 import static java.util.Arrays.asList;
@@ -219,6 +219,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private final SnapshotManager snapshotManager = new SnapshotManager();
 
     public static final StorageService instance = new StorageService();
+
+    private final SamplingManager samplingManager = new SamplingManager();
 
     private final java.util.function.Predicate<Keyspace> anyOutOfRangeOpsRecorded
             = keyspace -> keyspace.metric.outOfRangeTokenReads.getCount() > 0
@@ -5883,17 +5885,23 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return sampledKeys;
     }
 
+    @Override
+    public Map<String, List<CompositeData>> samplePartitions(int duration, int capacity, int count, List<String> samplers) throws OpenDataException {
+        return samplePartitions(null, duration, capacity, count, samplers);
+    }
+
     /*
      * { "sampler_name": [ {table: "", count: i, error: i, value: ""}, ... ] }
      */
     @Override
-    public Map<String, List<CompositeData>> samplePartitions(int durationMillis, int capacity, int count,
-            List<String> samplers) throws OpenDataException
+    public Map<String, List<CompositeData>> samplePartitions(String keyspace, int durationMillis, int capacity, int count,
+                                                             List<String> samplers) throws OpenDataException
     {
         ConcurrentHashMap<String, List<CompositeData>> result = new ConcurrentHashMap<>();
+        Iterable<ColumnFamilyStore> tables = SamplingManager.getTables(keyspace, null);
         for (String sampler : samplers)
         {
-            for (ColumnFamilyStore table : ColumnFamilyStore.all())
+            for (ColumnFamilyStore table : tables)
             {
                 table.beginLocalSampling(sampler, capacity, durationMillis);
             }
@@ -5903,7 +5911,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         for (String sampler : samplers)
         {
             List<CompositeData> topk = new ArrayList<>();
-            for (ColumnFamilyStore table : ColumnFamilyStore.all())
+            for (ColumnFamilyStore table : tables)
             {
                 topk.addAll(table.finishLocalSampling(sampler, count));
             }
@@ -5919,6 +5927,36 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             result.put(sampler, topk);
         }
         return result;
+    }
+
+    @Override // ks and table are nullable
+    public boolean startSamplingPartitions(String ks, String table, int duration, int interval, int capacity, int count, List<String> samplers)
+    {
+        Preconditions.checkArgument(duration > 0,
+                "Sampling duration %s must be positive.", duration);
+        Preconditions.checkArgument(interval <= 0 || interval >= duration,
+                "Sampling interveral %s should be greater then or equals to duration %s if defined.", interval, duration);
+        Preconditions.checkArgument(capacity > 0 && capacity <= 1024,
+                "Sampling capacity %s must be positive and the max value is 1024 (inclusive).", capacity);
+        Preconditions.checkArgument(count > 0 && count < capacity,
+                "Sampling count %s must be positive and smaller than capacity %s.", count, capacity);
+        Preconditions.checkArgument(!samplers.isEmpty(), "Samplers cannot be empty.");
+        Set<Sampler.SamplerType> available = EnumSet.allOf(Sampler.SamplerType.class);
+        for (String sampler : samplers)
+            checkArgument(available.contains(Sampler.SamplerType.valueOf(sampler)),
+                    "'%s' sampler is not available from: %s", sampler, Arrays.toString(Sampler.SamplerType.values()));
+        return samplingManager.register(ks, table, duration, interval, capacity, count, samplers);
+    }
+
+    @Override
+    public boolean stopSamplingPartitions(String ks, String table)
+    {
+        return samplingManager.unregister(ks, table);
+    }
+
+    @Override
+    public List<String> getSampleTasks() {
+        return samplingManager.allJobs();
     }
 
     public void rebuildSecondaryIndex(String ksName, String cfName, String... idxNames)
