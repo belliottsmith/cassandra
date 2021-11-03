@@ -836,6 +836,9 @@
         <dependency groupId="org.jboss.byteman" artifactId="byteman-submit"/>
         <dependency groupId="org.jboss.byteman" artifactId="byteman-bmunit"/>
         <dependency groupId="com.github.seancfoley" artifactId="ipaddress" />
+
+        <!-- ACI Cassandra additional dependencies -->
+        <dependency groupId="software.amazon.cryptools" artifactId="AmazonCorrettoCryptoProvider" classifier="linux-x86_64"/>
       </artifact:pom>
     </target>
 
@@ -1862,7 +1865,8 @@
 
   <target name="dtest-jar" depends="build-test, build" description="Create dtest-compatible jar, including all dependencies">
       <jar jarfile="${build.dir}/dtest-${base.version}.jar">
-          <zipgroupfileset dir="${build.lib}" includes="*.jar" excludes="META-INF/*.SF"/>
+          <!-- excluding ACCP as it includes META-INF/JKS.RSA which causes a security exception - just want it packaged for final jar anyway -->
+          <zipgroupfileset dir="${build.lib}" includes="*.jar" excludes="AmazonCorrettoCryptoProvider-*"/>
           <zipgroupfileset dir="${build.dir.lib}/jars" includes="javassist-*.jar,reflections-*.jar" excludes="META-INF/*.SF"/>
           <zipgroupfileset dir="${build.test.dir}/lib/jars" includes="javassist-*.jar,reflections-*.jar" excludes="META-INF/*.SF"/>
           <fileset dir="${build.classes.main}"/>
