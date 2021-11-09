@@ -33,7 +33,7 @@ public class RepairStreamingUpgradeTest extends UpgradeTestBase
         new UpgradeTestBase.TestCase()
         .nodes(2)
         .withConfig((cfg) -> cfg.with(Feature.NETWORK, Feature.GOSSIP).set("disable_incremental_repair", false))
-        .singleUpgrade(v4_0_0_30, v41)
+        .singleUpgrade(v4_0_0_30, v40)
         .setup((cluster) -> {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck)) with compaction={'class': 'SizeTieredCompactionStrategy', 'enabled': false};");
         })
