@@ -99,18 +99,19 @@ public class UpgradeTestBase extends DistributedTestBase
     public static final Semver v22 = new Semver("2.2.0-beta1", SemverType.LOOSE);
     public static final Semver v30 = new Semver("3.0.0-alpha1", SemverType.LOOSE);
     public static final Semver v3X = new Semver("3.11.0", SemverType.LOOSE);
-    public static final Semver v4_0_0_30 = new Semver("4.0-rc2", SemverType.LOOSE);
-    public static final Semver v40 = new Semver("4.0-alpha1", SemverType.LOOSE);
-    public static final Semver v41 = new Semver("4.1-alpha1", SemverType.LOOSE);
+    // ACI Minor upgrade testing disabled until dtest-api Versions is fixed to correctly order our dotted quad versions
+    // Re-enable in SUPPORTED_UPGRADE_PATHS once fixed.  Tests using v4_0_0_30 will not run.
+    public static final Semver v4_0_0_30 = new Semver("4.0.0.30", SemverType.LOOSE);
+    // ACI Cassandra stuck at 4.0 even though tracking trunk with version 4.1
+    public static final Semver v40 = new Semver("4.0.0.31", SemverType.LOOSE);
 
     protected static final List<Pair<Semver,Semver>> SUPPORTED_UPGRADE_PATHS = ImmutableList.of(
         Pair.create(v22, v30),
         Pair.create(v22, v3X),
         Pair.create(v30, v3X),
         Pair.create(v30, v40),
-        Pair.create(v3X, v40),
-        Pair.create(v40, v41),
-        Pair.create(v4_0_0_30, v41));
+        Pair.create(v3X, v40));
+        //Pair.create(v4_0_0_30, v40)); // Test minor upgrade from last version before 'nb' rebased in
 
 
     // the last is always the current
@@ -189,7 +190,18 @@ public class UpgradeTestBase extends DistributedTestBase
         {
             try
             {
-                this.upgrade.add(new TestVersions(versions.getLatest(from), versions.getLatest(to)));
+                Version fromVersion = versions.getLatest(from);
+                Version toVersion = versions.getLatest(to);
+
+                if (!fromVersion.equals(toVersion))
+                {
+                    this.upgrade.add(new TestVersions(fromVersion, toVersion));
+                }
+                else
+                {
+                    logger.info("Single upgrade path between {}({}) and {}({}) is the same version, skipping.",
+                                from, fromVersion.version, to, toVersion.version);
+                }
             }
             catch (RuntimeException e)
             {
