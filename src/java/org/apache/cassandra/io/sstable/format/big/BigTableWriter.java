@@ -390,7 +390,19 @@ public class BigTableWriter extends SSTableWriter
         // finalize in-memory state for the reader
         IndexSummary indexSummary = iwriter.summary.build(metadata().partitioner);
         long indexFileLength = new File(descriptor.filenameFor(Component.PRIMARY_INDEX)).length();
-        int dataBufferSize = optimizationStrategy.bufferSize(stats.estimatedPartitionSize.percentile(DatabaseDescriptor.getDiskOptimizationEstimatePercentile()));
+
+        EstimatedHistogram partitionSizeHistogram = stats.estimatedPartitionSize;
+        
+        if (partitionSizeHistogram.isOverflowed())
+        {
+            logger.warn("Estimated partition size histogram for '{}' is overflowed ({} values greater than {}). " +
+                        "Clearing the overflow bucket to allow for degraded mean and percentile calculations...",
+                        descriptor, partitionSizeHistogram.overflowCount(), partitionSizeHistogram.getLargestBucketOffset());
+            
+            partitionSizeHistogram.clearOverflow();
+        }
+        
+        int dataBufferSize = optimizationStrategy.bufferSize(partitionSizeHistogram.percentile(DatabaseDescriptor.getDiskOptimizationEstimatePercentile()));
         int indexBufferSize = optimizationStrategy.bufferSize(indexFileLength / indexSummary.size());
         FileHandle ifile = iwriter.builder.bufferSize(indexBufferSize).complete();
         if (compression)
