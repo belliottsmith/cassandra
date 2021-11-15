@@ -239,7 +239,6 @@ public class Descriptor
 
     /**
      * Parse a sstable filename, extracting both the {@code Descriptor} and {@code Component} part.
-     * Logs warning if the parent directory names do not contain keyspace and table name when expected.
      *
      * @param file the {@code File} object for the filename to parse.
      * @return a pair of the descriptor and component corresponding to the provided {@code file}.
@@ -249,23 +248,6 @@ public class Descriptor
      * versions.
      */
     public static Pair<Descriptor, Component> fromFilenameWithComponent(File file)
-    {
-        return fromFilenameWithComponent(file, true);
-    }
-
-    /**
-     * Parse a sstable filename, extracting both the {@code Descriptor} and {@code Component} part.
-     *
-     * @param file the {@code File} object for the filename to parse.
-     * @param warnParentDirectoryNames log warning if the parent directory names do not contain keyspace and table name
-     *                                 when expected. e.g. disabled when importing sstables form arbitrary directories.
-     * @return a pair of the descriptor and component corresponding to the provided {@code file}.
-     *
-     * @throws IllegalArgumentException if the provided {@code file} does point to a valid sstable filename. This could
-     * mean either that the filename doesn't look like a sstable file, or that it is for an old and unsupported
-     * versions.
-     */
-    public static Pair<Descriptor, Component> fromFilenameWithComponent(File file, boolean warnParentDirectoryNames)
     {
         // We need to extract the keyspace and table names from the parent directories, so make sure we deal with the
         // absolute path.
@@ -350,17 +332,17 @@ public class Descriptor
         String table = tableDir.getName().split("-")[0] + indexName;
         String keyspace = parentOf(name, tableDir).getName();
 
-        if (warnParentDirectoryNames && keyspaceFromFilename != null && !keyspaceFromFilename.equals(keyspace))
+        if (keyspaceFromFilename != null && !keyspaceFromFilename.equals(keyspace))
             logger.warn("the 'keyspace' part of the filename '{}' doesn't match the parent name '{}' for filename '{}'",
                            keyspaceFromFilename, keyspace, name);
-        if (warnParentDirectoryNames && tableFromFilename != null && !tableFromFilename.equals(table))
+        if (tableFromFilename != null && !tableFromFilename.equals(table))
             logger.warn("the 'table' part of the filename '{}' doesn't match the parent name '{}' for filename '{}'",
                            tableFromFilename, table, name);
 
         // they *should* be the same, but if not prefer the keyspace and table derived from the filename
         if (!version.hasNewFileName())
         {
-            if (warnParentDirectoryNames && keyspaceFromFilename == null || tableFromFilename == null)
+            if (keyspaceFromFilename == null || tableFromFilename == null)
             {
                 logger.warn("Expected keyspace/table components in SSTable filename '{}' but parsed keyspace '{}' table '{}'",
                             file.getPath(), keyspaceFromFilename, tableFromFilename);
