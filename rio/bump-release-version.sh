@@ -48,11 +48,19 @@ if [ ! -e "$CHANGE_FILE" ]; then
 fi
 OLDCHANGES="/tmp/${CHANGE_FILE}.$$"
 cp -f "$CHANGE_FILE" "$OLDCHANGES"
+
+# This placeholder is used as a macro to automatically populate the changelog; see rio/changelog-tool.sh
+# Note that the new version doesn't exist yet, so the end_commit should be the merge base branch (such as cie-cassandra-4.0.0)
+VERSION_TAG_PREFIX='cie-cassandra-'
+AUTOGEN_CHANGELOG_COMMITS_MACRO="AUTOGEN_CHANGELOG_COMMITS ${VERSION_TAG_PREFIX}${CURRENTVERSION} ${GIT_BRANCH}"
+
 cat > "$CHANGE_FILE" <<EOF
 ${NEWVERSION}
+${AUTOGEN_CHANGELOG_COMMITS_MACRO}
 
-$(cat "${OLDCHANGES}")
 EOF
+
+./rio/changelog-tool.sh expand_macros "${OLDCHANGES}" >> "$CHANGE_FILE"
 
 git add CIE-VERSION ${CHANGE_FILE}
 git commit -m "Bumping version from $CURRENTVERSION to $NEWVERSION after release
