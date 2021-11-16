@@ -198,6 +198,28 @@ public class Descriptor
         return filename.endsWith(".db") && !LEGACY_TMP_REGEX.matcher(filename).matches();
     }
 
+    /* ACI Cassandra patches Descriptor to keep the keyspace and table names present in the sstable path
+     * that was removed during the Windows port and checks that they match the parent directories.
+     * This interferes with sstable import and other tools and there are too many paths to get here that
+     * makes passing an argument inconvenient so this thread local can be used to disable where needed.
+     */
+    private final static ThreadLocal<Boolean> shouldWarnParentDirectoryNames = ThreadLocal.withInitial(() -> true);
+
+    private static boolean warnParentDirectoryNames()
+    {
+        return shouldWarnParentDirectoryNames.get();
+    }
+
+    public static void enableParentDirectoryNameWarning()
+    {
+        shouldWarnParentDirectoryNames.set(true);
+    }
+
+    public static void disableParentDirectoryNameWarning()
+    {
+        shouldWarnParentDirectoryNames.set(false);
+    }
+
     /**
      * Parse a sstable filename into a Descriptor.
      * <p>
@@ -332,10 +354,10 @@ public class Descriptor
         String table = tableDir.getName().split("-")[0] + indexName;
         String keyspace = parentOf(name, tableDir).getName();
 
-        if (keyspaceFromFilename != null && !keyspaceFromFilename.equals(keyspace))
+        if (warnParentDirectoryNames() && keyspaceFromFilename != null && !keyspaceFromFilename.equals(keyspace))
             logger.warn("the 'keyspace' part of the filename '{}' doesn't match the parent name '{}' for filename '{}'",
                            keyspaceFromFilename, keyspace, name);
-        if (tableFromFilename != null && !tableFromFilename.equals(table))
+        if (warnParentDirectoryNames() && tableFromFilename != null && !tableFromFilename.equals(table))
             logger.warn("the 'table' part of the filename '{}' doesn't match the parent name '{}' for filename '{}'",
                            tableFromFilename, table, name);
 
@@ -344,8 +366,9 @@ public class Descriptor
         {
             if (keyspaceFromFilename == null || tableFromFilename == null)
             {
-                logger.warn("Expected keyspace/table components in SSTable filename '{}' but parsed keyspace '{}' table '{}'",
-                            file.getPath(), keyspaceFromFilename, tableFromFilename);
+                if (warnParentDirectoryNames())
+                    logger.warn("Expected keyspace/table components in SSTable filename '{}' but parsed keyspace '{}' table '{}'",
+                                file.getPath(), keyspaceFromFilename, tableFromFilename);
             }
             else
             {

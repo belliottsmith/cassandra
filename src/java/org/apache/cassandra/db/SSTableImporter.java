@@ -72,6 +72,19 @@ public class SSTableImporter
     @VisibleForTesting
     synchronized List<String> importNewSSTables(Options options)
     {
+        try
+        {
+            Descriptor.disableParentDirectoryNameWarning();
+            return importNewSSTablesImpl(options);
+        }
+        finally
+        {
+            Descriptor.enableParentDirectoryNameWarning();
+        }
+    }
+
+    private List<String> importNewSSTablesImpl(Options options)
+    {
         // TODO: allow users to pass this in via nodetool to get a global import id in the cluster
         UUID importID = UUID.randomUUID();
         logger.info("[{}] Loading new SSTables for {}/{}: {}",
