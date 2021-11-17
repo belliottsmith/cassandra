@@ -1089,4 +1089,7 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     public double getMaxSpaceForCompactionsPerDrive();
     public void setMaxSpaceForCompactionsPerDrive(double percentage);
+
+    public void setSkipStreamDiskSpaceCheck(boolean value);
+    public boolean getSkipStreamDiskSpaceCheck();
 }
