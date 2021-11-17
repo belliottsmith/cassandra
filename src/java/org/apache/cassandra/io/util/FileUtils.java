@@ -36,6 +36,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -44,6 +45,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.RateLimiter;
 import com.google.common.base.Preconditions;
 
@@ -949,7 +951,7 @@ public final class FileUtils
      * @param size returned by the Java's FileStore methods
      * @return the size or {@code Long.MAX_VALUE} if the size was bigger than {@code Long.MAX_VALUE}
      */
-    private static long handleLargeFileSystem(long size)
+    public static long handleLargeFileSystem(long size)
     {
         return size < 0 ? Long.MAX_VALUE : size;
     }
@@ -970,7 +972,8 @@ public final class FileUtils
      *
      * @see <a href="https://bugs.openjdk.java.net/browse/JDK-8162520">JDK-8162520</a>.
      */
-    private static final class SafeFileStore extends FileStore
+    @VisibleForTesting
+    public static final class SafeFileStore extends FileStore
     {
         /**
          * The decorated {@code FileStore}
@@ -1040,6 +1043,27 @@ public final class FileUtils
         public Object getAttribute(String attribute) throws IOException
         {
             return fileStore.getAttribute(attribute);
+        }
+
+        @Override
+        public String toString()
+        {
+            return fileStore.toString();
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (!(o instanceof SafeFileStore)) return false;
+            SafeFileStore that = (SafeFileStore) o;
+            return fileStore.equals(that.fileStore);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(fileStore);
         }
     }
 
