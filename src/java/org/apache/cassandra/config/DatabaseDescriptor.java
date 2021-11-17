@@ -96,6 +96,7 @@ import static org.apache.cassandra.config.CassandraRelevantProperties.SUN_ARCH_D
 import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_JVM_DTEST_DISABLE_SSL;
 import static org.apache.cassandra.config.DataRateSpec.DataRateUnit.BYTES_PER_SECOND;
 import static org.apache.cassandra.config.DataRateSpec.DataRateUnit.MEBIBYTES_PER_SECOND;
+import static org.apache.cassandra.config.DataStorageSpec.DataStorageUnit.BYTES;
 import static org.apache.cassandra.config.DataStorageSpec.DataStorageUnit.MEBIBYTES;
 import static org.apache.cassandra.io.util.FileUtils.ONE_GIB;
 import static org.apache.cassandra.io.util.FileUtils.ONE_MIB;
@@ -2216,6 +2217,13 @@ public class DatabaseDescriptor
         return conf.min_free_space_per_drive.toBytesInLong();
     }
 
+    @VisibleForTesting
+    public static long setMinFreeSpacePerDriveInBytes(long value)
+    {
+        conf.min_free_space_per_drive = new DataStorageSpec.IntMebibytesBound(BYTES.toMebibytes(value));
+        return getMinFreeSpacePerDriveInBytes();
+    }
+
     public static double getMaxSpaceForCompactionsPerDrive()
     {
         return conf.max_space_usable_for_compactions_in_percentage;
@@ -3529,6 +3537,16 @@ public class DatabaseDescriptor
     public static boolean streamEntireSSTables()
     {
         return conf.stream_entire_sstables;
+    }
+
+    public static boolean getSkipStreamDiskSpaceCheck()
+    {
+        return conf.skip_stream_disk_space_check;
+    }
+
+    public static void setSkipStreamDiskSpaceCheck(boolean value)
+    {
+        conf.skip_stream_disk_space_check = value;
     }
 
     public static String getLocalDataCenter()

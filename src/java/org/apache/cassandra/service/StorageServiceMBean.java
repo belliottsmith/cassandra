@@ -1145,6 +1145,9 @@ public interface StorageServiceMBean extends NotificationEmitter
     public double getMaxSpaceForCompactionsPerDrive();
     public void setMaxSpaceForCompactionsPerDrive(double percentage);
 
+    public void setSkipStreamDiskSpaceCheck(boolean value);
+    public boolean getSkipStreamDiskSpaceCheck();
+
     String getLastRepairTimeForKey(String keyspace, String table, String key);
     String getLastRepairTimeForToken(String keyspace, String table, String token);
 }
