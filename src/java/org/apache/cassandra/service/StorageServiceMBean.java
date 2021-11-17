@@ -33,6 +33,7 @@ import javax.management.openmbean.CompositeData;
 import javax.management.openmbean.OpenDataException;
 import javax.management.openmbean.TabularData;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStoreMBean;
 import org.apache.cassandra.exceptions.ConfigurationException;
 
@@ -1002,4 +1003,7 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     public double getMaxSpaceForCompactionsPerDrive();
     public void setMaxSpaceForCompactionsPerDrive(double percentage);
+
+    public void setSkipStreamDiskSpaceCheck(boolean value);
+    public boolean getSkipStreamDiskSpaceCheck();
 }

@@ -190,4 +190,15 @@ public class StreamManager implements StreamManagerMBean
 
         return streamResultFuture.getSession(peer, sessionIndex);
     }
+
+    public long getTotalRemainingOngoingBytes()
+    {
+        long total = 0;
+        for (StreamResultFuture fut : Iterables.concat(initiatorStreams.values(), followerStreams.values()))
+        {
+            for (SessionInfo sessionInfo : fut.getCurrentState().sessions)
+                total += sessionInfo.getTotalSizeToReceive() - sessionInfo.getTotalSizeReceived();
+        }
+        return total;
+    }
 }

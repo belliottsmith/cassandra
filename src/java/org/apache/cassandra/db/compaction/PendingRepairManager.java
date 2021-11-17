@@ -228,22 +228,32 @@ class PendingRepairManager
 
     private int getEstimatedRemainingTasks(UUID sessionID, AbstractCompactionStrategy strategy)
     {
+        return getEstimatedRemainingTasks(sessionID, strategy, 0, 0);
+    }
+
+    private int getEstimatedRemainingTasks(UUID sessionID, AbstractCompactionStrategy strategy, int additionalSSTables, long additionalBytes)
+    {
         if (canCleanup(sessionID))
         {
             return 0;
         }
         else
         {
-            return strategy.getEstimatedRemainingTasks();
+            return strategy.getEstimatedRemainingTasks(additionalSSTables, additionalBytes);
         }
     }
 
     int getEstimatedRemainingTasks()
     {
+        return getEstimatedRemainingTasks(0, 0);
+    }
+
+    int getEstimatedRemainingTasks(int additionalSSTables, long additionalBytes)
+    {
         int tasks = 0;
         for (Map.Entry<UUID, AbstractCompactionStrategy> entry : strategies.entrySet())
         {
-            tasks += getEstimatedRemainingTasks(entry.getKey(), entry.getValue());
+            tasks += getEstimatedRemainingTasks(entry.getKey(), entry.getValue(), additionalSSTables, additionalBytes);
         }
         return tasks;
     }
