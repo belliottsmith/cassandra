@@ -18,26 +18,31 @@
 package org.apache.cassandra.db.compaction;
 
 import java.nio.ByteBuffer;
+import java.nio.file.FileStore;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import org.apache.cassandra.io.util.File;
+import org.apache.cassandra.io.util.PathUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.UntypedResultSet;
-import org.apache.cassandra.config.Config;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DeletionTime;
 import org.apache.cassandra.db.Directories;
@@ -53,13 +58,14 @@ import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.sstable.ISSTableScanner;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
-import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.schema.CompactionParams;
-import org.apache.cassandra.dht.Range;
-import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static org.junit.Assert.assertEquals;
@@ -912,5 +918,69 @@ public class CompactionsCQLTest extends CQLTester
         }
         if (shouldFind)
             fail("No minor compaction triggered in "+maxWaitTime+"ms");
+    }
+
+    @Test
+    public void testNoDiskspace() throws Throwable
+    {
+        createTable("create table %s (id int primary key, i int) with compaction={'class':'SizeTieredCompactionStrategy'}");
+        getCurrentColumnFamilyStore().disableAutoCompaction();
+        for (int i = 0; i < 10; i++)
+        {
+            execute("insert into %s (id, i) values (?,?)", i, i);
+            getCurrentColumnFamilyStore().forceBlockingFlush();
+        }
+        CompactionInfo.Holder holder = holder(OperationType.COMPACTION);
+        CompactionManager.instance.active.beginCompaction(holder);
+        try
+        {
+            getCurrentColumnFamilyStore().forceMajorCompaction();
+            fail("Exception expected");
+        }
+        catch (Exception ignored)
+        {
+            // expected
+        }
+        finally
+        {
+            CompactionManager.instance.active.finishCompaction(holder);
+        }
+        // don't block compactions if there is a huge validation
+        holder = holder(OperationType.VALIDATION);
+        CompactionManager.instance.active.beginCompaction(holder);
+        try
+        {
+            getCurrentColumnFamilyStore().forceMajorCompaction();
+        }
+        finally
+        {
+            CompactionManager.instance.active.finishCompaction(holder);
+        }
+    }
+
+    private CompactionInfo.Holder holder(OperationType opType)
+    {
+        CompactionInfo.Holder holder = new CompactionInfo.Holder()
+        {
+            public CompactionInfo getCompactionInfo()
+            {
+                long availableSpace = 0;
+                for (File f : getCurrentColumnFamilyStore().getDirectories().getCFDirectories())
+                    availableSpace += PathUtils.tryGetSpace(f.toPath(), FileStore::getUsableSpace);
+
+                return new CompactionInfo(getCurrentColumnFamilyStore().metadata(),
+                                          opType,
+                                          +0,
+                                          +availableSpace * 2,
+                                          UUID.randomUUID(),
+                                          getCurrentColumnFamilyStore().getLiveSSTables());
+            }
+
+            public boolean isGlobal()
+            {
+                return false;
+            }
+        };
+        return holder;
     }
 }

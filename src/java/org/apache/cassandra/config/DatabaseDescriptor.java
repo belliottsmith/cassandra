@@ -2008,6 +2008,12 @@ public class DatabaseDescriptor
         return ByteUnit.MEBI_BYTES.toBytes(conf.min_free_space_per_drive_in_mb);
     }
 
+    @VisibleForTesting
+    public static long setMinFreeSpacePerDriveInBytes(long value)
+    {
+        return conf.min_free_space_per_drive_in_mb = (int)(value >> 20);
+    }
+
     public static double getMaxSpaceForCompactionsPerDrive()
     {
         return conf.max_space_usable_for_compactions_in_percentage;
@@ -3075,6 +3081,16 @@ public class DatabaseDescriptor
     public static boolean streamEntireSSTables()
     {
         return conf.stream_entire_sstables;
+    }
+
+    public static boolean getSkipStreamDiskSpaceCheck()
+    {
+        return conf.skip_stream_disk_space_check;
+    }
+
+    public static void setSkipStreamDiskSpaceCheck(boolean value)
+    {
+        conf.skip_stream_disk_space_check = value;
     }
 
     public static String getLocalDataCenter()
