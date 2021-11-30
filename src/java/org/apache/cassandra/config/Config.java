@@ -314,7 +314,7 @@ public class Config
     public boolean trickle_fsync = false;
     public int trickle_fsync_interval_in_kb = 10240;
 
-    public volatile int sstable_preemptive_open_interval_in_mb = 50;
+    public volatile int sstable_preemptive_open_interval_in_mb = -1;
 
     public volatile boolean key_cache_migrate_during_compaction = false;
     public Long key_cache_size_in_mb = null;
