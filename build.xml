@@ -631,6 +631,7 @@
             <exclusion groupId="it.unimi.dsi" artifactId="fastutil" />
           </dependency>
           <dependency groupId="com.apple.pie.cassandra" artifactId="cassandra-client" version="4.0.35" />
+          <dependency groupId="com.apple.aci" artifactId="cassandra-mtls" version="0.4" />
           <dependency groupId="org.eclipse.jdt.core.compiler" artifactId="ecj" version="${ecj.version}" />
           <dependency groupId="org.caffinitas.ohc" artifactId="ohc-core" version="${ohc.version}">
             <exclusion groupId="org.slf4j" artifactId="slf4j-api"/>
@@ -816,6 +817,7 @@
 
         <!-- don't need the Java Driver to run, but if you use the hadoop stuff or UDFs -->
 	<dependency groupId="com.apple.pie.cassandra" artifactId="cassandra-client" optional="true"/>
+        <dependency groupId="com.apple.aci" artifactId="cassandra-mtls" version="0.4" />
           <!-- don't need jna to run, but nice to have -->
         <dependency groupId="net.java.dev.jna" artifactId="jna"/>
 
