@@ -51,8 +51,7 @@ public class LoggingSupportFactory
             else
             {
                 loggingSupport = new NoOpFallbackLoggingSupport();
-                logger.warn("You are using Cassandra with an unsupported deployment. The intended logging implementation library logback is not used by slf4j. Detected slf4j logger factory: {}. "
-                            + "You will not be able to dynamically manage log levels via JMX and may have performance or other issues.", loggerFactoryClass);
+                // CIE: We use log4j internally, so avoid warning in the logs as OSS does here.
             }
         }
         return loggingSupport;
