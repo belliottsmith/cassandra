@@ -63,6 +63,7 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 import static org.apache.cassandra.net.MessagingService.*;
 import static org.apache.cassandra.net.SocketFactory.WIRETRACE;
+import static org.apache.cassandra.net.SocketFactory.isCausedByConnectionReset;
 import static org.apache.cassandra.net.SocketFactory.newSslHandler;
 
 public class InboundConnectionInitiator
@@ -392,6 +393,8 @@ public class InboundConnectionInitiator
 
             if (reportingExclusion)
                 logger.debug("Excluding internode exception for {}; address contained in internode_error_reporting_exclusions", remoteAddress, cause);
+            else if (isCausedByConnectionReset(cause))
+                logger.info("Peer {} reset connection during handshake. Closing the channel...", remoteAddress, cause);
             else
                 logger.error("Failed to properly handshake with peer {}. Closing the channel.", remoteAddress, cause);
 
