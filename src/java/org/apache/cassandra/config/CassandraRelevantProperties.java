@@ -212,7 +212,12 @@ public enum CassandraRelevantProperties
     OVERRIDE_DISABLED_XMAS_PATCH_PROP(Config.PROPERTY_PREFIX + "repaired_data_tracking_without_xmas_patch"),
 
     // CIE-specific property to loosen the definition of "empty" for gossip state, used during host replacements
-    LOOSE_DEF_OF_EMPTY_ENABLED(Config.PROPERTY_PREFIX + "gossiper.loose_empty_enabled");
+    LOOSE_DEF_OF_EMPTY_ENABLED(Config.PROPERTY_PREFIX + "gossiper.loose_empty_enabled"),
+
+    // OUID of root certificate to be used in mTLS authenticator. GDBC and AODC certificates should validate against
+    // different OUID in client certificates.
+    // It should be 1399644 for AODC production, or 1405206 for China production
+    MANAGEMENT_DSID_OF_ROOT(Config.PROPERTY_PREFIX + "issueingcertificate.dsid", "1399644");
 
     CassandraRelevantProperties(String key, String defaultVal)
     {
