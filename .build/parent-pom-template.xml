@@ -790,6 +790,11 @@
         <version>4.0.35</version>
       </dependency>
       <dependency>
+        <groupId>com.apple.aci</groupId>
+        <artifactId>cassandra-mtls</artifactId>
+        <version>0.5</version>
+      </dependency>
+      <dependency>
         <groupId>org.eclipse.jdt.core.compiler</groupId>
         <artifactId>ecj</artifactId>
         <version>${ecj.version}</version>

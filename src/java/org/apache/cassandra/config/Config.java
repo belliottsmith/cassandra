@@ -210,7 +210,7 @@ public class Config
     public boolean listen_interface_prefer_ipv6 = false;
     public String broadcast_address;
     public boolean listen_on_broadcast_address = false;
-    public String internode_authenticator;
+    public ParameterizedClass internode_authenticator;
 
     public boolean traverse_auth_from_root = true; // ACI changes to default
 
