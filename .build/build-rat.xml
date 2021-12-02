@@ -64,6 +64,8 @@
                  <exclude name="**/test/conf/cassandra-converters-special-cases-old-names.yaml"/>
                  <exclude name="**/test/conf/cassandra-converters-special-cases.yaml"/>
                  <exclude name="**/test/conf/cassandra_encryption.yaml"/>
+                 <exclude name="**/test/conf/cassandra-mtls.yaml"/>
+                 <exclude name="**/test/conf/cassandra-mtls-backward-compatibility.yaml"/>
                  <exclude name="**/test/conf/cdc.yaml"/>
                  <exclude name="**/test/conf/commitlog_compression_LZ4.yaml"/>
                  <exclude name="**/test/conf/commitlog_compression_Zstd.yaml"/>
