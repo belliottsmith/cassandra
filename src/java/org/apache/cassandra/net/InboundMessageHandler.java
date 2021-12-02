@@ -43,6 +43,7 @@ import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.NoSpamLogger;
 
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static org.apache.cassandra.net.SocketFactory.isCausedByConnectionReset;
 import static org.apache.cassandra.utils.MonotonicClock.Global.approxTime;
 
 /**
@@ -294,6 +295,8 @@ public class InboundMessageHandler extends AbstractMessageHandler
 
         if (cause instanceof Message.InvalidLegacyProtocolMagic)
             logger.error("{} invalid, unrecoverable CRC mismatch detected while reading messages - closing the connection", id());
+        else if (isCausedByConnectionReset(cause))
+            logger.info("{} connection has been reset; terminating connection...", id());
         else
             logger.error("{} unexpected exception caught while processing inbound messages; terminating connection", id(), cause);
 
