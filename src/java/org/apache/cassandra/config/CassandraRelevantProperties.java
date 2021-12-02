@@ -320,6 +320,11 @@ public enum CassandraRelevantProperties
     // CIE-specific property to loosen the definition of "empty" for gossip state, used during host replacements
     LOOSE_DEF_OF_EMPTY_ENABLED(Config.PROPERTY_PREFIX + "gossiper.loose_empty_enabled"),
 
+    // OUID of root certificate to be used in mTLS authenticator. GDBC and AODC certificates should validate against
+    // different OUID in client certificates.
+    // It should be 1399644 for AODC production, or 1405206 for China production
+    MANAGEMENT_DSID_OF_ROOT(Config.PROPERTY_PREFIX + "issueingcertificate.dsid", "1399644"),
+
     HOST_REPLACE_TOKENS(Config.PROPERTY_PREFIX + "replace_addresses_token"),
 
     ALLOW_HASHED_PASSWORDS(Config.PROPERTY_PREFIX + "allow_hashed_passwords", "false"),
