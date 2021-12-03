@@ -2387,7 +2387,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     }
 
     @Nullable
-    public CassandraVersion getMinVersion(int delay, TimeUnit timeUnit)
+    public CassandraVersion getMinVersion(long delay, TimeUnit timeUnit)
     {
         try
         {
@@ -2396,11 +2396,12 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         catch (TimeoutException e)
         {
             // Timeouts here are harmless: they won't cause reprepares and may only
-            // cause the old version of the hash to be kept for longer
+            // cause the old version of the hash to be returned
             return null;
         }
         catch (Throwable e)
         {
+            JVMStabilityInspector.inspectThrowable(e);
             logger.error("Caught an exception while waiting for min version", e);
             return null;
         }
@@ -2440,8 +2441,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
                 JVMStabilityInspector.inspectThrowable(t);
                 String message = String.format("Can't parse version string %s", versionString);
                 logger.warn(message);
-                if (logger.isDebugEnabled())
-                    logger.debug(message, t);
+                logger.debug(message, t);
                 return null;
             }
 
