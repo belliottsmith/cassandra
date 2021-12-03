@@ -23,10 +23,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import org.junit.Assert;
 import org.junit.Test;
-
-import com.google.common.collect.ImmutableMap;
 
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -35,6 +32,7 @@ import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.repair.RepairParallelism;
+import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static org.junit.Assert.assertEquals;
@@ -157,17 +155,17 @@ public class RepairOptionTest
 
         // default value
         option = RepairOption.parse(options, Murmur3Partitioner.instance);
-        Assert.assertFalse(option.isForcedRepair());
+        assertFalse(option.isForcedRepair());
 
         // explicit true
         options.put(RepairOption.FORCE_REPAIR_KEY, "true");
         option = RepairOption.parse(options, Murmur3Partitioner.instance);
-        Assert.assertTrue(option.isForcedRepair());
+        assertTrue(option.isForcedRepair());
 
         // explicit false
         options.put(RepairOption.FORCE_REPAIR_KEY, "false");
         option = RepairOption.parse(options, Murmur3Partitioner.instance);
-        Assert.assertFalse(option.isForcedRepair());
+        assertFalse(option.isForcedRepair());
     }
 
     private void assertParseThrowsIllegalArgumentExceptionWithMessage(Map<String, String> optionsToParse, String expectedErrorMessage)
@@ -180,6 +178,65 @@ public class RepairOptionTest
         catch (IllegalArgumentException ex)
         {
             assertThat(ex.getMessage(), containsString(expectedErrorMessage));
+        }
+    }
+
+    @Test
+    public void testOptimiseStreams()
+    {
+        boolean optFull = DatabaseDescriptor.autoOptimiseFullRepairStreams();
+        boolean optInc = DatabaseDescriptor.autoOptimiseIncRepairStreams();
+        boolean optPreview = DatabaseDescriptor.autoOptimisePreviewRepairStreams();
+        try
+        {
+            for (PreviewKind previewKind : PreviewKind.values())
+                for (boolean inc : new boolean[] {true, false})
+                    assertOptimise(previewKind, inc);
+        }
+        finally
+        {
+            setOptimise(optFull, optInc, optPreview);
+        }
+    }
+
+    private void assertHelper(Map<String, String> options, boolean full, boolean inc, boolean preview, boolean expected)
+    {
+        setOptimise(full, inc, preview);
+        assertEquals(expected, RepairOption.parse(options, Murmur3Partitioner.instance).optimiseStreams());
+    }
+
+    private void setOptimise(boolean full, boolean inc, boolean preview)
+    {
+        DatabaseDescriptor.setAutoOptimiseFullRepairStreams(full);
+        DatabaseDescriptor.setAutoOptimiseIncRepairStreams(inc);
+        DatabaseDescriptor.setAutoOptimisePreviewRepairStreams(preview);
+    }
+
+    private void assertOptimise(PreviewKind previewKind, boolean incremental)
+    {
+        Map<String, String> options = new HashMap<>();
+        options.put(RepairOption.PREVIEW, previewKind.toString());
+        options.put(RepairOption.INCREMENTAL_KEY, Boolean.toString(incremental));
+        for (boolean a : new boolean[]{ true, false })
+        {
+            for (boolean b : new boolean[]{ true, false })
+            {
+                if (previewKind.isPreview())
+                {
+                    assertHelper(options, a, b, true, true);
+                    assertHelper(options, a, b, false, false);
+                }
+                else if (incremental)
+                {
+                    assertHelper(options, a, true, b, true);
+                    assertHelper(options, a, false, b, false);
+                }
+                else
+                {
+                    assertHelper(options, true, a, b, true);
+                    assertHelper(options, false, a, b, false);
+                }
+            }
         }
     }
 }
