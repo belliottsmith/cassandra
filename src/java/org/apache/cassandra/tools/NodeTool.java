@@ -115,6 +115,7 @@ public class NodeTool
                 DisableHintsForDC.class,
                 DisableOldProtocolVersions.class,
                 Drain.class,
+                DumpPreparedStatements.class,
                 EnableAuditLog.class,
                 EnableAutoCompaction.class,
                 EnableBackup.class,

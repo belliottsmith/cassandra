@@ -33,6 +33,7 @@ import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Host;
 import com.datastax.driver.core.HostDistance;
 import com.datastax.driver.core.PreparedStatement;
+import com.datastax.driver.core.PreparedStatementHelper;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.exceptions.DriverInternalError;
@@ -64,7 +65,7 @@ public class ReprepareTestBase extends TestBaseImpl
         return new ReprepareTestConfiguration(withUse, skipBrokenBehaviours);
     }
 
-    public void testReprepare(BiConsumer<ClassLoader, Integer> instanceInitializer, ReprepareTestConfiguration... configs) throws Throwable
+    public void testReprepare(BiConsumer<ClassLoader, Integer> instanceInitializer, boolean stableAfterUse, ReprepareTestConfiguration... configs) throws Throwable
     {
         try (ICluster<IInvokableInstance> c = init(builder().withNodes(2)
                                                             .withConfig(config -> config.with(GOSSIP, NETWORK, NATIVE_PROTOCOL))
@@ -87,7 +88,11 @@ public class ReprepareTestBase extends TestBaseImpl
                          Session session = cluster.connect())
                     {
                         lbp.setPrimary(firstContact);
-                        final PreparedStatement select = session.prepare(withKeyspace("SELECT * FROM %s.tbl"));
+                        String query = "SELECT * FROM %s.tbl";
+                        final PreparedStatement select = session.prepare(withKeyspace(query));
+                        PreparedStatementHelper.assertStable(select,
+                                                             session.prepare(withKeyspace(query)));
+
                         session.execute(select.bind());
 
                         c.stream().forEach((i) -> i.runOnInstance(QueryProcessor::clearPreparedStatementsCache));
@@ -96,6 +101,9 @@ public class ReprepareTestBase extends TestBaseImpl
 
                         if (config.withUse)
                             session.execute(withKeyspace("USE %s"));
+                        assertStable(select,
+                                     session.prepare(withKeyspace(query)),
+                                     stableAfterUse);
 
                         // Re-preparing on the node
                         if (!config.skipBrokenBehaviours && firstContact == 1)
@@ -109,6 +117,10 @@ public class ReprepareTestBase extends TestBaseImpl
                         if (!config.skipBrokenBehaviours)
                             session.execute(select.bind());
 
+                        c.stream().forEach((i) -> i.runOnInstance(QueryProcessor::clearPreparedStatementsCache));
+                        assertStable(select,
+                                     session.prepare(withKeyspace(query)),
+                                     stableAfterUse);
                         c.stream().forEach((i) -> i.runOnInstance(QueryProcessor::clearPreparedStatementsCache));
                     }
                 }
@@ -163,6 +175,21 @@ public class ReprepareTestBase extends TestBaseImpl
         }
     }
 
+    protected static void assertStable(PreparedStatement first, PreparedStatement subsequent, boolean stableAfterUse)
+    {
+        try
+        {
+            PreparedStatementHelper.assertStable(first, subsequent);
+            if (!stableAfterUse)
+                fail("Hash should not be stable after 'use'");
+        }
+        catch (AssertionError e)
+        {
+            if (stableAfterUse)
+                throw e;
+        }
+    }
+
     protected static class ReprepareTestConfiguration
     {
         protected final boolean withUse;
@@ -188,7 +215,7 @@ public class ReprepareTestBase extends TestBaseImpl
 
         static void newBehaviour(ClassLoader cl, int nodeNumber)
         {
-            setReleaseVersion(cl, QueryProcessor.NEW_PREPARED_STATEMENT_BEHAVIOUR_SINCE_40.toString());
+            setReleaseVersion(cl, QueryProcessor.USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40.toString());
         }
 
         static void oldBehaviour(ClassLoader cl, int nodeNumber)
@@ -204,7 +231,7 @@ public class ReprepareTestBase extends TestBaseImpl
             }
             else
             {
-                setReleaseVersion(cl, QueryProcessor.NEW_PREPARED_STATEMENT_BEHAVIOUR_SINCE_40.toString());
+                setReleaseVersion(cl, QueryProcessor.USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40.toString());
             }
         }
 

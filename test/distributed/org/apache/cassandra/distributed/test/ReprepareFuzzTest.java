@@ -334,8 +334,11 @@ public class ReprepareFuzzTest extends TestBaseImpl
         {
             DynamicType.Builder.MethodDefinition.ReceiverTypeDefinition<QueryProcessor> klass =
             new ByteBuddy().rebase(QueryProcessor.class)
-                           .method(named("useNewPreparedStatementBehaviour"))
+                           .method(named("skipKeyspaceForQualifiedStatements"))
+                           .intercept(MethodDelegation.to(AlwaysNewBehaviour.class))
+                           .method(named("useKeyspaceForNonQualifiedStatements"))
                            .intercept(MethodDelegation.to(AlwaysNewBehaviour.class));
+
             klass.make()
                  .load(cl, ClassLoadingStrategy.Default.INJECTION);
         }
@@ -343,7 +346,12 @@ public class ReprepareFuzzTest extends TestBaseImpl
 
     public static class AlwaysNewBehaviour
     {
-        public static boolean useNewPreparedStatementBehaviour()
+        public static boolean skipKeyspaceForQualifiedStatements()
+        {
+            return true;
+        }
+
+        public static boolean useKeyspaceForNonQualifiedStatements()
         {
             return true;
         }
