@@ -81,6 +81,7 @@ public class ReprepareNewBehaviourTest extends ReprepareTestBase
     public void testReprepareNewBehaviour() throws Throwable
     {
         testReprepare(PrepareBehaviour::newBehaviour,
+                      true,
                       cfg(true, false),
                       cfg(false, false));
     }

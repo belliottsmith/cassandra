@@ -2414,11 +2414,12 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         catch (TimeoutException e)
         {
             // Timeouts here are harmless: they won't cause reprepares and may only
-            // cause the old version of the hash to be kept for longer
+            // cause the old version of the hash to be returned
             return null;
         }
         catch (Throwable e)
         {
+            JVMStabilityInspector.inspectThrowable(e);
             logger.error("Caught an exception while waiting for min version", e);
             return null;
         }
@@ -2458,8 +2459,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
                 JVMStabilityInspector.inspectThrowable(t);
                 String message = String.format("Can't parse version string %s", versionString);
                 logger.warn(message);
-                if (logger.isDebugEnabled())
-                    logger.debug(message, t);
+                logger.debug(message, t);
                 return null;
             }
 
@@ -2554,5 +2554,18 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             logger.warn("Could not get release version for {} while checking if it supports sstable version {}", endpoint, version, e);
         }
         return false;
+    }
+
+    @Override
+    public boolean getLooseEmptyEnabled()
+    {
+        return EndpointState.LOOSE_DEF_OF_EMPTY_ENABLED;
+    }
+
+    @Override
+    public void setLooseEmptyEnabled(boolean enabled)
+    {
+        logger.info("Setting loose definition of empty to {}", enabled);
+        EndpointState.LOOSE_DEF_OF_EMPTY_ENABLED = enabled;
     }
 }
