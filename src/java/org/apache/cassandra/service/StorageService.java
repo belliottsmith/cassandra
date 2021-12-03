@@ -84,6 +84,7 @@ import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Duration;
 import org.apache.cassandra.concurrent.*;
+import org.apache.cassandra.cql3.QueryHandler;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
@@ -3890,6 +3891,19 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return status.statusCode;
     }
 
+    public List<Pair<String, String>> getPreparedStatements()
+    {
+        List<Pair<String, String>> statements = new ArrayList<>();
+        for (Entry<MD5Digest, QueryHandler.Prepared> e : QueryProcessor.instance.getPreparedStatements().entrySet())
+            statements.add(Pair.create(e.getKey().toString(), e.getValue().rawCQLStatement));
+        return statements;
+    }
+
+    public void dropPreparedStatements(boolean memoryOnly)
+    {
+        QueryProcessor.instance.clearPreparedStatements(memoryOnly);
+    }
+
     public void forceKeyspaceCompaction(boolean splitOutput, String keyspaceName, String... tableNames) throws IOException, ExecutionException, InterruptedException
     {
         for (ColumnFamilyStore cfStore : getValidColumnFamilies(true, false, keyspaceName, tableNames))
@@ -6831,4 +6845,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return DatabaseDescriptor.getSkipStreamDiskSpaceCheck();
     }
 
+    public boolean getForceNewPreparedStatementBehaviour()
+    {
+        return DatabaseDescriptor.getForceNewPreparedStatementBehaviour();
+    }
+
+    public void setForceNewPreparedStatementBehaviour(boolean value)
+    {
+        DatabaseDescriptor.setForceNewPreparedStatementBehaviour(value);
+    }
 }
