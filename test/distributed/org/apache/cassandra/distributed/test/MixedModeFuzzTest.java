@@ -30,7 +30,6 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -44,6 +43,7 @@ import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.PreparedStatementHelper;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.exceptions.InvalidQueryException;
+import mme.cassandraclient.shaded.com.google.common.base.Supplier;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
@@ -58,6 +58,7 @@ import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.impl.RowUtil;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.service.ClientState;
+import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.CassandraVersion;
 import org.apache.cassandra.utils.FBUtilities;
@@ -117,7 +118,7 @@ public class MixedModeFuzzTest extends TestBaseImpl
                     {
                         AtomicBoolean nodeWithFix = new AtomicBoolean(false);
 
-                        Supplier<Cluster> clusterSupplier = () -> {
+                        Supplier<com.datastax.driver.core.Cluster> clusterSupplier = () -> {
                             return com.datastax.driver.core.Cluster.builder()
                                                                    .addContactPoint("127.0.0.1")
                                                                    .addContactPoint("127.0.0.2")
@@ -139,6 +140,7 @@ public class MixedModeFuzzTest extends TestBaseImpl
                         }
 
                         long firstVersionBump = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                        long secondVersionBump = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
                         long reconnectAfter = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
                         while (!interrupt.get() && (System.nanoTime() < deadline))
                         {
@@ -165,12 +167,23 @@ public class MixedModeFuzzTest extends TestBaseImpl
                                     c.stream().forEach(node -> node.runOnInstance(() -> {
                                         if (version.get().equals(INITIAL_VERSION))
                                         {
-                                            CassandraVersion upgradeTo = QueryProcessor.NEW_PREPARED_STATEMENT_BEHAVIOUR_SINCE_40;
+                                            CassandraVersion upgradeTo = QueryProcessor.SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40;
                                             while (!version.get().equals(upgradeTo))
-                                            {
                                                 if (version.compareAndSet(INITIAL_VERSION, upgradeTo))
                                                 {
                                                     logger.info("Bumped version to " + upgradeTo);
+                                                    break;
+                                                }
+                                        }
+                                        else if (version.get().equals(QueryProcessor.SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40) && System.nanoTime() > secondVersionBump)
+                                        {
+                                            CassandraVersion upgradeTo = QueryProcessor.USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40;
+                                            while (!version.get().equals(upgradeTo))
+                                            {
+                                                if (version.compareAndSet(QueryProcessor.SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40, upgradeTo))
+                                                {
+                                                    logger.info("Bumped version to " + upgradeTo);
+                                                    allUpgraded.set(true);
                                                     break;
                                                 }
                                             }
@@ -400,7 +413,9 @@ public class MixedModeFuzzTest extends TestBaseImpl
         {
             DynamicType.Builder.MethodDefinition.ReceiverTypeDefinition<QueryProcessor> klass =
             new ByteBuddy().rebase(QueryProcessor.class)
-                           .method(named("useNewPreparedStatementBehaviour"))
+                           .method(named("skipKeyspaceForQualifiedStatements"))
+                           .intercept(MethodDelegation.to(MultiBehaviour.class))
+                           .method(named("useKeyspaceForNonQualifiedStatements"))
                            .intercept(MethodDelegation.to(MultiBehaviour.class));
 
             if (nodeNumber == 2)
@@ -414,38 +429,64 @@ public class MixedModeFuzzTest extends TestBaseImpl
         }
     }
 
-    private static CassandraVersion INITIAL_VERSION = new CassandraVersion("4.0.11");
+    private static CassandraVersion INITIAL_VERSION = new CassandraVersion("4.0.0.0");
     private static volatile AtomicReference<CassandraVersion> version = new AtomicReference<>(INITIAL_VERSION);
 
     public static class MultiBehaviour
     {
         private static final Object sync = new Object();
-        private static volatile boolean newPreparedStatementBehaviour = false;
+        private static volatile boolean skipKeyspaceForQualifiedStatements = false;
+        private static volatile boolean useKeyspaceForNonQualifiedStatements = false;
 
-        public static boolean useNewPreparedStatementBehaviour()
+        public static boolean skipKeyspaceForQualifiedStatements()
         {
-            if (newPreparedStatementBehaviour)
+            if (skipKeyspaceForQualifiedStatements)
                 return true;
 
             synchronized (sync)
             {
                 CassandraVersion minVersion = version.get();
-                if (minVersion.compareTo(QueryProcessor.NEW_PREPARED_STATEMENT_BEHAVIOUR_SINCE_40) >= 0)
-                    newPreparedStatementBehaviour = true;
+                if (minVersion.compareTo(QueryProcessor.SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40) >= 0)
+                    skipKeyspaceForQualifiedStatements = true;
 
-                return newPreparedStatementBehaviour;
+                return skipKeyspaceForQualifiedStatements;
+            }
+        }
+
+        public static boolean useKeyspaceForNonQualifiedStatements()
+        {
+            if (useKeyspaceForNonQualifiedStatements)
+                return true;
+
+            synchronized (sync)
+            {
+                CassandraVersion minVersion = version.get();
+                if (minVersion.compareTo(QueryProcessor.SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40) >= 0)
+                {
+                    useKeyspaceForNonQualifiedStatements = true;
+                    QueryProcessor.clearPreparedStatementsCache();
+                    QueryProcessor.instance.preloadPreparedStatements();
+                }
+
+                return useKeyspaceForNonQualifiedStatements;
             }
         }
 
         public static ResultMessage.Prepared prepare(String queryString, ClientState clientState, Map<String, ByteBuffer> customPayload)
         {
-            boolean useNewPreparedStatementBehaviour = useNewPreparedStatementBehaviour();
+            boolean skipKeyspaceForQualifiedStatements = skipKeyspaceForQualifiedStatements();
+            boolean useKeyspaceForNonQualifiedStatements = useKeyspaceForNonQualifiedStatements();
 
             // Expected behaviour
-            if (useNewPreparedStatementBehaviour)
+            if (skipKeyspaceForQualifiedStatements && useKeyspaceForNonQualifiedStatements)
                 return QueryProcessor.instance.prepare(queryString, clientState);
 
-            ResultMessage.Prepared existing = QueryProcessor.getStoredPreparedStatement(queryString, clientState.getRawKeyspace());
+            ResultMessage.Prepared existing;
+
+            if (skipKeyspaceForQualifiedStatements)
+                existing = QueryProcessor.getStoredPreparedStatement(queryString, null);
+            else
+                existing = QueryProcessor.getStoredPreparedStatement(queryString, clientState.getRawKeyspace());
 
             if (existing != null)
                 return existing;
@@ -457,11 +498,40 @@ public class MixedModeFuzzTest extends TestBaseImpl
             if (boundTerms > FBUtilities.MAX_UNSIGNED_SHORT)
                 throw new InvalidRequestException(String.format("Too many markers(?). %d markers exceed the allowed maximum of %d", boundTerms, FBUtilities.MAX_UNSIGNED_SHORT));
 
-            // Break out of an infinite loop for testing purposes; real cluster with a broken version won't have that luxury
-            if (clientState.getRawKeyspace() != null)
-                QueryProcessor.storePreparedStatement(queryString, null, prepared);
+            if (prepared.fullyQualified)
+            {
+                if (skipKeyspaceForQualifiedStatements)
+                {
+                    ResultMessage.Prepared qualifiedWithoutKeyspace = QueryProcessor.storePreparedStatement(queryString, null, prepared);
+                    // when this version was deployed, we stored both statements, but removed one without keyspace
+                    if (clientState.getRawKeyspace() != null)
+                        QueryProcessor.storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
 
-            return QueryProcessor.storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
+                    return qualifiedWithoutKeyspace;
+                }
+                else
+                {
+                    // Initially, we would always use a keyspace
+                    return QueryProcessor.storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
+                }
+            }
+            else
+            {
+                if (useKeyspaceForNonQualifiedStatements)
+                {
+                    Assert.fail("This shouldn't have happened: we should have exited to expected behaviour");
+                    throw new RuntimeException();
+                }
+                else
+                {
+                    ResultMessage.Prepared qualifiedWithoutKeyspace = QueryProcessor.storePreparedStatement(queryString, null, prepared);
+                    // when this version was deployed, we stored both statements, but removed one without keyspace
+                    if (clientState.getRawKeyspace() != null)
+                        QueryProcessor.storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
+
+                    return qualifiedWithoutKeyspace;
+                }
+            }
         }
     }
 

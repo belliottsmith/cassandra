@@ -82,13 +82,15 @@ public class QueryProcessor implements QueryHandler
     public static final CassandraVersion CQL_VERSION = new CassandraVersion("3.4.5");
 
     // See comments on QueryProcessor #prepare
-    public static final CassandraVersion NEW_PREPARED_STATEMENT_BEHAVIOUR_SINCE_30 = new CassandraVersion("3.0.19.63"); // Adjusted for ACI release
-    public static final CassandraVersion NEW_PREPARED_STATEMENT_BEHAVIOUR_SINCE_3X = new CassandraVersion("3.11.12");
-    public static final CassandraVersion NEW_PREPARED_STATEMENT_BEHAVIOUR_SINCE_40 = new CassandraVersion("4.0.0.35"); // Adjusted for ACI release
+    public static final CassandraVersion SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_30 = new CassandraVersion("3.0.24.0");
+    public static final CassandraVersion USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_30 = new CassandraVersion("3.0.24.29");
+    public static final CassandraVersion SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40 = new CassandraVersion("4.0.0.37");
+    public static final CassandraVersion USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40 = new CassandraVersion("4.0.0.44");
 
     public static final QueryProcessor instance = new QueryProcessor();
 
     private static final Logger logger = LoggerFactory.getLogger(QueryProcessor.class);
+    private static final NoSpamLogger nospam = NoSpamLogger.getLogger(logger, 10, TimeUnit.MINUTES);
 
     private static final Cache<MD5Digest, Prepared> preparedStatements;
 
@@ -632,51 +634,50 @@ public class QueryProcessor implements QueryHandler
         return prepare(query, clientState);
     }
 
-    private volatile boolean newPreparedStatementBehaviour = false;
-    public boolean useNewPreparedStatementBehaviour()
+    private volatile boolean skipKeyspaceForQualifiedStatements = false;
+    private volatile boolean useKeyspaceForNonQualifiedStatements = false;
+
+    public boolean skipKeyspaceForQualifiedStatements()
     {
-        if (newPreparedStatementBehaviour || DatabaseDescriptor.getForceNewPreparedStatementBehaviour())
+        if (skipKeyspaceForQualifiedStatements || DatabaseDescriptor.getForceNewPreparedStatementBehaviour())
             return true;
 
         synchronized (this)
         {
             CassandraVersion minVersion = Gossiper.instance.getMinVersion(DatabaseDescriptor.getWriteRpcTimeout(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS);
             if (minVersion != null &&
-                ((minVersion.major == 3 && minVersion.minor == 0 && minVersion.compareTo(NEW_PREPARED_STATEMENT_BEHAVIOUR_SINCE_30) >= 0) ||
-                 (minVersion.major == 3 && minVersion.minor > 0 && minVersion.compareTo(NEW_PREPARED_STATEMENT_BEHAVIOUR_SINCE_3X) >= 0) ||
-                 (minVersion.compareTo(NEW_PREPARED_STATEMENT_BEHAVIOUR_SINCE_40, true) >= 0)))
-            {
-                logger.info("Fully upgraded to at least {}", minVersion);
-                newPreparedStatementBehaviour = true;
-            }
+                ((minVersion.major == 3 && minVersion.compareTo(SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_30) >= 0) ||
+                 (minVersion.major == 4 && minVersion.compareTo(SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40) >= 0)))
+                skipKeyspaceForQualifiedStatements = true;
 
-            return newPreparedStatementBehaviour;
+            return skipKeyspaceForQualifiedStatements;
         }
     }
 
-    /**
-     * This method got slightly out of hand, but this is with best intentions: to allow users to be upgraded from any
-     * prior version, and help implementers avoid previous mistakes by clearly separating fully qualified and non-fully
-     * qualified statement behaviour.
-     *
-     * Basically we need to handle 4 different hashes here;
-     * 1. fully qualified query with keyspace
-     * 2. fully qualified query without keyspace
-     * 3. unqualified query with keyspace
-     * 4. unqualified query without keyspace
-     *
-     * The correct combination to return is 2/3 - the problem is during upgrades (assuming upgrading from < 3.0.26)
-     * - Existing clients have hash 1 or 3
-     * - Query prepared on a 3.0.26/3.11.12/4.0.2 instance needs to return hash 1/3 to be able to execute it on a 3.0.25 instance
-     * - This is handled by the useNewPreparedStatementBehaviour flag - while there still are 3.0.25 instances in
-     *   the cluster we always return hash 1/3
-     * - Once fully upgraded we start returning hash 2/3, this will cause a prepared statement id mismatch for existing
-     *   clients, but they will be able to continue using the old prepared statement id after that exception since we
-     *   store the query both with and without keyspace.
-     */
+    public boolean useKeyspaceForNonQualifiedStatements()
+    {
+        if (useKeyspaceForNonQualifiedStatements || DatabaseDescriptor.getForceNewPreparedStatementBehaviour())
+            return true;
+
+        synchronized (this)
+        {
+            CassandraVersion minVersion = Gossiper.instance.getMinVersion(DatabaseDescriptor.getWriteRpcTimeout(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS);
+            if (minVersion != null &&
+                ((minVersion.major == 3 && minVersion.compareTo(USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_30) >= 0) ||
+                 (minVersion.major == 4 && minVersion.compareTo(USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40) >= 0)))
+            {
+                logger.info("Fully upgraded to at least {}/{}", USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_30, USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40);
+                useKeyspaceForNonQualifiedStatements = true;
+            }
+            return useKeyspaceForNonQualifiedStatements;
+        }
+    }
+
     public ResultMessage.Prepared prepare(String queryString, ClientState clientState)
     {
-        boolean useNewPreparedStatementBehaviour = useNewPreparedStatementBehaviour();
+        boolean skipKeyspaceForQualifiedStatements = skipKeyspaceForQualifiedStatements();
+        boolean useKeyspaceForNonQualifiedStatements = useKeyspaceForNonQualifiedStatements();
+
         MD5Digest hashWithoutKeyspace = computeId(queryString, null);
         MD5Digest hashWithKeyspace = computeId(queryString, clientState.getRawKeyspace());
         Prepared cachedWithoutKeyspace = preparedStatements.getIfPresent(hashWithoutKeyspace);
@@ -684,20 +685,36 @@ public class QueryProcessor implements QueryHandler
         // We assume it is only safe to return cached prepare if we have both instances
         boolean safeToReturnCached = cachedWithoutKeyspace != null && cachedWithKeyspace != null;
 
+        // If we're on 3.0.24.28 or later, try to use caches
         if (safeToReturnCached)
         {
-            if (useNewPreparedStatementBehaviour)
+            if (skipKeyspaceForQualifiedStatements && useKeyspaceForNonQualifiedStatements)
             {
                 if (cachedWithoutKeyspace.fullyQualified) // For fully qualified statements, we always skip keyspace to avoid digest switching
                     return createResultMessage(hashWithoutKeyspace, cachedWithoutKeyspace);
 
                 if (clientState.getRawKeyspace() != null && !cachedWithKeyspace.fullyQualified) // For non-fully qualified statements, we always include keyspace to avoid ambiguity
                     return createResultMessage(hashWithKeyspace, cachedWithKeyspace);
-
             }
-            else // legacy caches, pre-CASSANDRA-15252 behaviour
+            else // legacy caches
             {
-                return createResultMessage(hashWithKeyspace, cachedWithKeyspace);
+                if (cachedWithKeyspace.fullyQualified)
+                {
+                    if (skipKeyspaceForQualifiedStatements)
+                        return createResultMessage(hashWithoutKeyspace, cachedWithoutKeyspace);
+                    else
+                        return createResultMessage(hashWithKeyspace, cachedWithKeyspace);
+                }
+                else
+                {
+                    if (useKeyspaceForNonQualifiedStatements)
+                        return createResultMessage(hashWithKeyspace, cachedWithKeyspace);
+                    else
+                    {
+                        checkNonFullyQualifiedQueryConsistency(queryString, cachedWithoutKeyspace, clientState);
+                        return createResultMessage(hashWithoutKeyspace, cachedWithoutKeyspace);
+                    }
+                }
             }
         }
         else
@@ -721,7 +738,7 @@ public class QueryProcessor implements QueryHandler
             if (clientState.getRawKeyspace() != null)
                 qualifiedWithKeyspace = storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
 
-            if (!useNewPreparedStatementBehaviour && qualifiedWithKeyspace != null)
+            if (!skipKeyspaceForQualifiedStatements && qualifiedWithKeyspace != null)
                 return qualifiedWithKeyspace;
 
             return qualifiedWithoutKeyspace;
@@ -732,7 +749,7 @@ public class QueryProcessor implements QueryHandler
 
             ResultMessage.Prepared nonQualifiedWithKeyspace = storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
             ResultMessage.Prepared nonQualifiedWithNullKeyspace = storePreparedStatement(queryString, null, prepared);
-            if (!useNewPreparedStatementBehaviour)
+            if (!useKeyspaceForNonQualifiedStatements)
                 return nonQualifiedWithNullKeyspace;
 
             return nonQualifiedWithKeyspace;
@@ -801,6 +818,21 @@ public class QueryProcessor implements QueryHandler
                                                  throws RequestExecutionException, RequestValidationException
     {
         return processPrepared(statement, state, options, queryStartNanoTime);
+    }
+
+    public static void checkNonFullyQualifiedQueryConsistency(String queryString, Prepared previous, ClientState clientState)
+    {
+        MD5Digest id = computeId(queryString, null);
+        if (previous == null)
+            previous = preparedStatements.getIfPresent(id);
+
+        if (previous != null && !clientState.getRawKeyspace().equals(previous.keyspace))
+        {
+            String msg = String.format("You've tried to prepare a statement while having executed USE or cluster.connect(<keyspace>). " +
+                                       "Executing the resulting prepared statement will return incorrect results: %s (on keyspace %s, previously prepared on %s)",
+                                       queryString, clientState.getRawKeyspace(), previous.keyspace);
+            nospam.error(msg);
+        }
     }
 
     public ResultMessage processPrepared(CQLStatement statement, QueryState queryState, QueryOptions options, long queryStartNanoTime)

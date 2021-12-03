@@ -51,6 +51,7 @@ public class ClientStateTest
         System.setProperty("org.apache.cassandra.disable_mbean_registration", "true");
         SchemaLoader.prepareServer();
         DatabaseDescriptor.setAuthFromRoot(true);
+        Roles.init();
         // create the system_auth keyspace so the IRoleManager can function as normal
         SchemaLoader.createKeyspace(SchemaConstants.AUTH_KEYSPACE_NAME,
                                     KeyspaceParams.simple(1),
