@@ -60,7 +60,9 @@ public class ToolRunner
                          "(?im)^.*java-driver only supports shaded guava or.*\\R",
                          "(?im)^.*using withProtocolVersion is strongly discouraged.*\\R",
                          "(?im)^.*slf4j.*\\R",
-                         "(?im)^.*found binding.*\\R");
+                         "(?im)^.*found binding.*\\R",
+                         "(?im)^.*`USE <keyspace>` with prepared statements is considered to be an anti-pattern due to ambiguity in non-qualified table names.*\\R",
+                         "(?im)^.*Found Netty's native epoll transport, but not running on linux-based operating system. Using NIO instead..*\\R");
 
     public static int runClassAsTool(String clazz, String... args)
     {
