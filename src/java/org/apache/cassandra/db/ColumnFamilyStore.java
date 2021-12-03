@@ -1731,7 +1731,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 return session != null && sessions.contains(session);
             };
             return runWithCompactionsDisabled(() -> compactionStrategyManager.releaseRepairData(sessions),
-                                              predicate, false, true, true);
+                                              predicate, OperationType.STREAM, false, true, true);
         }
         else
         {
@@ -2529,7 +2529,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             cfs.runWithCompactionsDisabled((Callable<Void>) () -> {
                 cfs.data.reset(new Memtable(new AtomicReference<>(CommitLogPosition.NONE), cfs));
                 return null;
-            }, true, false);
+            }, OperationType.P0, true, true);
         }
     }
 
@@ -2621,7 +2621,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             }
         };
 
-        runWithCompactionsDisabled(FutureTask.callable(truncateRunnable), true, true);
+        runWithCompactionsDisabled(FutureTask.callable(truncateRunnable), OperationType.P0, true, true);
 
         viewManager.build();
 
@@ -2642,9 +2642,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         }
     }
 
-    public <V> V runWithCompactionsDisabled(Callable<V> callable, boolean interruptValidation, boolean interruptViews)
+    public <V> V runWithCompactionsDisabled(Callable<V> callable, OperationType operationType, boolean interruptValidation, boolean interruptViews)
     {
-        return runWithCompactionsDisabled(callable, (sstable) -> true, interruptValidation, interruptViews, true);
+        return runWithCompactionsDisabled(callable, (sstable) -> true, operationType, interruptValidation, interruptViews, true);
     }
 
     /**
@@ -2657,7 +2657,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
      * @param interruptIndexes if we should interrupt compactions on indexes. NOTE: if you set this to true your sstablePredicate
      *                         must be able to handle LocalPartitioner sstables!
      */
-    public <V> V runWithCompactionsDisabled(Callable<V> callable, Predicate<SSTableReader> sstablesPredicate, boolean interruptValidation, boolean interruptViews, boolean interruptIndexes)
+    public <V> V runWithCompactionsDisabled(Callable<V> callable, Predicate<SSTableReader> sstablesPredicate, OperationType operationType, boolean interruptValidation, boolean interruptViews, boolean interruptIndexes)
     {
         // synchronize so that concurrent invocations don't re-enable compactions partway through unexpectedly,
         // and so we only run one major compaction at a time
@@ -2672,9 +2672,24 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                              ? Iterables.concat(toInterruptFor, viewManager.allViewsCfs())
                              : toInterruptFor;
 
+            Iterable<TableMetadata> toInterruptForMetadata = Iterables.transform(toInterruptFor, ColumnFamilyStore::metadata);
+
             try (CompactionManager.CompactionPauser pause = CompactionManager.instance.pauseGlobalCompaction();
                  CompactionManager.CompactionPauser pausedStrategies = pauseCompactionStrategies(toInterruptFor))
             {
+                List<CompactionInfo.Holder> uninterruptibleTasks = CompactionManager.instance.getCompactionsMatching(toInterruptForMetadata,
+                                                                                                                     (info) -> info.getTaskType().priority <= operationType.priority);
+                if (!uninterruptibleTasks.isEmpty())
+                {
+                    logger.info("Unable to cancel in-progress compactions, since they're running with higher or same priority: {}. You can abort these operations using `nodetool stop`.",
+                                uninterruptibleTasks.stream().map((compaction) -> String.format("%s@%s (%s)",
+                                                                                                compaction.getCompactionInfo().getTaskType(),
+                                                                                                compaction.getCompactionInfo().getTable(),
+                                                                                                compaction.getCompactionInfo().getTaskId()))
+                                                    .collect(Collectors.joining(",")));
+                    return null;
+                }
+
                 // interrupt in-progress compactions
                 CompactionManager.instance.interruptCompactionForCFs(toInterruptFor, sstablesPredicate, interruptValidation);
                 CompactionManager.instance.waitForCessation(toInterruptFor, sstablesPredicate);
@@ -2684,7 +2699,9 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
                 {
                     if (cfs.getTracker().getCompacting().stream().anyMatch(sstablesPredicate))
                     {
-                        logger.warn("Unable to cancel in-progress compactions for {}.  Perhaps there is an unusually large row in progress somewhere, or the system is simply overloaded.", metadata.name);
+                        logger.warn("Unable to cancel in-progress compactions for {}. " +
+                                    "Perhaps there is an unusually large row in progress somewhere, or the system is simply overloaded.", metadata.name);
+
                         return null;
                     }
                 }
@@ -2739,7 +2756,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         return accumulate;
     }
 
-    public LifecycleTransaction markAllCompacting(final OperationType operationType)
+    public <T> T withAllSSTables(final OperationType operationType, Function<LifecycleTransaction, T> op)
     {
         Callable<LifecycleTransaction> callable = () -> {
             assert data.getCompacting().isEmpty() : data.getCompacting();
@@ -2750,7 +2767,10 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             return modifier;
         };
 
-        return runWithCompactionsDisabled(callable, false, false);
+        try (LifecycleTransaction compacting = runWithCompactionsDisabled(callable, operationType, false, false))
+        {
+            return op.apply(compacting);
+        }
     }
 
 

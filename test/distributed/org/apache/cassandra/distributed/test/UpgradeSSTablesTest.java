@@ -19,6 +19,8 @@
 package org.apache.cassandra.distributed.test;
 
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -26,15 +28,176 @@ import org.junit.Test;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.LogAction;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.utils.FBUtilities;
 
 public class UpgradeSSTablesTest extends TestBaseImpl
 {
+    @Test
+    public void upgradeSSTablesInterruptsOngoingCompaction() throws Throwable
+    {
+        try (ICluster<IInvokableInstance> cluster = init(builder().withNodes(1).start()))
+        {
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v text, PRIMARY KEY (pk, ck));");
+            cluster.get(1).acceptsOnInstance((String ks) -> {
+                ColumnFamilyStore cfs = Keyspace.open(ks).getColumnFamilyStore("tbl");
+                cfs.disableAutoCompaction();
+                CompactionManager.instance.setMaximumCompactorThreads(1);
+                CompactionManager.instance.setCoreCompactorThreads(1);
+            }).accept(KEYSPACE);
+
+            String blob = "blob";
+            for (int i = 0; i < 6; i++)
+                blob += blob;
+
+            for (int cnt = 0; cnt < 5; cnt++)
+            {
+                for (int i = 0; i < 100; i++)
+                {
+                    cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (?,?,?)",
+                                                   ConsistencyLevel.QUORUM, (cnt * 1000) + i, i, blob);
+                }
+                cluster.get(1).nodetool("flush", KEYSPACE, "tbl");
+            }
+
+            LogAction logAction = cluster.get(1).logs();
+            logAction.mark();
+            Future<?> future = cluster.get(1).asyncAcceptsOnInstance((String ks) -> {
+                ColumnFamilyStore cfs = Keyspace.open(ks).getColumnFamilyStore("tbl");
+                CompactionManager.instance.submitMaximal(cfs, FBUtilities.nowInSeconds(), false, OperationType.COMPACTION);
+            }).apply(KEYSPACE);
+            Assert.assertEquals(0, cluster.get(1).nodetool("upgradesstables", "-a", KEYSPACE, "tbl"));
+            future.get();
+            Assert.assertFalse(logAction.grep("Compaction interrupted").getResult().isEmpty());
+        }
+    }
+
+    @Test
+    public void compactionDoesNotCancelUpgradeSSTables() throws Throwable
+    {
+        try (ICluster<IInvokableInstance> cluster = init(builder().withNodes(1).start()))
+        {
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v text, PRIMARY KEY (pk, ck));");
+            cluster.get(1).acceptsOnInstance((String ks) -> {
+                ColumnFamilyStore cfs = Keyspace.open(ks).getColumnFamilyStore("tbl");
+                cfs.disableAutoCompaction();
+                CompactionManager.instance.setMaximumCompactorThreads(1);
+                CompactionManager.instance.setCoreCompactorThreads(1);
+            }).accept(KEYSPACE);
+
+            String blob = "blob";
+            for (int i = 0; i < 6; i++)
+                blob += blob;
+
+            for (int cnt = 0; cnt < 5; cnt++)
+            {
+                for (int i = 0; i < 100; i++)
+                {
+                    cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (?,?,?)",
+                                                   ConsistencyLevel.QUORUM, (cnt * 1000) + i, i, blob);
+                }
+                cluster.get(1).nodetool("flush", KEYSPACE, "tbl");
+            }
+
+            LogAction logAction = cluster.get(1).logs();
+            logAction.mark();
+            Assert.assertEquals(0, cluster.get(1).nodetool("upgradesstables", "-a", KEYSPACE, "tbl"));
+            Assert.assertFalse(logAction.watchFor("Compacting").getResult().isEmpty());
+
+            cluster.get(1).acceptsOnInstance((String ks) -> {
+                ColumnFamilyStore cfs = Keyspace.open(ks).getColumnFamilyStore("tbl");
+                CompactionManager.instance.submitMaximal(cfs, FBUtilities.nowInSeconds(), false, OperationType.COMPACTION);
+            }).accept(KEYSPACE);
+            Assert.assertTrue(logAction.grep("Compaction interrupted").getResult().isEmpty());
+            Assert.assertFalse(logAction.grep("Finished Upgrade sstables").getResult().isEmpty());
+            Assert.assertFalse(logAction.grep("Compacted (.*) 5 sstables to").getResult().isEmpty());
+        }
+    }
+
+    @Test
+    public void cleanupDoesNotInterruptUpgradeSSTables() throws Throwable
+    {
+        try (ICluster<IInvokableInstance> cluster = init(builder().withNodes(1).start()))
+        {
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v text, PRIMARY KEY (pk, ck));");
+            String blob = "blob";
+            for (int i = 0; i < 6; i++)
+                blob += blob;
+
+            for (int i = 0; i < 10000; i++)
+            {
+                cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck, v) VALUES (?,?,?)",
+                                               ConsistencyLevel.QUORUM, i, i, blob);
+            }
+
+            cluster.get(1).nodetool("flush", KEYSPACE, "tbl");
+
+            LogAction logAction = cluster.get(1).logs();
+            logAction.mark();
+
+            Thread scrubThread = new Thread(() -> {
+                while (!Thread.interrupted())
+                    Assert.assertEquals(0, cluster.get(1).nodetool("scrub", KEYSPACE, "tbl"));
+            });
+            scrubThread.start();
+
+            // Wait until Scrub actually starts
+            Assert.assertFalse(logAction.watchFor("Scrubbing BigTableReader").getResult().isEmpty());
+            cluster.get(1).nodetool("upgradesstables", "-a", KEYSPACE, "tbl");
+            scrubThread.interrupt();
+            scrubThread.join();
+
+            Assert.assertFalse(logAction.grep("Unable to cancel in-progress compactions").getResult().isEmpty());
+            Assert.assertFalse(logAction.grep("Finished Scrub").getResult().isEmpty());
+            Assert.assertTrue(logAction.grep("Compaction interrupted").getResult().isEmpty());
+        }
+    }
+
+    @Test
+    public void truncateWhileUpgrading() throws Throwable
+    {
+        try (ICluster<IInvokableInstance> cluster = init(builder().withNodes(1).start()))
+        {
+            cluster.schemaChange(withKeyspace("CREATE TABLE %s.tbl (pk int, ck int, v text, PRIMARY KEY (pk, ck)) "));
+            cluster.get(1).acceptsOnInstance((String ks) -> {
+                ColumnFamilyStore cfs = Keyspace.open(ks).getColumnFamilyStore("tbl");
+                cfs.disableAutoCompaction();
+                CompactionManager.instance.setMaximumCompactorThreads(1);
+                CompactionManager.instance.setCoreCompactorThreads(1);
+            }).accept(KEYSPACE);
+
+            String blob = "blob";
+            for (int i = 0; i < 10; i++)
+                blob += blob;
+
+            for (int i = 0; i < 500; i++)
+            {
+                cluster.coordinator(1).execute(withKeyspace("INSERT INTO %s.tbl (pk, ck, v) VALUES (?,?,?)"),
+                                               ConsistencyLevel.QUORUM, i, i, blob);
+                if (i > 0 && i % 100 == 0)
+                    cluster.get(1).nodetool("flush", KEYSPACE, "tbl");
+            }
+
+            LogAction logAction = cluster.get(1).logs();
+            logAction.mark();
+
+            Future<?> upgrade = CompletableFuture.runAsync(() -> {
+                cluster.get(1).nodetool("upgradesstables", "-a", KEYSPACE, "tbl");
+            });
+
+            cluster.schemaChange(withKeyspace("TRUNCATE %s.tbl"));
+            upgrade.get();
+            Assert.assertFalse(logAction.grep("Compaction interrupted").getResult().isEmpty());
+        }
+    }
+
     @Test
     public void rewriteSSTablesTest() throws Throwable
     {
