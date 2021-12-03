@@ -285,7 +285,10 @@ public enum CassandraRelevantProperties
     ALLOW_DISABLED_COMPRESSION("cassandra.allow_disabled_compression", "false"),
 
     // CIE-specific property to force-enable the Christmas patch for any tables that have opted out
-    OVERRIDE_DISABLED_XMAS_PATCH_PROP(Config.PROPERTY_PREFIX + "repaired_data_tracking_without_xmas_patch");
+    OVERRIDE_DISABLED_XMAS_PATCH_PROP(Config.PROPERTY_PREFIX + "repaired_data_tracking_without_xmas_patch"),
+
+    // CIE-specific property to loosen the definition of "empty" for gossip state, used during host replacements
+    LOOSE_DEF_OF_EMPTY_ENABLED(Config.PROPERTY_PREFIX + "gossiper.loose_empty_enabled"),
     ;
 
     CassandraRelevantProperties(String key, String defaultVal)
