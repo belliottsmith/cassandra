@@ -2410,4 +2410,17 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         }
         return false;
     }
+
+    @Override
+    public boolean getLooseEmptyEnabled()
+    {
+        return EndpointState.LOOSE_DEF_OF_EMPTY_ENABLED;
+    }
+
+    @Override
+    public void setLooseEmptyEnabled(boolean enabled)
+    {
+        logger.info("Setting loose definition of empty to {}", enabled);
+        EndpointState.LOOSE_DEF_OF_EMPTY_ENABLED = enabled;
+    }
 }
