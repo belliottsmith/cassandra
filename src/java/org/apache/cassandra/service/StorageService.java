@@ -7273,6 +7273,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return DatabaseDescriptor.getSkipStreamDiskSpaceCheck();
     }
 
+    public boolean getForceNewPreparedStatementBehaviour()
+    {
+        return DatabaseDescriptor.getForceNewPreparedStatementBehaviour();
+    }
+
+    public void setForceNewPreparedStatementBehaviour(boolean value)
+    {
+        DatabaseDescriptor.setForceNewPreparedStatementBehaviour(value);
+    }
 
     public String getLastRepairTimeForKey(String keyspace, String table, String key)
     {

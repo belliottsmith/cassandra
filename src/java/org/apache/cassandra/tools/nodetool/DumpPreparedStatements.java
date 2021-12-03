@@ -15,31 +15,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.gms;
 
-import java.net.UnknownHostException;
-import java.util.List;
-import java.util.Map;
+package org.apache.cassandra.tools.nodetool;
 
-public interface GossiperMBean
+import io.airlift.airline.Command;
+
+import org.apache.cassandra.tools.NodeProbe;
+import org.apache.cassandra.tools.NodeTool;
+
+@Command(name = "dump_prepared_statements", description = "Outputs all prepared statements on this host")
+public class DumpPreparedStatements extends NodeTool.NodeToolCmd
 {
-    public long getEndpointDowntime(String address) throws UnknownHostException;
-
-    public int getCurrentGenerationNumber(String address) throws UnknownHostException;
-
-    public void unsafeAssassinateEndpoint(String address) throws UnknownHostException;
-
-    public void assassinateEndpoint(String address) throws UnknownHostException;
-
-    public List<String> reloadSeeds();
-
-    public List<String> getSeeds();
-
-    /** Returns each node's database release version */
-    public Map<String, List<String>> getReleaseVersionsWithPort();
-
-    public boolean getLooseEmptyEnabled();
-
-    public void setLooseEmptyEnabled(boolean enabled);
-
+    @Override
+    public void execute(NodeProbe probe)
+    {
+        probe.dumpPreparedStatements(probe.output().out);
+    }
 }
