@@ -663,14 +663,22 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
                 @Override
                 public boolean apply(SSTableReader sstable)
                 {
-                    cdl.countDown();
-                    if (cdl.getCount() > 0)
-                        throw new PendingAntiCompaction.SSTableAcquisitionException("blah");
                     return true;
                 }
             };
+
             CompactionManager.instance.active.beginCompaction(holder);
-            PendingAntiCompaction.AcquisitionCallable acquisitionCallable = new PendingAntiCompaction.AcquisitionCallable(cfs, nextTimeUUID(), 10, 1, acp);
+            PendingAntiCompaction.AcquisitionCallable acquisitionCallable = new PendingAntiCompaction.AcquisitionCallable(cfs, nextTimeUUID(), 10, 1, acp) {
+                protected PendingAntiCompaction.AcquireResult acquireSSTables()
+                {
+                    cdl.countDown();
+                    if (cdl.getCount() > 0)
+                        throw new PendingAntiCompaction.SSTableAcquisitionException("blah");
+                    else
+                        CompactionManager.instance.active.finishCompaction(holder);
+                    return super.acquireSSTables();
+                }
+            };
             Future f = es.submit(acquisitionCallable);
             cdl.await();
             assertNotNull(f.get());
