@@ -184,11 +184,14 @@ public class PreviewRepairTest extends TestBaseImpl
             Future<RepairResult> rsFuture = es.submit(() -> cluster.get(1).callOnInstance(repair(options(true, false))));
             previewRepairStarted.await();
             // this needs to finish before the preview repair is unpaused on node2
-            cluster.get(1).callOnInstance(repair(options(false, false)));
+            RepairResult irResult = cluster.get(1).callOnInstance(repair(options(false, false)));
             continuePreviewRepair.signalAll();
             RepairResult rs = rsFuture.get();
-            assertFalse(rs.success); // preview repair should have failed
+            assertFalse(rs.success); // preview repair was started before IR, but has lower priority, so its task will get cancelled
             assertFalse(rs.wasInconsistent); // and no mismatches should have been reported
+
+            assertTrue(irResult.success); // IR was started after preview repair, but has a higher priority, so it'll be allowed to finish
+            assertFalse(irResult.wasInconsistent);
         }
         finally
         {
@@ -224,34 +227,21 @@ public class PreviewRepairTest extends TestBaseImpl
                    .messagesMatching(DelayFirstRepairTypeMessageFilter.validationRequest(previewRepairStarted, continuePreviewRepair))
                    .drop();
 
-            SimpleCondition irRepairStarted = new SimpleCondition();
-            SimpleCondition continueIrRepair = new SimpleCondition();
-            // this blocks the IR from committing, so we can reenable the preview
-            cluster.filters()
-                   .outbound()
-                   .verbs(Verb.FINALIZE_PROPOSE_MSG.id)
-                   .from(1).to(2)
-                   .messagesMatching(DelayFirstRepairTypeMessageFilter.finalizePropose(irRepairStarted, continueIrRepair))
-                   .drop();
-
             Future<RepairResult> previewResult = cluster.get(1).asyncCallsOnInstance(repair(options(true, false))).call();
             previewRepairStarted.await();
 
             // trigger IR and wait till its ready to commit
             Future<RepairResult> irResult = cluster.get(1).asyncCallsOnInstance(repair(options(false, false))).call();
-            irRepairStarted.await();
+            RepairResult ir = irResult.get();
+            assertTrue(ir.success); // IR was submitted after preview repair has acquired sstables, but has higher priority
+            assertFalse(ir.wasInconsistent); // not preview, so we don't care about preview notification
 
             // unblock preview repair and wait for it to complete
             continuePreviewRepair.signalAll();
 
             RepairResult rs = previewResult.get();
-            assertFalse(rs.success); // preview repair should have failed
+            assertFalse(rs.success); // preview repair was started earlier than IR session; but has smaller priority
             assertFalse(rs.wasInconsistent); // and no mismatches should have been reported
-
-            continueIrRepair.signalAll();
-            RepairResult ir = irResult.get();
-            assertTrue(ir.success);
-            assertFalse(ir.wasInconsistent); // not preview, so we don't care about preview notification
         }
     }
 
