@@ -1769,15 +1769,21 @@ public final class SystemKeyspace
         availableRanges.truncateBlocking();
     }
 
-    public static List<Pair<String, String>> loadPreparedStatements()
+    public static int loadPreparedStatements(TriConsumer<MD5Digest, String, String> onLoaded)
     {
-        String query = format("SELECT logged_keyspace, query_string FROM %s", PreparedStatements.toString());
+        String query = String.format("SELECT prepared_id, logged_keyspace, query_string FROM %s.%s", SchemaConstants.SYSTEM_KEYSPACE_NAME, PREPARED_STATEMENTS);
         UntypedResultSet resultSet = executeOnceInternal(query);
-        List<Pair<String, String>> r = new ArrayList<>();
         for (UntypedResultSet.Row row : resultSet)
-            r.add(Pair.create(row.has("logged_keyspace") ? row.getString("logged_keyspace") : null,
-                              row.getString("query_string")));
-        return r;
+        {
+            onLoaded.accept(MD5Digest.wrap(row.getByteArray("prepared_id")),
+                            row.getString("query_string"),
+                            row.has("logged_keyspace") ? row.getString("logged_keyspace") : null);
+        }
+        return resultSet.size();
+    }
+
+    public static interface TriConsumer<A, B, C> {
+        void accept(A var1, B var2, C var3);
     }
 
     @VisibleForTesting

@@ -113,6 +113,7 @@ import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.cassandra.tools.nodetool.GetTimeout;
 import org.apache.cassandra.utils.NativeLibrary;
+import org.apache.cassandra.utils.Pair;
 
 /**
  * JMX client operations for Cassandra.
@@ -343,6 +344,14 @@ public class NodeProbe implements AutoCloseable
     public int recompressSSTables(String keyspaceName, int jobs, String... tableNames) throws IOException, ExecutionException, InterruptedException
     {
         return ssProxy.recompressSSTables(keyspaceName, jobs, tableNames);
+    }
+
+    public void dumpPreparedStatements(PrintStream out)
+    {
+        List<Pair<String, String>> statetments = ssProxy.getPreparedStatements();
+        statetments.sort(Comparator.comparing(l -> l.right));
+        for (Pair<String, String> e: statetments)
+            out.printf("%s: %s\n", e.left, e.right);
     }
 
     private void checkJobs(PrintStream out, int jobs)

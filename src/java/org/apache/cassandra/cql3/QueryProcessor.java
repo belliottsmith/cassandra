@@ -141,23 +141,23 @@ public class QueryProcessor implements QueryHandler
         }
     }
 
-    public static void preloadPreparedStatement()
+    public void preloadPreparedStatements()
     {
-        ClientState clientState = ClientState.forInternalCalls();
-        int count = 0;
-        for (Pair<String, String> useKeyspaceAndCQL : SystemKeyspace.loadPreparedStatements())
-        {
+        int count = SystemKeyspace.loadPreparedStatements((id, query, keyspace) -> {
             try
             {
-                clientState.setKeyspace(useKeyspaceAndCQL.left);
-                prepare(useKeyspaceAndCQL.right, clientState);
-                count++;
+                ClientState clientState = ClientState.forInternalCalls();
+                if (keyspace != null)
+                    clientState.setKeyspace(keyspace);
+
+                Prepared prepared = new Prepared(getStatement(query, clientState), query);
+                preparedStatements.put(id, prepared);
             }
             catch (RequestValidationException e)
             {
-                logger.warn("prepared statement recreation error: {}", useKeyspaceAndCQL.right, e);
+                logger.warn("prepared statement recreation error: {}", query, e);
             }
-        }
+        });
         logger.info("Preloaded {} prepared statements", count);
     }
 
@@ -188,6 +188,11 @@ public class QueryProcessor implements QueryHandler
     private QueryProcessor()
     {
         Schema.instance.registerListener(new StatementInvalidatingListener());
+    }
+
+    public HashMap<MD5Digest, Prepared> getPreparedStatements()
+    {
+        return new HashMap<>(preparedStatements.asMap());
     }
 
     public Prepared getPrepared(MD5Digest id)
@@ -441,9 +446,39 @@ public class QueryProcessor implements QueryHandler
         return prepare(query, clientState);
     }
 
-    public static ResultMessage.Prepared prepare(String queryString, ClientState clientState)
+    // default to old behaviour if getMinVersion below times out.
+    private volatile boolean returnNewHash = false;
+
+    // We want to be able to switch to new behaviour once, and after this just stay on it, never allowing the node
+    // to flip back-and-forth between the two.
+    private boolean useNewHashBehaviour()
     {
-        ResultMessage.Prepared existing = getStoredPreparedStatement(queryString, clientState.getRawKeyspace());
+        if (returnNewHash)
+            return true;
+
+        synchronized (this)
+        {
+            CassandraVersion minVersion = Gossiper.instance.getMinVersion(DatabaseDescriptor.getWriteRpcTimeout(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS);
+            if (minVersion != null &&
+                   ((minVersion.major == 3 && minVersion.minor == 0 && minVersion.compareTo(PREPARE_ID_BEHAVIOR_CHANGE_30) >= 0) ||
+                    (minVersion.major == 3 && minVersion.minor != 0 && minVersion.compareTo(PREPARE_ID_BEHAVIOR_CHANGE_3X) >= 0) ||
+                    (minVersion.major == 4 && minVersion.compareTo(PREPARE_ID_BEHAVIOR_CHANGE_40) >= 0)))
+                returnNewHash = true;
+
+            return returnNewHash;
+        }
+    }
+
+    public ResultMessage.Prepared prepare(String queryString, ClientState clientState)
+    {
+        boolean useNewHashBehaviour = useNewHashBehaviour();
+
+        ResultMessage.Prepared existing = null;
+        if (useNewHashBehaviour)
+            existing = getStoredPreparedStatement(queryString, null);
+        else
+            existing = getStoredPreparedStatement(queryString, clientState.getRawKeyspace());
+
         if (existing != null)
             return existing;
 
@@ -456,6 +491,8 @@ public class QueryProcessor implements QueryHandler
 
         if (statement instanceof CQLStatement.SingleKeyspaceCqlStatement)
         {
+            if (clientState.getRawKeyspace() != null)
+                clientState.warnAboutUseWithPreparedStatements();
             // Edge-case of CASSANDRA-15252 in mixed-mode cluster. We accept that 15252 itself can manifest in a
             // cluster that has both old and new nodes, but we would like to avoid a situation when the fix adds
             // a new behaviour that can break which, in addition, can get triggered more frequently.
@@ -464,15 +501,8 @@ public class QueryProcessor implements QueryHandler
             // expects into cache, so that it could get PREPARED response on the second try.
             ResultMessage.Prepared newBehavior = storePreparedStatement(queryString, null, prepared);
             ResultMessage.Prepared oldBehavior = clientState.getRawKeyspace() != null ? storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared) : newBehavior;
-            CassandraVersion minVersion = Gossiper.instance.getMinVersion(20, TimeUnit.MILLISECONDS);
 
-            // Default to old behaviour in case we're not sure about the version. Even if we ever flip back to the old
-            // behaviour due to the gossip bug or incorrect version string, we'll end up with two re-prepare round-trips.
-
-            return minVersion != null &&
-                   ((minVersion.major == 3 && minVersion.minor == 0 && minVersion.compareTo(PREPARE_ID_BEHAVIOR_CHANGE_30) >= 0) ||
-                    (minVersion.major == 3 && minVersion.minor != 0 && minVersion.compareTo(PREPARE_ID_BEHAVIOR_CHANGE_3X) >= 0) ||
-                    (minVersion.major == 4 && minVersion.compareTo(PREPARE_ID_BEHAVIOR_CHANGE_40) >= 0)) ? newBehavior : oldBehavior;
+            return useNewHashBehaviour ? newBehavior : oldBehavior;
         }
         else
         {

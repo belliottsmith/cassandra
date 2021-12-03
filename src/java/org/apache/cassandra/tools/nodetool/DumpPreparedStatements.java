@@ -16,24 +16,19 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.test;
+package org.apache.cassandra.tools.nodetool;
 
-import org.junit.Test;
+import io.airlift.airline.Command;
 
-public class ReprepareNewBehaviourTest extends ReprepareTestBase
+import org.apache.cassandra.tools.NodeProbe;
+import org.apache.cassandra.tools.NodeTool;
+
+@Command(name = "dump_prepared_statements", description = "Outputs all prepared statements on this host")
+public class DumpPreparedStatements extends NodeTool.NodeToolCmd
 {
-    @Test
-    public void testReprepareNewBehaviour() throws Throwable
+    @Override
+    public void execute(NodeProbe probe)
     {
-        testReprepare(PrepareBehaviour::newBehaviour,
-                      true,
-                      cfg(true, false),
-                      cfg(false, false));
-    }
-
-    @Test
-    public void testReprepareTwoKeyspacesNewBehaviour() throws Throwable
-    {
-        testReprepareTwoKeyspaces(PrepareBehaviour::newBehaviour);
+        probe.dumpPreparedStatements(probe.output().out);
     }
 }

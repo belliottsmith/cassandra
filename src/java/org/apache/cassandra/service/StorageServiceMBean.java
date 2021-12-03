@@ -36,6 +36,7 @@ import javax.management.openmbean.TabularData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStoreMBean;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.utils.Pair;
 
 public interface StorageServiceMBean extends NotificationEmitter
 {
@@ -375,6 +376,7 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     public int upgradeSSTables(String keyspaceName, boolean excludeCurrentVersion, long maxSSTableTimestamp, int jobs, String... tableNames) throws IOException, ExecutionException, InterruptedException;
     public int recompressSSTables(String keyspaceName, int jobs, String... tableNames) throws IOException, ExecutionException, InterruptedException;
+    public List<Pair<String, String>> getPreparedStatements();
 
     /**
      * Rewrites all sstables from the given tables to remove deleted data.

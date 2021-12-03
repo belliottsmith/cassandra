@@ -94,6 +94,7 @@ public class ClientState
     // Current user for the session
     private volatile AuthenticatedUser user;
     private volatile String keyspace;
+    private volatile boolean issuedPreparedStatementsUseWarning;
 
     private static final QueryHandler cqlQueryHandler;
     static
@@ -504,6 +505,18 @@ public class ClientState
     public AuthenticatedUser getUser()
     {
         return user;
+    }
+
+    public void warnAboutUseWithPreparedStatements()
+    {
+        if (!issuedPreparedStatementsUseWarning)
+        {
+            ClientWarn.instance.warn(String.format("`USE <keyspace>` with prepared statements is considered to be an anti-pattern due to ambiguity in non-qualified table names. " +
+                                                   "Please consider removing instances of `Session#setKeyspace(<keyspace>)`, `Session#execute(\"USE <keyspace>\")` and `cluster.newSession(<keyspace>)` from your code, and " +
+                                                   "use fully qualified table names (e.g. <keyspace>.<table>) instead. " +
+                                                   "Keyspace used: %s", getRawKeyspace()));
+            issuedPreparedStatementsUseWarning = true;
+        }
     }
 
     private Set<Permission> authorize(IResource resource)

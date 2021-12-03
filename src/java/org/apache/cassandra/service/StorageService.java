@@ -50,6 +50,7 @@ import com.google.common.util.concurrent.*;
 import org.apache.cassandra.auth.AuthenticatedUser;
 import org.apache.cassandra.auth.Roles;
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.cql3.QueryHandler;
 import org.apache.cassandra.dht.RangeStreamer.FetchReplica;
 import org.apache.cassandra.fql.FullQueryLogger;
 import org.apache.cassandra.fql.FullQueryLoggerOptions;
@@ -3830,6 +3831,14 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                 status = oneStatus;
         }
         return status.statusCode;
+    }
+
+    public List<Pair<String, String>> getPreparedStatements()
+    {
+        List<Pair<String, String>> statements = new ArrayList<>();
+        for (Entry<MD5Digest, QueryHandler.Prepared> e : QueryProcessor.instance.getPreparedStatements().entrySet())
+            statements.add(Pair.create(e.getKey().toString(), e.getValue().rawCQLStatement));
+        return statements;
     }
 
     public void forceKeyspaceCompaction(boolean splitOutput, String keyspaceName, String... tableNames) throws IOException, ExecutionException, InterruptedException

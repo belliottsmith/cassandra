@@ -16,24 +16,24 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.distributed.test;
+package com.datastax.driver.core;
 
-import org.junit.Test;
-
-public class ReprepareNewBehaviourTest extends ReprepareTestBase
+// Unfortunately, MD5Digest and fields in PreparedStatement are package-private, so the easiest way to test these
+// things while still using the driver was to create a class in DS package.
+public class PreparedStatementHelper
 {
-    @Test
-    public void testReprepareNewBehaviour() throws Throwable
+    private static MD5Digest id(PreparedStatement statement)
     {
-        testReprepare(PrepareBehaviour::newBehaviour,
-                      true,
-                      cfg(true, false),
-                      cfg(false, false));
+        return statement.getPreparedId().boundValuesMetadata.id;
     }
 
-    @Test
-    public void testReprepareTwoKeyspacesNewBehaviour() throws Throwable
+    public static void assertStable(PreparedStatement first, PreparedStatement subsequent)
     {
-        testReprepareTwoKeyspaces(PrepareBehaviour::newBehaviour);
+        if (!id(first).equals(id(subsequent)))
+        {
+            throw new AssertionError(String.format("Subsequent id (%s) is different from the first one (%s)",
+                                                   id(first),
+                                                   id(subsequent)));
+        }
     }
 }

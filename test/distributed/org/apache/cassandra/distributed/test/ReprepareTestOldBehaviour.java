@@ -36,6 +36,7 @@ public class ReprepareTestOldBehaviour extends ReprepareTestBase
     public void testReprepareMixedVersion() throws Throwable
     {
         testReprepare(PrepareBehaviour::oldBehaviour,
+                      false,
                       cfg(true, true),
                       cfg(false, false));
     }
