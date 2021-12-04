@@ -44,7 +44,7 @@ public class EndpointState
 {
     protected static final Logger logger = LoggerFactory.getLogger(EndpointState.class);
 
-    private static final boolean LOOSE_DEF_OF_EMPTY_ENABLED = CassandraRelevantProperties.LOOSE_DEF_OF_EMPTY_ENABLED.getBoolean();
+    static volatile boolean LOOSE_DEF_OF_EMPTY_ENABLED = CassandraRelevantProperties.LOOSE_DEF_OF_EMPTY_ENABLED.getBoolean();
 
     public final static IVersionedSerializer<EndpointState> serializer = new EndpointStateSerializer();
 
@@ -200,16 +200,16 @@ public class EndpointState
     public boolean isEmptyWithoutStatus()
     {
         Map<ApplicationState, VersionedValue> state = applicationState.get();
-        // In the very specific case where hbState.isEmpty and STATUS is missing, this is known to be safe to "fake"
-        // the data, as this happens when the gossip state isn't coming from the node but instead from a peer who
-        // restarted and is missing the node's state
-        // When hbState is not empty, then the node gossiped an empty STATUS, this happens during bootstrap and not
-        // possible to tell if this is ok or not (we can't really tell if the node is dead or having networking issues);
-        // for these cases allow an external actor to verify and inform Cassandra that it is safe; this is done by
-        // updating the LOOSE_DEF_OF_EMPTY_ENABLED field.
-        if (LOOSE_DEF_OF_EMPTY_ENABLED)
-            return !state.containsKey(ApplicationState.STATUS);
-        return hbState.isEmpty() && !(state.containsKey(ApplicationState.STATUS_WITH_PORT) || state.containsKey(ApplicationState.STATUS));
+        boolean hasStatus = state.containsKey(ApplicationState.STATUS_WITH_PORT) || state.containsKey(ApplicationState.STATUS);
+        return hbState.isEmpty() && !hasStatus
+               // In the very specific case where hbState.isEmpty and STATUS is missing, this is known to be safe to "fake"
+               // the data, as this happens when the gossip state isn't coming from the node but instead from a peer who
+               // restarted and is missing the node's state
+               // When hbState is not empty, then the node gossiped an empty STATUS, this happens during bootstrap and not
+               // possible to tell if this is ok or not (we can't really tell if the node is dead or having networking issues);
+               // for these cases allow an external actor to verify and inform Cassandra that it is safe; this is done by
+               // updating the LOOSE_DEF_OF_EMPTY_ENABLED field.
+               || (LOOSE_DEF_OF_EMPTY_ENABLED && !hasStatus);
     }
 
     public boolean isRpcReady()
