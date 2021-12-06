@@ -182,6 +182,8 @@ builds:
   - group: release
     trigger:
       gitPush: false
+    checkout:
+      fetchTags: true
     machine:
       baseImage: docker.apple.com/piedb/parallelci:latest
       env:

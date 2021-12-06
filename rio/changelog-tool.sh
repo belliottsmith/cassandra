@@ -14,7 +14,9 @@ generate_changelog(){
 
     ignore_commit_subject_regex='^Bumping version from [0-9.]+ to [0-9.]+ after release$'
 
-    for commit in $(git log --format=%h "${start_commit}".."${end_commit}"); do
+    # Need to make sure the Rio pipeline has checkout:fetchTags=true so start_commit is available; otherwise will fail
+    commits=$(git log --format=%h "${start_commit}".."${end_commit}")
+    for commit in $commits; do
         subject=$(git log -1 --format=%s "${commit}")
 
         # Skip certain commits in changelog
