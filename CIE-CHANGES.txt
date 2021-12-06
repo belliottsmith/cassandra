@@ -2,6 +2,38 @@
 AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.37 cie-cassandra-4.0.0
 
 4.0.0.37
+* rdar://85309175 (extend the definition of gossip empty to allow more cases) added JMX endpoint (#2688)
+* rdar://85432712 (early-port 4.0: Increase the buckets count for timer histogram) (#2686)
+* rdar://86036246 (Make sure preview repairs don't optimise streams unless configured to) (#2644)
+* rdar://85538011 (Avoid blocking gossip when failing repairs during bounces) (#2659) (#2661)
+* rdar://85432886 (4.0: SSTableImport still warning about imported sstable parent directory names)
+* Revert "rdar://81804020 (4.0: Prevent bulk loader warning about imported sstable parent directory names)"
+* rdar://85298029 (Keep remote address at increment so ConnectionLimitHandler can always free) (#2654)
+* rdar://75730788 Forward-port (Add priorities to compaction tasks) (#2631)
+* rdar://86004853 (Allow RELEASE_VERSION to be null) (#2685)
+* <rdar://85600796> (Fix re-prepare logic - forward port to 4.0) (#2672)
+* rdar://85309175 (extend the definition of gossip empty to allow more cases) (#2674) (#2681)
+* rdar://80237977 (Log anticompaction cancelled at INFO level)
+* rdar://82548474 (4.0: Forward port rdar://61010307 IOBE in Paging State Version Inference (V3 State Received on V4 Connection))
+* rdar://74351990 (Suppress "You are using Cassandra with an unsupported deployment" warning in LoggingSupportFactory)
+* rdar://81461799 (disable early open: Forward port prod defaults from 3.0.24 to 4.0)
+* rdar://83148086 (4.0: forward port Implement repair streaming failure based on pending compactions check) (#2625)
+* rdar://82982984 (Apple Internal) (Temporarily limit automated IF1 rollouts to just dailydev40) (#2650)
+* rdar://84649748 (Apple Internal) (Automatically generate changelog on release) (#2641)
+* rdar://85303827 (Forward-port rdar://81738243 (Avoid failing compactions on huge partitions))
+* rdar://84756120 (CRITICAL : iccyruscassandra - Read Timeouts) (#2645)
+* rdar://84993383 (Apple Internal) (Restore lib/AmazonCorrettoCryptoProvider-1.1.1-linux-x86_64.jar after build.xml refactor)
+* rdar://85179821 (sweresultssvc - Read Unavailables Due to Divergent Ring View)
+* rdar://85175305 (Apple Internal) (4.0: Temporarily remove minor upgrade in-jvm dtests to unblock CI) (#2638)
+* Forward-port rdar://77771062 Ability to log load profiles at fixed intervals (#2568)
+* rdar://83910742 (Apple Internal) (Ignore missing replacement host DNS entries when removing from gossip) (#2624)
+* Add config flag to prevent non-superusers from accessing salted_hash in system_auth.roles (#2620)
+* rdar://82890656 (Apple Internal) (Do not print stack traces with internode auth failures) (#2611)
+* rdar://84477518 v4+ protocol did not clean up client warnings, which caused leaking the state (#2619)
+* Merge pull request #2604 from alex-pi/77202925-conflicting-replicas
+* rdar://82982984 Expand automated IF1 rollouts to include non-dailydev clusters (#2612)
+* Fix Carnival auth for automated release rollouts (#2609)
+* rdar://77202925 (Investigate Harry failure: Conflicting replica added (expected unique endpoints))
 
 4.0.0.36
 * <rdar://84012150> Mixed cluster rewrote sstable metadata with older format, reporting corruption on upgrade (#2597)
