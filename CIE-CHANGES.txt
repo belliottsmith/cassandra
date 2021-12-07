@@ -1,5 +1,10 @@
+4.0.0.39
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.38 cie-cassandra-4.0.0
+
 4.0.0.38
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.37 cie-cassandra-4.0.0
+* Add changelog from 4.0.0.37 release that could not be generated
+* Fix missing git tags preventing changelog generation
+* rdar://80233440 (Reduce log severity for internode message socket read failures)
 
 4.0.0.37
 * rdar://85309175 (extend the definition of gossip empty to allow more cases) added JMX endpoint (#2688)
