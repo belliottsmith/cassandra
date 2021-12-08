@@ -268,4 +268,13 @@ public class SuccessfulRepairTimeHolder
     {
         return new SuccessfulRepairTimeHolder(successfulRepairs, ImmutableList.of());
     }
+
+    @Override
+    public String toString()
+    {
+        return "SuccessfulRepairTimeHolder{" +
+               "successfulRepairs=" + successfulRepairs +
+               ", invalidatedRepairs=" + invalidatedRepairs +
+               '}';
+    }
 }
