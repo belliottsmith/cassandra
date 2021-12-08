@@ -6,7 +6,9 @@
             <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
 	    <PatternLayout pattern="%-5level [%thread] %date{ISO8601} %F:%L - %msg%n"/>
             <Policies>
-                <SizeBasedTriggeringPolicy size="128 MB"/>
+                <!-- Deliberatley set larger than logback config so does not rotate with extra log messages -->
+                <!-- and break pydtests like auditlog_test.py -->
+                <SizeBasedTriggeringPolicy size="512 MB"/>
             </Policies>
 	    <DefaultRolloverStrategy max="10"/>
         </RollingFile>
@@ -14,7 +16,8 @@
                     filePattern="${sys:cassandra.logdir}/system.log.%i.log.gz">
             <PatternLayout pattern="%-5level [%thread] %date{ISO8601} %F:%L - %msg%n"/>
             <Policies>
-                <SizeBasedTriggeringPolicy size="128 MB"/>
+                <!-- Deliberately larger than logback, see above -->
+                <SizeBasedTriggeringPolicy size="512 MB"/>
             </Policies>
             <DefaultRolloverStrategy max="10"/>
         </RollingFile>
