@@ -1858,6 +1858,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
             rangeTimes.put(range, gcableTime);
             logger.debug("Updated last repair time for range {} from {} to {}", range, currentGcableTime, gcableTime);
         }
+        else if (currentGcableTime == gcableTime)
+        {
+            logger.debug("Kept same last repair time for range {} from {} to {}", range, currentGcableTime, gcableTime);
+            return null;
+        }
         else
         {
             logger.error("Updated last repair time is in the past for range {}. Last successful repair {}, ignoring update at {}",
