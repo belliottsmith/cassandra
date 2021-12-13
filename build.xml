@@ -121,7 +121,7 @@
     <property name="allocation-instrumenter.version" value="3.1.0"/>
     <property name="bytebuddy.version" value="1.10.10"/>
     <property name="jflex.version" value="1.8.2"/>
-    <property name="log4j.version" value="2.13.0"/>
+    <property name="log4j.version" value="2.15.0"/>
 
     <!-- https://mvnrepository.com/artifact/net.openhft/chronicle-bom/1.16.23 -->
     <property name="chronicle-queue.version" value="5.20.123" />
