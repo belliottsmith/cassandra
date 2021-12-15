@@ -73,10 +73,15 @@ public class PstmtPersistenceTest extends CQLTester
         String statement1 = "SELECT * FROM %s WHERE key = ?";
         String statement2 = "SELECT * FROM %s WHERE pk = ?";
         String statement3 = "SELECT * FROM %S WHERE key = ?";
+        // gets stored once, fully qualified, without keyspace (no USE)
         stmtIds.add(prepareStatement(statement0, SchemaConstants.SCHEMA_KEYSPACE_NAME, SchemaKeyspace.TABLES, clientState));
+        // gets stored once, fully qualified, without keyspace (no USE)
         stmtIds.add(prepareStatement(statement1, "foo", "bar", clientState));
+        assertEquals(2, QueryProcessor.preparedStatementsCount());
         clientState.setKeyspace("foo");
+        // gets stored twice, after USE
         stmtIds.add(prepareStatement(statement2, clientState));
+        // gets stored twice, after USE
         stmtIds.add(prepareStatement(statement3, "foo", "bar", clientState));
 
         assertEquals(4, stmtIds.size());
@@ -117,8 +122,8 @@ public class PstmtPersistenceTest extends CQLTester
         // add anther prepared statement and sync it to table
         prepareStatement(statement1, "foo", "bar", clientState);
 
-        assertEquals(6, numberOfStatementsInMemory());
-        assertEquals(6, numberOfStatementsOnDisk((ks, stmt) -> {}));
+        assertEquals(7, numberOfStatementsInMemory());
+        assertEquals(7, numberOfStatementsOnDisk((ks, stmt) -> {}));
 
         // drop a keyspace (prepared statements are removed - syncPreparedStatements() remove should the rows, too)
         execute("DROP KEYSPACE foo");

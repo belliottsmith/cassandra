@@ -217,7 +217,7 @@ public class ReprepareTestBase extends TestBaseImpl
 
         static void newBehaviour(ClassLoader cl, int nodeNumber)
         {
-            setReleaseVersion(cl, "3.0.19.63");
+            setReleaseVersion(cl, QueryProcessor.USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40.toString());
         }
 
         static void oldBehaviour(ClassLoader cl, int nodeNumber)
@@ -229,11 +229,11 @@ public class ReprepareTestBase extends TestBaseImpl
                                .intercept(MethodDelegation.to(PrepareBehaviour.class))
                                .make()
                                .load(cl, ClassLoadingStrategy.Default.INJECTION);
-                setReleaseVersion(cl, "3.0.19.60");
+                setReleaseVersion(cl, "4.0.0.0");
             }
             else
             {
-                setReleaseVersion(cl, "3.0.19.63");
+                setReleaseVersion(cl, QueryProcessor.USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40.toString());
             }
         }
 
@@ -243,10 +243,9 @@ public class ReprepareTestBase extends TestBaseImpl
             if (existing != null)
                 return existing;
 
-            CQLStatement statement = QueryProcessor.getStatement(queryString, clientState);
-            QueryHandler.Prepared prepared = new QueryHandler.Prepared(statement, queryString);
+            QueryHandler.Prepared prepared = QueryProcessor.parseAndPrepare(queryString, clientState, false);
 
-            int boundTerms = statement.getBindVariables().size();
+            int boundTerms = prepared.statement.getBindVariables().size();
             if (boundTerms > FBUtilities.MAX_UNSIGNED_SHORT)
                 throw new InvalidRequestException(String.format("Too many markers(?). %d markers exceed the allowed maximum of %d", boundTerms, FBUtilities.MAX_UNSIGNED_SHORT));
 

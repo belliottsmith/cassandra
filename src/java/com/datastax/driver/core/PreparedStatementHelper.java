@@ -36,4 +36,53 @@ public class PreparedStatementHelper
                                                    id(subsequent)));
         }
     }
+
+    public static void assertHashWithoutKeyspace(PreparedStatement statement, String queryString, String ks)
+    {
+        MD5Digest returned = id(statement);
+        if (!returned.equals(hashWithoutKeyspace(queryString, ks)))
+        {
+            if (returned.equals(hashWithKeyspace(queryString, ks)))
+                throw new AssertionError(String.format("Got hash with keyspace from the cluster: %s, should have gotten %s",
+                                                       returned, hashWithoutKeyspace(queryString, ks)));
+            else
+                throw new AssertionError(String.format("Got unrecognized hash: %s",
+                                                       returned));
+        }
+    }
+
+    public static void assertHashWithKeyspace(PreparedStatement statement, String queryString, String ks)
+    {
+        MD5Digest returned = id(statement);
+        if (!returned.equals(hashWithKeyspace(queryString, ks)))
+        {
+            if (returned.equals(hashWithoutKeyspace(queryString, ks)))
+                throw new AssertionError(String.format("Got hash without keyspace from the cluster: %s, should have gotten %s",
+                                                       returned, hashWithKeyspace(queryString, ks)));
+            else
+                throw new AssertionError(String.format("Got unrecognized hash: %s",
+                                                       returned));
+        }
+
+    }
+
+    public static boolean equalsToHashWithKeyspace(byte[] digest, String queryString, String ks)
+    {
+        return MD5Digest.wrap(digest).equals(MD5Digest.computeOldId(queryString, ks));
+    }
+
+    public static MD5Digest hashWithKeyspace(String queryString, String ks)
+    {
+        return MD5Digest.computeOldId(queryString, ks);
+    }
+
+    public static boolean equalsToHashWithoutKeyspace(byte[] digest, String queryString, String ks)
+    {
+        return MD5Digest.wrap(digest).equals(MD5Digest.computeNewId(queryString, ks));
+    }
+
+    public static MD5Digest hashWithoutKeyspace(String queryString, String ks)
+    {
+        return MD5Digest.computeNewId(queryString, ks);
+    }
 }
