@@ -485,7 +485,7 @@ public class QueryProcessor implements QueryHandler
 
     public boolean skipKeyspaceForQualifiedStatements()
     {
-        if (skipKeyspaceForQualifiedStatements)
+        if (skipKeyspaceForQualifiedStatements || DatabaseDescriptor.getForceNewPreparedStatementBehaviour())
             return true;
 
         synchronized (this)
@@ -502,7 +502,7 @@ public class QueryProcessor implements QueryHandler
 
     public boolean useKeyspaceForNonQualifiedStatements()
     {
-        if (useKeyspaceForNonQualifiedStatements)
+        if (useKeyspaceForNonQualifiedStatements || DatabaseDescriptor.getForceNewPreparedStatementBehaviour())
             return true;
 
         synchronized (this)
