@@ -1,5 +1,16 @@
+4.0.0.45
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.44 cie-cassandra-4.0.0
+
 4.0.0.39
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.38 cie-cassandra-4.0.0
+* <rdar://86488414> Add drop prepared statements to Storage Service
+* add hotprop to force new prepared statement behaviour
+* <rdar://86488414> (Statements without fully qualified tables names can prepare against another keyspace from a previously prepared statement)
+* rdar://86495495 (4.0.0: Use Log4j2 version 2.16)
+* fixup: increase log4j2 file size to prevent auditlog dtest failure
+* rdar://84106393 (4.0: Investigate Xmas patch last repair time being updated with the current value error)
+* rdar://86281997 (Remove usage of deprecated javax certificate class) (#2693)
+* rdar://86325862 (4.0: Upgrade log4j to 2.15.0)
+* rdar://86133314 (Fix MixedModeMessageForwardTest flake) (#2690)
 
 4.0.0.38
 * Add changelog from 4.0.0.37 release that could not be generated
