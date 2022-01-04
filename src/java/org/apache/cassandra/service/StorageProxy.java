@@ -3255,4 +3255,16 @@ public class StorageProxy implements StorageProxyMBean
     {
         DatabaseDescriptor.setGenerateSSTableDigestComponents(shouldGenerateDigests);
     }
+
+    @Override
+    public boolean getSStableReadRatePersistenceEnabled()
+    {
+        return DatabaseDescriptor.getSStableReadRatePersistenceEnabled();
+    }
+
+    @Override
+    public void setSStableReadRatePersistenceEnabled(boolean enabled)
+    {
+        DatabaseDescriptor.setSStableReadRatePersistenceEnabled(enabled);
+    }
 }
