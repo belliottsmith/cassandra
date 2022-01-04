@@ -4120,4 +4120,18 @@ public class DatabaseDescriptor
             conf.force_new_prepared_statement_behaviour = value;
         }
     }
+    
+    public static boolean getSStableReadRatePersistenceEnabled()
+    {
+        return conf.sstable_read_rate_persistence_enabled;
+    }
+
+    public static void setSStableReadRatePersistenceEnabled(boolean enabled)
+    {
+        if (enabled != conf.sstable_read_rate_persistence_enabled)
+        {
+            logger.info("Setting sstable_read_rate_persistence_enabled to {}", enabled);
+            conf.sstable_read_rate_persistence_enabled = enabled;
+        }
+    }
 }
