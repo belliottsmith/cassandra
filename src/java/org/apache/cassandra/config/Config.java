@@ -1160,6 +1160,8 @@ public class Config
     public volatile long min_tracked_partition_tombstone_count = 5000;
     public volatile boolean top_partitions_enabled = true;
 
+    public volatile boolean sstable_read_rate_persistence_enabled = false;
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;
