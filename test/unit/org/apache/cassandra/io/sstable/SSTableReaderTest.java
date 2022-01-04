@@ -35,7 +35,9 @@ import org.junit.rules.ExpectedException;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.Operator;
+import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.OperationType;
@@ -242,6 +244,9 @@ public class SSTableReaderTest
 
         store.forceBlockingFlush();
 
+        // Apple Internal: Rate tracking persistence defaults to false in CIE. 
+        DatabaseDescriptor.setSStableReadRatePersistenceEnabled(true);
+        
         SSTableReader sstable = store.getLiveSSTables().iterator().next();
         assertEquals(0, sstable.getReadMeter().count());
 
@@ -251,6 +256,21 @@ public class SSTableReaderTest
 
         Util.getAll(Util.cmd(store, key).includeRow("0").build());
         assertEquals(2, sstable.getReadMeter().count());
+
+        // With persistence enabled, we should be able to retrieve the state of the meter.
+        sstable.maybePersistSSTableReadMeter();
+        UntypedResultSet meter = SystemKeyspace.readSSTableActivity(store.keyspace.getName(), store.name, sstable.descriptor.id);
+        assertFalse(meter.isEmpty());
+
+        Util.getAll(Util.cmd(store, key).includeRow("0").build());
+        assertEquals(3, sstable.getReadMeter().count());
+
+        // After cleaning existing state and disabling persistence, there should be no meter state to read.
+        SystemKeyspace.clearSSTableReadMeter(store.keyspace.getName(), store.name, sstable.descriptor.id);
+        DatabaseDescriptor.setSStableReadRatePersistenceEnabled(false);
+        sstable.maybePersistSSTableReadMeter();
+        meter = SystemKeyspace.readSSTableActivity(store.keyspace.getName(), store.name, sstable.descriptor.id);
+        assertTrue(meter.isEmpty());
     }
 
     @Test

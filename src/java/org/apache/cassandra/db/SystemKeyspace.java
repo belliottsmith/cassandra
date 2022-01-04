@@ -1640,8 +1640,7 @@ public final class SystemKeyspace
      */
     public static RestorableMeter getSSTableReadMeter(String keyspace, String table, SSTableId id)
     {
-        String cql = "SELECT * FROM system.%s WHERE keyspace_name=? and table_name=? and id=?";
-        UntypedResultSet results = executeInternal(format(cql, SSTABLE_ACTIVITY_V2), keyspace, table, id.asBytes());
+        UntypedResultSet results = readSSTableActivity(keyspace, table, id);
 
         if (results.isEmpty())
             return new RestorableMeter();
@@ -1650,6 +1649,13 @@ public final class SystemKeyspace
         double m15rate = row.getDouble("rate_15m");
         double m120rate = row.getDouble("rate_120m");
         return new RestorableMeter(m15rate, m120rate);
+    }
+
+    @VisibleForTesting
+    public static UntypedResultSet readSSTableActivity(String keyspace, String table, SSTableId id)
+    {
+        String cql = "SELECT * FROM system.%s WHERE keyspace_name=? and table_name=? and id=?";
+        return executeInternal(format(cql, SSTABLE_ACTIVITY_V2), keyspace, table, id.asBytes());
     }
 
     /**
