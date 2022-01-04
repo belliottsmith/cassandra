@@ -750,6 +750,8 @@ public class Config
 
     public volatile boolean allow_compact_storage = true;
 
+    public volatile boolean sstable_read_rate_persistence_enabled = false;
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;

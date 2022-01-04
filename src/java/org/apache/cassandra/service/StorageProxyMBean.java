@@ -194,4 +194,7 @@ public interface StorageProxyMBean
 
     public boolean getGenerateSSTableDigestComponents();
     public void setGenerateSSTableDigestComponents(boolean shouldGenerateDigests);
+
+    boolean getSStableReadRatePersistenceEnabled();
+    void setSStableReadRatePersistenceEnabled(boolean enabled);
 }
