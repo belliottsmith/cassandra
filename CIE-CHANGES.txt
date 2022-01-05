@@ -1,5 +1,8 @@
+4.0.0.46
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.45 cie-cassandra-4.0.0
+
 4.0.0.45
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.44 cie-cassandra-4.0.0
+* rdar://87134274 (4.0.0: Upgrade log4j to 2.17.1) (#2714)
 
 4.0.0.39
 * <rdar://86488414> Add drop prepared statements to Storage Service
