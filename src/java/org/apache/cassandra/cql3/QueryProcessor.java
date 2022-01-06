@@ -725,11 +725,12 @@ public class QueryProcessor implements QueryHandler
         if (previous == null)
             previous = preparedStatements.getIfPresent(id);
 
-        if (previous != null && !clientState.getRawKeyspace().equals(previous.keyspace))
+        String current = clientState.getRawKeyspace();
+        if (previous != null && !Objects.equals(current, previous.keyspace))
         {
             String msg = String.format("You've tried to prepare a statement while having executed USE or cluster.connect(<keyspace>). " +
                                        "Executing the resulting prepared statement will return incorrect results: %s (on keyspace %s, previously prepared on %s)",
-                                       queryString, clientState.getRawKeyspace(), previous.keyspace);
+                                       queryString, current, previous.keyspace);
             nospam.error(msg);
         }
     }
