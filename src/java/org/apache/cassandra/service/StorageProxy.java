@@ -3415,4 +3415,16 @@ public class StorageProxy implements StorageProxyMBean
     {
         DatabaseDescriptor.setSStableReadRatePersistenceEnabled(enabled);
     }
+
+    @Override
+    public boolean getUseStatementsEnabled()
+    {
+        return DatabaseDescriptor.getUseStatementsEnabled();
+    }
+
+    @Override
+    public void setUseStatementsEnabled(boolean enabled)
+    {
+        DatabaseDescriptor.setUseStatementsEnabled(enabled);
+    }
 }
