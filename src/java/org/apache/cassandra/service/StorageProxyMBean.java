@@ -199,4 +199,7 @@ public interface StorageProxyMBean
 
     boolean getSStableReadRatePersistenceEnabled();
     void setSStableReadRatePersistenceEnabled(boolean enabled);
+
+    boolean getUseStatementsEnabled();
+    void setUseStatementsEnabled(boolean enabled);
 }

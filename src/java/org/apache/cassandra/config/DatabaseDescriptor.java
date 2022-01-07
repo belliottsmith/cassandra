@@ -4405,4 +4405,18 @@ public class DatabaseDescriptor
             conf.sstable_read_rate_persistence_enabled = enabled;
         }
     }
+
+    public static boolean getUseStatementsEnabled()
+    {
+        return conf.use_statements_enabled;
+    }
+
+    public static void setUseStatementsEnabled(boolean enabled)
+    {
+        if (enabled != conf.use_statements_enabled)
+        {
+            logger.info("Setting use_statements_enabled to {}", enabled);
+            conf.use_statements_enabled = enabled;
+        }
+    }
 }
