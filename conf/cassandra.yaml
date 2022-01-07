@@ -1705,3 +1705,6 @@ drop_compact_storage_enabled: false
 # columns from query results, which is the normal behavior for compact tables. This is disabled by
 # default, and should only be enabled for non-compact tables where DROP COMPACT STORAGE has been run.
 ignore_pk_liveness_for_row_completion: false
+
+# Whether or not USE <keyspace> is allowed. This is enabled by default to avoid failure on upgrade.
+#use_statements_enabled: true
