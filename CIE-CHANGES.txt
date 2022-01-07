@@ -1,5 +1,10 @@
+4.0.0.47
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.46 cie-cassandra-4.0.0
+
 4.0.0.46
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.45 cie-cassandra-4.0.0
+* rdar://86846989 (Pass transaction finish calls from BigTableZeroCopyWriter to SequentialWriter comonents)
+* rdar://87195479 (NPE in QueryProcessor.checkNonFullyQualifiedQueryConsistency) (#2730)
+* rdar://86737112 (Allow disabling hotness persistence, or tuning of rate limiter)
 
 4.0.0.45
 * rdar://87134274 (4.0.0: Upgrade log4j to 2.17.1) (#2714)
