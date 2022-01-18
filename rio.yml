@@ -48,6 +48,11 @@
 #
 schemaVersion: '2.0'
 
+# Turn off Slack notifications by default for pipelines.
+notify:
+  slack:
+    enabled: false
+
 branchRules:
   whitelist:
     - 'cie-cassandra-(?<version>4(\.\d+)*)(-(?<variant>\w+))?'
@@ -175,6 +180,14 @@ builds:
       tag:
         enabled: true
         expression: ${GIT_BRANCH}-snapshot-${RIO_BUILD_NUMBER}
+      notify: &notify
+        slack:
+          channels:
+            - channel: '#aci-cassandra-e2e'
+              build:
+                onStart: false
+                onSuccess: false
+                onFailure: true
 
   #
   # Release Build - must be started manually
@@ -242,6 +255,8 @@ builds:
         target: silkroad
         artifactPackageFilters: []
     finally:
+      notify:
+        <<: *notify
       tag:
         enabled: true
         expression: 'cie-cassandra-${FULL_VERSION}'
@@ -324,6 +339,9 @@ builds:
         - source $BUILD_SECRETS_PATH/rio-env-cassandra-connect.sh
         - python3 ./rio/if1_release.py
     timeout: 180
+    finally:
+      notify:
+        <<: *notify
 
   #
   # Harry build - PRB
