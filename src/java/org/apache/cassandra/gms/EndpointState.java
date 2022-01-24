@@ -129,6 +129,25 @@ public class EndpointState
         }
     }
 
+    /**
+     * This is 100% unsafe, and only exists for tests... never touch this!
+     */
+    @VisibleForTesting
+    void unsafeRemoveApplicationStates(ApplicationState... keys)
+    {
+        while (true)
+        {
+            Map<ApplicationState, VersionedValue> orig = applicationState.get();
+            Map<ApplicationState, VersionedValue> copy = new EnumMap<>(orig);
+
+            for (ApplicationState key : keys)
+                copy.remove(key);
+
+            if (applicationState.compareAndSet(orig, copy))
+                return;
+        }
+    }
+
     void removeMajorVersion3LegacyApplicationStates()
     {
         while (hasLegacyFields())
