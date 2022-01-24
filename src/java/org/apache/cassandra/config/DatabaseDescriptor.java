@@ -88,6 +88,8 @@ import org.apache.cassandra.service.CacheService.CacheType;
 import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.utils.FBUtilities;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.HOST_REPLACE_TOKENS;
 import static org.apache.cassandra.config.CassandraRelevantProperties.OS_ARCH;
 import static org.apache.cassandra.config.CassandraRelevantProperties.SUN_ARCH_DATA_MODEL;
 import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_JVM_DTEST_DISABLE_SSL;
@@ -1816,10 +1818,17 @@ public class DatabaseDescriptor
 
     public static Collection<String> getReplaceTokens()
     {
+        return tokensFromString(HOST_REPLACE_TOKENS.getString());
+    }
+
+    @Deprecated
+    public static Collection<String> getDeprecatedReplaceTokens()
+    {
         return tokensFromString(System.getProperty(Config.PROPERTY_PREFIX + "replace_token", null));
     }
 
-    public static UUID getReplaceNode()
+    @Deprecated
+    public static UUID getDeprecatedReplaceNode()
     {
         try
         {
