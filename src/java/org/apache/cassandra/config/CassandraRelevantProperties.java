@@ -342,6 +342,8 @@ public enum CassandraRelevantProperties
 
     // CIE-specific property to loosen the definition of "empty" for gossip state, used during host replacements
     LOOSE_DEF_OF_EMPTY_ENABLED(Config.PROPERTY_PREFIX + "gossiper.loose_empty_enabled"),
+
+    HOST_REPLACE_TOKENS(Config.PROPERTY_PREFIX + "replace_addresses_token"),
     ;
 
     CassandraRelevantProperties(String key, String defaultVal)
