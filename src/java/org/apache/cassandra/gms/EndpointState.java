@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -118,6 +119,25 @@ public class EndpointState
 
             for (Map.Entry<ApplicationState, VersionedValue> value : values)
                 copy.put(value.getKey(), value.getValue());
+
+            if (applicationState.compareAndSet(orig, copy))
+                return;
+        }
+    }
+
+    /**
+     * This is 100% unsafe, and only exists for tests... never touch this!
+     */
+    @VisibleForTesting
+    void unsafeRemoveApplicationStates(ApplicationState... keys)
+    {
+        while (true)
+        {
+            Map<ApplicationState, VersionedValue> orig = applicationState.get();
+            Map<ApplicationState, VersionedValue> copy = new EnumMap<>(orig);
+
+            for (ApplicationState key : keys)
+                copy.remove(key);
 
             if (applicationState.compareAndSet(orig, copy))
                 return;
