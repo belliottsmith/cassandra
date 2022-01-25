@@ -139,7 +139,7 @@ public final class CompactionInfo
      */
     public List<File> getTargetDirectories()
     {
-        if (metadata != null)
+        if (metadata != null && !metadata.isIndex())
         {
             ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(metadata.id);
             if (cfs != null)
