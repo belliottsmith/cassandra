@@ -2406,6 +2406,10 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         ExecutorUtils.shutdownAndWait(timeout, unit, executor);
     }
 
+    /**
+     * Returns the min *known* version in the cluster. Sometimes RELEASE_VERSION is not populated in gossip,
+     * we might therefore report the wrong version until that information has been propagated.
+     */
     @Nullable
     public CassandraVersion getMinVersion(long delay, TimeUnit timeUnit)
     {
@@ -2448,7 +2452,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             String versionString = getReleaseVersionString(addr);
             // Raced with changes to gossip state, wait until next iteration
             if (versionString == null)
-                return null;
+                continue;
 
             CassandraVersion version;
 

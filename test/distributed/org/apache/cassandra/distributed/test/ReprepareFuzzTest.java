@@ -336,7 +336,7 @@ public class ReprepareFuzzTest extends TestBaseImpl
             new ByteBuddy().rebase(QueryProcessor.class)
                            .method(named("skipKeyspaceForQualifiedStatements"))
                            .intercept(MethodDelegation.to(AlwaysNewBehaviour.class))
-                           .method(named("useKeyspaceForNonQualifiedStatements"))
+                           .method(named("skipKeyspaceForNonQualifiedStatements"))
                            .intercept(MethodDelegation.to(AlwaysNewBehaviour.class));
 
             klass.make()
@@ -351,9 +351,9 @@ public class ReprepareFuzzTest extends TestBaseImpl
             return true;
         }
 
-        public static boolean useKeyspaceForNonQualifiedStatements()
+        public static boolean skipKeyspaceForNonQualifiedStatements()
         {
-            return true;
+            return false;
         }
     }
 }

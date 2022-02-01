@@ -40,6 +40,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.junit.matchers.JUnitMatchers.containsString;
@@ -341,6 +342,67 @@ public class CassandraVersionTest
                 fail("Expecting " + shuffled + " to be sorted into " + expected + " but was sorted into " + sorted);
             }
         }
+    }
+
+    @Test
+    public void testInterval()
+    {
+        CassandraVersion v3015 = new CassandraVersion("3.0.15");
+        CassandraVersion v3020 = new CassandraVersion("3.0.20");
+        CassandraVersion v3025 = new CassandraVersion("3.0.25");
+        CassandraVersion v3030 = new CassandraVersion("3.0.30");
+        CassandraVersion v3035 = new CassandraVersion("3.0.35");
+
+        CassandraVersion.Interval exc3015_3030 = new CassandraVersion.Interval(v3020, false,
+                                                                               v3030, false);
+
+        CassandraVersion.Interval inc3015_3030 = new CassandraVersion.Interval(v3020, true,
+                                                                               v3030, true);
+        // (3.0.20, 3.0.30)
+        assertFalse(exc3015_3030.contains(v3015)); // 3.0.15
+        assertFalse(exc3015_3030.contains(v3020)); // 3.0.20
+        assertFalse(exc3015_3030.contains(v3030)); // 3.0.30
+        assertFalse(exc3015_3030.contains(v3035)); // 3.0.35
+        assertTrue(exc3015_3030.contains(v3025));  // 3.0.25
+
+        // [3.0.20, 3.0.30]
+        assertTrue(inc3015_3030.contains(v3020));  // 3.0.20
+        assertTrue(inc3015_3030.contains(v3025));  // 3.0.25
+        assertTrue(inc3015_3030.contains(v3030));  // 3.0.30
+        assertFalse(inc3015_3030.contains(v3015)); // 3.0.15
+        assertFalse(inc3015_3030.contains(v3035)); // 3.0.35
+    }
+
+    @Test
+    public void testBeforeAfter()
+    {
+        CassandraVersion v3015 = new CassandraVersion("3.0.15");
+        CassandraVersion v3020 = new CassandraVersion("3.0.20");
+        CassandraVersion v3025 = new CassandraVersion("3.0.25");
+        CassandraVersion v3030 = new CassandraVersion("3.0.30");
+        CassandraVersion v3035 = new CassandraVersion("3.0.35");
+
+        CassandraVersion.Interval exc3015_3030 = new CassandraVersion.Interval(v3020, false,
+                                                                               v3030, false);
+
+        CassandraVersion.Interval inc3015_3030 = new CassandraVersion.Interval(v3020, true,
+                                                                               v3030, true);
+
+        assertTrue(v3015.isBefore(exc3015_3030));
+        assertTrue(v3015.isBefore(inc3015_3030));
+
+        assertTrue(v3020.isBefore(exc3015_3030));
+        assertFalse(v3020.isBefore(inc3015_3030));
+
+        assertFalse(v3025.isBefore(exc3015_3030));
+        assertFalse(v3025.isBefore(inc3015_3030));
+
+        assertTrue(v3030.isAfter(exc3015_3030));
+        assertFalse(v3030.isAfter(inc3015_3030));
+
+        assertTrue(v3035.isAfter(exc3015_3030));
+        assertTrue(v3035.isAfter(inc3015_3030));
+
     }
 
     private static void assertThrows(String str)
