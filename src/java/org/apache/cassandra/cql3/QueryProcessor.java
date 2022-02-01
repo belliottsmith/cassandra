@@ -37,9 +37,6 @@ import org.slf4j.LoggerFactory;
 import org.antlr.runtime.*;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.schema.Schema;
-import org.apache.cassandra.schema.SchemaChangeListener;
-import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.cql3.functions.Function;
 import org.apache.cassandra.cql3.functions.FunctionName;
 import org.apache.cassandra.cql3.statements.*;
@@ -51,6 +48,9 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.metrics.CQLMetrics;
+import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.SchemaChangeListener;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.*;
 import org.apache.cassandra.service.pager.QueryPager;
 import org.apache.cassandra.tracing.Tracing;
@@ -66,9 +66,14 @@ public class QueryProcessor implements QueryHandler
 
     // See comments on QueryProcessor #prepare
     public static final CassandraVersion SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_30 = new CassandraVersion("3.0.24.0");
-    public static final CassandraVersion USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_30 = new CassandraVersion("3.0.24.29");
     public static final CassandraVersion SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40 = new CassandraVersion("4.0.0.37");
-    public static final CassandraVersion USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40 = new CassandraVersion("4.0.0.44");
+    public static final CassandraVersion.Interval SKIP_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_30 =
+                                        new CassandraVersion.Interval(new CassandraVersion("3.0.23.99"), false, // otherwise 3.0.24 < 3.0.24.0...
+                                                                      new CassandraVersion("3.0.24.29"), false);
+    public static final CassandraVersion.Interval SKIP_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_40 =
+                                        new CassandraVersion.Interval(new CassandraVersion("4.0.0.37"), true,
+                                                                      new CassandraVersion("4.0.0.44"), false);
+
 
     public static final QueryProcessor instance = new QueryProcessor();
 
@@ -481,7 +486,7 @@ public class QueryProcessor implements QueryHandler
     }
 
     private volatile boolean skipKeyspaceForQualifiedStatements = false;
-    private volatile boolean useKeyspaceForNonQualifiedStatements = false;
+    private volatile boolean skipKeyspaceForNonQualifiedStatements = true;
 
     public boolean skipKeyspaceForQualifiedStatements()
     {
@@ -500,29 +505,35 @@ public class QueryProcessor implements QueryHandler
         }
     }
 
-    public boolean useKeyspaceForNonQualifiedStatements()
+    public boolean skipKeyspaceForNonQualifiedStatements()
     {
-        if (useKeyspaceForNonQualifiedStatements || DatabaseDescriptor.getForceNewPreparedStatementBehaviour())
-            return true;
+        if (!skipKeyspaceForNonQualifiedStatements || DatabaseDescriptor.getForceNewPreparedStatementBehaviour())
+            return false;
 
         synchronized (this)
         {
             CassandraVersion minVersion = Gossiper.instance.getMinVersion(DatabaseDescriptor.getWriteRpcTimeout(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS);
-            if (minVersion != null &&
-                ((minVersion.major == 3 && minVersion.compareTo(USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_30) >= 0) ||
-                 (minVersion.major == 4 && minVersion.compareTo(USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40) >= 0)))
+            if (minVersion != null)
             {
-                logger.info("Fully upgraded to at least {}/{}", USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_30, USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40);
-                useKeyspaceForNonQualifiedStatements = true;
+                if ((minVersion.major == 3 && minVersion.isAfter(SKIP_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_30)) ||
+                    (minVersion.major == 4 && minVersion.isAfter(SKIP_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_40)))
+                {
+                    logger.info("Fully upgraded to at least {}/{}", SKIP_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_30.end, SKIP_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_40.end);
+                    skipKeyspaceForNonQualifiedStatements = false;
+                    return false;
+                }
+
+                return minVersion.major == 3 ? SKIP_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_30.contains(minVersion)
+                                             : SKIP_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_40.contains(minVersion);
             }
-            return useKeyspaceForNonQualifiedStatements;
+            return skipKeyspaceForNonQualifiedStatements;
         }
     }
 
     public ResultMessage.Prepared prepare(String queryString, ClientState clientState)
     {
-        boolean skipKeyspaceForQualifiedStatements = skipKeyspaceForQualifiedStatements();
-        boolean useKeyspaceForNonQualifiedStatements = useKeyspaceForNonQualifiedStatements();
+        boolean useKeyspaceForQualifiedStatements = !skipKeyspaceForQualifiedStatements();
+        boolean useKeyspaceForNonQualifiedStatements = !skipKeyspaceForNonQualifiedStatements();
 
         MD5Digest hashWithoutKeyspace = computeId(queryString, null);
         MD5Digest hashWithKeyspace = computeId(queryString, clientState.getRawKeyspace());
@@ -534,7 +545,7 @@ public class QueryProcessor implements QueryHandler
         // If we're on 3.0.24.28 or later, try to use caches
         if (safeToReturnCached)
         {
-            if (skipKeyspaceForQualifiedStatements && useKeyspaceForNonQualifiedStatements)
+            if (!useKeyspaceForQualifiedStatements && useKeyspaceForNonQualifiedStatements)
             {
                 if (cachedWithoutKeyspace.fullyQualified) // For fully qualified statements, we always skip keyspace to avoid digest switching
                     return createResultMessage(hashWithoutKeyspace, cachedWithoutKeyspace);
@@ -546,7 +557,7 @@ public class QueryProcessor implements QueryHandler
             {
                 if (cachedWithKeyspace.fullyQualified)
                 {
-                    if (skipKeyspaceForQualifiedStatements)
+                    if (!useKeyspaceForQualifiedStatements)
                         return createResultMessage(hashWithoutKeyspace, cachedWithoutKeyspace);
                     else
                         return createResultMessage(hashWithKeyspace, cachedWithKeyspace);
@@ -584,7 +595,7 @@ public class QueryProcessor implements QueryHandler
             if (clientState.getRawKeyspace() != null)
                 qualifiedWithKeyspace = storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
 
-            if (!skipKeyspaceForQualifiedStatements && qualifiedWithKeyspace != null)
+            if (useKeyspaceForQualifiedStatements && qualifiedWithKeyspace != null)
                 return qualifiedWithKeyspace;
 
             return qualifiedWithoutKeyspace;
@@ -602,7 +613,8 @@ public class QueryProcessor implements QueryHandler
         }
     }
 
-    private static MD5Digest computeId(String queryString, String keyspace)
+    @VisibleForTesting
+    static MD5Digest computeId(String queryString, String keyspace)
     {
         String toHash = keyspace == null ? queryString : keyspace + queryString;
         return MD5Digest.compute(toHash);
@@ -796,6 +808,13 @@ public class QueryProcessor implements QueryHandler
     public static void clearPreparedStatementsCache()
     {
         preparedStatements.asMap().clear();
+    }
+
+    @VisibleForTesting
+    public void unsafeReset()
+    {
+        this.skipKeyspaceForNonQualifiedStatements = true;
+        this.skipKeyspaceForQualifiedStatements = false;
     }
 
     private static class StatementInvalidatingListener extends SchemaChangeListener

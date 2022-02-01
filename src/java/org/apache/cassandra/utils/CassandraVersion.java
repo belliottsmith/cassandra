@@ -271,4 +271,38 @@ public class CassandraVersion implements Comparable<CassandraVersion>
             sb.append('+').append(StringUtils.join(build, "."));
         return sb.toString();
     }
+
+    public boolean isAfter(CassandraVersion.Interval interval)
+    {
+        int cmp = compareTo(interval.end);
+        return interval.endInclusive ? cmp > 0 : cmp >= 0;
+    }
+
+    public boolean isBefore(CassandraVersion.Interval interval)
+    {
+        int cmp = compareTo(interval.start);
+        return interval.startInclusive ? cmp < 0 : cmp <= 0;
+    }
+
+    public static class Interval
+    {
+        public final CassandraVersion start;
+        public final boolean startInclusive;
+        public final CassandraVersion end;
+        public final boolean endInclusive;
+
+        public Interval(CassandraVersion start, boolean startInclusive, CassandraVersion end, boolean endInclusive)
+        {
+            this.start = start;
+            this.startInclusive = startInclusive;
+            this.end = end;
+            this.endInclusive = endInclusive;
+        }
+
+        public boolean contains(CassandraVersion version)
+        {
+            return !version.isBefore(this) && !version.isAfter(this);
+        }
+
+    }
 }
