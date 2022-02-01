@@ -127,8 +127,9 @@ public class ExecuteMessage extends Message.Request
             if (prepared == null)
                 throw new PreparedQueryNotFoundException(statementId);
 
+            String rawKeyspace = state.getClientState().getRawKeyspace();
             if (!prepared.fullyQualified
-                && !Objects.equals(state.getClientState().getRawKeyspace(), prepared.keyspace)
+                && !Objects.equals(rawKeyspace, prepared.keyspace)
                 // We can not reliably detect inconsistencies for batches yet
                 && !(prepared.statement instanceof BatchStatement)
             )
@@ -136,7 +137,7 @@ public class ExecuteMessage extends Message.Request
                 state.getClientState().warnAboutUseWithPreparedStatements(statementId, prepared.keyspace);
                 String msg = String.format("Tried to execute a prepared unqualified statement on a keyspace it was not prepared on. " +
                                            " Executing the resulting prepared statement will return unexpected results: %s (on keyspace %s, previously prepared on %s)",
-                                           statementId, state.getClientState().getRawKeyspace(), prepared.keyspace);
+                                           statementId, rawKeyspace, prepared.keyspace);
                 nospam.error(msg);
             }
 
