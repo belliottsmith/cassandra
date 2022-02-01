@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -48,7 +49,6 @@ import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
 import net.bytebuddy.implementation.MethodDelegation;
-import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryHandler;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.SystemKeyspace;
@@ -56,12 +56,8 @@ import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.impl.RowUtil;
-import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.service.ClientState;
-import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.messages.ResultMessage;
-import org.apache.cassandra.utils.CassandraVersion;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.Throwables;
 
@@ -70,19 +66,46 @@ import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NATIVE_PROTOCOL;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
+import static org.junit.Assert.assertTrue;
 
 public class MixedModeFuzzTest extends TestBaseImpl
 {
     private static final Logger logger = LoggerFactory.getLogger(ReprepareFuzzTest.class);
 
     @Test
-    public void mixedModeFuzzTest() throws Throwable
+    public void mixedModeFuzzTest3019() throws Throwable
     {
+        mixedModeFuzzTestHelper("3.0.19.63", "4.0.0.44");
+    }
+
+    @Test
+    public void mixedModeFuzzTest30240() throws Throwable
+    {
+        mixedModeFuzzTestHelper("3.0.24.0", "4.0.0.44");
+    }
+
+    @Test
+    public void mixedModeFuzzTest40034() throws Throwable
+    {
+        mixedModeFuzzTestHelper("4.0.0.34", "4.0.0.44");
+    }
+
+    @Test
+    public void mixedModeFuzzTest40035() throws Throwable
+    {
+        mixedModeFuzzTestHelper("4.0.0.35", "4.0.0.44");
+    }
+
+    public void mixedModeFuzzTestHelper(String initialVersion, String upgradeVersion) throws Throwable
+    {
+        assertTrue(behaviours.containsKey(initialVersion));
+        assertTrue(behaviours.containsKey(upgradeVersion));
         try (ICluster<IInvokableInstance> c = builder().withNodes(2)
                                                        .withConfig(config -> config.with(GOSSIP, NETWORK, NATIVE_PROTOCOL))
-                                                       .withInstanceInitializer(PrepareBehaviour::oldNewBehaviour)
+                                                       .withInstanceInitializer(PrepareBehaviour::controlledBehaviour)
                                                        .start())
         {
+            c.stream().forEach((i) -> i.runOnInstance(() -> behaviour.set(behaviours.get(initialVersion))));
             // Long string to make us invalidate caches occasionally
             String veryLongString = "very";
             for (int i = 0; i < 2; i++)
@@ -140,7 +163,6 @@ public class MixedModeFuzzTest extends TestBaseImpl
                         }
 
                         long firstVersionBump = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-                        long secondVersionBump = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
                         long reconnectAfter = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
                         while (!interrupt.get() && (System.nanoTime() < deadline))
                         {
@@ -163,31 +185,16 @@ public class MixedModeFuzzTest extends TestBaseImpl
                                 case BUMP_VERSION:
                                     if (System.nanoTime() < firstVersionBump)
                                         break;
-
+                                    if (allUpgraded.get())
+                                        break;
                                     c.stream().forEach(node -> node.runOnInstance(() -> {
-                                        if (version.get().equals(INITIAL_VERSION))
-                                        {
-                                            CassandraVersion upgradeTo = QueryProcessor.SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40;
-                                            while (!version.get().equals(upgradeTo))
-                                                if (version.compareAndSet(INITIAL_VERSION, upgradeTo))
-                                                {
-                                                    logger.info("Bumped version to " + upgradeTo);
-                                                    break;
-                                                }
-                                        }
-                                        else if (version.get().equals(QueryProcessor.SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40) && System.nanoTime() > secondVersionBump)
-                                        {
-                                            CassandraVersion upgradeTo = QueryProcessor.USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40;
-                                            while (!version.get().equals(upgradeTo))
-                                            {
-                                                if (version.compareAndSet(QueryProcessor.SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40, upgradeTo))
-                                                {
-                                                    logger.info("Bumped version to " + upgradeTo);
-                                                    allUpgraded.set(true);
-                                                    break;
-                                                }
-                                            }
-                                        }
+                                        // node1 runs the actual code in QueryProcessor, node2 uses MultiBehaviour below to emulate older version behaviours
+                                        // Here we upgrade node2 to 4.0.0.44
+                                        Behaviour current = behaviours.get(initialVersion);
+                                        Behaviour upgradeTo = behaviours.get(upgradeVersion);
+                                        behaviour.compareAndSet(current, upgradeTo);
+                                        logger.info("Upgrade from {} to {}", initialVersion, upgradeTo.version());
+                                        allUpgraded.set(true);
                                     }));
                                     break;
                                 case EXECUTE_QUALIFIED:
@@ -394,28 +401,28 @@ public class MixedModeFuzzTest extends TestBaseImpl
         BOUNCE_CLIENT
     }
 
-    private static Action[] frequent = new Action[]{ Action.EXECUTE_UNQUALIFIED,
-                                                     Action.PREPARE_UNQUALIFIED,
-                                                     Action.PREPARE_QUALIFIED,
-                                                     Action.EXECUTE_QUALIFIED
+    private static final Action[] frequent = new Action[]{ Action.EXECUTE_UNQUALIFIED,
+                                                           Action.PREPARE_UNQUALIFIED,
+                                                           Action.PREPARE_QUALIFIED,
+                                                           Action.EXECUTE_QUALIFIED
     };
 
-    private static Action[] infrequent = new Action[]{Action.BUMP_VERSION,
-                                                      Action.BOUNCE_CLIENT,
-                                                      Action.CLEAR_CACHES,
-                                                      Action.FORGET_PREPARED
+    private static final Action[] infrequent = new Action[]{ Action.BUMP_VERSION,
+                                                             Action.BOUNCE_CLIENT,
+                                                             Action.CLEAR_CACHES,
+                                                             Action.FORGET_PREPARED
     };
 
 
     public static class PrepareBehaviour
     {
-        static void oldNewBehaviour(ClassLoader cl, int nodeNumber)
+        static void controlledBehaviour(ClassLoader cl, int nodeNumber)
         {
             DynamicType.Builder.MethodDefinition.ReceiverTypeDefinition<QueryProcessor> klass =
             new ByteBuddy().rebase(QueryProcessor.class)
                            .method(named("skipKeyspaceForQualifiedStatements"))
                            .intercept(MethodDelegation.to(MultiBehaviour.class))
-                           .method(named("useKeyspaceForNonQualifiedStatements"))
+                           .method(named("skipKeyspaceForNonQualifiedStatements"))
                            .intercept(MethodDelegation.to(MultiBehaviour.class));
 
             if (nodeNumber == 2)
@@ -429,109 +436,177 @@ public class MixedModeFuzzTest extends TestBaseImpl
         }
     }
 
-    private static CassandraVersion INITIAL_VERSION = new CassandraVersion("4.0.0.0");
-    private static volatile AtomicReference<CassandraVersion> version = new AtomicReference<>(INITIAL_VERSION);
+    public static final Map<String, Behaviour> behaviours;
+    private static final AtomicReference<Behaviour> behaviour = new AtomicReference<>();
 
-    public static class MultiBehaviour
+    static
     {
-        private static final Object sync = new Object();
-        private static volatile boolean skipKeyspaceForQualifiedStatements = false;
-        private static volatile boolean useKeyspaceForNonQualifiedStatements = false;
+        ImmutableMap.Builder<String, Behaviour> builder = ImmutableMap.builder();
+        builder.put("3.0.19.63", new Prepare3019());
+        builder.put("4.0.0.34",  new Prepare40034());
+        // we're incorrectly returning hash for non-qualified statements, but we're caching all versions
+        builder.put("3.0.24.0",  new Prepare30240());
+        builder.put("4.0.0.35",  new Prepare40035());
+        // correct behaviour, and cache all versions
+        builder.put("3.0.24.29", new Prepare302429());
+        builder.put("4.0.0.44",  new Prepare40044());
+        behaviours = builder.build();
+    }
 
-        public static boolean skipKeyspaceForQualifiedStatements()
+    /**
+     * | Version | Use keyspace for qualified | Use keyspace for non-qualified |
+     * | 3.0.19/4.0.0.34  |            true            |              true              |  // incorrect: we used to _always_ use the keyspace
+     * |3.0.24.0/4.0.0.35 |           false            |             false              |  // incorrect: switched to _always not_ use the keyspace
+     * |3.0.24.29/4.0.0.44|           false            |              true              |  // correct: qualified are ambiguous with hash; non-qualified are ambiguous without hash
+     */
+    public interface Behaviour
+    {
+        public String version();
+        public boolean skipKeyspaceForQualifiedStatements();
+        public boolean skipKeyspaceForNonQualifiedStatements();
+        public ResultMessage.Prepared prepare(String queryString, ClientState clientState);
+    }
+
+    private static class Prepare3019 implements Behaviour
+    {
+
+        @Override
+        public String version()
         {
-            if (skipKeyspaceForQualifiedStatements)
-                return true;
-
-            synchronized (sync)
-            {
-                CassandraVersion minVersion = version.get();
-                if (minVersion.compareTo(QueryProcessor.SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40) >= 0)
-                    skipKeyspaceForQualifiedStatements = true;
-
-                return skipKeyspaceForQualifiedStatements;
-            }
+            return "3.0.19.63";
         }
 
-        public static boolean useKeyspaceForNonQualifiedStatements()
+        @Override
+        public boolean skipKeyspaceForQualifiedStatements()
         {
-            if (useKeyspaceForNonQualifiedStatements)
-                return true;
-
-            synchronized (sync)
-            {
-                CassandraVersion minVersion = version.get();
-                if (minVersion.compareTo(QueryProcessor.SKIP_KEYSPACE_FOR_QUALIFIED_STATEMENTS_SINCE_40) >= 0)
-                {
-                    useKeyspaceForNonQualifiedStatements = true;
-                    QueryProcessor.clearPreparedStatementsCache();
-                    QueryProcessor.instance.preloadPreparedStatements();
-                }
-
-                return useKeyspaceForNonQualifiedStatements;
-            }
+            return false;
         }
 
-        public static ResultMessage.Prepared prepare(String queryString, ClientState clientState, Map<String, ByteBuffer> customPayload)
+        @Override
+        public boolean skipKeyspaceForNonQualifiedStatements()
         {
-            boolean skipKeyspaceForQualifiedStatements = skipKeyspaceForQualifiedStatements();
-            boolean useKeyspaceForNonQualifiedStatements = useKeyspaceForNonQualifiedStatements();
+            return false;
+        }
 
-            // Expected behaviour
-            if (skipKeyspaceForQualifiedStatements && useKeyspaceForNonQualifiedStatements)
-                return QueryProcessor.instance.prepare(queryString, clientState);
+        public ResultMessage.Prepared prepare(String queryString, ClientState clientState)
+        {
+            // 3.0.19 always includes keyspace:
+            ResultMessage.Prepared existing = QueryProcessor.getStoredPreparedStatement(queryString, clientState.getRawKeyspace());
+            if (existing != null)
+                return existing;
+            QueryHandler.Prepared prepared = QueryProcessor.parseAndPrepare(queryString, clientState, false);
+            // only store with keyspace
+            return QueryProcessor.storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
+        }
+    }
 
-            ResultMessage.Prepared existing;
+    private static class Prepare40034 extends Prepare3019
+    {
+        public String version()
+        {
+            return "4.0.0.34";
+        }
+    }
 
-            if (skipKeyspaceForQualifiedStatements)
-                existing = QueryProcessor.getStoredPreparedStatement(queryString, null);
-            else
-                existing = QueryProcessor.getStoredPreparedStatement(queryString, clientState.getRawKeyspace());
+    private static class Prepare30240 implements Behaviour
+    {
+        @Override
+        public String version()
+        {
+            return "3.0.24.0";
+        }
+
+        @Override
+        public boolean skipKeyspaceForQualifiedStatements()
+        {
+            return true;
+        }
+
+        @Override
+        public boolean skipKeyspaceForNonQualifiedStatements()
+        {
+            return true;
+        }
+
+        @Override
+        public ResultMessage.Prepared prepare(String queryString, ClientState clientState)
+        {
+            // 3.0.24.0 .. 28 never includes keyspace
+            ResultMessage.Prepared existing = QueryProcessor.getStoredPreparedStatement(queryString, null);
 
             if (existing != null)
                 return existing;
 
+            // store both with and without keyspace:
             QueryHandler.Prepared prepared = QueryProcessor.parseAndPrepare(queryString, clientState, false);
-            CQLStatement statement = prepared.statement;
+            if (clientState.getRawKeyspace() != null)
+                QueryProcessor.storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
+            return QueryProcessor.storePreparedStatement(queryString, null, prepared);
+        }
+    }
 
-            int boundTerms = statement.getBindVariables().size();
-            if (boundTerms > FBUtilities.MAX_UNSIGNED_SHORT)
-                throw new InvalidRequestException(String.format("Too many markers(?). %d markers exceed the allowed maximum of %d", boundTerms, FBUtilities.MAX_UNSIGNED_SHORT));
 
-            if (prepared.fullyQualified)
-            {
-                if (skipKeyspaceForQualifiedStatements)
-                {
-                    ResultMessage.Prepared qualifiedWithoutKeyspace = QueryProcessor.storePreparedStatement(queryString, null, prepared);
-                    // when this version was deployed, we stored both statements, but removed one without keyspace
-                    if (clientState.getRawKeyspace() != null)
-                        QueryProcessor.storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
+    private static class Prepare40035 extends Prepare30240
+    {
+        public String version()
+        {
+            return "4.0.0.35";
+        }
+    }
 
-                    return qualifiedWithoutKeyspace;
-                }
-                else
-                {
-                    // Initially, we would always use a keyspace
-                    return QueryProcessor.storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
-                }
-            }
-            else
-            {
-                if (useKeyspaceForNonQualifiedStatements)
-                {
-                    Assert.fail("This shouldn't have happened: we should have exited to expected behaviour");
-                    throw new RuntimeException();
-                }
-                else
-                {
-                    ResultMessage.Prepared qualifiedWithoutKeyspace = QueryProcessor.storePreparedStatement(queryString, null, prepared);
-                    // when this version was deployed, we stored both statements, but removed one without keyspace
-                    if (clientState.getRawKeyspace() != null)
-                        QueryProcessor.storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared);
+    private static class Prepare302429 implements Behaviour
+    {
 
-                    return qualifiedWithoutKeyspace;
-                }
-            }
+        @Override
+        public String version()
+        {
+            return "3.0.24.29";
+        }
+
+        @Override
+        public boolean skipKeyspaceForQualifiedStatements()
+        {
+            return true;
+        }
+
+        @Override
+        public boolean skipKeyspaceForNonQualifiedStatements()
+        {
+            return false;
+        }
+
+        @Override
+        public ResultMessage.Prepared prepare(String queryString, ClientState clientState)
+        {
+            return QueryProcessor.instance.prepare(queryString, clientState);
+        }
+    }
+
+    private static class Prepare40044 extends Prepare302429
+    {
+        public String version()
+        {
+            return "4.0.0.44";
+        }
+    }
+
+    public static class MultiBehaviour
+    {
+        @SuppressWarnings("unused") // used in BB rebase
+        public static boolean skipKeyspaceForQualifiedStatements()
+        {
+            return behaviour.get().skipKeyspaceForQualifiedStatements();
+        }
+
+        @SuppressWarnings("unused") // used in BB rebase
+        public static boolean skipKeyspaceForNonQualifiedStatements()
+        {
+            return behaviour.get().skipKeyspaceForNonQualifiedStatements();
+        }
+
+        public static ResultMessage.Prepared prepare(String queryString, ClientState clientState, Map<String, ByteBuffer> x)
+        {
+            return behaviour.get().prepare(queryString, clientState);
         }
     }
 
