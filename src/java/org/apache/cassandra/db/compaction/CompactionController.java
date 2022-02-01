@@ -113,14 +113,8 @@ public class CompactionController extends AbstractCompactionController
             return;
         }
 
-        for (SSTableReader reader : overlappingSSTables)
-        {
-            if (reader.isMarkedCompacted())
-            {
-                refreshOverlaps();
-                return;
-            }
-        }
+        if (overlappingSSTables == null || overlappingSSTables.stream().anyMatch(SSTableReader::isMarkedCompacted))
+            refreshOverlaps();
     }
 
     private void refreshOverlaps()
@@ -169,8 +163,8 @@ public class CompactionController extends AbstractCompactionController
     {
         logger.trace("Checking droppable sstables in {}", cfStore);
 
-        if (NEVER_PURGE_TOMBSTONES || compacting == null || cfStore.getNeverPurgeTombstones())
-            return Collections.<SSTableReader>emptySet();
+        if (NEVER_PURGE_TOMBSTONES || compacting == null || cfStore.getNeverPurgeTombstones() || overlapping == null)
+            return Collections.emptySet();
 
         if (cfStore.getCompactionStrategyManager().onlyPurgeRepairedTombstones() && !Iterables.all(compacting, SSTableReader::isRepaired))
             return Collections.emptySet();
@@ -277,7 +271,7 @@ public class CompactionController extends AbstractCompactionController
     @Override
     public LongPredicate getPurgeEvaluator(DecoratedKey key)
     {
-        if (NEVER_PURGE_TOMBSTONES || !compactingRepaired() || cfs.getNeverPurgeTombstones())
+        if (NEVER_PURGE_TOMBSTONES || !compactingRepaired() || cfs.getNeverPurgeTombstones() || overlapIterator == null)
             return time -> false;
 
         overlapIterator.update(key);
