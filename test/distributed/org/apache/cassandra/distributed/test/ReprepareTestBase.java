@@ -217,7 +217,7 @@ public class ReprepareTestBase extends TestBaseImpl
 
         static void newBehaviour(ClassLoader cl, int nodeNumber)
         {
-            setReleaseVersion(cl, QueryProcessor.USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40.toString());
+            setReleaseVersion(cl, QueryProcessor.SKIP_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_40.end.toString());
         }
 
         static void oldBehaviour(ClassLoader cl, int nodeNumber)
@@ -233,7 +233,7 @@ public class ReprepareTestBase extends TestBaseImpl
             }
             else
             {
-                setReleaseVersion(cl, QueryProcessor.USE_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_SINCE_40.toString());
+                setReleaseVersion(cl, QueryProcessor.SKIP_KEYSPACE_FOR_NON_QUALIFIED_STATEMENTS_40.end.toString());
             }
         }
 
