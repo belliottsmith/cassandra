@@ -36,14 +36,9 @@ import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.schema.CompactionParams.TombstoneOption;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
-import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.utils.AlwaysPresentFilter;
 import org.apache.cassandra.utils.OverlapIterator;
 import org.apache.cassandra.utils.concurrent.Refs;
@@ -123,14 +118,8 @@ public class CompactionController extends AbstractCompactionController
             return;
         }
 
-        for (SSTableReader reader : overlappingSSTables)
-        {
-            if (reader.isMarkedCompacted())
-            {
-                refreshOverlaps();
-                return;
-            }
-        }
+        if (overlappingSSTables == null || overlappingSSTables.stream().anyMatch(SSTableReader::isMarkedCompacted))
+            refreshOverlaps();
     }
 
     private void refreshOverlaps()
@@ -179,8 +168,8 @@ public class CompactionController extends AbstractCompactionController
     {
         logger.trace("Checking droppable sstables in {}", cfStore);
 
-        if (NEVER_PURGE_TOMBSTONES || compacting == null || cfStore.getNeverPurgeTombstones())
-            return Collections.<SSTableReader>emptySet();
+        if (NEVER_PURGE_TOMBSTONES || compacting == null || cfStore.getNeverPurgeTombstones() || overlapping == null)
+            return Collections.emptySet();
 
         if (cfStore.getCompactionStrategyManager().onlyPurgeRepairedTombstones() && !Iterables.all(compacting, SSTableReader::isRepaired))
             return Collections.emptySet();
@@ -287,7 +276,7 @@ public class CompactionController extends AbstractCompactionController
     @Override
     public LongPredicate getPurgeEvaluator(DecoratedKey key)
     {
-        if (NEVER_PURGE_TOMBSTONES || !compactingRepaired() || cfs.getNeverPurgeTombstones())
+        if (NEVER_PURGE_TOMBSTONES || !compactingRepaired() || cfs.getNeverPurgeTombstones() || overlapIterator == null)
             return time -> false;
 
         overlapIterator.update(key);

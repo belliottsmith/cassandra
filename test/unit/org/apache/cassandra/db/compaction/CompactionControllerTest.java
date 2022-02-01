@@ -21,7 +21,6 @@ package org.apache.cassandra.db.compaction;
 import java.nio.ByteBuffer;
 import java.util.Set;
 import java.util.function.LongPredicate;
-import java.util.function.Predicate;
 
 import com.google.common.collect.Sets;
 import org.junit.BeforeClass;
@@ -205,5 +204,38 @@ public class CompactionControllerTest extends SchemaLoader
     {
         assertFalse(evaluator.test(boundary));
         assertTrue(evaluator.test(boundary - 1));
+    }
+
+    @Test
+    public void testDisableNeverPurgeTombstones()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF2);
+        cfs.truncateBlocking();
+
+        DecoratedKey key = Util.dk("k1");
+        long timestamp = System.currentTimeMillis();
+        applyMutation(cfs.metadata(), key, timestamp);
+        cfs.forceBlockingFlush();
+        Set<SSTableReader> toCompact = Sets.newHashSet(cfs.getLiveSSTables());
+        cfs.setNeverPurgeTombstones(true);
+        applyMutation(cfs.metadata(), key, timestamp + 1);
+
+        try (CompactionController cc = new CompactionController(cfs, toCompact, (int)(System.currentTimeMillis()/1000)))
+        {
+            assertFalse(cc.getPurgeEvaluator(key).test(timestamp));
+            assertFalse(cc.getPurgeEvaluator(key).test(timestamp + 1));
+            assertTrue(cc.getFullyExpiredSSTables().isEmpty());
+
+            cfs.setNeverPurgeTombstones(false);
+            assertFalse(cc.getPurgeEvaluator(key).test(timestamp));
+            assertFalse(cc.getPurgeEvaluator(key).test(timestamp + 1));
+            assertTrue(cc.getFullyExpiredSSTables().isEmpty());
+
+            cc.maybeRefreshOverlaps();
+            assertTrue(cc.getPurgeEvaluator(key).test(timestamp));
+            assertFalse(cc.getPurgeEvaluator(key).test(timestamp + 1));
+            assertTrue(cc.getFullyExpiredSSTables().isEmpty());
+        }
     }
 }
