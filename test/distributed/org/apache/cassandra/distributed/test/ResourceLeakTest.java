@@ -54,14 +54,13 @@ import static org.apache.cassandra.distributed.api.Feature.NETWORK;
  * the final hprof and check that the class loaders are not reachable from a GC root),
  * but it shows that the file handles for Data/Index files are being leaked.
  */
-@Ignore
 public class ResourceLeakTest extends TestBaseImpl
 {
     // Parameters to adjust while hunting for leaks
-    final int numTestLoops = 1;            // Set this value high to crash on leaks, or low when tracking down an issue.
+    final int numTestLoops = 100;            // Set this value high to crash on leaks, or low when tracking down an issue.
     final boolean dumpEveryLoop = false;   // Dump heap & possibly files every loop
     final boolean dumpFileHandles = false; // Call lsof whenever dumping resources
-    final boolean forceCollection = false; // Whether to explicitly force finalization/gc for smaller heap dumps
+    final boolean forceCollection = true; // Whether to explicitly force finalization/gc for smaller heap dumps
     final long finalWaitMillis = 0l;       // Number of millis to wait before final resource dump to give gc a chance
 
     static final SimpleDateFormat format = new SimpleDateFormat("yyyyMMddHHmmss");
