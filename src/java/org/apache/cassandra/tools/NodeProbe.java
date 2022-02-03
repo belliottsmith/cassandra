@@ -732,6 +732,11 @@ public class NodeProbe implements AutoCloseable
         return ssProxy.getLoadString();
     }
 
+    public String getUncompressedLoadString()
+    {
+        return ssProxy.getUncompressedLoadString();
+    }
+
     public String getReleaseVersion()
     {
         return ssProxy.getReleaseVersion();
