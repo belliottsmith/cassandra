@@ -110,7 +110,7 @@ public class NodeToolTest extends TestBaseImpl
     @Test
     public void testSetCacheCapacityWhenDisabled() throws Throwable
     {
-        try (ICluster cluster = init(builder().withNodes(1).withConfig(c->c.set("row_cache_size", "0MiB")).start()))
+        try (ICluster<?> cluster = init(builder().withNodes(1).withConfig(c->c.set("row_cache_size", "0MiB")).start()))
         {
             NodeToolResult ringResult = cluster.get(1).nodetoolResult("setcachecapacity", "1", "1", "1");
             ringResult.asserts().stderrContains("is not permitted as this cache is disabled");
@@ -124,5 +124,22 @@ public class NodeToolTest extends TestBaseImpl
             .asserts()
             .success()
             .stdoutContains("GitSHA:");
+    }
+
+    @Test
+    public void testInfoOutput() throws Throwable
+    {
+        try (ICluster<?> cluster = init(builder().withNodes(1).start()))
+        {
+            NodeToolResult ringResult = cluster.get(1).nodetoolResult("info");
+            ringResult.asserts().stdoutContains("ID");
+            ringResult.asserts().stdoutContains("Gossip active");
+            ringResult.asserts().stdoutContains("Native Transport active");
+            ringResult.asserts().stdoutContains("Load");
+            ringResult.asserts().stdoutContains("Uncompressed load");
+            ringResult.asserts().stdoutContains("Generation");
+            ringResult.asserts().stdoutContains("Uptime");
+            ringResult.asserts().stdoutContains("Heap Memory");
+        }
     }
 }

@@ -3617,9 +3617,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     }
 
 
+    @Override
     public String getLoadString()
     {
         return FileUtils.stringifyFileSize(StorageMetrics.load.getCount());
+    }
+
+    @Override
+    public String getUncompressedLoadString()
+    {
+        return FileUtils.stringifyFileSize(StorageMetrics.uncompressedLoad.getCount());
     }
 
     public Map<String, String> getLoadMapWithPort()
