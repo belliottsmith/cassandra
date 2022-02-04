@@ -587,9 +587,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public boolean isDaemonSetupCompleted()
     {
-        return daemon == null
-               ? false
-               : daemon.setupCompleted();
+        return daemon != null && daemon.setupCompleted();
     }
 
     public void stopDaemon()

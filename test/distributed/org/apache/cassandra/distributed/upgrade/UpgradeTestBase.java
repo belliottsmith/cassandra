@@ -180,8 +180,9 @@ public class UpgradeTestBase extends DistributedTestBase
         }
 
         /** Will test this specific upgrade path **/
-        public TestCase singleUpgrade(Semver from, Semver to)
+        public TestCase singleUpgrade(Semver from)
         {
+            Semver to = CURRENT;
             try
             {
                 Version fromVersion = versions.getLatest(from);

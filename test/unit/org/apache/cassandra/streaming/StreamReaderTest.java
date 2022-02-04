@@ -18,13 +18,8 @@
 
 package org.apache.cassandra.streaming;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutput;
-import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.channels.Channels;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -124,7 +119,7 @@ public class StreamReaderTest
                                                                       node1);
     }
     @Test
-    public void testReceiveWithNoOwnedRanges() throws Exception
+    public void testReceiveWithNoOwnedRanges() throws Throwable
     {
         int[] tokens = {10, 20};
         tryReceiveExpectingFailure(tokens);
@@ -134,7 +129,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithSingleOwnedRangeReceivingTableWithRangeContained() throws Exception
+    public void testReceiveWithSingleOwnedRangeReceivingTableWithRangeContained() throws Throwable
     {
         int[] tokens = {10, 20};
         setLocalTokens(100);
@@ -146,7 +141,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithSingleOwnedRangeReceivedTableLowestKeyBoundsExclusive() throws Exception
+    public void testReceiveWithSingleOwnedRangeReceivedTableLowestKeyBoundsExclusive() throws Throwable
     {
         // verify that ranges are left exclusive
         int[] tokens = {0, 10};
@@ -159,7 +154,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithSingleOwnedRangeReceivingTableRangeWithExactMatch() throws Exception
+    public void testReceiveWithSingleOwnedRangeReceivingTableRangeWithExactMatch() throws Throwable
     {
         // Because ranges are left exlusive, for the range (0, 100] the lowest permissable key is 1
         int[] tokens = {1, 100};
@@ -172,7 +167,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithSingleOwnedRangeReceivingTableRangeLessThanOwned() throws Exception
+    public void testReceiveWithSingleOwnedRangeReceivingTableRangeLessThanOwned() throws Throwable
     {
         int[] tokens = {-100, 0};
         setLocalTokens(100);
@@ -184,7 +179,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithSingleOwnedRangeReceivingTableRangeGreaterThanOwned() throws Exception
+    public void testReceiveWithSingleOwnedRangeReceivingTableRangeGreaterThanOwned() throws Throwable
     {
         int[] tokens = {101, 200};
         setLocalTokens(100);
@@ -196,7 +191,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithSingleOwnedRangeReceivingTableRangeOverlappingOwned() throws Exception
+    public void testReceiveWithSingleOwnedRangeReceivingTableRangeOverlappingOwned() throws Throwable
     {
         int[] tokens = {80, 120};
         setLocalTokens(100);
@@ -208,7 +203,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithSingleOwnedWrappingRangeReceivingTableContainedBeforeMax() throws Exception
+    public void testReceiveWithSingleOwnedWrappingRangeReceivingTableContainedBeforeMax() throws Throwable
     {
         int[] tokens = {110, 120};
 
@@ -224,7 +219,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithSingleOwnedWrappingRangeReceivingTableContainedAfterMin() throws Exception
+    public void testReceiveWithSingleOwnedWrappingRangeReceivingTableContainedAfterMin() throws Throwable
     {
         int[] tokens = {-150, -140};
 
@@ -240,7 +235,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithSingleOwnedWrappingRangeReceivingTableOverlappingUpward() throws Exception
+    public void testReceiveWithSingleOwnedWrappingRangeReceivingTableOverlappingUpward() throws Throwable
     {
         int[] tokens = {-10, 10};
 
@@ -256,7 +251,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithSingleOwnedWrappingRangeReceivingTableOverlappingDownward() throws Exception
+    public void testReceiveWithSingleOwnedWrappingRangeReceivingTableOverlappingDownward() throws Throwable
     {
         int[] tokens = {90, 110};
 
@@ -272,7 +267,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithMultipleOwnedRangesReceivingTableRangeContainedInFirstOwned() throws Exception
+    public void testReceiveWithMultipleOwnedRangesReceivingTableRangeContainedInFirstOwned() throws Throwable
     {
         int[] tokens = {10, 20};
         setLocalTokens(100, 300, 500);
@@ -284,7 +279,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithMultipleOwnedRangesReceivingTableRangeContainedInLastOwned() throws Exception
+    public void testReceiveWithMultipleOwnedRangesReceivingTableRangeContainedInLastOwned() throws Throwable
     {
         int[] tokens = {450, 460};
         setLocalTokens(100, 300, 500);
@@ -296,7 +291,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithMultipleOwnedRangesReceivingTableRangeLessThanOwned() throws Exception
+    public void testReceiveWithMultipleOwnedRangesReceivingTableRangeLessThanOwned() throws Throwable
     {
         int[] tokens = {510, 520};
         setLocalTokens(100, 300, 500);
@@ -308,7 +303,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithMultipleOwnedRangesReceivingTableRangeGreaterThanOwned() throws Exception
+    public void testReceiveWithMultipleOwnedRangesReceivingTableRangeGreaterThanOwned() throws Throwable
     {
         int[] tokens = {-20, -10};
         setLocalTokens(100, 300, 500);
@@ -320,7 +315,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithMultipleOwnedRangesReceivingTableRangeOverlappingOwned() throws Exception
+    public void testReceiveWithMultipleOwnedRangesReceivingTableRangeOverlappingOwned() throws Throwable
     {
         int[] tokens = {80, 120};
         setLocalTokens(100, 300, 500);
@@ -332,7 +327,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithMultipleOwnedRangesAllDisjointFromReceivingTableRange() throws Exception
+    public void testReceiveWithMultipleOwnedRangesAllDisjointFromReceivingTableRange() throws Throwable
     {
         int[] tokens = {310, 320};
         setLocalTokens(100, 300, 500);
@@ -344,7 +339,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithMultipleOwnedRangesDisjointSpannedByReceivingTableRange() throws Exception
+    public void testReceiveWithMultipleOwnedRangesDisjointSpannedByReceivingTableRange() throws Throwable
     {
         int[] tokens = {80, 320};
         setLocalTokens(100, 300, 500);
@@ -356,7 +351,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithMultipleOwnedRangesReceivedTableRangeExactMatch() throws Exception
+    public void testReceiveWithMultipleOwnedRangesReceivedTableRangeExactMatch() throws Throwable
     {
         // bacause ranges are left exclusive, for the range (200, 300] the lowest permissable key is 201
         int[] tokens = {201, 300};
@@ -369,7 +364,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithOwnedRangeWrappingAndReceivedFileWhollyContained() throws Exception
+    public void testReceiveWithOwnedRangeWrappingAndReceivedFileWhollyContained() throws Throwable
     {
         // peer  -> (-100, 0], (100, 200], (300, 400]
         // local -> (min, -100], (400, max]
@@ -379,7 +374,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithOwnedRangeWrappingAndReceivedFilePartiallyContained() throws Exception
+    public void testReceiveWithOwnedRangeWrappingAndReceivedFilePartiallyContained() throws Throwable
     {
         // peer  -> (-100, 0], (100, 200], (300, 400]
         // local -> (min, -100], (400, max]
@@ -392,7 +387,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithOwnedRangeWrappingAndReceivedFileNotContained() throws Exception
+    public void testReceiveWithOwnedRangeWrappingAndReceivedFileNotContained() throws Throwable
     {
         // peer  -> (-100, 0], (100, 200], (300, 400]
         // local -> (min, -100], (400, max]
@@ -411,7 +406,7 @@ public class StreamReaderTest
      ****************************************************************************************/
 
     @Test
-    public void testReceiveWithSinglePendingRangeReceivingTableWithRangeContained() throws Exception
+    public void testReceiveWithSinglePendingRangeReceivingTableWithRangeContained() throws Throwable
     {
         int[] tokens = {10, 20};
         setPendingRanges(KEYSPACE, 0, 100);
@@ -423,7 +418,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveWithMultiplePendingRangesReceivingTableRangeContainedInFirstOwned() throws Exception
+    public void testReceiveWithMultiplePendingRangesReceivingTableRangeContainedInFirstOwned() throws Throwable
     {
         int[] tokens = {10, 20};
         setPendingRanges(KEYSPACE, 0, 100, 200, 300, 400, 500);
@@ -435,7 +430,7 @@ public class StreamReaderTest
     }
 
     @Test
-    public void testReceiveNormalizesOwnedAndPendingRanges() throws Exception
+    public void testReceiveNormalizesOwnedAndPendingRanges() throws Throwable
     {
         // Incoming file is not covered by either a single owned or pending range,
         // but it is covered by the normalized set of both
@@ -463,7 +458,7 @@ public class StreamReaderTest
     }
 
     private static void tryReceiveExpectingSuccess(int[] tokens,
-                                                   boolean isOutOfRange) throws IOException
+                                                   boolean isOutOfRange) throws Throwable
     {
         StreamSession session = setupStreamingSessionForTest();
         StreamMessageHeader header = streamHeader();
@@ -476,7 +471,7 @@ public class StreamReaderTest
         assertEquals(isOutOfRange, StorageMetrics.totalOpsForInvalidToken.getCount() > startMetricCount);
     }
 
-    private static void tryReceiveExpectingFailure(int[] tokens) throws IOException
+    private static void tryReceiveExpectingFailure(int[] tokens) throws Throwable
     {
         StreamSession session = setupStreamingSessionForTest();
         StreamMessageHeader header = streamHeader();

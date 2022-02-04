@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import com.google.common.collect.Lists;
@@ -47,7 +46,6 @@ import static org.apache.cassandra.utils.TokenRangeTestUtil.*;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 public class StreamSessionOwnedRangesTest
 {
@@ -92,7 +90,7 @@ public class StreamSessionOwnedRangesTest
     }
 
     @Test
-    public void testPrepareWithAllRequestedRangesWithinOwned() throws Exception
+    public void testPrepareWithAllRequestedRangesWithinOwned()
     {
         setLocalTokens(100);
         InetAddressAndPort endpoint = FBUtilities.getBroadcastAddressAndPort();

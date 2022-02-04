@@ -30,13 +30,12 @@ import org.apache.cassandra.distributed.UpgradeableCluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.ICoordinator;
-import org.apache.cassandra.distributed.shared.Versions;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.net.Verb;
 
 public class SelectSizeUpgradeTest extends UpgradeTestBase
 {
-    private static void flush(ICluster cluster)
+    private static void flush(ICluster<?> cluster)
     {
         for (int node = 1; node <= cluster.size(); node++)
             cluster.get(node).flush(KEYSPACE);
@@ -49,7 +48,7 @@ public class SelectSizeUpgradeTest extends UpgradeTestBase
      * 4) all nodes return the same value (as written with cl.ALL)
      * 5) absent partitions return zero bytes
      */
-    public static void setupPartitions(UpgradeableCluster cluster) throws IOException
+    public static void setupPartitions(UpgradeableCluster cluster)
     {
         cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int PRIMARY KEY, v text)");
 
@@ -131,7 +130,7 @@ public class SelectSizeUpgradeTest extends UpgradeTestBase
         .nodes(2)
         .nodesToUpgrade(1)
         .withConfig(c -> c.set("autocompaction_on_startup_enabled", false))
-        .singleUpgrade(v30, v40)
+        .singleUpgrade(v30)
         .setup(SelectSizeUpgradeTest::setupPartitions)
         .runAfterNodeUpgrade(SelectSizeUpgradeTest::checkNode)
         .run();
@@ -186,7 +185,7 @@ public class SelectSizeUpgradeTest extends UpgradeTestBase
         new TestCase()
         .nodes(2)
         .nodesToUpgrade(1)
-        .singleUpgrade(v30, v40)
+        .singleUpgrade(v30)
         .withConfig(c -> c.set("autocompaction_on_startup_enabled", false))
         .setup(cluster -> {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".timeout_test (pk int PRIMARY KEY, v text)");
