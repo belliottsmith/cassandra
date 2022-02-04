@@ -30,13 +30,12 @@ import org.apache.cassandra.distributed.UpgradeableCluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.ICoordinator;
-import org.apache.cassandra.distributed.shared.Versions;
 import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.net.Verb;
 
 public class SelectSizeUpgradeTest extends UpgradeTestBase
 {
-    private static void flush(ICluster cluster)
+    private static void flush(ICluster<?> cluster)
     {
         for (int node = 1; node <= cluster.size(); node++)
             cluster.get(node).flush(KEYSPACE);
@@ -49,7 +48,7 @@ public class SelectSizeUpgradeTest extends UpgradeTestBase
      * 4) all nodes return the same value (as written with cl.ALL)
      * 5) absent partitions return zero bytes
      */
-    public static void setupPartitions(UpgradeableCluster cluster) throws IOException
+    public static void setupPartitions(UpgradeableCluster cluster)
     {
         cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int PRIMARY KEY, v text)");
 
