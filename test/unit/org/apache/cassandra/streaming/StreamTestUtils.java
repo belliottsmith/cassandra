@@ -20,7 +20,7 @@ package org.apache.cassandra.streaming;
 
 import io.netty.util.concurrent.Future;
 import org.apache.cassandra.streaming.messages.StreamMessage;
-import org.apache.cassandra.utils.concurrent.AsyncPromise;
+import org.apache.cassandra.utils.concurrent.ImmediateFuture;
 
 import java.net.InetSocketAddress;
 import java.util.Collections;
@@ -59,9 +59,7 @@ public class StreamTestUtils
             @Override
             protected Future<?> sendControlMessage(StreamMessage message) {
                 sentMessages.add(message);
-                final AsyncPromise<Object> promise = new AsyncPromise<>(null);
-                promise.setSuccess(null);
-                return promise;
+                return ImmediateFuture.success(null);
             }
 
         };
