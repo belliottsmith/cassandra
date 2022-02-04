@@ -90,7 +90,7 @@ public class StreamSessionOwnedRangesTest
     }
 
     @Test
-    public void testPrepareWithAllRequestedRangesWithinOwned() throws Exception
+    public void testPrepareWithAllRequestedRangesWithinOwned()
     {
         setLocalTokens(100);
         InetAddressAndPort endpoint = FBUtilities.getBroadcastAddressAndPort();
