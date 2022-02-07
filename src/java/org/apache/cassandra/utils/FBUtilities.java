@@ -98,6 +98,7 @@ public class FBUtilities
     private static final ObjectMapper jsonMapper = new ObjectMapper(new JsonFactory());
 
     public static final String UNKNOWN_RELEASE_VERSION = "Unknown";
+    public static final String UNKNOWN_GIT_SHA = "Unknown";
 
     public static final BigInteger TWO = new BigInteger("2");
     private static final String DEFAULT_TRIGGER_DIR = "triggers";
@@ -161,7 +162,7 @@ public class FBUtilities
                                 + "correct. Please check your node's config and set the listen_address in cassandra.yaml accordingly if applicable.",
                                 localInetAddress);
                 }
-                catch(UnknownHostException e)
+                catch (UnknownHostException e)
                 {
                     logger.info("InetAddress.getLocalHost() could not resolve the address for the hostname ({}), please "
                                 + "check your node's config and set the listen_address in cassandra.yaml. Falling back to {}",
@@ -185,7 +186,7 @@ public class FBUtilities
     {
         if (localInetAddressAndPort == null)
         {
-            if(DatabaseDescriptor.getRawConfig() == null)
+            if (DatabaseDescriptor.getRawConfig() == null)
             {
                 localInetAddressAndPort = InetAddressAndPort.getByAddress(getJustLocalAddress());
             }
@@ -206,8 +207,8 @@ public class FBUtilities
     {
         if (broadcastInetAddress == null)
             broadcastInetAddress = DatabaseDescriptor.getBroadcastAddress() == null
-                                 ? getJustLocalAddress()
-                                 : DatabaseDescriptor.getBroadcastAddress();
+                                   ? getJustLocalAddress()
+                                   : DatabaseDescriptor.getBroadcastAddress();
         return broadcastInetAddress;
     }
 
@@ -220,7 +221,7 @@ public class FBUtilities
     {
         if (broadcastInetAddressAndPort == null)
         {
-            if(DatabaseDescriptor.getRawConfig() == null)
+            if (DatabaseDescriptor.getRawConfig() == null)
             {
                 broadcastInetAddressAndPort = InetAddressAndPort.getByAddress(getJustBroadcastAddress());
             }
@@ -259,8 +260,8 @@ public class FBUtilities
     {
         if (broadcastNativeAddress == null)
             broadcastNativeAddress = DatabaseDescriptor.getBroadcastRpcAddress() == null
-                                   ? DatabaseDescriptor.getRpcAddress()
-                                   : DatabaseDescriptor.getBroadcastRpcAddress();
+                                     ? DatabaseDescriptor.getRpcAddress()
+                                     : DatabaseDescriptor.getBroadcastRpcAddress();
         return broadcastNativeAddress;
     }
 
@@ -271,7 +272,7 @@ public class FBUtilities
     public static InetAddressAndPort getBroadcastNativeAddressAndPort()
     {
         if (broadcastNativeAddressAndPort == null)
-            if(DatabaseDescriptor.getRawConfig() == null)
+            if (DatabaseDescriptor.getRawConfig() == null)
             {
                 broadcastNativeAddressAndPort = InetAddressAndPort.getByAddress(getJustBroadcastNativeAddress());
             }
@@ -287,11 +288,11 @@ public class FBUtilities
     {
         try
         {
-            for(NetworkInterface ifc : Collections.list(NetworkInterface.getNetworkInterfaces()))
+            for (NetworkInterface ifc : Collections.list(NetworkInterface.getNetworkInterfaces()))
             {
-                if(ifc.isUp())
+                if (ifc.isUp())
                 {
-                    for(InetAddress addr : Collections.list(ifc.getInetAddresses()))
+                    for (InetAddress addr : Collections.list(ifc.getInetAddresses()))
                     {
                         if (addr.equals(localAddress))
                             return ifc.getDisplayName();
@@ -299,7 +300,9 @@ public class FBUtilities
                 }
             }
         }
-        catch (SocketException e) {}
+        catch (SocketException e)
+        {
+        }
         return null;
     }
 
@@ -307,13 +310,13 @@ public class FBUtilities
      * Given two bit arrays represented as BigIntegers, containing the given
      * number of significant bits, calculate a midpoint.
      *
-     * @param left The left point.
-     * @param right The right point.
+     * @param left    The left point.
+     * @param right   The right point.
      * @param sigbits The number of bits in the points that are significant.
      * @return A midpoint that will compare bitwise halfway between the params, and
      * a boolean representing whether a non-zero lsbit remainder was generated.
      */
-    public static Pair<BigInteger,Boolean> midpoint(BigInteger left, BigInteger right, int sigbits)
+    public static Pair<BigInteger, Boolean> midpoint(BigInteger left, BigInteger right, int sigbits)
     {
         BigInteger midpoint;
         boolean remainder;
@@ -413,24 +416,40 @@ public class FBUtilities
         return previousReleaseVersionString;
     }
 
-    public static String getReleaseVersionString()
+    private static Properties getVersionProperties()
     {
         try (InputStream in = FBUtilities.class.getClassLoader().getResourceAsStream("org/apache/cassandra/config/version.properties"))
         {
             if (in == null)
             {
-                return System.getProperty("cassandra.releaseVersion", UNKNOWN_RELEASE_VERSION);
+                return null;
             }
             Properties props = new Properties();
             props.load(in);
-            return props.getProperty("CassandraVersion");
+            return props;
         }
         catch (Exception e)
         {
             JVMStabilityInspector.inspectThrowable(e);
             logger.warn("Unable to load version.properties", e);
-            return "debug version";
+            return null;
         }
+    }
+
+    public static String getReleaseVersionString()
+    {
+        Properties props = getVersionProperties();
+        if (props == null)
+            return System.getProperty("cassandra.releaseVersion", UNKNOWN_RELEASE_VERSION);
+        return props.getProperty("CassandraVersion");
+    }
+
+    public static String getGitSHA()
+    {
+        Properties props = getVersionProperties();
+        if (props == null)
+            return System.getProperty("cassandra.gitSHA", UNKNOWN_GIT_SHA);
+        return props.getProperty("GitSHA", UNKNOWN_GIT_SHA);
     }
 
     public static String getReleaseVersionMajor()
