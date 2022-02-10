@@ -97,6 +97,7 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.io.util.PathUtils;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.metrics.Sampler;
@@ -628,6 +629,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                         throw e;
                     }
                     StorageService.instance.removeShutdownHook();
+
                     Gossiper.waitToSettle();
                 }
                 else
@@ -761,6 +763,17 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                 () -> PendingRangeCalculatorService.instance.shutdownAndWait(1L, MINUTES),
                                 () -> shutdownAndWait(Collections.singletonList(JMXBroadcastExecutor.executor))
             );
+
+            // Make sure any shutdown hooks registered for DeleteOnExit are released to prevent
+            // references to the instance class loaders from being held
+            if (graceful)
+            {
+                PathUtils.runOnExitThreadsAndClear();
+            }
+            else
+            {
+                PathUtils.clearOnExitThreads();
+            }
 
             Throwables.maybeFail(error);
         }).apply(isolatedExecutor);

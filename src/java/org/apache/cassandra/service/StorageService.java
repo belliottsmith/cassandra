@@ -96,6 +96,7 @@ import org.apache.cassandra.io.sstable.format.SSTableFormat;
 import org.apache.cassandra.io.sstable.format.VersionAndType;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.io.util.PathUtils;
 import org.apache.cassandra.locator.*;
 import org.apache.cassandra.locator.ReplicaCollection.Builder.Conflict;
 import org.apache.cassandra.metrics.StorageMetrics;
@@ -889,6 +890,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      */
     public void removeShutdownHook()
     {
+        PathUtils.clearOnExitThreads();
+
         if (drainOnShutdown != null)
             Runtime.getRuntime().removeShutdownHook(drainOnShutdown);
 
