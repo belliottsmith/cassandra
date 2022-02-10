@@ -29,6 +29,7 @@ import org.junit.Test;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.io.sstable.format.SSTableFormat;
+import org.apache.cassandra.io.sstable.format.big.BigFormat;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
@@ -177,5 +178,24 @@ public class DescriptorTest
         }
     }
 
+    @Test
+    public void testFutureVersion()
+    {
+        String currentName = "/tmp/keyspace1/8b7c7b23f1ad3f4554f8d64f85d9d3637661/keyspace1-standard1-" + BigFormat.latestVersion + "-1-big-Data.db";
+        String futureName = "/tmp/keyspace1/8b7c7b23f1ad3f4554f8d64f85d9d3637661/keyspace1-standard1-" + BigFormat.latestVersion.toString().charAt(0) + "z-1-big-Data.db";
+        Descriptor currentDesc = Descriptor.fromFilename(currentName);
+        assertEquals(currentDesc.version, BigFormat.latestVersion);
+        assertFalse(currentDesc.version.isInFuture());
+        assertTrue(Descriptor.fromFilename(futureName).version.isInFuture());
+    }
+
+    @Test
+    public void testAddedSupportedVersions()
+    {
+        String currentName = "/tmp/keyspace1/8b7c7b23f1ad3f4554f8d64f85d9d3637661/keyspace1-standard1-" + BigFormat.latestVersion + "-1-big-Data.db";
+        Descriptor currentDesc = Descriptor.fromFilename(currentName);
+        assertNotNull("The new sstable version " + currentDesc.version + "should be added to BigFormat.formatSupport",
+                      currentDesc.version.supportedSince());
+    }
 
 }
