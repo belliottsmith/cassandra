@@ -70,7 +70,6 @@ import org.apache.cassandra.security.EncryptionContext;
 import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.service.CacheService.CacheType;
 import org.apache.cassandra.service.paxos.Paxos;
-import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.FBUtilities;
 
 import org.apache.commons.lang3.ArrayUtils;
@@ -848,6 +847,8 @@ public class DatabaseDescriptor
                                                            conf.default_keyspace_rf, conf.minimum_keyspace_rf));
         }
 
+        applyDenylistConfiguration(conf);
+
         if (conf.paxos_variant == Config.PaxosVariant.v1_without_linearizable_reads)
         {
             logger.warn("This node was started with paxos_variant config option set to v1_norrl. " +
@@ -908,6 +909,63 @@ public class DatabaseDescriptor
         {
             throw new ConfigurationException("Invalid guardrails configuration: " + e.getMessage(), e);
         }
+    }
+
+    private static <X> X applyDenylistSetting(X currentValue, X legacyValue, X defaultValue, String name)
+    {
+        if (legacyValue != null && currentValue != null)
+        {
+            if (legacyValue.equals(currentValue))
+                logger.info("Legacy denylist configuration '{}' set same as - please remove", name);
+            else
+                logger.info("Conflict with legacy denylist configuration. Using {}={} (legacy was {})",
+                            name, currentValue, legacyValue);
+            return currentValue;
+        }
+        else if (legacyValue == null && currentValue != null)
+        {
+            return currentValue;
+        }
+        else if (legacyValue != null && currentValue == null)
+        {
+            logger.info("Legacy denylist configuration for '{}' used - please upgrade", name);
+            return legacyValue;
+        }
+        else
+        {
+            return defaultValue;
+        }
+    }
+
+    private static void applyDenylistConfiguration(Config config)
+    {
+        config.enable_partition_denylist = applyDenylistSetting(config.enable_partition_denylist,
+                                                                config.enable_partition_blacklist,
+                                                                false, "enable_partition_denylist");
+        config.enable_denylist_writes = applyDenylistSetting(config.enable_denylist_writes,
+                                                             config.enable_blacklist_writes,
+                                                             true, "enable_denylist_writes");
+        config.enable_denylist_reads = applyDenylistSetting(config.enable_denylist_reads,
+                                                            config.enable_blacklist_reads,
+                                                            true, "enable_denylist_reads");
+        config.enable_denylist_range_reads = applyDenylistSetting(config.enable_denylist_range_reads,
+                                                                  config.enable_blacklist_range_reads,
+                                                                  true, "enable_denylist_range_reads");
+        config.denylist_refresh_seconds = applyDenylistSetting(config.denylist_refresh_seconds,
+                                                               config.blacklist_refresh_period_seconds,
+                                                               600, "denylist_refresh_seconds");
+        config.denylist_initial_load_retry_seconds = applyDenylistSetting(config.denylist_initial_load_retry_seconds,
+                                                                          config.blacklist_initial_load_retry_seconds,
+                                                                          5, "denylist_initial_load_retry_seconds");
+        config.denylist_max_keys_per_table = applyDenylistSetting(config.denylist_max_keys_per_table,
+                                                                  config.blacklist_max_keys_per_table,
+                                                                  1000, "denylist_max_keys_per_table");
+        config.denylist_max_keys_total = applyDenylistSetting(config.denylist_max_keys_total,
+                                                              config.blacklist_max_keys_total,
+                                                              10000, "denylist_max_keys_total");
+        config.denylist_consistency_level = applyDenylistSetting(config.denylist_consistency_level,
+                                                                 config.blacklist_consistency_level,
+                                                                 ConsistencyLevel.QUORUM, "denylist_consistency_level");
     }
 
     private static String storagedirFor(String type)

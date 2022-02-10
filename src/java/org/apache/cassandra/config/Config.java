@@ -534,34 +534,53 @@ public class Config
     /** This feature allows denying access to operations on certain key partitions, intended for use by operators to
      * provide another tool to manage cluster health vs application access. See CASSANDRA-12106 and CEP-13 for more details.
      */
-    public volatile boolean enable_partition_denylist = false;
+    public volatile Boolean enable_partition_denylist = null;
 
-    public volatile boolean enable_denylist_writes = true;
+    public volatile Boolean enable_denylist_writes = null;
 
-    public volatile boolean enable_denylist_reads = true;
+    public volatile Boolean enable_denylist_reads = null;
 
-    public volatile boolean enable_denylist_range_reads = true;
+    public volatile Boolean enable_denylist_range_reads = null;
 
-    public int denylist_refresh_seconds = 600;
+    public Integer denylist_refresh_seconds = null;
 
-    public int denylist_initial_load_retry_seconds = 5;
+    public Integer denylist_initial_load_retry_seconds = null;
 
     /** We cap the number of denylisted keys allowed per table to keep things from growing unbounded. Operators will
      * receive warnings and only denylist_max_keys_per_table in natural query ordering will be processed on overflow.
      */
-    public volatile int denylist_max_keys_per_table = 1000;
+    public volatile Integer denylist_max_keys_per_table = null;
 
     /** We cap the total number of denylisted keys allowed in the cluster to keep things from growing unbounded.
      * Operators will receive warnings on initial cache load that there are too many keys and be directed to trim
      * down the entries to within the configured limits.
      */
-    public volatile int denylist_max_keys_total = 10000;
+    public volatile Integer denylist_max_keys_total = null;
 
     /** Since the denylist in many ways serves to protect the health of the cluster from partitions operators have identified
      * as being in a bad state, we usually want more robustness than just CL.ONE on operations to/from these tables to
      * ensure that these safeguards are in place. That said, we allow users to configure this if they're so inclined.
      */
-    public ConsistencyLevel denylist_consistency_level = ConsistencyLevel.QUORUM;
+    public ConsistencyLevel denylist_consistency_level = null;
+
+    @Deprecated
+    public volatile Boolean enable_partition_blacklist = null;
+    @Deprecated
+    public volatile Boolean enable_blacklist_writes = null;
+    @Deprecated
+    public volatile Boolean enable_blacklist_reads = null;
+    @Deprecated
+    public volatile Boolean enable_blacklist_range_reads = null;
+    @Deprecated
+    public Integer blacklist_refresh_period_seconds = null;
+    @Deprecated
+    public Integer blacklist_initial_load_retry_seconds = null;
+    @Deprecated
+    public volatile Integer blacklist_max_keys_per_table = null;
+    @Deprecated
+    public volatile Integer blacklist_max_keys_total = null;
+    @Deprecated
+    public ConsistencyLevel blacklist_consistency_level = null;
 
     public volatile boolean compact_biggest_stcs_bucket_l0 = false;
 

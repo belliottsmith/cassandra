@@ -187,7 +187,7 @@ public class StorageProxy implements StorageProxyMBean
         }
     };
 
-    private static final DenylistMetrics denylistMetrics = new DenylistMetrics();
+    private static final DenylistMetrics denylistMetrics = new DenylistMetrics(); //TODO alias old metrics
 
     private static final PartitionDenylist partitionDenylist = new PartitionDenylist();
 
@@ -3167,6 +3167,68 @@ public class StorageProxy implements StorageProxyMBean
 
         final ByteBuffer bytes = cfs.metadata.get().partitionKeyType.fromString(partitionKeyAsString);
         return !partitionDenylist.isKeyPermitted(keyspace, table, bytes);
+    }
+
+    private static final NoSpamLogger deprecatedDenyListLogger = NoSpamLogger.getLogger(logger, 1, TimeUnit.DAYS);
+    private void logDeprecatedDenylistUsage(String method)
+    {
+        // deliberately adding method to format string to uniquely log methods
+        deprecatedDenyListLogger.info("Deprecated partition denylist method called: " + method);
+    }
+
+    @Deprecated
+    public int getPartitionBlacklistLoadAttempts()
+    {
+        logDeprecatedDenylistUsage("getPartitionBlacklistLoadAttempts");
+        return getPartitionDenylistLoadAttempts();
+    }
+
+    @Deprecated
+    public int getPartitionBlacklistLoadSuccesses()
+    {
+        logDeprecatedDenylistUsage("getPartitionBlacklistLoadSuccesses");
+        return getPartitionDenylistLoadSuccesses();
+    }
+
+    @Deprecated
+    public void setEnablePartitionBlacklist(boolean enabled)
+    {
+        logDeprecatedDenylistUsage("setEnablePartitionBlacklist");
+        setEnablePartitionDenylist(enabled);
+    }
+
+    @Deprecated
+    public void setEnableBlacklistWrites(boolean enabled)
+    {
+        logDeprecatedDenylistUsage("setEnableBlacklistWrites");
+        setEnableDenylistWrites(enabled);
+    }
+
+    @Deprecated
+    public void setEnableBlacklistReads(boolean enabled)
+    {
+        logDeprecatedDenylistUsage("setEnableBlacklistReads");
+        setEnableDenylistReads(enabled);
+    }
+
+    @Deprecated
+    public void setEnableBlacklistRangeReads(boolean enabled)
+    {
+        logDeprecatedDenylistUsage("setEnableBlacklistRangeReads");
+        setEnableDenylistRangeReads(enabled);
+    }
+
+    @Deprecated
+    public boolean blacklistKey(String keyspace, String cf, String keyAsString)
+    {
+        logDeprecatedDenylistUsage("blacklistKey");
+        return denylistKey(keyspace, cf, keyAsString);
+    }
+
+    @Deprecated
+    public void migrateDenylist()
+    {
+        PartitionDenylist.maybeMigrate();
     }
 
     @Override

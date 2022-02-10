@@ -77,6 +77,25 @@ public interface StorageProxyMBean
     public void setDenylistMaxKeysTotal(int value);
     public boolean isKeyDenylisted(String keyspace, String table, String partitionKeyAsString);
 
+    // Backward compatability for deprecated partition denylist calls - remove once all scripting
+    // has been updated
+    @Deprecated
+    public int getPartitionBlacklistLoadAttempts();
+    @Deprecated
+    public int getPartitionBlacklistLoadSuccesses();
+    @Deprecated
+    public void setEnablePartitionBlacklist(boolean enabled);
+    @Deprecated
+    public void setEnableBlacklistWrites(boolean enabled);
+    @Deprecated
+    public void setEnableBlacklistReads(boolean enabled);
+    @Deprecated
+    public void setEnableBlacklistRangeReads(boolean enabled);
+    @Deprecated
+    public boolean blacklistKey(String keyspace, String cf, String keyAsString);
+    @Deprecated
+    public void migrateDenylist();
+
     @Deprecated
     public void setOtcBacklogExpirationInterval(int intervalInMillis);
 

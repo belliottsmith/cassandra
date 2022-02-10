@@ -22,6 +22,8 @@ import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Set;
@@ -29,6 +31,8 @@ import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import org.slf4j.Logger;
@@ -44,12 +48,14 @@ import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.RequestExecutionException;
+import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.reads.range.RangeCommands;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.NoSpamLogger;
 
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
+import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
 import static org.apache.cassandra.cql3.QueryProcessor.process;
 import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
 
@@ -244,22 +250,28 @@ public class PartitionDenylist
      */
     public boolean addKeyToDenylist(final String keyspace, final String table, final ByteBuffer key)
     {
+        int successfulAdds = 0;
         if (!canDenylistKeyspace(keyspace))
             return false;
 
-        final String insert = String.format("INSERT INTO system_distributed.partition_denylist (ks_name, table_name, key) VALUES ('%s', '%s', 0x%s)",
-                                            keyspace, table, ByteBufferUtil.bytesToHex(key));
+        for (DenylistParams params : DenylistParams.active())
+        {
+            String insert = params.addKeyToDenylistQuery(keyspace, table, ByteBufferUtil.bytesToHex(key));
 
-        try
-        {
-            process(insert, DatabaseDescriptor.getDenylistConsistencyLevel());
+            try
+            {
+                process(insert, DatabaseDescriptor.getDenylistConsistencyLevel());
+                successfulAdds++;
+            }
+            catch (final Exception e) // 3.0.x nodes throw a RuntimeException (at least in in-JVM dtests)
+            {
+                logger.error("Failed to {} key [{}] in {}/{}", params.description, ByteBufferUtil.bytesToHex(key), keyspace, table, e);
+            }
+        }
+        if (successfulAdds > 0)
             return refreshTableDenylist(keyspace, table);
-        }
-        catch (final RequestExecutionException e)
-        {
-            logger.error("Failed to denylist key [{}] in {}/{}", ByteBufferUtil.bytesToHex(key), keyspace, table, e);
-        }
-        return false;
+        else
+            return false;
     }
 
     /**
@@ -267,22 +279,26 @@ public class PartitionDenylist
      */
     public boolean removeKeyFromDenylist(final String keyspace, final String table, final ByteBuffer key)
     {
-        final String delete = String.format("DELETE FROM system_distributed.partition_denylist " +
-                                            "WHERE ks_name = '%s' " +
-                                            "AND table_name = '%s' " +
-                                            "AND key = 0x%s",
-                                            keyspace, table, ByteBufferUtil.bytesToHex(key));
+        int successfulRemoves = 0;
 
-        try
+        for (DenylistParams params : DenylistParams.active())
         {
-            process(delete, DatabaseDescriptor.getDenylistConsistencyLevel());
+            String delete = params.removeKeyFromDenylistQuery(keyspace, table, ByteBufferUtil.bytesToHex(key));
+
+            try
+            {
+                process(delete, DatabaseDescriptor.getDenylistConsistencyLevel());
+                successfulRemoves++;
+            }
+            catch (final RequestExecutionException e)
+            {
+                logger.error("Failed to remove key from {}: [{}] in {}/{}", params.description, ByteBufferUtil.bytesToHex(key), keyspace, table, e);
+            }
+        }
+        if (successfulRemoves > 0)
             return refreshTableDenylist(keyspace, table);
-        }
-        catch (final RequestExecutionException e)
-        {
-            logger.error("Failed to remove key from denylist: [{}] in {}/{}", ByteBufferUtil.bytesToHex(key), keyspace, table, e);
-        }
-        return false;
+        else
+            return false;
     }
 
     /**
@@ -296,7 +312,8 @@ public class PartitionDenylist
                !SchemaConstants.TRACE_KEYSPACE_NAME.equals(keyspace) &&
                !SchemaConstants.VIRTUAL_SCHEMA.equals(keyspace) &&
                !SchemaConstants.VIRTUAL_VIEWS.equals(keyspace) &&
-               !SchemaConstants.AUTH_KEYSPACE_NAME.equals(keyspace);
+               !SchemaConstants.AUTH_KEYSPACE_NAME.equals(keyspace) &&
+               !CIEInternalKeyspace.NAME.equals(keyspace);
     }
 
     public boolean isKeyPermitted(final String keyspace, final String table, final ByteBuffer key)
@@ -382,6 +399,93 @@ public class PartitionDenylist
         }
     }
 
+
+    @VisibleForTesting
+    public static void setActiveDenylistParamsToUpgraded()
+    {
+        DenylistParams.overrideList = DenylistParams.upgraded;
+    }
+
+    enum DenylistParams
+    {
+        DENYLIST("OSS denylist", "table_name", SchemaConstants.DISTRIBUTED_KEYSPACE_NAME, SystemDistributedKeyspace.PARTITION_DENYLIST_TABLE),
+        LEGACY_DENYLIST("CIE denylist", "cf_name", CIEInternalKeyspace.NAME, "partition_blacklist");
+
+        final String description;
+        final String tableColumn;
+        final String denylistKeyspace;
+        final String denylistTable;
+        final String allDeniedTables;
+
+        DenylistParams(String description, String tableColumn, String denylistKeyspace, String denylistTable)
+        {
+            this.description = description;
+            this.tableColumn = tableColumn;
+            this.denylistKeyspace = denylistKeyspace;
+            this.denylistTable = denylistTable;
+
+            allDeniedTables = String.format("SELECT DISTINCT ks_name, %s FROM %s.%s",
+                                            tableColumn, denylistKeyspace, denylistTable);
+        }
+
+        private static List<DenylistParams> overrideList = null;
+        private static final List<DenylistParams> legacyMode = ImmutableList.of(LEGACY_DENYLIST); // during major upgrade
+        private static final List<DenylistParams> mixedMode = ImmutableList.of(DENYLIST, LEGACY_DENYLIST); // during minor upgrade
+        private static final List<DenylistParams> upgraded = ImmutableList.of(DENYLIST); // after major/minor upgrade completes
+
+        static List<DenylistParams> active()
+        {
+            if (overrideList != null)
+                return overrideList;
+
+            if (Gossiper.instance.hasMajorVersion3Nodes())
+            {
+                // The 3.0 nodes will not pick up the distributed schema change as a different major version,
+                // so do not even attempt dual writes
+                logger.debug("active in legacy mode");
+                return legacyMode;
+            }
+            else if (Schema.instance.getTableMetadata(LEGACY_DENYLIST.denylistKeyspace, LEGACY_DENYLIST.denylistTable) != null)
+            {
+                // If legacy and denylist tables exist, use both until the legacy one is removed. Otherwise if
+                // keys are removed from the denylist they could still be loaded/migrated from the legacy table.
+                logger.debug("active in mixed mode");
+                return mixedMode;
+            }
+            else // Cluster created without the legacy tables or they have been removed
+            {
+                // Move over to the new schema.  Rely on per-instance upgrades having migrated
+                // from the original tables and some read repair. Worst case will have to re-issue some denylist requests.
+                logger.debug("active in upgraded mode");
+                return upgraded;
+            }
+        }
+
+        String readDenyListQuery(TableMetadata tmd, int limit)
+        {
+            // We attempt to query just over our allowable max keys in order to check whether we have configured data beyond that limit and alert the user if so
+            return String.format("SELECT * FROM %s.%s WHERE ks_name='%s' AND %s='%s' LIMIT %d",
+                                 denylistKeyspace,
+                                 denylistTable,
+                                 tmd.keyspace,
+                                 tableColumn,
+                                 tmd.name,
+                                 limit + 1);
+        }
+
+        String addKeyToDenylistQuery(String keyspace, String table, String keyAsHex)
+        {
+            return String.format("INSERT INTO %s.%s (ks_name, %s, key) VALUES ('%s', '%s', 0x%s)",
+                                 denylistKeyspace, denylistTable, tableColumn, keyspace, table, keyAsHex);
+        }
+
+        String removeKeyFromDenylistQuery(String keyspace, String table, String keyAsHex)
+        {
+            return String.format("DELETE FROM %s.%s WHERE ks_name='%s' AND %s='%s' AND key=0x%s",
+                                 denylistKeyspace, denylistTable, keyspace, tableColumn, table, keyAsHex);
+        }
+    }
+
     /**
      * Get up to the configured allowable limit per table of denylisted keys
      */
@@ -400,57 +504,63 @@ public class PartitionDenylist
         if (tmd == null)
             return null;
 
-        // We attempt to query just over our allowable max keys in order to check whether we have configured data beyond that limit and alert the user if so
-        final String readDenylist = String.format("SELECT * FROM %s.%s WHERE ks_name='%s' AND table_name='%s' LIMIT %d",
-                                                  SchemaConstants.DISTRIBUTED_KEYSPACE_NAME,
-                                                  SystemDistributedKeyspace.PARTITION_DENYLIST_TABLE,
-                                                  tmd.keyspace,
-                                                  tmd.name,
-                                                  limit + 1);
+        // If our limit is < the standard per table we know we're at a global violation because we've constrained that request limit already.
+        boolean globalLimit = limit != DatabaseDescriptor.getDenylistMaxKeysPerTable();
+        String violationType = globalLimit ? "global" : "per-table";
+        int errorLimit = Math.min(limit, DatabaseDescriptor.getDenylistMaxKeysPerTable());
 
-        try
+        final Set<ByteBuffer> keys = new HashSet<>();
+        final NavigableSet<Token> tokens = new TreeSet<>();
+        int processed = 0;
+
+        for (DenylistParams params : DenylistParams.active())
         {
-            final UntypedResultSet results = process(readDenylist, DatabaseDescriptor.getDenylistConsistencyLevel());
-
-            // If there's no data in CQL we want to return an empty DenylistEntry so we don't continue using the old value in the cache
-            if (results == null || results.isEmpty())
-                return new DenylistEntry();
-
-            if (results.size() > limit)
+            // We attempt to query just over our allowable max keys in order to check whether we have configured data beyond that limit and alert the user if so
+            // Will over-read on the legacy loop, but not worth worrying about
+            try
             {
-                // If our limit is < the standard per table we know we're at a global violation because we've constrained that request limit already.
-                boolean globalLimit = limit != DatabaseDescriptor.getDenylistMaxKeysPerTable();
-                String violationType = globalLimit ? "global" : "per-table";
-                int errorLimit = globalLimit ? DatabaseDescriptor.getDenylistMaxKeysTotal() : limit;
-                logger.error("Partition denylist for {}/{} has exceeded the {} allowance of ({}). Remaining keys were ignored; " +
-                             "please reduce the total number of keys denied or increase the denylist_max_keys_per_table param in " +
-                             "cassandra.yaml to avoid inconsistency in denied partitions across nodes.",
-                             tmd.keyspace,
-                             tmd.name,
-                             violationType,
-                             errorLimit);
+                final UntypedResultSet results = process(params.readDenyListQuery(tmd, limit), DatabaseDescriptor.getDenylistConsistencyLevel());
+
+                for (final UntypedResultSet.Row row : results)
+                {
+                    final ByteBuffer key = row.getBlob("key");
+                    tokens.add(StorageService.instance.getTokenMetadata().partitioner.getToken(key));
+                    if (keys.add(key))
+                    {
+                        processed++;
+                        if (processed >= limit)
+                        {
+                            logger.error("Partition denylist for {}/{} has exceeded the {} allowance of ({}). Remaining keys were ignored; " +
+                                         "please reduce the total number of keys denied or increase the denylist_max_keys_per_table param in " +
+                                         "cassandra.yaml to avoid inconsistency in denied partitions across nodes.",
+                                         tmd.keyspace,
+                                         tmd.name,
+                                         violationType,
+                                         errorLimit);
+                            break;
+                        }
+                    }
+                }
             }
-
-            final Set<ByteBuffer> keys = new HashSet<>();
-            final NavigableSet<Token> tokens = new TreeSet<>();
-
-            int processed = 0;
-            for (final UntypedResultSet.Row row : results)
+            catch (Exception ex)
             {
-                final ByteBuffer key = row.getBlob("key");
-                keys.add(key);
-                tokens.add(StorageService.instance.getTokenMetadata().partitioner.getToken(key));
-
-                processed++;
-                if (processed >= limit)
-                    break;
+                logger.warn("Reading from {} failed. Denylist functionality will be degraded until query succeeds", params.description, ex);
             }
-            return new DenylistEntry(ImmutableSet.copyOf(keys), ImmutableSortedSet.copyOf(tokens));
         }
-        catch (final RequestExecutionException e)
+        return new DenylistEntry(ImmutableSet.copyOf(keys), ImmutableSortedSet.copyOf(tokens));
+    }
+
+    void findTableIdsWithDenylist(DenylistParams params, Set<TableId> deniedTableIds)
+    {
+        final UntypedResultSet deniedTableResults = process(params.allDeniedTables, DatabaseDescriptor.getDenylistConsistencyLevel());
+        if (deniedTableResults == null || deniedTableResults.isEmpty())
+            return;
+        for (final UntypedResultSet.Row row : deniedTableResults)
         {
-            logger.error("Error reading partition_denylist table for {}/{}. Returning empty list.", tmd.keyspace, tmd.name, e);
-            return null;
+            final String ks = row.getString("ks_name");
+            final String table = row.getString(params.tableColumn);
+            final TableId tid = getTableId(ks, table);
+            deniedTableIds.add(tid);
         }
     }
 
@@ -462,32 +572,31 @@ public class PartitionDenylist
      */
     private Map<TableId, DenylistEntry> getDenylistForAllTablesFromCQL()
     {
+        String denyListTableDescription = "system_distributed.partition_denylist and/or cie_internal.partition_blacklist";
         // While we warn the user in this case, we continue with the reload anyway.
         checkDenylistNodeAvailability();
 
-        final String allDeniedTables = String.format("SELECT DISTINCT ks_name, table_name FROM %s.%s",
-                                                     SchemaConstants.DISTRIBUTED_KEYSPACE_NAME,
-                                                     SystemDistributedKeyspace.PARTITION_DENYLIST_TABLE);
         try
         {
-            final UntypedResultSet deniedTableResults = process(allDeniedTables, DatabaseDescriptor.getDenylistConsistencyLevel());
-            if (deniedTableResults == null || deniedTableResults.isEmpty())
-                return Collections.emptyMap();
+            // LinkedHashSet to keep the same ordering as the upstream version for unit tests
+            Set<TableId> deniedTableIds = new LinkedHashSet<TableId>();
+            for (DenylistParams params : DenylistParams.active())
+            {
+                findTableIdsWithDenylist(params, deniedTableIds);
+            }
 
             int totalProcessed = 0 ;
             final Map<TableId, DenylistEntry> results = new HashMap<>();
-            for (final UntypedResultSet.Row row : deniedTableResults)
+            for (final TableId tid : deniedTableIds)
             {
-                final String ks = row.getString("ks_name");
-                final String table = row.getString("table_name");
-                final TableId tid = getTableId(ks, table);
                 if (DatabaseDescriptor.getDenylistMaxKeysTotal() - totalProcessed <= 0)
                 {
+                    TableMetadata tmd = Schema.instance.getTableMetadata(tid);
                     logger.error("Hit limit on allowable denylisted keys in total. Processed {} total entries. Not adding all entries to denylist for {}/{}." +
-                                 " Remove denylist entries in system_distributed.{} or increase your denylist_max_keys_total param in cassandra.yaml.",
+                                 " Remove denylist entries in " + denyListTableDescription + " or increase your denylist_max_keys_total param in cassandra.yaml.",
                                  totalProcessed,
-                                 ks,
-                                 table,
+                                 tmd == null ? "<missing table metadata>" : tmd.keyspace,
+                                 tmd == null ? "<missing table metadata>" : tmd.name,
                                  SystemDistributedKeyspace.PARTITION_DENYLIST_TABLE);
                     results.put(tid, new DenylistEntry());
                 }
@@ -506,7 +615,7 @@ public class PartitionDenylist
         catch (final RequestExecutionException e)
         {
             logger.error("Error reading full partition denylist from "
-                         + SchemaConstants.DISTRIBUTED_KEYSPACE_NAME + "." + SystemDistributedKeyspace.PARTITION_DENYLIST_TABLE +
+                         + denyListTableDescription +
                          ". Partition Denylisting will be compromised. Exception: " + e);
             return Collections.emptyMap();
         }
@@ -527,9 +636,53 @@ public class PartitionDenylist
         return true;
     }
 
-    private TableId getTableId(final String keyspace, final String table)
+    private static TableId getTableId(final String keyspace, final String table)
     {
         TableMetadata tmd = Schema.instance.getTableMetadata(keyspace, table);
         return tmd == null ? null : tmd.id;
+    }
+
+    /* Migrate from the internal table used before the upstream and rename in CASSANDRA-12106
+       The partition key for the old and new tables is the same, so we can just migrate locally one instance at a
+       time.  There could be some read repair, but that's ok. No attempt is made to preserve timestamps either.
+    */
+    static public void maybeMigrate()
+    {
+        // Only migrate once new denylist is supported by the cluster. Otherwise calls to remove denylist
+        // entries will not be removed from the migrated data and get resurrected.
+        if (!DenylistParams.active().contains(DenylistParams.DENYLIST))
+        {
+            logger.info("Skipped denylist migration as pre-4.0 instances present in the cluster");
+            return;
+        }
+
+        try
+        {
+            // Check if there's anything to migrate
+            if (getTableId(DenylistParams.LEGACY_DENYLIST.denylistKeyspace, DenylistParams.LEGACY_DENYLIST.denylistTable) == null)
+                return;
+
+            String selectQuery = String.format("SELECT ks_name, cf_name, key FROM %s.%s LIMIT 50000",
+                                               DenylistParams.LEGACY_DENYLIST.denylistKeyspace,
+                                               DenylistParams.LEGACY_DENYLIST.denylistTable);
+            UntypedResultSet legacyEntries = executeInternal(selectQuery);
+            legacyEntries.forEach(row -> {
+                String ks = row.getString("ks_name");
+                String tn = row.getString("cf_name");
+                ByteBuffer key = row.getBlob("key");
+                String addKeyToDenylistQuery = DenylistParams.DENYLIST.addKeyToDenylistQuery(ks, tn, ByteBufferUtil.bytesToHex(key));
+                executeInternal(addKeyToDenylistQuery);
+            });
+
+            // Once the fleet is upgraded to 4.0.0.50 and above and all 3.0 upgrades are complete,
+            // the cie_internal keyspace table can be removed. Leaving for now so that legacy denylist
+            // queries can succeed in a mixed version cluster.
+            logger.info("Migrated {} denylist entries. Leaving originals in place in case of downgrade.", legacyEntries.size());
+        }
+        catch (Exception e)
+        {
+            logger.error("Error migrating partition denylist from legacy CIE version. " +
+                         "Partition Denylisting will be compromised. Exception: " + e);
+        }
     }
 }
