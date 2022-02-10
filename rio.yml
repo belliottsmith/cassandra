@@ -182,6 +182,8 @@ builds:
         expression: ${GIT_BRANCH}-snapshot-${RIO_BUILD_NUMBER}
       notify: &notify
         slack:
+          # The docs do not say you need to do this, but notifications didn't happen...
+          enabled: true
           channels:
             - channel: '#aci-cassandra-e2e'
               build:
