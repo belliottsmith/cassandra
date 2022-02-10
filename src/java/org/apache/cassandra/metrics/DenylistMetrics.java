@@ -32,10 +32,12 @@ public class DenylistMetrics
     public DenylistMetrics()
     {
         final MetricNameFactory factory = new DefaultNameFactory("StorageProxy", "PartitionDenylist");
-        writesRejected = Metrics.meter(factory.createMetricName("WriteRejected"));
-        readsRejected = Metrics.meter(factory.createMetricName("ReadRejected"));
-        rangeReadsRejected = Metrics.meter(factory.createMetricName("RangeReadRejected"));
-        totalRequestsRejected = Metrics.meter(factory.createMetricName("TotalRejected"));
+        @Deprecated
+        final MetricNameFactory legacyFactory = new DefaultNameFactory("StorageProxy", "PartitionBlacklist");
+        writesRejected = Metrics.meter(factory.createMetricName("WriteRejected"), legacyFactory.createMetricName("WriteRejected"));
+        readsRejected = Metrics.meter(factory.createMetricName("ReadRejected"), legacyFactory.createMetricName("ReadRejected"));
+        rangeReadsRejected = Metrics.meter(factory.createMetricName("RangeReadRejected"), legacyFactory.createMetricName("RangeReadRejected"));
+        totalRequestsRejected = Metrics.meter(factory.createMetricName("TotalRejected"), legacyFactory.createMetricName("TotalRejected"));
     }
 
     public void incrementWritesRejected()
