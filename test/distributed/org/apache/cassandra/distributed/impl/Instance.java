@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.net.BindException;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.file.FileSystem;
 import java.security.Permission;
@@ -112,6 +113,7 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.NoPayload;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.schema.MigrationCoordinator;
+import org.apache.cassandra.schema.PartitionDenylist;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.SchemaDropLog;
@@ -580,6 +582,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 // classloaders logging context
                 final ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
                 final LoggerContext loggerContext = LoggerContext.getContext(contextClassLoader, false, null);
+                loggerContext.setConfigLocation(URI.create("./test/conf/log4j2-dtest.xml"));
                 loggerContext.reconfigure();
 
                 // org.apache.cassandra.distributed.impl.AbstractCluster.startup sets the exception handler for the thread
@@ -718,6 +721,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 StorageService.instance.populateTokenMetadata();
 
                 SchemaDropLog.initialize();
+                PartitionDenylist.maybeMigrate();
 
                 CassandraDaemon.getInstanceForTesting().completeSetup();
 
