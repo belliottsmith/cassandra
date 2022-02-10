@@ -46,6 +46,7 @@ import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.concurrent.*;
 import org.apache.cassandra.concurrent.FutureTask;
+import org.apache.cassandra.io.sstable.format.Version;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.NoPayload;
 import org.apache.cassandra.net.Verb;
@@ -2521,5 +2522,24 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         GossipDigestAck2 digestAck2Message = new GossipDigestAck2(Collections.singletonMap(getBroadcastAddressAndPort(), epState));
         Message<GossipDigestAck2> message = Message.out(Verb.GOSSIP_DIGEST_ACK2, digestAck2Message);
         MessagingService.instance().send(message, ep);
+    }
+
+    public boolean supportsSSTableVersion(InetAddressAndPort endpoint, Version version)
+    {
+        try
+        {
+            CassandraVersion remoteVersion = getReleaseVersion(endpoint);
+            if (remoteVersion != null)
+            {
+                CassandraVersion supportedSince = version.supportedSince();
+                if (supportedSince != null && remoteVersion.compareTo(supportedSince) >= 0)
+                    return true;
+            }
+        }
+        catch (Exception e)
+        {
+            logger.warn("Could not get release version for {} while checking if it supports sstable version {}", endpoint, version, e);
+        }
+        return false;
     }
 }

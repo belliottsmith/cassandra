@@ -29,7 +29,9 @@ import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+import org.apache.cassandra.io.sstable.format.big.BigFormat;
 import org.apache.cassandra.locator.RangesAtEndpoint;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -88,6 +90,7 @@ public class CassandraStreamManager implements TableStreamManager
         try
         {
             final List<Range<PartitionPosition>> keyRanges = new ArrayList<>(replicas.size());
+            boolean peerSupportsCurrentVersion = Gossiper.instance.supportsSSTableVersion(session.peer, BigFormat.latestVersion);
             for (Replica replica : replicas)
                 keyRanges.add(Range.makeRowRange(replica.range()));
             refs.addAll(cfs.selectAndReference(view -> {
@@ -143,7 +146,7 @@ public class CassandraStreamManager implements TableStreamManager
                     continue;
                 }
                 streams.add(new CassandraOutgoingFile(session.getStreamOperation(), ref, sections, ranges,
-                                                      sstable.estimatedKeysForRanges(ranges)));
+                                                      sstable.estimatedKeysForRanges(ranges), peerSupportsCurrentVersion));
             }
 
             return streams;

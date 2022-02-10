@@ -55,6 +55,7 @@ public class ToolRunner
     protected static final Logger logger = LoggerFactory.getLogger(ToolRunner.class);
 
     private static final ImmutableList<String> DEFAULT_CLEANERS = ImmutableList.of("(?im)^picked up.*\\R",
+                                                                                   "(?im)^.*JavaScript user-defined functions have been deprecated. You can still use them but the plan is to remove them in the next major version. For more information - CASSANDRA-17280.*\\R",
                                                                                    "(?im)^.*`USE <keyspace>` with prepared statements is.*\\R");
 
     public static int runClassAsTool(String clazz, String... args)
