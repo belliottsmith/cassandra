@@ -18,11 +18,13 @@
 
 package org.apache.cassandra.distributed.upgrade;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 
 import com.google.common.collect.ImmutableList;
@@ -30,7 +32,11 @@ import com.vdurmont.semver4j.Semver;
 import com.vdurmont.semver4j.Semver.SemverType;
 
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.BeforeClass;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -50,6 +56,8 @@ import static org.apache.cassandra.distributed.shared.Versions.find;
 
 public class UpgradeTestBase extends DistributedTestBase
 {
+    private static final Logger logger = LoggerFactory.getLogger(UpgradeTestBase.class);
+
     @After
     public void afterEach()
     {
@@ -82,7 +90,11 @@ public class UpgradeTestBase extends DistributedTestBase
     public static final Semver v22 = new Semver("2.2.0-beta1", SemverType.LOOSE);
     public static final Semver v30 = new Semver("3.0.0-alpha1", SemverType.LOOSE);
     public static final Semver v3X = new Semver("3.11.0", SemverType.LOOSE);
-    public static final Semver v40 = new Semver("4.0-alpha1", SemverType.LOOSE);
+    // ACI Minor upgrade testing disabled until dtest-api Versions is fixed to correctly order our dotted quad versions
+    // Re-enable in SUPPORTED_UPGRADE_PATHS once fixed.  Tests using v4_0_0_30 will not run.
+    public static final Semver v4_0_0_30 = new Semver("4.0.0.30", SemverType.LOOSE);
+    // ACI Cassandra stuck at 4.0 even though tracking trunk with version 4.1
+    public static final Semver v40 = new Semver("4.0.0.31", SemverType.LOOSE);
     public static final Semver v41 = new Semver("4.1-alpha1", SemverType.LOOSE);
 
     protected static final List<Pair<Semver,Semver>> SUPPORTED_UPGRADE_PATHS = ImmutableList.of(
@@ -146,8 +158,16 @@ public class UpgradeTestBase extends DistributedTestBase
                 .filter(upgradePath -> (upgradePath.left.compareTo(from) >= 0 && upgradePath.right.compareTo(to) <= 0))
                 .forEachOrdered(upgradePath ->
                 {
-                    this.upgrade.add(
-                            new TestVersions(versions.getLatest(upgradePath.left), versions.getLatest(upgradePath.right)));
+                    try
+                    {
+                        this.upgrade.add(
+                        new TestVersions(versions.getLatest(upgradePath.left), versions.getLatest(upgradePath.right)));
+                    }
+                    catch (RuntimeException e)
+                    {
+                        logger.info("Upgrade path between {} and {} missing dtest jar, dropping for upgrade path {} to {}.",
+                                     upgradePath.left, upgradePath.right, from, to);
+                    }
                 });
             return this;
         }
@@ -155,7 +175,26 @@ public class UpgradeTestBase extends DistributedTestBase
         /** Will test this specific upgrade path **/
         public TestCase singleUpgrade(Semver from, Semver to)
         {
-            this.upgrade.add(new TestVersions(versions.getLatest(from), versions.getLatest(to)));
+            try
+            {
+                Version fromVersion = versions.getLatest(from);
+                Version toVersion = versions.getLatest(to);
+
+                if (!fromVersion.equals(toVersion))
+                {
+                    this.upgrade.add(new TestVersions(fromVersion, toVersion));
+                }
+                else
+                {
+                    logger.info("Single upgrade path between {}({}) and {}({}) is the same version, skipping.",
+                                from, fromVersion.version, to, toVersion.version);
+                }
+            }
+            catch (RuntimeException e)
+            {
+                logger.info("Single upgrade path between {} and {} missing dtest jar",
+                            from, to);
+            }
             return this;
         }
 
@@ -199,8 +238,7 @@ public class UpgradeTestBase extends DistributedTestBase
         {
             if (setup == null)
                 throw new AssertionError();
-            if (upgrade.isEmpty())
-                throw new AssertionError("no upgrade paths have been specified (or exist)");
+            Assume.assumeFalse("No upgrade tests defined", upgrade.isEmpty());
             if (runAfterClusterUpgrade == null && runAfterNodeUpgrade == null)
                 throw new AssertionError();
             if (runBeforeNodeRestart == null)
@@ -215,9 +253,12 @@ public class UpgradeTestBase extends DistributedTestBase
 
             for (TestVersions upgrade : this.upgrade)
             {
-                System.out.printf("testing upgrade from %s to %s%n", upgrade.initial.version, upgrade.upgrade.version);
+                logger.info("testing upgrade from {} to {}", upgrade.initial.version, upgrade.upgrade.version);
                 try (UpgradeableCluster cluster = init(UpgradeableCluster.create(nodeCount, upgrade.initial, configConsumer, builderConsumer)))
                 {
+                    // Default to ignoring protocol negotiation exceptions.  assert on 3.0.19, IOException on 3.0.24.x
+                    // Possible to further refine in the setup method.
+                    cluster.setUncaughtExceptionsFilter(largerThanMaxSupportedMessagingVersionFilter);
                     setup.run(cluster);
 
                     for (int n : nodesToUpgrade)
@@ -288,4 +329,18 @@ public class UpgradeTestBase extends DistributedTestBase
     {
         return current == numNodes ? 1 : current + 1;
     }
+
+    /* Filter out exceptions related to messaging version negotiation.  The version selected for initial collection
+    ** races with gossip anyway and it is perfectly valid to fail connection and reconnect. Unfortunately 3.0 handles
+    ** this by throwing an uncaught exception that needs to be filtered.
+    **/
+    public static BiPredicate<Integer, Throwable> largerThanMaxSupportedMessagingVersionFilter = (Integer nodeId, Throwable tr) -> {
+        /* 4.0 and above does not throw an exception, it logs and fails the handshake.
+         * 3.0/3.11 post-CASSANDRA-15066 throw IOException("Peer " + from + " attempted an unencrypted connection");
+         * 3.0/3.11 pre-CASSANDRA-15066 assert version <= MessagingService.current_version;
+         */
+        return (tr instanceof IOException && tr.getMessage().contains(" is larger than max supported ")) ||
+            (tr instanceof AssertionError && tr.getStackTrace()[0].getClassName().equals("org.apache.cassandra.net.IncomingTcpConnection") &&
+                                             tr.getStackTrace()[0].getMethodName().equals("receiveMessages"));
+    };
 }
