@@ -88,11 +88,8 @@ public class UpgradeTestBase extends DistributedTestBase
     public static final Semver v41 = new Semver("4.1-alpha1", SemverType.LOOSE);
 
     protected static final List<Pair<Semver,Semver>> SUPPORTED_UPGRADE_PATHS = ImmutableList.of(
-        Pair.create(v30, v3X),
         Pair.create(v30, v40),
         Pair.create(v30, v41),
-        Pair.create(v3X, v40),
-        Pair.create(v3X, v41),
         Pair.create(v40, v41));
 
     // the last is always the current
