@@ -896,6 +896,8 @@ public class DatabaseDescriptor
                                                            conf.default_keyspace_rf, conf.minimum_keyspace_rf));
         }
 
+        applyDenylistConfiguration(conf);
+
         if (conf.paxos_repair_parallelism <= 0)
             conf.paxos_repair_parallelism = Math.max(1, conf.concurrent_writes / 8);
 
@@ -960,6 +962,90 @@ public class DatabaseDescriptor
     private static void applyStartupChecks()
     {
         startupChecksOptions = new StartupChecksOptions(conf.startup_checks);
+    }
+
+    private static SmallestDurationSeconds applyDenylistSettingInSeconds(SmallestDurationSeconds currentValue, Integer legacyValueSeconds, Integer defaultValue, String name)
+    {
+        if (legacyValueSeconds != null && currentValue != null)
+        {
+            SmallestDurationSeconds legacyValue = SmallestDurationSeconds.inSeconds(legacyValueSeconds);
+            if (legacyValue.equals(currentValue))
+                logger.info("Legacy denylist configuration '{}' set same as - please remove", name);
+            else
+                logger.info("Conflict with legacy denylist configuration. Using {}={} (legacy was {})",
+                            name, currentValue, legacyValueSeconds);
+            return currentValue;
+        }
+        else if (legacyValueSeconds == null && currentValue != null)
+        {
+            return currentValue;
+        }
+        else if (legacyValueSeconds != null && currentValue == null)
+        {
+            SmallestDurationSeconds legacyValue = SmallestDurationSeconds.inSeconds(legacyValueSeconds);
+            logger.info("Legacy denylist configuration for '{}' used - please upgrade", name);
+            return legacyValue;
+        }
+        else
+        {
+            return SmallestDurationSeconds.inSeconds(defaultValue);
+        }
+    }
+    private static <X> X applyDenylistSetting(X currentValue, X legacyValue, X defaultValue, String name)
+    {
+        if (legacyValue != null && currentValue != null)
+        {
+            if (legacyValue.equals(currentValue))
+                logger.info("Legacy denylist configuration '{}' set same as - please remove", name);
+            else
+                logger.info("Conflict with legacy denylist configuration. Using {}={} (legacy was {})",
+                            name, currentValue, legacyValue);
+            return currentValue;
+        }
+        else if (legacyValue == null && currentValue != null)
+        {
+            return currentValue;
+        }
+        else if (legacyValue != null && currentValue == null)
+        {
+            logger.info("Legacy denylist configuration for '{}' used - please upgrade", name);
+            return legacyValue;
+        }
+        else
+        {
+            return defaultValue;
+        }
+    }
+
+    private static void applyDenylistConfiguration(Config config)
+    {
+        config.partition_denylist_enabled = applyDenylistSetting(config.partition_denylist_enabled,
+                                                                 config.enable_partition_blacklist,
+                                                                 false, "partition_denylist_enabled");
+        config.denylist_writes_enabled = applyDenylistSetting(config.denylist_writes_enabled,
+                                                              config.enable_blacklist_writes,
+                                                              true, "denylist_writes_enabled");
+        config.denylist_reads_enabled = applyDenylistSetting(config.denylist_reads_enabled,
+                                                             config.enable_blacklist_reads,
+                                                             true, "denylist_reads_enabled");
+        config.denylist_range_reads_enabled = applyDenylistSetting(config.denylist_range_reads_enabled,
+                                                                   config.enable_blacklist_range_reads,
+                                                                   false, "denylist_range_reads_enabled");
+        config.denylist_refresh = applyDenylistSettingInSeconds(config.denylist_refresh,
+                                                       config.blacklist_refresh_period_seconds,
+                                                       600, "denylist_refresh_seconds");
+        config.denylist_initial_load_retry = applyDenylistSettingInSeconds(config.denylist_initial_load_retry,
+                                                                  config.blacklist_initial_load_retry_seconds,
+                                                                  5, "denylist_initial_load_retry_seconds");
+        config.denylist_max_keys_per_table = applyDenylistSetting(config.denylist_max_keys_per_table,
+                                                                  config.blacklist_max_keys_per_table,
+                                                                  1000, "denylist_max_keys_per_table");
+        config.denylist_max_keys_total = applyDenylistSetting(config.denylist_max_keys_total,
+                                                              config.blacklist_max_keys_total,
+                                                              10000, "denylist_max_keys_total");
+        config.denylist_consistency_level = applyDenylistSetting(config.denylist_consistency_level,
+                                                                 config.blacklist_consistency_level,
+                                                                 ConsistencyLevel.QUORUM, "denylist_consistency_level");
     }
 
     private static String storagedirFor(String type)
