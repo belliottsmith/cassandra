@@ -1076,11 +1076,11 @@ slow_query_log_timeout_in_ms: 500
 
 # Allows denying configurable access (rw/rr) to operations on configured ks, table, and partitions, intended for use by
 # operators to manage cluster health vs application access. See CASSANDRA-12106 and CEP-13 for more details.
-# enable_partition_denylist: false
+# partition_denylist_enabled: false
 
-# enable_denylist_writes: true
-# enable_denylist_reads: true
-# enable_denylist_range_reads: true
+# denylist_writes_enabled: true
+# denylist_reads_enabled: true
+# denylist_range_reads_enabled: true
 
 # The interval at which keys in the cache for denylisting will "expire" and async refresh from the backing DB.
 # Note: this serves only as a fail-safe, as the usage pattern is expected to be "mutate state, refresh cache" on any

@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.net.BindException;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.file.FileSystem;
 import java.security.Permission;
@@ -106,6 +107,7 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.NoPayload;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.schema.MigrationManager;
+import org.apache.cassandra.schema.PartitionDenylist;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.SchemaDropLog;
@@ -542,6 +544,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 // classloaders logging context
                 final ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
                 final LoggerContext loggerContext = LoggerContext.getContext(contextClassLoader, false, null);
+                loggerContext.setConfigLocation(URI.create("./test/conf/log4j2-dtest.xml"));
                 loggerContext.reconfigure();
 
                 if (config.has(GOSSIP))
@@ -663,6 +666,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 SystemKeyspace.finishStartup();
 
                 SchemaDropLog.initialize();
+                PartitionDenylist.maybeMigrate();
 
                 CassandraDaemon.getInstanceForTesting().completeSetup();
 

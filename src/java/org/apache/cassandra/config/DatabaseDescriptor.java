@@ -70,7 +70,6 @@ import org.apache.cassandra.security.EncryptionContext;
 import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.service.CacheService.CacheType;
 import org.apache.cassandra.service.paxos.Paxos;
-import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.FBUtilities;
 
 import org.apache.commons.lang3.ArrayUtils;
@@ -848,6 +847,8 @@ public class DatabaseDescriptor
                                                            conf.default_keyspace_rf, conf.minimum_keyspace_rf));
         }
 
+        applyDenylistConfiguration(conf);
+
         if (conf.paxos_variant == Config.PaxosVariant.v1_without_linearizable_reads)
         {
             logger.warn("This node was started with paxos_variant config option set to v1_norrl. " +
@@ -908,6 +909,63 @@ public class DatabaseDescriptor
         {
             throw new ConfigurationException("Invalid guardrails configuration: " + e.getMessage(), e);
         }
+    }
+
+    private static <X> X applyDenylistSetting(X currentValue, X legacyValue, X defaultValue, String name)
+    {
+        if (legacyValue != null && currentValue != null)
+        {
+            if (legacyValue.equals(currentValue))
+                logger.info("Legacy denylist configuration '{}' set same as - please remove", name);
+            else
+                logger.info("Conflict with legacy denylist configuration. Using {}={} (legacy was {})",
+                            name, currentValue, legacyValue);
+            return currentValue;
+        }
+        else if (legacyValue == null && currentValue != null)
+        {
+            return currentValue;
+        }
+        else if (legacyValue != null && currentValue == null)
+        {
+            logger.info("Legacy denylist configuration for '{}' used - please upgrade", name);
+            return legacyValue;
+        }
+        else
+        {
+            return defaultValue;
+        }
+    }
+
+    private static void applyDenylistConfiguration(Config config)
+    {
+        config.partition_denylist_enabled = applyDenylistSetting(config.partition_denylist_enabled,
+                                                                 config.enable_partition_blacklist,
+                                                                 false, "partition_denylist_enabled");
+        config.denylist_writes_enabled = applyDenylistSetting(config.denylist_writes_enabled,
+                                                              config.enable_blacklist_writes,
+                                                              true, "denylist_writes_enabled");
+        config.denylist_reads_enabled = applyDenylistSetting(config.denylist_reads_enabled,
+                                                             config.enable_blacklist_reads,
+                                                             true, "denylist_reads_enabled");
+        config.denylist_range_reads_enabled = applyDenylistSetting(config.denylist_range_reads_enabled,
+                                                                   config.enable_blacklist_range_reads,
+                                                                   false, "denylist_range_reads_enabled");
+        config.denylist_refresh_seconds = applyDenylistSetting(config.denylist_refresh_seconds,
+                                                               config.blacklist_refresh_period_seconds,
+                                                               600, "denylist_refresh_seconds");
+        config.denylist_initial_load_retry_seconds = applyDenylistSetting(config.denylist_initial_load_retry_seconds,
+                                                                          config.blacklist_initial_load_retry_seconds,
+                                                                          5, "denylist_initial_load_retry_seconds");
+        config.denylist_max_keys_per_table = applyDenylistSetting(config.denylist_max_keys_per_table,
+                                                                  config.blacklist_max_keys_per_table,
+                                                                  1000, "denylist_max_keys_per_table");
+        config.denylist_max_keys_total = applyDenylistSetting(config.denylist_max_keys_total,
+                                                              config.blacklist_max_keys_total,
+                                                              10000, "denylist_max_keys_total");
+        config.denylist_consistency_level = applyDenylistSetting(config.denylist_consistency_level,
+                                                                 config.blacklist_consistency_level,
+                                                                 ConsistencyLevel.QUORUM, "denylist_consistency_level");
     }
 
     private static String storagedirFor(String type)
@@ -3617,44 +3675,44 @@ public class DatabaseDescriptor
         conf.consecutive_message_errors_threshold = value;
     }
 
-    public static boolean getEnablePartitionDenylist()
+    public static boolean getPartitionDenylistEnabled()
     {
-        return conf.enable_partition_denylist;
+        return conf.partition_denylist_enabled;
     }
 
-    public static void setEnablePartitionDenylist(boolean enabled)
+    public static void setPartitionDenylistEnabled(boolean enabled)
     {
-        conf.enable_partition_denylist = enabled;
+        conf.partition_denylist_enabled = enabled;
     }
 
-    public static boolean getEnableDenylistWrites()
+    public static boolean getDenylistWritesEnabled()
     {
-        return conf.enable_denylist_writes;
+        return conf.denylist_writes_enabled;
     }
 
-    public static void setEnableDenylistWrites(boolean enabled)
+    public static void setDenylistWritesEnabled(boolean enabled)
     {
-        conf.enable_denylist_writes = enabled;
+        conf.denylist_writes_enabled = enabled;
     }
 
-    public static boolean getEnableDenylistReads()
+    public static boolean getDenylistReadsEnabled()
     {
-        return conf.enable_denylist_reads;
+        return conf.denylist_reads_enabled;
     }
 
-    public static void setEnableDenylistReads(boolean enabled)
+    public static void setDenylistReadsEnabled(boolean enabled)
     {
-        conf.enable_denylist_reads = enabled;
+        conf.denylist_reads_enabled = enabled;
     }
 
-    public static boolean getEnableDenylistRangeReads()
+    public static boolean getDenylistRangeReadsEnabled()
     {
-        return conf.enable_denylist_range_reads;
+        return conf.denylist_range_reads_enabled;
     }
 
-    public static void setEnableDenylistRangeReads(boolean enabled)
+    public static void setDenylistRangeReadsEnabled(boolean enabled)
     {
-        conf.enable_denylist_range_reads = enabled;
+        conf.denylist_range_reads_enabled = enabled;
     }
 
     public static int getDenylistRefreshSeconds()

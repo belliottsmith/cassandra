@@ -290,7 +290,7 @@ public class StorageProxy implements StorageProxyMBean
         {
             TableMetadata metadata = Schema.instance.validateTable(keyspaceName, cfName);
 
-            if (DatabaseDescriptor.getEnablePartitionDenylist() && DatabaseDescriptor.getEnableDenylistWrites() && !partitionDenylist.isKeyPermitted(keyspaceName, cfName, key.getKey()))
+            if (DatabaseDescriptor.getPartitionDenylistEnabled() && DatabaseDescriptor.getDenylistWritesEnabled() && !partitionDenylist.isKeyPermitted(keyspaceName, cfName, key.getKey()))
             {
                 denylistMetrics.incrementWritesRejected();
                 throw new InvalidRequestException(String.format("Unable to CAS write to denylisted partition [0x%s] in %s/%s",
@@ -1084,7 +1084,7 @@ public class StorageProxy implements StorageProxyMBean
                                           long queryStartNanoTime)
     throws WriteTimeoutException, WriteFailureException, UnavailableException, OverloadedException, InvalidRequestException
     {
-        if (DatabaseDescriptor.getEnablePartitionDenylist() && DatabaseDescriptor.getEnableDenylistWrites())
+        if (DatabaseDescriptor.getPartitionDenylistEnabled() && DatabaseDescriptor.getDenylistWritesEnabled())
         {
             for (final IMutation mutation : mutations)
             {
@@ -1793,7 +1793,7 @@ public class StorageProxy implements StorageProxyMBean
             throw exception;
         }
 
-        if (DatabaseDescriptor.getEnablePartitionDenylist() && DatabaseDescriptor.getEnableDenylistReads())
+        if (DatabaseDescriptor.getPartitionDenylistEnabled() && DatabaseDescriptor.getDenylistReadsEnabled())
         {
             for (SinglePartitionReadCommand command : group.queries)
             {
@@ -2149,7 +2149,7 @@ public class StorageProxy implements StorageProxyMBean
                                                   ConsistencyLevel consistencyLevel,
                                                   long queryStartNanoTime)
     {
-        if (DatabaseDescriptor.getEnablePartitionDenylist() && DatabaseDescriptor.getEnableDenylistRangeReads())
+        if (DatabaseDescriptor.getPartitionDenylistEnabled() && DatabaseDescriptor.getDenylistRangeReadsEnabled())
         {
             final int denylisted = partitionDenylist.getDeniedKeysInRangeCount(command.metadata().id, command.dataRange().keyRange());
             if (denylisted > 0)
@@ -3079,25 +3079,25 @@ public class StorageProxy implements StorageProxyMBean
     @Override
     public void setEnablePartitionDenylist(boolean enabled)
     {
-        DatabaseDescriptor.setEnablePartitionDenylist(enabled);
+        DatabaseDescriptor.setPartitionDenylistEnabled(enabled);
     }
 
     @Override
     public void setEnableDenylistWrites(boolean enabled)
     {
-        DatabaseDescriptor.setEnableDenylistWrites(enabled);
+        DatabaseDescriptor.setDenylistWritesEnabled(enabled);
     }
 
     @Override
     public void setEnableDenylistReads(boolean enabled)
     {
-        DatabaseDescriptor.setEnableDenylistReads(enabled);
+        DatabaseDescriptor.setDenylistReadsEnabled(enabled);
     }
 
     @Override
     public void setEnableDenylistRangeReads(boolean enabled)
     {
-        DatabaseDescriptor.setEnableDenylistRangeReads(enabled);
+        DatabaseDescriptor.setDenylistRangeReadsEnabled(enabled);
     }
 
     @Override
@@ -3168,6 +3168,77 @@ public class StorageProxy implements StorageProxyMBean
 
         final ByteBuffer bytes = cfs.metadata.get().partitionKeyType.fromString(partitionKeyAsString);
         return !partitionDenylist.isKeyPermitted(keyspace, table, bytes);
+    }
+
+    // Create an new logger so as not to interfere with logRequestException as NoSpamLogger
+    // does not consider minInterval when looking up the NSL from the main logger.
+    private static final NoSpamLogger deprecatedDenyListLogger = NoSpamLogger.getLogger(LoggerFactory.getLogger("denylist-deprecation"), 1, TimeUnit.DAYS);
+    private void logDeprecatedDenylistUsage(String method)
+    {
+        // deliberately adding method to format string to uniquely log methods
+        deprecatedDenyListLogger.info("Deprecated partition denylist method called: " + method);
+    }
+
+    @Deprecated
+    public void loadPartitionBlacklist()
+    {
+        logDeprecatedDenylistUsage("loadPartitionBlacklist");
+        loadPartitionDenylist();
+    }
+
+    @Deprecated
+    public int getPartitionBlacklistLoadAttempts()
+    {
+        logDeprecatedDenylistUsage("getPartitionBlacklistLoadAttempts");
+        return getPartitionDenylistLoadAttempts();
+    }
+
+    @Deprecated
+    public int getPartitionBlacklistLoadSuccesses()
+    {
+        logDeprecatedDenylistUsage("getPartitionBlacklistLoadSuccesses");
+        return getPartitionDenylistLoadSuccesses();
+    }
+
+    @Deprecated
+    public void setEnablePartitionBlacklist(boolean enabled)
+    {
+        logDeprecatedDenylistUsage("setEnablePartitionBlacklist");
+        setEnablePartitionDenylist(enabled);
+    }
+
+    @Deprecated
+    public void setEnableBlacklistWrites(boolean enabled)
+    {
+        logDeprecatedDenylistUsage("setEnableBlacklistWrites");
+        setEnableDenylistWrites(enabled);
+    }
+
+    @Deprecated
+    public void setEnableBlacklistReads(boolean enabled)
+    {
+        logDeprecatedDenylistUsage("setEnableBlacklistReads");
+        setEnableDenylistReads(enabled);
+    }
+
+    @Deprecated
+    public void setEnableBlacklistRangeReads(boolean enabled)
+    {
+        logDeprecatedDenylistUsage("setEnableBlacklistRangeReads");
+        setEnableDenylistRangeReads(enabled);
+    }
+
+    @Deprecated
+    public boolean blacklistKey(String keyspace, String cf, String keyAsString)
+    {
+        logDeprecatedDenylistUsage("blacklistKey");
+        return denylistKey(keyspace, cf, keyAsString);
+    }
+
+    @Deprecated
+    public void migrateDenylist()
+    {
+        PartitionDenylist.maybeMigrate();
     }
 
     @Override
