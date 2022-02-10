@@ -18,7 +18,10 @@
 package org.apache.cassandra.io.sstable.format.big;
 
 import java.util.Collection;
+import java.util.Map;
 import java.util.UUID;
+
+import com.google.common.collect.ImmutableMap;
 
 import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.schema.TableMetadata;
@@ -30,6 +33,7 @@ import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.*;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.utils.CassandraVersion;
 
 /**
  * Legacy bigtable format
@@ -127,7 +131,7 @@ public class BigFormat implements SSTableFormat
         // me (CIE 3.0.15): checksummed sstable metadata file (components only, not header or component count)
         // mf (3.0.18, 3.11.4): corrected sstable min/max clustering
         // na (4.0.0): uncompressed chunks, pending repair session, isTransient, checksummed sstable metadata file, new Bloomfilter format
-        // nb (4.0.0): originating host id
+        // nb (4.0.0): originating host id (cie 4.0.0.35)
         //
         // NOTE: when adding a new version, please add that to LegacySSTableTest, too.
         private final boolean newFileName;
@@ -143,6 +147,10 @@ public class BigFormat implements SSTableFormat
         private final boolean hasMetadataChecksum;
         private final boolean hasIsTransient;
 
+        private static final Map<String, CassandraVersion> formatSupport = ImmutableMap.of(
+                                                    "na", new CassandraVersion("4.0.0"),
+                                                    "nb", new CassandraVersion("4.0.0.35"));
+
         /**
          * CASSANDRA-9067: 4.0 bloom filter representation changed (two longs just swapped)
          * have no 'static' bits caused by using the same upper bits for both bloom filter and token distribution.
@@ -150,13 +158,16 @@ public class BigFormat implements SSTableFormat
         private final boolean hasOldBfFormat;
         private final boolean hasPartialMetadataChecksum;
 
+        private final boolean isInFuture;
+
         BigVersion(String version)
         {
             super(instance, version);
+            int versionCompare = version.compareTo(current_version);
+            isLatestVersion = versionCompare == 0;
+            isInFuture = versionCompare > 0;
 
-            isLatestVersion = version.compareTo(current_version) == 0;
             correspondingMessagingVersion = MessagingService.VERSION_30;
-
             // Expect short filenames from 2.2.0 through 3.0.10
             if(version.compareTo("la") >= 0 && version.compareTo("mc") <= 0)
                 newFileName = true;
@@ -180,6 +191,12 @@ public class BigFormat implements SSTableFormat
         public boolean isLatestVersion()
         {
             return isLatestVersion;
+        }
+
+        @Override
+        public boolean isInFuture()
+        {
+            return isInFuture;
         }
 
         @Override
@@ -266,6 +283,12 @@ public class BigFormat implements SSTableFormat
         public boolean hasOldBfFormat()
         {
             return hasOldBfFormat;
+        }
+
+        @Override
+        public CassandraVersion supportedSince()
+        {
+            return formatSupport.get(version);
         }
     }
 }

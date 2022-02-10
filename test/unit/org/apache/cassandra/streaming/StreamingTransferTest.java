@@ -280,7 +280,7 @@ public class StreamingTransferTest
                                                   sstables.get(sstable),
                                                   sstable.getPositionsForRanges(ranges),
                                                   ranges,
-                                                  sstable.estimatedKeysForRanges(ranges)));
+                                                  sstable.estimatedKeysForRanges(ranges), true));
         }
         return streams;
     }
