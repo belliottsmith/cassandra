@@ -19,6 +19,8 @@ package org.apache.cassandra.io.sstable.format;
 
 import java.util.regex.Pattern;
 
+import org.apache.cassandra.utils.CassandraVersion;
+
 
 /**
  * A set of feature flags associated with a SSTable format
@@ -44,6 +46,8 @@ public abstract class Version
     }
 
     public abstract boolean isLatestVersion();
+
+    public abstract boolean isInFuture();
 
     public abstract boolean hasNewFileName();
 
@@ -122,4 +126,6 @@ public abstract class Version
     }
 
     public abstract boolean hasOriginatingHostId();
+
+    public abstract CassandraVersion supportedSince();
 }

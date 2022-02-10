@@ -23,6 +23,7 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 
 import org.apache.cassandra.db.streaming.CassandraOutgoingFile;
+import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.io.FSError;
@@ -156,7 +157,13 @@ public class SSTableLoader implements StreamEventHandler
                                                   List<SSTableReader.PartitionPositionBounds> sstableSections = sstable.getPositionsForRanges(tokenRanges);
                                                   long estimatedKeys = sstable.estimatedKeysForRanges(tokenRanges);
                                                   Ref<SSTableReader> ref = sstable.ref();
-                                                  OutgoingStream stream = new CassandraOutgoingFile(StreamOperation.BULK_LOAD, ref, sstableSections, tokenRanges, estimatedKeys);
+                                                  OutgoingStream stream = new CassandraOutgoingFile(StreamOperation.BULK_LOAD,
+                                                                                                    ref,
+                                                                                                    sstableSections,
+                                                                                                    tokenRanges,
+                                                                                                    estimatedKeys,
+                                                                                                    Gossiper.instance.supportsSSTableVersion(endpoint,
+                                                                                                                                             sstable.descriptor.version));
                                                   streamingDetails.put(endpoint, stream);
                                               }
 
