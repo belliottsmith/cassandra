@@ -63,6 +63,9 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
         if (streamHeader.format != SSTableFormat.Type.BIG)
             throw new AssertionError("Unsupported SSTable format " + streamHeader.format);
 
+        if (streamHeader.version.isInFuture())
+            throw new AssertionError("SSTable version " + streamHeader.version + " is newer than supported by this node, we don't support `stream_entire_sstables` in mixed mode");
+
         if (session.getPendingRepair() != null)
         {
             // we should only ever be streaming pending repair sstables if the session has a pending repair id

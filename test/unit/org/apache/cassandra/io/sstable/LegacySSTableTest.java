@@ -433,7 +433,7 @@ public class LegacySSTableTest
                                                                                     sstable.ref(),
                                                                                     sstable.getPositionsForRanges(ranges),
                                                                                     ranges,
-                                                                                    sstable.estimatedKeysForRanges(ranges)));
+                                                                                    sstable.estimatedKeysForRanges(ranges), true));
         new StreamPlan(StreamOperation.OTHER).transferStreams(FBUtilities.getBroadcastAddressAndPort(), streams).execute().get();
     }
 

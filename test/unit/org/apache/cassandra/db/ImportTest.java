@@ -46,6 +46,7 @@ import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.dht.BootStrapper;
 import org.apache.cassandra.io.sstable.Component;
+import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.locator.InetAddressAndPort;
@@ -678,6 +679,50 @@ public class ImportTest extends CQLTester
         assertEquals(0, execute("select * from %s").size());
         assertEquals(0, getCurrentColumnFamilyStore().getLiveSSTables().size());
     }
+
+    @Test
+    public void importFutureSSTableFailure() throws Throwable
+    {
+        createTable("create table %s (id int primary key, d int)");
+        for (int i = 0; i < 10; i++)
+            execute("insert into %s (id, d) values (?, ?)", i, i);
+        getCurrentColumnFamilyStore().forceBlockingFlush();
+        Set<SSTableReader> sstables = getCurrentColumnFamilyStore().getLiveSSTables();
+        getCurrentColumnFamilyStore().clearUnsafe();
+
+        File backupdir = moveToBackupDir(sstables);
+        makeFutureVersion(backupdir);
+
+        assertEquals(0, execute("select * from %s").size());
+
+        SSTableImporter.Options options = SSTableImporter.Options.options(Sets.newHashSet(backupdir.toString())).build();
+        SSTableImporter importer = new SSTableImporter(getCurrentColumnFamilyStore());
+        importer.importNewSSTables(options);
+        assertEquals(0, execute("select * from %s").size());
+        assertEquals(0, getCurrentColumnFamilyStore().getLiveSSTables().size());
+    }
+
+    private static void makeFutureVersion(File backupdir) throws IOException
+    {
+        try
+        {
+            Descriptor.disableParentDirectoryNameWarning();
+            for (File f : backupdir.tryList())
+            {
+                Path source = f.toPath();
+                    Descriptor desc = Descriptor.fromFilename(f);
+                String version = desc.version.getVersion();
+                String filename = f.name().replace('-' + version + '-', '-' + version.charAt(0) + "z-");
+                System.out.println("MOVE \n"+source+" TO \n" + source.getParent().resolve(filename));
+                Files.move(source, source.getParent().resolve(filename));
+            }
+        }
+        finally
+        {
+            Descriptor.enableParentDirectoryNameWarning();
+        }
+    }
+
 
     private static class MockCFS extends ColumnFamilyStore
     {

@@ -263,6 +263,7 @@ public class StatsMetadata extends MetadataComponent
 
         public int serializedSize(Version version, StatsMetadata component) throws IOException
         {
+            assert !version.isInFuture() : "We can't serialize unknown version " + version;
             int size = 0;
             size += EstimatedHistogram.serializer.serializedSize(component.estimatedPartitionSize);
             size += EstimatedHistogram.serializer.serializedSize(component.estimatedCellPerPartitionCount);
@@ -309,6 +310,7 @@ public class StatsMetadata extends MetadataComponent
 
         public void serialize(Version version, StatsMetadata component, DataOutputPlus out) throws IOException
         {
+            assert !version.isInFuture() : "We can't serialize unknown version " + version;
             EstimatedHistogram.serializer.serialize(component.estimatedPartitionSize, out);
             EstimatedHistogram.serializer.serialize(component.estimatedCellPerPartitionCount, out);
             CommitLogPosition.serializer.serialize(component.commitLogIntervals.upperBound().orElse(CommitLogPosition.NONE), out);

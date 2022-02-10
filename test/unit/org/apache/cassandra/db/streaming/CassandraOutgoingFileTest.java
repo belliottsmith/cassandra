@@ -92,7 +92,7 @@ public class CassandraOutgoingFileTest
         List<SSTableReader.PartitionPositionBounds> sections = sstable.getPositionsForRanges(requestedRanges);
         CassandraOutgoingFile cof = new CassandraOutgoingFile(StreamOperation.BOOTSTRAP, sstable.ref(),
                                                               sections,
-                                                              requestedRanges, sstable.estimatedKeys());
+                                                              requestedRanges, sstable.estimatedKeys(), true);
 
         assertTrue(cof.contained(sections, sstable));
     }
@@ -105,7 +105,7 @@ public class CassandraOutgoingFileTest
         List<SSTableReader.PartitionPositionBounds> sections = sstable.getPositionsForRanges(requestedRanges);
         CassandraOutgoingFile cof = new CassandraOutgoingFile(StreamOperation.BOOTSTRAP, sstable.ref(),
                                                               sections,
-                                                              requestedRanges, sstable.estimatedKeys());
+                                                              requestedRanges, sstable.estimatedKeys(), true);
 
         assertFalse(cof.contained(sections, sstable));
     }
@@ -121,7 +121,7 @@ public class CassandraOutgoingFileTest
         List<SSTableReader.PartitionPositionBounds> sections = sstable.getPositionsForRanges(requestedRanges);
         CassandraOutgoingFile cof = new CassandraOutgoingFile(StreamOperation.BOOTSTRAP, sstable.ref(),
                                                               sections,
-                                                              requestedRanges, sstable.estimatedKeys());
+                                                              requestedRanges, sstable.estimatedKeys(), true);
 
         assertTrue(cof.contained(sections, sstable));
     }
