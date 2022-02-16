@@ -81,8 +81,9 @@ public final class SystemDistributedKeyspace
      * gen 3: gc_grace_seconds raised from 0 to 10 days in CASSANDRA-12954 in 3.11.0
      * gen 4: compression chunk length reduced to 16KiB, memtable_flush_period_in_ms now unset on all tables in 4.0
      * gen 5: add ttl and TWCS to repair_history tables
+     * gen 6: disable xmas patch and enable unsafe_aggressive_sstable_expiration
      */
-    public static final long GENERATION = 5;
+    public static final long GENERATION = 6;
 
     public static final String REPAIR_HISTORY = "repair_history";
 
@@ -111,7 +112,9 @@ public final class SystemDistributedKeyspace
                      + "finished_at timestamp,"
                      + "PRIMARY KEY ((keyspace_name, columnfamily_name), id))")
         .defaultTimeToLive((int) TimeUnit.DAYS.toSeconds(30))
+        .disableChristmasPatch(true)
         .compaction(CompactionParams.twcs(ImmutableMap.of("compaction_window_unit","DAYS",
+                                                          "unsafe_aggressive_sstable_expiration", "true",
                                                           "compaction_window_size","1")))
         .build();
 
@@ -131,7 +134,9 @@ public final class SystemDistributedKeyspace
                      + "options map<text, text>,"
                      + "PRIMARY KEY (parent_id))")
         .defaultTimeToLive((int) TimeUnit.DAYS.toSeconds(30))
+        .disableChristmasPatch(true)
         .compaction(CompactionParams.twcs(ImmutableMap.of("compaction_window_unit","DAYS",
+                                                          "unsafe_aggressive_sstable_expiration", "true",
                                                           "compaction_window_size","1")))
         .build();
 
