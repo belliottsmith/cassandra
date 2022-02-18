@@ -1166,13 +1166,23 @@
       <copy todir="${dist.dir}/tools/">
         <fileset dir="${basedir}/tools/">
             <include name="*.yaml"/>
-	</fileset>
+        </fileset>
       </copy>
       <copy todir="${dist.dir}/tools/lib">
         <fileset dir="${build.dir}/tools/lib/">
             <include name="*.jar" />
         </fileset>
       </copy>
+
+      <fail message="Refusing to build release artifacts with a dirty Git index state">
+        <condition>
+          <and>
+            <isset property="release"/>
+            <isset property="git.sha"/>
+            <contains string="${git.sha}" substring="-dirty"/>
+          </and>
+        </condition>
+      </fail>
     </target>
 
     <!-- creates release tarballs -->
