@@ -70,3 +70,9 @@ a full release to make sure future snapshot versions are named after the release
 they are targetting"
 
 git push
+
+# Tag here instead of via Rio's finally:tag block, since that uses the commit that triggered the pipeline, instead of
+# the most recent commit pushed above
+RELEASE_TAG="cie-cassandra-${FULL_VERSION}"
+git tag "$RELEASE_TAG"
+git push origin "$RELEASE_TAG"

@@ -260,8 +260,7 @@ builds:
       notify:
         <<: *notify
       tag:
-        enabled: true
-        expression: 'cie-cassandra-${FULL_VERSION}'
+        enabled: false
       pipelineChain:
         - pipeline: cassinfra40-publish
           buildArguments:
