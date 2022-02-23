@@ -89,6 +89,10 @@ cassandra-dtest/
 .dist
 .carnival
 
+# native libs for async profiler
+src/resources/META-INF/native/libasyncProfiler.dylib
+src/resources/META-INF/native/libasyncProfiler.so
+
 # Gradle
 .gradle
 !src/**/build/
