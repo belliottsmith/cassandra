@@ -184,6 +184,10 @@
             </patternset>
             <mapper type="flatten"/>
         </unzip>
+
+        <exec executable=".build/async-profiler-lib.sh" dir="${basedir}" logError="true" failonerror="false" failifexecutionfails="false">
+          <arg value="2.7" />
+        </exec>
     </target>
 
     <target name="resolver-dist-lib" depends="resolver-retrieve-build,write-poms">
