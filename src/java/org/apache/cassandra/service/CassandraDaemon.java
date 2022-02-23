@@ -79,6 +79,7 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.security.ThreadAwareSecurityManager;
 import org.apache.cassandra.streaming.StreamManager;
 import org.apache.cassandra.service.paxos.PaxosState;
+import org.apache.cassandra.utils.AsyncProfilerUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JMXServerUtils;
 import org.apache.cassandra.utils.JVMStabilityInspector;
@@ -213,6 +214,8 @@ public class CassandraDaemon
     protected void setup()
     {
         FileUtils.setFSErrorHandler(new DefaultFSErrorHandler());
+
+        AsyncProfilerUtil.init();
 
         // Since CASSANDRA-14793 the local system keyspaces data are not dispatched across the data directories
         // anymore to reduce the risks in case of disk failures. By consequence, the system need to ensure in case of
