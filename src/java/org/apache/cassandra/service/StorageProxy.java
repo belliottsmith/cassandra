@@ -3264,7 +3264,9 @@ public class StorageProxy implements StorageProxyMBean
         return !partitionDenylist.isKeyPermitted(keyspace, table, bytes);
     }
 
-    private static final NoSpamLogger deprecatedDenyListLogger = NoSpamLogger.getLogger(logger, 1, TimeUnit.DAYS);
+    // Create an new logger so as not to interfere with logRequestException as NoSpamLogger
+    // does not consider minInterval when looking up the NSL from the main logger.
+    private static final NoSpamLogger deprecatedDenyListLogger = NoSpamLogger.getLogger(LoggerFactory.getLogger("denylist-deprecation"), 1, TimeUnit.DAYS);
     private void logDeprecatedDenylistUsage(String method)
     {
         // deliberately adding method to format string to uniquely log methods
