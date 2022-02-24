@@ -151,9 +151,10 @@ public class RangeMap<T> implements Map<Range<Token>, T>
         {
             List<Iterator<Map.Entry<Range<Token>, T>>> iters = new ArrayList<>(2);
             for (Range<Token> unwrapped : range.unwrap())
-                iters.add((new IntersectingIterator(unwrapped)));
+                iters.add(new IntersectingIterator(unwrapped));
             iterators = iters.iterator();
         }
+
         protected Map.Entry<Range<Token>, T> computeNext()
         {
             while (currentIter == null || !currentIter.hasNext())
