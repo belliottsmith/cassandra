@@ -1,5 +1,14 @@
-4.0.0.51
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.47 cie-cassandra-4.0.0
+4.0.0.55
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.55 cie-cassandra-4.0.0
+
+4.0.0.48
+* rdar://89347241 (Repair may fail with an assertion if two peers have overlapping mismatching ranges) (#2813)
+* rdar://88652761 (Expose JMX endpoint to run async-profiler against the instance) (#2810)
+* rdar://88275120 (Metrics / KPIs: Export storage usage metrics)
+* rdar://89045183 (Fix dirty GitSHA for snapshot and release builds) (#2802)
+* rdar://89040745 (Tag releases to include changelog generation) (#2801)
+* rdar://71482492 (Disable xmas patch for system_distributed repair history tables) (#2800)
+* rdar://87699581 (Allow reducing scope for L0 to L1 compactions) (#2755)
 
 4.0.0.47
 * rdar://41050573 (Spark Bulk Writer: support bulk deletes) (#2771)
