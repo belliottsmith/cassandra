@@ -141,6 +141,12 @@ public class UpgradeSSTablesTest extends TestBaseImpl
         try (ICluster<IInvokableInstance> cluster = init(builder().withNodes(1).withInstanceInitializer(BB::install).start()))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v text, PRIMARY KEY (pk, ck));");
+
+            cluster.get(1).acceptsOnInstance((String ks) -> {
+                ColumnFamilyStore cfs = Keyspace.open(ks).getColumnFamilyStore("tbl");
+                cfs.disableAutoCompaction();
+            }).accept(KEYSPACE);
+
             String blob = "blob";
             for (int i = 0; i < 6; i++)
                 blob += blob;
