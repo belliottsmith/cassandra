@@ -611,7 +611,7 @@ public class Config
 
     public Boolean enable_shadow_christmas_patch = false;
 
-    public volatile boolean allow_unsafe_aggressive_sstable_expiration = false;
+    public volatile boolean allow_unsafe_aggressive_sstable_expiration = true;
 
     /**
      * Class names to look for custom functions in.  They must define a static @code{Collection<Function> all()}
