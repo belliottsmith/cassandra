@@ -668,6 +668,11 @@ public class Config
     public volatile boolean auto_optimise_full_repair_streams = false;
     public volatile boolean auto_optimise_preview_repair_streams = false;
 
+    // see rdar://73201653 and rdar://89915246; no-op for now
+    public boolean use_stream_compaction_for_repair = false;
+    public boolean use_stream_compaction_for_bootstrap = false;
+    public int streaming_sessions_per_host = 1;
+
     public volatile boolean compact_biggest_stcs_bucket_l0 = true;
     public volatile int biggest_bucket_max_sstable_count = 1024;
     public volatile long biggest_bucket_max_size_bytes = 1 << 30;
