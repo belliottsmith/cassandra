@@ -134,7 +134,7 @@
     <property name="chronicle-bytes.version" value="2.20.111" />
     <property name="chronicle-wire.version" value="2.20.117" />
     <property name="chronicle-threads.version" value="2.20.111" />
-    <property name="accp.version" value="1.1.1" />
+    <property name="accp.version" value="1.6.1" />
 
     <condition property="maven-ant-tasks.jar.exists">
       <available file="${build.dir}/maven-ant-tasks-${maven-ant-tasks.version}.jar" />
