@@ -47,7 +47,7 @@
         <mkdir dir="${local.repository}/org/apache/maven/resolver/maven-resolver-ant-tasks/${resolver-ant-tasks.version}" />
 
         <get src="${resolver-ant-tasks.url}/${resolver-ant-tasks.version}/maven-resolver-ant-tasks-${resolver-ant-tasks.version}-uber.jar"
-             dest="${resolver-ant-tasks.local}" usetimestamp="true" quiet="true"/>
+             dest="${resolver-ant-tasks.local}" usetimestamp="true" quiet="false"/>
     </target>
 
     <target name="resolver-init" depends="init,_resolver_download" unless="resolver-ant-tasks.initialized" description="Initialize Resolver ANT Tasks">
