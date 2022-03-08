@@ -35,7 +35,7 @@ commands:
     # measure (integer division truncates so just add six) to give ant a chance to do timeout all by itself.
     # Add a final guard to make sure max wait is 160 minutes to be inside the 180 minutes currently
     # configured in Rio for job timeout.
-    num_tests="$(wc -l $PARALLEL_INPUT_DIR/input)"
+    num_tests="$(wc -l < $PARALLEL_INPUT_DIR/input)"
     test_timeout_in_minutes="$(( ((num_tests * test_timeout) / 60000) + 6 ))"
     runner_timeout="$((test_timeout_in_minutes > 160 ? 160 : test_timeout_in_minutes))m"
 
