@@ -356,8 +356,6 @@ public class CassandraDaemon
 
         SchemaDropLog.initialize();
 
-        PartitionDenylist.maybeMigrate();
-
         // Clean up system.size_estimates entries left lying around from missed keyspace drops (CASSANDRA-14905)
         StorageService.instance.cleanupSizeEstimates();
 
@@ -470,6 +468,8 @@ public class CassandraDaemon
         initializeClientTransports();
 
         KeyspaceQuota.scheduleQuotaCheck();
+
+        PartitionDenylist.maybeMigrate();
 
         // Ensure you've registered all caches during startup you want pre-warmed before this call -> be wary of adding
         // init below this mark before completeSetup().

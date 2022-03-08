@@ -200,7 +200,7 @@ public class StorageProxy implements StorageProxyMBean
     private static final CassandraMetricsRegistry.JmxHistogram bytesReceivedPerRequest = new CassandraMetricsRegistry.JmxHistogram(ClientMessageSizeMetrics.bytesReceivedPerRequest, null);
     private static final CassandraMetricsRegistry.JmxHistogram bytesSentPerResponse = new CassandraMetricsRegistry.JmxHistogram(ClientMessageSizeMetrics.bytesSentPerResponse, null);
 
-    private static final DenylistMetrics denylistMetrics = new DenylistMetrics(); //TODO alias old metrics
+    private static final DenylistMetrics denylistMetrics = new DenylistMetrics();
 
     private static final PartitionDenylist partitionDenylist = new PartitionDenylist();
 
