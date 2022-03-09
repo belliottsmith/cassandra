@@ -82,7 +82,7 @@ public class Config
     public Set<String> hinted_handoff_disabled_datacenters = Sets.newConcurrentHashSet();
     public volatile int max_hint_window_in_ms = 3 * 3600 * 1000; // three hours
     public String hints_directory;
-    public boolean hint_window_persistent_enabled = true;
+    public volatile boolean hint_window_persistent_enabled = false;
 
     public volatile boolean force_new_prepared_statement_behaviour = false;
 

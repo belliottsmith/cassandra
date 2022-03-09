@@ -50,4 +50,12 @@ public interface HintsServiceMBean
      * @return a list of endpoints with relevant hint information - total number of files, newest and oldest timestamps.
      */
     List<Map<String, String>> getPendingHints();
+
+    /**
+     * True if persistent hint window is enabled, that is - instead of basing the hint
+     * window on the time the replica was last seen as UP, it is based on the oldest
+     * hint on disk for that replica.
+     */
+    boolean getHintWindowPersistentEnabled();
+    void setHintWindowPersistentEnabled(boolean value);
 }
