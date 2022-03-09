@@ -37,8 +37,6 @@ public class ClientRequestMetrics extends LatencyMetrics
     public final Meter aborts;
     public final Meter tombstoneAborts;
     public final Meter readSizeAborts;
-    public final Meter localRequests;
-    public final Meter remoteRequests;
 
     public ClientRequestMetrics(String scope)
     {
@@ -50,8 +48,6 @@ public class ClientRequestMetrics extends LatencyMetrics
         aborts = Metrics.meter(factory.createMetricName("Aborts"));
         tombstoneAborts = Metrics.meter(factory.createMetricName("TombstoneAborts"));
         readSizeAborts = Metrics.meter(factory.createMetricName("ReadSizeAborts"));
-        localRequests = Metrics.meter(factory.createMetricName("LocalRequests"));
-        remoteRequests = Metrics.meter(factory.createMetricName("RemoteRequests"));
     }
 
     public void markAbort(Throwable cause)
@@ -78,7 +74,5 @@ public class ClientRequestMetrics extends LatencyMetrics
         Metrics.remove(factory.createMetricName("Aborts"));
         Metrics.remove(factory.createMetricName("TombstoneAborts"));
         Metrics.remove(factory.createMetricName("ReadSizeAborts"));
-        Metrics.remove(factory.createMetricName("LocalRequests"));
-        Metrics.remove(factory.createMetricName("RemoteRequests"));
     }
 }
