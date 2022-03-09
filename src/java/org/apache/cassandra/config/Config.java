@@ -557,13 +557,13 @@ public class Config
     /** This feature allows denying access to operations on certain key partitions, intended for use by operators to
      * provide another tool to manage cluster health vs application access. See CASSANDRA-12106 and CEP-13 for more details.
      */
-    public volatile Boolean enable_partition_denylist = null;
+    public volatile Boolean partition_denylist_enabled = null;
 
-    public volatile Boolean enable_denylist_writes = null;
+    public volatile Boolean denylist_writes_enabled = null;
 
-    public volatile Boolean enable_denylist_reads = null;
+    public volatile Boolean denylist_reads_enabled = null;
 
-    public volatile Boolean enable_denylist_range_reads = null;
+    public volatile Boolean denylist_range_reads_enabled = null;
 
     public Integer denylist_refresh_seconds = null;
 

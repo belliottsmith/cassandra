@@ -65,7 +65,7 @@ public class PartitionDenylistTest extends TestBaseImpl
                                       .withConfig(config -> config
                                       .with(NETWORK)
                                       .with(GOSSIP)
-                                      .set("enable_partition_denylist", true)
+                                      .set("partition_denylist_enabled", true)
                                       .set("denylist_initial_load_retry_seconds", 1))
                                       .createWithoutStarting())
         {
@@ -142,7 +142,7 @@ public class PartitionDenylistTest extends TestBaseImpl
                                       .withConfig(config -> config
                                       .with(NETWORK)
                                       .with(GOSSIP)
-                                      .set("enable_partition_denylist", true)
+                                      .set("partition_denylist_enabled", true)
                                       .set("denylist_initial_load_retry_seconds", 1))
                                       .createWithoutStarting())
         {
