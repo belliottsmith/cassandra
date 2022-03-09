@@ -54,8 +54,6 @@ public class CassandraVersion implements Comparable<CassandraVersion>
     public static final CassandraVersion CASSANDRA_4_0_RC2 = new CassandraVersion(4, 0, 0, NO_HOTFIX, new String[] {"rc2"}, null);
     public static final CassandraVersion CASSANDRA_3_4 = new CassandraVersion("3.4").familyLowerBound.get();
 
-    public static final CassandraVersion CIE_CASSANDRA_4_0_0_50 = new CassandraVersion(4, 0, 0, 50, null, null);
-
     public final int major;
     public final int minor;
     public final int patch;
