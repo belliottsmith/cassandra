@@ -36,6 +36,7 @@ import org.junit.runner.RunWith;
 import com.google.common.util.concurrent.FutureCallback;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.metrics.StorageMetrics;
@@ -200,6 +201,7 @@ public class HintsServiceTest
     action="org.apache.cassandra.hints.HintsServiceTest.timestampForHint = $ts")
     public void testEarliestHint() throws InterruptedException
     {
+        DatabaseDescriptor.setHintWindowPersistentEnabled(true);
         // create and write noOfHints using service
         UUID hostId = StorageService.instance.getLocalHostUUID();
         TableMetadata metadata = Schema.instance.getTableMetadata(KEYSPACE, TABLE);
