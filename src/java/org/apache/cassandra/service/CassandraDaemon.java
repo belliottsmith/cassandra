@@ -469,8 +469,6 @@ public class CassandraDaemon
 
         KeyspaceQuota.scheduleQuotaCheck();
 
-        PartitionDenylist.maybeMigrate();
-
         // Ensure you've registered all caches during startup you want pre-warmed before this call -> be wary of adding
         // init below this mark before completeSetup().
         if (DatabaseDescriptor.getAuthCacheWarmingEnabled())
