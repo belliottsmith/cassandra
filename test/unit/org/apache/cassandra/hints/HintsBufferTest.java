@@ -30,6 +30,7 @@ import org.junit.runner.RunWith;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.RowUpdateBuilder;
 import org.apache.cassandra.db.marshal.ValueAccessors;
@@ -177,6 +178,7 @@ public class HintsBufferTest
             action="org.apache.cassandra.hints.HintsBufferTest.timestampForHint = $ts")
     public void testEarliestHintTime()
     {
+        DatabaseDescriptor.setHintWindowPersistentEnabled(true);
         int hintSize = (int) Hint.serializer.serializedSize(createHint(0, Clock.Global.currentTimeMillis()), MessagingService.current_version);
         int entrySize = hintSize + HintsBuffer.ENTRY_OVERHEAD_SIZE;
         // allocate a slab to fit 10 hints
