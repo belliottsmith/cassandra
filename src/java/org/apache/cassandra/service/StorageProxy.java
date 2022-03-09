@@ -501,6 +501,7 @@ public class StorageProxy implements StorageProxyMBean
             return;
 
         casMetrics.contention.update(contentions);
+        casMetrics.contentionEstimatedHistogram.add(contentions);
         Keyspace.open(table.keyspace)
                 .getColumnFamilyStore(table.name)
                 .metric
