@@ -111,7 +111,7 @@ public class Config
     @Replaces(oldName = "max_hint_window_in_ms", converter = Converters.MILLIS_DURATION_INT, deprecated = true)
     public volatile DurationSpec.IntMillisecondsBound max_hint_window = new DurationSpec.IntMillisecondsBound("3h");
     public String hints_directory;
-    public boolean hint_window_persistent_enabled = true;
+    public volatile boolean hint_window_persistent_enabled = false;
 
     public volatile boolean force_new_prepared_statement_behaviour = false;
 

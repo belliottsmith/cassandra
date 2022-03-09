@@ -476,4 +476,14 @@ public final class HintsService implements HintsServiceMBean
     {
         return isDispatchPaused.get();
     }
+
+    public boolean getHintWindowPersistentEnabled()
+    {
+        return DatabaseDescriptor.hintWindowPersistentEnabled();
+    }
+
+    public void setHintWindowPersistentEnabled(boolean value)
+    {
+        DatabaseDescriptor.setHintWindowPersistentEnabled(value);
+    }
 }
