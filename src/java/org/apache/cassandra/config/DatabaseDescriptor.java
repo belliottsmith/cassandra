@@ -2769,6 +2769,11 @@ public class DatabaseDescriptor
         return conf.hint_window_persistent_enabled;
     }
 
+    public static void setHintWindowPersistentEnabled(boolean value)
+    {
+        conf.hint_window_persistent_enabled = value;
+    }
+
     public static File getSerializedCachePath(CacheType cacheType, String version, String extension)
     {
         String name = cacheType.toString()
