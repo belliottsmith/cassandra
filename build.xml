@@ -1518,7 +1518,6 @@
         </classpath>
         <batchtest todir="${build.test.dir}/output/@{testtag}">
             <multirootfileset basedirs="@{inputdir}" includes="@{filter}" excludes="@{exclude}"/>
-            <filelist dir="@{inputdir}" files="@{filelist}"/>
         </batchtest>
       </junit-timeout>
 
