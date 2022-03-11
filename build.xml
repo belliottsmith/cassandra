@@ -53,6 +53,8 @@
     <property name="test.name" value="*Test"/>
     <property name="test.classlistfile" value="testlist.txt"/>
     <property name="test.classlistprefix" value="unit"/>
+    <property unless:set="test.additionalclasslistprefix" name="testlist.inputdirs" value="${test.dir}/${test.classlistprefix}"/>
+    <property if:set="test.additionalclasslistprefix" name="testlist.inputdirs" value="${test.dir}/${test.classlistprefix},${test.dir}/${test.additionalclasslistprefix}"/>
     <property name="benchmark.name" value=""/>
     <property name="test.methods" value=""/>
     <property name="test.anttasks.src" value="${test.dir}/anttasks"/>
@@ -1515,7 +1517,7 @@
           </fileset>
         </classpath>
         <batchtest todir="${build.test.dir}/output/@{testtag}">
-            <fileset dir="@{inputdir}" includes="@{filter}" excludes="@{exclude}"/>
+            <multirootfileset basedirs="@{inputdir}" includes="@{filter}" excludes="@{exclude}"/>
             <filelist dir="@{inputdir}" files="@{filelist}"/>
         </batchtest>
       </junit-timeout>
@@ -1545,7 +1547,7 @@
   <macrodef name="testlist">
     <attribute name="test.file.list"/>
     <sequential>
-      <testmacrohelper inputdir="${test.dir}/${test.classlistprefix}" filelist="@{test.file.list}" exclude="**/*.java" timeout="${test.timeout}">
+      <testmacrohelper inputdir="@{testlist.inputdirs}" filelist="@{test.file.list}" exclude="**/*.java" timeout="${test.timeout}">
         <jvmarg value="-Dlegacy-sstable-root=${test.data}/legacy-sstables"/>
         <jvmarg value="-Dinvalid-legacy-sstable-root=${test.data}/invalid-legacy-sstables"/>
         <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
@@ -1922,16 +1924,10 @@
   The class list file should be one test class per line, with the path starting after test/unit
   e.g. org/apache/cassandra/hints/HintMessageTest.java -->
   <target name="testclasslist" depends="build-test" description="Run tests given in file -Dtest.classlistfile (one-class-per-line, e.g. org/apache/cassandra/db/SomeTest.java)">
-    <property unless:set="test.additionalclasslistprefix" name="testclasslist.basedirs" value="${test.dir}/${test.classlistprefix}"/>
-    <property if:set="test.additionalclasslistprefix" name="testclasslist.basedirs" value="${test.dir}/${test.classlistprefix},${test.dir}/${test.additionalclasslistprefix}"/>
-    <echo message="${testclasslist.basedirs}"/>
     <path id="all-test-classes-path">
-      <multirootfileset basedirs="${testclasslist.basedirs}" includesfile="${test.classlistfile}"/>
+      <multirootfileset basedirs="${testlist.inputdirs}" includesfile="${test.classlistfile}"/>
     </path>
-    <pathconvert property="tmp.print" refid="all-test-classes-path" />
-    <echo message="${tmp.print}"/>
     <property name="all-test-classes" refid="all-test-classes-path"/>
-    <echo message="${all-test-classes}"/>
     <testhelper testdelegate="testlist"/>
   </target>
   <target name="testclasslist-compression" depends="build-test" description="Run tests given in file -Dtest.classlistfile (one-class-per-line, e.g. org/apache/cassandra/db/SomeTest.java)">
