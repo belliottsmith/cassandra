@@ -1547,7 +1547,7 @@
   <macrodef name="testlist">
     <attribute name="test.file.list"/>
     <sequential>
-      <testmacrohelper inputdir="@{testlist.inputdirs}" filelist="@{test.file.list}" exclude="**/*.java" timeout="${test.timeout}">
+      <testmacrohelper inputdir="${testlist.inputdirs}" filelist="@{test.file.list}" exclude="**/*.java" timeout="${test.timeout}">
         <jvmarg value="-Dlegacy-sstable-root=${test.data}/legacy-sstables"/>
         <jvmarg value="-Dinvalid-legacy-sstable-root=${test.data}/invalid-legacy-sstables"/>
         <jvmarg value="-Dcassandra.ring_delay_ms=1000"/>
