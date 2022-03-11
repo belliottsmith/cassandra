@@ -1517,6 +1517,7 @@
           </fileset>
         </classpath>
         <batchtest todir="${build.test.dir}/output/@{testtag}">
+            <multirootfileset basedirs="@{inputdir}" files="@{filelist}""/>
             <multirootfileset basedirs="@{inputdir}" includes="@{filter}" excludes="@{exclude}"/>
         </batchtest>
       </junit-timeout>
