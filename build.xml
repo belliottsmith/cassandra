@@ -1928,7 +1928,10 @@
     <path id="all-test-classes-path">
       <multirootfileset basedirs="${testclasslist.basedirs}" includesfile="${test.classlistfile}"/>
     </path>
+    <pathconvert property="tmp.print" refid="all-test-classes-path" />
+    <echo message="${tmp.print}"/>
     <property name="all-test-classes" refid="all-test-classes-path"/>
+    <echo message="${all-test-classes}"/>
     <testhelper testdelegate="testlist"/>
   </target>
   <target name="testclasslist-compression" depends="build-test" description="Run tests given in file -Dtest.classlistfile (one-class-per-line, e.g. org/apache/cassandra/db/SomeTest.java)">
