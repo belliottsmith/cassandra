@@ -973,7 +973,7 @@ public class DatabaseDescriptor
                                                              true, "denylist_reads_enabled");
         config.denylist_range_reads_enabled = applyDenylistSetting(config.denylist_range_reads_enabled,
                                                                    config.enable_blacklist_range_reads,
-                                                                   true, "denylist_range_reads_enabled");
+                                                                   false, "denylist_range_reads_enabled");
         config.denylist_refresh_seconds = applyDenylistSetting(config.denylist_refresh_seconds,
                                                                config.blacklist_refresh_period_seconds,
                                                                600, "denylist_refresh_seconds");
