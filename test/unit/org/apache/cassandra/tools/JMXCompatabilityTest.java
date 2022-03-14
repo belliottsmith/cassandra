@@ -99,8 +99,6 @@ public class JMXCompatabilityTest extends CQLTester
                                                     "org.apache.cassandra.db:type=HintedHandoffManager", // removed in CASSANDRA-15939
                                                     "org.apache.cassandra.metrics:type=HintedHandOffManager.*", // removed in CASSANDRA-15939
 
-                                                    // TODO: Just for rebase - remove after upstream solution merged
-                                                    //  ".*keyspace=cie_internal,(scope|table|columnfamily)=partition_blacklist.*",
                                                     "org.apache.cassandra.metrics:type=(StorageProxy|ColumnFamily),scope=PartitionBlacklist,name=.*",
                                                     ".*keyspace=cie_internal,(scope|table|columnfamily)=partition_blacklist.*",
 
@@ -181,7 +179,7 @@ public class JMXCompatabilityTest extends CQLTester
                                                        "loadNewSSTables" // deprecated CASSANDRA-6719, removed in 4.0
         );
 
-        diff(excludeObjects, excludeAttributes, excludeOperations, "test/data/jmxdump/cie-3.0.19.0-hotfix-jmx.yaml");
+        diff(excludeObjects, excludeAttributes, excludeOperations, "test/data/jmxdump/cie-3.0.24.36-jmx.yaml");
     }
 
     @Test
