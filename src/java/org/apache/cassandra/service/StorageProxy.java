@@ -3232,6 +3232,13 @@ public class StorageProxy implements StorageProxyMBean
     }
 
     @Deprecated
+    public void loadPartitionBlacklist()
+    {
+        logDeprecatedDenylistUsage("loadPartitionBlacklist");
+        loadPartitionDenylist();
+    }
+
+    @Deprecated
     public int getPartitionBlacklistLoadAttempts()
     {
         logDeprecatedDenylistUsage("getPartitionBlacklistLoadAttempts");

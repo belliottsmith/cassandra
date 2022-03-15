@@ -99,6 +99,7 @@ public class JMXCompatabilityTest extends CQLTester
                                                     "org.apache.cassandra.db:type=HintedHandoffManager", // removed in CASSANDRA-15939
                                                     "org.apache.cassandra.metrics:type=HintedHandOffManager.*", // removed in CASSANDRA-15939
 
+                                                    // no longer created on a fresh cluster
                                                     "org.apache.cassandra.metrics:type=(StorageProxy|ColumnFamily),scope=PartitionBlacklist,name=.*",
                                                     ".*keyspace=cie_internal,(scope|table|columnfamily)=partition_blacklist.*",
 
@@ -126,14 +127,6 @@ public class JMXCompatabilityTest extends CQLTester
         );
         List<String> excludeAttributes = Arrays.asList("RPCServerRunning", // removed in CASSANDRA-11115
                                                        "MaxNativeProtocolVersion",
-
-                                                       // Temporary for rebase while picking up upstream partition blocking
-                                                       "EnableBlacklistRangeReads",
-                                                       "EnableBlacklistReads",
-                                                       "EnableBlacklistWrites",
-                                                       "EnablePartitionBlacklist",
-                                                       "PartitionBlacklistLoadAttempts",
-                                                       "PartitionBlacklistLoadSuccesses",
 
                                                        // CIE exclude attributes
                                                        "AllowCompactStorage", // 3.0 only, CS removed. rdar://66166922 (Prevent new COMPACT STORAGE tables) (#1859)
@@ -172,10 +165,6 @@ public class JMXCompatabilityTest extends CQLTester
                                                        "forceRepairRangeAsync", // -> repairAsync
                                                        "beginLocalSampling", // -> beginLocalSampling(p1: java.lang.String, p2: int, p3: int): void
                                                        "finishLocalSampling", // -> finishLocalSampling(p1: java.lang.String, p2: int): java.util.List
-
-                                                       // Temporary for rebase while picking up upstream partition blocking
-                                                       "blacklistKey",
-                                                       "loadPartitionBlacklist",
 
                                                        // CIE exclude operations
                                                        "(disable|enable)OldMutationWarnings",

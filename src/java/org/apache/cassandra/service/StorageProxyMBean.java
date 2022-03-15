@@ -80,6 +80,8 @@ public interface StorageProxyMBean
     // Backward compatability for deprecated partition denylist calls - remove once all scripting
     // has been updated
     @Deprecated
+    public void loadPartitionBlacklist();
+    @Deprecated
     public int getPartitionBlacklistLoadAttempts();
     @Deprecated
     public int getPartitionBlacklistLoadSuccesses();
