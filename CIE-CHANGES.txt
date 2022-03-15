@@ -1,5 +1,8 @@
-4.0.0.55
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.0.55 cie-cassandra-4.0.0
+4.0.2.0
+* Rebased on OSS 4.1-SNAPSHOT commit 96c80f0b89314dc805714c52dcf1846491c53cdc (#2778)
+* rdar://89915246 (Prepare 4.0 for compacting stream reader (Config.java no-op))
+* rdar://88034727 record CAS contention in histogram (#2819)
+* rdar://88901817 (Stop requiring allow_unsafe_aggressive_sstable_expiration to be set to enable unsafe sstable expiration with TWCS) (#2814)
 
 4.0.0.48
 * rdar://89347241 (Repair may fail with an assertion if two peers have overlapping mismatching ranges) (#2813)
