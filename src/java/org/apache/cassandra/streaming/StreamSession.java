@@ -29,8 +29,6 @@ import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
-import javax.annotation.Nullable;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.*;
 
@@ -57,7 +55,6 @@ import org.apache.cassandra.gms.*;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.metrics.StreamingMetrics;
-import org.apache.cassandra.net.OutboundConnectionSettings;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.streaming.async.StreamingMultiplexedChannel;
@@ -68,7 +65,6 @@ import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.NoSpamLogger;
 
 import static com.google.common.collect.Iterables.all;
-import static org.apache.cassandra.net.MessagingService.current_version;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 import static org.apache.cassandra.locator.InetAddressAndPort.hostAddressAndPort;
 import static org.apache.cassandra.utils.FBUtilities.getBroadcastAddressAndPort;
@@ -195,26 +191,26 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     private final UUID pendingRepair;
     private final PreviewKind previewKind;
 
-    /**
-     * State Transition:
-     *
-     * <pre>
-     *  +------------------+----------> FAILED <--------------------+
-     *  |                  |              ^                         |
-     *  |                  |              |       initiator         |
-     *  INITIALIZED --> PREPARING --> STREAMING ------------> WAIT_COMPLETE ----> COMPLETED
-     *  |                  |              |                         ^                 ^
-     *  |                  |              |       follower          |                 |
-     *  |                  |              +-------------------------)-----------------+
-     *  |                  |                                        |                 |
-     *  |                  |         if preview                     |                 |
-     *  |                  +----------------------------------------+                 |
-     *  |               nothing to request or to transfer                             |
-     *  +-----------------------------------------------------------------------------+
-     *                  nothing to request or to transfer
-     *
-     *  </pre>
-     */
+/**
+ * State Transition:
+ *
+ * <pre>
+ *  +------------------+-----> FAILED | ABORTED <---------------+
+ *  |                  |              ^                         |
+ *  |                  |              |       initiator         |
+ *  INITIALIZED --> PREPARING --> STREAMING ------------> WAIT_COMPLETE ----> COMPLETED
+ *  |                  |              |                         ^                 ^
+ *  |                  |              |       follower          |                 |
+ *  |                  |              +-------------------------)-----------------+
+ *  |                  |                                        |                 |
+ *  |                  |         if preview                     |                 |
+ *  |                  +----------------------------------------+                 |
+ *  |               nothing to request or to transfer                             |
+ *  +-----------------------------------------------------------------------------+
+ *                  nothing to request or to transfer
+ *
+ *  </pre>
+ */
     public enum State
     {
         INITIALIZED(false),
@@ -222,7 +218,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         STREAMING(false),
         WAIT_COMPLETE(false),
         COMPLETE(true),
-        FAILED(true);
+        FAILED(true),
+        ABORTED(true);
 
         private final boolean finalState;
 
@@ -232,7 +229,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         }
 
         /**
-         * @return true if current state is final, either COMPLETE OR FAILED.
+         * @return true if current state is final, either COMPLETE, FAILED, or ABORTED.
          */
         public boolean isFinalState()
         {
@@ -505,7 +502,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         }
     }
 
-    private synchronized Future closeSession(State finalState)
+    private synchronized Future<?> closeSession(State finalState)
     {
         // it's session is already closed
         if (closeFuture != null)
@@ -517,7 +514,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
         // ensure aborting the tasks do not happen on the network IO thread (read: netty event loop)
         // as we don't want any blocking disk IO to stop the network thread
-        if (finalState == State.FAILED)
+        if (finalState == State.FAILED || finalState == State.ABORTED)
             futures.add(ScheduledExecutors.nonPeriodicTasks.submit(this::abortTasks));
 
         // Channels should only be closed by the initiator; but, if this session closed
@@ -655,7 +652,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      * after completion or because the peer was down, otherwise sends a {@link SessionFailedMessage} and closes
      * the session as {@link State#FAILED}.
      */
-    public synchronized Future onError(Throwable e)
+    public synchronized Future<?> onError(Throwable e)
     {
         boolean isEofException = e instanceof EOFException;
         if (isEofException)
@@ -1322,5 +1319,22 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                ", previewKind=" + previewKind +
                ", state=" + state +
                '}';
+    }
+
+    public synchronized void abort()
+    {
+        logger.info("[Stream #{}] Aborting stream session with peer {}...", planId(), peer);
+
+        if (channel.connected())
+            sendControlMessage(new SessionFailedMessage());
+
+        try
+        {
+            closeSession(State.ABORTED);
+        }
+        catch (Exception e)
+        {
+            logger.error("[Stream #{}] Error aborting stream session with peer {}", planId(), peer);
+        }
     }
 }

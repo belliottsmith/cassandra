@@ -569,7 +569,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
             }
             finally
             {
-                executor.shutdownNow();
+                executor.shutdown();
             }
         });
     }
