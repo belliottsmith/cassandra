@@ -114,6 +114,9 @@ public class JMXCompatabilityTest extends CQLTester
                                                     "org.apache.cassandra.metrics:type=ClientRequestSize,name=((Incoming|Outgoing)Bytes|Bytes(Read|Written)PerQuery)", // Was temporarily renamed PerFrame during 4.0 dev, but name reverted.
                                                     "org.apache.cassandra.metrics:type=Keyspace,keyspace=.*,name=RepairedOverread(Rows|Time)", // Renamed RepairedDataTrackingOverread(Rows|Time)
                                                     "org.apache.cassandra.metrics:type=(Keyspace|Table|ColumnFamily)(|,keyspace=.*),name=SyncTime", // Renamed RepairSyncTime when open sourced
+                                                    "org.apache.cassandra.metrics:type=(Keyspace|Table|ColumnFamily)(|,keyspace=.*),name=ClientIndexSizeAborts",
+                                                    "org.apache.cassandra.metrics:type=(Keyspace|Table|ColumnFamily)(|,keyspace=.*),name=ClientIndexSizeWarnings",
+                                                    "org.apache.cassandra.metrics:type=(Keyspace|Table|ColumnFamily)(|,keyspace=.*),name=LargePartitionIndexBytesHistogram",
                                                     "org.apache.cassandra.metrics:type=Storage,name=ColumnIndexDownsamples", // Not forward ported
                                                     "org.apache.cassandra.request:type=(CounterMutation|RequestResponse|ViewMutation)Stage", // Lazily initialized in 4.0
                                                     ".*UNSAFE_DELAY_(LOCAL_|)(SERIAL|QUORUM).*", // consistency levels for ApplePaxos
@@ -135,8 +138,11 @@ public class JMXCompatabilityTest extends CQLTester
                                                        // CIE exclude attributes
                                                        "AllowCompactStorage", // 3.0 only, CS removed. rdar://66166922 (Prevent new COMPACT STORAGE tables) (#1859)
                                                        "AllowUnsafeAggressiveSSTableExpiration",
+                                                       "AllowZstd", // 3.0 only feature flag for ZStd, added commit bae2c44d3e1fae5de97080e91164839ea717bc60
                                                        "ArtificialLatency.*", // artificial latency for ApplePaxos
                                                        "Bytes(Read|Written)PerQueryEstimatedHistogram", // estimated version removed
+                                                       "ClientLargeReadBlockThresholdKB", // client large read block/warn not ported to 4.0 yet
+                                                       "ClientLargeReadWarnThresholdKB",
                                                        "ColumnIndexMaxCount",
                                                        "ColumnIndexMaxSizeInKB",
                                                        "DebugValidationPreviewEnabled", // did not forward port <rdar://problem/34533172> Add support for optionally dumping streams and merkle trees for validation preview failures (#939)
@@ -145,6 +151,7 @@ public class JMXCompatabilityTest extends CQLTester
                                                        "EnableOldMutationWarnings",
                                                        "ForcePagingStateLegacySerialization",
                                                        "InitialRangeTombstoneAllocationSize", // renamed InitialRangeTombstoneListAllocationSize
+                                                       "LargePartitionIndexWarningThresholdKb", // large partition index warning threshold not ported to 4.0
                                                        "ManualSeverity", // waiting on forward port of rdar://62076377 ([3.0 / 4.0]: Make DynamicEndpointSnitch more configurable at runtime)
                                                        "RangeTombstoneResizeGrowthFactor", // renamed RangeTombstoneResizeFactor
                                                        "RecentSSTablesSkippedPerRead", // rdar://67084971 (MTC skipped sstable stats)
@@ -152,9 +159,12 @@ public class JMXCompatabilityTest extends CQLTester
                                                        "ReplicaFilteringProtectionEnabled",
                                                        "SSTablesSkippedPerRead", // rdar://67084971 (MTC skipped sstable stats)
                                                        "SettingUnlimitedConcurrentValidatorsAllowed", // renamed enforceConcurrentValidatorsLimit
+                                                       "StreamingSessionsPerHost", // Compacting stream reader not ported to 4.0 yet
                                                        "ThreadCorrectionDisabled", // backport of CASSANDRA-15059 added disable_thread_correction not present in OSS patch
-                                                       "TombstoneCountGCable" // did not forward port <rdar://problem/28066902> Cass: Expired tombstones counted differently in 2.1  a
-        );
+                                                       "TombstoneCountGCable", // did not forward port <rdar://problem/28066902> Cass: Expired tombstones counted differently in 2.1  a
+                                                       "UseStreamCompactionForBootstrap",
+                                                       "UseStreamCompactionForRepair"
+                                                       );
         List<String> excludeOperations = Arrays.asList("startRPCServer", "stopRPCServer", // removed in CASSANDRA-11115
                                                        // nodetool apis that were changed,
                                                        "decommission", // -> decommission(boolean)
@@ -176,7 +186,10 @@ public class JMXCompatabilityTest extends CQLTester
                                                        "allowUnsafeAggressiveSSTableExpiration",
                                                        "configureFullQueryLogger", // renamed enableFullQueryLogger
                                                        "getSessions", // -> getSessions(p1: boolean, p2: java.lang.String): java.util.List"
-                                                       "loadNewSSTables" // deprecated CASSANDRA-6719, removed in 4.0
+                                                       "loadNewSSTables", // deprecated CASSANDRA-6719, removed in 4.0
+                                                       "startSamplePartitions", //renamed startSamplingPartitions
+                                                       "stopSamplePartitions", // renamed stopSamplingPartitions
+                                                       "verify" // have not forward ported [rdar://71055206] Added new tool to validate a SSTable that supports all supported SSTable versions (#2042) (#2137)
         );
 
         diff(excludeObjects, excludeAttributes, excludeOperations, "test/data/jmxdump/cie-3.0.24.36-jmx.yaml");
