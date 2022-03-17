@@ -19,6 +19,7 @@
 package org.apache.cassandra.distributed.test;
 
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.util.Collections;
 
 import com.google.common.collect.ImmutableMap;
@@ -209,7 +210,10 @@ public class InternodeEncryptionOptionsTest extends AbstractEncryptionOptionsImp
             // Just check startup - cluster should not be able to establish internode connections xwithout encrypted connections
             for (int i = 1; i <= cluster.size(); i++)
             {
-                Object[][] result = cluster.get(i).executeInternal("SELECT successful_connection_attempts, address, port FROM system_views.internode_outbound");
+                // Explicilty check the row for the other node as instances may create an internode connection to themselves
+                InetSocketAddress otherBroadcast = cluster.get(1 + cluster.size() - i).config().broadcastAddress();
+                Object[][] result = cluster.get(i).executeInternal("SELECT successful_connection_attempts, address, port FROM system_views.internode_outbound WHERE address = ? AND port = ?",
+                                                                   otherBroadcast.getAddress(), otherBroadcast.getPort());
                 Assert.assertEquals(1, result.length);
                 long successfulConnectionAttempts = (long) result[0][0];
                 Assert.assertTrue("At least one connection: " + successfulConnectionAttempts, successfulConnectionAttempts > 0);
