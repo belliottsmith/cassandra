@@ -43,3 +43,6 @@ enable_scripted_user_defined_functions: true
 enable_sasi_indexes: true
 enable_materialized_views: true
 enable_secondary_index: true
+# revert from CIE default config
+default_keyspace_rf: 1
+minimum_keyspace_rf: 0

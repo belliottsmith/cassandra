@@ -74,3 +74,6 @@ custom_functions:
     - com.apple.cie.cql3.functions.FakeTime # For testing only
 enable_secondary_index: true
 enable_christmas_patch: false
+# revert from CIE default config
+default_keyspace_rf: 1
+minimum_keyspace_rf: 0
