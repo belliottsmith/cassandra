@@ -929,6 +929,15 @@ public class DatabaseDescriptor
                         conf.minimum_replication_factor_fail_threshold, min);
                 conf.minimum_replication_factor_fail_threshold = min;
             }
+
+            // If using the ACI patch, update the default keyspace RF to a valid configuration
+            if (conf.minimum_replication_factor_fail_threshold > 0 &&
+                conf.default_keyspace_rf < conf.minimum_replication_factor_fail_threshold)
+            {
+                logger.info("Overriding configured default_keyspace_rf of {} to meet effective minimum_keyspace_rf {}",
+                            conf.default_keyspace_rf, conf.minimum_replication_factor_fail_threshold);
+                conf.default_keyspace_rf = conf.minimum_replication_factor_fail_threshold;
+            }
         }
 
         if (conf.default_keyspace_rf < conf.minimum_replication_factor_fail_threshold)

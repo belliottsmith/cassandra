@@ -32,6 +32,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.commitlog.CommitLog;
+import org.apache.cassandra.db.guardrails.Guardrails;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.locator.AbstractEndpointSnitch;
 import org.apache.cassandra.locator.InetAddressAndPort;
@@ -97,6 +98,7 @@ public final class ServerTestUtils
             return;
 
         DatabaseDescriptor.setTransientReplicationEnabledUnsafe(true);
+        Guardrails.instance.setMinimumReplicationFactorThreshold(-1,  -1);
 
         // Cleanup first
         try

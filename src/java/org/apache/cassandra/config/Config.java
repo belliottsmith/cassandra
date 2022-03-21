@@ -959,8 +959,9 @@ public class Config
     public volatile int data_disk_usage_percentage_warn_threshold = -1;
     public volatile int data_disk_usage_percentage_fail_threshold = -1;
     public volatile DataStorageSpec.LongBytesBound data_disk_usage_max_disk_size = null;
-    public volatile int minimum_replication_factor_warn_threshold = -1;
-    public volatile int minimum_replication_factor_fail_threshold = -1;
+    public volatile int minimum_replication_factor_warn_threshold = 2;
+    @Replaces(oldName="minimum_keyspace_rf", deprecated = true)
+    public volatile int minimum_replication_factor_fail_threshold = 2;
 
     public volatile DurationSpec.LongNanosecondsBound streaming_state_expires = new DurationSpec.LongNanosecondsBound("3d");
     public volatile DataStorageSpec.LongBytesBound streaming_state_size = new DataStorageSpec.LongBytesBound("40MiB");
