@@ -41,6 +41,7 @@ import org.apache.cassandra.dht.RingPosition;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.locator.ReplicaCollection.Builder.Conflict;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.AbstractWriteResponseHandler;
 import org.apache.cassandra.service.DatacenterSyncWriteResponseHandler;
 import org.apache.cassandra.service.DatacenterWriteResponseHandler;
@@ -450,7 +451,9 @@ public abstract class AbstractReplicationStrategy
         {
             ReplicationFactor rf = ReplicationFactor.fromString(s);
 
-            if (rf.fullReplicas < DatabaseDescriptor.getMinimumKeyspaceRF())
+            if (rf.fullReplicas < DatabaseDescriptor.getMinimumKeyspaceRF()
+                && !SchemaConstants.isLocalSystemKeyspace(keyspaceName)
+                && !SchemaConstants.isReplicatedSystemKeyspace(keyspaceName))
             {
                 throw new ConfigurationException(String.format("Replication factor cannot be less than minimum_keyspace_rf (%d), found %d", DatabaseDescriptor.getMinimumKeyspaceRF(), rf.fullReplicas));
             }
