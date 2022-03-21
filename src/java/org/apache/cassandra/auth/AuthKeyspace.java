@@ -116,7 +116,7 @@ public final class AuthKeyspace
     public static KeyspaceMetadata metadata()
     {
         return KeyspaceMetadata.create(SchemaConstants.AUTH_KEYSPACE_NAME,
-                                       KeyspaceParams.simple(Math.max(DEFAULT_RF, DatabaseDescriptor.getDefaultKeyspaceRF())),
+                                       KeyspaceParams.simple(DEFAULT_RF),
                                        Tables.of(Roles, RoleMembers, RolePermissions, ResourceRoleIndex, NetworkPermissions));
     }
 }

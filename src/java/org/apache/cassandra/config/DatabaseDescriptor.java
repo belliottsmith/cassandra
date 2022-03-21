@@ -889,9 +889,17 @@ public class DatabaseDescriptor
             int property_min = CassandraRelevantProperties.MINIMUM_ALLOWED_REPLICATION_FACTOR.getInt();
             if (property_min != conf.minimum_keyspace_rf)
             {
-                logger.info("Overriding configured default_keyspace_rf of {} with value from system property {}",
+                logger.info("Overriding configured minimum_keyspace_rf of {} with value from system property {}",
                         conf.minimum_keyspace_rf, property_min);
                 conf.minimum_keyspace_rf = property_min;
+            }
+
+            // If using the ACI patch, update the default keyspace RF to a valid configuration
+            if (conf.default_keyspace_rf < conf.minimum_keyspace_rf)
+            {
+                logger.info("Overriding configured default_keyspace_rf of {} to meet effective minimum_keyspace_rf {}",
+                            conf.default_keyspace_rf, conf.minimum_keyspace_rf);
+                conf.default_keyspace_rf = conf.minimum_keyspace_rf;
             }
         }
 
