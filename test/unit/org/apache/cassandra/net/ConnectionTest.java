@@ -46,7 +46,6 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import org.slf4j.Logger;
@@ -677,7 +676,6 @@ public class ConnectionTest
     }
 
     @Test
-    @Ignore //flaky test, disabling until fixed
     public void testMessagePurging() throws Throwable
     {
         testManual((settings, inbound, outbound, endpoint) -> {
