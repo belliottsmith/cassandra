@@ -97,7 +97,7 @@ _main() {
       "\"CASSANDRA_PR\":\"$GIT_PR_ID\"" ,
       "\"CASSANDRA_BRANCH\":\"$GIT_BRANCH\"" ,
       "\"CASSANDRA_VERSION\":\"$BASE_VERSION-$GIT_PR_ID-$GIT_COMMIT_SHORT\"" ,
-      "\"HARRY_BRANCH\":\"master\"" ,
+      "\"HARRY_BRANCH\":\"cie-cassandra-4.0.2\"" ,
       "\"DURATION_IN_MINUTES\":\"15\"" ,
       "\"PARALLELISM\":\"2\"" ,
       "\"COMPLETIONS\":\"2\""
