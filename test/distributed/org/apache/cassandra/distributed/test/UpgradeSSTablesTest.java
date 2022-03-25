@@ -19,15 +19,22 @@
 package org.apache.cassandra.distributed.test;
 
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.Assert;
 import org.junit.Test;
 
-import org.apache.cassandra.config.DatabaseDescriptor;
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
+import net.bytebuddy.implementation.MethodDelegation;
+import net.bytebuddy.implementation.bind.annotation.SuperCall;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.compaction.ActiveCompactions;
+import org.apache.cassandra.db.compaction.CompactionInfo;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
@@ -37,6 +44,10 @@ import org.apache.cassandra.distributed.api.LogAction;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.concurrent.CountDownLatch;
+
+import static net.bytebuddy.matcher.ElementMatchers.named;
+import static org.apache.cassandra.utils.concurrent.CountDownLatch.newCountDownLatch;
 
 public class UpgradeSSTablesTest extends TestBaseImpl
 {
@@ -124,7 +135,7 @@ public class UpgradeSSTablesTest extends TestBaseImpl
     @Test
     public void cleanupDoesNotInterruptUpgradeSSTables() throws Throwable
     {
-        try (ICluster<IInvokableInstance> cluster = init(builder().withNodes(1).start()))
+        try (ICluster<IInvokableInstance> cluster = init(builder().withNodes(1).withInstanceInitializer(BB::install).start()))
         {
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v text, PRIMARY KEY (pk, ck));");
 
@@ -148,21 +159,26 @@ public class UpgradeSSTablesTest extends TestBaseImpl
             LogAction logAction = cluster.get(1).logs();
             logAction.mark();
 
-            Thread scrubThread = new Thread(() -> {
-                while (!Thread.interrupted())
-                    Assert.assertEquals(0, cluster.get(1).nodetool("scrub", KEYSPACE, "tbl"));
+            // Start upgradingsstables - use BB to pause once inside ActiveCompactions.beginCompaction
+            Thread upgradeThread = new Thread(() -> {
+                cluster.get(1).nodetool("upgradesstables", "-a", KEYSPACE, "tbl");
             });
-            scrubThread.start();
+            upgradeThread.start();
+            Assert.assertTrue(cluster.get(1).callOnInstance(() -> BB.starting.awaitUninterruptibly(1, TimeUnit.MINUTES)));
 
-            // Wait until Scrub actually starts
-            Assert.assertFalse(logAction.watchFor("Scrubbing BigTableReader").getResult().isEmpty());
-            cluster.get(1).nodetool("upgradesstables", "-a", KEYSPACE, "tbl");
-            scrubThread.interrupt();
-            scrubThread.join();
+            // Start a scrub and make sure that it fails, log check later to make sure it was
+            // because it cannot cancel the active upgrade sstables
+            Assert.assertNotEquals(0, cluster.get(1).nodetool("scrub", KEYSPACE, "tbl"));
 
-            Assert.assertFalse(logAction.grep("Unable to cancel in-progress compactions").getResult().isEmpty());
-            Assert.assertFalse(logAction.grep("Finished Scrub").getResult().isEmpty());
-            Assert.assertTrue(logAction.grep("Compaction interrupted").getResult().isEmpty());
+            // Now resume the upgrade sstables so test can shut down
+            cluster.get(1).runOnInstance(() -> {
+                BB.start.decrement();
+            });
+            upgradeThread.join();
+
+            Assert.assertFalse(logAction.grep("Unable to cancel in-progress compactions, since they're running with higher or same priority: Upgrade sstables").getResult().isEmpty());
+            Assert.assertFalse(logAction.grep("Starting Scrub for ").getResult().isEmpty());
+            Assert.assertFalse(logAction.grep("Finished Upgrade sstables for distributed_test_keyspace.tbl successfully").getResult().isEmpty());
         }
     }
 
@@ -282,6 +298,40 @@ public class UpgradeSSTablesTest extends TestBaseImpl
 
                     Assert.assertFalse(logAction.grep(String.format("%d sstables to", expectedCount)).getResult().isEmpty());
                 }
+            }
+        }
+    }
+
+    public static class BB
+    {
+        // Will be initialized in the context of the instance class loader
+        static CountDownLatch starting = newCountDownLatch(1);
+        static CountDownLatch start = newCountDownLatch(1);
+
+        public static void install(ClassLoader classLoader, Integer num)
+        {
+            new ByteBuddy().rebase(ActiveCompactions.class)
+                           .method(named("beginCompaction"))
+                           .intercept(MethodDelegation.to(BB.class))
+                           .make()
+                           .load(classLoader, ClassLoadingStrategy.Default.INJECTION);
+        }
+
+        @SuppressWarnings("unused")
+        public static void beginCompaction(CompactionInfo.Holder ci, @SuperCall Callable<Void> zuperCall)
+        {
+            try
+            {
+                zuperCall.call();
+                if (ci.getCompactionInfo().getTaskType() == OperationType.UPGRADE_SSTABLES)
+                {
+                    starting.decrement();
+                    Assert.assertTrue(start.awaitUninterruptibly(1, TimeUnit.MINUTES));
+                }
+            }
+            catch (Exception e)
+            {
+                throw new RuntimeException(e);
             }
         }
     }
