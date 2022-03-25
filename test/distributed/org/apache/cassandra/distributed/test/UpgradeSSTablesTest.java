@@ -45,7 +45,6 @@ import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.CountDownLatch;
-import org.apache.cassandra.utils.concurrent.FutureCombiner;
 
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static org.apache.cassandra.utils.concurrent.CountDownLatch.newCountDownLatch;
