@@ -97,8 +97,10 @@ public class StreamSessionTest extends CQLTester
         filestores.get(2).usableSpace = 334;
 
         Keyspace.all().forEach(ks -> ks.getColumnFamilyStores().forEach(ColumnFamilyStore::disableAutoCompaction));
-        while (!CompactionManager.instance.active.getCompactions().isEmpty())
+        do
+        {
             Thread.sleep(100);
+        } while (!CompactionManager.instance.active.getCompactions().isEmpty());
 
         assertTrue(StreamSession.checkDiskSpace(perTableIdIncomingBytes, UUIDGen.getTimeUUID(), filestoreMapper));
 
@@ -129,8 +131,10 @@ public class StreamSessionTest extends CQLTester
         filestores.get(2).usableSpace = 501;
 
         Keyspace.all().forEach(ks -> ks.getColumnFamilyStores().forEach(ColumnFamilyStore::disableAutoCompaction));
-        while (!CompactionManager.instance.active.getCompactions().isEmpty())
+        do
+        {
             Thread.sleep(100);
+        } while (!CompactionManager.instance.active.getCompactions().isEmpty());
 
         assertTrue(StreamSession.checkDiskSpace(perTableIdIncomingBytes, UUIDGen.getTimeUUID(), filestoreMapper));
 
