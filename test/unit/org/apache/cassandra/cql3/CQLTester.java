@@ -93,6 +93,7 @@ import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.KeyspaceMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.serializers.TypeSerializer;
+import org.apache.cassandra.service.CassandraDaemon;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageService;
@@ -295,6 +296,7 @@ public abstract class CQLTester
         jmxPort = getAutomaticallyAllocatedPort(loopback);
         jmxServer = JMXServerUtils.createJMXServer(jmxPort, true);
         jmxServer.start();
+        CassandraDaemon.customJmx();
     }
 
     public static void createMBeanServerConnection() throws Exception
