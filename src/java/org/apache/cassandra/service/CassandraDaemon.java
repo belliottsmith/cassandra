@@ -20,6 +20,7 @@ package org.apache.cassandra.service;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryPoolMXBean;
+import java.lang.management.ThreadMXBean;
 import java.net.InetAddress;
 import java.net.URL;
 import java.net.UnknownHostException;
@@ -84,6 +85,7 @@ import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.MBeanWrapper;
 import org.apache.cassandra.utils.Mx4jTool;
 import org.apache.cassandra.utils.NativeLibrary;
+import org.apache.cassandra.utils.Threading;
 import org.apache.cassandra.utils.WindowsTimer;
 import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.utils.concurrent.FutureCombiner;
@@ -236,6 +238,8 @@ public class CassandraDaemon
         maybeInitJmx();
 
         Mx4jTool.maybeLoad();
+
+        customJmx();
 
         ThreadAwareSecurityManager.install();
 
@@ -912,6 +916,21 @@ public class CassandraDaemon
         {
             logger.error(message, cause);
             System.exit(code);
+        }
+    }
+
+    private void customJmx()
+    {
+        try
+        {
+            ThreadMXBean jvmThreading = ManagementFactory.getPlatformMXBean(ThreadMXBean.class);
+            Threading customThreading = Threading.create(jvmThreading);
+            if (customThreading != null)
+                MBeanWrapper.instance.registerMBean(customThreading, "org.apache.cassandra.service:type=Threading");
+        }
+        catch (Exception e)
+        {
+            logger.warn("Unable to attach custom JMX bindings", e);
         }
     }
 
