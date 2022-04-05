@@ -844,6 +844,7 @@ public class DescribeStatementTest extends CQLTester
                "    AND crc_check_chance = 1.0\n" +
                "    AND default_time_to_live = 0\n" +
                "    AND disable_christmas_patch = false\n" +
+               "    AND disable_repairs = false\n" +
                "    AND extensions = {}\n" +
                "    AND gc_grace_seconds = 864000\n" +
                "    AND max_index_interval = 2048\n" +

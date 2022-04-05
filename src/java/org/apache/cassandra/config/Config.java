@@ -611,6 +611,8 @@ public class Config
 
     public Boolean enable_shadow_christmas_patch = false;
 
+    public boolean repairs_enabled = true;
+
     public volatile boolean allow_unsafe_aggressive_sstable_expiration = true;
 
     /**

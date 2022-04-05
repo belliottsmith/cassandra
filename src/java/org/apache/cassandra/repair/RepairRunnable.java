@@ -365,6 +365,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
     {
         String[] columnFamilies = options.getColumnFamilies().toArray(new String[options.getColumnFamilies().size()]);
         Iterable<ColumnFamilyStore> validColumnFamilies = storageService.getValidColumnFamilies(false, false, keyspace, columnFamilies);
+        validColumnFamilies = Iterables.filter(validColumnFamilies, cf -> !cf.isRepairsDisabled());
         progressCounter.incrementAndGet();
 
         if (Iterables.isEmpty(validColumnFamilies))

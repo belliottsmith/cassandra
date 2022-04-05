@@ -155,6 +155,9 @@ public final class TableAttributes extends PropertyDefinitions
         if (hasOption(Option.DISABLE_CHRISTMAS_PATCH))
             builder.disableChristmasPatch(getBoolean(Option.DISABLE_CHRISTMAS_PATCH));
 
+        if (hasOption(Option.DISABLE_REPAIRS))
+            builder.disableRepairs(getBoolean(Option.DISABLE_REPAIRS));
+
         return builder.build();
     }
 
