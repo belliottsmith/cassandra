@@ -360,6 +360,7 @@ public class RepairRunnable implements Runnable, ProgressEventNotifier, RepairNo
     {
         String[] columnFamilies = state.options.getColumnFamilies().toArray(new String[state.options.getColumnFamilies().size()]);
         Iterable<ColumnFamilyStore> validColumnFamilies = storageService.getValidColumnFamilies(false, false, state.keyspace, columnFamilies);
+        validColumnFamilies = Iterables.filter(validColumnFamilies, cf -> !cf.isRepairsDisabled());
 
         if (Iterables.isEmpty(validColumnFamilies))
             throw new SkipRepairException(String.format("%s Empty keyspace, skipping repair: %s", state.id, state.keyspace));

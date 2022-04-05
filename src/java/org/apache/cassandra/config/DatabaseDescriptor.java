@@ -4364,6 +4364,14 @@ public class DatabaseDescriptor
     {
         conf.enable_christmas_patch = enabled;
     }
+    public static void setRepairsEnabled(boolean enabled)
+    {
+        conf.repairs_enabled = enabled;
+    }
+    public static boolean getRepairsEnabled()
+    {
+        return conf.repairs_enabled;
+    }
 
     public static boolean enableChristmasPatch()
     {
