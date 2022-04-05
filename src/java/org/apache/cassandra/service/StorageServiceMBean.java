@@ -1053,6 +1053,10 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     public boolean isChistmasPatchEnabled();
 
+    public boolean isRepairsEnabled();
+
+    public void setRepairsEnabled(boolean val);
+
     public boolean isShadowChistmasPatchEnabled();
 
     public void setIncrementalUpdatesLastRepaired(boolean enabled);
