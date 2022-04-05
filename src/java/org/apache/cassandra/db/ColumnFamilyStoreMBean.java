@@ -330,5 +330,10 @@ public interface ColumnFamilyStoreMBean
     public Long getTopTombstonePartitionsLastUpdate();
 
     public void setChristmasPatchDisabled(boolean disable);
+
+    void setRepairsDisabled(boolean value);
+
     public boolean isChristmasPatchDisabled();
+
+    public boolean isRepairsDisabled();
 }

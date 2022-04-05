@@ -309,6 +309,7 @@ public class SchemaCQLHelperTest extends CQLTester
                                             "    AND crc_check_chance = 0.3\n" +
                                             "    AND default_time_to_live = 4\n" +
                                             "    AND disable_christmas_patch = %b\n" +
+                                            "    AND disable_repairs = false\n" +
                                             "    AND extensions = {%s'ext1': 0x76616c31}\n" +
                                             "    AND gc_grace_seconds = 5\n" +
                                             "    AND max_index_interval = 7\n" +

@@ -58,6 +58,7 @@ public final class TableParams
         CRC_CHECK_CHANCE,
         CDC,
         READ_REPAIR,
+        DISABLE_REPAIRS,
         DISABLE_CHRISTMAS_PATCH;
 
         @Override
@@ -88,6 +89,7 @@ public final class TableParams
     // By default the table level setting is false, i.e. the override is not in place for the table until explicitly
     // set. See extractXmasPatchParam(Map<String, ByteBuffer>)
     public final boolean disableChristmasPatch;
+    public final boolean disableRepairs;
 
     private TableParams(Builder builder)
     {
@@ -109,19 +111,20 @@ public final class TableParams
         extensions = builder.extensions;
         cdc = builder.cdc;
         readRepair = builder.readRepair;
-        disableChristmasPatch = extractXmasPatchParam(builder.extensions);
+        disableChristmasPatch = extractExtensionOption(builder.extensions, Option.DISABLE_CHRISTMAS_PATCH);
+        disableRepairs = extractExtensionOption(builder.extensions, Option.DISABLE_REPAIRS);
     }
 
-    private boolean extractXmasPatchParam(Map<String, ByteBuffer> extensions)
+    private boolean extractExtensionOption(Map<String, ByteBuffer> extensions, Option option)
     {
-        // If enable_christmas_patch is set at the instance level, it can be overridden and
+        // If the option is set at the instance level, it can be overridden and
         // turned off for specific tables. When this is done, the table level flag is
         // persisted as an entry in the table extensions, which is a map<text, blob>. The
         // default is for a table _not_ to override the instance setting, so a missing or
         // empty value in the map indicates the override is not in place for this table.
         // Conversely, the presence of _any_ value in the map can be read as the override
         // being turned on (i.e. christmas patch is disabled) for the table.
-        ByteBuffer val = extensions.get(Option.DISABLE_CHRISTMAS_PATCH.name());
+        ByteBuffer val = extensions.get(option.name());
         return null != val && val.hasRemaining();
     }
 
@@ -273,6 +276,7 @@ public final class TableParams
                           .add(Option.EXTENSIONS.toString(), extensions)
                           .add(Option.CDC.toString(), cdc)
                           .add(Option.READ_REPAIR.toString(), readRepair)
+                          .add(Option.DISABLE_REPAIRS.toString(), disableRepairs)
                           .add(Option.DISABLE_CHRISTMAS_PATCH.toString(), disableChristmasPatch)
                           .toString();
     }
@@ -302,7 +306,9 @@ public final class TableParams
             builder.append("AND default_time_to_live = ").append(defaultTimeToLive)
                    .newLine()
                    .append("AND disable_christmas_patch = ").append(disableChristmasPatch)
-                   .newLine() ;
+                   .newLine()
+                   .append("AND disable_repairs = ").append(disableRepairs)
+                   .newLine();
         }
 
         builder.append("AND extensions = ").append(extensions.entrySet()
@@ -442,14 +448,12 @@ public final class TableParams
             return this;
         }
 
-        public Builder extensions(Map<String, ByteBuffer> val)
-        {
-            // Before replacing any existing extensions map, extract the
-            // disable_christmas_patch setting, if present, so we can re-apply
-            // it as long as it doesn't conflict with the supplied new map (this
-            // is unlikely as there's no exposed way to actually set extensions).
-            if (val.containsKey(Option.DISABLE_CHRISTMAS_PATCH.name())
-                || !extensions.containsKey(Option.DISABLE_CHRISTMAS_PATCH.name()))
+        private void maybeAdd(Map<String, ByteBuffer> val, Option option) {
+            // Before replacing any existing extensions map, extract the options setting, if present,
+            // so we can re-apply it as long as it doesn't conflict ith the supplied new map (this is
+            // unlikely as there's no exposed way to actually set extensions).
+            if (val.containsKey(option.name())
+                || !extensions.containsKey(option.name()))
             {
                 // either the option wasn't set previously, or it is explicitly set in
                 // this new map, so we can just copy the supplied map wholesale
@@ -461,10 +465,32 @@ public final class TableParams
                 // to the supplied map. The value associated with the key is not important.
                 extensions = ImmutableMap.<String, ByteBuffer>builder()
                                          .putAll(val)
-                                         .put(Option.DISABLE_CHRISTMAS_PATCH.name(), ByteBuffer.wrap(new byte[]{1}))
+                                         .put(option.name(), ByteBuffer.wrap(new byte[]{1}))
                                          .build();
             }
+        }
+
+        public Builder extensions(Map<String, ByteBuffer> val)
+        {
+            maybeAdd(val, Option.DISABLE_CHRISTMAS_PATCH);
+            maybeAdd(val, Option.DISABLE_REPAIRS);
             return this;
+        }
+
+        private Builder excludeExtentionOption(Option opt, boolean val) {
+            ImmutableMap.Builder<String, ByteBuffer> builder = ImmutableMap.builder();
+            builder.putAll(Maps.filterKeys(extensions, k -> k != null && !k.equals(opt.name())));
+            if (val)
+                builder.put(opt.name(), ByteBuffer.wrap(new byte[]{1}));
+            extensions = builder.build();
+            return this;
+        }
+
+        public Builder disableRepairs(boolean val)
+        {
+            // like christmas patch option, this is in extension map for internal tooling to flag the table to
+            // be ignored for repairs
+            return excludeExtentionOption(Option.DISABLE_REPAIRS, val);
         }
 
         public Builder disableChristmasPatch(boolean val)
@@ -475,17 +501,7 @@ public final class TableParams
             // Note: we only insert an entry into the map if val == true. If
             // the key is not present in the map when the TableParams are built,
             // the feature is not disabled at the table level.
-            ImmutableMap.Builder<String, ByteBuffer> builder = ImmutableMap.builder();
-            builder.putAll(Maps.filterKeys(extensions, this::filterKey));
-            if (val)
-               builder.put(Option.DISABLE_CHRISTMAS_PATCH.name(), ByteBuffer.wrap(new byte[]{1}));
-            extensions = builder.build();
-            return this;
-        }
-
-        private boolean filterKey(String key)
-        {
-            return key != null && !key.equals(Option.DISABLE_CHRISTMAS_PATCH.name());
+            return excludeExtentionOption(Option.DISABLE_CHRISTMAS_PATCH, val);
         }
     }
 }
