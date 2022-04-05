@@ -86,6 +86,29 @@ public abstract class RepairCoordinatorFast extends RepairCoordinatorBase
     }
 
     @Test
+    public void disabledTable() {
+        String table = tableName("disabled");
+        assertTimeoutPreemptively(Duration.ofMinutes(1), () -> {
+            CLUSTER.schemaChange(format("CREATE TABLE %s.%s (key text, PRIMARY KEY (key)) WITH disable_repairs = true", KEYSPACE, table));
+            CLUSTER.coordinator(1).execute(format("INSERT INTO %s.%s (key) VALUES (?)", KEYSPACE, table), ConsistencyLevel.ANY, "some text");
+
+            long repairExceptions = getRepairExceptions(CLUSTER, 2);
+            NodeToolResult result = repair(2, KEYSPACE);
+            result.asserts().success();
+            if (withNotifications)
+            {
+                result.asserts()
+                      .notificationContains(NodeToolResult.ProgressEventType.START, "Starting repair command")
+                      .notificationContains(NodeToolResult.ProgressEventType.START, "repairing keyspace " + KEYSPACE + " with repair options")
+                      .notificationContains(NodeToolResult.ProgressEventType.SUCCESS, repairType != RepairType.PREVIEW ? "Repair completed successfully" : "Repair preview completed successfully")
+                      .notificationContains(NodeToolResult.ProgressEventType.COMPLETE, "finished");
+            }
+            assertParentRepairNotExist(CLUSTER, KEYSPACE, table);
+            Assert.assertEquals(repairExceptions, getRepairExceptions(CLUSTER, 2));
+        });
+    }
+
+    @Test
     public void missingKeyspace()
     {
         assertTimeoutPreemptively(Duration.ofMinutes(1), () -> {

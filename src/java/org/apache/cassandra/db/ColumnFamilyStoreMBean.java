@@ -347,5 +347,10 @@ public interface ColumnFamilyStoreMBean
     public long[] getCoordinatorScanLatencyHistogram();
 
     public void setChristmasPatchDisabled(boolean disable);
+
+    void setRepairsDisabled(boolean value);
+
     public boolean isChristmasPatchDisabled();
+
+    public boolean isRepairsDisabled();
 }

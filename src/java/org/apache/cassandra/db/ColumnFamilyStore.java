@@ -378,6 +378,8 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
 
     // Transient property to disable christmas patch, overriding it if enabled in Config.
     private volatile boolean disableChristmasPatch = false;
+    // Transient property to disable repairs
+    private volatile boolean disableRepairs = false;
 
     public static void shutdownPostFlushExecutor() throws InterruptedException
     {
@@ -3744,6 +3746,14 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
         disableChristmasPatch = value;
     }
 
+    @Override
+    public void setRepairsDisabled(boolean value)
+    {
+        logger.info("Changing repairs disabled override for {}.{} from {} to {}",
+                    keyspace.getName(), getTableName(), disableRepairs, value);
+        disableRepairs = value;
+    }
+
     /**
      * Looks at the cluster wide, table level, and jmx overide to determine
      * if the christmas patch should be disabled
@@ -3754,5 +3764,16 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
         return !DatabaseDescriptor.enableChristmasPatch()
                || metadata().params.disableChristmasPatch
                || disableChristmasPatch;
+    }
+
+    /**
+     * Looks at the cluster wide, table level, and jmx overide if the repairs should be disabled
+     */
+    @Override
+    public boolean isRepairsDisabled()
+    {
+        return !DatabaseDescriptor.getRepairsEnabled()
+               || metadata().params.disableRepairs
+               || disableRepairs;
     }
 }

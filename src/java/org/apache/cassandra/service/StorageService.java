@@ -6735,6 +6735,18 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return DatabaseDescriptor.enableChristmasPatch();
     }
 
+    @Override
+    public boolean isRepairsEnabled()
+    {
+        return DatabaseDescriptor.getRepairsEnabled();
+    }
+
+    @Override
+    public void setRepairsEnabled(boolean val)
+    {
+        DatabaseDescriptor.setRepairsEnabled(val);
+    }
+
     public boolean isShadowChistmasPatchEnabled()
     {
         return DatabaseDescriptor.enableShadowChristmasPatch();
