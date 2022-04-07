@@ -38,6 +38,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+
 import org.apache.cassandra.concurrent.FutureTask;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.utils.concurrent.Future;
@@ -82,11 +83,19 @@ public class MigrationCoordinator
 
     private static final int MIGRATION_DELAY_IN_MS = CassandraRelevantProperties.MIGRATION_DELAY.getInt();
     private static final int MAX_OUTSTANDING_VERSION_REQUESTS = 3;
+    public static final long SCHEMA_PULL_FAILURE_RETRY_DELAY_MILLIS = 100;
 
     public static final MigrationCoordinator instance = new MigrationCoordinator();
 
     public static final String IGNORED_VERSIONS_PROP = "cassandra.skip_schema_check_for_versions";
     public static final String IGNORED_ENDPOINTS_PROP = "cassandra.skip_schema_check_for_endpoints";
+
+    private int numFailureRetriesDelayed = 0;
+    @VisibleForTesting
+    int getNumFailureRetriesDelayed()
+    {
+        return numFailureRetriesDelayed;
+    }
 
     private static ImmutableSet<UUID> getIgnoredVersions()
     {
@@ -198,6 +207,9 @@ public class MigrationCoordinator
 
     synchronized Future<Void> maybePullSchema(VersionInfo info)
     {
+        logger.debug("Determining whether to pull schema for version {}: endpoints empty? {}, was received? {}, should pull? {}",
+            info.version, info.endpoints.isEmpty(), info.wasReceived(), shouldPullSchema(info.version));
+
         if (info.endpoints.isEmpty() || info.wasReceived() || !shouldPullSchema(info.version))
             return FINISHED_FUTURE;
 
@@ -222,6 +234,7 @@ public class MigrationCoordinator
         }
 
         // no suitable endpoints were found, check again in a minute, the periodic task will pick it up
+        logger.debug("No suitable endpoints found for schema version {}, skipping pull for now", info.version);
         return null;
     }
 
@@ -365,6 +378,7 @@ public class MigrationCoordinator
         }
 
         UUID current = endpointVersions.put(endpoint, version);
+        logger.debug("Received report of endpoint {} with version {} (current known version: {})", endpoint, version, current);
         if (current != null && current.equals(version))
             return FINISHED_FUTURE;
 
@@ -422,11 +436,13 @@ public class MigrationCoordinator
         }
     }
 
-    Future<Void> scheduleSchemaPull(InetAddressAndPort endpoint, VersionInfo info)
+    @VisibleForTesting
+    protected Future<Void> scheduleSchemaPull(InetAddressAndPort endpoint, VersionInfo info)
     {
         FutureTask<Void> task = new FutureTask<>(() -> pullSchema(new Callback(endpoint, info)));
         if (shouldPullImmediately(endpoint, info.version))
         {
+            logger.debug("Scheduling schema pull to endpoint {} version {} immediately", endpoint, info.version);
             submitToMigrationIfNotShutdown(task);
         }
         else
@@ -505,12 +521,22 @@ public class MigrationCoordinator
         }
     }
 
+    private void delayFailureRetry(Callback callback)
+    {
+        logger.debug("Delaying retry of callback failure for endpoint {}, will attempt in {}ms",
+            callback.endpoint, SCHEMA_PULL_FAILURE_RETRY_DELAY_MILLIS);
+        numFailureRetriesDelayed++;
+        FutureTask<?> task = new FutureTask<>(callback::fail);
+        ScheduledExecutors.nonPeriodicTasks.schedule(task, SCHEMA_PULL_FAILURE_RETRY_DELAY_MILLIS, TimeUnit.MILLISECONDS);
+    }
+
     private void pullSchema(Callback callback)
     {
+        logger.debug("About to pull schema for endpoint {} version {}", callback.endpoint, callback.info.version);
         if (!isAlive(callback.endpoint))
         {
             logger.warn("Can't send schema pull request: node {} is down.", callback.endpoint);
-            callback.fail();
+            delayFailureRetry(callback);
             return;
         }
 
@@ -520,7 +546,7 @@ public class MigrationCoordinator
         if (!shouldPullFromEndpoint(callback.endpoint))
         {
             logger.info("Skipped sending a migration request: node {} has a higher major version now.", callback.endpoint);
-            callback.fail();
+            delayFailureRetry(callback);
             return;
         }
 
@@ -538,6 +564,7 @@ public class MigrationCoordinator
 
     private synchronized Future<Void> pullComplete(InetAddressAndPort endpoint, VersionInfo info, boolean wasSuccessful)
     {
+        logger.debug("Pull from endpoint {} for version {} has {}", endpoint, info.version, wasSuccessful ? "succeeded" : "failed");
         inflightTasks.decrementAndGet();
         if (wasSuccessful)
             info.markReceived();

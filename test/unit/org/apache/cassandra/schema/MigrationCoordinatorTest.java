@@ -19,6 +19,7 @@
 package org.apache.cassandra.schema;
 
 import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -27,7 +28,7 @@ import java.util.List;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.Future;
+import java.util.concurrent.ExecutionException;
 
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
@@ -41,6 +42,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
 
 import static com.google.common.util.concurrent.Futures.getUnchecked;
@@ -130,6 +132,14 @@ public class MigrationCoordinatorTest
         {
             mergedSchemasFrom.add(endpoint);
         }
+
+        List<InetAddressAndPort> attemptedSchemaPulls = new ArrayList<>();
+        @Override
+        protected Future<Void> scheduleSchemaPull(InetAddressAndPort endpoint, VersionInfo info)
+        {
+            attemptedSchemaPulls.add(endpoint);
+            return super.scheduleSchemaPull(endpoint, info);
+        }
     }
 
     @Test
@@ -169,7 +179,6 @@ public class MigrationCoordinatorTest
         // and migration tasks should not be sent out for subsequent version reports
         getUnchecked(coordinator.reportEndpointVersion(EP3, V1));
         Assert.assertTrue(coordinator.requests.isEmpty());
-
     }
 
     /**
@@ -335,5 +344,21 @@ public class MigrationCoordinatorTest
         List<? extends Future<Void>> futures = coordinator.pullUnreceivedSchemaVersions();
         futures.forEach(Futures::getUnchecked);
         Assert.assertEquals(1, coordinator.requests.size());
+    }
+
+    @Test
+    public void pullFromDownNode() throws InterruptedException, ExecutionException
+    {
+        InstrumentedCoordinator coordinator = new InstrumentedCoordinator();
+        Assert.assertTrue(coordinator.requests.isEmpty());
+
+        coordinator.deadNodes.add(EP1);
+        coordinator.reportEndpointVersion(EP1, V1).get();
+
+        int attemptedSchemaPulls = (int) coordinator.attemptedSchemaPulls.stream().filter(EP1::equals).count();
+        int failureRetriesDelayed = coordinator.getNumFailureRetriesDelayed();
+
+        // All attempts should be retried, since node is dead
+        Assert.assertEquals(attemptedSchemaPulls, failureRetriesDelayed);
     }
 }
