@@ -70,6 +70,7 @@ public class DefaultSchemaUpdateHandler implements SchemaUpdateHandler, IEndpoin
         return new MigrationCoordinator(messagingService,
                                         Stage.MIGRATION.executor(),
                                         ScheduledExecutors.scheduledTasks,
+                                        ScheduledExecutors.nonPeriodicTasks,
                                         MAX_OUTSTANDING_VERSION_REQUESTS,
                                         Gossiper.instance,
                                         this::getSchemaVersionForCoordinator,
