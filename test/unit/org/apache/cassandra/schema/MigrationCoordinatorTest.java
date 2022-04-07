@@ -28,6 +28,7 @@ import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -69,6 +70,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class MigrationCoordinatorTest
@@ -107,6 +110,7 @@ public class MigrationCoordinatorTest
     {
         final Queue<Pair<InetAddressAndPort, RequestCallback<Collection<Mutation>>>> requests = new LinkedList<>();
         final ScheduledExecutorService oneTimeExecutor = mock(ScheduledExecutorService.class);
+        final ScheduledExecutorService nonPeriodicExecutor = mock(ScheduledExecutorService.class);
         final Gossiper gossiper = mock(Gossiper.class);
         final Set<InetAddressAndPort> mergedSchemasFrom = new HashSet<>();
         final EndpointMessagingVersions versions = mock(EndpointMessagingVersions.class);
@@ -140,6 +144,7 @@ public class MigrationCoordinatorTest
             this.coordinator = new MigrationCoordinator(messagingService,
                                                         ImmediateExecutor.INSTANCE,
                                                         oneTimeExecutor,
+                                                        nonPeriodicExecutor,
                                                         maxOutstandingRequests,
                                                         gossiper,
                                                         () -> localSchemaVersion,
@@ -453,5 +458,19 @@ public class MigrationCoordinatorTest
         assertThatExceptionOfType(RuntimeException.class).isThrownBy(() -> wrapper.coordinator.pullSchemaFromAnyNode().syncThrowUncheckedOnInterrupt().getNow())
                                                          .withMessageContaining("Failed to get schema from");
 
+    }
+
+    @Test
+    public void pullFromDownNode() throws InterruptedException, ExecutionException
+    {
+        Wrapper wrapper = new Wrapper();
+        Assert.assertTrue(wrapper.requests.isEmpty());
+
+        when(wrapper.gossiper.isAlive(EP1)).thenReturn(false); // need to mock this as a dead endpoint instead
+        wrapper.coordinator.reportEndpointVersion(EP1, V1).get();
+
+        // All attempts should be retried, since node is dead
+        verify(wrapper.nonPeriodicExecutor, times(wrapper.coordinator.getNumFailureRetriesDelayed()))
+        .schedule((Runnable) any(), anyLong(), any());
     }
 }

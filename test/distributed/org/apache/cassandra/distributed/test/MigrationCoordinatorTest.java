@@ -19,8 +19,10 @@
 package org.apache.cassandra.distributed.test;
 
 import java.net.InetAddress;
+import java.util.List;
 import java.util.UUID;
 
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -30,9 +32,11 @@ import org.apache.cassandra.distributed.api.TokenSupplier;
 import org.apache.cassandra.distributed.shared.NetworkTopology;
 import org.apache.cassandra.schema.MigrationCoordinator;
 import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.service.StorageService;
 
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
+import static org.hamcrest.Matchers.*;
 
 public class MigrationCoordinatorTest extends TestBaseImpl
 {
@@ -60,13 +64,20 @@ public class MigrationCoordinatorTest extends TestBaseImpl
         {
             cluster.schemaChange("CREATE KEYSPACE ks with replication={'class':'SimpleStrategy', 'replication_factor':2}");
             InetAddress replacementAddress = cluster.get(2).broadcastAddress().getAddress();
-            cluster.get(2).shutdown(false);
+            cluster.get(2).shutdown().get();
             cluster.schemaChangeIgnoringStoppedInstances("CREATE TABLE ks.tbl (k int primary key, v int)");
 
             IInstanceConfig config = cluster.newInstanceConfig();
             config.set("auto_bootstrap", true);
             System.setProperty("cassandra.replace_address", replacementAddress.getHostAddress());
             cluster.bootstrap(config).startup();
+
+            List<String> schemaPullFailureLogs = cluster.get(3).logs().grep("Can't send schema pull request: node.* is down.").getResult();
+
+            // Not perfectly precise, but want to make sure we're not retrying failures ASAP (every ~millisecond)
+            double maxRetriesInSchemaDelay = cluster.get(3).callOnInstance(() -> StorageService.SCHEMA_DELAY_MILLIS / MigrationCoordinator.SCHEMA_PULL_FAILURE_RETRY_DELAY_MILLIS);
+            int approxUpperBoundNumSchemaFailures = (int) Math.ceil(1.25 * maxRetriesInSchemaDelay);
+            Assert.assertThat(schemaPullFailureLogs, hasSize(lessThanOrEqualTo(approxUpperBoundNumSchemaFailures)));
         }
     }
 

@@ -93,9 +93,17 @@ public class MigrationCoordinator
 
     private static final int MIGRATION_DELAY_IN_MS = CassandraRelevantProperties.MIGRATION_DELAY.getInt();
     public static final int MAX_OUTSTANDING_VERSION_REQUESTS = 3;
+    public static final long SCHEMA_PULL_FAILURE_RETRY_DELAY_MILLIS = 100;
 
     public static final String IGNORED_VERSIONS_PROP = "cassandra.skip_schema_check_for_versions";
     public static final String IGNORED_ENDPOINTS_PROP = "cassandra.skip_schema_check_for_endpoints";
+
+    private int numFailureRetriesDelayed = 0;
+    @VisibleForTesting
+    int getNumFailureRetriesDelayed()
+    {
+        return numFailureRetriesDelayed;
+    }
 
     private static ImmutableSet<UUID> getIgnoredVersions()
     {
@@ -178,6 +186,7 @@ public class MigrationCoordinator
     private final Map<InetAddressAndPort, UUID> endpointVersions = new HashMap<>();
     private final Set<InetAddressAndPort> ignoredEndpoints = getIgnoredEndpoints();
     private final ScheduledExecutorService periodicCheckExecutor;
+    private final ScheduledExecutorService nonPeriodicExecutor;
     private final MessagingService messagingService;
     private final AtomicReference<ScheduledFuture<?>> periodicPullTask = new AtomicReference<>();
     private final int maxOutstandingVersionRequests;
@@ -196,6 +205,7 @@ public class MigrationCoordinator
     MigrationCoordinator(MessagingService messagingService,
                          ExecutorPlus executor,
                          ScheduledExecutorService periodicCheckExecutor,
+                         ScheduledExecutorService nonPeriodicExecutor,
                          int maxOutstandingVersionRequests,
                          Gossiper gossiper,
                          Supplier<UUID> schemaVersionSupplier,
@@ -204,6 +214,7 @@ public class MigrationCoordinator
         this.messagingService = messagingService;
         this.executor = executor;
         this.periodicCheckExecutor = periodicCheckExecutor;
+        this.nonPeriodicExecutor = nonPeriodicExecutor;
         this.maxOutstandingVersionRequests = maxOutstandingVersionRequests;
         this.gossiper = gossiper;
         this.schemaVersion = schemaVersionSupplier;
@@ -231,6 +242,9 @@ public class MigrationCoordinator
 
     private synchronized Future<Void> maybePullSchema(VersionInfo info)
     {
+        logger.debug("Determining whether to pull schema for version {}: endpoints empty? {}, was received? {}, should pull? {}",
+            info.version, info.endpoints.isEmpty(), info.wasReceived(), shouldPullSchema(info.version));
+
         if (info.endpoints.isEmpty() || info.wasReceived() || !shouldPullSchema(info.version))
             return FINISHED_FUTURE;
 
@@ -255,6 +269,7 @@ public class MigrationCoordinator
         }
 
         // no suitable endpoints were found, check again in a minute, the periodic task will pick it up
+        logger.debug("No suitable endpoints found for schema version {}, skipping pull for now", info.version);
         return FINISHED_FUTURE;
     }
 
@@ -372,6 +387,7 @@ public class MigrationCoordinator
         }
 
         UUID current = endpointVersions.put(endpoint, version);
+        logger.debug("Received report of endpoint {} with version {} (current known version: {})", endpoint, version, current);
         if (current != null && current.equals(version))
             return FINISHED_FUTURE;
 
@@ -416,14 +432,20 @@ public class MigrationCoordinator
         }
     }
 
-    private Future<Void> scheduleSchemaPull(InetAddressAndPort endpoint, VersionInfo info)
+    @VisibleForTesting
+    protected Future<Void> scheduleSchemaPull(InetAddressAndPort endpoint, VersionInfo info)
     {
         FutureTask<Void> task = new FutureTask<>(() -> pullSchema(endpoint, new Callback(endpoint, info)));
 
         if (shouldPullImmediately(endpoint, info.version))
+        {
+            logger.debug("Scheduling schema pull to endpoint {} version {} immediately", endpoint, info.version);
             submitToMigrationIfNotShutdown(task);
+        }
         else
-            ScheduledExecutors.nonPeriodicTasks.schedule(() -> submitToMigrationIfNotShutdown(task), MIGRATION_DELAY_IN_MS, TimeUnit.MILLISECONDS);
+        {
+            nonPeriodicExecutor.schedule(() -> submitToMigrationIfNotShutdown(task), MIGRATION_DELAY_IN_MS, TimeUnit.MILLISECONDS);
+        }
 
         return task;
     }
@@ -536,12 +558,22 @@ public class MigrationCoordinator
         }
     }
 
+    private void delayFailureRetry(InetAddressAndPort endpoint, RequestCallback<Collection<Mutation>> callback)
+    {
+        logger.debug("Delaying retry of callback failure for endpoint {}, will attempt in {}ms",
+            endpoint, SCHEMA_PULL_FAILURE_RETRY_DELAY_MILLIS);
+        numFailureRetriesDelayed++;
+        FutureTask<?> task = new FutureTask<>(() -> callback.onFailure(endpoint, RequestFailureReason.UNKNOWN));
+        nonPeriodicExecutor.schedule(task, SCHEMA_PULL_FAILURE_RETRY_DELAY_MILLIS, TimeUnit.MILLISECONDS);
+    }
+
     private void pullSchema(InetAddressAndPort endpoint, RequestCallback<Collection<Mutation>> callback)
     {
+        logger.debug("About to pull schema for endpoint {}", endpoint);
         if (!gossiper.isAlive(endpoint))
         {
             logger.warn("Can't send schema pull request: node {} is down.", endpoint);
-            callback.onFailure(endpoint, RequestFailureReason.UNKNOWN);
+            delayFailureRetry(endpoint, callback);
             return;
         }
 
@@ -551,7 +583,7 @@ public class MigrationCoordinator
         if (!shouldPullFromEndpoint(endpoint))
         {
             logger.info("Skipped sending a migration request: node {} has a higher major version now.", endpoint);
-            callback.onFailure(endpoint, RequestFailureReason.UNKNOWN);
+            delayFailureRetry(endpoint, callback);
             return;
         }
 
@@ -568,6 +600,7 @@ public class MigrationCoordinator
 
     private synchronized Future<Void> pullComplete(InetAddressAndPort endpoint, VersionInfo info, boolean wasSuccessful)
     {
+        logger.debug("Pull from endpoint {} for version {} has {}", endpoint, info.version, wasSuccessful ? "succeeded" : "failed");
         if (wasSuccessful)
             info.markReceived();
 
