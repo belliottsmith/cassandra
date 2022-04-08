@@ -158,6 +158,10 @@ public enum CassandraRelevantProperties
 
     SHUTDOWN_ANNOUNCE_DELAY_IN_MS("cassandra.shutdown_announce_in_ms", "2000"),
 
+    IGNORED_SCHEMA_CHECK_VERSIONS("cassandra.skip_schema_check_for_versions"),
+
+    IGNORED_SCHEMA_CHECK_ENDPOINTS("cassandra.skip_schema_check_for_endpoints"),
+
     /**
      * When doing a host replacement its possible that the gossip state is "empty" meaning that the endpoint is known
      * but the current state isn't known.  If the host replacement is needed to repair this state, this property must
