@@ -389,7 +389,7 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     public int upgradeSSTables(String keyspaceName, boolean excludeCurrentVersion, long maxSSTableTimestamp, int jobs, String... tableNames) throws IOException, ExecutionException, InterruptedException;
     public int recompressSSTables(String keyspaceName, int jobs, String... tableNames) throws IOException, ExecutionException, InterruptedException;
-    public List<Pair<String, String>> getPreparedStatements();
+    public Map<String, String> getPreparedStatements();
     public void dropPreparedStatements(boolean memoryOnly);
 
     /**
