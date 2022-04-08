@@ -28,6 +28,7 @@ import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
@@ -131,6 +132,10 @@ public class MigrationCoordinatorTest
         {
             when(oneTimeExecutor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any())).thenAnswer(a -> {
                 a.getArgument(0, Runnable.class).run();
+                return mock(ScheduledFuture.class);
+            });
+            when(nonPeriodicExecutor.schedule(any(Callable.class), anyLong(), any())).thenAnswer(a -> {
+                a.getArgument(0, Callable.class).call();
                 return mock(ScheduledFuture.class);
             });
             when(gossiper.getEndpointStateForEndpoint(any())).thenReturn(validEndpointState);
