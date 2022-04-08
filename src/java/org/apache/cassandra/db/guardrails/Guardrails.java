@@ -558,9 +558,10 @@ public final class Guardrails implements GuardrailsMBean
         DEFAULT_CONFIG.setInSelectCartesianProductThreshold(warn, fail);
     }
 
-    public Set<ConsistencyLevel> getReadConsistencyLevelsWarned()
+    @Override
+    public Set<String> getReadConsistencyLevelsWarned()
     {
-        return DEFAULT_CONFIG.getReadConsistencyLevelsWarned();
+        return toJmx(DEFAULT_CONFIG.getReadConsistencyLevelsWarned());
     }
 
     @Override
@@ -570,9 +571,9 @@ public final class Guardrails implements GuardrailsMBean
     }
 
     @Override
-    public void setReadConsistencyLevelsWarned(Set<ConsistencyLevel> consistencyLevels)
+    public void setReadConsistencyLevelsWarned(Set<String> consistencyLevels)
     {
-        DEFAULT_CONFIG.setReadConsistencyLevelsWarned(consistencyLevels);
+        DEFAULT_CONFIG.setReadConsistencyLevelsWarned(fromJmx(consistencyLevels));
     }
 
     @Override
@@ -582,9 +583,9 @@ public final class Guardrails implements GuardrailsMBean
     }
 
     @Override
-    public Set<ConsistencyLevel> getReadConsistencyLevelsDisallowed()
+    public Set<String> getReadConsistencyLevelsDisallowed()
     {
-        return DEFAULT_CONFIG.getReadConsistencyLevelsDisallowed();
+        return toJmx(DEFAULT_CONFIG.getReadConsistencyLevelsDisallowed());
     }
 
     @Override
@@ -594,9 +595,9 @@ public final class Guardrails implements GuardrailsMBean
     }
 
     @Override
-    public void setReadConsistencyLevelsDisallowed(Set<ConsistencyLevel> consistencyLevels)
+    public void setReadConsistencyLevelsDisallowed(Set<String> consistencyLevels)
     {
-        DEFAULT_CONFIG.setReadConsistencyLevelsDisallowed(consistencyLevels);
+        DEFAULT_CONFIG.setReadConsistencyLevelsDisallowed(fromJmx(consistencyLevels));
     }
 
     @Override
@@ -606,9 +607,9 @@ public final class Guardrails implements GuardrailsMBean
     }
 
     @Override
-    public Set<ConsistencyLevel> getWriteConsistencyLevelsWarned()
+    public Set<String> getWriteConsistencyLevelsWarned()
     {
-        return DEFAULT_CONFIG.getWriteConsistencyLevelsWarned();
+        return toJmx(DEFAULT_CONFIG.getWriteConsistencyLevelsWarned());
     }
 
     @Override
@@ -618,9 +619,9 @@ public final class Guardrails implements GuardrailsMBean
     }
 
     @Override
-    public void setWriteConsistencyLevelsWarned(Set<ConsistencyLevel> consistencyLevels)
+    public void setWriteConsistencyLevelsWarned(Set<String> consistencyLevels)
     {
-        DEFAULT_CONFIG.setWriteConsistencyLevelsWarned(consistencyLevels);
+        DEFAULT_CONFIG.setWriteConsistencyLevelsWarned(fromJmx(consistencyLevels));
     }
 
     @Override
@@ -630,9 +631,9 @@ public final class Guardrails implements GuardrailsMBean
     }
 
     @Override
-    public Set<ConsistencyLevel> getWriteConsistencyLevelsDisallowed()
+    public Set<String> getWriteConsistencyLevelsDisallowed()
     {
-        return DEFAULT_CONFIG.getWriteConsistencyLevelsDisallowed();
+        return toJmx(DEFAULT_CONFIG.getWriteConsistencyLevelsDisallowed());
     }
 
     @Override
@@ -642,9 +643,9 @@ public final class Guardrails implements GuardrailsMBean
     }
 
     @Override
-    public void setWriteConsistencyLevelsDisallowed(Set<ConsistencyLevel> consistencyLevels)
+    public void setWriteConsistencyLevelsDisallowed(Set<String> consistencyLevels)
     {
-        DEFAULT_CONFIG.setWriteConsistencyLevelsDisallowed(consistencyLevels);
+        DEFAULT_CONFIG.setWriteConsistencyLevelsDisallowed(fromJmx(consistencyLevels));
     }
 
     @Override
@@ -689,5 +690,19 @@ public final class Guardrails implements GuardrailsMBean
     private static <T> Set<T> fromCSV(String csv, Function<String, T> parser)
     {
         return StringUtils.isEmpty(csv) ? Collections.emptySet() : fromCSV(csv).stream().map(parser).collect(Collectors.toSet());
+    }
+
+    private static Set<String> toJmx(Set<ConsistencyLevel> set)
+    {
+        if (set == null)
+            return null;
+        return set.stream().map(ConsistencyLevel::name).collect(Collectors.toSet());
+    }
+
+    private static Set<ConsistencyLevel> fromJmx(Set<String> set)
+    {
+        if (set == null)
+            return null;
+        return set.stream().map(ConsistencyLevel::valueOf).collect(Collectors.toSet());
     }
 }
