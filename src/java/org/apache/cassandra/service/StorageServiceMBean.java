@@ -35,6 +35,7 @@ import javax.management.openmbean.TabularData;
 
 import org.apache.cassandra.db.ColumnFamilyStoreMBean;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.utils.BreaksJMX;
 import org.apache.cassandra.utils.Pair;
 
 public interface StorageServiceMBean extends NotificationEmitter
@@ -383,7 +384,7 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     public int upgradeSSTables(String keyspaceName, boolean excludeCurrentVersion, long maxSSTableTimestamp, int jobs, String... tableNames) throws IOException, ExecutionException, InterruptedException;
     public int recompressSSTables(String keyspaceName, int jobs, String... tableNames) throws IOException, ExecutionException, InterruptedException;
-    public List<Pair<String, String>> getPreparedStatements();
+    public Map<String, String> getPreparedStatements();
     public void dropPreparedStatements(boolean memoryOnly);
 
     /**
@@ -871,19 +872,21 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void disableAuditLog();
     public void enableAuditLog(String loggerName, Map<String, String> parameters, String includedKeyspaces, String excludedKeyspaces, String includedCategories, String excludedCategories,
                                String includedUsers, String excludedUsers, Integer maxArchiveRetries, Boolean block, String rollCycle,
-                               Long maxLogSize, Integer maxQueueWeight, String archiveCommand) throws ConfigurationException, IllegalStateException;
+                               Long maxLogSize, Integer maxQueueWeight, String archiveCommand) throws IllegalStateException;
 
+    @BreaksJMX("This API was exposed as throwing ConfigurationException, removing is binary compatible but not source; see https://docs.oracle.com/javase/specs/jls/se7/html/jls-13.html")
     @Deprecated
     public void enableAuditLog(String loggerName, Map<String, String> parameters, String includedKeyspaces, String excludedKeyspaces, String includedCategories, String excludedCategories,
                                String includedUsers, String excludedUsers) throws ConfigurationException, IllegalStateException;
 
+    @BreaksJMX("This API was exposed as throwing ConfigurationException, removing is binary compatible but not source; see https://docs.oracle.com/javase/specs/jls/se7/html/jls-13.html")
     @Deprecated
     public void enableAuditLog(String loggerName, String includedKeyspaces, String excludedKeyspaces, String includedCategories, String excludedCategories,
                                String includedUsers, String excludedUsers) throws ConfigurationException, IllegalStateException;
 
     public void enableAuditLog(String loggerName, String includedKeyspaces, String excludedKeyspaces, String includedCategories, String excludedCategories,
                                String includedUsers, String excludedUsers, Integer maxArchiveRetries, Boolean block, String rollCycle,
-                               Long maxLogSize, Integer maxQueueWeight, String archiveCommand) throws ConfigurationException, IllegalStateException;
+                               Long maxLogSize, Integer maxQueueWeight, String archiveCommand) throws IllegalStateException;
 
     public boolean isAuditLogEnabled();
     public String getCorruptedTombstoneStrategy();

@@ -3958,11 +3958,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return status.statusCode;
     }
 
-    public List<Pair<String, String>> getPreparedStatements()
+    @Override
+    public Map<String, String> getPreparedStatements()
     {
-        List<Pair<String, String>> statements = new ArrayList<>();
+        Map<String, String> statements = new HashMap<>();
         for (Entry<MD5Digest, QueryHandler.Prepared> e : QueryProcessor.instance.getPreparedStatements().entrySet())
-            statements.add(Pair.create(e.getKey().toString(), e.getValue().rawCQLStatement));
+            statements.put(e.getKey().toString(), e.getValue().rawCQLStatement);
         return statements;
     }
 
@@ -6459,7 +6460,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public void enableAuditLog(String loggerName, String includedKeyspaces, String excludedKeyspaces, String includedCategories, String excludedCategories,
                                String includedUsers, String excludedUsers, Integer maxArchiveRetries, Boolean block, String rollCycle,
-                               Long maxLogSize, Integer maxQueueWeight, String archiveCommand) throws ConfigurationException, IllegalStateException
+                               Long maxLogSize, Integer maxQueueWeight, String archiveCommand) throws IllegalStateException
     {
         enableAuditLog(loggerName, Collections.emptyMap(), includedKeyspaces, excludedKeyspaces, includedCategories, excludedCategories, includedUsers, excludedUsers,
                        maxArchiveRetries, block, rollCycle, maxLogSize, maxQueueWeight, archiveCommand);
@@ -6475,7 +6476,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public void enableAuditLog(String loggerName, Map<String, String> parameters, String includedKeyspaces, String excludedKeyspaces, String includedCategories, String excludedCategories,
                                String includedUsers, String excludedUsers, Integer maxArchiveRetries, Boolean block, String rollCycle,
-                               Long maxLogSize, Integer maxQueueWeight, String archiveCommand) throws ConfigurationException, IllegalStateException
+                               Long maxLogSize, Integer maxQueueWeight, String archiveCommand) throws IllegalStateException
     {
         final AuditLogOptions options = new AuditLogOptions.Builder(DatabaseDescriptor.getAuditLoggingOptions())
                                         .withEnabled(true)

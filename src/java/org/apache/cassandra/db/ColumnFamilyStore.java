@@ -60,6 +60,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
+import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -234,6 +235,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
 
     public static final String SNAPSHOT_TRUNCATE_PREFIX = "truncated";
     public static final String SNAPSHOT_DROP_PREFIX = "dropped";
+    static final String TOKEN_DELIMITER = ":";
 
     static
     {
@@ -2594,9 +2596,35 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         CompactionManager.instance.performMaximal(this, splitOutput);
     }
 
+    @Override
     public void forceCompactionForTokenRange(Collection<Range<Token>> tokenRanges) throws ExecutionException, InterruptedException
     {
         CompactionManager.instance.forceCompactionForTokenRange(this, tokenRanges);
+    }
+
+    @Override
+    public void forceCompactionForTokenRanges(String... strings)
+    {
+        CompactionManager.instance.forceCompactionForTokenRange(this, toTokenRanges(DatabaseDescriptor.getPartitioner(), strings));
+    }
+
+    static Set<Range<Token>> toTokenRanges(IPartitioner partitioner, String... strings)
+    {
+        Token.TokenFactory tokenFactory = partitioner.getTokenFactory();
+        Set<Range<Token>> tokenRanges = new HashSet<>();
+        for (String str : strings)
+        {
+            String[] splits = str.split(TOKEN_DELIMITER);
+            assert splits.length == 2 : String.format("Unable to parse token range %s; needs to have two tokens separated by %s", str, TOKEN_DELIMITER);
+            String lhsStr = splits[0];
+            assert !Strings.isNullOrEmpty(lhsStr) : String.format("Unable to parse token range %s; left hand side of the token separater is empty", str);
+            String rhsStr = splits[1];
+            assert !Strings.isNullOrEmpty(rhsStr) : String.format("Unable to parse token range %s; right hand side of the token separater is empty", str);
+            Token lhs = tokenFactory.fromString(lhsStr);
+            Token rhs = tokenFactory.fromString(rhsStr);
+            tokenRanges.add(new Range<>(lhs, rhs));
+        }
+        return tokenRanges;
     }
 
     public static Iterable<ColumnFamilyStore> all()
