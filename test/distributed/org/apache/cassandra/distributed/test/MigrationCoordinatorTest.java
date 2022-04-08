@@ -34,6 +34,8 @@ import org.apache.cassandra.schema.MigrationCoordinator;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.service.StorageService;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.IGNORED_SCHEMA_CHECK_ENDPOINTS;
+import static org.apache.cassandra.config.CassandraRelevantProperties.IGNORED_SCHEMA_CHECK_VERSIONS;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 import static org.hamcrest.Matchers.*;
@@ -46,8 +48,9 @@ public class MigrationCoordinatorTest extends TestBaseImpl
     {
         System.clearProperty("cassandra.replace_address");
         System.clearProperty("cassandra.consistent.rangemovement");
-        System.clearProperty(MigrationCoordinator.IGNORED_ENDPOINTS_PROP);
-        System.clearProperty(MigrationCoordinator.IGNORED_VERSIONS_PROP);
+
+        System.clearProperty(IGNORED_SCHEMA_CHECK_VERSIONS.getKey());
+        System.clearProperty(IGNORED_SCHEMA_CHECK_VERSIONS.getKey());
     }
     /**
      * We shouldn't wait on versions only available from a node being replaced
@@ -97,7 +100,7 @@ public class MigrationCoordinatorTest extends TestBaseImpl
 
             IInstanceConfig config = cluster.newInstanceConfig();
             config.set("auto_bootstrap", true);
-            System.setProperty(MigrationCoordinator.IGNORED_ENDPOINTS_PROP, ignoredEndpoint.getHostAddress());
+            IGNORED_SCHEMA_CHECK_ENDPOINTS.setString(ignoredEndpoint.getHostAddress());
             System.setProperty("cassandra.consistent.rangemovement", "false");
             cluster.bootstrap(config).startup();
         }
@@ -124,7 +127,7 @@ public class MigrationCoordinatorTest extends TestBaseImpl
 
             IInstanceConfig config = cluster.newInstanceConfig();
             config.set("auto_bootstrap", true);
-            System.setProperty(MigrationCoordinator.IGNORED_VERSIONS_PROP, initialVersion.toString() + ',' + oldVersion.toString());
+            IGNORED_SCHEMA_CHECK_VERSIONS.setString(initialVersion.toString() + ',' + oldVersion);
             System.setProperty("cassandra.consistent.rangemovement", "false");
             cluster.bootstrap(config).startup();
         }
