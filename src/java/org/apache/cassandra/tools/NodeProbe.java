@@ -114,7 +114,6 @@ import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.cassandra.tools.nodetool.GetTimeout;
 import org.apache.cassandra.utils.NativeLibrary;
-import org.apache.cassandra.utils.Pair;
 
 /**
  * JMX client operations for Cassandra.
@@ -355,10 +354,10 @@ public class NodeProbe implements AutoCloseable
 
     public void dumpPreparedStatements(PrintStream out)
     {
-        List<Pair<String, String>> statetments = ssProxy.getPreparedStatements();
-        statetments.sort(Comparator.comparing(l -> l.right));
-        for (Pair<String, String> e: statetments)
-            out.printf("%s: %s\n", e.left, e.right);
+        List<Map.Entry<String, String>> statetments = new ArrayList(ssProxy.getPreparedStatements().entrySet());
+        statetments.sort(Comparator.comparing(l -> l.getValue()));
+        for (Map.Entry<String, String> e: statetments)
+            out.printf("%s: %s\n", e.getKey(), e.getValue());
     }
 
     private void checkJobs(PrintStream out, int jobs)
