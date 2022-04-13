@@ -1,3 +1,6 @@
+4.0.2.1
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.2.0 cie-cassandra-4.0.2
+
 4.0.2.0
 * Rebased on OSS 4.1-SNAPSHOT commit 96c80f0b89314dc805714c52dcf1846491c53cdc (#2778)
 * rdar://89915246 (Prepare 4.0 for compacting stream reader (Config.java no-op))
