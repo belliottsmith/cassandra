@@ -48,8 +48,10 @@
 #
 schemaVersion: '2.0'
 
-# Turn off Slack notifications by default for pipelines.
+# Turn off Email/Slack notifications by default for pipelines.
 notify:
+  email:
+    enabled: false
   slack:
     enabled: false
 
@@ -96,22 +98,30 @@ builds:
       throttlingEnabled: true
       maxConcurrentTotal: 2
     machine:
-      baseImage: docker.apple.com/cpbuild/applejdk-8:latest
+      baseImage: docker.apple.com/piedb/parallelci:latest
     secrets:
       names:
         - rio-env.sh
+        - k8s_auth_token
+        - k8s_auth_token.us-west-1a
+        - mcqueen.yml
     build:
       template: freestyle:v4:prb
       steps:
-        - rio/trigger-python-dtest-prb.sh
+        - rio/parallel-python-dtests-step.sh
     timeout: 180
     reports:
-      junit: false
+      junit:
+        trim: false
+      logs:
+        paths:
+          - parallel-output/**/*
     finally:
       radar:
         annotate: false
       tag:
         enabled: false
+
 
   #
   # Snapshot build - runs automatically on commit
@@ -181,6 +191,10 @@ builds:
         enabled: true
         expression: ${GIT_BRANCH}-snapshot-${RIO_BUILD_NUMBER}
       notify: &notify
+        email:
+          enabled: true
+          recipients:
+            - 'aci-cassandra-build@group.apple.com'
         slack:
           # The docs do not say you need to do this, but notifications didn't happen...
           enabled: true
@@ -190,6 +204,43 @@ builds:
                 onStart: false
                 onSuccess: false
                 onFailure: true
+
+  #
+  # Snapshot build - runs python dtests, but does not public artifacts
+  #
+  - group: snapshot-python-dtest
+    jenkins:
+      concurrentBuild: true
+      throttlingEnabled: true
+      maxConcurrentTotal: 2
+    trigger:
+      gitPush: true
+    machine:
+      baseImage: docker.apple.com/piedb/parallelci:latest
+    secrets:
+      names:
+        - k8s_auth_token
+        - k8s_auth_token.us-west-1a
+        - mcqueen.yml
+    build:
+      template: freestyle:v4:build
+      steps:
+        - rio/parallel-python-dtests-step.sh
+    timeout: 180
+    reports:
+      # junit doesn't need to change path as the build copies the results to the expected location,
+      # other builds need to avoid conflict, so do not copy, but python-dtest files are
+      # named after the worker, so no conflict
+      junit:
+        trim: false
+      logs:
+        paths:
+          - parallel-output/**/*
+    finally:
+      tag:
+        enabled: false
+      notify:
+        <<: *notify
 
   #
   # Release Build - must be started manually
