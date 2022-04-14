@@ -44,6 +44,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -60,6 +61,7 @@ import org.junit.Assume;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.concurrent.ExecutorFactory;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.IPartitioner;
@@ -167,7 +169,6 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
     private final INodeProvisionStrategy.Strategy nodeProvisionStrategy;
     private final IInstanceInitializer instanceInitializer;
     private final int datadirCount;
-    private volatile Thread.UncaughtExceptionHandler previousHandler = null;
     private volatile BiPredicate<Integer, Throwable> ignoreUncaughtThrowable = null;
     private final List<Throwable> uncaughtExceptions = new CopyOnWriteArrayList<>();
 
@@ -274,42 +275,92 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
             ++generation;
             IClassTransformer transformer = classTransformer == null ? null : classTransformer.initialise();
             ClassLoader classLoader = new InstanceClassLoader(generation, config.num(), version.classpath, sharedClassLoader, sharedClassPredicate, transformer);
-            ThreadGroup threadGroup = new ThreadGroup(clusterThreadGroup, "node" + config.num() + (generation > 1 ? "_" + generation : ""));
+            ThreadGroup threadGroup = new ThreadGroup(clusterThreadGroup, "node" + config.num() + (generation > 1 ? "_" + generation : ""))
+            {
+                @Override
+                public void uncaughtException(Thread t, Throwable e)
+                {
+                    BiPredicate<Integer, Throwable> ignore = ignoreUncaughtThrowable;
+                    if ((ignore == null || !ignore.test(config.num(), e)))
+                        uncaughtExceptions.add(e);
+                    super.uncaughtException(t, e);
+                }
+            };
+
             if (instanceInitializer != null)
                 instanceInitializer.initialise(classLoader, threadGroup, config.num(), generation);
 
-            IInvokableInstance instance;
             try
             {
-                instance = Instance.transferAdhocPropagate((SerializableQuadFunction<IInstanceConfig, ClassLoader, FileSystem, ShutdownExecutor, Instance>)Instance::new, classLoader)
-                                   .apply(config.forVersion(version.version), classLoader, root.getFileSystem(), shutdownExecutor);
+                Class<?> executorFactoryClazz = classLoader.loadClass(ExecutorFactory.class.getName());
+                Object factory =
+                      classLoader.loadClass(ExecutorFactory.Default.class.getName())
+                                 .getDeclaredConstructor(ClassLoader.class, ThreadGroup.class, Thread.UncaughtExceptionHandler.class)
+                                 .newInstance(classLoader, threadGroup, (Thread.UncaughtExceptionHandler) (th, e) -> th.getThreadGroup().uncaughtException(th, e));
+                classLoader.loadClass(ExecutorFactory.Global.class.getName())
+                           .getDeclaredMethod("unsafeSet", executorFactoryClazz)
+                           .invoke(null, factory);
             }
-            catch (InvocationTargetException e)
+            catch (ClassNotFoundException e)
             {
-                try
-                {
-                    instance = Instance.transferAdhocPropagate((SerializableTriFunction<IInstanceConfig, ClassLoader, FileSystem, Instance>)Instance::new, classLoader)
-                                       .apply(config.forVersion(version.version), classLoader, root.getFileSystem());
-                }
-                catch (InvocationTargetException e2)
-                {
-                    instance = Instance.transferAdhoc((SerializableBiFunction<IInstanceConfig, ClassLoader, Instance>)Instance::new, classLoader)
-                                       .apply(config.forVersion(version.version), classLoader);
-                }
-                catch (IllegalAccessException e2)
-                {
-                    throw new RuntimeException(e);
-                }
+                //i gnore
             }
-            catch (IllegalAccessException e)
+            catch (NoSuchMethodException | InvocationTargetException | InstantiationException | IllegalAccessException e)
             {
                 throw new RuntimeException(e);
             }
 
             if (instanceInitializer != null)
-                instanceInitializer.beforeStartup(instance);
+                instanceInitializer.initialise(classLoader, threadGroup, config.num(), generation);
 
-            return instance;
+            AtomicReference<IInvokableInstance> instance = new AtomicReference<>();
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            Condition done = newOneTimeCondition();
+            new Thread(threadGroup, () -> {
+                IInvokableInstance i = null;
+                try
+                {
+                    i = Instance.transferAdhocPropagate((SerializableQuadFunction<IInstanceConfig, ClassLoader, FileSystem, ShutdownExecutor, Instance>)Instance::new, classLoader)
+                                       .apply(config.forVersion(version.version), classLoader, root.getFileSystem(), shutdownExecutor);
+                }
+                catch (InvocationTargetException e)
+                {
+                    try
+                    {
+                        i = Instance.transferAdhocPropagate((SerializableTriFunction<IInstanceConfig, ClassLoader, FileSystem, Instance>)Instance::new, classLoader)
+                                           .apply(config.forVersion(version.version), classLoader, root.getFileSystem());
+                    }
+                    catch (InvocationTargetException e2)
+                    {
+                        i = Instance.transferAdhoc((SerializableBiFunction<IInstanceConfig, ClassLoader, Instance>)Instance::new, classLoader)
+                                           .apply(config.forVersion(version.version), classLoader);
+                    }
+                    catch (Throwable t)
+                    {
+                        failure.set(t);
+                    }
+                }
+                catch (Throwable t)
+                {
+                    failure.set(t);
+                }
+                finally
+                {
+                    instance.set(i);
+                    done.signal();
+                }
+            }, "node" + config.num() + "-" + generation + "-instantiator").start();
+
+            done.awaitThrowUncheckedOnInterrupt();
+            if (failure.get() != null)
+                throw new RuntimeException(failure.get());
+            else if (instance.get() == null)
+                throw new IllegalStateException();
+
+            if (instanceInitializer != null)
+                instanceInitializer.beforeStartup(instance.get());
+
+            return instance.get();
         }
 
         public Executor executorFor(int verb)
@@ -964,8 +1015,6 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
     public void startup()
     {
-        previousHandler = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler(this::uncaughtExceptions);
         try (AllMembersAliveMonitor monitor = new AllMembersAliveMonitor())
         {
             monitor.startPolling();
@@ -997,25 +1046,6 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         }
     }
 
-    private void uncaughtExceptions(Thread thread, Throwable error)
-    {
-        if (!(thread.getContextClassLoader() instanceof InstanceClassLoader))
-        {
-            Thread.UncaughtExceptionHandler handler = previousHandler;
-            if (null != handler)
-                handler.uncaughtException(thread, error);
-            return;
-        }
-
-        InstanceClassLoader cl = (InstanceClassLoader) thread.getContextClassLoader();
-        get(cl.getInstanceId()).uncaughtException(thread, error);
-
-        BiPredicate<Integer, Throwable> ignore = ignoreUncaughtThrowable;
-        I instance = get(cl.getInstanceId());
-        if ((ignore == null || !ignore.test(cl.getInstanceId(), error)) && instance != null && !instance.isShutdown())
-            uncaughtExceptions.add(error);
-    }
-
     @Override
     public void setUncaughtExceptionsFilter(BiPredicate<Integer, Throwable> ignoreUncaughtThrowable)
     {
@@ -1037,8 +1067,6 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         // Make sure to only delete directory when threads are stopped
         if (Files.exists(root))
             PathUtils.deleteRecursive(root);
-        Thread.setDefaultUncaughtExceptionHandler(previousHandler);
-        previousHandler = null;
         checkAndResetUncaughtExceptions();
         //checkForThreadLeaks();
         //withThreadLeakCheck(futures);

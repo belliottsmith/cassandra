@@ -61,8 +61,6 @@ public class ExecutionFailure
             {
                 Thread thread = Thread.currentThread();
                 Thread.UncaughtExceptionHandler handler = thread.getUncaughtExceptionHandler();
-                if (handler == null || handler.equals(thread.getThreadGroup()))
-                    handler = JVMStabilityInspector::uncaughtException;
                 handler.uncaughtException(thread, t);
             }
         }
