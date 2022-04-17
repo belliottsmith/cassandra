@@ -145,8 +145,6 @@ public class Config
     @Replaces(oldName = "truncate_request_timeout_in_ms", converter = Converters.MILLIS_DURATION, deprecated = true)
     public volatile SmallestDurationMilliseconds truncate_request_timeout = new SmallestDurationMilliseconds("60000ms");
 
-    public volatile Long repair_request_timeout_in_ms = 120000L;
-
     public Integer streaming_connections_per_host = 1;
     @Replaces(oldName = "streaming_keep_alive_period_in_secs", converter = Converters.SECONDS_DURATION, deprecated = true)
     public SmallestDurationSeconds streaming_keep_alive_period = new SmallestDurationSeconds("300s");

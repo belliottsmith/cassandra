@@ -6645,17 +6645,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return cfs.getPaxosRepairHistory().ballotForToken(dk.getToken()).toString();
     }
 
-    public Long getRepairRpcTimeout()
-    {
-        return DatabaseDescriptor.getRepairRpcTimeout();
-    }
-
-    public void setRepairRpcTimeout(Long timeoutInMillis)
-    {
-        Preconditions.checkState(timeoutInMillis > 0);
-        DatabaseDescriptor.setRepairRpcTimeout(timeoutInMillis);
-        logger.info("RepairRpcTimeout set to {}ms via JMX", timeoutInMillis);
-    }
     public void evictHungRepairs()
     {
         logger.info("StorageService#clearPaxosRateLimiters called via jmx");
