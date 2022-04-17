@@ -992,12 +992,6 @@ public class Config
     public String paxos_contention_min_delta;
 
     /**
-     * The amount of disk space paxos uncommitted key files can consume before we begin automatically scheduling paxos repairs.
-     * Note that these repairs are uncoordinated and so do not contribute to expunging system.paxos records.
-     */
-    public volatile int paxos_auto_repair_threshold_mb = 32;
-
-    /**
      * The number of keys we may simultaneously attempt to finish incomplete paxos operations for.
      */
     public volatile int paxos_repair_parallelism = -1;
