@@ -385,10 +385,10 @@ public class Config
     public String endpoint_snitch;
     public boolean dynamic_snitch = true;
     @Replaces(oldName = "dynamic_snitch_update_interval_in_ms", converter = Converters.MILLIS_DURATION, deprecated = true)
-    public SmallestDurationMilliseconds dynamic_snitch_update_interval = new SmallestDurationMilliseconds("100ms");
+    public volatile SmallestDurationMilliseconds dynamic_snitch_update_interval = new SmallestDurationMilliseconds("100ms");
     @Replaces(oldName = "dynamic_snitch_reset_interval_in_ms", converter = Converters.MILLIS_DURATION, deprecated = true)
-    public SmallestDurationMilliseconds dynamic_snitch_reset_interval = new SmallestDurationMilliseconds("10m");
-    public double dynamic_snitch_badness_threshold = 1.0;
+    public volatile SmallestDurationMilliseconds dynamic_snitch_reset_interval = new SmallestDurationMilliseconds("10m");
+    public volatile double dynamic_snitch_badness_threshold = 1.0;
 
     public String failure_detector = "FailureDetector";
 
