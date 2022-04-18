@@ -311,9 +311,9 @@ public class Config
 
     public String endpoint_snitch;
     public boolean dynamic_snitch = true;
-    public int dynamic_snitch_update_interval_in_ms = 100;
-    public int dynamic_snitch_reset_interval_in_ms = 600000;
-    public double dynamic_snitch_badness_threshold = 1.0;
+    public volatile int dynamic_snitch_update_interval_in_ms = 100;
+    public volatile int dynamic_snitch_reset_interval_in_ms = 600000;
+    public volatile double dynamic_snitch_badness_threshold = 1.0;
 
     public String failure_detector = "FailureDetector";
 
