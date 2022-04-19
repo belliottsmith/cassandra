@@ -203,7 +203,7 @@ public class PreviewFalsePositiveTest extends AbstractRepairTest
                                                    KEYSPACE,
                                                    TABLE,
                                                    Collections.singleton(RANGE1)),
-                                 Collections.singletonList(new SyncStat(new SyncNodePair(PARTICIPANT1, PARTICIPANT2), 1L))));
+                                 Collections.singletonList(new SyncStat(new SyncNodePair(PARTICIPANT1, PARTICIPANT2), Collections.singleton(RANGE1)))));
             Assert.assertEquals(disabled, summary.toString(true).contains("CHRISTMAS PATCH DISABLED"));
             Assert.assertFalse(summary.toString(false).contains("CHRISTMAS PATCH DISABLED"));
         }
