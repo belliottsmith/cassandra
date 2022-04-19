@@ -26,6 +26,7 @@ import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.Int32Serializer;
 import org.apache.cassandra.utils.Int64Serializer;
+import org.apache.cassandra.utils.RangesSerializer;
 import org.apache.cassandra.utils.TimeUUID;
 import org.apache.cassandra.utils.UUIDSerializer;
 
@@ -63,7 +64,8 @@ public enum ParamType
     LOCAL_READ_SIZE_FAIL(10, "LRSF", Int64Serializer.serializer),
     LOCAL_READ_SIZE_WARN(11, "LRSW", Int64Serializer.serializer),
     ROW_INDEX_READ_SIZE_FAIL(12, "RIRSF", Int64Serializer.serializer),
-    ROW_INDEX_READ_SIZE_WARN(13, "RIRSW", Int64Serializer.serializer);
+    ROW_INDEX_READ_SIZE_WARN(13, "RIRSW", Int64Serializer.serializer),
+    SNAPSHOT_RANGES(14, "SNAPSHOT_RANGES",RangesSerializer.serializer);
 
     final int id;
     @Deprecated final String legacyAlias; // pre-4.0 we used to serialize entire param name string
