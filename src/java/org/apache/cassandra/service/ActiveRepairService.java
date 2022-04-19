@@ -132,7 +132,6 @@ import static org.apache.cassandra.utils.concurrent.CountDownLatch.newCountDownL
 @Simulate(with = MONITORS)
 public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFailureDetectionEventListener, ActiveRepairServiceMBean
 {
-
     public enum ParentRepairStatus
     {
         IN_PROGRESS, COMPLETED, FAILED
@@ -219,6 +218,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
     public void start()
     {
+        repairSuccessListeners.add(consistent.local);
         consistent.local.start();
         ScheduledExecutors.optionalTasks.scheduleAtFixedRate(consistent.local::cleanup, 0,
                                                              LocalSessions.CLEANUP_INTERVAL,

@@ -61,6 +61,7 @@ import org.apache.cassandra.repair.KeyspaceRepairManager;
 import org.apache.cassandra.repair.consistent.admin.CleanupSummary;
 import org.apache.cassandra.repair.consistent.admin.PendingStat;
 import org.apache.cassandra.repair.consistent.admin.PendingStats;
+import org.apache.cassandra.repair.messages.RepairSuccess;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.locator.InetAddressAndPort;
@@ -110,7 +111,7 @@ import static org.apache.cassandra.repair.consistent.ConsistentSession.State.*;
  * around local sessions is implemented in this class, with the LocalSession class being treated more like a simple struct,
  * in contrast with {@link CoordinatorSession}
  */
-public class LocalSessions
+public class LocalSessions implements ActiveRepairService.RepairSuccessListener
 {
     private static final Logger logger = LoggerFactory.getLogger(LocalSessions.class);
     private static final Set<Listener> listeners = new CopyOnWriteArraySet<>();
@@ -1069,6 +1070,37 @@ public class LocalSessions
     public static void unregisterListener(Listener listener)
     {
         listeners.remove(listener);
+    }
+
+    @Override
+    public void onRepairSuccess(RepairSuccess message)
+    {
+        ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(message.keyspace, message.columnFamily);
+        if (cfs == null)
+            return;
+        TableId tableId = cfs.metadata.id;
+        for (LocalSession session : sessions.values())
+        {
+            ConsistentSession.State state = session.getState();
+            if ((state == PREPARING || state == PREPARED) && session.tableIds.contains(tableId) && intersects(session.ranges, message.ranges))
+            {
+                String msg = String.format("Aborting inc repair session %s (ranges = %s) due to " +
+                                           "intersecting full repair (ranges = %s) finishing for %s.%s",
+                                           session.sessionID, session.ranges,
+                                           message.ranges, message.keyspace, message.columnFamily);
+                logger.warn(msg);
+                failSession(session.sessionID, true);
+                break;
+            }
+        }
+    }
+
+    private boolean intersects(Iterable<Range<Token>> r1, Iterable<Range<Token>> r2)
+    {
+        for (Range<Token> r : r1)
+            if (r.intersects(r2))
+                return true;
+        return false;
     }
 
     public interface Listener
