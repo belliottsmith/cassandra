@@ -257,6 +257,7 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
 
     public void start()
     {
+        repairSuccessListeners.add(consistent.local);
         consistent.local.start();
         this.irCleanup = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(consistent.local::cleanup, 0,
                                                                               LocalSessions.CLEANUP_INTERVAL,
