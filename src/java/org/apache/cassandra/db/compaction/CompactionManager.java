@@ -110,6 +110,8 @@ import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
 public class CompactionManager implements CompactionManagerMBean
 {
     public static final String MBEAN_OBJECT_NAME = "org.apache.cassandra.db:type=CompactionManager";
+    private static boolean AVOID_ANTICOMPACTING_MUTATING_METADATA
+        = Boolean.getBoolean("cassandra.avoid_anticompaction_mutating_metadata");
     private static final Logger logger = LoggerFactory.getLogger(CompactionManager.class);
     public static final CompactionManager instance;
 
@@ -124,6 +126,12 @@ public class CompactionManager implements CompactionManagerMBean
         instance = new CompactionManager();
 
         MBeanWrapper.instance.registerMBean(instance, MBEAN_OBJECT_NAME);
+    }
+
+    @VisibleForTesting
+    public static void setAvoidAnticompactingMutatingMetadataUnsafe(boolean v)
+    {
+        AVOID_ANTICOMPACTING_MUTATING_METADATA = v;
     }
 
     private final CompactionExecutor executor = new CompactionExecutor();
@@ -935,7 +943,7 @@ public class CompactionManager implements CompactionManagerMBean
             for (Range<Token> r : normalizedRanges)
             {
                 // ranges are normalized - no wrap around - if first and last are contained we know that all tokens are contained in the range
-                if (r.contains(sstable.first.getToken()) && r.contains(sstable.last.getToken()))
+                if (!AVOID_ANTICOMPACTING_MUTATING_METADATA && r.contains(sstable.first.getToken()) && r.contains(sstable.last.getToken()))
                 {
                     logger.info("{} SSTable {} fully contained in range {}, mutating repairedAt instead of anticompacting", PreviewKind.NONE.logPrefix(parentRepairSession), sstable, r);
                     fullyContainedSSTables.add(sstable);
