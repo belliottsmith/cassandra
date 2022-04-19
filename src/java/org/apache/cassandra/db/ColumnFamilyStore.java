@@ -1606,6 +1606,7 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean, Memtable.Owner
     public void addSSTables(Collection<SSTableReader> sstables)
     {
         data.addSSTables(sstables);
+        logger.debug("Adding sstables {}", sstables);
         CompactionManager.instance.submitBackground(this);
     }
 
