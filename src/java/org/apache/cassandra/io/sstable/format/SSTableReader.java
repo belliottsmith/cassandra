@@ -33,6 +33,7 @@ import com.google.common.collect.Ordering;
 import com.google.common.primitives.Longs;
 import com.google.common.util.concurrent.RateLimiter;
 
+import jdk.nashorn.internal.objects.Global;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.db.rows.UnfilteredSource;
 import org.apache.cassandra.concurrent.ExecutorPlus;
@@ -2185,7 +2186,9 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
 
         public void tidy()
         {
-            lookup.remove(desc);
+            Ref<GlobalTidy> ref = lookup.get(desc);
+            if (!ref.refers(this) || !lookup.remove(desc, ref))
+                return; // raced with a new Ref being created for the SSTableReader
 
             if (obsoletion != null)
                 obsoletion.run();
@@ -2214,6 +2217,7 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
                     Ref<GlobalTidy> ex = lookup.putIfAbsent(descriptor, ref);
                     if (ex == null)
                         return ref;
+                    ref.cancel();
                     ref = ex;
                 }
 
@@ -2221,8 +2225,25 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
                 if (newRef != null)
                     return newRef;
 
-                // raced with tidy
-                lookup.remove(descriptor, ref);
+                // raced with tidy, see if we can cancel its obsoletion and
+                GlobalTidy prev = ref.get();
+                if (prev == null)
+                    continue;
+
+                // make sure we propagate the obsoletion, if any.
+                // we're in bug territory here if this is non-null, and if the ref is marked compacted
+                // an exception will be thrown, but it's better to ensure the obsoletion is run
+                final GlobalTidy tidy = new GlobalTidy(descriptor);
+                Runnable obsoletion = prev.obsoletion;
+                tidy.obsoletion = obsoletion;
+                newRef = new Ref<>(tidy, tidy);
+                if (lookup.replace(descriptor, ref, newRef))
+                {
+                    if (obsoletion != null)
+                        logger.error("A new Ref was created to an SSTableReader that had been obsoleted and had all of its extant references released, but not yet tidied");
+                    return newRef;
+                }
+                newRef.cancel();
             }
         }
     }

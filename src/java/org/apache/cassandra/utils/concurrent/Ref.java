@@ -128,6 +128,15 @@ public final class Ref<T> implements RefCounted<T>
         state.release(false);
     }
 
+    /**
+     * Must be called at most once, with mutual exclusion, when this Ref was created erroneously and is
+     * being discarded.
+     */
+    public void cancel()
+    {
+        state.cancel();
+    }
+
     public Throwable ensureReleased(Throwable accumulate)
     {
         return state.ensureReleased(accumulate);
@@ -255,6 +264,13 @@ public final class Ref<T> implements RefCounted<T>
                 logger.error("Error when closing {}", globalState, fail);
         }
 
+        void cancel()
+        {
+            if (!releasedUpdater.compareAndSet(this, 0, 1))
+                throw new IllegalStateException();
+            globalState.cancel(this);
+        }
+
         @Override
         public String toString()
         {
@@ -354,6 +370,16 @@ public final class Ref<T> implements RefCounted<T>
                 }
             }
             return accumulate;
+        }
+
+        void cancel(Ref.State ref)
+        {
+            if (!locallyExtant.remove(ref))
+                throw new IllegalStateException();
+            if (-1 != counts.decrementAndGet())
+                throw new IllegalStateException();
+
+            globallyExtant.remove(this);
         }
 
         int count()
