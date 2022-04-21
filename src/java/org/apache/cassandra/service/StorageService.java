@@ -6625,7 +6625,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public Long getRepairRpcTimeout()
     {
-        return DatabaseDescriptor.getRepairRpcTimeout();
+        return DatabaseDescriptor.getRepairRpcTimeout(MILLISECONDS);
     }
 
     public void setRepairRpcTimeout(Long timeoutInMillis)
