@@ -2033,7 +2033,7 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
             this.dfile = reader.dfile;
             this.ifile = reader.ifile;
             // get a new reference to the shared descriptor-type tidy
-            this.globalRef = GlobalTidy.get(reader);
+            this.globalRef = GlobalTidy.get(reader.descriptor);
             this.global = globalRef.get();
             if (trackHotness)
                 global.ensureReadMeter();
@@ -2138,9 +2138,9 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
         // shared state managing if the logical sstable has been compacted; this is used in cleanup
         private volatile Runnable obsoletion;
 
-        GlobalTidy(final SSTableReader reader)
+        GlobalTidy(Descriptor descriptor)
         {
-            this.desc = reader.descriptor;
+            this.desc = descriptor;
         }
 
         void ensureReadMeter()
@@ -2202,16 +2202,14 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
 
         // get a new reference to the shared GlobalTidy for this sstable
         @SuppressWarnings("resource")
-        public static Ref<GlobalTidy> get(SSTableReader sstable)
+        public static Ref<GlobalTidy> get(Descriptor descriptor)
         {
-            Descriptor descriptor = sstable.descriptor;
-
             while (true)
             {
                 Ref<GlobalTidy> ref = lookup.get(descriptor);
                 if (ref == null)
                 {
-                    final GlobalTidy tidy = new GlobalTidy(sstable);
+                    final GlobalTidy tidy = new GlobalTidy(descriptor);
                     ref = new Ref<>(tidy, tidy);
                     Ref<GlobalTidy> ex = lookup.putIfAbsent(descriptor, ref);
                     if (ex == null)
