@@ -1782,6 +1782,16 @@ public class DatabaseDescriptor
         conf.truncate_request_timeout = SmallestDurationMilliseconds.inMilliseconds(timeOutInMillis);
     }
 
+    public static long getRepairRpcTimeout()
+    {
+        return conf.repair_request_timeout_in_ms;
+    }
+
+    public static void setRepairRpcTimeout(Long timeOutInMillis)
+    {
+        conf.repair_request_timeout_in_ms = timeOutInMillis;
+    }
+
     public static boolean hasCrossNodeTimeout()
     {
         return conf.internode_timeout;

@@ -974,6 +974,9 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     String getPaxosBallotLowBound(String keyspace, String table, String key);
 
+    public Long getRepairRpcTimeout();
+    public void setRepairRpcTimeout(Long timeoutInMillis);
+
     public void evictHungRepairs();
     public void clearPaxosRepairs();
     public void setSkipPaxosRepairCompatibilityCheck(boolean v);
