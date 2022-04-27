@@ -18,10 +18,8 @@
 
 package org.apache.cassandra.cql3.statements;
 
-import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -49,8 +47,8 @@ import org.apache.cassandra.db.view.View;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.exceptions.RequestValidationException;
-import org.apache.cassandra.exceptions.UnauthorizedException;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.metrics.ClientRequestSizeMetrics;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
@@ -125,7 +123,9 @@ public class SelectSizeStatement implements CQLStatement
 
         cl.validateForRead();
 
-        return executeInternal(state, options, queryStartNanoTime);
+        ResultMessage.Rows rows = executeInternal(state, options, queryStartNanoTime);
+        ClientRequestSizeMetrics.recordReadResponseMetrics(rows, null);
+        return rows;
     }
 
     public ResultMessage.Rows executeLocally(QueryState state, QueryOptions options) throws RequestExecutionException, RequestValidationException

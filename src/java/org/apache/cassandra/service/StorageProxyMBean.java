@@ -213,4 +213,7 @@ public interface StorageProxyMBean
 
     boolean getSStableReadRatePersistenceEnabled();
     void setSStableReadRatePersistenceEnabled(boolean enabled);
+
+    boolean getClientRequestSizeMetricsEnabled();
+    void setClientRequestSizeMetricsEnabled(boolean enabled);
 }
