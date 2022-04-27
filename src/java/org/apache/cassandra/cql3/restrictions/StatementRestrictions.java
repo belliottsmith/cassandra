@@ -376,6 +376,53 @@ public final class StatementRestrictions
     }
 
     /**
+     * This method determines whether a specified column is restricted on equality or something equivalent, like IN.
+     * It can be used in conjunction with the columns selected by a query to determine which of those columns is 
+     * already bound by the client and not necessarily retrieved by the database.
+     *
+     * @param column a column specification from the same table these restrictions are against
+     *
+     * @return true if the given column is restricted on equality
+     */
+    public boolean isEqualityRestricted(ColumnSpecification column)
+    {
+        if (partitionKeyRestrictions.hasOnlyEqualityRestrictions())
+            for (ColumnMetadata definition : partitionKeyRestrictions.getColumnDefinitions())
+                if (definition.name.equals(column.name))
+                    return true;
+
+        for (SingleRestriction restriction : clusteringColumnsRestrictions.getRestrictionSet())
+        {
+            if (restriction.isEQ() || restriction.isIN())
+            {
+                if (restriction.isMultiColumn())
+                {
+                    for (ColumnMetadata definition : restriction.getColumnDefs())
+                        if (definition.name.equals(column.name))
+                            return true;
+                }
+                else if (restriction.getFirstColumn().name.equals(column.name))
+                    return true;
+            }
+        }
+
+        for (SingleRestriction restriction : nonPrimaryKeyRestrictions)
+            if (restriction.getFirstColumn().name.equals(column.name) && (restriction.isEQ() || restriction.isIN()))
+                return true;
+
+        return false;
+    }
+
+    /**
+     * @return the total number of primary key and non-primary key columns restricted 
+     */
+    public int totalRestrictionCount()
+    {
+        // TODO: How much of the allocation optimizations do we need to pull for getColumnDefs() and size()?
+        return partitionKeyRestrictions.size() + clusteringColumnsRestrictions.size() + nonPrimaryKeyRestrictions.size();
+    }
+
+    /**
      * Returns the <code>Restrictions</code> for the specified type of columns.
      *
      * @param kind the column type

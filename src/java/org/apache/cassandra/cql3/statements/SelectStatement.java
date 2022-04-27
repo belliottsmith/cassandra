@@ -64,12 +64,9 @@ import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.view.View;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.exceptions.*;
+import org.apache.cassandra.metrics.ClientRequestSizeMetrics;
 import org.apache.cassandra.index.IndexRegistry;
-import org.apache.cassandra.schema.ColumnMetadata;
-import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
-import org.apache.cassandra.schema.TableMetadata;
-import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.ClientWarn;
@@ -300,20 +297,29 @@ public class SelectStatement implements CQLStatement.SingleKeyspaceCqlStatement
 
         if (options.isTrackWarningsEnabled())
             query.trackWarnings();
+        ResultMessage.Rows rows;
 
         if (aggregationSpec == null && (pageSize <= 0 || (query.limits().count() <= pageSize)))
-            return execute(query, options, state, selectors, nowInSec, userLimit, queryStartNanoTime);
+        {
+            rows = execute(query, options, state, selectors, nowInSec, userLimit, queryStartNanoTime);
+        }
+        else
+        {
+            QueryPager pager = getPager(query, options);
 
-        QueryPager pager = getPager(query, options);
+            rows = execute(state,
+                           Pager.forDistributedQuery(pager, cl, state.getClientState()),
+                           options,
+                           selectors,
+                           pageSize,
+                           nowInSec,
+                           userLimit,
+                           queryStartNanoTime);
+        }
+        if (!SchemaConstants.isSystemKeyspace(table.keyspace))
+            ClientRequestSizeMetrics.recordReadResponseMetrics(rows, restrictions);
 
-        return execute(state,
-                       Pager.forDistributedQuery(pager, cl, state.getClientState()),
-                       options,
-                       selectors,
-                       pageSize,
-                       nowInSec,
-                       userLimit,
-                       queryStartNanoTime);
+        return rows;
     }
 
     public ReadQuery getQuery(QueryOptions options, int nowInSec) throws RequestValidationException

@@ -46,11 +46,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.Uninterruptibles;
 
-import org.apache.cassandra.config.Config;
-import org.apache.cassandra.metrics.CassandraMetricsRegistry;
-import org.apache.cassandra.metrics.ClientMessageSizeMetrics;
-import org.apache.cassandra.service.paxos.*;
-import org.apache.cassandra.utils.concurrent.CountDownLatch;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +54,7 @@ import org.apache.cassandra.batchlog.Batch;
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -114,6 +110,9 @@ import org.apache.cassandra.locator.ReplicaPlan;
 import org.apache.cassandra.locator.ReplicaPlans;
 import org.apache.cassandra.locator.Replicas;
 import org.apache.cassandra.metrics.CASClientRequestMetrics;
+import org.apache.cassandra.metrics.CassandraMetricsRegistry;
+import org.apache.cassandra.metrics.ClientMessageSizeMetrics;
+import org.apache.cassandra.metrics.ClientRequestSizeMetrics;
 import org.apache.cassandra.metrics.DenylistMetrics;
 import org.apache.cassandra.metrics.ReadRepairMetrics;
 import org.apache.cassandra.metrics.StorageMetrics;
@@ -128,6 +127,7 @@ import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.paxos.*;
 import org.apache.cassandra.service.reads.AbstractReadExecutor;
 import org.apache.cassandra.service.reads.PartitionSizeCallback;
 import org.apache.cassandra.service.reads.ReadCallback;
@@ -144,6 +144,7 @@ import org.apache.cassandra.utils.MonotonicClock;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
+import org.apache.cassandra.utils.concurrent.CountDownLatch;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
 import static com.google.common.collect.Iterables.concat;
@@ -331,6 +332,9 @@ public class StorageProxy implements StorageProxyMBean
 
                 // Create the desired updates
                 PartitionUpdate updates = request.makeUpdates(current, state);
+
+                // Update the metrics before triggers potentially add mutations.
+                ClientRequestSizeMetrics.recordRowAndColumnCountMetrics(updates);
 
                 long size = updates.dataSize();
                 casWriteMetrics.mutationSize.update(size);
@@ -3393,5 +3397,17 @@ public class StorageProxy implements StorageProxyMBean
     public void setUseStatementsEnabled(boolean enabled)
     {
         DatabaseDescriptor.setUseStatementsEnabled(enabled);
+    }
+
+    @Override
+    public boolean getClientRequestSizeMetricsEnabled()
+    {
+        return DatabaseDescriptor.getClientRequestSizeMetricsEnabled();
+    }
+
+    @Override
+    public void setClientRequestSizeMetricsEnabled(boolean enabled)
+    {
+        DatabaseDescriptor.setClientRequestSizeMetricsEnabled(enabled);
     }
 }

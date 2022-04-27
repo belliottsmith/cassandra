@@ -202,4 +202,7 @@ public interface StorageProxyMBean
 
     boolean getUseStatementsEnabled();
     void setUseStatementsEnabled(boolean enabled);
+
+    boolean getClientRequestSizeMetricsEnabled();
+    void setClientRequestSizeMetricsEnabled(boolean enabled);
 }

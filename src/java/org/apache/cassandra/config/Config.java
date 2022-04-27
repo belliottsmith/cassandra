@@ -761,6 +761,8 @@ public class Config
 
     public volatile boolean use_statements_enabled = true;
 
+    public volatile boolean client_request_size_metrics_enabled = true;
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;

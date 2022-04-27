@@ -104,6 +104,17 @@ final class RestrictionSet implements Restrictions, Iterable<SingleRestriction>
     {
         return new ArrayList<>(restrictions.keySet());
     }
+    
+    @Override
+    public Collection<ColumnMetadata> getColumnDefinitions()
+    {
+        return restrictions.keySet();
+    }
+
+    public Map<ColumnMetadata, SingleRestriction> getRestrictions()
+    {
+        return restrictions;
+    }
 
     @Override
     public void addFunctionsTo(List<Function> functions)
