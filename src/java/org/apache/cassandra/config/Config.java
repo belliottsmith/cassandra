@@ -1126,6 +1126,8 @@ public class Config
 
     public volatile boolean sstable_read_rate_persistence_enabled = false;
 
+    public volatile boolean client_request_size_metrics_enabled = true;
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;

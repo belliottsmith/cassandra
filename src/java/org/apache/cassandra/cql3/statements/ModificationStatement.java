@@ -30,6 +30,7 @@ import org.apache.cassandra.db.guardrails.Guardrails;
 import org.apache.cassandra.db.marshal.ValueAccessor;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.ViewMetadata;
 import org.apache.cassandra.cql3.*;
@@ -48,6 +49,7 @@ import org.apache.cassandra.db.partitions.*;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.view.View;
 import org.apache.cassandra.exceptions.*;
+import org.apache.cassandra.metrics.ClientRequestSizeMetrics;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageProxy;
@@ -488,7 +490,12 @@ public abstract class ModificationStatement implements CQLStatement.SingleKeyspa
                          options.getNowInSeconds(queryState),
                          queryStartNanoTime);
         if (!mutations.isEmpty())
+        {
             StorageProxy.mutateWithTriggers(mutations, cl, false, queryStartNanoTime);
+
+            if (!SchemaConstants.isSystemKeyspace(metadata.keyspace))
+                ClientRequestSizeMetrics.recordRowAndColumnCountMetrics(mutations);
+        }
 
         return null;
     }

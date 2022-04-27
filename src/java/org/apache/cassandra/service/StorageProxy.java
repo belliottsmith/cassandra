@@ -60,6 +60,7 @@ import org.apache.cassandra.batchlog.Batch;
 import org.apache.cassandra.batchlog.BatchlogManager;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -115,6 +116,7 @@ import org.apache.cassandra.locator.ReplicaPlan;
 import org.apache.cassandra.locator.ReplicaPlans;
 import org.apache.cassandra.locator.Replicas;
 import org.apache.cassandra.metrics.CASClientRequestMetrics;
+import org.apache.cassandra.metrics.ClientRequestSizeMetrics;
 import org.apache.cassandra.metrics.DenylistMetrics;
 import org.apache.cassandra.metrics.ReadRepairMetrics;
 import org.apache.cassandra.metrics.StorageMetrics;
@@ -361,6 +363,9 @@ public class StorageProxy implements StorageProxyMBean
 
                 // Create the desired updates
                 PartitionUpdate updates = request.makeUpdates(current, clientState, ballot);
+
+                // Update the metrics before triggers potentially add mutations.
+                ClientRequestSizeMetrics.recordRowAndColumnCountMetrics(updates);
 
                 long size = updates.dataSize();
                 casWriteMetrics.mutationSize.update(size);
@@ -1686,8 +1691,8 @@ public class StorageProxy implements StorageProxyMBean
             // we build this ONLY to perform the sufficiency check that happens on construction
             ReplicaPlans.forWrite(keyspace, cm.consistency(), tk, ReplicaPlans.writeAll);
 
-            // This host isn't a replica, so mark the request as being remote. If this host is a 
-            // replica, applyCounterMutationOnCoordinator() in the branch above will call performWrite(), and 
+            // This host isn't a replica, so mark the request as being remote. If this host is a
+            // replica, applyCounterMutationOnCoordinator() in the branch above will call performWrite(), and
             // there we'll mark a local request against the metrics.
             writeMetrics.remoteRequests.mark();
 
@@ -3507,5 +3512,17 @@ public class StorageProxy implements StorageProxyMBean
     public void setSStableReadRatePersistenceEnabled(boolean enabled)
     {
         DatabaseDescriptor.setSStableReadRatePersistenceEnabled(enabled);
+    }
+
+    @Override
+    public boolean getClientRequestSizeMetricsEnabled()
+    {
+        return DatabaseDescriptor.getClientRequestSizeMetricsEnabled();
+    }
+
+    @Override
+    public void setClientRequestSizeMetricsEnabled(boolean enabled)
+    {
+        DatabaseDescriptor.setClientRequestSizeMetricsEnabled(enabled);
     }
 }
