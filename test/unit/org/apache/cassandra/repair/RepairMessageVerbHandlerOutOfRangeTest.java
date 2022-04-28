@@ -197,7 +197,7 @@ public class RepairMessageVerbHandlerOutOfRangeTest
         long startMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
         MessagingService.instance().outboundSink.clear();
         MessagingService.instance().inboundSink.clear();
-        ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink(true);
+        ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink(Verb.REPAIR_RSP);
         RepairMessageVerbHandler handler = new RepairMessageVerbHandler();
         int messageId = randomInt();
         // message must be prepared first as validate checks it is registered.
@@ -205,7 +205,6 @@ public class RepairMessageVerbHandlerOutOfRangeTest
         ActiveRepairService.instance.register(new ParticipateState(node1, prepare));
         Message<RepairMessage> message = Message.builder(Verb.VALIDATION_REQ, (RepairMessage)request).from(node1).withId(messageId).build();
         handler.doVerb(message);
-        // Then sends the real response
         MessageDelivery response = messageSink.get(500, TimeUnit.MILLISECONDS);
         assertEquals(Verb.VALIDATION_RSP, response.message.verb());
         assertEquals(broadcastAddress, response.message.from());
@@ -221,7 +220,7 @@ public class RepairMessageVerbHandlerOutOfRangeTest
         long startMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
         MessagingService.instance().outboundSink.clear();
         MessagingService.instance().inboundSink.clear();
-        ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink(false);
+        ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
         RepairMessageVerbHandler handler = new RepairMessageVerbHandler();
         int messageId = randomInt();
         Message<RepairMessage> message = Message.builder(Verb.PREPARE_MSG, (RepairMessage)prepare).from(node1).withId(messageId).build();

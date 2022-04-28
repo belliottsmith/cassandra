@@ -48,6 +48,7 @@ import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.exceptions.RequestValidationException;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.metrics.ClientRequestSizeMetrics;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
@@ -122,7 +123,9 @@ public class SelectSizeStatement implements CQLStatement
 
         cl.validateForRead();
 
-        return executeInternal(state, options, queryStartNanoTime);
+        ResultMessage.Rows rows = executeInternal(state, options, queryStartNanoTime);
+        ClientRequestSizeMetrics.recordReadResponseMetrics(rows, null);
+        return rows;
     }
 
     public ResultMessage.Rows executeLocally(QueryState state, QueryOptions options) throws RequestExecutionException, RequestValidationException

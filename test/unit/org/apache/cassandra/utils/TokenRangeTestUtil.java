@@ -23,10 +23,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 
@@ -140,22 +142,15 @@ public class TokenRangeTestUtil
         return new ByteOrderedPartitioner.BytesToken(ByteBufferUtil.bytes(token));
     }
 
-    public static ListenableFuture<MessageDelivery> registerOutgoingMessageSink()
-    {
-        return registerOutgoingMessageSink(true);
-    }
-
-    public static ListenableFuture<MessageDelivery> registerOutgoingMessageSink(boolean dropFirstRepairRsp)
+    public static ListenableFuture<MessageDelivery> registerOutgoingMessageSink(Verb... ignored)
     {
         final SettableFuture<MessageDelivery> future = SettableFuture.create();
-
+        Set<Verb> ignore = Sets.newHashSet(ignored);
         MessagingService.instance().outboundSink.clear();
         MessagingService.instance().outboundSink.add((Message<?> message, InetAddressAndPort to) ->
             {
-                // Pots-CASSANDRA-17613 repair always returns with an immediate REPAIR_RSP
-                if (dropFirstRepairRsp && message.verb() == Verb.REPAIR_RSP)
-                    return true;
-                future.set(new MessageDelivery(message, to));
+                if (!ignore.contains(message.verb()))
+                    future.set(new MessageDelivery(message, to));
                 return true;
             });
 
