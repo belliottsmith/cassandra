@@ -63,7 +63,8 @@ builds:
   #
   # Pull request builder
   #
-  - group: ghprb
+  - &prb_unit
+    group: ghprb
     jenkins:
       concurrentBuild: true
       throttlingEnabled: true
@@ -78,7 +79,7 @@ builds:
     build:
       template: freestyle:v4:prb
       steps:
-        - ./rio/parallel-tests-step.sh snapshot
+        - ./rio/parallel-tests-step.sh unit
     timeout: 180
     reports:
       junit:
@@ -89,6 +90,19 @@ builds:
           - unified-output/**/build/test/logs/**/*
           - parallel-output/**/*
 
+  - <<: *prb_unit
+    group: ghprb-jvm-dtest
+    build:
+      template: freestyle:v4:prb
+      steps:
+        - ./rio/parallel-tests-step.sh jvm-dtest
+
+  - <<: *prb_unit
+    group: ghprb-jvm-dtest-upgrade
+    build:
+      template: freestyle:v4:prb
+      steps:
+        - ./rio/parallel-tests-step.sh jvm-dtest-upgrade
   #
   # Pull request builder triggering python dtests
   #
