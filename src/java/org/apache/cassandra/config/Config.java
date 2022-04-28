@@ -152,6 +152,7 @@ public class Config
     @Replaces(oldName = "truncate_request_timeout_in_ms", converter = Converters.MILLIS_DURATION_LONG, deprecated = true)
     public volatile DurationSpec.LongMillisecondsBound truncate_request_timeout = new DurationSpec.LongMillisecondsBound("60000ms");
 
+    @Replaces(oldName = "repair_message_timeout_in_ms", converter = Converters.MILLIS_DURATION_LONG, deprecated = true)
     public volatile DurationSpec.LongMillisecondsBound repair_request_timeout = new DurationSpec.LongMillisecondsBound("120000ms");
 
     public Integer streaming_connections_per_host = 1;
@@ -1161,6 +1162,8 @@ public class Config
     public volatile boolean top_partitions_enabled = true;
 
     public volatile boolean sstable_read_rate_persistence_enabled = false;
+
+    public volatile boolean client_request_size_metrics_enabled = true;
 
     public static Supplier<Config> getOverrideLoadConfig()
     {

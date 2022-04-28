@@ -4853,4 +4853,14 @@ public class DatabaseDescriptor
             conf.sstable_read_rate_persistence_enabled = enabled;
         }
     }
+
+    public static boolean getClientRequestSizeMetricsEnabled()
+    {
+        return conf.client_request_size_metrics_enabled;
+    }
+
+    public static void setClientRequestSizeMetricsEnabled(boolean enabled)
+    {
+        conf.client_request_size_metrics_enabled = enabled;
+    }
 }
