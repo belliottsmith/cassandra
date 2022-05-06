@@ -50,4 +50,7 @@ public interface ActiveRepairServiceMBean
      * @return current size of the internal cache holding {@link ActiveRepairService.ParentRepairSession} instances
      */
     int parentRepairSessionsCount();
+
+    void setRepairMessageTimeoutMillis(long timeoutMillis);
+    long getRepairMessageTimeoutMillis();
 }

@@ -190,7 +190,7 @@ public class RepairMessageVerbHandlerOutOfRangeTest
         long startMetricCount = StorageMetrics.totalOpsForInvalidToken.getCount();
         MessagingService.instance().outboundSink.clear();
         MessagingService.instance().inboundSink.clear();
-        ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink();
+        ListenableFuture<MessageDelivery> messageSink = registerOutgoingMessageSink(Verb.REPAIR_RSP);
         RepairMessageVerbHandler handler = new RepairMessageVerbHandler();
         int messageId = randomInt();
         Message<RepairMessage> message = Message.builder(Verb.VALIDATION_REQ, (RepairMessage)request).from(node1).withId(messageId).build();
