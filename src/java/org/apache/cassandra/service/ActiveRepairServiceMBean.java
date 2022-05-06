@@ -57,4 +57,7 @@ public interface ActiveRepairServiceMBean
     int parentRepairSessionsCount();
     public int getPaxosRepairParallelism();
     public void setPaxosRepairParallelism(int v);
+
+    void setRepairMessageTimeoutMillis(long timeoutMillis);
+    long getRepairMessageTimeoutMillis();
 }

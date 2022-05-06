@@ -23,11 +23,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 
@@ -40,6 +42,7 @@ import org.apache.cassandra.locator.RangesAtEndpoint;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.service.StorageService;
 
 import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
@@ -140,14 +143,15 @@ public class TokenRangeTestUtil
         return new ByteOrderedPartitioner.BytesToken(ByteBufferUtil.bytes(token));
     }
 
-    public static ListenableFuture<MessageDelivery> registerOutgoingMessageSink()
+    public static ListenableFuture<MessageDelivery> registerOutgoingMessageSink(Verb... ignored)
     {
         final SettableFuture<MessageDelivery> future = SettableFuture.create();
-
+        Set<Verb> ignore = Sets.newHashSet(ignored);
         MessagingService.instance().outboundSink.clear();
         MessagingService.instance().outboundSink.add((Message<?> message, InetAddressAndPort to) ->
             {
-                future.set(new MessageDelivery(message, to));
+                if (!ignore.contains(message.verb()))
+                    future.set(new MessageDelivery(message, to));
                 return true;
             });
 
