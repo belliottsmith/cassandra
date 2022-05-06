@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import com.google.common.base.Joiner;
@@ -185,6 +186,8 @@ public class Config
     public volatile Integer repair_session_max_tree_depth = null;
     @Replaces(oldName = "repair_session_space_in_mb", converter = Converters.MEBIBYTES_DATA_STORAGE, deprecated = true)
     public volatile SmallestDataStorageMebibytes repair_session_space = null;
+
+    public volatile long repair_message_timeout_in_ms = TimeUnit.MILLISECONDS.convert(1, TimeUnit.MINUTES);
 
     public volatile boolean use_offheap_merkle_trees = true;
 
