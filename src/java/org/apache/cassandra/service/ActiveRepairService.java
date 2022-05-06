@@ -1185,4 +1185,15 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
     {
         void onRepairSuccess(RepairSuccess message);
     }
+
+    public void setRepairMessageTimeoutMillis(long timeoutMillis)
+    {
+        logger.info("Setting repair message timeout to {}ms", timeoutMillis);
+        DatabaseDescriptor.setRepairRpcTimeout(timeoutMillis);
+    }
+
+    public long getRepairMessageTimeoutMillis()
+    {
+        return DatabaseDescriptor.getRepairRpcTimeout(TimeUnit.MILLISECONDS);
+    }
 }
