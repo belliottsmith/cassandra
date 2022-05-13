@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -49,14 +50,19 @@ public class DisallowedDirectories implements DisallowedDirectoriesMBean
         MBeanWrapper.instance.registerMBean(this, MBEAN_NAME, MBeanWrapper.OnException.LOG);
     }
 
-    public Set<File> getUnreadableDirectories()
+    public Set<java.io.File> getUnreadableDirectories()
     {
-        return Collections.unmodifiableSet(unreadableDirectories);
+        return toJmx(unreadableDirectories);
     }
 
-    public Set<File> getUnwritableDirectories()
+    public Set<java.io.File> getUnwritableDirectories()
     {
-        return Collections.unmodifiableSet(unwritableDirectories);
+        return toJmx(unwritableDirectories);
+    }
+
+    private static Set<java.io.File> toJmx(Set<File> set)
+    {
+        return set.stream().map(f -> f.toPath().toFile()).collect(Collectors.toSet());
     }
 
     public void markUnreadable(String path)

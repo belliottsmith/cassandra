@@ -72,7 +72,7 @@ public class PrepareBatchStatementsTest extends TestBaseImpl
                 s.execute(prepared.bind(1, 1, 1, 1, 1, 1));
                 c.get(1).runOnInstance(() -> {
                     // no USE here, only a fully qualified batch - should get stored ONCE
-                    List<String> stmts = StorageService.instance.getPreparedStatements().stream().map(p -> p.right).collect(Collectors.toList());
+                    List<String> stmts = StorageService.instance.getPreparedStatements().entrySet().stream().map(p -> p.getValue()).collect(Collectors.toList());
                     assertEquals(Lists.newArrayList(batch1), stmts);
                     QueryProcessor.clearPreparedStatements(false);
                 });
@@ -82,7 +82,7 @@ public class PrepareBatchStatementsTest extends TestBaseImpl
                 s.execute(prepared.bind(1, 1, 1, 1, 1, 1));
                 c.get(1).runOnInstance(() -> {
                     // after USE, fully qualified - should get stored twice! Once with null keyspace (new behaviour) once with ks2 keyspace (old behaviour)
-                    List<String> stmts = StorageService.instance.getPreparedStatements().stream().map(p -> p.right).collect(Collectors.toList());
+                    List<String> stmts = StorageService.instance.getPreparedStatements().entrySet().stream().map(p -> p.getValue()).collect(Collectors.toList());
                     assertEquals(Lists.newArrayList(batch1, batch1), stmts);
                     QueryProcessor.clearPreparedStatements(false);
                 });
@@ -91,7 +91,7 @@ public class PrepareBatchStatementsTest extends TestBaseImpl
                 s.execute(prepared.bind(1, 1, 1, 1, 1, 1));
                 c.get(1).runOnInstance(() -> {
                     // after USE, should get stored twice, once with keyspace, once without
-                    List<String> stmts = StorageService.instance.getPreparedStatements().stream().map(p -> p.right).collect(Collectors.toList());
+                    List<String> stmts = StorageService.instance.getPreparedStatements().entrySet().stream().map(p -> p.getValue()).collect(Collectors.toList());
                     assertEquals(Lists.newArrayList(batch2, batch2), stmts);
                     QueryProcessor.clearPreparedStatements(false);
                 });

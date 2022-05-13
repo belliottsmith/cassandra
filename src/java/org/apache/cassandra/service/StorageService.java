@@ -3933,11 +3933,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         return status.statusCode;
     }
 
-    public List<Pair<String, String>> getPreparedStatements()
+    @Override
+    public Map<String, String> getPreparedStatements()
     {
-        List<Pair<String, String>> statements = new ArrayList<>();
+        Map<String, String> statements = new HashMap<>();
         for (Entry<MD5Digest, QueryHandler.Prepared> e : QueryProcessor.instance.getPreparedStatements().entrySet())
-            statements.add(Pair.create(e.getKey().toString(), e.getValue().rawCQLStatement));
+            statements.put(e.getKey().toString(), e.getValue().rawCQLStatement);
         return statements;
     }
 

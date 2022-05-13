@@ -22,6 +22,7 @@ import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.function.BiConsumer;
 
 import org.junit.Assert;
@@ -93,9 +94,9 @@ public class PstmtPersistenceTest extends CQLTester
 
         QueryHandler handler = ClientState.getCQLQueryHandler();
         validatePstmts(stmtIds, handler);
-        List<Pair<String, String>> beforeClear = StorageService.instance.getPreparedStatements();
-        for (Pair<String, String> p : beforeClear)
-            assertEquals(ClientState.getCQLQueryHandler().getPrepared(MD5Digest.wrap(Hex.hexToBytes(p.left))).rawCQLStatement, p.right);
+        Map<String, String> beforeClear = StorageService.instance.getPreparedStatements();
+        for (Map.Entry<String, String> p : beforeClear.entrySet())
+            assertEquals(ClientState.getCQLQueryHandler().getPrepared(MD5Digest.wrap(Hex.hexToBytes(p.getKey()))).rawCQLStatement, p.getValue());
 
         assertTrue(beforeClear.size() > 0);
         assertEquals(QueryProcessor.preparedStatementsCount(), beforeClear.size());
