@@ -50,10 +50,14 @@ import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.distributed.impl.AbstractCluster;
+import org.apache.cassandra.distributed.impl.DistributedTestSnitch;
 import org.apache.cassandra.distributed.impl.InstanceConfig;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Isolated;
+import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.utils.Retry;
+import org.assertj.core.api.Assertions;
 
 import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
 import static org.apache.cassandra.config.CassandraRelevantProperties.BOOTSTRAP_SCHEMA_DELAY_MS;
@@ -93,7 +97,7 @@ public class ClusterUtils
 
     /**
      * Stop an instance in a blocking manner.
-     *
+     * <p>
      * The main difference between this and {@link IInstance#shutdown()} is that the wait on the future will catch
      * the exceptions and throw as runtime.
      */
@@ -105,12 +109,12 @@ public class ClusterUtils
     /**
      * Stops an instance abruptly.  This is done by blocking all messages to/from so all other instances are unable
      * to communicate, then stopping the instance gracefully.
-     *
+     * <p>
      * The assumption is that hard stopping inbound and outbound messages will apear to the cluster as if the instance
      * was stopped via kill -9; this does not hold true if the instance is restarted as it knows it was properly shutdown.
      *
      * @param cluster to filter messages to
-     * @param inst to shut down
+     * @param inst    to shut down
      */
     public static <I extends IInstance> void stopAbrupt(ICluster<I> cluster, I inst)
     {
@@ -141,9 +145,9 @@ public class ClusterUtils
      * Create a new instance and add it to the cluster, without starting it.
      *
      * @param cluster to add to
-     * @param other config to copy from
-     * @param fn function to add to the config before starting
-     * @param <I> instance type
+     * @param other   config to copy from
+     * @param fn      function to add to the config before starting
+     * @param <I>     instance type
      * @return the instance added
      */
     public static <I extends IInstance> I addInstance(AbstractCluster<I> cluster,
@@ -157,25 +161,26 @@ public class ClusterUtils
      * Create a new instance and add it to the cluster, without starting it.
      *
      * @param cluster to add to
-     * @param dc the instance should be in
-     * @param rack the instance should be in
-     * @param <I> instance type
+     * @param dc      the instance should be in
+     * @param rack    the instance should be in
+     * @param <I>     instance type
      * @return the instance added
      */
     public static <I extends IInstance> I addInstance(AbstractCluster<I> cluster,
                                                       String dc, String rack)
     {
-        return addInstance(cluster, dc, rack, ignore -> {});
+        return addInstance(cluster, dc, rack, ignore -> {
+        });
     }
 
     /**
      * Create a new instance and add it to the cluster, without starting it.
      *
      * @param cluster to add to
-     * @param dc the instance should be in
-     * @param rack the instance should be in
-     * @param fn function to add to the config before starting
-     * @param <I> instance type
+     * @param dc      the instance should be in
+     * @param rack    the instance should be in
+     * @param fn      function to add to the config before starting
+     * @param <I>     instance type
      * @return the instance added
      */
     public static <I extends IInstance> I addInstance(AbstractCluster<I> cluster,
@@ -198,32 +203,33 @@ public class ClusterUtils
 
     /**
      * Create and start a new instance that replaces an existing instance.
-     *
+     * <p>
      * The instance will be in the same datacenter and rack as the existing instance.
      *
-     * @param cluster to add to
+     * @param cluster   to add to
      * @param toReplace instance to replace
-     * @param <I> instance type
+     * @param <I>       instance type
      * @return the instance added
      */
-    public static <I extends IInstance> I replaceHostAndStart(AbstractCluster<I> cluster, IInstance toReplace)
+    public static <I extends IInstance> I replaceHostAndStart(AbstractCluster<I> cluster, I toReplace)
     {
-        return replaceHostAndStart(cluster, toReplace, ignore -> {});
+        return replaceHostAndStart(cluster, toReplace, ignore -> {
+        });
     }
 
     /**
      * Create and start a new instance that replaces an existing instance.
-     *
+     * <p>
      * The instance will be in the same datacenter and rack as the existing instance.
      *
-     * @param cluster to add to
+     * @param cluster   to add to
      * @param toReplace instance to replace
-     * @param fn lambda to add additional properties
-     * @param <I> instance type
+     * @param fn        lambda to add additional properties
+     * @param <I>       instance type
      * @return the instance added
      */
     public static <I extends IInstance> I replaceHostAndStart(AbstractCluster<I> cluster,
-                                                              IInstance toReplace,
+                                                              I toReplace,
                                                               Consumer<WithProperties> fn)
     {
         return replaceHostAndStart(cluster, toReplace, (ignore, prop) -> fn.accept(prop));
@@ -231,22 +237,49 @@ public class ClusterUtils
 
     /**
      * Create and start a new instance that replaces an existing instance.
-     *
+     * <p>
      * The instance will be in the same datacenter and rack as the existing instance.
      *
-     * @param cluster to add to
+     * @param cluster   to add to
      * @param toReplace instance to replace
-     * @param fn lambda to add additional properties or modify instance
-     * @param <I> instance type
+     * @param fn        lambda to add additional properties or modify instance
+     * @param <I>       instance type
      * @return the instance added
      */
     public static <I extends IInstance> I replaceHostAndStart(AbstractCluster<I> cluster,
-                                                              IInstance toReplace,
+                                                              I toReplace,
                                                               BiConsumer<I, WithProperties> fn)
     {
         IInstanceConfig toReplaceConf = toReplace.config();
         I inst = addInstance(cluster, toReplaceConf, c -> c.set("auto_bootstrap", true));
+        return startHostReplacement(toReplace, inst, fn);
+    }
 
+    /**
+     * Start a instance with the properties needed to perform a host replacement.
+     *
+     * @param toReplace instance to replace
+     * @param inst      to start
+     * @param <I>       instance type
+     * @return inst
+     */
+    public static <I extends IInstance> I startHostReplacement(I toReplace, I inst)
+    {
+        return startHostReplacement(toReplace, inst, (i1, i2) -> {
+        });
+    }
+
+    /**
+     * Start a instance with the properties needed to perform a host replacement.
+     *
+     * @param toReplace instance to replace
+     * @param inst      to start
+     * @param fn        lambda to add additional properties or modify instance
+     * @param <I>       instance type
+     * @return inst
+     */
+    public static <I extends IInstance> I startHostReplacement(I toReplace, I inst, BiConsumer<I, WithProperties> fn)
+    {
         return start(inst, properties -> {
             // lower this so the replacement waits less time
             properties.setProperty("cassandra.broadcast_interval_ms", Long.toString(TimeUnit.SECONDS.toMillis(30)));
@@ -314,7 +347,7 @@ public class ClusterUtils
     /**
      * Make sure the target instance is in the ring.
      *
-     * @param instance instance to check on
+     * @param instance       instance to check on
      * @param expectedInRing instance expected in the ring
      * @return the ring (if target is present)
      */
@@ -330,9 +363,9 @@ public class ClusterUtils
     /**
      * Make sure the target instance's gossip state matches on the source instance
      *
-     * @param instance instance to check on
+     * @param instance       instance to check on
      * @param expectedInRing instance expected in the ring
-     * @param state expected gossip state
+     * @param state          expected gossip state
      * @return the ring (if target is present and has expected state)
      */
     public static List<RingInstanceDetails> assertRingState(IInstance instance, IInstance expectedInRing, String state)
@@ -352,7 +385,7 @@ public class ClusterUtils
     /**
      * Make sure the target instance is NOT in the ring.
      *
-     * @param instance instance to check on
+     * @param instance       instance to check on
      * @param expectedInRing instance not expected in the ring
      * @return the ring (if target is not present)
      */
@@ -383,7 +416,7 @@ public class ClusterUtils
     /**
      * Wait for the target to be in the ring as seen by the source instance.
      *
-     * @param instance instance to check on
+     * @param instance       instance to check on
      * @param expectedInRing instance to wait for
      * @return the ring
      */
@@ -395,7 +428,7 @@ public class ClusterUtils
     /**
      * Wait for the target to be in the ring as seen by the source instance.
      *
-     * @param instance instance to check on
+     * @param instance       instance to check on
      * @param expectedInRing instance address to wait for
      * @return the ring
      */
@@ -428,9 +461,9 @@ public class ClusterUtils
     /**
      * Wait for the ring to have the target instance with the provided state.
      *
-     * @param instance instance to check on
+     * @param instance       instance to check on
      * @param expectedInRing to look for
-     * @param state expected
+     * @param state          expected
      * @return the ring
      */
     public static List<RingInstanceDetails> awaitRingState(IInstance instance, IInstance expectedInRing, String state)
@@ -447,7 +480,7 @@ public class ClusterUtils
      * Make sure the ring is only the expected instances.  The source instance may not be in the ring, so this function
      * only relies on the expectedInsts param.
      *
-     * @param instance instance to check on
+     * @param instance       instance to check on
      * @param expectedInRing expected instances in the ring
      * @return the ring (if condition is true)
      */
@@ -460,7 +493,7 @@ public class ClusterUtils
      * Make sure the ring is only the expected instances.  The source instance may not be in the ring, so this function
      * only relies on the expectedInsts param.
      *
-     * @param instance instance to check on
+     * @param instance       instance to check on
      * @param expectedInRing expected instances in the ring
      * @return the ring (if condition is true)
      */
@@ -476,7 +509,7 @@ public class ClusterUtils
      * Make sure the ring is only the expected instances.  The source instance may not be in the ring, so this function
      * only relies on the expectedInsts param.
      *
-     * @param instance instance to check on
+     * @param instance              instance to check on
      * @param expectedRingAddresses expected instances addresses in the ring
      * @return the ring (if condition is true)
      */
@@ -534,9 +567,9 @@ public class ClusterUtils
      * Wait for the target instance to have the desired status. Target status is checked via string contains so works
      * with 'NORMAL' but also can check tokens or full state.
      *
-     * @param instance instance to check on
+     * @param instance         instance to check on
      * @param expectedInGossip instance to wait for
-     * @param targetStatus for the instance
+     * @param targetStatus     for the instance
      * @return gossip info
      */
     public static Map<String, Map<String, String>> awaitGossipStatus(IInstance instance, IInstance expectedInGossip, String targetStatus)
@@ -570,10 +603,10 @@ public class ClusterUtils
     /**
      * Make sure the gossip info for the specific target has the expected generation and heartbeat
      *
-     * @param instance to check on
-     * @param expectedInGossip instance to check for
+     * @param instance           to check on
+     * @param expectedInGossip   instance to check for
      * @param expectedGeneration expected generation
-     * @param expectedHeartbeat expected heartbeat
+     * @param expectedHeartbeat  expected heartbeat
      */
     public static void assertGossipInfo(IInstance instance,
                                         InetSocketAddress expectedInGossip, int expectedGeneration, int expectedHeartbeat)
@@ -585,6 +618,79 @@ public class ClusterUtils
             throw new NullPointerException("Unable to find gossip info for " + targetAddress + "; gossip info = " + gossipInfo);
         Assert.assertEquals(Long.toString(expectedGeneration), gossipState.get("generation"));
         Assert.assertEquals(Long.toString(expectedHeartbeat), gossipState.get("heartbeat")); //TODO do we really mix these two?
+    }
+
+    /**
+     * Makes sure that all alive instances have the expected application states for the specific target.
+     *
+     * @param cluster containing the instances
+     * @param expectedInGossip instance to check for
+     * @param args (key, value)+.  value may have , to reflect the VersionedValue string, but ommitting will check first element only
+     */
+    public static void assertGossipInfo(ICluster<?> cluster, IInstance expectedInGossip, String... args)
+    {
+        assertGossipInfo(cluster, expectedInGossip.config().broadcastAddress(), args);
+    }
+
+    /**
+     * Makes sure that all alive instances have the expected application states for the specific target.
+     *
+     * @param cluster containing the instances
+     * @param expectedInGossip instance to check for
+     * @param args (key, value)+.  value may have , to reflect the VersionedValue string, but ommitting will check first element only
+     */
+    public static void assertGossipInfo(ICluster<?> cluster, InetSocketAddress expectedInGossip, String... args)
+    {
+        assert args.length % 2 == 0 && args.length > 0: "Expected array is empty or has an odd-number of elements: " + Arrays.toString(args);
+        gossipInfoForEach(cluster, expectedInGossip, gossipState -> {
+            if (gossipState == null)
+                throw new IllegalStateException("Unable to find gossip info for " + expectedInGossip + "; gossip info = " + expectedInGossip);
+            for (int i = 0; i < args.length; i += 2)
+            {
+                String key = args[i];
+                String expectedValue = args[i + 1];
+                String[] expected = expectedValue.split(",");
+
+                String value = gossipState.get(key);
+                String[] actual = null;
+                if (value != null)
+                {
+                    int idx = value.indexOf(":");
+                    if (idx > 0)
+                        value = value.substring(idx + 1);
+                    actual = value.split(",");
+                    // shrink to the prefix being tested
+                    if (actual.length > expected.length)
+                        actual = Arrays.copyOf(actual, expected.length);
+                }
+                Assertions.assertThat(actual)
+                          .describedAs("Expected gossip info key %s to be %s but was not", key, expectedValue)
+                          .isEqualTo(expected);
+            }
+        });
+    }
+
+    /**
+     * Makes sure that all alive instances have the expected instance missing.
+     *
+     * @param cluster not containing the instance
+     * @param broadcastAddress instance to check for
+     */
+    public static void assertGossipInfoMissing(ICluster<?> cluster, InetSocketAddress broadcastAddress)
+    {
+        gossipInfoForEach(cluster, broadcastAddress, i -> Assertions.assertThat(i).isNull());
+    }
+
+    private static void gossipInfoForEach(ICluster<?> cluster, InetSocketAddress target, Consumer<Map<String, String>> fn)
+    {
+        String targetAddress = target.getAddress().toString();
+        cluster.stream().forEach(inst -> {
+            if (inst.isShutdown())
+                return;
+            Map<String, Map<String, String>> gossipInfo = gossipInfo(inst);
+            Map<String, String> gossipState = gossipInfo.get(targetAddress);
+            fn.accept(gossipState);
+        });
     }
 
     private static Map<String, Map<String, String>> parseGossipInfo(String str)
@@ -608,6 +714,31 @@ public class ClusterUtils
         }
 
         return map;
+    }
+
+    public static <I extends IInvokableInstance> void awaitNotAlive(ICluster<I> cluster, I target)
+    {
+        Retry.retryWithBackoffBlocking(42, () -> {
+            Collection<I> found = findAlive(cluster, target);
+            if (!found.isEmpty())
+                throw new RuntimeException("Instance " + toString(target) + " is still alive on " + found.stream().map(ClusterUtils::toString).collect(Collectors.joining(",")));
+            return null;
+        });
+    }
+
+    private static String toString(IInstance inst)
+    {
+        return "node" + inst.config().num();
+    }
+
+    private static <I extends IInvokableInstance> Collection<I> findAlive(ICluster<I> cluster, I target)
+    {
+        InetSocketAddress address = target.config().broadcastAddress();
+        return cluster.stream()
+                      .filter(i -> !i.isShutdown())
+                      .filter(i -> !i.config().broadcastAddress().equals(target.config().broadcastAddress())) // ignore self
+                      .filter(i -> i.callOnInstance(() -> FailureDetector.instance.isAlive(DistributedTestSnitch.toCassandraInetAddressAndPort(address))))
+                      .collect(Collectors.toList());
     }
 
     /**

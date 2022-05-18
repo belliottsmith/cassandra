@@ -18,7 +18,7 @@
 
 package org.apache.cassandra.distributed;
 
-public final class Constants
+public final class Constants extends CieConstants
 {
     /**
      * Property defined in {@link org.apache.cassandra.distributed.api.IInstanceConfig} which references the ID of the
@@ -38,4 +38,9 @@ public final class Constants
      * 'true'.
      */
     public static final String KEY_DTEST_API_STARTUP_FAILURE_AS_SHUTDOWN = "dtest.api.startup.failure_as_shutdown";
+}
+
+abstract class CieConstants
+{
+    public static final String KEY_DTEST_API_DISABLE_BOOTSTRAP_HACK = "dtest.api.config.bootstrap_hack.disabled";
 }

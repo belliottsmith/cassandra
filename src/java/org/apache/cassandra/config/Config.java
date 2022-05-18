@@ -20,6 +20,7 @@ package org.apache.cassandra.config;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import org.slf4j.Logger;
@@ -37,6 +39,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.audit.AuditLogOptions;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.fql.FullQueryLoggerOptions;
+import org.apache.cassandra.gms.VersionedValue;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS;
 
@@ -764,6 +767,21 @@ public class Config
     public volatile boolean use_statements_enabled = true;
 
     public volatile boolean client_request_size_metrics_enabled = true;
+
+    public Set<String> host_replacement_allow_status = getDefaultHostReplacementAllowStatus();
+
+    private static Set<String> getDefaultHostReplacementAllowStatus()
+    {
+        // , prefix for default is intential; that is the "empty" status
+        // cassandra.settings prefix is to line up with CASSANDRA-17166 so the logic can be removed once that is present
+        String value = System.getProperty("cassandra.settings.host_replacement_allow_status", String.join(",", "", VersionedValue.STATUS_NORMAL, VersionedValue.SHUTDOWN, VersionedValue.STATUS_LEFT));
+        // if -Dcassandra.settings.host_replacement_allow_status= is done, this is "", which is just "empty"
+        // rather than only do the empty case (very unlikely thats the only desired state), assume the intent was
+        // to disable, so return the empty set
+        if (value.isEmpty())
+            return Collections.emptySet();
+        return ImmutableSet.copyOf(value.split(","));
+    }
 
     public static Supplier<Config> getOverrideLoadConfig()
     {

@@ -42,6 +42,7 @@ public class FailingTruncationTest extends TestBaseImpl
                                           .withInstanceInitializer(BBFailHelper::install)
                                           .start()))
         {
+            cluster.setUncaughtExceptionsFilter(t -> "truncateBlocking".equals(t.getMessage()));
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
             try
             {
@@ -72,7 +73,7 @@ public class FailingTruncationTest extends TestBaseImpl
 
         public static void truncateBlocking()
         {
-            throw new RuntimeException();
+            throw new RuntimeException("truncateBlocking");
         }
     }
 

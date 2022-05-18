@@ -50,6 +50,7 @@ import io.netty.util.concurrent.GlobalEventExecutor;
 import org.apache.cassandra.auth.AuthCache;
 import org.apache.cassandra.batchlog.Batch;
 import org.apache.cassandra.batchlog.BatchlogManager;
+import org.apache.cassandra.concurrent.ExecutorFactory;
 import org.apache.cassandra.concurrent.ExecutorLocals;
 import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
@@ -539,6 +540,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
         sync(() -> {
             try
             {
+                 // org.apache.cassandra.distributed.impl.AbstractCluster.startup sets the exception handler for the thread
+                 // so extract it to populate ExecutorFactory.Global
+                 ExecutorFactory.Global.unsafeSet(new ExecutorFactory.Default(Thread.currentThread().getContextClassLoader(), null, Thread.getDefaultUncaughtExceptionHandler()));
                 // Reconfigure log4j using the clusterid and instanceid set for the instance
                 // classloaders logging context
                 final ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
@@ -546,7 +550,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 loggerContext.setConfigLocation(URI.create("./test/conf/log4j2-dtest.xml"));
                 loggerContext.reconfigure();
 
-                if (config.has(GOSSIP))
+                // org.apache.cassandra.distributed.impl.AbstractCluster.startup sets the exception handler for the thread
+                // so extract it to populate ExecutorFactory.Global
+                ExecutorFactory.Global.unsafeSet(new ExecutorFactory.Default(contextClassLoader, null, Thread.getDefaultUncaughtExceptionHandler()));
+
+                if (config.has(GOSSIP) && config.get(Constants.KEY_DTEST_API_DISABLE_BOOTSTRAP_HACK) != Boolean.TRUE)
                 {
                     // TODO: hacky
                     System.setProperty("cassandra.ring_delay_ms", "15000");
@@ -726,9 +734,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     @Override
     public Future<Void> shutdown(boolean graceful)
     {
-        if (!graceful)
-            MessagingService.instance().shutdown(1L, MINUTES, false, true);
-
         Future<?> future = async((ExecutorService executor) -> {
             Throwable error = null;
 
@@ -773,7 +778,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
             error = parallelRun(error, executor, () -> ScheduledExecutors.shutdownNowAndWait(1L, MINUTES));
 
             error = parallelRun(error, executor,
-                                CommitLog.instance::shutdownBlocking,
                                 // can only shutdown message once, so if the test shutsdown an instance, then ignore the failure
                                 (IgnoreThrowingRunnable) () -> MessagingService.instance().shutdown(1L, MINUTES, false, true)
             );
@@ -781,6 +785,10 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                 () -> { try { GlobalEventExecutor.INSTANCE.awaitInactivity(1L, MINUTES); } catch (IllegalStateException ignore) {} },
                                 () -> Stage.shutdownAndWait(1L, MINUTES),
                                 () -> SharedExecutorPool.SHARED.shutdownAndWait(1L, MINUTES)
+            );
+            // shutdown commit log after all stages, so nothing is writting to it
+            error = parallelRun(error, executor,
+                                CommitLog.instance::shutdownBlocking
             );
             error = parallelRun(error, executor,
                                 () -> PendingRangeCalculatorService.instance.shutdownAndWait(1L, MINUTES),

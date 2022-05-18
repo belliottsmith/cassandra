@@ -628,7 +628,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
      *
      * @param endpoint endpoint to be removed from the current membership.
      */
-    private void evictFromMembership(InetAddressAndPort endpoint)
+    @VisibleForTesting
+    public void evictFromMembership(InetAddressAndPort endpoint)
     {
         checkProperThreadForStateMutation();
         unreachableEndpoints.remove(endpoint);
@@ -2437,8 +2438,16 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     @VisibleForTesting
     public void stopShutdownAndWait(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException
     {
-        stop();
-        ExecutorUtils.shutdownAndWait(timeout, unit, executor);
+        synchronized (this)
+        {
+            if (isEnabled()) // shutdown can be called multiple times, so make sure to only stop if enabled
+            {
+                // Make sure to stop on the gossip stage, this is to make sure any in-flight tasks
+                // see that gossip was halted so they can no-op
+                runInGossipStageBlocking(this::stop);
+            }
+        }
+        ExecutorUtils.shutdownAndWait(timeout, unit, Gossiper.executor);
     }
 
     /**
