@@ -90,3 +90,11 @@ cassandra-dtest/
 # native libs for async profiler
 src/resources/META-INF/native/libasyncProfiler.dylib
 src/resources/META-INF/native/libasyncProfiler.so
+
+# Gradle
+.gradle
+!src/**/build/
+gradle-app.setting # Ignore Gradle GUI config
+!gradle-wrapper.jar # Avoid ignoring Gradle wrapper jar file (.jar files are usually ignored)
+!gradle-wrapper.properties # Avoid ignore Gradle wrappper properties
+.gradletasknamecache
