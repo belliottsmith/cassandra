@@ -1,0 +1,19 @@
+// Gradle file for Gatehouse analysis only. Typical usage (development,
+// snapshot and release builds) should be done through ant directly.
+// See gatehouse.apple.com.
+
+ant.project.setProperty('env.CASSANDRA_USE_JDK11', 'true')
+
+ant.importBuild('build.xml') {
+    antTargetName -> // prevent clash with `init` task name by adding ant- prefix to all tasks
+        'ant-' + antTargetName
+}
+
+tasks.register('compileJava') {
+    dependsOn("ant-build")
+}
+
+tasks.register('compileTestJava') {
+    dependsOn("ant-build-test")
+}
+
