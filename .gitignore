@@ -83,3 +83,11 @@ venv/
 # build-scripts will put cassandra-builds into the directory
 cassandra-builds/
 cassandra-dtest/
+
+# Gradle
+.gradle
+!src/**/build/
+gradle-app.setting # Ignore Gradle GUI config
+!gradle-wrapper.jar # Avoid ignoring Gradle wrapper jar file (.jar files are usually ignored)
+!gradle-wrapper.properties # Avoid ignore Gradle wrappper properties
+.gradletasknamecache
