@@ -5004,4 +5004,9 @@ public class DatabaseDescriptor
     {
         conf.client_request_size_metrics_enabled = enabled;
     }
+
+    public static Set<String> getHostReplacementAllowStatus()
+    {
+        return conf.host_replacement_allow_status;
+    }
 }
