@@ -37,6 +37,7 @@ import net.bytebuddy.implementation.MethodDelegation;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.*;
+import org.apache.cassandra.distributed.shared.ClusterUtils;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
@@ -111,7 +112,7 @@ public class GossipTest extends TestBaseImpl
                 }).accept(failAddress);
             }
 
-            cluster.get(fail).shutdown(false).get();
+            ClusterUtils.stopAbrupt(cluster, cluster.get(fail));
             cluster.get(late).startup();
             cluster.get(late).acceptsOnInstance((InetSocketAddress address) -> {
                 EndpointState ep;

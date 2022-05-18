@@ -1176,7 +1176,7 @@ public class TokenMetadata
 
     public static int firstTokenIndex(final ArrayList<Token> ring, Token start, boolean insertMin)
     {
-        assert ring.size() > 0;
+        assert ring.size() > 0: "Ring is empty";
         // insert the minimum token (at index == -1) if we were asked to include it and it isn't a member of the ring
         int i = Collections.binarySearch(ring, start);
         if (i < 0)
