@@ -47,6 +47,7 @@ public class FailingTruncationTest extends TestBaseImpl
         {
 
             System.setProperty(BB_FAIL_HELPER_PROP, "true");
+            cluster.setUncaughtExceptionsFilter(t -> "truncateBlocking".equals(t.getMessage()));
             cluster.schemaChange("create table " + KEYSPACE + ".tbl (id int primary key, t int)");
             try
             {
@@ -78,7 +79,7 @@ public class FailingTruncationTest extends TestBaseImpl
         public static void truncateBlocking()
         {
             if (Boolean.getBoolean(BB_FAIL_HELPER_PROP))
-                throw new RuntimeException();
+                throw new RuntimeException("truncateBlocking");
         }
     }
 }

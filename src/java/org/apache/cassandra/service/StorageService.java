@@ -644,6 +644,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             throw new RuntimeException(String.format("Cannot replace_address %s because it doesn't exist in gossip", replaceAddress));
 
         validateEndpointSnitch(epStates.values().iterator());
+        String status = state.getStatus();
+        // if allowed does not contain "" then the empty state is blocked, and logic down below
+        // to recover will not matter
+        Set<String> allowed = DatabaseDescriptor.getHostReplacementAllowStatus();
+        if (!allowed.isEmpty() && !allowed.contains(status)) // if empty, checking is disabled
+            throw new RuntimeException(String.format("Cannot replace_address %s because its status %s is not in the allowed set %s. To update the allowed set update yaml host_replacement_allow_status or system property -Dcassandra.settings.host_replacement_allow_status=%s", replaceAddress, status, allowed, String.join(",", allowed)));
 
         try
         {

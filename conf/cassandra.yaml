@@ -1708,3 +1708,17 @@ ignore_pk_liveness_for_row_completion: false
 
 # Whether or not USE <keyspace> is allowed. This is enabled by default to avoid failure on upgrade.
 #use_statements_enabled: true
+
+# When performing a host replacement, what status values are allowed for the host being replaced.
+# If a production issue needs to allow more status, can update this yaml or update via system property
+# -Dcassandra.settings.host_replacement_allow_status
+# To disable these checks, set the property to empty:
+# host_replacement_allow_status: []
+# or
+# -Dcassandra.settings.host_replacement_allow_status=""
+#host_replacement_allow_status:
+#  # this allows the "empty" status, which can happen in a few edge cases
+#  - ""
+#  - NORMAL
+#  - shutdown
+#  - LEFT

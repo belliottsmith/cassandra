@@ -18,12 +18,24 @@
 
 package org.apache.cassandra.distributed.upgrade;
 
+import java.util.concurrent.TimeUnit;
+
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.distributed.shared.Versions;
 
 public class MixedModeFrom3ReplicationTest extends MixedModeReplicationTestBase
 {
+    @BeforeClass
+    public static void setup()
+    {
+        // Since the tests bypass networking in favor of mocks, this makes it so when nodes 1/2 go down then back up
+        // node 3 may not detect this before it tries to setup default roles (see org.apache.cassandra.auth.CassandraRoleManager.setup),
+        // so attempts to query and node1/2 fail due to having an empty ring state
+        System.setProperty("cassandra.superuser_setup_delay_ms", Long.toString(TimeUnit.MINUTES.toMillis(10)));
+    }
+
     @Test
     public void testSimpleStrategy30to3X() throws Throwable
     {
